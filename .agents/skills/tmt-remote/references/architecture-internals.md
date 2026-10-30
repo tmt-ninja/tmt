@@ -664,10 +664,15 @@ they grant no consent. The selected adapter admits production backends before to
 used by native reads/subscriptions and the object-service carrier. Unsupported backends still refuse.
 Common Store progress retains bounded opaque continuations and numeric watermarks; only the adapter
 validates legacy cursor fields before I/O. Serialization remains byte-identical across restart.
-Its FileStore retains one lazy CLOEXEC credential-lock description. A nonblocking mutex serializes
-operation guards, which explicitly unlock before releasing the mutex, even if a fork keeps a copy.
-Failed lock admission, missing or mismatched metadata, or a poisoned mutex refuses the current
-operation and clears the cached handle; the next operation reopens it under ordinary admission.
+Its FileStore retains one lazy CLOEXEC credential-lock description. A mutex serializes operation
+guards, which explicitly unlock before releasing the mutex, even if a fork keeps a copy. Load,
+replace and remove wait for the mutex and the file lock within the state leaf's shared write wait
+(`WriteWait`, 5 s); a holder past it gets the named `REMOTE_STATE_UNAVAILABLE` refusal that says
+to run the same command again. The lifecycle passes its cancellation, so a serving token call
+stops waiting at its IoBudget deadline or stop; only saving a newly created sign-up identity
+always waits the whole 5 s. Failed lock admission, missing or mismatched metadata (checked
+again after the lock is taken), or a poisoned mutex refuses the current operation at once and
+clears the cached handle; the next operation reopens it under ordinary admission.
 Standalone sign-in/revoke/status still use operation-scoped exclusion; Serving's inherited lease is separate.
 `Projects` signs in only for explicit pairing. A replaced persisted uid changes the native Auth owner while
 keeping the runtime/budget; old extension consumers stop without inheriting membership. The joined
