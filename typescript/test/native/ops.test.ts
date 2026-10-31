@@ -6557,6 +6557,171 @@ describe('send now chip', () => {
 
 describe('workspace snapshots in the real board', () => {
   // Quarantined in #5107: diagnose the post-quit PID state (zombie or live hang), then restore.
+  it.each(['offline', 'hand-bound'] as const)(
+    'close/delete preserves %s history and Core-guarded lifecycle decisions',
+    async (binding) => {
+      await withSandbox(async (sandbox) => {
+        installSquad(sandbox);
+        sandbox.env.TERM = 'xterm-256color';
+        sandbox.env.NO_COLOR = '1';
+        const ben = await identity(sandbox, 'Ben');
+        const worker = await identity(sandbox, 'worker');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        const api = async (operation: string, input: object) => {
+          const result = await runCli(sandbox, ['api'], {
+            stdin: JSON.stringify({ version: 1, operation, input }),
+          });
+          expect(result.status, result.stderr + result.stdout).toBe(0);
+          return JSON.parse(result.stdout);
+        };
+        const active = async (id: string) => {
+          const result = await api('references.resolve', { identityIds: [id] });
+          const row = result.identities[0];
+          return row.found === true && row.retired === false;
+        };
+        const sent = await runCli(sandbox, [
+          'talk',
+          '--identity',
+          'Ben',
+          '--detach',
+          '--json',
+          '--',
+          'worker',
+          'Keep this request after deleting its recipient.',
+        ]);
+        expect(sent.status, sent.stderr + sent.stdout).toBe(0);
+        const requestId = JSON.parse(sent.stdout).requestId as string;
+        const history = await api('requests.show', { requestId });
+        expect(history).toMatchObject({
+          recipientId: worker,
+          prompt: { message: 'Keep this request after deleting its recipient.' },
+        });
+        const scratch = startPrivateTmux(sandbox, 'close-delete');
+        const { tmux } = scratch;
+        let server: number | undefined;
+        try {
+          tmux([
+            'new-session',
+            '-d',
+            '-s',
+            'close-delete',
+            '-c',
+            sandbox.root,
+            '-x',
+            '160',
+            '-y',
+            '36',
+            '/bin/sh',
+          ]);
+          server = Number(tmux(['display-message', '-p', '#{pid}']));
+          const pane = tmux(['display-message', '-p', '#{pane_id}']);
+          let workerPane: string | undefined;
+          let workerPid: number | undefined;
+          if (binding === 'hand-bound') {
+            workerPane = tmux([
+              'new-window',
+              '-d',
+              '-P',
+              '-F',
+              '#{pane_id}',
+              '-t',
+              'close-delete',
+              '-n',
+              'worker',
+              '/bin/sh',
+            ]);
+            workerPid = Number(tmux(['display-message', '-p', '-t', workerPane, '#{pane_pid}']));
+            const session = tmux([
+              'display-message',
+              '-p',
+              '-t',
+              workerPane,
+              '#{session_id}',
+            ]).replace(/^\$/, '');
+            sandbox.env.TMUX = `${scratch.socket},${server},${session}`;
+            sandbox.env.TMUX_PANE = workerPane;
+            const bound = await runCli(sandbox, ['add', '--save', workerPane, 'worker', '--json']);
+            expect(bound.status, bound.stderr + bound.stdout).toBe(0);
+          }
+          const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+          const command = [
+            sandbox.cli.executable,
+            ...sandbox.cli.args,
+            'ops',
+            'ui',
+            '--view',
+            'close-delete',
+          ]
+            .map(quoted)
+            .join(' ');
+          const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+          const painted = async (text: string) =>
+            vi.waitFor(() => expect(screen()).toContain(text), { timeout: 30_000, interval: 50 });
+          tmux(['send-keys', '-t', pane, '-l', command]);
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await painted('product');
+          // Common pool precedes the squad; End selects product before expansion.
+          tmux(['send-keys', '-t', pane, 'End', 'Right']);
+          await painted('▾ product');
+          tmux(['send-keys', '-t', pane, 'End']);
+          await painted('⏎ to message worker');
+          tmux(['send-keys', '-t', pane, 'x']);
+          await painted('Close and delete · worker');
+          // Cancel is the initial button: opening the review cannot delete anything.
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(() => expect(screen()).not.toContain('Close and delete · worker'), {
+            timeout: 10_000,
+            interval: 50,
+          });
+          expect(await active(worker)).toBe(true);
+          tmux(['send-keys', '-t', pane, 'x']);
+          await painted('Close and delete · worker');
+          tmux(['send-keys', '-t', pane, 'Right', 'Enter']);
+          if (binding === 'offline') {
+            // Core proves an unbound saved identity is not running, so the
+            // confirmed close may automatically proceed to guarded removal.
+            await painted('Closed and deleted worker');
+          } else {
+            await painted('No recorded agent session · nothing was signalled.');
+            await painted('Delete may follow; Core checks it.');
+            expect(await active(worker)).toBe(true);
+            // A hand-bound pane has no recorded agent session. Only a fresh
+            // explicit Delete invokes Core's independent removal guard.
+            tmux(['send-keys', '-t', pane, 'Right', 'Right', 'Enter']);
+            await painted('Deleted identity worker');
+          }
+          expect(await active(worker)).toBe(false);
+          expect(await active(ben)).toBe(true);
+          expect(await api('requests.show', { requestId })).toMatchObject({
+            requestId,
+            recipientId: worker,
+            prompt: history.prompt,
+          });
+          if (workerPane !== undefined) {
+            expect(Number(tmux(['display-message', '-p', '-t', workerPane, '#{pane_pid}']))).toBe(
+              workerPid
+            );
+            expect(() => process.kill(workerPid!, 0)).not.toThrow();
+          }
+          tmux(['send-keys', '-t', pane, 'q']);
+          await vi.waitFor(
+            () => expect(tmux(['display-message', '-p', '-t', pane, '#{alternate_on}'])).toBe('0'),
+            { timeout: 30_000, interval: 50 }
+          );
+        } finally {
+          scratch.stop();
+          if (server !== undefined)
+            await vi.waitFor(() => expect(() => process.kill(server!, 0)).toThrow(), {
+              timeout: 10_000,
+              interval: 50,
+            });
+        }
+      });
+    },
+    120_000
+  );
+
   it.skip('opens w and previews distinct automatic generations beside named saves', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
