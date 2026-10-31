@@ -10,7 +10,9 @@ import { readFile } from 'node:fs/promises';
 // measured size, no headroom (GUI lead, #5794): 119,949 -> 125,075 bytes for the type ramp and the
 // editorial layer. A change that grows it re-measures and asks again; #5809 cuts the injected static.css
 // to what an author page can use and lowers this to its new exact figure.
-export const PAGE_UI_LIMIT = 125_075;
+// #5815 PR B: shared rail presentation and approved metric roles add 790 bytes to this base.
+// Exact local measurement 125,075 -> 125,865; Linux CI re-measures before review.
+export const PAGE_UI_LIMIT = 125_865;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
