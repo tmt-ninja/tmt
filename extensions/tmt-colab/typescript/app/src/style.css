@@ -2270,7 +2270,7 @@ button.discussion-quote:focus-visible {
 
 .page-unsent {
   margin: 0;
-  padding: 4px 16px;
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-l);
   list-style: none;
   font-size: var(--tmt-ui-caption-size);
 }
@@ -2278,13 +2278,14 @@ button.discussion-quote:focus-visible {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  min-height: 32px;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  min-height: var(--tmt-ui-control-size);
 }
+/* The mark sizes with its caption line, as the agent activity spinner does. */
 .page-unsent-mark {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 1em;
+  height: 1em;
   color: var(--tmt-ui-color-blocked);
 }
 
