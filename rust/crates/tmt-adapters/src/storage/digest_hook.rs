@@ -135,13 +135,18 @@ fn admission(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::TestDirectory;
+    use crate::{
+        storage::template_fixture::{TemplateLease, place_migrated_database},
+        test_support::TestDirectory,
+    };
     use tmt_core::binding::session::launch::SessionLearningDigestEmpty;
     use tmt_core::identity::{Lifetime, create_or_resolve};
 
-    fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
+    /// The case directory travels with the template lease that keeps its scope.
+    fn fixture() -> ((TestDirectory, TemplateLease), std::path::PathBuf, String) {
         let directory = TestDirectory::new();
         let path = directory.path.join("digest.db");
+        let template = place_migrated_database(&path);
         let mut storage = Storage::open(&path).unwrap();
         let id = create_or_resolve(&mut storage, "Focused", Lifetime::Saved)
             .unwrap()
@@ -156,7 +161,7 @@ mod tests {
             VALUES(?1,?1,'inbox',0,'queued',0,0,1,9007199254740991,9007199254740991,'unknown',?2)", rusqlite::params![request,id]).unwrap();
         db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms) VALUES(?1,?2,'review','incoming',1)", rusqlite::params![id,request]).unwrap();
         storage.close().unwrap();
-        (directory, path, id)
+        ((directory, template), path, id)
     }
 
     fn claim(storage: &mut Storage, expected: &IdentityContextSnapshot) -> Option<DigestChecklist> {

@@ -15,16 +15,29 @@ use tmt_core::names::validate_name;
 
 use super::super::*;
 
+use crate::storage::template_fixture::{TemplateLease, place_migrated_database};
+
 struct Fixture {
     _directory: TestDirectory,
+    _template: Option<TemplateLease>,
     database: PathBuf,
 }
 
 impl Fixture {
+    /// A migrated database is in place; the first real open does not run
+    /// the migration chain.
     fn new() -> Self {
+        let mut fixture = Self::missing();
+        fixture._template = Some(place_migrated_database(&fixture.database));
+        fixture
+    }
+
+    /// No database exists yet, for cases about missing storage.
+    fn missing() -> Self {
         let directory = TestDirectory::new();
         Self {
             database: directory.path.join("state").join("tmux-team.db"),
+            _template: None,
             _directory: directory,
         }
     }
@@ -92,7 +105,7 @@ fn identity_candidates_rank_saved_filter_sessions_and_match_literal_prefixes() {
 
 #[test]
 fn identity_candidates_do_not_initialize_missing_storage() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::missing();
     assert!(Storage::identity_candidates(&fixture.database, "", false).is_err());
     assert!(!fixture.database.parent().unwrap().exists());
 }
