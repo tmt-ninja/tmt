@@ -105,7 +105,7 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API reads/writes; Digest receiving. Restricted holds record one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide inside request preparation (refuse before storing, or hold for a person until `talks.resume`). [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. `tmt-job-calendar` shares stateless schedule math (Jiff/JSON only). Restricted holds retain one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide in request preparation: refuse before storing or hold for a person until `talks.resume`. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -398,7 +398,7 @@ own module/drawing boundaries and verification.
   the CLI and `identity.stop`/`identity.remove`). Ops uses that API for confirmed
   close/delete, never private Core/host/provider state. Digest owns
   locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
-  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`,
+  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`, `tmt-job-calendar`,
   `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
   Each UI shares separate lazy API sessions for background and interaction workers,
   with worker-only I/O and no uncertain-request replay; the Digest tick opens one per minute.
