@@ -64,14 +64,21 @@ struct Scope {
 
 impl Drop for Scope {
     fn drop(&mut self) {
-        if self.removed_on_drop
-            && let Err(error) = fs::remove_dir_all(&self.directory)
-            && error.kind() != ErrorKind::NotFound
-        {
-            eprintln!(
-                "Could not remove storage template scope {}: {error}",
-                self.directory.display()
-            );
+        if self.removed_on_drop {
+            removed_or_reported("storage template scope", &self.directory);
+        }
+    }
+}
+
+/// Like `TestDirectory`: a failed removal fails an otherwise green test, and is
+/// only reported while a panic is already unwinding.
+fn removed_or_reported(what: &str, directory: &Path) {
+    if let Err(error) = fs::remove_dir_all(directory) {
+        let message = format!("Could not remove {what} {}: {error}", directory.display());
+        if std::thread::panicking() {
+            eprintln!("{message}");
+        } else {
+            panic!("{message}");
         }
     }
 }
@@ -266,12 +273,7 @@ impl BuildDirectory {
 
 impl Drop for BuildDirectory {
     fn drop(&mut self) {
-        if let Err(error) = fs::remove_dir_all(&self.0) {
-            eprintln!(
-                "Could not remove storage template build {}: {error}",
-                self.0.display()
-            );
-        }
+        removed_or_reported("storage template build", &self.0);
     }
 }
 

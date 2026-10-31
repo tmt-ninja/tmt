@@ -18,7 +18,7 @@ use rusqlite::{Connection, OpenFlags, types::Value};
 use super::{TemplateStore, admit, key, published};
 use crate::{
     storage::{Storage, hook_queue::HookQueue, migrations},
-    test_support::TestDirectory,
+    test_support::{TestChild, TestDirectory},
 };
 
 fn store(directory: &TestDirectory, run: Option<&str>) -> TemplateStore {
@@ -45,14 +45,18 @@ fn panic_text(result: thread::Result<impl Sized>) -> String {
         .unwrap_or_default()
 }
 
+/// Every caller expects `directory` to exist; an inspection error fails.
 fn entries(directory: &Path) -> Vec<String> {
     let mut names = fs::read_dir(directory)
-        .map(|entries| {
-            entries
-                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
+        .unwrap_or_else(|error| panic!("inspect {}: {error}", directory.display()))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| panic!("inspect {}: {error}", directory.display()))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
         })
-        .unwrap_or_default();
+        .collect::<Vec<_>>();
     names.sort();
     names
 }
@@ -473,15 +477,24 @@ fn a_new_lease_survives_the_previous_scope_being_removed() {
 
 const CHILD_ROOT: &str = "TMT_TEMPLATE_TEST_ROOT";
 const CHILD_DATABASE: &str = "TMT_TEMPLATE_TEST_DATABASE";
+const CHILD_READY: &str = "TMT_TEMPLATE_TEST_READY";
 const CHILD_START: &str = "TMT_TEMPLATE_TEST_START";
+const CHILD_FAIL: &str = "TMT_TEMPLATE_TEST_FAIL";
 const CHILD_TEST: &str = "storage::template_fixture::tests::template_child_process";
+const CHILD_READY_TIMEOUT: Duration = Duration::from_secs(30);
+const CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Child role for the cross-process test; a no-op in a normal run.
+/// Child role for the cross-process tests; a no-op in a normal run.
 #[test]
 fn template_child_process() {
     let Some(root) = std::env::var_os(CHILD_ROOT) else {
         return;
     };
+    assert!(
+        std::env::var_os(CHILD_FAIL).is_none(),
+        "injected template child failure"
+    );
+    fs::write(std::env::var_os(CHILD_READY).unwrap(), "ready").unwrap();
     let start = PathBuf::from(std::env::var_os(CHILD_START).unwrap());
     let deadline = Instant::now() + Duration::from_secs(10);
     while !start.exists() {
@@ -503,46 +516,94 @@ fn template_child_process() {
     storage.close().unwrap();
 }
 
-fn run_children(directory: &TestDirectory, batch: &str, count: usize) -> Vec<PathBuf> {
+/// Starts `count` children, each owned by a `TestChild` from spawn on, so an
+/// assertion or timeout anywhere here kills and reaps the rest. All children
+/// report ready before one start file releases them together.
+fn run_children(
+    directory: &TestDirectory,
+    batch: &str,
+    count: usize,
+    failing: Option<usize>,
+    pids: &mut Vec<u32>,
+) -> Vec<PathBuf> {
     let start = directory.path.join(format!("start-{batch}"));
-    let children = (0..count)
-        .map(|index| {
-            let database = directory
-                .path
-                .join(format!("{batch}-{index}"))
-                .join("tmt.db");
-            let child = Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
-                .env(CHILD_ROOT, directory.path.join("templates"))
-                .env(CHILD_DATABASE, &database)
-                .env(CHILD_START, &start)
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            (child, database)
-        })
-        .collect::<Vec<_>>();
+    let mut children = Vec::new();
+    for index in 0..count {
+        let case = directory.path.join(format!("{batch}-{index}"));
+        fs::create_dir(&case).unwrap();
+        let stderr = fs::File::create(case.join("stderr")).unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+            .env(CHILD_ROOT, directory.path.join("templates"))
+            .env(CHILD_DATABASE, case.join("tmt.db"))
+            .env(CHILD_READY, case.join("ready"))
+            .env(CHILD_START, &start)
+            .env_remove(CHILD_FAIL)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(stderr);
+        if failing == Some(index) {
+            command.env(CHILD_FAIL, "1");
+        }
+        let child = TestChild::new(command.spawn().unwrap());
+        pids.push(child.child.id());
+        children.push((child, case));
+    }
+    for (child, case) in &mut children {
+        child.wait_for_content(&case.join("ready"), "ready", CHILD_READY_TIMEOUT);
+    }
     fs::write(&start, b"go").unwrap();
     children
-        .into_iter()
-        .map(|(child, database)| {
-            let output = child.wait_with_output().unwrap();
+        .iter_mut()
+        .map(|(child, case)| {
+            let status = child.wait_for_exit(CHILD_EXIT_TIMEOUT);
             assert!(
-                output.status.success(),
+                status.success(),
                 "template child failed: {}",
-                String::from_utf8_lossy(&output.stderr)
+                fs::read_to_string(case.join("stderr")).unwrap()
             );
-            database
+            case.join("tmt.db")
         })
         .collect()
+}
+
+fn assert_reaped(pid: u32) {
+    use nix::{
+        errno::Errno,
+        sys::wait::{WaitPidFlag, waitpid},
+        unistd::Pid,
+    };
+    let pid = Pid::from_raw(i32::try_from(pid).unwrap());
+    assert_eq!(
+        waitpid(pid, Some(WaitPidFlag::WNOHANG)),
+        Err(Errno::ECHILD),
+        "template child {pid} was not reaped"
+    );
+}
+
+#[test]
+fn a_failing_child_test_still_reaps_its_other_children() {
+    let directory = TestDirectory::new();
+    let mut pids = Vec::new();
+    let message = panic_text(catch_unwind(AssertUnwindSafe(|| {
+        run_children(&directory, "failing", 3, Some(0), &mut pids)
+    })));
+    assert!(message.contains("test child exited before"), "{message}");
+    assert_eq!(pids.len(), 3);
+    for pid in pids {
+        assert_reaped(pid);
+    }
+    // The released children never started building.
+    assert!(!directory.path.join("start-failing").exists());
 }
 
 #[test]
 fn concurrent_processes_share_one_published_template() {
     let directory = TestDirectory::new();
     let store = store(&directory, Some("processes"));
-    let first = run_children(&directory, "builders", 4);
+    let mut pids = Vec::new();
+    let first = run_children(&directory, "builders", 4, None, &mut pids);
     let (template, inode) = published(&store).unwrap();
     let bytes = fs::read(&template).unwrap();
     let key_directory = template.parent().unwrap().to_path_buf();
@@ -550,7 +611,7 @@ fn concurrent_processes_share_one_published_template() {
 
     // Readers copy while a late builder in this process loses its link.
     let late = thread::spawn(move || store.build(&key_directory));
-    let second = run_children(&directory, "readers", 4);
+    let second = run_children(&directory, "readers", 4, None, &mut pids);
     late.join().unwrap();
     assert_eq!(fs::metadata(&template).unwrap().ino(), inode);
     assert_eq!(fs::read(&template).unwrap(), bytes);
@@ -581,4 +642,69 @@ fn concurrent_processes_share_one_published_template() {
         )
         .unwrap();
     assert_eq!(written, 0);
+}
+
+/// Makes `parent` read-only so removing a directory inside it fails, runs
+/// `drop_owner`, restores the mode and returns whether the drop panicked.
+fn drop_with_blocked_removal(parent: &Path, target: &Path, drop_owner: impl FnOnce()) -> String {
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o500)).unwrap();
+    let result = catch_unwind(AssertUnwindSafe(drop_owner));
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        target.exists(),
+        "the permission fault did not block cleanup"
+    );
+    fs::remove_dir_all(target).unwrap();
+    panic_text(result)
+}
+
+#[test]
+fn a_scope_cleanup_failure_fails_the_test() {
+    let directory = TestDirectory::new();
+    let scope = directory.path.join("scope");
+    fs::create_dir(&scope).unwrap();
+    let message = drop_with_blocked_removal(&directory.path, &scope, || {
+        drop(super::Scope {
+            directory: scope.clone(),
+            removed_on_drop: true,
+        });
+    });
+    assert!(
+        message.contains("Could not remove storage template scope"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_build_cleanup_failure_fails_the_test() {
+    let directory = TestDirectory::new();
+    let build = directory.path.join(".build-test");
+    let owner = super::BuildDirectory::create(build.clone());
+    let message = drop_with_blocked_removal(&directory.path, &build, || drop(owner));
+    assert!(
+        message.contains("Could not remove storage template build"),
+        "{message}"
+    );
+}
+
+/// During an existing panic a cleanup failure is reported, not raised again,
+/// so the original failure survives instead of aborting the process.
+#[test]
+fn a_cleanup_failure_during_a_panic_keeps_the_original_failure() {
+    let directory = TestDirectory::new();
+    let build = directory.path.join(".build-test");
+    let owner = super::BuildDirectory::create(build.clone());
+    let message = drop_with_blocked_removal(&directory.path, &build, || {
+        let _owner = owner;
+        panic!("original failure");
+    });
+    assert_eq!(message, "original failure");
+}
+
+#[test]
+fn an_inspection_error_is_not_an_empty_directory() {
+    let directory = TestDirectory::new();
+    let missing = directory.path.join("missing");
+    let message = panic_text(catch_unwind(|| entries(&missing)));
+    assert!(message.contains("inspect"), "{message}");
 }
