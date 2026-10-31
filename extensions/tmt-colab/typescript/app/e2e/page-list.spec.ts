@@ -36,7 +36,7 @@ const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
-/** The shell's module menu: All pages, Shortcuts, then Colab settings, nested under Colab in the
+/** The shell's module menu: All pages, Shortcuts, Design system, then settings under Colab in the
  * rail (and in the phone drawer). */
 const moduleMenu = (page: Page) => app(page).locator('.tmt-ui-rail-sub:visible');
 /** Project scope is a condition in Filter; its chip clears the remembered scope. */
@@ -905,7 +905,7 @@ test('the module menu keeps All pages and Shortcuts, then Design before settings
   const menu = moduleMenu(page);
   // Active pages shown: 4, two of which wait on the viewer.
   await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4/);
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['ShortcutsManage']);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['ShortcutsManage', 'Design system']);
   await expect(menu.getByRole('button', { name: 'Manage', exact: true })).toBeVisible();
   await expect(menu.getByRole('button', { name: 'New shortcut' })).toHaveCount(0);
   expect(
@@ -938,6 +938,7 @@ test('the module menu keeps All pages and Shortcuts, then Design before settings
   await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText([
     'ShortcutsManage',
     'Dashboards',
+    'Design system',
   ]);
   expect(
     await menu
