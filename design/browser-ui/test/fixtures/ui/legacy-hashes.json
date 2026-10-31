@@ -350,6 +350,7 @@
         "radius-s": "6px",
         "radius-l": "12px",
         "radius-pill": "999px",
+        "radius-badge": "999px",
         "rail-padding-top": "22px",
         "rail-padding-inline": "12px",
         "rail-padding-bottom": "17px",

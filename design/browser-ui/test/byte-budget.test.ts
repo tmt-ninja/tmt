@@ -10,8 +10,9 @@ import { gzipSync } from 'node:zlib';
  * until B becomes the default; pending GUI approval with the Linux CI measurement on its PR. */
 const approvedGzipBytes = 23_006;
 /** #5794: the editorial layer is its own entry, loaded only by prose surfaces, so it has its own cap.
- * Pending GUI approval with the Linux CI measurement on its PR; no headroom. */
-const approvedEditorialGzipBytes = 951;
+ * #5821: prose tables scroll under the compact width, 951 -> 999 bytes. Pending GUI approval with the
+ * Linux CI measurement on its PR; no headroom. */
+const approvedEditorialGzipBytes = 999;
 
 const gzipped = (name: string) =>
   gzipSync(readFileSync(new URL(`../generated/${name}.css`, import.meta.url)), { level: 9 }).length;

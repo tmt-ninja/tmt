@@ -48,11 +48,12 @@ export async function buildPageUi() {
   // itself paints, which the frame measures from the page's canvas colour. A page that paints its own light
   // body under a dark viewer then gets light-theme components on it. Each theme block names both selectors,
   // and the second has the higher specificity, so the painted scheme wins over the viewer's.
+  // A block is one at the start of a line: palette B's scoped blocks (#5821) end in the same selector.
   const schemed = ['light', 'dark'].reduce((css, name) => {
-    const block = `[data-theme='${name}'] {`;
+    const block = `\n[data-theme='${name}'] {`;
     if (css.split(block).length !== 2)
-      throw new Error(`static.css must hold exactly one ${block} token block`);
-    return css.replace(block, `[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
+      throw new Error(`static.css must hold exactly one ${block.trim()} token block`);
+    return css.replace(block, `\n[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
   }, staticCss);
   // Quoted strings must survive the compaction untouched.
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
