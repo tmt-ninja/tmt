@@ -68,32 +68,25 @@ test('parts that do not apply are absent', async ({ page }) => {
   await expect(bar.locator('.page-hierarchy-parent')).toHaveCount(1);
 });
 
-test('Mock P2: on a phone the parent name truncates before the title and chips keep their size', async ({
+test('phone (pending owner answer): only the parent progress chip and the title remain', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const bar = await mount(page);
-  const name = bar.locator('.page-hierarchy-name');
+  await expect(bar.locator('.page-hierarchy-icon')).toBeHidden();
+  await expect(bar.locator('.page-hierarchy-name')).toBeHidden();
+  await expect(bar.locator('.page-hierarchy-subpages')).toBeHidden();
+  const chip = bar.getByRole('button', { name: 'Remote launch, 0 of 2 sub-pages done' });
+  await expect(chip).toHaveText('0/2');
+  // The title takes the remaining width and stays readable; the chip keeps its natural width.
   const title = bar.locator('.tmt-ui-topbar-title-current');
-  await expect(name).toBeVisible();
-  await expect(bar.getByRole('button', { name: '4 sub-pages' })).toHaveText('4');
-  const widths = await bar.evaluate((node) => {
-    const width = (selector: string) => node.querySelector(selector)!.getBoundingClientRect().width;
-    const full = (selector: string) => {
-      const element = node.querySelector<HTMLElement>(selector)!;
-      return element.scrollWidth > element.clientWidth + 1;
-    };
-    return {
-      nameTruncated: full('.page-hierarchy-name'),
-      titleTruncated: full('.tmt-ui-topbar-title-current'),
-      count: width('.page-hierarchy-count'),
-    };
-  });
-  // The parent's name gives way first: if the title is cut, the name is cut too.
-  if (widths.titleTruncated) expect(widths.nameTruncated).toBe(true);
-  const natural = await bar.locator('.page-hierarchy-count').evaluate((node) => node.scrollWidth);
-  expect(widths.count).toBeGreaterThanOrEqual(natural);
-  await expect(title).toBeVisible();
+  expect((await title.boundingBox())!.width).toBeGreaterThan(40);
+  const natural = await chip.evaluate((node) => node.scrollWidth);
+  expect((await chip.boundingBox())!.width).toBeGreaterThanOrEqual(natural);
+  await chip.click();
+  await expect(page.locator('.page-hierarchy-menu').getByRole('menuitem').first()).toHaveText(
+    'Back to Remote launch',
+  );
 });
 
 for (const width of [1440, 390])
@@ -106,6 +99,7 @@ for (const width of [1440, 390])
       await bar.locator('.page-hierarchy-count').click();
       await page.screenshot({ path: capturePath(`top-bar-parent-menu-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
+      if (width === 390) return;
       await bar.locator('.page-hierarchy-subpages').click();
       await page.screenshot({ path: capturePath(`top-bar-subpages-menu-${width}-${theme}.png`) });
     });

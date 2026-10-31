@@ -66,16 +66,17 @@
   flex: none;
 }
 
-/* A phone bar keeps the title alone, except for a sub-page's parent and the sub-pages count,
-   which the page shows as a number. */
+/* Phone layout, pending Ben's answer on the Night page (#5506 block). Recommended option, applied
+   here: the parent progress chip and the title only (the chip's menu goes back to the parent; the work
+   band below lists sub-pages). The other answers change only this block: "chips + title" keeps
+   .page-hierarchy-subpages (showing .page-hierarchy-narrow); "P2 as-is" keeps the name and icon too. */
 @media (max-width: 900px) {
   .tmt-ui-topbar-title-prefix:has(> .page-hierarchy-parent) {
     display: contents;
   }
-  .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.page-hierarchy-subpages) {
-    display: flex;
-  }
-  .tmt-ui-topbar-title-chips:has(.page-hierarchy-subpages) > .tmt-ui-caption {
+  .page-hierarchy-icon,
+  .page-hierarchy-name,
+  .page-hierarchy-subpages {
     display: none;
   }
   .page-hierarchy-wide {
