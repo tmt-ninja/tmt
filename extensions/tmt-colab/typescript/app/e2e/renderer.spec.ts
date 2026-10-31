@@ -3864,3 +3864,93 @@ test('unsent fallback underlines are inert, preserve layout and detach on source
   });
   await expect(mark).toHaveCount(0);
 });
+
+test('the parent rebuilds unsent selector/state objects and clears paint when the shared envelope overflows', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (message: unknown) => {
+            if ((message as { type?: string })?.type === 'colab.render.highlight')
+              Object.assign(window, { lastHighlight: message });
+            post(message);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>Paint only</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const outbound = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: { handle: { highlight(...args: unknown[]): void } };
+      lastHighlight: unknown;
+    };
+    w.probe.handle.highlight([], undefined, 0, undefined, [
+      {
+        selector: { exact: 'Paint only', prefix: '', suffix: '' },
+        state: 'sending',
+        comment: 'PRIVATE BODY',
+        label: 'PRIVATE LABEL',
+        id: 'PRIVATE KEY',
+      },
+    ]);
+    return w.lastHighlight;
+  });
+  expect(outbound).toMatchObject({
+    anchors: [],
+    draft: null,
+    quiet: null,
+    threadCount: 0,
+    unsent: [{ selector: { exact: 'Paint only', prefix: '', suffix: '' }, state: 'sending' }],
+  });
+  expect(Object.keys(outbound as object).sort()).toEqual([
+    'anchors',
+    'draft',
+    'quiet',
+    'renderId',
+    'requestId',
+    'threadCount',
+    'type',
+    'unsent',
+  ]);
+  expect(JSON.stringify(outbound)).not.toContain('PRIVATE');
+  const frame = page.frameLocator('#probe iframe');
+  await expect
+    .poll(() =>
+      frame.locator('body').evaluate(() => CSS.highlights.get('colab-unsent-sending')?.size ?? 0),
+    )
+    .toBe(1);
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: { handle: { highlight(...args: unknown[]): void } };
+      lastHighlight: { unsent: unknown[] };
+    };
+    w.probe.handle.highlight(
+      [],
+      undefined,
+      0,
+      undefined,
+      Array.from({ length: 17 }, () => ({
+        selector: { exact: 'x'.repeat(16 * 1024), prefix: '', suffix: '' },
+        state: 'sending',
+      })),
+    );
+  });
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { lastHighlight: { unsent: unknown[] } }).lastHighlight.unsent,
+    ),
+  ).toEqual([]);
+  await expect
+    .poll(() =>
+      frame.locator('body').evaluate(() => CSS.highlights.get('colab-unsent-sending')?.size ?? 0),
+    )
+    .toBe(0);
+});

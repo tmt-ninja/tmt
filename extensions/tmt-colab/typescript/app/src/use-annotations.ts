@@ -307,12 +307,10 @@ export function useAnnotations({
   // Cosmetic paint only: failed quotes take priority, then creation order. No send is dropped
   // when the bounded renderer projection fills; all failed windows stay in the page notice.
   const unsentHighlights = useRef<UnsentHighlight[]>([]);
-  {
-    unsentHighlights.current = shareView(
-      unsentHighlights.current,
-      projectUnsentHighlights(annotations, sending.current, unsent.current, recorded.current),
-    );
-  }
+  unsentHighlights.current = shareView(
+    unsentHighlights.current,
+    projectUnsentHighlights(annotations, sending.current, unsent.current, recorded.current),
+  );
 
   return {
     unsentHighlights: unsentHighlights.current,

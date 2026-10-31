@@ -51,6 +51,12 @@ const paint = (page: Page, state: 'sending' | 'failed') =>
     .locator('body')
     .evaluate((_body, state) => CSS.highlights.get(`colab-unsent-${state}`)?.size ?? 0, state);
 async function captureUnsent(page: Page, state: string) {
+  if ((await dialog(page).count()) === 0)
+    // Clear the fixture's native selection so it cannot obscure the underline comparison.
+    await page
+      .frameLocator('#ask-page-fixture iframe')
+      .locator('#selected')
+      .click({ position: { x: 180, y: 8 } });
   for (const width of [390, 1440])
     for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 });
@@ -128,14 +134,7 @@ test('a send that fails after its window closed is said on the page; Open brings
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await expect.poll(() => paint(page, 'failed')).toBe(1);
   await expect.poll(() => paint(page, 'sending')).toBe(0);
-  for (const width of [390, 1440])
-    for (const theme of ['light', 'dark'] as const) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.emulateMedia({ colorScheme: theme });
-      await page.screenshot({
-        path: capturePath(`annotation-unsent-notice-${width}-${theme}.png`),
-      });
-    }
+  await captureUnsent(page, 'notice');
   // Open shows that window with the failed row, its exact draft and Retry.
   await notice.getByRole('button', { name: 'Open', exact: true }).click();
   const echo = dialog(page).getByTestId('comment-echo');
@@ -188,6 +187,7 @@ test('discarding the kept draft of a send that failed after closing releases its
   await page.keyboard.press('Escape');
   await run(page, 'releaseReply');
   await expect(page.locator('.page-unsent').getByRole('listitem')).toHaveCount(1);
+  await expect.poll(() => paint(page, 'failed')).toBe(1);
   // The failed comment's draft is listed with the page's kept drafts; Discard there drops it all.
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const saved = page.getByTestId('saved-draft');
@@ -196,11 +196,39 @@ test('discarding the kept draft of a send that failed after closing releases its
   await saved.getByRole('button', { name: text.savedDraftDiscard }).click();
   await expect(saved).toHaveCount(0);
   await expect(page.locator('.page-unsent')).toHaveCount(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
   await commentsClose(page, 'empty').click();
+  await captureUnsent(page, 'discarded');
   // The same quote opens a fresh composer: no failed row, no draft, nothing recorded.
   await annotate(page, FIRST);
   await expect(dialog(page).getByTestId('comment-echo')).toHaveCount(0);
   await expect(input(page)).toBeEnabled();
   await expect(input(page)).toHaveText('', { useInnerText: true });
   expect(await run(page, 'discussionProof')).toHaveLength(0);
+});
+
+test('leaving and reopening the page clears unsent paint and late completion cannot restore it', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await annotate(page, FIRST, 'Held across leaving.');
+  await run(page, 'holdReply');
+  await send(page).click();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => paint(page, 'sending')).toBe(1);
+  await run(page, 'navigateHome');
+  const host = page.locator('#ask-page-fixture');
+  await expect(host.locator('iframe')).toHaveCount(0);
+  // This fixture intentionally has an empty home list; browser Back re-enters its real route.
+  await page.goBack();
+  await expect(host.locator('iframe')).toHaveCount(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await run(page, 'releaseReply');
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect(page.locator('.page-unsent')).toHaveCount(0);
 });
