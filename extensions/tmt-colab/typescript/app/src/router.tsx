@@ -2,6 +2,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -1957,6 +1958,13 @@ function OpenPage({
       }}
     />
   );
+  const hierarchy = usePageHierarchy({
+    transport,
+    space,
+    pageId: snapshot.id,
+    work: view.work,
+    pageHref: (pageId) => routing.pageHref(pageId),
+  });
   const content = (
     <section
       className="page"
@@ -1980,19 +1988,24 @@ function OpenPage({
         remoteMenu={false}
         remoteChip={false}
         headingSuffix={
-          <PageProjects
-            transport={transport}
-            space={space}
-            pageId={snapshot.id}
-            title={view.title || snapshot.title}
-            request={projects.request}
-            from={projects.from}
-            open={() => openProjects()}
-            pinRequest={pinRequest}
-            onPinState={setPin}
-          />
+          <>
+            {hierarchy.subpages}
+            <PageProjects
+              transport={transport}
+              space={space}
+              pageId={snapshot.id}
+              title={view.title || snapshot.title}
+              request={projects.request}
+              from={projects.from}
+              open={() => openProjects()}
+              pinRequest={pinRequest}
+              onPinState={setPin}
+            />
+          </>
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+        // A sub-page names its parent where the remembered scope would be (#5506).
+        lead={hierarchy.parent}
         barRef={toolbar}
         page
         title={view.title || snapshot.title || text.unknownPageTitle}

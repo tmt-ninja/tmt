@@ -667,6 +667,16 @@ export const text = {
   product: 'Colab',
   shellPageNotice: 'This is a dashboard. Open it from the terminal:',
   anchorMissing: 'That passage is not on this page.',
+  pageHierarchy: {
+    parentMenu: (title: string, done: number, total: number) =>
+      `${title}, ${done} of ${total} sub-pages done`,
+    count: (done: number, total: number) => `${done}/${total}`,
+    back: (title: string) => `Back to ${title}`,
+    siblings: (title: string, count: number) =>
+      `${title} · ${count === 1 ? '1 sub-page' : `${count} sub-pages`}`,
+    thisPage: (title: string) => `${title} (this page)`,
+    subpages: (count: number) => (count === 1 ? '1 sub-page' : `${count} sub-pages`),
+  },
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
