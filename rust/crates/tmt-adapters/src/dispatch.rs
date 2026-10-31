@@ -202,6 +202,20 @@ enum AcceptanceWire {
     HeldForPerson,
 }
 
+impl From<Acceptance> for AcceptanceWire {
+    fn from(acceptance: Acceptance) -> Self {
+        match acceptance {
+            Acceptance::Queued => Self::Queued,
+            Acceptance::RecipientUnavailable => Self::RecipientUnavailable,
+            Acceptance::RouteRestricted => Self::RouteRestricted,
+            Acceptance::HeldForPerson => Self::HeldForPerson,
+        }
+    }
+}
+pub(crate) fn acceptance_value(acceptance: Acceptance) -> Value {
+    serde_json::to_value(AcceptanceWire::from(acceptance)).expect("acceptance is a string")
+}
+
 pub fn encode_receipt(receipt: &DispatchReceipt) -> Vec<u8> {
     serde_json::to_vec(&ReceiptWire {
         operation_id: receipt.operation_id.clone(),
@@ -212,12 +226,7 @@ pub fn encode_receipt(receipt: &DispatchReceipt) -> Vec<u8> {
             .map(|item| ItemWire {
                 recipient_id: item.recipient_id.clone(),
                 request_id: item.request_id.clone(),
-                acceptance: match item.acceptance {
-                    Acceptance::Queued => AcceptanceWire::Queued,
-                    Acceptance::RecipientUnavailable => AcceptanceWire::RecipientUnavailable,
-                    Acceptance::RouteRestricted => AcceptanceWire::RouteRestricted,
-                    Acceptance::HeldForPerson => AcceptanceWire::HeldForPerson,
-                },
+                acceptance: item.acceptance.into(),
             })
             .collect(),
     })

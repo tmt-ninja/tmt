@@ -108,6 +108,18 @@ fn slot_end(storage: &mut Storage, sender: &str, now: u64) -> Result<u64, Failur
 }
 fn failure(error: OrchReadFailure, paths: &ConfigPaths) -> Failure {
     match error {
+        OrchReadFailure::Job(tmt_adapters::storage::JobStoreError::Storage(error)) => {
+            Failure::storage_access(
+                error,
+                &paths.global_dir,
+                "The job write could not be confirmed. Inspect its current revision before retrying.",
+                "ORCH_STORAGE_UNAVAILABLE",
+                "Could not publish job configuration.",
+            )
+        }
+        error @ OrchReadFailure::Job(_) => {
+            Failure::new(error.code(), error.message(), error.exit()).caused_by(error)
+        }
         OrchReadFailure::Policy(e) => policy_failure(e),
         OrchReadFailure::Storage(e) => Failure::storage_access(
             e,
