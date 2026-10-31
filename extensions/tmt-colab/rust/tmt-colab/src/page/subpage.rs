@@ -58,6 +58,7 @@ pub fn prepare(
         },
         &mut source.decoder,
         &edit.page,
+        read.legacy.as_ref(),
         &before,
         &edit.action,
         &edit.body,

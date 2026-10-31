@@ -41,6 +41,18 @@ pub fn invalid(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     refused("COLAB_INPUT_INVALID", message)
 }
 
+/// A page whose task-era work the serve has not migrated yet takes no action but the serve's own
+/// `work.migrate`: any other write would rewrite it without the copy of its tasks.
+pub fn not_migrated(page: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    refused(
+        "COLAB_WORK_NOT_MIGRATED",
+        format!(
+            "{} still holds task-era work that has not been migrated (work-not-migrated); nothing was changed. Run tmt colab serve, which copies its tasks and then migrates it, and try again.",
+            short(page)
+        ),
+    )
+}
+
 /// The data root a space is read from, as the admission needs it.
 pub struct Space<'a> {
     pub root: &'a Path,
@@ -113,7 +125,12 @@ fn space_work(space: &Space<'_>, decoder: &mut Decoder) -> crate::Result<work_in
 
 /// Shared by the CLI and the browser's `subpage.create`, before either makes a page.
 pub fn admit_creation(space: &Space<'_>, decoder: &mut Decoder, page: &str) -> crate::Result<()> {
-    if let Some(why) = Graph(&space_work(space, decoder)?).creation_refusal(page) {
+    let found = space_work(space, decoder)?;
+    // Refused before the new page is made, as the attach would be.
+    if Graph(&found).legacy(page) {
+        return Err(not_migrated(page));
+    }
+    if let Some(why) = Graph(&found).creation_refusal(page) {
         return Err(link_refusal(&why, page, ""));
     }
     Ok(())
@@ -126,10 +143,14 @@ pub fn admit(
     space: &Space<'_>,
     decoder: &mut Decoder,
     page: &str,
+    stored: Option<&Value>,
     before: &Value,
     action: &str,
     body: &Value,
 ) -> crate::Result<()> {
+    if action != work::MIGRATE && stored.is_some_and(work::is_legacy) {
+        return Err(not_migrated(page));
+    }
     if action == "subpage.attach"
         && let Some(child) = body["pageId"].as_str()
         && let Some(why) = Graph(&space_work(space, decoder)?).refusal(page, child)

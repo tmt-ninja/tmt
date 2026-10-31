@@ -241,6 +241,7 @@ fn write_work_owned(
         },
         &mut decoder,
         &page_id,
+        read.legacy.as_ref(),
         &json!({"version":2,"order":read.children}),
         action,
         &body,
@@ -502,6 +503,9 @@ fn create_subpage(root: &Path, page: &str, args: &ArgMatches) -> Result<()> {
         ..
     } = read_with_space(root, page)?;
     // Refuse what the attach would refuse before a page exists.
+    if Graph(&found).legacy(&page_id) {
+        return Err(fault(work_admission::not_migrated(&page_id)));
+    }
     if let Some(why) = Graph(&found).creation_refusal(&page_id) {
         return Err(fault(work_admission::link_refusal(&why, &page_id, "")));
     }

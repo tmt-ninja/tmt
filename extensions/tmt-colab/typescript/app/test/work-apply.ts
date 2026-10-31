@@ -19,6 +19,8 @@ export function applyWorkAction(
   attribution: Attribution,
 ): Work {
   validateWork(base);
+  // Task-era work is rewritten only by the serve's own migration, after it copied the value.
+  requireValue(action === 'work.migrate' || base.version !== 1);
   const next = structuredClone(migratedWork(base));
   const body = object(input);
   if (action === 'summary.set') next.summary = setSummary(body, attribution);

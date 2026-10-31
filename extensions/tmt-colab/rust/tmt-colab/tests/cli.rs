@@ -1595,6 +1595,36 @@ fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_c
             .unwrap()
             .contains(&json!("work-not-migrated"))
     );
+    // Until then no ordinary write may rewrite it: each would drop the plain task without its copy.
+    // The refusal changes nothing, and a create is refused before it makes a page.
+    let pages = pilot.call(&["ls", "--json"])["pages"]
+        .as_array()
+        .unwrap()
+        .len();
+    for args in [
+        vec![
+            "summary", "set", PAGE, "--line1", "Start", "--line2", "Next", "--json",
+        ],
+        vec!["summary", "clear", PAGE, "--json"],
+        vec!["subpage", "create", PAGE, "--title", "New part", "--json"],
+    ] {
+        let refused = failure(&pilot, &args, "COLAB_WORK_NOT_MIGRATED");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("work-not-migrated"),
+            "{refused}"
+        );
+        assert_eq!(stored(), Some(legacy.clone()), "{args:?}");
+    }
+    assert_eq!(
+        pilot.call(&["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        pages
+    );
     // The next serve writes the copy, then rewrites the page, and names the copy.
     fs::remove_dir(copies.join(format!("{PAGE}.json"))).unwrap();
     pilot.start_logging(&log);

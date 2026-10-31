@@ -4,8 +4,10 @@
 //! owner's admission over the whole space (`work_admission`), never a rule of this value.
 //!
 //! Version 2 is the shape every write produces. Version 1 is the task-era value (#5825): it is
-//! still accepted as stored input, readers project its linked tasks as sub-pages, and the first
-//! write, or the serve's one-shot migration, rewrites it as version 2.
+//! still accepted as stored input and readers project its linked tasks as sub-pages. Only the
+//! serve's `work.migrate`, after it has copied the whole value, rewrites it as version 2; every
+//! other action on a version 1 value is refused, so its plain tasks are never dropped without a
+//! copy.
 use crate::closed::{Invalid, canonical, id, integer, keys, object, require, text};
 use crate::summary_lines;
 use serde_json::{Value, json};
@@ -95,6 +97,10 @@ pub fn children(value: &Value) -> Result<Vec<String>> {
     Ok(found)
 }
 
+/// Whether a stored value is task-era work that only `work.migrate` may rewrite.
+pub fn is_legacy(value: &Value) -> bool {
+    value["version"] == 1
+}
 /// The version 2 value of a stored value of either version: the same sub-pages and summary.
 pub fn migrated(value: &Value) -> Result<Value> {
     let mut next = json!({"version":2,"order":children(value)?});
@@ -109,6 +115,7 @@ pub fn migrated(value: &Value) -> Result<Value> {
 /// base. `attribution` comes from the write owner, never from the action body. `before` names a
 /// listed page the moved or attached one goes in front of; without it the page goes last.
 pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> Result<Value> {
+    require(action == MIGRATE || !is_legacy(base))?;
     let mut next = migrated(base)?;
     match action {
         "summary.set" => next["summary"] = summary_lines::set(body, attribution)?,
@@ -224,5 +231,47 @@ mod tests {
             order.push(json!(format!("T-{n}")));
         }
         assert!(validate(&json!({"version":1,"next":1,"tasks":tasks,"order":order})).is_err());
+    }
+
+    /// Only the serve's migration rewrites task-era work: any other action would drop its plain
+    /// tasks without the copy the migration takes first (#5825).
+    #[test]
+    fn a_task_era_value_takes_only_the_migration() {
+        let child = "20000000-0000-4000-8000-00000000000a";
+        let legacy = json!({
+            "version":1,"next":3,"order":["T-1","T-2"],
+            "tasks":{"T-1":{"title":"Plain","state":"todo"},"T-2":{"title":"Linked","state":"done","child":child}}
+        });
+        let attribution =
+            json!({"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1760000000000_u64});
+        for (action, body) in [
+            ("summary.set", json!({"line1":"Start","line2":"Next"})),
+            ("summary.clear", json!({})),
+            (
+                "subpage.attach",
+                json!({"pageId":"20000000-0000-4000-8000-00000000000b"}),
+            ),
+            ("subpage.move", json!({"pageId":child})),
+            ("subpage.detach", json!({"pageId":child})),
+        ] {
+            assert!(is_legacy(&legacy));
+            assert!(
+                apply(&legacy, action, &body, &attribution).is_err(),
+                "{action}"
+            );
+        }
+        let migrated = apply(&legacy, MIGRATE, &json!({}), &Value::Null).unwrap();
+        assert_eq!(migrated, json!({"version":2,"order":[child]}));
+        // The same actions are admitted once the value is version 2.
+        for (action, body) in [
+            ("summary.set", json!({"line1":"Start","line2":"Next"})),
+            (
+                "subpage.attach",
+                json!({"pageId":"20000000-0000-4000-8000-00000000000b"}),
+            ),
+            ("subpage.detach", json!({"pageId":child})),
+        ] {
+            apply(&migrated, action, &body, &attribution).unwrap();
+        }
     }
 }

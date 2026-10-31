@@ -1142,6 +1142,9 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 keeps accepting old links. Admission permits one parent at any depth, with no cycles.
 `work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
 and browser `workresult`; it runs for list actions only, since the summary is the value's own rule.
+First, though, it refuses every action but `work.migrate` on a page still at version 1
+(`COLAB_WORK_NOT_MIGRATED`), and its creation preflight does the same from the work index;
+`work::apply` refuses the same, so a racing write cannot rewrite the value either.
 CLI `subpage create` and `page/subpage_create` run its creation preflight before a page is made,
 then the ordinary attach admission and publication fences. Detach and move are always admitted so
 stored conflicts remain repairable; value and authority/revision checks still apply.

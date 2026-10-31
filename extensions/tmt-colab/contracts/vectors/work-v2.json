@@ -759,7 +759,7 @@
       },
       "action": "summary.set",
       "body": {
-        "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+        "line1": "éééééééééééééééééééééééé",
         "line2": "b"
       },
       "attribution": {
@@ -771,7 +771,7 @@
         "version": 2,
         "order": [],
         "summary": {
-          "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+          "line1": "éééééééééééééééééééééééé",
           "line2": "b",
           "attribution": {
             "writerId": "10000000-0000-4000-8000-000000000001",
@@ -779,7 +779,7 @@
           }
         }
       },
-      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\",\"line2\":\"b\"},\"version\":2}",
+      "canonical": "{\"order\":[],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"éééééééééééééééééééééééé\",\"line2\":\"b\"},\"version\":2}",
       "children": []
     },
     {
@@ -790,7 +790,7 @@
       },
       "action": "summary.set",
       "body": {
-        "line1": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+        "line1": "ééééééééééééééééééééééééé",
         "line2": "b"
       },
       "attribution": {
@@ -946,7 +946,7 @@
       "valid": false
     },
     {
-      "name": "the first write to a task-era value migrates it",
+      "name": "an attach to a task-era value is refused until the serve migrates it",
       "document": {
         "version": 1,
         "next": 5,
@@ -995,32 +995,10 @@
         "writerId": "10000000-0000-4000-8000-000000000001",
         "timeMs": 1760000000000
       },
-      "valid": true,
-      "expected": {
-        "version": 2,
-        "order": [
-          "20000000-0000-4000-8000-00000000000b",
-          "20000000-0000-4000-8000-00000000000c",
-          "20000000-0000-4000-8000-00000000000a"
-        ],
-        "summary": {
-          "line1": "Two of five done",
-          "line2": "Next: the CLI",
-          "attribution": {
-            "writerId": "10000000-0000-4000-8000-000000000001",
-            "timeMs": 1760000000000
-          }
-        }
-      },
-      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000c\",\"20000000-0000-4000-8000-00000000000a\"],\"summary\":{\"attribution\":{\"timeMs\":1760000000000,\"writerId\":\"10000000-0000-4000-8000-000000000001\"},\"line1\":\"Two of five done\",\"line2\":\"Next: the CLI\"},\"version\":2}",
-      "children": [
-        "20000000-0000-4000-8000-00000000000b",
-        "20000000-0000-4000-8000-00000000000c",
-        "20000000-0000-4000-8000-00000000000a"
-      ]
+      "valid": false
     },
     {
-      "name": "a summary write to a task-era value migrates it",
+      "name": "a summary write to a task-era value is refused until the serve migrates it",
       "document": {
         "version": 1,
         "next": 5,
@@ -1066,19 +1044,7 @@
         "writerId": "10000000-0000-4000-8000-000000000001",
         "timeMs": 1760000000000
       },
-      "valid": true,
-      "expected": {
-        "version": 2,
-        "order": [
-          "20000000-0000-4000-8000-00000000000b",
-          "20000000-0000-4000-8000-00000000000a"
-        ]
-      },
-      "canonical": "{\"order\":[\"20000000-0000-4000-8000-00000000000b\",\"20000000-0000-4000-8000-00000000000a\"],\"version\":2}",
-      "children": [
-        "20000000-0000-4000-8000-00000000000b",
-        "20000000-0000-4000-8000-00000000000a"
-      ]
+      "valid": false
     }
   ]
 }

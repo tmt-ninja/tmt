@@ -3152,14 +3152,16 @@ Version 1 is the task-era value (`{version:1,next,tasks,order,summary?}`, where 
 to migrate: both validators check that its `order` and `tasks` agree, that a `child` is a page ID
 and that the summary is valid, and readers project it read only as the version 2 value it migrates
 to: the `child` of each task in task order, each page once, plain tasks dropped, and the summary
-kept. Every action applies to that projection, so any write stores version 2. When the owner's
+kept. Only `work.migrate` applies to a version 1 value: every other action on one is refused as
+`COLAB_WORK_NOT_MIGRATED` and changes nothing, so its plain tasks are never dropped by an ordinary
+write (a `subpage.create` is refused before it makes a page). When the owner's
 serve opens a space it runs `work.migrate` (body `{}`, which changes nothing else) once on every page
 still at version 1, under the serve's own write lock. Plain tasks are never dropped without a copy:
 before rewriting a page the serve writes its whole version 1 value to
 `migrations/5825/<pageId>.json` in the space's directory (directories 0700, file 0600, never
 through a link) and logs that path; a page whose copy cannot be written is not rewritten. A page it
 cannot copy or rewrite keeps its value, the serve logs why, `tmt colab show` and `tmt colab ls` add
-the warning `work-not-migrated` to it, and the next open (or the page's next write) tries again; the
+the warning `work-not-migrated` to it, and the next open tries again; the
 serve still starts. Binaries from before #5825 cannot read a migrated value, so every device of a
 space upgrades together. The browser never sends `work.migrate`.
 
