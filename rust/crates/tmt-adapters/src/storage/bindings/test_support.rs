@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use crate::test_support::TestDirectory;
+use crate::{
+    storage::template_fixture::{TemplateLease, place_migrated_database},
+    test_support::TestDirectory,
+};
 use tmt_core::{
     binding::{Binding, BindingEndpoint},
     endpoint::{EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence},
@@ -12,14 +15,25 @@ use super::super::{Storage, StorageError};
 
 pub(super) struct Fixture {
     _directory: TestDirectory,
+    _template: Option<TemplateLease>,
     pub(super) database: PathBuf,
 }
 
 impl Fixture {
+    /// A migrated database is in place; the first real open does not run
+    /// the migration chain.
     pub(super) fn new() -> Self {
+        let mut fixture = Self::missing();
+        fixture._template = Some(place_migrated_database(&fixture.database));
+        fixture
+    }
+
+    /// No database exists yet, for cases about missing storage.
+    pub(super) fn missing() -> Self {
         let directory = TestDirectory::new();
         Self {
             database: directory.path.join("state").join("tmux-team.db"),
+            _template: None,
             _directory: directory,
         }
     }

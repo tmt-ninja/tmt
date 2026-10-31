@@ -347,13 +347,18 @@ fn shared_seed_fixture_excludes_open_counter() {
 pub(super) fn insert_binding(connection: &Connection, id: &str) {
     connection.execute("INSERT INTO bindings(id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at) VALUES('fixture-binding',?,'tmux','%1','fixture-server','/tmp/fixture-socket',10,'start',11,'t','t')",[id]).unwrap();
 }
+/// The case directory travels with the template lease that keeps its scope.
 pub(super) fn fixture() -> (
-    crate::test_support::TestDirectory,
+    (
+        crate::test_support::TestDirectory,
+        crate::storage::template_fixture::TemplateLease,
+    ),
     std::path::PathBuf,
     String,
 ) {
     let directory = crate::test_support::TestDirectory::new();
     let path = directory.path.join("history.db");
+    let template = crate::storage::template_fixture::place_migrated_database(&path);
     let mut storage = Storage::open(&path).unwrap();
     let identity = tmt_core::identity::create_or_resolve(
         &mut storage,
@@ -365,7 +370,7 @@ pub(super) fn fixture() -> (
     insert_binding(storage.connection().unwrap(), &identity.id);
     storage.connection().unwrap().execute("INSERT INTO identity_session_preferences(identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id) VALUES(?,'claude','claude','plain','fixture-session')",[&identity.id]).unwrap();
     storage.close().unwrap();
-    (directory, path, identity.id)
+    ((directory, template), path, identity.id)
 }
 pub(super) fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> ConsumptionLatest {
     ConsumptionLatest {
