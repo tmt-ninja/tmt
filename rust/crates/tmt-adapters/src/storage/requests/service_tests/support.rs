@@ -7,7 +7,13 @@ use std::{
     },
 };
 
-use crate::{storage::Storage, test_support::TestDirectory};
+use crate::{
+    storage::{
+        Storage,
+        template_fixture::{TemplateLease, place_migrated_database},
+    },
+    test_support::TestDirectory,
+};
 use tmt_core::{
     endpoint::ServerEvidence,
     identity::{Lifetime, create_or_resolve},
@@ -22,6 +28,7 @@ pub const DAY_MS: u64 = 86_400_000;
 
 pub struct Fixture {
     pub _directory: TestDirectory,
+    _template: TemplateLease,
     pub database: PathBuf,
     pub storage: Storage,
     pub identity_id: String,
@@ -32,12 +39,14 @@ impl Fixture {
     pub fn new() -> Self {
         let directory = TestDirectory::new();
         let database = directory.path.join("state").join("tmux-team.db");
+        let template = place_migrated_database(&database);
         let mut storage = Storage::open(&database).expect("open request fixture storage");
         let identity = create_or_resolve(&mut storage, "Request Owner", Lifetime::Saved)
             .expect("create request fixture identity")
             .identity;
         Self {
             _directory: directory,
+            _template: template,
             database,
             storage,
             identity_id: identity.id,
