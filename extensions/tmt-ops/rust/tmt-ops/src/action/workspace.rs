@@ -5,6 +5,7 @@ pub enum OpsUiAction {
     ResizePane,
     Agents,
     DigestDashboard,
+    Orchestration,
     QuotaDetails,
     SavingsUnit,
     UsageControls,
@@ -218,6 +219,13 @@ const SPECS: &[OpsUiSpec] = &[
         "digest-dashboard",
         "Digest",
         "show the Digest tab",
+        20
+    ),
+    spec!(
+        Orchestration,
+        "orchestration",
+        "Orchestration",
+        "show plan and member policies at the selected time",
         20
     ),
     spec!(

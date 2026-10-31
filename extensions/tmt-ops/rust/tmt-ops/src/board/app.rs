@@ -764,6 +764,7 @@ pub struct App {
     /// Terminal-owner observation for hints only; never persisted or inferred.
     pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
+    pub(in crate::board) orchestration: super::orchestration::State,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
     pub(super) workspace_startup: Option<WorkspaceStartup>,
@@ -1676,6 +1677,7 @@ impl App {
         self.overview_rows.borrow_mut().clear();
         self.conversation.borrow_mut().refresh_pane_output();
         self.observe_cursor(snapshot.cursor);
+        self.orchestration.observe_cursor(snapshot.cursor);
         if let Some(timing) = &mut self.timing {
             let accepted =
                 snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
@@ -2208,6 +2210,9 @@ impl App {
                 if !policy.side_shown() && !self.conversation_revealed() {
                     collapsed.insert(Pane::Replies);
                 }
+            }
+            super::shell::OpsTab::Orchestration => {
+                collapsed.extend([Pane::Rows, Pane::Replies]);
             }
             super::shell::OpsTab::Digest => {
                 let policy = self.digest_panels();
@@ -4046,6 +4051,14 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        if self.shell.tab == super::shell::OpsTab::Orchestration
+            && !self.modal_open()
+            && self.input.is_none()
+            && !self.searching
+            && let Some(effect) = self.orchestration_key(key)
+        {
+            return effect;
+        }
         self.trace_key("key_before", key);
         let effect = self.key_effect(key);
         self.trace_key("key_after", key);
@@ -4110,6 +4123,7 @@ impl App {
                 Verb::Ui(
                     crate::action::OpsUiAction::Agents
                         | crate::action::OpsUiAction::DigestDashboard
+                        | crate::action::OpsUiAction::Orchestration
                 )
             )
         {
@@ -4241,6 +4255,7 @@ impl App {
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
+        self.orchestration.invalidate();
         self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
@@ -4865,6 +4880,12 @@ impl App {
         {
             return self.cycle_token_window();
         }
+        if self.shell.tab == super::shell::OpsTab::Orchestration
+            && !self.modal_open()
+            && let Some(effect) = self.orchestration_mouse(event)
+        {
+            return effect;
+        }
         if self.scroll_pointer(event) {
             return Effect::None;
         }
@@ -4877,6 +4898,7 @@ impl App {
             let action = match hit.tab {
                 0 => crate::action::OpsUiAction::Agents,
                 1 => crate::action::OpsUiAction::DigestDashboard,
+                2 => crate::action::OpsUiAction::Orchestration,
                 _ => return Effect::None,
             };
             self.focus = 0;
@@ -4942,6 +4964,11 @@ impl App {
     }
 
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
+        if self.shell.tab == super::shell::OpsTab::Orchestration && self.unread_overlay.is_none() {
+            return Some(super::refresh::SelectedRead::Orchestration(
+                self.orchestration.read(),
+            ));
+        }
         if self.loading() {
             return None;
         }

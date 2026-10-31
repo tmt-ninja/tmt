@@ -42,7 +42,7 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let tabs = [OpsTab::Agents, OpsTab::Digest];
+    let tabs = [OpsTab::Agents, OpsTab::Digest, OpsTab::Orchestration];
     let selected = tabs
         .iter()
         .position(|tab| *tab == app.shell.tab)
@@ -51,6 +51,7 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let keys = [
         (OpsUiAction::Agents, "1"),
         (OpsUiAction::DigestDashboard, "2"),
+        (OpsUiAction::Orchestration, "3"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let (line, hits) =
