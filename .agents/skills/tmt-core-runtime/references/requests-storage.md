@@ -22,9 +22,9 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
   `typescript/test/fixtures/storage-history`.
 - Storage unit fixtures that do not test opening start from `storage::template_fixture`: an
-  admitted copy of a migrated, closed main file, then the real open. A failed admission panics;
-  it never falls back to the chain. Cases about the migration chain, cold open or WAL setup,
-  missing storage, or seeded and older databases open an empty path directly. Templates are
+  admitted copy of a migrated, closed main file, then the real open. A failed admission panics; it
+  never falls back to the chain. Cases about migration, cold open or WAL setup, missing storage,
+  and seeded or older databases keep their original direct setup and real opens. Templates are
   scoped to one test run under the private temporary directory (`NEXTEST_RUN_ID`, else a process
   scope that its last lease removes). A local nextest run leaves its `run-<id>/` directory (about
   1 MB); run suites through `typescript/scripts/private-world.mjs`, or remove it by hand outside
