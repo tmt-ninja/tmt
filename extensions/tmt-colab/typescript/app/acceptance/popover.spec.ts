@@ -121,7 +121,8 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await close.click();
     expect(agent.received()).toHaveLength(0);
 
-    // A send in flight is not interrupted by the ×, Escape or an outside press.
+    // A send in flight keeps its window and fences a second send there. Closing a window while its
+    // send runs no longer waits (#5816); thread-status.spec.ts and e2e/annotation-pending cover that.
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
@@ -145,13 +146,6 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(
       popover.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
     ).toBeDisabled();
-    await close.click();
-    await close.focus();
-    await page.keyboard.press('Escape');
-    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
-    await clearSelection(page);
-    await page.waitForTimeout(300);
-    await expect(popover).toBeVisible();
     release();
     await expect.poll(() => agent.received().length).toBe(1);
     await expect(popover).toBeVisible();
