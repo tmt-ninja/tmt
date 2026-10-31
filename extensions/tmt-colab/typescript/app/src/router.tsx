@@ -1543,6 +1543,7 @@ function OpenPage({
     annotation,
     annotations,
     unsentAnnotations,
+    unsentHighlights,
     openUnsent,
     discardDraft,
     annotationRef,
@@ -1900,8 +1901,17 @@ function OpenPage({
       annotation?.selector ?? undefined,
       threadTotal,
       quietThread,
+      unsentHighlights,
     );
-  }, [state, contentRevision, anchoredThreads, annotation, threadTotal, quietThread]);
+  }, [
+    state,
+    contentRevision,
+    anchoredThreads,
+    annotation,
+    threadTotal,
+    quietThread,
+    unsentHighlights,
+  ]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.

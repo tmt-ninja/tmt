@@ -2929,8 +2929,8 @@ Alt+Enter still explicitly requests the annotation view with exactly
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
-`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft`,
+`quiet` and `unsent`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
 quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
 Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
 (see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
@@ -2941,7 +2941,18 @@ instead of forwarding caller records. Results contain `type:"colab.render.anchor
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
 nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
-Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
+`unsent` contains at most 64 entries, each exactly `{selector,state}` with the same quote
+validation as `draft` and state exactly `sending` or `failed`. The parent projects only first
+comments with no recorded thread, failed first then oldest creation order; the paint cap does
+not discard sends or limit the page's failure notices. Recording the first comment removes its
+unsent paint even while delivery continues; Retry changes failed to sending, and discard or
+leaving the page clears it. The frame resolves these quotes within the existing bounded batch
+and draws only a waiting or danger underline, using `color-waiting` or the existing danger treatment `color-blocked`, and the rule-width
+token. Missing or ambiguous quotes detach. Unsent passages have no ordinal, marker, hover target,
+selection, navigation or report-back: they never enter resolved IDs or position feedback. CSS
+Highlights and the pointer-inert fallback leave authored text and layout unchanged. The page's
+failure notice remains the primary signal; the underline only locates the passage.
+Batches are at most 1,000 anchors and 256 KiB UTF-8, including all unsent entries. Collection is bounded to 20,000
 text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
 per anchor with a 20 ms batch deadline. Over-budget, missing, changed or ambiguous
 matches detach. A unique exact quote must match every supplied prefix/suffix.

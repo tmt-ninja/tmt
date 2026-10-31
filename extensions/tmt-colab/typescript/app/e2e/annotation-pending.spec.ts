@@ -45,6 +45,21 @@ async function annotate(page: Page, [start, end]: readonly [number, number], bod
   await input(page).pressSequentially(body);
   await expect(input(page)).toHaveText(body, { useInnerText: true });
 }
+const paint = (page: Page, state: 'sending' | 'failed') =>
+  page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('body')
+    .evaluate((_body, state) => CSS.highlights.get(`colab-unsent-${state}`)?.size ?? 0, state);
+async function captureUnsent(page: Page, state: string) {
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({
+        path: capturePath(`annotation-unsent-${state}-${width}-${theme}.png`),
+      });
+    }
+}
 const send = (page: Page) => dialog(page).getByRole('button', { name: /^Send(?: · to .+)?$/ });
 
 for (const close of ['×', 'Escape', 'outside'] as const)
@@ -65,6 +80,16 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     else if (close === 'Escape') await page.keyboard.press('Escape');
     else await page.mouse.click(4, 600);
     await expect(dialog(page)).toHaveCount(0);
+    // #5850: the hidden first send has no recorded thread yet, but its quote stays marked.
+    await expect
+      .poll(() =>
+        page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('body')
+          .evaluate(() => CSS.highlights.get('colab-unsent-sending')?.size ?? 0),
+      )
+      .toBe(1);
+    if (close === '×') await captureUnsent(page, 'sending');
     // The second annotation is not fenced by the first send: a fresh, enabled composer.
     await annotate(page, SECOND);
     await expect(input(page)).toBeEnabled();
@@ -75,6 +100,8 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     await run(page, 'releaseReply');
     // Both sends finish, each once.
     await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(2);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
   });
 
 test('a send that fails after its window closed is said on the page; Open brings back its draft and Retry records it once', async ({
@@ -99,6 +126,8 @@ test('a send that fails after its window closed is said on the page; Open brings
   await expect(notice).toHaveText(/^Your comment on “Exact” was not sent\.\s*Open$/);
   await expect(dialog(page)).toHaveCount(0);
   expect(await run(page, 'discussionProof')).toHaveLength(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
   for (const width of [390, 1440])
     for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 });
@@ -126,10 +155,21 @@ test('a send that fails after its window closed is said on the page; Open brings
   await expect(notice).toHaveCount(1);
   await annotate(page, FIRST);
   await expect(echo).toHaveAttribute('data-echo', 'failed');
+  await run(page, 'holdReply');
   await echo.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(1);
+  await captureUnsent(page, 'retry');
+  await run(page, 'releaseReply');
   await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(1);
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
   await expect(page.locator('.page-unsent')).toHaveCount(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect(
+    page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
+  ).toHaveCount(1);
+  await captureUnsent(page, 'recorded');
   // The other quote's draft is still its own.
   await page.keyboard.press('Escape');
   await annotate(page, SECOND);

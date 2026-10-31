@@ -103,13 +103,15 @@ async function mount(page: Page, source: string, layout?: 'column' | 'full') {
           draft?: unknown,
           count?: number,
           quiet?: unknown,
+          unsent?: unknown,
         ) {
-          return renderer.highlight(
+          return Reflect.apply(renderer.highlight, renderer, [
             input.map((anchor, index) => ({ ...anchor, ordinal: anchor.ordinal ?? index + 1 })),
             draft,
             count ?? input.length,
             quiet,
-          );
+            unsent,
+          ]);
         },
       };
       // Test-owned handles never exist in the production entry point.
@@ -2534,9 +2536,10 @@ const requestHighlight = (
     ordinal: number;
     selector: { exact: string; prefix: string; suffix: string };
   }[],
+  unsent: unknown = [],
 ) =>
   page.evaluate(
-    ({ id, renderId, requestId, anchors }) =>
+    ({ id, renderId, requestId, anchors, unsent }) =>
       new Promise<void>((resolve) => {
         const bound = (window as unknown as PortWindow)[`port_${id}`]!;
         bound.waiting.set(requestId, resolve);
@@ -2548,9 +2551,10 @@ const requestHighlight = (
           threadCount: Math.max(0, ...anchors.map((anchor) => anchor.ordinal)),
           draft: null,
           quiet: null,
+          unsent,
         });
       }),
-    { id, renderId, requestId, anchors },
+    { id, renderId, requestId, anchors, unsent },
   );
 const sendToFrame = (page: Page, id: string, message: unknown) =>
   page.evaluate(
@@ -3656,4 +3660,207 @@ test('all slot kinds including before-answer hide under closed and nested detail
       return current.length === 4 && current.every((s: { hidden?: boolean }) => !s.hidden);
     })
     .toBe(true);
+});
+
+test('unsent first comments paint waiting and danger without thread targets or feedback', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">Waiting passage. Failed passage. Recorded passage.</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    const handle = (
+      window as unknown as { probe: { handle: { highlight(...args: unknown[]): void } } }
+    ).probe.handle;
+    const selector = (exact: string) => ({ exact, prefix: '', suffix: '' });
+    handle.highlight(
+      [{ id: 'recorded', selector: selector('Recorded passage.'), ordinal: 1 }],
+      undefined,
+      1,
+      undefined,
+      [
+        { selector: selector('Waiting passage.'), state: 'sending' },
+        { selector: selector('Failed passage.'), state: 'failed' },
+      ],
+    );
+  });
+  const frame = page.frameLocator('#probe iframe');
+  await expect
+    .poll(() =>
+      frame.locator('body').evaluate(() => ({
+        sending: CSS.highlights.get('colab-unsent-sending')?.size ?? 0,
+        failed: CSS.highlights.get('colab-unsent-failed')?.size ?? 0,
+      })),
+    )
+    .toEqual({ sending: 1, failed: 1 });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["recorded"]');
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+  await expect(frame.locator('[data-colab-thread]')).toHaveAttribute(
+    'data-colab-thread',
+    'recorded',
+  );
+  await expect(frame.locator('#quote')).toHaveText(
+    'Waiting passage. Failed passage. Recorded passage.',
+  );
+  const colors = await frame.locator('body').evaluate((node) => {
+    const style = getComputedStyle(node);
+    const sending = getComputedStyle(node, '::highlight(colab-unsent-sending)');
+    const failed = getComputedStyle(node, '::highlight(colab-unsent-failed)');
+    const resolve = (value: string) => {
+      const el = document.createElement('span');
+      el.style.color = value;
+      node.append(el);
+      const color = getComputedStyle(el).color;
+      el.remove();
+      return color;
+    };
+    return {
+      sending: sending.textDecorationColor,
+      waiting: resolve(style.getPropertyValue('--tmt-ui-color-waiting')),
+      failed: failed.textDecorationColor,
+      danger: resolve(style.getPropertyValue('--tmt-ui-color-blocked')),
+      dangerToken: style.getPropertyValue('--tmt-ui-color-blocked').trim(),
+      waitingToken: style.getPropertyValue('--tmt-ui-color-waiting').trim(),
+      sendingLine: sending.textDecorationLine,
+      failedLine: failed.textDecorationLine,
+    };
+  });
+  expect(colors.waitingToken).not.toBe('');
+  expect(colors.dangerToken).not.toBe('');
+  expect(colors.sending).toBe(colors.waiting);
+  expect(colors.failed).toBe(colors.danger);
+  expect(colors.sendingLine).toBe('underline');
+  expect(colors.failedLine).toBe('underline');
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { highlight(...args: unknown[]): void } } }
+    ).probe.handle.highlight([], undefined, 0, undefined, []),
+  );
+  await expect
+    .poll(() =>
+      frame.locator('body').evaluate(() => ({
+        sending: CSS.highlights.get('colab-unsent-sending')?.size ?? 0,
+        failed: CSS.highlights.get('colab-unsent-failed')?.size ?? 0,
+      })),
+    )
+    .toEqual({ sending: 0, failed: 0 });
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(0);
+});
+
+test('the bound frame rejects malformed unsent batches and the shared byte overflow without feedback', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = 'unsent-protocol';
+  const renderId = await bindPort(page, id, '<p>Only this quote</p>');
+  await page.evaluate((id) => {
+    const bound = (window as unknown as PortWindow)[`port_${id}`]!;
+    const requests: string[] = [];
+    Object.assign(window, { unsentResponses: requests });
+    bound.port.addEventListener('message', (event) => {
+      if (event.data?.type === 'colab.render.anchors') requests.push(event.data.requestId);
+    });
+  }, id);
+  const item = { selector: { exact: 'Only this quote', prefix: '', suffix: '' }, state: 'sending' };
+  const message = (requestId: string, unsent: unknown) => ({
+    type: 'colab.render.highlight',
+    renderId,
+    requestId,
+    anchors: [],
+    threadCount: 0,
+    draft: null,
+    quiet: null,
+    unsent,
+  });
+  const positive = '00000000-0000-4000-8000-0000000000c1';
+  await requestHighlight(
+    page,
+    id,
+    renderId,
+    positive,
+    [],
+    Array.from({ length: 64 }, () => item),
+  );
+  const frame = page.frameLocator(`#${id}`);
+  await expect
+    .poll(() =>
+      frame.locator('body').evaluate(() => CSS.highlights.get('colab-unsent-sending')?.size),
+    )
+    .toBe(64);
+  const invalid = [
+    undefined,
+    null,
+    {},
+    [null],
+    Array.from({ length: 65 }, () => item),
+    [{ ...item, state: 'unknown' }],
+    [{ ...item, label: 'Comment body must not enter' }],
+    [{ ...item, selector: { ...item.selector, extra: true } }],
+    [{ ...item, selector: { ...item.selector, exact: '' } }],
+    [{ ...item, selector: { ...item.selector, suffix: 'x'.repeat(33) } }],
+    Array.from({ length: 17 }, () => ({
+      ...item,
+      selector: { ...item.selector, exact: 'x'.repeat(16 * 1024) },
+    })),
+  ];
+  for (const [index, unsent] of invalid.entries())
+    await sendToFrame(
+      page,
+      id,
+      message(`00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, unsent),
+    );
+  await sendToFrame(page, id, {
+    ...message('00000000-0000-4000-8000-0000000000c2', [item]),
+    extra: true,
+  });
+  await sendToFrame(page, id, {
+    ...message('00000000-0000-4000-8000-0000000000c3', [item]),
+    renderId: 'stale',
+  });
+  const barrier = '00000000-0000-4000-8000-0000000000c4';
+  await requestHighlight(page, id, renderId, barrier, []);
+  expect(
+    await page.evaluate(() => (window as unknown as { unsentResponses: string[] }).unsentResponses),
+  ).toEqual([positive, barrier]);
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(0);
+  expect(await selectedPassages(page, id)).toBeNull();
+});
+
+test('unsent fallback underlines are inert, preserve layout and detach on source changes', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote">Only this unsent quote</p><p>same same</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  const before = await frame.locator('#quote').boundingBox();
+  await frame
+    .locator('body')
+    .evaluate(() => Object.defineProperty(window, 'Highlight', { value: undefined }));
+  await page.evaluate(() => {
+    const handle = (
+      window as unknown as { probe: { handle: { highlight(...args: unknown[]): void } } }
+    ).probe.handle;
+    handle.highlight([], undefined, 0, undefined, [
+      { selector: { exact: 'Only this unsent quote', prefix: '', suffix: '' }, state: 'failed' },
+      { selector: { exact: 'same', prefix: '', suffix: '' }, state: 'sending' },
+      { selector: { exact: 'missing', prefix: '', suffix: '' }, state: 'sending' },
+    ]);
+  });
+  const mark = frame.locator('[data-colab-unsent="failed"]');
+  await expect(mark).toHaveCount(1);
+  await expect(frame.locator('[data-colab-unsent="sending"]')).toHaveCount(0);
+  await expect(mark).toHaveCSS('pointer-events', 'none');
+  await expect(mark).toHaveCSS('border-bottom-color', rgb(tokens.browser.color.blocked.light));
+  expect(await frame.locator('#quote').boundingBox()).toEqual(before);
+  await expect(frame.locator('[data-colab-thread]')).toHaveCount(0);
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await frame.locator('#quote').hover();
+  await frame.locator('#quote').click();
+  await expect(frame.locator('[data-colab-thread-outline]')).toHaveCount(0);
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened');
+  await frame.locator('#quote').evaluate((node) => {
+    node.textContent = 'Changed quote';
+  });
+  await expect(mark).toHaveCount(0);
 });

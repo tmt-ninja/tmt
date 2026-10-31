@@ -287,7 +287,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   The list, header and hover hint share that map. The renderer accepts only exact
   anchor keys (`id`, `selector`, `ordinal`), unique IDs/ordinals and positive safe
   ordinals bounded by the parent's admitted thread count; the unsaved quote is
-  separate. These values paint only and grant no routing or trust authority.
+  separate. A bounded `unsent` selector/state projection paints first comments that have no record
+  with a waiting or danger underline. It never contributes ordinals, marker targets, selected
+  passages or frame feedback. The parent chooses at most 64, failed first then oldest creation
+  order, while every failed send remains in its page notice. Recording, Retry, discard and page
+  reset follow the retained annotation owner. These values paint only and grant no routing or
+  trust authority.
 
 Verification: `test/reviews.test.ts` checks the section comments, the person-only closed rule and
 the derived states; `e2e/reviews.spec.ts` checks the bands, forged page claims and the answer-closes-section flow;
