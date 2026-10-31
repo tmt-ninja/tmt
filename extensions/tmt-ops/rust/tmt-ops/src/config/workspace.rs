@@ -252,6 +252,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         vec![
             ("1", "agents"),
             ("2", "digest-dashboard"),
+            ("3", "orchestration"),
             ("]", "digest-details"),
             ("up", "scroll-up"),
             ("k", "scroll-up"),
@@ -279,6 +280,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         vec![
             ("1", "agents"),
             ("2", "digest-dashboard"),
+            ("3", "orchestration"),
             ("up", "previous"),
             ("down", "next"),
             ("left", "fold"),

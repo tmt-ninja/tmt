@@ -1,0 +1,410 @@
+//! Held Orchestration facts through the shared Strip, button and row styles.
+use super::{super::app::App, input::Control, model::Snapshot};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    text::Line,
+};
+use tmt_cli_style::{
+    Role,
+    grid::{self, Align, Truncate},
+};
+use tmt_tui::components::strip;
+fn safe(text: &str) -> String {
+    super::super::workspace::render::safe(text)
+}
+fn cell(text: &str, width: usize) -> String {
+    grid::fit(&safe(text), width, Align::Left, Truncate::End)
+}
+fn text(frame: &mut Frame, app: &App, area: Rect, value: &str, role: Role) {
+    if !area.is_empty() {
+        strip::paint_left(
+            frame.buffer_mut(),
+            area,
+            Line::styled(safe(value), app.look().role(role)),
+        );
+    }
+}
+pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
+    app.orchestration.invalidate();
+    if area.width < 34 || area.height < 6 {
+        text(
+            frame,
+            app,
+            area,
+            "Enlarge to review Orchestration",
+            Role::Muted,
+        );
+        return;
+    }
+    let state = &app.orchestration;
+    let look = app.look();
+    let row = |y, height| Rect::new(area.x + 1, area.y + y, area.width.saturating_sub(2), height);
+    let choices = [
+        ("Day", Control::Range(1)),
+        ("7 days", Control::Range(7)),
+        ("30 days", Control::Range(30)),
+        ("Plans", Control::Plans),
+        ("Now", Control::Now),
+    ];
+    let buttons: Vec<_> = choices
+        .iter()
+        .map(|(label, _)| tmt_tui::components::Button::secondary(label))
+        .collect();
+    let hits = super::super::buttons::paint(
+        app,
+        frame.buffer_mut(),
+        row(0, 1),
+        &buttons,
+        Align::Left,
+        None,
+    );
+    for ((_, control), hit) in choices.into_iter().zip(hits) {
+        if let Some(rect) = hit {
+            state.hits.borrow_mut().push((rect, control));
+        }
+    }
+    text(
+        frame,
+        app,
+        row(1, 1),
+        "Member policies at selected time · Routes are not shown yet",
+        Role::Muted,
+    );
+    if state.unavailable {
+        text(
+            frame,
+            app,
+            row(3, 1),
+            "Orchestration is not available in this Core. Update Core to use this tab.",
+            Role::Waiting,
+        );
+        return;
+    }
+    let Some(snapshot) = state.snapshot() else {
+        text(
+            frame,
+            app,
+            row(3, 1),
+            state.failure.as_deref().unwrap_or("Loading Orchestration…"),
+            if state.failure.is_some() {
+                Role::Blocked
+            } else {
+                Role::Waiting
+            },
+        );
+        text(
+            frame,
+            app,
+            row(4, 1),
+            "Jobs · not available yet",
+            Role::Muted,
+        );
+        return;
+    };
+    text(
+        frame,
+        app,
+        row(2, 1),
+        &format!(
+            "{} · {} · {} · revision {}",
+            snapshot.time(snapshot.document.at_ms),
+            snapshot.document.time_zone,
+            if state.follow_now {
+                "following now"
+            } else {
+                "selected time"
+            },
+            snapshot.document.configuration_revision
+        ),
+        Role::Text,
+    );
+    let warning = state.failure.as_ref().map(|e| {
+        format!(
+            "Refresh failed · {e} · showing {}",
+            snapshot.time(snapshot.document.observed_at_ms)
+        )
+    });
+    text(
+        frame,
+        app,
+        row(3, 1),
+        &warning.unwrap_or_else(|| {
+            let active = snapshot.document.timeline.iter().find(|i| {
+                i.start_ms <= snapshot.document.at_ms && snapshot.document.at_ms < i.end_ms
+            });
+            active
+                .map(|i| {
+                    format!(
+                        "{} → {} · {} active plans",
+                        snapshot.time(i.start_ms),
+                        snapshot.time(i.end_ms),
+                        i.plan_ids.len()
+                    )
+                })
+                .unwrap_or_else(|| "Base only · no active plan interval".into())
+        }),
+        if state.failure.is_some() {
+            Role::Waiting
+        } else {
+            Role::Muted
+        },
+    );
+    let content = Rect::new(
+        area.x + 1,
+        area.y + 5,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(5),
+    );
+    let [table, detail] = if area.width >= 110 {
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(content)
+    } else {
+        [content, Rect::default()]
+    };
+    if state.plans {
+        text(
+            frame,
+            app,
+            table,
+            "Plans · higher priority wins per configured field",
+            Role::Muted,
+        );
+        if snapshot.document.plans.is_empty() {
+            text(
+                frame,
+                app,
+                Rect {
+                    y: table.y + 1,
+                    height: table.height.saturating_sub(1),
+                    ..table
+                },
+                "Base only · no configured plans",
+                Role::Text,
+            );
+        }
+        let selected = snapshot
+            .document
+            .plans
+            .iter()
+            .position(|p| p["id"].as_str() == state.plan_selection.as_deref())
+            .unwrap_or(0);
+        let start = selected.saturating_sub(usize::from(table.height.saturating_sub(2)) / 2);
+        for (index, plan) in snapshot
+            .document
+            .plans
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(usize::from(table.height.saturating_sub(2)))
+        {
+            let y = table.y + 1 + (index - start) as u16;
+            let label = format!(
+                "{} {} · priority {} · revision {}",
+                if plan["enabled"].as_bool() == Some(true) {
+                    "●"
+                } else {
+                    "○"
+                },
+                plan["name"].as_str().unwrap_or("?"),
+                plan["priority"],
+                plan["revision"]
+            );
+            let style = look.row_span(index == selected, look.role(Role::Text), false);
+            let area = Rect::new(table.x, y, table.width.saturating_sub(1), 1);
+            strip::paint_left(
+                frame.buffer_mut(),
+                area,
+                Line::styled(cell(&label, usize::from(area.width)), style),
+            );
+            state.hits.borrow_mut().push((area, Control::Plan(index)));
+        }
+    } else {
+        text(
+            frame,
+            app,
+            table,
+            if table.width >= 70 {
+                "MEMBER            STATE   RECEIVING       SENDING   ROUTINE"
+            } else {
+                "MEMBER            STATE   RECEIVING"
+            },
+            Role::Muted,
+        );
+        let selected = snapshot
+            .document
+            .members
+            .iter()
+            .position(|member| Some(&member.identity_id) == state.selected.as_ref())
+            .unwrap_or(0);
+        let start = selected.saturating_sub(usize::from(table.height.saturating_sub(2)) / 2);
+        if snapshot.document.members.is_empty() {
+            text(
+                frame,
+                app,
+                Rect {
+                    y: table.y + 1,
+                    height: 1,
+                    ..table
+                },
+                "No members match this query",
+                Role::Muted,
+            );
+        }
+        for (index, member) in snapshot
+            .document
+            .members
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(usize::from(table.height.saturating_sub(2)))
+        {
+            let receiving = member
+                .effective
+                .receiving
+                .value
+                .as_ref()
+                .map(|r| r.label())
+                .unwrap_or_else(|| "unavailable".into());
+            let mut value = format!(
+                "{} {} {}",
+                cell(&member.name, 17),
+                cell(&member.effective.state.value, 7),
+                cell(&receiving, 15)
+            );
+            if table.width >= 70 {
+                value.push_str(&format!(
+                    " {} {}",
+                    cell(&member.effective.sending.value, 9),
+                    member.effective.routine.value
+                ));
+            }
+            let area = Rect::new(
+                table.x,
+                table.y + 1 + (index - start) as u16,
+                table.width.saturating_sub(1),
+                1,
+            );
+            let style = look.row_span(index == selected, look.role(Role::Text), false);
+            strip::paint_left(frame.buffer_mut(), area, Line::styled(value, style));
+            state.hits.borrow_mut().push((area, Control::Member(index)));
+        }
+    }
+    if table.height > 1 {
+        text(
+            frame,
+            app,
+            Rect::new(table.x, table.bottom() - 1, table.width, 1),
+            "Jobs · not available yet",
+            Role::Muted,
+        );
+    }
+    if !detail.is_empty() {
+        inspector(frame, app, snapshot, detail);
+    }
+}
+fn inspector(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
+    let Some(member) = snapshot
+        .document
+        .members
+        .iter()
+        .find(|m| Some(&m.identity_id) == app.orchestration.selected.as_ref())
+    else {
+        return;
+    };
+    let e = &member.effective;
+    let mut lines = vec![
+        (member.name.clone(), Role::Text),
+        (member.identity_id.clone(), Role::Muted),
+    ];
+    for (name, value, source) in [
+        ("State", e.state.value.clone(), &e.state.source),
+        (
+            "Receiving",
+            e.receiving
+                .value
+                .as_ref()
+                .map(|r| r.label())
+                .unwrap_or_else(|| "unavailable".into()),
+            &e.receiving.source,
+        ),
+        (
+            "Configured sending",
+            e.sending.value.clone(),
+            &e.sending.source,
+        ),
+        (
+            "Configured routine",
+            e.routine.value.clone(),
+            &e.routine.source,
+        ),
+        (
+            "Configured talk limit",
+            e.talk_limit
+                .value
+                .map(|n| format!("{n}/h"))
+                .unwrap_or_else(|| "unlimited".into()),
+            &e.talk_limit.source,
+        ),
+    ] {
+        lines.push((format!("{name} · {value}"), Role::Text));
+        lines.push((
+            format!("from {}", snapshot.document.source_label(source)),
+            Role::Muted,
+        ));
+        if let Some(id) = &source.identity_id {
+            lines.push((format!("member source · {id}"), Role::Muted));
+        }
+        if let Some(slot) = &source.slot {
+            lines.push((
+                format!(
+                    "{} → {}",
+                    snapshot.time(slot.start_ms),
+                    snapshot.time(slot.end_ms)
+                ),
+                Role::Muted,
+            ));
+        }
+    }
+    if !e.receiving.available {
+        if let Some(proposed) = &e.receiving.proposed_value {
+            lines.push((
+                format!("Proposed receiving · {}", proposed.label()),
+                Role::Waiting,
+            ));
+        }
+        lines.push((
+            "Digest has not published its settings yet.".into(),
+            Role::Waiting,
+        ));
+    }
+    if let Some(next) = member.next_change_at_ms {
+        lines.push((
+            format!("Next change · {}", snapshot.time(next)),
+            Role::Muted,
+        ));
+    }
+    if !member.active_plans.is_empty() {
+        lines.push((
+            format!(
+                "Active plans · {}",
+                member
+                    .active_plans
+                    .iter()
+                    .map(|id| snapshot.document.plan_name(id))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Role::Muted,
+        ));
+    }
+    let mut y = area.y;
+    for (line, role) in lines {
+        for line in super::super::notes::wrap(&safe(&line), usize::from(area.width)) {
+            if y >= area.bottom() {
+                return;
+            }
+            text(frame, app, Rect::new(area.x, y, area.width, 1), &line, role);
+            y += 1;
+        }
+    }
+}

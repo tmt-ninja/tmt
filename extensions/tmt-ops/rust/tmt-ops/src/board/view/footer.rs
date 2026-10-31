@@ -600,6 +600,21 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
+    if app.shell.tab == crate::board::shell::OpsTab::Orchestration
+        && !app.modal_open()
+        && app.shown_notice().is_none()
+        && app.error.is_none()
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            footer,
+            ratatui::text::Line::styled(
+                " ↑↓ member · ←→ time · d/7/0 range · P plans · q quit · ? help",
+                look.role(Role::Muted),
+            ),
+        );
+        return;
+    }
     if !app.modal_open()
         && app.input.is_none()
         && !app.searching

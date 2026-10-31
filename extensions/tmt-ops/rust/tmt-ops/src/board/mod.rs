@@ -54,6 +54,7 @@ mod menu_surface;
 mod meter;
 pub(crate) mod notes;
 mod notice;
+mod orchestration;
 mod overview;
 mod pane_chrome;
 mod pane_resize;
@@ -146,6 +147,12 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
+    OrchestrationRead {
+        read: orchestration::Read,
+        observation: orchestration::Observation,
+        revision: u64,
+        cancellation: crate::runner::Cancellation,
+    },
     Migration(Option<String>),
     CronMigration(String),
     /// The host could not say which agent runs the board, once at startup; the
@@ -814,6 +821,9 @@ fn session(
             usage_wants(want.clone());
             wanted = want;
         }
+        if app.shell.tab == shell::OpsTab::Orchestration {
+            dirty |= app.orchestration.tick(crate::status::now_ms());
+        }
         dirty |= app.terminal_sync();
         let history = app.history_demand();
         let demand = history.map(|request| {
@@ -978,6 +988,22 @@ fn session(
                         enrichment,
                     }) => {
                         if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::OrchestrationRead {
+                        read,
+                        observation,
+                        revision: read_revision,
+                        cancellation,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::Orchestration(read.clone()))
+                        {
+                            app.orchestration.apply(read, observation);
                             dirty = true;
                         }
                         Effect::None

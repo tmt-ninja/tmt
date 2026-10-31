@@ -501,6 +501,7 @@ impl App {
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
+            OpsTab::Orchestration => false,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
@@ -865,6 +866,10 @@ impl App {
             .unwrap_or_default()
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
+        if self.shell.tab == OpsTab::Orchestration {
+            self.workspace.selected = None;
+            return;
+        }
         self.digest_rows.get_mut().clear();
         if self
             .search_preview_tab
@@ -1094,10 +1099,11 @@ impl App {
                 self.open_help(false);
                 return Effect::None;
             }
-            Agents | DigestDashboard => {
+            Agents | DigestDashboard | Orchestration => {
                 let digit = match action {
                     Agents => '1',
-                    _ => '2',
+                    DigestDashboard => '2',
+                    _ => '3',
                 };
                 let owner = self.workspace_input_owner();
                 if !self
@@ -1370,9 +1376,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
-            | ScrollPageDown | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
+            | UsageControls | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown
+            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
