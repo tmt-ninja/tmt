@@ -75,6 +75,7 @@ export function ColabHeader({
   remoteMenu = true,
   remoteChip = true,
   crumb,
+  lead,
   headingSuffix,
   embedded = false,
   reader = false,
@@ -98,6 +99,8 @@ export function ColabHeader({
   remoteChip?: boolean;
   /** A crumb between the brand and the title, with its own separator. */
   crumb?: ReactNode;
+  /** In place of the crumb: a segment that brings its own separator (a sub-page's parent). */
+  lead?: ReactNode;
   /** A crumb or control after the title, supplied with its own separator. */
   headingSuffix?: ReactNode;
   /** The page is hosted inside another surface that already names it: only its actions and status
@@ -138,7 +141,9 @@ export function ColabHeader({
       inShell={bar !== null}
       headingPrefix={
         bar !== null ? (
-          remote !== undefined && crumb !== undefined ? (
+          remote !== undefined && lead !== undefined ? (
+            lead
+          ) : remote !== undefined && crumb !== undefined ? (
             <CrumbGroup>{crumb}</CrumbGroup>
           ) : undefined
         ) : remote === undefined ? undefined : (
@@ -146,7 +151,7 @@ export function ColabHeader({
             <span className="colab-title-divider" aria-hidden="true">
               /
             </span>
-            {crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>}
+            {lead ?? (crumb !== undefined && <CrumbGroup>{crumb}</CrumbGroup>)}
           </>
         )
       }
@@ -209,10 +214,14 @@ export function ColabHeader({
               ref={(node) => assign(headerRef, node)}
               aria-describedby={caption === undefined ? undefined : captionId}
             >
-              {(!page || crumb !== undefined) && (
-                <span className="tmt-ui-topbar-title-prefix">
-                  <CrumbGroup>{page ? crumb : text.product}</CrumbGroup>
-                </span>
+              {page && lead !== undefined ? (
+                <span className="tmt-ui-topbar-title-prefix">{lead}</span>
+              ) : (
+                (!page || crumb !== undefined) && (
+                  <span className="tmt-ui-topbar-title-prefix">
+                    <CrumbGroup>{page ? crumb : text.product}</CrumbGroup>
+                  </span>
+                )
               )}
               <span className="tmt-ui-topbar-title-current" title={title}>
                 {title}

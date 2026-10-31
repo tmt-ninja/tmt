@@ -1,0 +1,87 @@
+/* A sub-page's parent before the title (#5506). It shrinks first: the parent's name truncates
+   before this page's title does, and the chips never shrink. */
+.tmt-ui-topbar-title-prefix:has(> .page-hierarchy-parent),
+.page-hierarchy-parent,
+.page-hierarchy-parent > [data-tmt-ui] {
+  /* Its parts are the heading's own flex items, so each shrinks (or not) on its own. */
+  display: contents;
+}
+.page-hierarchy-icon {
+  flex: none;
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+  color: var(--tmt-ui-color-secondary);
+}
+.page-hierarchy-name {
+  flex: 0 20 auto;
+  min-width: 0;
+  color: var(--tmt-ui-color-secondary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-hierarchy-count,
+.page-hierarchy-subpages,
+.page-hierarchy-separator {
+  flex: none;
+}
+.page-hierarchy-name:hover {
+  text-decoration: underline;
+}
+.page-hierarchy-count {
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.page-hierarchy-separator {
+  color: var(--tmt-ui-color-secondary);
+}
+.page-hierarchy-subpages {
+  cursor: pointer;
+}
+.page-hierarchy-narrow {
+  display: none;
+}
+.page-hierarchy-menu {
+  min-width: calc(10 * var(--tmt-ui-space-xl));
+}
+.page-hierarchy-item {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  color: inherit;
+  text-decoration: none;
+}
+.page-hierarchy-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-hierarchy-item[aria-current='page'] .page-hierarchy-title {
+  font-weight: 600;
+}
+.page-hierarchy-state {
+  flex: none;
+}
+
+/* A phone bar keeps the title alone, except for a sub-page's parent and the sub-pages count,
+   which the page shows as a number. */
+@media (max-width: 900px) {
+  .tmt-ui-topbar-title-prefix:has(> .page-hierarchy-parent) {
+    display: contents;
+  }
+  .tmt-ui-topbar-title .tmt-ui-topbar-title-chips:has(.page-hierarchy-subpages) {
+    display: flex;
+  }
+  .tmt-ui-topbar-title-chips:has(.page-hierarchy-subpages) > .tmt-ui-caption {
+    display: none;
+  }
+  .page-hierarchy-wide {
+    display: none;
+  }
+  .page-hierarchy-narrow {
+    display: inline;
+  }
+}
