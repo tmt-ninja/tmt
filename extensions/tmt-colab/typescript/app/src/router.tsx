@@ -1,3 +1,4 @@
+import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
@@ -89,7 +90,8 @@ import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
-import { pendingNeedsYou } from './needs-you.js';
+import { pendingNeedsYou, type NeedsYouCandidate } from './needs-you.js';
+import { needsYouTarget, readNeedsYouAcknowledgements } from './needs-you-acknowledgement.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
@@ -336,9 +338,11 @@ function PageFloatingActions({
               <>
                 <MessageCircle />
                 {chatUnread && (
-                  <span className="chat-unread">
-                    <span aria-hidden="true">•</span> {text.chatUnread}
-                  </span>
+                  <span
+                    className="chat-unread tmt-ui-attention-dot"
+                    data-placement="overlay"
+                    aria-hidden="true"
+                  />
                 )}
               </>
             }
@@ -387,6 +391,7 @@ function SelectionAnnotation({
   open,
   thread,
   arrivals,
+  collapsed = false,
   children,
 }: {
   host: HTMLDivElement | null;
@@ -399,9 +404,10 @@ function SelectionAnnotation({
   thread?: string;
   /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
   arrivals: number;
+  collapsed?: boolean;
   children?: React.ReactNode;
 }) {
-  const expanded = children !== undefined;
+  const expanded = children !== undefined && !collapsed;
   const element = useRef<HTMLDivElement>(null);
   // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
   // the height and arrivals seen by the last placement.
@@ -588,10 +594,10 @@ function SelectionAnnotation({
   return (
     <div
       ref={element}
-      className={children ? 'annotation-popover' : 'selection-control'}
-      data-testid={children ? undefined : 'selection-ask'}
+      className={expanded ? 'annotation-popover' : 'selection-control'}
+      data-testid={expanded ? undefined : 'selection-ask'}
       // The control never takes the pointer from the selection it annotates.
-      onPointerDown={children ? undefined : (event) => event.preventDefault()}
+      onPointerDown={expanded ? undefined : (event) => event.preventDefault()}
       style={
         {
           ...(position
@@ -606,7 +612,8 @@ function SelectionAnnotation({
         } as React.CSSProperties
       }
     >
-      {children ?? (
+      {children}
+      {(!children || collapsed) && (
         <BrowserIconAction
           type="button"
           variant="primary"
@@ -1535,6 +1542,7 @@ function OpenPage({
     setSelectionMode(false);
     closeIf('agents', 'export');
   }, [archived, closeIf, setSelectionMode]);
+  const annotationOpen = !!annotation && !annotation.hidden;
   const annotationThread = annotation?.thread
     ? view.threads?.find(
         (thread) =>
@@ -1658,7 +1666,7 @@ function OpenPage({
       if (!chatBusy.current) closeChat();
     } else if (panel === 'comments') {
       if (!annotationBusy.current && !statusBusy.current) closeComments();
-    } else if (annotationRef.current) closeRef.current(true);
+    } else if (annotationRef.current && !annotationRef.current.hidden) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
   toggleSelectionMode.current = () => {
@@ -1696,7 +1704,7 @@ function OpenPage({
       if (
         event.key === 'Escape' &&
         !panelsRef.current.panel &&
-        !annotationRef.current &&
+        (!annotationRef.current || annotationRef.current.hidden) &&
         !selectionMode
       )
         return;
@@ -1846,7 +1854,7 @@ function OpenPage({
     if (state !== 'ready') return;
     renderer.current?.highlight(
       anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
-      annotation?.selector ?? undefined,
+      annotation?.hidden ? undefined : (annotation?.selector ?? undefined),
       threadTotal,
       quietThread,
     );
@@ -1854,11 +1862,12 @@ function OpenPage({
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
-  const openThreadId = annotation?.thread
-    ? `${annotation.thread.writer}:${annotation.thread.id}`
-    : discussedThread
-      ? activeThread
-      : null;
+  const openThreadId =
+    !annotation?.hidden && annotation?.thread
+      ? `${annotation.thread.writer}:${annotation.thread.id}`
+      : discussedThread
+        ? activeThread
+        : null;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.select(openThreadId);
@@ -1901,8 +1910,8 @@ function OpenPage({
     activate: (event) => {
       if (
         panel ||
-        annotationRef.current?.thread ||
-        annotationBusy.current ||
+        (!annotationRef.current?.hidden && annotationRef.current?.thread) ||
+        (!annotationRef.current?.hidden && annotationBusy.current) ||
         statusBusy.current ||
         chatBusy.current
       )
@@ -1950,6 +1959,38 @@ function OpenPage({
       }}
     />
   );
+  const attentionBinding = snapshot.binding?.discussion;
+  const attentionScope = attentionBinding?.scope;
+  const attentionVersions = useNeedsYouVersions(view.source, [
+    ...proposalLayer.navigation,
+    ...readingLayer.items
+      .filter((item) => inlineSlots.readingIds.has(item.id))
+      .map((item) => ({
+        ...item,
+        kind: 'reading' as const,
+        agents: [readings.find((reading) => reading.id === item.id)?.agent ?? ''].filter(Boolean),
+      })),
+    ...(view.questions === undefined
+      ? questionLayer.navigation
+      : (verifiedQuestionStates(view) ?? [])
+          .filter((question) => question.state === 'open' && questionLayer.attached(question.id))
+          .map((question) => ({
+            kind: 'answer' as const,
+            version: JSON.stringify([question, questionLayer.version(question.id)]),
+            state: 'unanswered' as const,
+            id: question.id,
+            title: question.title ?? question.id,
+            agents: [question.agent?.name ?? view.creator?.agent.name ?? ''].filter(Boolean),
+          }))),
+    ...reviewLayer.navigation,
+  ]);
+  const needsYouItems: NeedsYouCandidate[] = pendingNeedsYou(
+    attentionVersions.items,
+    view.questions !== undefined,
+    attentionScope && attentionBinding
+      ? readNeedsYouAcknowledgements(view.own ?? {}, attentionScope, attentionBinding.deviceId)
+      : new Set(),
+  );
   const content = (
     <section
       className="page"
@@ -1961,7 +2002,7 @@ function OpenPage({
         suspended={
           notifications.activating ||
           panel !== null ||
-          !!annotation?.thread ||
+          (annotationOpen && !!annotation?.thread) ||
           notifications.modalCount > 0 ||
           recoveryRequired ||
           quickSwitcher?.open === true
@@ -1996,61 +2037,52 @@ function OpenPage({
         home={routing.home}
         status={
           <div className="page-header-meta">
-            {!discussionPending &&
-              questionLayer.ready &&
-              reviewLayer.ready &&
-              readingLayer.ready && (
-                <NeedsYouHeader
-                  menuFocus={needsYouMenuFocus}
-                  href={(item) =>
-                    routing.pageHref(
-                      snapshot.id,
-                      item.kind === 'reading' ? { read: item.id } : undefined,
-                    )
-                  }
-                  items={pendingNeedsYou(
-                    [
-                      ...proposalLayer.navigation,
-                      ...readingLayer.items
-                        .filter((item) => inlineSlots.readingIds.has(item.id))
-                        .map((item) => ({
-                          ...item,
-                          kind: 'reading' as const,
-                          agents: [
-                            readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                          ].filter(Boolean),
-                        })),
-                      ...(view.questions === undefined
-                        ? questionLayer.navigation
-                        : (verifiedQuestionStates(view) ?? [])
-                            .filter((question) => question.state === 'open')
-                            .map((question) => ({
-                              kind: 'answer' as const,
-                              state: 'unanswered' as const,
-                              id: question.id,
-                              title: question.title ?? question.id,
-                              agents: [
-                                question.agent?.name ?? view.creator?.agent.name ?? '',
-                              ].filter(Boolean),
-                            }))),
-                      ...reviewLayer.navigation,
-                    ],
-                    view.questions !== undefined,
-                  )}
-                  onPick={(item) => {
-                    if (item.kind === 'proposal') {
-                      if (!proposalLayer.jump(item.id)) {
-                        const ref = proposalLayer.reference(item.id);
-                        if (ref) openThread(ref);
+            {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
+            <NeedsYouHeader
+              ready={
+                !discussionPending &&
+                questionLayer.ready &&
+                reviewLayer.ready &&
+                readingLayer.ready &&
+                attentionVersions.ready
+              }
+              menuFocus={needsYouMenuFocus}
+              href={(item) =>
+                routing.pageHref(
+                  snapshot.id,
+                  item.kind === 'reading' ? { read: item.id } : undefined,
+                )
+              }
+              items={needsYouItems}
+              onClear={
+                !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
+                  ? async (items) => {
+                      const heldBinding = attentionBinding;
+                      for (const item of items.filter((item) => item.kind === 'reading')) {
+                        const reading = readings.find((reading) => reading.id === item.id);
+                        if (!reading || !(await readingLayer.actions.mark(reading, false)))
+                          throw new Error(text.needsYouClearFailed);
                       }
-                    } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                    else if (item.kind === 'answer') {
-                      if (!questionLayer.open(item.targetId ?? item.id))
-                        setMetadataDialog('questions');
-                    } else if (item.kind === 'review') reviewLayer.jump(item.id);
-                  }}
-                />
-              )}
+                      if (binding.current?.discussion !== heldBinding)
+                        throw new Error(text.needsYouClearFailed);
+                      await heldBinding.acknowledgeNeedsYou!(
+                        items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
+                      );
+                    }
+                  : undefined
+              }
+              onPick={(item) => {
+                if (item.kind === 'proposal') {
+                  if (!proposalLayer.jump(item.id)) {
+                    const ref = proposalLayer.reference(item.id);
+                    if (ref) openThread(ref);
+                  }
+                } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                else if (item.kind === 'answer') {
+                  if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
+                } else if (item.kind === 'review') reviewLayer.jump(item.id);
+              }}
+            />
             {/* The connection state is not shown (a notice below the header carries trouble); its words
                 stay in the document for assistive technology and as the page's readiness signal. */}
             <span
@@ -2226,7 +2258,7 @@ function OpenPage({
           style={
             {
               '--discussion-right': `${dockPlacement.right}px`,
-              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+              '--discussion-bottom': `calc(${dockPlacement.bottom + dockPlacement.height}px + var(--tmt-ui-space-l))`,
             } as React.CSSProperties
           }
           closeLabel={text.discussionClose}
@@ -2368,7 +2400,7 @@ function OpenPage({
           host={host.current}
           slots={inlineSlots.positions}
           enabled={selectionMode}
-          discussionOpen={!!annotation}
+          discussionOpen={annotationOpen}
           panel={panel}
           toggle={() => toggleSelectionMode.current()}
           chatUnread={notifications.chatUnread}
@@ -2401,7 +2433,8 @@ function OpenPage({
         (annotation || (!liveError && state === 'ready')) && (
           <SelectionAnnotation
             host={host.current}
-            rectangle={annotation?.rectangle ?? rectangle}
+            rectangle={annotation?.hidden ? rectangle : (annotation?.rectangle ?? rectangle)}
+            collapsed={annotation?.hidden}
             inset={toolbar.current?.offsetHeight ?? 0}
             noticeVisible={state === 'navigation' || state === 'failed'}
             toggleVisible={canSelect}
@@ -2420,6 +2453,8 @@ function OpenPage({
               <section
                 key={annotation.key}
                 className="annotation-new"
+                hidden={annotation.hidden}
+                style={annotation.hidden ? { display: 'none' } : undefined}
                 role="dialog"
                 aria-label="Annotate selection"
                 ref={popover}
@@ -2515,10 +2550,11 @@ function OpenPage({
                           annotationBusy.current = busy;
                         }}
                         cancel={() => closeAnnotation(true)}
-                        committed={(ref) => {
+                        onRecorded={(ref) => {
                           if (annotationRef.current?.key === annotation.key)
                             continueAnnotation(ref);
                         }}
+                        committed={() => {}}
                       />
                     </>
                   }
@@ -2579,7 +2615,7 @@ function OpenPage({
           style={
             {
               '--discussion-right': `${dockPlacement.right}px`,
-              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+              '--discussion-bottom': `calc(${dockPlacement.bottom + dockPlacement.height}px + var(--tmt-ui-space-l))`,
             } as React.CSSProperties
           }
           title="Chat"
@@ -2650,7 +2686,7 @@ function OpenPage({
           headerBottom: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
           blockSurface:
             notifications.modalCount ||
-            annotation?.thread ||
+            (annotationOpen && annotation?.thread) ||
             recoveryRequired ||
             quickSwitcher?.open
               ? 'covered'
