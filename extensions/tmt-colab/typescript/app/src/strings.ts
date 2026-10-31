@@ -950,7 +950,7 @@ export const text = {
     },
     /** An empty In progress tab says why and offers the way out in one line; no tab opens by itself. */
     noInProgress: {
-      before: 'Nothing in progress. Pages without tasks are under ',
+      before: 'Nothing in progress. Pages without sub-pages are under ',
       discussion: 'Discussion',
       between: '; ',
       all: 'All',
@@ -963,11 +963,9 @@ export const text = {
       discussion: (name: string) => `No pages in discussion in ${name}.`,
       done: (name: string) => `Nothing done in ${name}.`,
     },
-    /** A stage tab with no page while some pages have not reported their tasks yet. */
+    /** A stage tab with no page while some pages have not reported their sub-pages yet. */
     readingDetails: 'Reading page details…',
-    tasksDone: (done: number, total: number) => `${done} of ${total} tasks done`,
-    working: 'Working',
-    moreWorking: (count: number) => `+${count}`,
+    subpagesDone: (done: number, total: number) => `${done} of ${total} sub-pages done`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
     /** The project filter's ⋯ entry that opens Manage projects, where every project is. */
@@ -1178,17 +1176,10 @@ export const text = {
     readOnlyLabel: 'Read only',
     open: 'Open in browser',
     openHelp: 'Serve and page create open a browser.',
-    wip: 'Work in progress',
-    wipHelp: 'Assigned to-do and in-progress tasks across all pages.',
-    wipAgent: (agent: string, limit: number) => `${agent} ${limit}`,
-    perAgent: (limit: number) => `${limit} per agent`,
-    github: 'GitHub repository',
-    githubHelp: 'Where tmt colab task github pushes tasks.',
     expiry: 'Page expiry',
     expiryHelp: 'Days without an edit, comment or reply before archive.',
     on: 'On',
     off: 'Off',
-    notSet: 'Not set',
     never: 'Never',
     days: (days: number) => `${days} days`,
   },
