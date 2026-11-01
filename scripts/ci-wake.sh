@@ -8,6 +8,8 @@
 #
 # usage: ci-wake.sh <pr> --identity <self> [--until checks|merged]
 #                   [--interval <seconds>] [--cap <seconds>]
+# --interval is at least and by default 180 s (plus 0-30 s jitter); --cap is
+# at most and by default 7200 s.
 #
 # Final states, the first one wins:
 # - `--until checks` (the default): at least one workflow run exists for the

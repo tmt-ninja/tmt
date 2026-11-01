@@ -110,6 +110,25 @@ async function identity(sandbox: Sandbox, name: string): Promise<string> {
   return JSON.parse(result.stdout).identity.id;
 }
 
+/** Human lead output keeps its original membership result and a readable unapplied Core preview. */
+function expectLeadTextPreview(
+  result: Awaited<ReturnType<typeof runCli>>,
+  summary: string,
+  identityIds: string[]
+): void {
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stderr).toBe('');
+  expect(result.stdout.slice(0, summary.length)).toBe(summary);
+  const explanation = result.stdout.slice(summary.length);
+  expect(explanation).toContain('Squad changed. Core leads not updated yet.');
+  expect(explanation).toContain("Replace Core's global leads with all active Ops squad leads.");
+  expect(explanation).toContain('Core-only leads below will be removed.');
+  for (const id of identityIds) expect(explanation).toContain(id);
+  if (!identityIds.length) expect(explanation).toContain("Core's leads list will be empty.");
+  expect(explanation).not.toContain('previewDigest');
+  expect(explanation).not.toContain('Core preview:');
+}
+
 // Independent observation of the authoritative roster and board metadata.
 function observe(sandbox: Sandbox) {
   const db = new Database(sandbox.database, { readonly: true });
@@ -2126,6 +2145,78 @@ o = "run touch ${marker}"
     });
   });
 
+  it('publishes the authoritative lead union only with consent and keeps former leads as members', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const ids: Record<string, string> = {};
+      for (const name of ['Ben', 'Sol', 'Rin', 'External'])
+        ids[name] = await identity(sandbox, name);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['init', 'reviews'])).status).toBe(0);
+      const initial = await runCli(sandbox, [
+        'orch',
+        'leads',
+        'set',
+        'External',
+        '--yes',
+        '--json',
+      ]);
+      expect(initial.status, initial.stderr + initial.stdout).toBe(0);
+      const coreLeads = async () => {
+        const read = await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'orchestration.read',
+            input: { view: 'talks', limit: 1 },
+          }),
+        });
+        expect(read.status, read.stderr + read.stdout).toBe(0);
+        return (JSON.parse(read.stdout).leads as { identityId: string }[])
+          .map((row) => row.identityId)
+          .sort();
+      };
+      const proposed = await squad(sandbox, ['lead', 'Sol', '--squad', 'product']);
+      expect(proposed.status, proposed.stderr).toBe(0);
+      expect(proposed.body.lead.id).toBe(ids.Sol);
+      expect(proposed.body.coreLeads).toMatchObject({
+        status: 'preview',
+        preview: { requiresConsent: true, mutation: { kind: 'leads.set', identityIds: [ids.Sol] } },
+        before: [{ identityId: ids.External, name: 'External' }],
+        after: [{ identityId: ids.Sol, name: 'Sol' }],
+      });
+      expect(await coreLeads()).toEqual([ids.External]);
+      const published = await squad(sandbox, ['lead', 'Rin', '--squad', 'reviews', '--yes']);
+      expect(published.status, published.stderr).toBe(0);
+      expect(published.body.coreLeads).toMatchObject({
+        status: 'applied',
+        result: { requiresConsent: false, changed: true },
+      });
+      expect(await coreLeads()).toEqual([ids.Sol, ids.Rin].sort());
+      // A shared lead has one Core UUID, and clearing one squad keeps the other.
+      expect((await squad(sandbox, ['lead', 'Sol', '--squad', 'reviews', '--yes'])).status).toBe(0);
+      expect(await coreLeads()).toEqual([ids.Sol]);
+      expect((await squad(sandbox, ['lead', '--none', '--squad', 'product', '--yes'])).status).toBe(
+        0
+      );
+      expect(await coreLeads()).toEqual([ids.Sol]);
+      const clearPreview = await squad(sandbox, ['lead', '--none', '--squad', 'reviews']);
+      expect(clearPreview.status).toBe(0);
+      expect(clearPreview.body.coreLeads.preview.mutation.identityIds).toEqual([]);
+      expect(await coreLeads()).toEqual([ids.Sol]);
+      expect((await squad(sandbox, ['lead', '--none', '--squad', 'reviews', '--yes'])).status).toBe(
+        0
+      );
+      expect(await coreLeads()).toEqual([]);
+      const product = (await squad(sandbox, ['ls', '--squad', 'product'])).body;
+      const reviews = (await squad(sandbox, ['ls', '--squad', 'reviews'])).body;
+      expect(product.squad.lead).toBeNull();
+      expect(reviews.squad.lead).toBeNull();
+      expect(JSON.stringify(product.sections)).toContain(ids.Sol);
+      expect(JSON.stringify(reviews.sections)).toContain(ids.Rin);
+      expect(JSON.stringify(reviews.sections)).toContain(ids.Sol);
+    });
+  }, 120_000);
+
   it('clears leadership without removing members, and explains leaderless recovery', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -2157,7 +2248,7 @@ o = "run touch ${marker}"
       expect(text.stdout).not.toContain('hint: tmt ops squad lead');
       await squad(sandbox, ['lead', 'Rin']);
       const clearedText = await runCli(sandbox, ['ops', 'sq', 'lead', '--none']);
-      expect(clearedText.stdout).toBe('✓ Squad product has no lead; Rin remains a member\n');
+      expectLeadTextPreview(clearedText, '✓ Squad product has no lead; Rin remains a member\n', []);
       await squad(sandbox, ['init', 'reviews']);
       expect((await squad(sandbox, ['lead', '--none'])).body.error.code).toBe('SQUAD_AMBIGUOUS');
       expect((await squad(sandbox, ['lead', '--none', '--squad', 'product'])).status).toBe(0);
@@ -2187,19 +2278,18 @@ o = "run touch ${marker}"
   it('reports lead, add, set and remove as text without --json', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
-      for (const name of ['Ben', 'Sol', 'Rin', 'coder', 'outsider']) await identity(sandbox, name);
+      const ids: Record<string, string> = {};
+      for (const name of ['Ben', 'Sol', 'Rin', 'coder', 'outsider'])
+        ids[name] = await identity(sandbox, name);
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       const text = (args: string[]) => runCli(sandbox, ['ops', 'sq', ...args]);
 
-      expect(await text(['lead', 'Sol'])).toMatchObject({
-        status: 0,
-        stdout: '✓ Sol leads squad product\n',
-        stderr: '',
-      });
-      expect(await text(['lead', 'Rin'])).toMatchObject({
-        status: 0,
-        stdout: '✓ Rin leads squad product (replaces Sol; Sol remains a member)\n',
-      });
+      expectLeadTextPreview(await text(['lead', 'Sol']), '✓ Sol leads squad product\n', [ids.Sol]);
+      expectLeadTextPreview(
+        await text(['lead', 'Rin']),
+        '✓ Rin leads squad product (replaces Sol; Sol remains a member)\n',
+        [ids.Rin]
+      );
       // A partial add keeps its successes on stdout and each failure on stderr.
       expect(await text(['add', 'coder', 'ghost'])).toMatchObject({
         status: 1,

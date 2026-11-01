@@ -8,6 +8,7 @@ use crate::{
     squad::{self, Squad, name_invalid, valid_name},
 };
 mod assign;
+pub(crate) mod publish;
 mod rename;
 pub(crate) mod workspace;
 pub use assign::assign;

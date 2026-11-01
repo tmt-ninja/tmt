@@ -30,9 +30,12 @@ it.each(['claude', 'codex'] as const)(
           '--json',
         ]);
         expect(initialized.code, initialized.stdout + initialized.stderr).toBe(0);
-        expect(
-          (await fixture.runCli(['ops', 'squad', 'lead', 'Reminder Lead', '--json'])).code
-        ).toBe(0);
+        const lead = await fixture.runCli(['ops', 'squad', 'lead', 'Reminder Lead', '--json']);
+        expect(lead.code, lead.stdout + lead.stderr).toBe(0);
+        expect(JSON.parse(lead.stdout).coreLeads).toMatchObject({
+          message: expect.stringContaining('Core leads not updated'),
+        });
+        expect(JSON.parse(lead.stdout).coreLeads.status).not.toBe('applied');
         const config = path.join(fixture.globalDir, 'ops.toml');
         // Core owns the user now, so `init --me` no longer creates ops.toml.
         fs.appendFileSync(config, '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n');

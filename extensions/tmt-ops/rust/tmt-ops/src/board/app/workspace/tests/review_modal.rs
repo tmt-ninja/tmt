@@ -477,8 +477,16 @@ pub(in crate::board) const CRUD_SCENES: &[&str] = &[
     "crud-leave-squad",
     "timers-delete-confirm",
     "cron-review",
+    "leads-publication-preview",
+    "leads-publication-empty",
+    "leads-publication-conflict",
+    "leads-publication-denied",
+    "leads-publication-pending",
 ];
 pub(in crate::board) fn crud_capture_case(scene: &str, look: crate::look::Look) -> App {
+    if scene.starts_with("leads-publication-") {
+        return lead_publication_capture(scene, look);
+    }
     let mut app = board();
     app.view.as_mut().unwrap().look = look;
     app.view
@@ -793,4 +801,233 @@ fn close_delete_explicit_confirm_dispatches_once_instead_of_copying_a_command() 
         Effect::None,
         "pending work never resubmits"
     );
+}
+
+fn completed_lead_publication(publication: serde_json::Value, complete: bool) -> App {
+    let clears = publication["status"] == "preview"
+        && publication["after"].as_array().is_some_and(Vec::is_empty);
+    let mut app = review(
+        Kind::Lead,
+        Change::Membership(Operation::Lead {
+            room: RoomTarget {
+                id: ROOM.into(),
+                name: "product".into(),
+                revision: 2,
+            },
+            member: (!clears).then(|| MEMBER.into()),
+        }),
+    );
+    app.workspace_form.as_mut().unwrap().stage = crate::board::workspace::manage::Stage::Pending;
+    app.finished_workspace(Ok(crate::membership::Outcome {
+        complete,
+        document: serde_json::json!({
+            "squad": "product",
+            "lead": if clears { serde_json::Value::Null } else { serde_json::json!({"id": MEMBER, "name": "worker"}) },
+            "coreLeads": publication,
+        }),
+    }));
+    app
+}
+
+#[test]
+fn squad_leads_publication_preview_is_a_cancel_first_follow_up() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = completed_lead_publication(lead_publication_preview(), true);
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Publish squad leads to Core"), "{screen}");
+    assert!(
+        screen.contains("external-lead"),
+        "Core-only removals must be visible"
+    );
+    assert!(screen.contains("worker"));
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(hidden(&app), "Cancel is the initial follow-up action");
+}
+
+#[test]
+fn squad_leads_publication_failure_keeps_the_successful_squad_change_explicit() {
+    let _no_commands = crate::runner::forbid_commands();
+    let app = completed_lead_publication(
+        serde_json::json!({
+            "status":"failed",
+            "error":{"code":"ORCH_CONFLICT","message":"Core configuration changed; preview again."},
+        }),
+        false,
+    );
+    let message = app.notice.as_deref().unwrap();
+    assert!(
+        message.contains("Squad changed. Core leads not updated"),
+        "{message}"
+    );
+    assert!(
+        message.contains("Core configuration changed; preview again."),
+        "{message}"
+    );
+    assert!(!message.contains("rolled back"));
+}
+
+fn lead_publication_preview() -> serde_json::Value {
+    serde_json::json!({
+        "status":"preview",
+        "preview": {
+            "schemaVersion":1,"configurationRevision":7,
+            "previewAtMs":1_791_600_000_000_u64,"timeZone":"Asia/Tokyo",
+            "mutation":{"kind":"leads.set","identityIds":[MEMBER]},
+            "before":{},"after":{},"changes":[],"validUntilMs":null,
+            "requiresConsent":true,"previewDigest":"a".repeat(64),
+        },
+        "before":[{"identityId":"33333333-3333-4333-8333-333333333333","name":"external-lead"}],
+        "after":[{"identityId":MEMBER,"name":"worker"}],
+    })
+}
+
+fn lead_publication_capture(scene: &str, look: crate::look::Look) -> App {
+    let mut preview = lead_publication_preview();
+    if scene == "leads-publication-empty" {
+        preview["after"] = serde_json::json!([]);
+        preview["preview"]["mutation"]["identityIds"] = serde_json::json!([]);
+    }
+    let mut app = completed_lead_publication(preview, true);
+    if matches!(
+        scene,
+        "leads-publication-conflict" | "leads-publication-denied"
+    ) {
+        app.workspace_form.as_mut().unwrap().stage = Stage::Pending;
+        let (code, message) = if scene == "leads-publication-conflict" {
+            // The separate publication was explicitly confirmed before Core's CAS refused.
+            app.workspace_form.as_mut().unwrap().stage = Stage::Pending;
+            (
+                "ORCH_CONFLICT",
+                "Core configuration changed; preview again.",
+            )
+        } else {
+            // Permission can refuse while preparing the offer, before any confirmation.
+            app.workspace_form.as_mut().unwrap().operation =
+                Some(Change::Membership(Operation::Lead {
+                    room: RoomTarget {
+                        id: ROOM.into(),
+                        name: "product".into(),
+                        revision: 2,
+                    },
+                    member: Some(MEMBER.into()),
+                }));
+            (
+                "ORCH_NOT_PERMITTED",
+                "Only a person or a current Core lead may publish leads.",
+            )
+        };
+        app.finished_workspace(Ok(crate::membership::Outcome {
+            complete:false,
+            document:serde_json::json!({"coreLeads":{"status":"failed","error":{"code":code,"message":message}}}),
+        }));
+    }
+    if scene == "leads-publication-pending" {
+        app.workspace_form.as_mut().unwrap().stage = Stage::Pending;
+    }
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
+    app
+}
+
+#[test]
+fn squad_leads_publication_keeps_pending_work_hidden_without_replay() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-preview", crate::look::Look::default());
+    draw(&app, 160, 36);
+    assert!(matches!(
+        app.workspace_confirm(),
+        Effect::Act(Request::WorkspaceOperation(Change::PublishLeads(_)))
+    ));
+    assert_eq!(
+        app.workspace_confirm(),
+        Effect::None,
+        "pending cannot replay"
+    );
+    key(&mut app, KeyCode::Esc);
+    assert!(hidden(&app));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Pending);
+    assert!(
+        app.notice
+            .as_deref()
+            .is_none_or(|message| !message.contains("declined"))
+    );
+}
+
+#[test]
+fn squad_leads_publication_hidden_preview_reopens_cancel_first() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = completed_lead_publication(lead_publication_preview(), true);
+    // The lead change finished while its pending form was hidden.
+    app.workspace_form.as_mut().unwrap().shown = false;
+    assert_eq!(app.workspace_begin(Kind::Lead), Effect::None);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().review.focus,
+        tmt_tui::components::Focus::Buttons(0),
+        "reopening must focus Cancel"
+    );
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(
+        !screen.contains(" Discard "),
+        "the squad change is already applied"
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::None,
+        "reopening never selects Publish"
+    );
+    assert!(hidden(&app));
+}
+
+#[test]
+fn squad_leads_publication_requires_the_whole_question_before_publish() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-preview", crate::look::Look::default());
+    let screen = paint(&app, 80, 8).join("\n");
+    assert!(screen.contains("Enlarge to review"), "{screen}");
+    assert!(!screen.contains("Publish leads"), "{screen}");
+    assert!(matches!(app.workspace_confirm(), Effect::None));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+}
+
+#[test]
+fn squad_leads_publication_conflict_offers_an_explicit_fresh_preview() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-conflict", crate::look::Look::default());
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Preview again"), "{screen}");
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(
+        app.workspace_form.is_none(),
+        "Cancel closes the result without requesting a preview"
+    );
+}
+
+#[test]
+fn squad_leads_publication_retry_dispatches_only_a_preview_and_reopens_on_cancel() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-conflict", crate::look::Look::default());
+    draw(&app, 160, 36);
+    key(&mut app, KeyCode::Right);
+    assert!(matches!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::WorkspaceOperation(Change::PreviewLeads(_)))
+    ));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Pending);
+    app.finished_workspace(Ok(
+        serde_json::json!({"coreLeads":lead_publication_preview()}).into(),
+    ));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().review.focus,
+        tmt_tui::components::Focus::Buttons(0)
+    );
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("1 removed · 1 added"), "{screen}");
+    assert!(matches!(key(&mut app, KeyCode::Enter), Effect::None));
+    assert!(hidden(&app));
 }

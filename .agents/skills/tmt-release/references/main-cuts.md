@@ -199,7 +199,11 @@ released component is releasable under `Other changes`; see
 are developer dependencies, not runtime owners.
 
 The cut remains O(P): a quiet P-page read costs P+2 requests, with three attempts
-sharing 60 requests / 90 seconds and a maximum of 58 pages (5,800 releases).
+sharing one request allowance and a 150-second reader deadline. The
+first page freezes `min(180, max(60, 3*(P+2)))` calls; retries do not reset it.
+The size allowance admits at most 100 pages (10,000 releases), but does not
+promise they fit the time budget. The live caller also counts every catalogue
+call against its normal-work limit; exhaustion never returns a partial view.
 The live coordinator shares 180 requests / 360 seconds, reserving the last three
 reads / 30 seconds for dispatch reconciliation (normal work stops at 177 calls /
 330 seconds). MEASURED in #4098: 67 seconds to the first draft, then 29/28/28/27
@@ -250,6 +254,31 @@ proofs each recheck this contract, including CLI adapter acceptance. Dist plan,
 build manifest and extracted binary must agree. Already-versioned reruns require
 byte-identical source and lock. Preparation uses the [fixture reference's non-publishing
 synthetic version](installation-fixtures.md#synthetic-preparation-version) and keeps the same source/artifact/installation gates.
+
+## Alpha release retention
+
+Ben decided that alpha releases are kept for one week (#3663). `release-retention.mjs plan`
+freezes one UTC cutoff (default now minus seven days) and plans deletion of release records
+and assets only for published alpha versions published before it; tags are never deleted,
+because they keep reserving their versions. It keeps every draft (live, held, failed), every
+non-alpha release, each product's newest publication, the repository's newest publication,
+the CLI upgrade support floor and every boundary that `releaseCutHistory`, `resolveDeclaration`,
+frozen `tmt-release-cli` markers, component `uses` and the drafts' `selectPrevious` read, for
+main and for each draft's captured commit. Every selector must return the same result after the
+deletions, with all tags kept. An unknown product, duplicate row, malformed marker, missing tag,
+unresolved reference or incomplete catalogue refuses the whole plan with zero deletions.
+The one reviewed exception is a retired prefix in the module's list (only `tmt-office-v`, retired in #3003): those releases are kept as `retired-product` and are never candidates.
+
+Only the dry run exists: `release-retention.yml` (daily, main only, `contents: read`) uploads
+the `release-retention-plan` artifact. That token cannot list drafts, so its plan is
+`advisory`; only a plan read with draft-visible credentials (`--draft-visibility trusted`)
+can be reviewed for live mode. Live deletion is a later change, after Infra reviews a trusted
+list. Once it runs, an alpha older than one week can no longer be installed by its exact
+version; `tmt upgrade --channel alpha` is unaffected, since the newest publications are kept.
+
+```sh
+node typescript/scripts/release-retention.mjs plan --draft-visibility trusted [--cutoff <iso>] [--cut <sha>] [--catalogue <file>]
+```
 
 ## Native pipeline selection
 

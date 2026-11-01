@@ -399,6 +399,9 @@ describe('independent release-tag concurrency guard', () => {
       } else if (file === 'release-index-bootstrap.yml') {
         // Historical pointer writes are serialized; this workflow publishes no release.
         expect(groups).toEqual(['release-index-bootstrap']);
+      } else if (file === 'release-retention.yml') {
+        // One retention plan at a time; it publishes nothing and deletes no tag.
+        expect(groups).toEqual(['release-retention']);
       } else if (
         !['project-release.yml', 'release-version-injection.yml', 'release-rehearsal.yml'].includes(
           file

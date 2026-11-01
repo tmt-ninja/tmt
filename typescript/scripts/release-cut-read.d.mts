@@ -28,6 +28,7 @@ export function readCutMetadata(
     draft: boolean;
     body?: string;
     target_commitish?: string;
+    published_at?: string | null;
     assets: { name: string }[];
   }[];
 };

@@ -900,6 +900,18 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'worker']));
       expectJsonResult(await squadCli(fixture, ['me', 'Ben']));
+      const coreLeadState = () => {
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
+        try {
+          return {
+            leads: db.prepare('SELECT * FROM orchestration_leads ORDER BY identity_id').all(),
+            settings: db.prepare('SELECT * FROM orchestration_settings ORDER BY id').all(),
+          };
+        } finally {
+          db.close();
+        }
+      };
+      const beforeCoreLeads = coreLeadState();
       const beforeRequests = requestAttempts(fixture);
       const beforeIdentities = durableState(fixture);
       await fixture.attachSessionClient('e2e');
@@ -1011,7 +1023,19 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(requestAttempts(fixture)).toEqual(beforeRequests);
       // The review opens on Create squad, so Enter applies what was reviewed.
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture((screen) => screen.includes('Applied'), shell.pane);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Publish squad leads to Core') &&
+          /Cancel[ \t]+Publish leads/.test(screen),
+        shell.pane
+      );
+      // The squad is already created; Cancel is the default for the separate Core offer.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => !screen.includes('Publish squad leads to Core') && screen.includes('product'),
+        shell.pane
+      );
+      expect(coreLeadState()).toEqual(beforeCoreLeads);
       const room = expectJsonResult<{ room: { id: string; memberIds: string[] } }>(
         await fixture.runJsonCli(['room', 'show', 'squad-product'])
       ).room;

@@ -1,0 +1,47 @@
+name: Release retention
+run-name: Alpha release retention (dry run)
+
+# Lists which published alpha release records older than one week a later live mode could
+# delete, and every protected release with its reasons (#3663). This workflow deletes nothing:
+# it holds no write permission, secret or Environment, and tags are never candidates.
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-retention
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan alpha release retention
+    if: github.repository == 'tmt-ninja/tmt' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-tooling
+      - name: Install reviewed release parsing dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # A contents:read token cannot list drafts, so this plan is advisory: draft-derived
+      # protections are missing. Only a trusted-visibility plan may drive a later live mode.
+      - name: Plan retention from the bounded release catalogue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node typescript/scripts/release-retention.mjs plan --draft-visibility public --cut "$GITHUB_SHA" > "$RUNNER_TEMP/release-retention-plan.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-retention-plan
+          path: ${{ runner.temp }}/release-retention-plan.json
+          if-no-files-found: warn
+          retention-days: 30

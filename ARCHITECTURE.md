@@ -414,6 +414,8 @@ own module/drawing boundaries and verification.
   Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
   its store tracks one CLI and one board warning, and the board worker forwards the latter.
   No Ops data enters `config.json` or Core's database.
+  Confirmed lead changes separately offer the global squad-lead union through Core's
+  orchestration preview/consent/CAS; Core owns that list and its permission checks.
 - **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   Paint/input do no Core reads; WP1 owns conversation/editor/drafts. UUID selection, the virtual Common pool, membership pause/Resume and squad rename belong to the [surface](.agents/skills/tmt-ops-dev/references/board-home.md) and [cron](.agents/skills/tmt-ops-dev/references/board-cron.md) references.
   Per-name view state stays in the disposable Ops cache, apart from shared Config preferences. Lifecycles and the HOME usage receipt: [refresh worker](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).

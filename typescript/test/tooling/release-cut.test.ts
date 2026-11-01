@@ -746,11 +746,104 @@ describe('bounded REST-only state acquisition', () => {
     expect(f.execute).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
-  it.each([0, 100, 1201, 5800])('reads %i releases under the P+2 request rule', (count) => {
-    const f = api(count);
-    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
-    expect(f.execute).toHaveBeenCalledTimes(Math.max(1, Math.ceil(count / 100)) + 2);
-  });
+  it.each([0, 100, 1201, 5800, 6000, 10000])(
+    'reads %i releases under the P+2 request rule',
+    (count) => {
+      const f = api(count);
+      expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+      expect(f.execute).toHaveBeenCalledTimes(Math.max(1, Math.ceil(count / 100)) + 2);
+    }
+  );
+  it.each([
+    { count: 6000, pageMs: 1021, mutationMs: 5600, outcome: 'success', elapsedMs: 232302 },
+    { count: 6000, pageMs: 1306, mutationMs: 5600, outcome: 'success', elapsedMs: 249972 },
+    { count: 10000, pageMs: 1021, mutationMs: 5600, outcome: 'success', elapsedMs: 273142 },
+    { count: 10000, pageMs: 1306, mutationMs: 5600, outcome: 'success', elapsedMs: 302212 },
+    { count: 10000, pageMs: 1706, mutationMs: 5600, outcome: 'reader-timeout', elapsedMs: 151000 },
+    { count: 10000, pageMs: 1306, mutationMs: 9000, outcome: 'outer-timeout', elapsedMs: 330000 },
+  ])(
+    'qualifies $count rows at $pageMs ms/page: $outcome',
+    ({ count, pageMs, mutationMs, outcome, elapsedMs }) => {
+      let clock = 0;
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+      const f = api(count);
+      const drafts = new Map<number, object>();
+      let dispatches = 0;
+      const execute = vi.fn((command: string, args: string[], options: { timeoutMs: number }) => {
+        const catalogue = args[1].includes('/releases?');
+        const cost = catalogue ? pageMs : args[1].includes('/git/ref/') ? 1000 : mutationMs;
+        clock += Math.min(cost, options.timeoutMs);
+        if (cost > options.timeoutMs)
+          throw new Error('ETIMEDOUT: fake API respected the supplied deadline');
+        if (catalogue) return f.execute(command, args);
+        if (args[1].includes('/git/ref/')) return JSON.stringify({ object: { sha: input.cut } });
+        if (args[1].includes('/git/matching-refs/')) return '[]';
+        if (args[1].endsWith('/releases')) {
+          const id = count + drafts.size + 1;
+          const draft = {
+            id,
+            draft: true,
+            tag_name: args.find((a) => a.startsWith('tag_name='))!.slice(9),
+            target_commitish: input.cut,
+            body: 'notes',
+            assets: [],
+          };
+          drafts.set(id, draft);
+          return JSON.stringify(draft);
+        }
+        if (/\/releases\/\d+$/.test(args[1]))
+          return JSON.stringify(drafts.get(Number(args[1].split('/').at(-1))));
+        if (args[1].endsWith('/dispatches')) {
+          dispatches++;
+          return '';
+        }
+        throw new Error(`Unexpected qualification call: ${args[1]}`);
+      });
+      try {
+        const client = createCutClient(
+          { repository: input.repository, token: input.token, ref: 'refs/heads/main' },
+          execute
+        );
+        const run = () => {
+          client.main();
+          expect(client.metadata(input.cut).releases).toHaveLength(count);
+          for (let row = 0; row < 6; row++) {
+            const tag = `v5.0.0-alpha.${count + row + 1}`;
+            expect(client.tagged(tag)).toBe(false);
+            const draft = client.draft({ product: 'cli', tag, cut: input.cut, body: 'notes' });
+            expect(client.release(draft.id)).toEqual(draft);
+            expect(client.tagged(tag)).toBe(false);
+            client.dispatch('cli', tag);
+          }
+        };
+        if (outcome === 'success') {
+          run();
+          expect(dispatches).toBe(6);
+          expect(f.execute).toHaveBeenCalledTimes(count / 100 + 2);
+          expect(execute).toHaveBeenCalledTimes(count / 100 + 33);
+        } else {
+          expect(run).toThrow(/ETIMEDOUT|budget/);
+          if (outcome === 'reader-timeout') {
+            expect(clock).toBe(151_000);
+            expect(drafts.size).toBe(0);
+            expect(dispatches).toBe(0);
+          } else {
+            expect(clock).toBe(330_000);
+            expect(dispatches).toBeLessThan(6);
+          }
+        }
+        expect(clock).toBe(elapsedMs);
+        expect(clock).toBeLessThanOrEqual(330_000);
+        expect(execute.mock.calls.length).toBeLessThanOrEqual(177);
+        console.log(
+          `bridge qualification rows=${count} pageMs=${pageMs} mutationMs=${mutationMs} outcome=${outcome} calls=${execute.mock.calls.length} elapsedMs=${clock}`
+        );
+      } finally {
+        now.mockRestore();
+      }
+    }
+  );
+
   it('fits eight seven-page snapshots and seven mutation boundaries in the live cut budget', () => {
     const f = api(695);
     const draft = {
@@ -788,9 +881,9 @@ describe('bounded REST-only state acquisition', () => {
     expect(execute).toHaveBeenCalledTimes(108); // Catalogues + main + seven five-request mutation boundaries.
     expect(execute.mock.calls.length).toBeLessThan(180);
   });
-  it('fails closed one page beyond the maximum without increasing the request cap', () => {
-    const f = api(5801);
-    expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+  it('fails closed one page beyond the 100-page allowance before traversing history', () => {
+    const f = api(10001);
+    expect(() => readCutMetadata(input, f.execute)).toThrow('page allowance');
     expect(f.execute).toHaveBeenCalledTimes(1);
   });
   it('restarts the entire sweep after an insertion between pages', () => {
@@ -864,17 +957,17 @@ describe('bounded REST-only state acquisition', () => {
     expect(f.execute).toHaveBeenCalledTimes(9);
   });
   it('shares the request budget across retries instead of resetting it', () => {
-    const f = api(3001, (rows, page) => {
+    const f = api(6000, (rows, page) => {
       if (page === 2) rows.unshift(release(rows.length + 1));
     });
     expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
-    expect(f.execute.mock.calls.length).toBeLessThanOrEqual(60);
+    expect(f.execute.mock.calls.length).toBeLessThanOrEqual(180);
   });
   it('shares the time budget across attempts and calls', () => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValue(0);
     const f = api(250, (_rows, _page, call) => {
-      if (call === 1) now.mockReturnValue(90_000);
+      if (call === 1) now.mockReturnValue(150_000);
     });
     try {
       expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
