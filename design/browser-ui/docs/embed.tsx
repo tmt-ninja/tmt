@@ -14,6 +14,8 @@ import { previewRoot } from './preview.js';
 import { hostDocs } from './router.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 import { TuiMock } from './tui-nav.js';
+import { TuiFrame } from './tui/frame.js';
+import { oracle } from './tui/model.js';
 
 export interface DesignDocsProps {
   /** The host path that holds the docs, such as `/colab/design`. */
@@ -34,11 +36,13 @@ export function DesignDocs({ base, path, navigate }: DesignDocsProps) {
   }, [trimmed, path, navigate]);
   useLayoutEffect(() => {
     previewRoot(root.current!);
-    drawFramesInline((params) =>
-      params.get('frame') === 'pattern' ? (
+    drawFramesInline((path, params) =>
+      path.endsWith('/tui/frame.html') ? (
+        <TuiFramePreview params={params} />
+      ) : params.get('frame') === 'pattern' ? (
         <PatternFrame params={params} />
       ) : (
-        frameFor(params.get('frame')!, params)
+        frameFor(params.get('frame') ?? '', params)
       ),
     );
     setReady(true);
@@ -64,6 +68,27 @@ export function DesignDocs({ base, path, navigate }: DesignDocsProps) {
         ) : (
           <DocsApp path={current} />
         ))}
+    </div>
+  );
+}
+
+/** A TUI oracle frame (docs/tui/frame.html) drawn in the document, cropped as its query says. */
+function TuiFramePreview({ params }: { params: URLSearchParams }) {
+  const source = oracle.frames.find(
+    (frame) =>
+      frame.state === params.get('state') &&
+      frame.look === params.get('look') &&
+      frame.width === Number(params.get('columns')) &&
+      frame.height === Number(params.get('rows')),
+  );
+  const from = Number(params.get('from') ?? 0);
+  const to = Number(params.get('to') ?? source?.height);
+  if (!source || !(from >= 0 && from < to && to <= source.height))
+    return <p role="alert">No recorded oracle frame for this preview.</p>;
+  const defaults = oracle.defaults[source.look === 'tmt-light' ? 'light' : 'dark'];
+  return (
+    <div style={{ backgroundColor: defaults.bg }}>
+      <TuiFrame frame={source} crop={[from, to]} label={source.state} />
     </div>
   );
 }

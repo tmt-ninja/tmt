@@ -101,8 +101,10 @@ export function Frame({
  * Where a host that cannot frame the docs (Design inside Colab, #5866) draws a frame instead: in
  * the document, as a static preview. Later each preview becomes a renderer frame sized by its bind.
  */
-let inlineFrame: ((params: URLSearchParams) => ReactNode) | undefined;
-export function drawFramesInline(render: ((params: URLSearchParams) => ReactNode) | undefined) {
+/** Draws a frame from its `src`: the frame page's path and query. */
+type InlineFrame = (path: string, params: URLSearchParams) => ReactNode;
+let inlineFrame: InlineFrame | undefined;
+export function drawFramesInline(render: InlineFrame | undefined) {
   inlineFrame = render;
 }
 
@@ -134,8 +136,11 @@ export function ScaledFrame({
     return () => observer.disconnect();
   }, [width]);
   if (inlineFrame) {
-    const params = new URLSearchParams(src.slice(src.indexOf('?') + 1));
-    const theme = params.get('theme') === 'light' ? 'light' : 'dark';
+    const query = src.indexOf('?');
+    const path = query < 0 ? src : src.slice(0, query);
+    const params = new URLSearchParams(query < 0 ? '' : src.slice(query + 1));
+    const theme =
+      params.get('theme') === 'light' || params.get('look') === 'tmt-light' ? 'light' : 'dark';
     return (
       <figure className="scaled-frame-static">
         <figcaption>
@@ -156,7 +161,7 @@ export function ScaledFrame({
             data-tmt-palette="b"
             style={{ width: width ?? '100%', height, transform: `scale(${scale})` }}
           >
-            {inlineFrame(params)}
+            {inlineFrame(path, params)}
           </div>
         </div>
       </figure>
