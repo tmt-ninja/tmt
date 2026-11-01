@@ -22,6 +22,8 @@ pub(in crate::board) struct State {
     pub plan_selection: Option<String>,
     cursor: Option<u64>,
     pub hits: std::cell::RefCell<Vec<(ratatui::layout::Rect, input::Control)>>,
+    /// The last paint was too small to show the tab: its footer then offers moves only.
+    pub enlarge: std::cell::Cell<bool>,
     report: Option<(Query, Arc<Snapshot>)>,
     pub failure: Option<String>,
     pub unavailable: bool,
@@ -41,6 +43,7 @@ impl Default for State {
             unavailable: false,
             cursor: None,
             hits: Default::default(),
+            enlarge: Default::default(),
         }
     }
 }

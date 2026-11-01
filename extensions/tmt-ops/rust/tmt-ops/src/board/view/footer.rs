@@ -485,6 +485,10 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
         key(Ui::Expand, "right"),
         if matrix { "cell" } else { "time" },
     ));
+    if state.enlarge.get() {
+        // The tab asks for room: nothing it cannot show is offered, only the moves.
+        return fit_hints(hints, tail, width);
+    }
     let (blocked, held) = state.cell_actions();
     let actions = [
         (Ui::AllowOnce, "a", blocked),

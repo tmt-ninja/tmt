@@ -32,7 +32,10 @@ fn text(frame: &mut Frame, app: &App, area: Rect, value: &str, role: Role) {
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     app.orchestration.invalidate();
-    if area.width < 34 || area.height < 6 {
+    app.orchestration
+        .enlarge
+        .set(area.width < 34 || area.height < 6);
+    if app.orchestration.enlarge.get() {
         text(
             frame,
             app,
