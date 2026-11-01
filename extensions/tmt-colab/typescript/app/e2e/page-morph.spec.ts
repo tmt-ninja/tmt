@@ -226,6 +226,22 @@ const edits: { name: string; after: string; fragment: boolean }[] = [
     fragment: false,
   },
   {
+    name: 'list items left open',
+    after: PAGE.replace('<li>One</li><li>Two <i>it</i></li>', '<li>One<li><p>Two <i>it</i>'),
+    fragment: true,
+  },
+  {
+    name: 'definitions left open',
+    after: PAGE.replace('<p id="p2">', '<dl><dt>Term<dd>One<dd>Two</dl><p id="p2">'),
+    fragment: true,
+  },
+  {
+    // An item with a formatting element left open in it cannot be placed.
+    name: 'a list item with an open inline element',
+    after: PAGE.replace('<li>One</li><li>', '<li><b>One<li>'),
+    fragment: false,
+  },
+  {
     name: 'the open paragraph is closed',
     after: PAGE.replace('never closed', 'now closed</p>'),
     fragment: true,

@@ -137,6 +137,8 @@
           ).split(' '),
         );
         const HEADING = /^h[1-6]$/;
+        // What a block's end tag closes on its way, as the parser's implied end tags.
+        const IMPLIED = new Set(['li', 'dd', 'dt', 'p']);
         // A table is placed only when nothing in it would be moved out (foster-parented) or dropped:
         // each table-level element holds only its own children and whitespace, closed explicitly.
         const TABLE_CHILDREN = {
@@ -219,6 +221,10 @@
             if (!closing && (inTable ? !inTable.includes(name) : TABLE_PARTS.has(name)))
               return null;
             if (closing) {
+              // A block's end tag first closes the items and paragraphs left open inside it, as the
+              // parser's implied end tags do; anything else still open cannot be placed.
+              if (CLOSES_P.has(name))
+                while (stack.at(-1) !== name && IMPLIED.has(stack.at(-1))) stack.pop();
               if (stack.at(-1) !== name) return null;
               stack.pop();
               if (!stack.length) {
@@ -229,6 +235,22 @@
               continue;
             }
             if (source[end - 1] === '/' && !VOID.has(name)) return null;
+            if (name === 'li' || name === 'dd' || name === 'dt') {
+              // An open item of its list closes, with a paragraph left open in it; a list between
+              // them keeps it open. Anything else open inside the item cannot be placed.
+              const list =
+                stack.findLastIndex((open) => ['ul', 'ol', 'menu', 'dl'].includes(open)) + 1;
+              const inside = stack.slice(list);
+              const item = name === 'li' ? ['li'] : ['dd', 'dt'];
+              if (
+                inside.length &&
+                item.includes(inside[0]) &&
+                (inside.length === 1 || (inside.length === 2 && inside[1] === 'p'))
+              )
+                stack.length = list;
+              else if (inside.some((open) => open === 'li' || open === 'dd' || open === 'dt'))
+                return null;
+            }
             if (stack.includes('p') && CLOSES_P.has(name)) {
               // A top-level paragraph left open, with nothing open inside it, ends here exactly as
               // the parser closes it: one node of its own, marked so an edit beside it parses it
@@ -238,14 +260,6 @@
               spans.push([start, open, 'open']);
               start = open;
             }
-            if (
-              (name === 'li' || name === 'dd' || name === 'dt') &&
-              // An open item of its list closes; a list between them keeps it open.
-              stack
-                .slice(stack.findLastIndex((open) => ['ul', 'ol', 'menu', 'dl'].includes(open)) + 1)
-                .some((open) => open === 'li' || open === 'dd' || open === 'dt')
-            )
-              return null;
             if (HEADING.test(name) && HEADING.test(stack.at(-1) ?? '')) return null;
             if (['a', 'button', 'form', 'nobr'].includes(name) && stack.includes(name)) return null;
             if (!stack.length) {
