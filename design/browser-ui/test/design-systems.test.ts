@@ -31,7 +31,12 @@ describe('buildBundle', () => {
     const acme = { ...template.system, prefix: 'acme' };
     const bundle = await buildBundle('root-page', acme, template.components, sha256Hex);
     expect(bundle.components[0]!.tag).toBe('acme-button');
-    const original = await buildBundle('root-page', template.system, template.components, sha256Hex);
+    const original = await buildBundle(
+      'root-page',
+      template.system,
+      template.components,
+      sha256Hex,
+    );
     expect(bundle.hash).not.toBe(original.hash);
   });
 
@@ -42,9 +47,9 @@ describe('buildBundle', () => {
     await expect(
       buildBundle('x', { ...template.system, prefix: 'Acme_UI' }, template.components, sha256Hex),
     ).rejects.toThrow('prefix');
-    await expect(
-      buildBundle('x', template.system, [button, button], sha256Hex),
-    ).rejects.toThrow('share a tag');
+    await expect(buildBundle('x', template.system, [button, button], sha256Hex)).rejects.toThrow(
+      'share a tag',
+    );
   });
 });
 
@@ -62,9 +67,9 @@ describe('validateComponent', () => {
   });
 
   it('refuses a prop that shadows a global attribute or a default outside its enum', () => {
-    expect(() =>
-      validateComponent({ ...button, props: { class: { type: 'string' } } }),
-    ).toThrow('free attribute');
+    expect(() => validateComponent({ ...button, props: { class: { type: 'string' } } })).toThrow(
+      'free attribute',
+    );
     expect(() =>
       validateComponent({
         ...button,
