@@ -1222,8 +1222,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           5_000,
           'UI-owned migration completion'
         );
-        const nextLease = path.join(ops, 'cron', 'clock.json');
-        await fixture.waitFor(() => fs.existsSync(nextLease), 5_000, 'Ops UI clock publication');
+        const nextLease = path.join(fixture.globalDir, 'tick', 'clock.json');
+        await fixture.waitFor(
+          () => fs.existsSync(nextLease),
+          5_000,
+          'public Core clock publication after UI migration'
+        );
         expect(JSON.parse(fs.readFileSync(nextLease, 'utf8')).pid).not.toBe(123);
         await fixture.waitForCapture(
           (screen) =>
