@@ -151,8 +151,11 @@ EOF
     wake "head changed to ${now_head%"${now_head#????????????}"}; this wait ended"
   fi
   if [ "$until" = checks ]; then
+    # A rerun or a re-triggered workflow adds a newer run under the same name;
+    # only the newest (highest ID) run of each name counts.
     runs=$("$GH" api --paginate "repos/{owner}/{repo}/commits/$head/check-runs?per_page=100" \
-      --jq '.check_runs[] | [.status, (.conclusion // ""), .name] | @tsv' || true)
+      --jq '.check_runs[] | [.name, .id, .status, (.conclusion // "")] | @tsv' |
+      sort -t "$(printf '\t')" -k1,1 -k2,2nr | awk -F '\t' '$1 != seen { seen = $1; print $3 "\t" $4 "\t" $1 }' || true)
     statuses=$("$GH" api "repos/{owner}/{repo}/commits/$head/status" \
       --jq '.statuses[] | [.state, .context] | @tsv' || true)
     workflows=$("$GH" api --paginate "repos/{owner}/{repo}/actions/runs?head_sha=$head&per_page=100" \

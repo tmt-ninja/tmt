@@ -105,11 +105,19 @@ function newCase(pulls: string[], files: Record<string, string> = {}) {
 
 const open = `open false ${HEAD}`;
 const tsv = (...rows: string[][]) => rows.map((row) => `${row.join('\t')}\n`).join('');
+let nextId = 1;
+/** A check run as the API's `--jq` projection prints it: name, ID, status, conclusion. */
+const check = (status: string, conclusion: string, name: string, id = nextId++) => [
+  name,
+  String(id),
+  status,
+  conclusion,
+];
 
 describe('scripts/ci-wake.sh', () => {
   it('wakes the seat once, anonymously and urgently, when every check is green', () => {
     const c = newCase([open, open, open], {
-      runs: tsv(['completed', 'success', 'rust'], ['completed', 'skipped', 'docs']),
+      runs: tsv(check('completed', 'success', 'rust'), check('completed', 'skipped', 'docs')),
       statuses: tsv(['success', 'ci/legacy']),
     });
     const result = c.wait();
@@ -130,9 +138,9 @@ describe('scripts/ci-wake.sh', () => {
   it('names the failed checks once the last one completes', () => {
     const c = newCase([open], {
       runs: tsv(
-        ['completed', 'failure', 'rust (linux)'],
-        ['completed', 'success', 'docs'],
-        ['completed', 'timed_out', 'e2e']
+        check('completed', 'failure', 'rust (linux)'),
+        check('completed', 'success', 'docs'),
+        check('completed', 'timed_out', 'e2e')
       ),
       statuses: tsv(['error', 'ci/legacy']),
     });
@@ -140,9 +148,21 @@ describe('scripts/ci-wake.sh', () => {
     expect(c.lines('talk.log')[0]).toContain(': failed: ci/legacy, e2e, rust (linux) --detach');
   });
 
+  it('counts only the newest run of a check that was rerun', () => {
+    const c = newCase([open], {
+      runs: tsv(
+        check('completed', 'success', 'title', 30),
+        check('completed', 'cancelled', 'title', 10),
+        check('completed', 'success', 'rust', 20)
+      ),
+    });
+    expect(c.wait().status).toBe(0);
+    expect(c.lines('talk.log')[0]).toContain(': green (2 checks) --detach');
+  });
+
   it('keeps polling at the interval plus jitter while a check is pending', () => {
     const c = newCase([open], {
-      runs: tsv(['in_progress', '', 'rust'], ['completed', 'success', 'docs']),
+      runs: tsv(check('in_progress', '', 'rust'), check('completed', 'success', 'docs')),
     });
     // The pending poll repeats until the cap; one real second ends it.
     const result = c.wait(['--interval', '200', '--cap', '1'], { REAL_NAP: '1' });
@@ -159,7 +179,7 @@ describe('scripts/ci-wake.sh', () => {
 
   it('waits while a workflow run is still going, though every check so far is green', () => {
     const c = newCase([open], {
-      runs: tsv(['completed', 'success', 'early']),
+      runs: tsv(check('completed', 'success', 'early')),
       workflows: 'completed\nin_progress\n',
     });
     const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
@@ -169,7 +189,7 @@ describe('scripts/ci-wake.sh', () => {
   });
 
   it('does not report green before any workflow run exists for the head', () => {
-    const c = newCase([open], { runs: tsv(['completed', 'success', 'early']), workflows: '' });
+    const c = newCase([open], { runs: tsv(check('completed', 'success', 'early')), workflows: '' });
     const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
     expect(result.status).toBe(0);
     expect(c.lines('talk.log')[0]).toContain('no final state');
@@ -200,7 +220,7 @@ describe('scripts/ci-wake.sh', () => {
 
   it('waits for the merge, not the checks, with --until merged', () => {
     const c = newCase([open, open, `closed true ${HEAD}`], {
-      runs: tsv(['completed', 'success', 'rust']),
+      runs: tsv(check('completed', 'success', 'rust')),
     });
     expect(c.wait(['--until', 'merged']).status).toBe(0);
     expect(c.lines('talk.log')).toEqual([expect.stringContaining(': merged --detach')]);
@@ -209,7 +229,10 @@ describe('scripts/ci-wake.sh', () => {
   });
 
   it('keeps the log and exits 3, without a retry, when the wake cannot be sent', () => {
-    const c = newCase([open], { runs: tsv(['completed', 'success', 'rust']), 'talk-fails': '' });
+    const c = newCase([open], {
+      runs: tsv(check('completed', 'success', 'rust')),
+      'talk-fails': '',
+    });
     const result = c.wait();
     expect(result.status).toBe(3);
     expect(c.lines('talk.log')).toHaveLength(1);
