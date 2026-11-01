@@ -68,6 +68,8 @@ for (const surface of ['chat', 'thread'])
       await input.focus();
       expect(await input.evaluate(() => document.getSelection()?.anchorOffset)).toBe(caret);
       await expect(page.getByTestId('ask-state').last()).toHaveText('Sent');
+      // One status per recipient: Ask again replaces alpha's line instead of adding one (#5911).
+      await expect(page.getByTestId('ask-state')).toHaveCount(2);
     });
 
 test('two trusted activations while preparation waits produce one fresh operation', async ({
