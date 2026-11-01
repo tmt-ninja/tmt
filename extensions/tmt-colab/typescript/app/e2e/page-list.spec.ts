@@ -905,7 +905,10 @@ test('the module menu keeps All pages and Shortcuts, then Design before settings
   const menu = moduleMenu(page);
   // Active pages shown: 4, two of which wait on the viewer.
   await expect(menu.locator('a[data-id="all"]')).toHaveText(/All pages\s*4/);
-  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText(['ShortcutsManage', 'Design system']);
+  await expect(menu.locator('.tmt-ui-rail-sub-group')).toHaveText([
+    'ShortcutsManage',
+    'Design system',
+  ]);
   await expect(menu.getByRole('button', { name: 'Manage', exact: true })).toBeVisible();
   await expect(menu.getByRole('button', { name: 'New shortcut' })).toHaveCount(0);
   expect(
