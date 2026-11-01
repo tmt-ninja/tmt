@@ -177,6 +177,13 @@ test('at 390 rows are two-line cards with no page scroll, and hidden columns mov
   );
   expect(Math.abs(centreY(title!) - centreY(menu!))).toBeLessThan(1);
   expect(stage!.y).toBeGreaterThan(title!.y + title!.height - 1);
+  // A card with a sub-line keeps its menu on the title line too.
+  const withSub = rows(page).filter({ hasText: 'sub-pages done' }).nth(1);
+  const [subTitle, subMenu] = [
+    (await withSub.locator('.tmt-data-table-line').boundingBox())!,
+    (await withSub.getByRole('button', { name: /^More for / }).boundingBox())!,
+  ];
+  expect(Math.abs(centreY(subTitle) - centreY(subMenu))).toBeLessThan(1);
   const time = (await row.locator('[data-role="time"]').boundingBox())!;
   expect(Math.abs(centreY(time) - centreY(stage!))).toBeLessThan(2);
   await expect(row.locator('[data-role="person"]')).toBeHidden();
