@@ -38,6 +38,26 @@
    {
     "tag": "button",
     "status": "stable"
+   },
+   {
+    "tag": "badge",
+    "status": "stable"
+   },
+   {
+    "tag": "separator",
+    "status": "stable"
+   },
+   {
+    "tag": "skeleton",
+    "status": "stable"
+   },
+   {
+    "tag": "input",
+    "status": "stable"
+   },
+   {
+    "tag": "textarea",
+    "status": "stable"
    }
   ]
  },
@@ -142,7 +162,210 @@
     }
    ],
    "notes": "<p>One action. Use <b>primary</b> for the one main action on a surface, <b>outline</b> or <b>secondary</b> for the others and <b>ghost</b> inside dense rows. The label says what happens.</p><p>Keyboard: Tab reaches it, Enter and Space press it. A disabled button is skipped and announced as unavailable.</p>",
-   "source": "// The Button component doc's source (schema 1): plain JavaScript and htm, no imports. It receives\n// the fixed skeleton (runtime 2: React, html, cn) and returns the component. It ports browser-ui's\n// ui Button; the compiler fills `classes` from that component's own variants (#5866).\nexport default ({ html, cn }) => {\n  const classes = {\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)\",\"by\":{\"default|default\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"default|xs\":\"tmt:border-transparent tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"default|sm\":\"tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"default|lg\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"outline|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"outline|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"outline|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"outline|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"secondary|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"secondary|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"secondary|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"secondary|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"ghost|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"ghost|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"ghost|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"ghost|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"destructive|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"destructive|xs\":\"tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"destructive|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"destructive|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"link|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"link|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"link|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"link|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\"}};\n  return function Button({ variant = 'default', size = 'default', disabled = false, icon, children }) {\n    return html`<button\n      type=\"button\"\n      data-slot=\"button\"\n      data-variant=${variant}\n      data-size=${size}\n      className=${cn(classes.base, classes.by[`${variant}|${size}`])}\n      disabled=${disabled}\n      aria-disabled=${disabled || undefined}\n    >\n      ${icon}${children}\n    </button>`;\n  };\n};\n",
+   "source": "// The Button component doc's source (schema 1): plain JavaScript and htm, no imports. It receives\n// the fixed skeleton (runtime 2: React, html, cn) and returns the component. It ports browser-ui's\n// ui Button; the compiler fills `classes` from that component's own variants (#5866).\nexport default ({ html, cn }) => {\n  const classes = {\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)\",\"by\":{\"default|default\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"default|xs\":\"tmt:border-transparent tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"default|sm\":\"tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"default|lg\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"outline|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"outline|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"outline|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"outline|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"secondary|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"secondary|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"secondary|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"secondary|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"ghost|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"ghost|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"ghost|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"ghost|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"destructive|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"destructive|xs\":\"tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"destructive|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"destructive|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"link|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"link|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"link|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"link|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\"},\"parts\":{}};\n  return function Button({ variant = 'default', size = 'default', disabled = false, icon, children }) {\n    return html`<button\n      type=\"button\"\n      data-slot=\"button\"\n      data-variant=${variant}\n      data-size=${size}\n      className=${cn(classes.base, classes.by[`${variant}|${size}`])}\n      disabled=${disabled}\n      aria-disabled=${disabled || undefined}\n    >\n      ${icon}${children}\n    </button>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "badge",
+   "props": {
+    "variant": {
+     "enum": [
+      "default",
+      "secondary",
+      "outline",
+      "ghost",
+      "destructive",
+      "link"
+     ],
+     "default": "default"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Default",
+     "markup": "<tmt-ui-badge>spec</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Outline",
+     "markup": "<tmt-ui-badge variant=\"outline\">Private</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Secondary",
+     "markup": "<tmt-ui-badge variant=\"secondary\">draft</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Ghost",
+     "markup": "<tmt-ui-badge variant=\"ghost\">ghost</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Destructive",
+     "markup": "<tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Badge (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"base\":\"tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:inline-flex tmt:w-fit tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-1 tmt:overflow-hidden tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-2 tmt:py-0.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive tmt:[&>svg]:pointer-events-none tmt:[&>svg]:size-3\",\"by\":{\"default\":\"tmt:border-transparent tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-accent\",\"secondary\":\"tmt:border-transparent tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-secondary\",\"outline\":\"tmt:border-border tmt:text-foreground tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground\",\"ghost\":\"tmt:border-transparent tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground\",\"destructive\":\"tmt:border-transparent tmt:bg-secondary tmt:text-destructive tmt:[a&]:hover:bg-destructive-soft\",\"link\":\"tmt:border-transparent tmt:text-foreground tmt:underline-offset-4 tmt:[a&]:hover:underline\"},\"parts\":{}};\n  return function Badge({ variant = 'default', children }) {\n    return html`<span data-slot=\"badge\" data-variant=${variant} className=${cn(classes.base, classes.by[variant])}>${children}</span>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "separator",
+   "props": {
+    "orientation": {
+     "enum": [
+      "horizontal",
+      "vertical"
+     ],
+     "default": "horizontal"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Horizontal",
+     "markup": "<tmt-ui-separator></tmt-ui-separator>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Separator (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"base\":\"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)\",\"by\":{\"horizontal\":\"\",\"vertical\":\"\"},\"parts\":{}};\n  return function Separator({ orientation = 'horizontal' }) {\n    return html`<div data-slot=\"separator\" data-orientation=${orientation} role=\"none\" className=${cn(classes.base, classes.by[orientation])}></div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "skeleton",
+   "props": {
+    "width": {
+     "type": "string"
+    },
+    "height": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Line",
+     "markup": "<tmt-ui-skeleton width=\"12rem\" height=\"1rem\"></tmt-ui-skeleton>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Block",
+     "markup": "<tmt-ui-skeleton width=\"16rem\" height=\"4rem\"></tmt-ui-skeleton>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Skeleton (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"base\":\"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Skeleton({ width = '8rem', height = '1rem' }) {\n    return html`<div data-slot=\"skeleton\" aria-hidden=\"true\" className=${classes.base} style=${{ width, height }}></div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "input",
+   "props": {
+    "type": {
+     "enum": [
+      "text",
+      "email",
+      "password",
+      "search"
+     ],
+     "default": "text"
+    },
+    "placeholder": {
+     "type": "string"
+    },
+    "disabled": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Default",
+     "markup": "<tmt-ui-input placeholder=\"Search pages\"></tmt-ui-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-input placeholder=\"Read only\" disabled></tmt-ui-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Input (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:h-9 tmt:w-full tmt:min-w-0 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-1 tmt:text-(length:--tmt-foundation-command-size) tmt:selection:bg-primary tmt:selection:text-primary-foreground tmt:file:inline-flex tmt:file:h-7 tmt:file:border-0 tmt:file:bg-transparent tmt:file:text-(length:--tmt-foundation-command-size) tmt:file:font-(weight:--tmt-foundation-eyebrow-weight) tmt:file:text-foreground tmt:placeholder:text-muted-foreground tmt:disabled:pointer-events-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Input({ type = 'text', placeholder, disabled = false }) {\n    return html`<input type=${type} data-slot=\"input\" placeholder=${placeholder} disabled=${disabled} className=${classes.base} />`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "textarea",
+   "props": {
+    "placeholder": {
+     "type": "string"
+    },
+    "disabled": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Default",
+     "markup": "<tmt-ui-textarea placeholder=\"Write a note\"></tmt-ui-textarea>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Textarea (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:flex tmt:field-sizing-content tmt:min-h-16 tmt:w-full tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:placeholder:text-muted-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Textarea({ placeholder, disabled = false }) {\n    return html`<textarea data-slot=\"textarea\" placeholder=${placeholder} disabled=${disabled} className=${classes.base}></textarea>`;\n  };\n};\n",
    "css": ""
   }
  ]

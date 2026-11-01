@@ -12,6 +12,21 @@
   "components": [
     {
       "doc": "components/button.json"
+    },
+    {
+      "doc": "components/badge.json"
+    },
+    {
+      "doc": "components/separator.json"
+    },
+    {
+      "doc": "components/skeleton.json"
+    },
+    {
+      "doc": "components/input.json"
+    },
+    {
+      "doc": "components/textarea.json"
     }
   ],
   "principles": {

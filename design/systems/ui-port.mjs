@@ -6,23 +6,39 @@ import { createRequire } from 'node:module';
 const app = createRequire(new URL('../../extensions/tmt-colab/typescript/app/package.json', import.meta.url));
 
 /**
- * Every class the cva function gives each combination of the enumerated props, as one shared base
- * and the rest per combination keyed `value|value` in `dims` order. The runtime's `cn` only joins,
- * so the merged result is stored, never re-merged.
+ * The classes a port draws with, taken from the ui component it ports. The root's classes for every
+ * combination of the enumerated props (`dims`), as one shared base and the rest per combination
+ * keyed `value|value` in `dims` order; with a cva export (`variants`) they come from it, merged
+ * the way the component merges them, otherwise from rendering the component. Each named part
+ * (another export of the module, such as CardTitle) gives the classes of its own element, keyed by
+ * its data-slot. The runtime's `cn` only joins, so merged results are stored, never re-merged.
  */
-export async function classTable(load, { module, variants, dims }) {
-  const cva = (await load(module))[variants];
-  if (typeof cva !== 'function') throw new Error(`${module} has no ${variants}`);
-  // The component merges its variant classes (tailwind-merge) before drawing; the table stores that.
+export async function classTable({ load, React, renderToStaticMarkup }, ui) {
+  const { module, component, variants, dims = {}, parts = [] } = ui;
+  const exports = await load(module);
   const { cn } = await load('/src/ui/utils.ts');
+  const { UiTheme } = await load('/src/ui/theme.tsx');
+  const rootClass = (html) => /class="([^"]*)"/.exec(html)?.[1].replaceAll('&amp;', '&').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&#x27;', "'").replaceAll('&quot;', '"') ?? '';
+  const drawn = (type, props) =>
+    rootClass(
+      renderToStaticMarkup(React.createElement(UiTheme, { theme: 'light' }, React.createElement(type, props))).replace(
+        /^<div data-tmt-ui="" data-tmt-theme="light">/,
+        '',
+      ),
+    );
   const names = Object.keys(dims);
   const combos = names.reduce(
     (all, name) => all.flatMap((combo) => dims[name].map((value) => [...combo, value])),
     [[]],
   );
-  const lists = combos.map((combo) =>
-    cn(cva(Object.fromEntries(names.map((name, index) => [name, combo[index]])))).split(' '),
-  );
+  const lists = combos.map((combo) => {
+    const props = Object.fromEntries(names.map((name, index) => [name, combo[index]]));
+    if (variants) {
+      if (typeof exports[variants] !== 'function') throw new Error(`${module} has no ${variants}`);
+      return cn(exports[variants](props)).split(' ');
+    }
+    return drawn(exports[component], props).split(' ').filter(Boolean);
+  });
   const base = lists.reduce((shared, list) => shared.filter((name) => list.includes(name)));
   return {
     base: base.join(' '),
@@ -31,6 +47,16 @@ export async function classTable(load, { module, variants, dims }) {
         combo.join('|'),
         lists[index].filter((name) => !base.includes(name)).join(' '),
       ]),
+    ),
+    parts: Object.fromEntries(
+      parts.map((part) => {
+        const html = renderToStaticMarkup(
+          React.createElement(UiTheme, { theme: 'light' }, React.createElement(exports[part])),
+        );
+        const slot = /data-tmt-theme="light"><[a-z]+[^>]*data-slot="([^"]+)"/.exec(html)?.[1];
+        if (!slot) throw new Error(`${module} ${part} has no data-slot`);
+        return [slot, drawn(exports[part], {})];
+      }),
     ),
   };
 }

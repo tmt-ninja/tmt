@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "input",
+  "source": "input.js",
+  "props": {
+    "type": {
+      "enum": [
+        "text",
+        "email",
+        "password",
+        "search"
+      ],
+      "default": "text"
+    },
+    "placeholder": {
+      "type": "string"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "input.css",
+  "ui": {
+    "module": "/src/ui/input.tsx",
+    "component": "Input"
+  },
+  "examples": [
+    {
+      "title": "Default",
+      "markup": "<tmt-ui-input placeholder=\"Search pages\"></tmt-ui-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-input placeholder=\"Read only\" disabled></tmt-ui-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

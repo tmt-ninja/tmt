@@ -9,3 +9,37 @@ export interface ButtonProps {
   children?: ReactNode;
   icon?: ReactNode;
 }
+
+/** <tmt-ui-badge>: props from its schema, slots as nodes. */
+export interface BadgeProps {
+  variant?: "default" | "secondary" | "outline" | "ghost" | "destructive" | "link";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-separator>: props from its schema, slots as nodes. */
+export interface SeparatorProps {
+  orientation?: "horizontal" | "vertical";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-skeleton>: props from its schema, slots as nodes. */
+export interface SkeletonProps {
+  width?: string;
+  height?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-input>: props from its schema, slots as nodes. */
+export interface InputProps {
+  type?: "text" | "email" | "password" | "search";
+  placeholder?: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-textarea>: props from its schema, slots as nodes. */
+export interface TextareaProps {
+  placeholder?: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}

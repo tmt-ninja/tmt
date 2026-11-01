@@ -24,7 +24,14 @@ describe('buildBundle', () => {
     const [file] = readdirSync(dist);
     expect(file).toBe(`${bundle.hash}.json`);
     expect(JSON.parse(readFileSync(new URL(file!, dist), 'utf8'))).toEqual(bundle);
-    expect(bundle.components.map((component) => component.tag)).toEqual(['tmt-ui-button']);
+    expect(bundle.components.map((component) => component.tag)).toEqual([
+      'tmt-ui-button',
+      'tmt-ui-badge',
+      'tmt-ui-separator',
+      'tmt-ui-skeleton',
+      'tmt-ui-input',
+      'tmt-ui-textarea',
+    ]);
   });
 
   it('names tags with the system prefix and changes the hash with any content', async () => {

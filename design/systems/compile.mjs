@@ -96,7 +96,7 @@ async function compile(dir) {
       }
       if (!component.source.includes('/* classes */ null'))
         throw new Error(`${component.tag}: a ported source names its classes /* classes */ null`);
-      const classes = await classTable(docsContext.load, ui);
+      const classes = await classTable(docsContext, ui);
       filled.push({
         ...component,
         source: component.source.replace('/* classes */ null', JSON.stringify(classes)),

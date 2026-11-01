@@ -179,7 +179,14 @@ describe('template, publish and the renderer source', () => {
       version: '0.1.0',
       hash: release!.bundle,
     });
-    expect(bundle!.components.map((component) => component.tag)).toEqual(['acme-button']);
+    expect(bundle!.components.map((component) => component.tag).sort()).toEqual([
+      'acme-badge',
+      'acme-button',
+      'acme-input',
+      'acme-separator',
+      'acme-skeleton',
+      'acme-textarea',
+    ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
     // Publish from the Design header adds a version and moves the pins.
     const second = await publishNext(transport, rootId);
