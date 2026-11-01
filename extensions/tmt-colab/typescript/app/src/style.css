@@ -1203,6 +1203,10 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   max-height: 100%;
   width: 100%;
 }
+/* A window whose send still runs stays mounted but hidden (#5816). */
+.annotation-new[hidden] {
+  display: none;
+}
 .comment-thread[data-layout='anchored'] {
   display: flex;
   flex-direction: column;
@@ -2262,6 +2266,27 @@ button.discussion-quote:focus-visible {
   padding: 8px 16px;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
+}
+
+.page-unsent {
+  margin: 0;
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-l);
+  list-style: none;
+  font-size: var(--tmt-ui-caption-size);
+}
+.page-unsent > li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  min-height: var(--tmt-ui-control-size);
+}
+/* The mark sizes with its caption line, as the agent activity spinner does. */
+.page-unsent-mark {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  color: var(--tmt-ui-color-blocked);
 }
 
 .agent-activity {
