@@ -199,3 +199,122 @@ fn manual_send_is_one_canonical_automated_request_without_resuming_or_consuming_
         (2, "manual".into(), 1000)
     );
 }
+
+#[test]
+fn frozen_file_preview_is_read_only_and_adoption_receipt_recovers_exact_large_source() {
+    let mut f = Fixture::new();
+    let empty = f.root.join("empty-jobs.json");
+    let empty_bytes = br#"{"version":2,"counters":{},"jobs":[]}"#;
+    fs::write(&empty, empty_bytes).unwrap();
+    let (empty_digest, _) = tmt_adapters::storage::preview_job_import(empty_bytes).unwrap();
+    let source = "33333333-3333-4333-8333-333333333333";
+    let preview = f.json(
+        &[
+            "orch",
+            "job",
+            "import",
+            "--file",
+            empty.to_str().unwrap(),
+            "--source-id",
+            source,
+            "--digest",
+            &empty_digest,
+            "--json",
+        ],
+        None,
+    );
+    assert_eq!(preview["requiresConsent"], true);
+    assert!(
+        !f.db().exists(),
+        "preflight must not initialize Core storage"
+    );
+    let owner = f.seed();
+    let message = "x".repeat(900_000);
+    let jobs=(1..=8).map(|number|json!({"id":format!("c{number}"),"roomId":PLAN,"ownerId":owner,"message":message,"revision":1,"state":"on","pause":null,"schedule":{"kind":"every","zone":"UTC","seconds":10,"anchorMs":0}})).collect::<Vec<_>>();
+    let bytes =
+        serde_json::to_vec(&json!({"version":2,"counters":{(PLAN):8},"jobs":jobs})).unwrap();
+    assert!(
+        bytes.len() > tmt_adapters::api::INPUT_LIMIT,
+        "this path must exceed a normal API frame"
+    );
+    let file = f.root.join("frozen-jobs.json");
+    fs::write(&file, &bytes).unwrap();
+    let (digest, count) = tmt_adapters::storage::preview_job_import(&bytes).unwrap();
+    assert_eq!(count, 8);
+    let args = [
+        "orch",
+        "job",
+        "import",
+        "--file",
+        file.to_str().unwrap(),
+        "--source-id",
+        source,
+        "--digest",
+        &digest,
+        "--yes",
+        "--json",
+    ];
+    let adopted = f.json(&args, None);
+    assert_eq!(adopted["receipt"]["sourceDigest"], digest);
+    assert_eq!(adopted["receipt"]["jobs"].as_array().unwrap().len(), 8);
+    let before = cursor(&f.db());
+    assert_eq!(f.json(&args, None)["receipt"], adopted["receipt"]);
+    assert_eq!(cursor(&f.db()), before, "exact import replay is a no-op");
+    let recovered = f.json(&["orch", "job", "import-receipt", source, "--json"], None);
+    assert_eq!(recovered["receipt"], adopted["receipt"]);
+    let mut storage = Storage::open(f.db()).unwrap();
+    for reference in adopted["receipt"]["jobs"].as_array().unwrap() {
+        let job = storage
+            .orchestration_job(reference["jobId"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.message, message);
+        assert_eq!(job.legacy.as_ref().unwrap().room_id, PLAN);
+        assert_eq!(
+            job.legacy.unwrap().cron_id,
+            reference["cronId"].as_u64().unwrap()
+        );
+    }
+    storage.close().unwrap();
+    fs::write(&file, empty_bytes).unwrap();
+    let changed = f.run(&args, None);
+    assert_eq!(changed.status.code(), Some(5));
+    assert_eq!(cursor(&f.db()), before);
+    assert_eq!(
+        f.json(&["orch", "job", "import-receipt", source, "--json"], None)["receipt"],
+        adopted["receipt"]
+    );
+}
+#[test]
+fn adoption_refuses_linked_or_oversized_sources_before_opening_storage() {
+    use std::os::unix::fs::symlink;
+    let mut f = Fixture::new();
+    let actual = f.root.join("source.json");
+    let selected = f.root.join("selected.json");
+    fs::write(&actual, b"{}").unwrap();
+    symlink(&actual, &selected).unwrap();
+    let digest = "a".repeat(64);
+    let args = [
+        "orch",
+        "job",
+        "import",
+        "--file",
+        selected.to_str().unwrap(),
+        "--source-id",
+        "33333333-3333-4333-8333-333333333333",
+        "--digest",
+        &digest,
+        "--yes",
+        "--json",
+    ];
+    assert_eq!(f.run(&args, None).status.code(), Some(1));
+    assert!(!f.db().exists());
+    fs::remove_file(&selected).unwrap();
+    fs::File::create(&selected)
+        .unwrap()
+        .set_len(16 * 1024 * 1024 + 1)
+        .unwrap();
+    assert_eq!(f.run(&args, None).status.code(), Some(1));
+    assert!(!f.db().exists());
+    assert_eq!(fs::read(actual).unwrap(), b"{}");
+}

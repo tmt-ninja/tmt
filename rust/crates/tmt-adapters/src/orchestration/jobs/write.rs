@@ -49,6 +49,7 @@ pub(crate) fn is_job(m: &Mutation) -> bool {
     matches!(
         m,
         Mutation::AddJob { .. }
+            | Mutation::AddSquadJob { .. }
             | Mutation::SetJob { .. }
             | Mutation::PauseJob { .. }
             | Mutation::ResumeJob { .. }
@@ -74,8 +75,21 @@ pub(crate) fn validate(m: &Mutation) -> Result<(), JobError> {
     {
         return Err(JobError::Invalid);
     }
+    if let Mutation::AddSquadJob {
+        candidate,
+        paused_by,
+    } = m
+        && (candidate.squad_room_id.is_none()
+            || paused_by.as_ref().is_some_and(|by| {
+                by.is_empty() || by.len() > 128 || by.chars().any(char::is_control)
+            }))
+    {
+        return Err(JobError::Invalid);
+    }
     match m {
-        Mutation::AddJob { candidate } | Mutation::SetJob { candidate, .. } => {
+        Mutation::AddJob { candidate }
+        | Mutation::AddSquadJob { candidate, .. }
+        | Mutation::SetJob { candidate, .. } => {
             // Validation allocates no identity and publishes no preview-only ID.
             let definition = candidate.definition(None, 1);
             definition
@@ -99,8 +113,21 @@ fn definition(
     fence: &JobWriteFence,
     at: u64,
 ) -> Result<Option<JobDefinition>, JobError> {
-    if let Mutation::AddJob { candidate } = m {
-        return Ok(Some(candidate.definition(None, at)));
+    match m {
+        Mutation::AddJob { candidate } => return Ok(Some(candidate.definition(None, at))),
+        Mutation::AddSquadJob {
+            candidate,
+            paused_by,
+        } => {
+            return Ok(Some(candidate.definition(
+                paused_by.as_ref().map(|by| JobPause {
+                    by: by.clone(),
+                    at_ms: at as i64,
+                }),
+                at,
+            )));
+        }
+        _ => {}
     }
     let current = fence.job.as_ref().ok_or(JobError::NotFound)?;
     if selector(m).is_none_or(|(_, r)| r != current.revision) {
@@ -186,13 +213,14 @@ pub(crate) fn apply(
         return Err(JobError::Conflict.into());
     }
     let candidate = definition(m, &fence, at)?;
-    let result = if let Mutation::AddJob { .. } = m {
+    let result = if matches!(m, Mutation::AddJob { .. } | Mutation::AddSquadJob { .. }) {
         Some(
             s.create_job_fenced(
                 candidate
                     .ok_or(JobError::Invalid)?
                     .with_identity(uuid::Uuid::new_v4().to_string(), 1),
                 Some(&fence),
+                matches!(m, Mutation::AddSquadJob { .. }),
             )?,
         )
     } else {

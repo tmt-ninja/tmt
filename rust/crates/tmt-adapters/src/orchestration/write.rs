@@ -22,6 +22,12 @@ pub enum OrchMutationDocument {
     AddJob {
         candidate: Box<super::JobDefinitionDocument>,
     },
+    #[serde(rename = "job.addSquad")]
+    AddSquadJob {
+        candidate: Box<super::JobDefinitionDocument>,
+        #[serde(rename = "pausedBy")]
+        paused_by: Option<String>,
+    },
     #[serde(rename = "job.set")]
     SetJob {
         #[serde(rename = "jobId")]

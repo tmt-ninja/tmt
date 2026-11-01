@@ -241,18 +241,27 @@ impl Storage {
         definition: JobDefinition,
     ) -> Result<OrchJob, JobStoreError> {
         let job = definition.with_identity(uuid::Uuid::new_v4().to_string(), 1);
-        self.create_job_fenced(job, None)
+        self.create_job_fenced(job, None, false)
     }
     pub(crate) fn create_job_fenced(
         &mut self,
-        job: OrchJob,
+        mut job: OrchJob,
         fence: Option<&JobWriteFence>,
+        squad_number: bool,
     ) -> Result<OrchJob, JobStoreError> {
         job.validate()?;
         crate::orchestration::jobs::calendar(&job.schedule)?;
         self.write_job(None, fence, |tx, _| {
             if !owner_exists(tx, job.owner_id.as_deref())? {
                 return Err(JobError::NoOwner.into());
+            }
+            if squad_number {
+                let room = job.room_id.as_deref().ok_or(JobError::Invalid)?;
+                if job.legacy.is_some() { return Err(JobError::Invalid.into()); }
+                let previous: Option<i64> = tx.query_row("SELECT last_id FROM orchestration_job_legacy_counters WHERE room_id=?",[room],|row|row.get(0)).optional().map_err(|e|classify(e,"Read squad job counter"))?;
+                let number=previous.map(unsigned).transpose()?.unwrap_or(0).checked_add(1).filter(|n|*n<=MAX_JS_SAFE_INTEGER).ok_or(JobError::Limit)?;
+                tx.execute("INSERT INTO orchestration_job_legacy_counters(room_id,last_id) VALUES(?,?) ON CONFLICT(room_id) DO UPDATE SET last_id=excluded.last_id",params![room,number as i64]).map_err(|e|classify(e,"Reserve squad job number"))?;
+                job.legacy=Some(LegacyJob { room_id:room.to_owned(),cron_id:number });
             }
             let job = insert_job(tx, job)?;
             advance_configuration(tx)?;

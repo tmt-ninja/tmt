@@ -575,6 +575,15 @@ pub struct DetectedScope {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
+    ImportJobs {
+        file: std::path::PathBuf,
+        source_id: String,
+        digest: String,
+        yes: bool,
+    },
+    ImportReceipt {
+        source_id: String,
+    },
     SendJob {
         job: String,
         identity: Option<String>,

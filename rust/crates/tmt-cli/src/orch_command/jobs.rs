@@ -1,6 +1,8 @@
 //! CLI selectors and presentation over the shared job read/write owners.
+mod adoption;
 use super::*;
 use crate::{identity_context, invocation::OrchWriteOperation};
+pub(super) use adoption::execute as adopt;
 use tmt_adapters::orchestration::{JobDefinitionDocument, OrchMutationDocument, OrchReadFailure};
 fn failure(e: impl Into<OrchReadFailure>) -> Failure {
     let e = e.into();
