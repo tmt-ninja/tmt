@@ -639,6 +639,7 @@ export function selectBrowserUi(paths) {
 // steps of the Unit tests job. Remote is a CLI-scope owner, so every selected path below is a
 // full native scope and that job always runs for it; selection stays a plain path match.
 const REMOTE_FIRESTORE_ROOTS = [
+  '.github/actions/setup-firebase-tools',
   'extensions/tmt-remote/rust/tmt-remote/tests/emulator',
   'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules',
 ];
@@ -679,6 +680,7 @@ export function selectNativeSyncEmulator(paths) {
     (path) =>
       path === '.github/workflows/ci.yml' ||
       path === 'typescript/scripts/ci-scope.mjs' ||
+      within('.github/actions/setup-firebase-tools', path) ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/native_sync.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/sealed_sync.rs' ||
@@ -719,6 +721,7 @@ const HOSTED_READER_EMULATOR_INPUTS = new Set([
 ]);
 const HOSTED_READER_EMULATOR_ROOTS = [
   '.github/actions/hosted-reader-emulator',
+  '.github/actions/setup-firebase-tools',
   'extensions/tmt-colab/typescript/colab-client/src',
   'extensions/tmt-remote/rust/tmt-remote/src',
   'extensions/tmt-remote/rust/tmt-remote/assets',
