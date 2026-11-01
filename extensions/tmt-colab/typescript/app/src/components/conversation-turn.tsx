@@ -61,7 +61,9 @@ export function ConversationTurn({
           {(actions || chat) && <span className="comment-header-end">{actions}</span>}
         </header>
         <div className="conversation-body">{children}</div>
-        {status && <div className="conversation-turn-status">{status}</div>}
+        {/* A person's message always holds its status line, so a state change swaps the words in
+            place instead of adding or removing a row (#5911). */}
+        {(status || role === 'user') && <div className="conversation-turn-status">{status}</div>}
         {delivery && <div className="conversation-delivery">{delivery}</div>}
       </div>
     </article>
