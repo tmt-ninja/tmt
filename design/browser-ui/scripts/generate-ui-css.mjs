@@ -86,6 +86,7 @@ const fixed = [
     'dock-width',
     'attention-dot-size',
     'attention-dot-ring-width',
+    'control-size-l',
   ].map((key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`),
   ...motion(),
   ...Object.entries(tokens.font).map(
