@@ -16,6 +16,8 @@ use tmt_core::{
 /// Worst-case JSON escaping of the canonical message plus a bounded UUID list.
 pub const INPUT_LIMIT: usize = MAX_EXCHANGE_TEXT_BYTES * 6 + 4096;
 
+mod wake;
+pub use wake::{DispatchWake, wake_direct};
 #[cfg(test)]
 mod tests;
 

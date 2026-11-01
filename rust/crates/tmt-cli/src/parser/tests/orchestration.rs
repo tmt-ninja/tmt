@@ -81,3 +81,35 @@ fn orchestration_mutations_use_typed_operands_and_explicit_consent() {
         assert!(parse(&args(&argv)).is_err());
     }
 }
+
+#[test]
+fn jobs_have_bounded_filters_and_explicit_mutation_consent() {
+    assert_eq!(
+        parsed(&["orch", "job", "ls", "--owner", "worker-1", "--limit", "2"]).invocation,
+        Invocation::Orch(OrchOperation::Jobs {
+            owner: Some("worker-1".into()),
+            room: None,
+            limit: 2,
+            cursor: None
+        })
+    );
+    assert_eq!(
+        parsed(&["orch", "job", "edit", "j1", "--file", "job.json", "--yes"]).invocation,
+        Invocation::Orch(OrchOperation::Write {
+            operation: OrchWriteOperation::EditJob {
+                job: "j1".into(),
+                file: "job.json".into()
+            },
+            yes: true
+        })
+    );
+    for argv in [
+        vec!["orch", "job", "add"],
+        vec!["orch", "job", "ls", "--limit", "0"],
+        vec!["orch", "job", "ls", "--limit", "129"],
+        vec!["orch", "job", "show", "j1", "--yes"],
+        vec!["orch", "job", "rm", "j1", "--file", "job.json"],
+    ] {
+        assert!(parse(&args(&argv)).is_err(), "{argv:?}");
+    }
+}

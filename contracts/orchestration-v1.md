@@ -397,6 +397,22 @@ UUID and this revision. Ops reads and actions use its existing background lanes;
 paint/input never calls Core. Legacy room/c-id selectors are a compatibility
 projection of these same definitions, not a second mutable store.
 
+Job mutations are `job.add` with `candidate`, `job.set` with `jobId`, `revision`
+and `candidate`, `job.pause` with `jobId`, `revision` and the display attribution
+`by`, and `job.resume` / `job.rm` with `jobId` and `revision`. A candidate contains
+`ownerIdentityId`, nullable `squadRoomId` and `title`, exact `message`, and `schedule`.
+The message retains the canonical 1 MiB text bound; JSON escaping fits the API's
+existing input bound. Plan mutations keep their smaller document bound.
+A null owner creates a paused definition; reassignment does not clear a manual
+pause. `by` is attribution, not authentication or a permission grant.
+
+Preview reads one configuration/job snapshot and allocates no durable ID. Apply
+requires the existing consent, preview instant/digest and configuration revision,
+plus the job revision. The writer rechecks the complete observed job (including
+its held slot) and configuration in one transaction before publication. A race
+returns `ORCH_CONFLICT`; no-op pause changes neither revision nor attribution.
+Configuration mutations create no run outcomes. Removal never reuses a j-id.
+
 ## Calendar
 
 One machine IANA zone is configured; absent configuration uses the system's named

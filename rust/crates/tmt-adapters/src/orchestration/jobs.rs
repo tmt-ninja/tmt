@@ -1,5 +1,8 @@
 //! Job wire/calendar conversion and public projection.
+mod execution;
 mod read;
+pub use execution::execute_job;
+pub(crate) mod write;
 pub(crate) use read::read;
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +12,7 @@ use tmt_core::orchestration::jobs::{JobError, JobSchedule};
 // admission validates the rule before saving; decoding never chooses a new zone.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) enum JobScheduleDocument {
+pub enum JobScheduleDocument {
     Every {
         zone: String,
         seconds: i64,
