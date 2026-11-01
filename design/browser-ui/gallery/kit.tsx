@@ -98,6 +98,17 @@ export function Frame({
 }
 
 /**
+ * Where a host that cannot frame the docs (Design inside Colab, #5866) draws a frame instead: in
+ * the document, as a static preview. Later each preview becomes a renderer frame sized by its bind.
+ */
+/** Draws a frame from its `src`: the frame page's path and query. */
+type InlineFrame = (path: string, params: URLSearchParams) => ReactNode;
+let inlineFrame: InlineFrame | undefined;
+export function drawFramesInline(render: InlineFrame | undefined) {
+  inlineFrame = render;
+}
+
+/**
  * An iframe preview that keeps its true layout width and scales down to fit its cell, so a wide
  * viewport never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
  * docs e2e holds it inside its parent cell.
@@ -124,6 +135,38 @@ export function ScaledFrame({
     observer.observe(element);
     return () => observer.disconnect();
   }, [width]);
+  if (inlineFrame) {
+    const query = src.indexOf('?');
+    const path = query < 0 ? src : src.slice(0, query);
+    const params = new URLSearchParams(query < 0 ? '' : src.slice(query + 1));
+    const theme =
+      params.get('theme') === 'light' || params.get('look') === 'tmt-light' ? 'light' : 'dark';
+    return (
+      <figure className="scaled-frame-static">
+        <figcaption>
+          Static preview · {width ? `${width} px` : 'full width'} · {theme}
+        </figcaption>
+        <div
+          ref={box}
+          className="scaled-frame"
+          data-preview-frame=""
+          style={{ maxWidth: width, height: height * scale }}
+        >
+          <div
+            className="scaled-frame-inline"
+            role="img"
+            aria-label={title}
+            inert
+            data-theme={theme}
+            data-tmt-palette="b"
+            style={{ width: width ?? '100%', height, transform: `scale(${scale})` }}
+          >
+            {inlineFrame(path, params)}
+          </div>
+        </div>
+      </figure>
+    );
+  }
   return (
     <div
       ref={box}

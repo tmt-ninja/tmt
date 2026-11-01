@@ -797,7 +797,7 @@ unchanged. Corrupt/newer data and failed writes are reported and retained.
 `shortcut-dialogs.tsx` owns Save and the Edit/Manage filter editor, matching previews and
 ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
 use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
-through its Filter menu. The action row offers Save/Edit; the sidebar Shortcuts group opens Manage.
+through its Filter menu. The end of the stage tabs row offers Save/Edit; the sidebar Shortcuts group opens Manage.
 On phones Manage opens its full-screen list, then an editor with a back action. These preferences
 are not synced or shared.
 

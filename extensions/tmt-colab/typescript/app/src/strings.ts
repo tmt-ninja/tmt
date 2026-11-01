@@ -929,7 +929,6 @@ export const text = {
     tabNeedsYou: 'Needs you',
     tabNeedsYouWaiting: 'waiting',
     newPage: 'New page',
-    newShort: 'New',
     newPageTitle: 'New page',
     newPageClose: 'Close',
     newPageHint: 'Return to your TMT workspace after creating the page.',
@@ -1121,6 +1120,7 @@ export const text = {
       long: 'Use at most 32 characters.',
       form: 'Use single spaces inside the name; no tabs or line breaks.',
       exists: 'That project already exists.',
+      reserved: 'That name is reserved for design systems.',
     },
     pageFull: 'A page is in at most 8 projects.',
     failures: {

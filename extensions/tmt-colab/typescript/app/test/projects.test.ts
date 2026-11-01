@@ -9,6 +9,8 @@ import {
   projectCounts,
   projectTone,
   projectNameError,
+  userProjectNameError,
+  DESIGN_SYSTEM_PROJECT,
   projectRequests,
   withProject,
   waitingCount,
@@ -40,6 +42,12 @@ describe('project names', () => {
     expect(projectNameError('🚀'.repeat(32))).toBeUndefined();
     for (const name of [' a', 'a ', 'a  b', 'a\tb', 'a\nb', 'a b', 'a\u0000b', '　'])
       expect(projectNameError(name), JSON.stringify(name)).toBe('form');
+  });
+  it("keep the design-system project out of a person's reach (#5866)", () => {
+    expect(projectNameError(DESIGN_SYSTEM_PROJECT)).toBeUndefined();
+    expect(userProjectNameError(DESIGN_SYSTEM_PROJECT)).toBe('reserved');
+    expect(userProjectNameError('Design systems')).toBeUndefined();
+    expect(userProjectNameError('')).toBe('empty');
   });
   // The owner store reads the same file (projects.rs): the two grammars cannot drift. U+FEFF and
   // U+200B are not White_Space, so a CLI project carrying one must stay editable here.

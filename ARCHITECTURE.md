@@ -73,6 +73,10 @@ site and release tooling stay outside this lockfile.
 
 ### CI selection and worker model
 
+`.github/actions/setup-firebase-tools` owns the isolated npm lockfile and shared
+installation for hosted Firebase emulator tools, outside the pnpm workspace. The
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns its consumers.
+
 [`.github/components.json`](.github/components.json) is the one component map:
 `owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
 files, and ordered rules select CI consumers independently. `release:false`
@@ -101,7 +105,7 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API reads/writes; Digest receiving. Restricted holds record one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API reads/writes; Digest receiving. Restricted holds record one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide inside request preparation (refuse before storing, or hold for a person until `talks.resume`). [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -519,18 +523,18 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 ## Remote extension
 
-`extensions/tmt-remote` owns listener, restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
+`extensions/tmt-remote` owns listen/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
 `<dataRoot>/remote/` ([leaf](#shared-extension-state-layout)), door/[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
 [Colab](#colab-extension) mounts `/r/<prefix>/x/colab/`.
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
-Remote: member/channel authority, People/row data, local effect fences, invites/history, join UI, shell extras, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
+Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no Remote state files.
+Remote: member/channel authority, People/rows, local effect fences, invites/history, join UI, Design/shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
 Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
 with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
-Finals use receipt-bound Core `reply`.
+Finals: receipt-bound Core `reply`.
 
 [Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
 [internals](.agents/skills/tmt-remote/references/architecture-internals.md);

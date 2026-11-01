@@ -60,18 +60,38 @@ pub(crate) fn app_route(path: &str) -> bool {
             | "/ops/"
             | "/digest"
             | "/digest/"
-            | "/colab"
-            | "/colab/"
-    ) || path.strip_prefix("/colab/").is_some_and(|rest| {
-        rest.len() <= 160
-            && rest.split('/').all(|segment| {
-                !segment.is_empty()
-                    && segment
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
-            })
-    })
+    ) || app_extension(path).is_some()
 }
+/// Owner app families map to an existing extension, never a new public reader entry.
+pub(crate) fn app_extension(path: &str) -> Option<&'static str> {
+    for family in ["/colab", "/design"] {
+        if app_family(path, family) {
+            return Some("colab");
+        }
+    }
+    None
+}
+/// The bounded root navigation exception for a Colab-described extra module.
+pub(crate) fn extra_navigation(extension: &str, path: &str) -> bool {
+    extension == "colab" && app_family(path, "/design")
+}
+fn app_family(path: &str, family: &str) -> bool {
+    let Some(rest) = path.strip_prefix(family) else {
+        return false;
+    };
+    rest.is_empty()
+        || rest == "/"
+        || rest.strip_prefix('/').is_some_and(|rest| {
+            rest.len() <= 160
+                && rest.split('/').all(|segment| {
+                    !segment.is_empty()
+                        && segment
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+                })
+        })
+}
+
 /// The owner's short page links (`/p/<id>`) open that page in the app at `/colab/p/<id>`.
 pub(crate) fn short_page(path: &str) -> Option<&str> {
     path.strip_prefix("/p/").filter(|id| {

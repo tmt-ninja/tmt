@@ -31,7 +31,7 @@ fn with_extra() -> Value {
 }
 
 #[test]
-fn primary_only_composed_bytes_are_unchanged_and_extras_are_separate_mount_confined_entries() {
+fn primary_bytes_stay_unchanged_and_colab_extra_navigation_uses_the_design_root() {
     let baseline = parse(&value())
         .unwrap()
         .module("colab", "https://door/r/abc/x/colab/");
@@ -53,17 +53,11 @@ fn primary_only_composed_bytes_are_unchanged_and_extras_are_separate_mount_confi
     assert_eq!(rows[1]["extension"], "colab");
     assert_eq!(rows[1]["module"], "design");
     assert_eq!(rows[1]["rail"]["icon"], "palette");
-    assert_eq!(
-        rows[1]["rail"]["path"],
-        "https://door/r/abc/x/colab/design/"
-    );
-    assert_eq!(
-        rows[1]["menu"][0]["path"],
-        "https://door/r/abc/x/colab/design/library"
-    );
+    assert_eq!(rows[1]["rail"]["path"], "https://door/design/");
+    assert_eq!(rows[1]["menu"][0]["path"], "https://door/design/library");
     assert_eq!(
         rows[1]["settings"][0]["path"],
-        "https://door/r/abc/x/colab/design/settings"
+        "https://door/design/settings"
     );
     assert_eq!(
         rows[1]["entry"],
@@ -469,4 +463,38 @@ fn unknown_count_keeps_the_module_and_null_or_over_bound_counts_refuse() {
     assert!(parse(&unknown).is_none(), "null is not omission");
     unknown["needsYou"] = json!(10000);
     assert!(parse(&unknown).is_none());
+}
+
+#[test]
+fn root_extra_navigation_is_colab_design_only_and_script_stays_mounted() {
+    for (extension, path, expected) in [
+        ("colab", "/design/", "https://door/design/"),
+        ("colab", "/design/a-1_b", "https://door/design/a-1_b"),
+        ("other", "/design/", "https://door/r/abc/x/other/design/"),
+        ("colab", "/remote/", "https://door/r/abc/x/colab/remote/"),
+        (
+            "colab",
+            "/designer/",
+            "https://door/r/abc/x/colab/designer/",
+        ),
+        (
+            "colab",
+            "/design/a.b",
+            "https://door/r/abc/x/colab/design/a.b",
+        ),
+    ] {
+        let mut v = with_extra();
+        v["modules"][0]["rail"]["path"] = json!(path);
+        let answer = parse(&v).unwrap();
+        let extra = answer.modules.unwrap().remove(0).module(
+            extension,
+            &format!("https://door/r/abc/x/{extension}/"),
+            "https://door",
+        );
+        assert_eq!(extra["rail"]["path"], expected);
+        assert_eq!(
+            extra["entry"],
+            format!("https://door/r/abc/x/{extension}/assets/design.js")
+        );
+    }
 }

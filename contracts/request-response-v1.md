@@ -836,13 +836,17 @@ because every held message goes out together. The count trigger of a rule can on
 earlier. `working` rests on the driver's last admitted event for the exact session and process
 the recipient is bound to now; it is not liveness evidence. `canSendNow` says whether a send-now
 applies to the message; who may ask is that operation's own check. A refusal's cause is not
-retained, so `not_sent` carries one of the two generic reasons.
+retained, so `not_sent` carries one of the two generic reasons, except a talk-limit hold that
+expired unresumed (`talk_hold_expired`). A talk-limit hold (`held_at_talk_limit`, see
+[orchestration](orchestration-v1.md)) has no deadline and no send-now; only a talk resume releases it.
 
 | `reason.code`               | `state`       | `reason.text`                                                                                       |
 | --------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
 | `waiting_for_delivery`      | `sent`        | waiting for delivery                                                                                |
 | `awaiting_approval`         | `sent`        | waiting for the agent's approval prompt to clear                                                    |
 | `held_to_save_usage`        | `batched`     | batched to save usage, sends when the agent finishes this turn                                      |
+| `held_at_talk_limit`        | `batched`     | held at the talk limit, sends when a person or a lead resumes the pair                              |
+| `talk_hold_expired`         | `not_sent`    | not sent, the talk-limit hold was not resumed in time                                               |
 | `waiting_for_person`        | `delivered`   | waiting for the person                                                                              |
 | `reached_the_agent`         | `delivered`   | delivered                                                                                           |
 | `agent_working`             | `working`     | the agent has started on it                                                                         |
@@ -985,6 +989,10 @@ core does not infer question/blocked categories. Results order and page by final
 submission time with request ID as the tie-breaker, not preparation time. The
 `answers` view lists the same originator's finals together with its answered
 passthrough turns, metadata only, in one order.
+
+The `conversation` view reads the configured person's two-party history with one
+member, both directions, outside rooms, with an opaque change position from the two
+identities' attention counters.
 
 The [extension API contract](extension-api.md#other-operation-details) owns the
 input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain

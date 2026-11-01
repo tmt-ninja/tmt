@@ -402,3 +402,95 @@ fn focus_cli_sets_exact_duration_and_clear_stays_preview_only_without_yes() {
         0
     );
 }
+
+#[test]
+fn talk_refuses_a_restricted_route_holds_at_the_limit_and_resume_releases() {
+    let mut f = Fixture::new();
+    f.seed();
+    let mut storage = Storage::open(f.db()).unwrap();
+    for name in ["worker-a", "worker-b"] {
+        create_or_resolve(&mut storage, name, Lifetime::Saved).unwrap();
+    }
+    storage.close().unwrap();
+    let talk = |f: &mut Fixture| {
+        f.run(
+            &[
+                "talk",
+                "worker-b",
+                "hi",
+                "--identity",
+                "worker-a",
+                "--detach",
+                "--json",
+            ],
+            None,
+        )
+    };
+    let attempts = |f: &Fixture| {
+        Connection::open(f.db())
+            .unwrap()
+            .query_row("SELECT count(*) FROM request_attempts", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    // The Quiet plan says `sending: leads`: refused before anything is stored.
+    let refused = talk(&mut f);
+    assert_eq!(refused.status.code(), Some(5));
+    let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "ORCH_ROUTE_RESTRICTED");
+    assert_eq!(attempts(&f), 0);
+    let allowed = f.json(
+        &[
+            "orch", "route", "allow", "worker-a", "worker-b", "--until", "1h", "--yes", "--json",
+        ],
+        None,
+    );
+    assert_eq!(allowed["changed"], true);
+    assert!(talk(&mut f).status.success());
+    assert_eq!(attempts(&f), 1);
+    // A limit of one: the next request waits for a person, never dropped.
+    Connection::open(f.db())
+        .unwrap()
+        .execute(
+            "UPDATE orchestration_plans SET fields=?2 WHERE id=?1",
+            params![PLAN, r#"{"state":"sleep","talkLimit":1}"#],
+        )
+        .unwrap();
+    let held = talk(&mut f);
+    assert!(held.status.success());
+    let held: Value = serde_json::from_slice(&held.stdout).unwrap();
+    assert_eq!(
+        (held["status"].clone(), held["waitingFor"].clone()),
+        (json!("held"), json!("person"))
+    );
+    let talks = f.json(&["orch", "talks", "--json"], None);
+    assert_eq!(talks["pairs"][0]["state"], "held");
+    assert_eq!(talks["pairs"][0]["heldCount"], 1);
+    assert_eq!(talks["pairs"][0]["held"][0]["fromName"], "worker-a");
+    let routes = f.json(&["orch", "routes", "--member", "worker", "--json"], None);
+    assert!(
+        routes["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["fromName"] == "worker-a"
+                && r["toName"] == "worker-b"
+                && r["verdict"] == "needs_person")
+    );
+    let preview = f.json(
+        &["orch", "talks", "resume", "worker-a", "worker-b", "--json"],
+        None,
+    );
+    assert_eq!(preview["releases"], 1);
+    assert_eq!(preview["requiresConsent"], true);
+    let resumed = f.json(
+        &[
+            "orch", "talks", "resume", "worker-a", "worker-b", "--yes", "--json",
+        ],
+        None,
+    );
+    assert_eq!(resumed["released"].as_array().unwrap().len(), 1);
+    let talks = f.json(&["orch", "talks", "--json"], None);
+    assert_eq!(talks["pairs"][0]["state"], "open");
+}

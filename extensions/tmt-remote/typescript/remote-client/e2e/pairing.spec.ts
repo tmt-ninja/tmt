@@ -1094,6 +1094,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'bindSyncContext',
     'budget',
     'certifyKey',
+    'conversations',
     'firebaseRemote',
     'invitationPage',
     'invitations',
@@ -6058,11 +6059,11 @@ test('the rail shows the same items in the same order on every page', async () =
     for (const path of ['/', '/remote/', '/remote/settings', '/ops/', '/digest/', '/settings/']) {
       await page.goto(`${origin}${path}`);
       const items = page.locator('.tmt-ui-rail .tmt-ui-rail-item');
-      await expect(items).toHaveCount(6);
+      await expect(items).toHaveCount(7);
       rails.push(await items.evaluateAll((nodes) => nodes.map((node) => node.dataset.id!)));
     }
     for (const rail of rails)
-      expect(rail).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
+      expect(rail).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
   } finally {
     await page.close();
   }
@@ -6484,4 +6485,303 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(page).toHaveURL(`${origin}/remote/overview`);
     await expect(tabs.getByRole('tab', { name: 'Overview', exact: true })).toBeFocused();
   });
+});
+
+// Real browser/native signed bridge over the frozen public Core fixture, not Core SQL acceptance.
+test('owner DM history reuses one root Session and strips private Core fields', async () => {
+  const memberId = '00000000-0000-4000-8000-000000000001';
+  const viewerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  await writeFile(
+    join(root, 'conversation-fixture.json'),
+    JSON.stringify({
+      memberId,
+      page: {
+        viewerId,
+        member: 'active',
+        changePosition: 'native_position',
+        nextBefore: null,
+        receipt: 'PRIVATE-CONVERSATION-LEAK',
+        items: [
+          {
+            requestId: 'req_cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            recipientId: memberId,
+            sender: {
+              kind: 'verified',
+              identityId: viewerId,
+              provider: 'PRIVATE-CONVERSATION-LEAK',
+            },
+            kind: 'request',
+            origin: 'person',
+            preparedAtMs: 1720000000000,
+            delivery: 'sent',
+            messageState: {
+              state: 'answered',
+              reason: { code: 'answered_by_reply', text: 'Answered by reply' },
+              latestMs: 1720000001000,
+              remainingMs: null,
+              canSendNow: false,
+            },
+            final: {
+              status: 'retained',
+              submittedAtMs: 1720000001000,
+              bodyBytes: 20,
+              expiresAtMs: 1920000000000,
+              response: 'PRIVATE-CONVERSATION-LEAK',
+            },
+            preview: 'Native retained question',
+            responsePreview: 'Native retained preview',
+            previewTruncated: false,
+            direction: 'toMember',
+            changePosition: 'native_item',
+          },
+        ],
+      },
+    }),
+  );
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/remote/overview');
+  await page.goto(offer.link);
+  await page.waitForURL(`${origin}/remote/overview`);
+  await expect(page.locator('#state-label')).toHaveText('Connected');
+  const board = {
+    version: 1,
+    state: 'ok',
+    observedAtMs: Date.now(),
+    squads: [{ name: 'sample', idleAlertMs: 900000 }],
+    agents: [
+      {
+        id: memberId,
+        name: 'Browser agent',
+        squad: 'sample',
+        role: 'member',
+        state: 'idle',
+        presence: 'active',
+        activity: { state: 'idle' },
+        waitingOnYou: 0,
+      },
+    ],
+    timers: [],
+    truncated: false,
+  };
+  await page.route(`${mounts}-/ops`, (route) =>
+    route.fulfill({ json: { ...board, observedAtMs: Date.now() } }),
+  );
+  const sent: { operation: string; payload?: string }[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/append')) return;
+    const body = request.postDataJSON() as { operation: string; payload?: string };
+    sent.push(body);
+  });
+  const callsBefore = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n').length;
+  await page.goto(`${origin}/ops/#dm/${memberId}/sample`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Browser agent');
+  await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
+    'Native retained preview',
+  );
+  await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  const opens = sent.filter((call) => call.operation === 'session.open').length;
+  expect(opens).toBe(1);
+  await page.getByRole('button', { name: 'Refresh history', exact: true }).click();
+  await expect(page.getByText('Unread changes: 0', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  expect(sent.filter((call) => call.operation === 'session.open')).toHaveLength(opens);
+  const history = sent.filter((call) => call.operation === 'requests.list');
+  expect(history.length).toBeGreaterThanOrEqual(2);
+  for (const call of history) {
+    const value = JSON.parse(Buffer.from(call.payload!, 'base64url').toString()) as {
+      input: Record<string, unknown>;
+    };
+    expect(value.input.memberId).toBe(memberId);
+    expect(
+      Object.keys(value.input).every((key) =>
+        ['memberId', 'limit', 'before', 'since'].includes(key),
+      ),
+    ).toBe(true);
+  }
+  const after = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .slice(callsBefore)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(after.filter((call) => call.operation === 'requests.list').length).toBeGreaterThanOrEqual(
+    2,
+  );
+  expect(
+    after.some((call) =>
+      ['user.identity', 'requests.acknowledge', 'dispatch.create'].includes(call.operation),
+    ),
+  ).toBe(false);
+  await expect(page.locator('body')).not.toContainText('PRIVATE-CONVERSATION-LEAK');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(
+    'Native retained',
+  );
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await page.close();
+  const outsider = await browser.newContext();
+  const other = await outsider.newPage();
+  // Board/mount fixture data is not authority: the absent pairing still blocks the signed read.
+  await other.route(`${origin}/sdk/mount`, (route) =>
+    route.fulfill({ json: { address: mounts.slice(0, -3) } }),
+  );
+  await other.route(`${mounts}-/ops`, (route) => route.fulfill({ json: board }));
+  const before = (await readFile(join(root, 'core-calls.jsonl'), 'utf8')).trim().split('\n').length;
+  await other.goto(`${origin}/ops/#dm/${memberId}/sample`);
+  await expect(other.getByRole('region', { name: 'Talk history' })).toContainText(
+    'unavailable for this browser',
+  );
+  const final = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(final.slice(before).some((call) => call.operation === 'requests.list')).toBe(false);
+  await outsider.close();
+});
+
+test('Design uses a described Colab entry after owner pairing and keeps one active rail item', async () => {
+  const page = await browser.newPage();
+  const captures =
+    process.env.TMT_REMOTE_CAPTURE_DIR ??
+    (process.env.CI ? test.info().outputPath('design-root-captures') : undefined);
+  let imports = 0;
+  await page.route('**/x/-/shell', async (route) => {
+    // Keep the actual door's live owner-session admission; replace display data only.
+    const admitted = await route.fetch();
+    if (!admitted.ok()) {
+      await route.fulfill({ response: admitted });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        version: 1,
+        modules: [
+          {
+            extension: 'colab',
+            rail: { label: 'Colab', icon: 'file-text', path: mounts + 'colab/', order: 100 },
+            menu: [],
+            settings: [],
+            entry: 'assets/colab-module.js',
+          },
+          {
+            extension: 'colab',
+            module: 'design',
+            rail: { label: 'Design', icon: 'palette', path: origin + '/design/', order: 101 },
+            menu: [],
+            settings: [],
+            entry: mounts + 'colab/assets/colab-module.js',
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/x/colab/assets/colab-module.js', async (route) => {
+    imports++;
+    await route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+      window.designProof = {mounts:0,disposals:0};
+      export function mount(slot) {
+        window.designProof.mounts++;
+        const main=document.createElement('section'); main.className='tmt-page'; main.id='design-host-fixture';
+        const title=document.createElement('h1'); title.textContent='Design host fixture';
+        const note=document.createElement('p'); note.textContent='Explicit Colab module stand-in: root ownership only, not Design editor acceptance.';
+        main.append(title,note); slot.main.replaceChildren(main);
+        return () => {window.designProof.disposals++;main.remove();};
+      }
+      export function mountSearchSession() {return {open(){},dispose(){}};}
+    `,
+    });
+  });
+  try {
+    await page.goto(origin + '/design/');
+    await expect(
+      page.getByRole('heading', { name: 'Design', exact: true, level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator('.tmt-ui-shell-main')).toContainText('Pair this browser with Remote');
+    expect(imports).toBe(0);
+    await captureState(
+      page,
+      'root-design-unpaired',
+      'Design owner gate before pairing: no module import',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      captures,
+    );
+    pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    await page.goto(offer.link as string);
+    await page.fill('#name', 'Design owner browser');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('#words')).toBeVisible();
+    expect((await events.next()).event).toBe('candidate');
+    pair.stdin.write('confirm\n');
+    expect((await events.next()).reason).toBe('paired');
+    await expect(page.locator('#status')).toContainText('This browser is paired.');
+    await page.goto(origin + '/design/');
+    await expect(
+      page.getByRole('heading', { name: 'Design host fixture', exact: true }),
+    ).toBeVisible();
+    const rail = page.locator('.tmt-ui-rail');
+    expect(
+      await rail
+        .locator('.tmt-ui-rail-item')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id'))),
+    ).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
+    await expect(rail.locator('[data-id="design"]')).toHaveAttribute('aria-current', 'page');
+    await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+    expect(imports).toBe(1);
+    await page.mouse.move(500, 500);
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
+    await captureState(
+      page,
+      'root-design-host',
+      'Design root with explicit Colab stand-in; host/rail proof only',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      captures,
+    );
+    await page.evaluate(async () => {
+      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+        shellApp(): { navigate(href: string): void } | undefined;
+      };
+      sdk.shellApp()?.navigate('/');
+    });
+    await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { designProof: { disposals: number } }).designProof.disposals,
+      ),
+    ).toBe(1);
+    await page.evaluate(async () => {
+      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+        shellApp(): { navigate(href: string): void } | undefined;
+      };
+      sdk.shellApp()?.navigate('/design/library');
+    });
+    await expect(
+      page.getByRole('heading', { name: 'Design host fixture', exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(origin + '/design/library');
+    expect(imports).toBe(1);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { designProof: { mounts: number } }).designProof.mounts,
+      ),
+    ).toBe(2);
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
 });

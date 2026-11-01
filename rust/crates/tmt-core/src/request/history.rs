@@ -104,6 +104,75 @@ pub struct HistoryPage {
     pub next_before: Option<HistoryCursor>,
 }
 
+/// A two-party conversation between the configured person and one member (#5807).
+pub const CONVERSATION_LIMIT: u64 = 20;
+/// `changedSince.count` is exact up to this cap, then `more`.
+pub const CHANGED_SINCE_CAP: u64 = 50;
+
+/// Where a conversation stood: each side's attention counter (the source behind the X
+/// `--after` cursor) and how many in-scope requests were retained then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationPosition {
+    pub viewer: u64,
+    pub member: u64,
+    pub retained: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversationSince {
+    Position(ConversationPosition),
+    /// Well-formed, but from another scope.
+    Foreign,
+}
+
+pub struct ConversationQuery {
+    pub viewer_id: String,
+    pub member_id: String,
+    pub limit: u64,
+    pub before: Option<HistoryCursor>,
+    pub since: Option<ConversationSince>,
+}
+
+/// A conversation row with the two counter values that last moved it.
+pub struct ConversationRecord {
+    pub history: HistoryRecord,
+    /// The viewer-side and member-side revisions of this request.
+    pub position: (u64, u64),
+}
+
+/// What the conversation counts at a read: the retained in-scope requests, those
+/// created at or before `since`, and those moved past it (at most the cap plus one).
+pub struct ConversationCounts {
+    pub retained: u64,
+    pub retained_at_since: u64,
+    pub changed: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversationDirection {
+    ToMember,
+    FromMember,
+}
+
+pub struct ConversationSummary {
+    pub summary: HistorySummary,
+    pub direction: ConversationDirection,
+    pub position: (u64, u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangedSince {
+    Count { count: u64, more: bool },
+    Unknown,
+}
+
+pub struct ConversationPage {
+    pub items: Vec<ConversationSummary>,
+    pub next_before: Option<HistoryCursor>,
+    pub position: ConversationPosition,
+    pub changed_since: Option<ChangedSince>,
+}
+
 pub struct HistoryDetail {
     pub item: HistoryItem<String>,
     pub prompt: RequestPrompt,

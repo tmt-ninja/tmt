@@ -44,6 +44,13 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 for sealed-document consumers, including Colab. It has no Core authority. Native carrier
 bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is shared.
 
+`operations::conversation` validates the fixed viewer-resolved public Core query and
+allowlists its bounded response. The operation owner admits only the owner's own-origin
+browser with `results.read` and the selected member UUID, under the existing observation
+fence. Core positions remain opaque; no identity creation, acknowledgment or new store
+belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
+bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
+
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
 
@@ -152,15 +159,23 @@ behavior.
 
 `shell` admits one capability-gated extra display module under the extension's same
 callback, cache age and socket fence. Composition keys extras by `(extension, module)`;
-Remote extension-wide lookups select only primaries. The describe contract owns
-validation, ordering and version-skew rules; the shared leaf owns rail rendering.
+Remote extension-wide lookups select only primaries. `pages` maps the Design app family
+to Colab's existing mount; `shell` resolves only that Colab extra's navigation at the root,
+with its script still confined to Colab's mount. The describe contract owns validation,
+ordering and version-skew rules; the shared leaf owns rail rendering.
 
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from
 the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
 so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
 Session observations invalidate search; the existing management hold reason fences navigation.
-These UI lifetimes add no native endpoint, stored authority or provider observation.
+The same root retains a verified signed Session for owner reads and DM history, joins
+admission within the route lifetime, and retires only the failed handle rather than a newer
+observation. `conversations` owns SDK decoding; `conversation-history` owns bounded paging
+and the selected/last-opened DM poll; `conversation-seen` stores only the browser-local
+machine/viewer/member position. Positions are opaque. A visible newest-page read alone
+advances seen; background/older-page reads do not. The operations contract owns unread
+semantics. These UI lifetimes add no native endpoint, stored authority or provider observation.
 
 `create-page` is the global setup guide, outside the current-door tab frame. Its inputs are
 memory-only; naming delegates to the registry CAS owner. `settings-page` passes the existing

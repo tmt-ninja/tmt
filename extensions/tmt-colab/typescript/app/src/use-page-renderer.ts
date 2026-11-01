@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import type { DesignSystemSource } from './design-system.js';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
@@ -54,6 +55,7 @@ export function usePageRenderer({
   resetPageLinks,
   requestPageLink,
   onContentApplied,
+  designSystem,
 }: {
   snapshot: PageSnapshot;
   view: PageView;
@@ -71,6 +73,8 @@ export function usePageRenderer({
   requestPageLink: RendererOptions['onLink'];
   /** The open frame now shows a new source, applied in place. */
   onContentApplied(): void;
+  /** Reads a pinned design system's bundle (#5821); absent draws the in-page notice. */
+  designSystem?: DesignSystemSource;
 }) {
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
@@ -87,6 +91,8 @@ export function usePageRenderer({
   }, [workBandSize, renderer]);
   const current = useRef(handlers);
   current.current = handlers;
+  const designSystems = useRef(designSystem);
+  designSystems.current = designSystem;
   // The frame is mounted again only when its key changes (#5022): the page, its layout and type,
   // and the part the source decides (whether it may hold scripts, whether it uses the design
   // system). `remounts` counts the in-place updates that fell back to a fresh frame.
@@ -151,6 +157,7 @@ export function usePageRenderer({
     void mountRenderer(host.current!, latestSource.current, {
       signal: controller.signal,
       layout: view.layout,
+      designSystem: async (pin) => designSystems.current?.(pin),
       onState: (next) => {
         if (next !== 'ready') resetPageLinks();
         setState(next);

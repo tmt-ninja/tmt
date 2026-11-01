@@ -108,8 +108,9 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
 `/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
-`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
-`/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
+`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
+`/design`, `/design/` and `/design/<segments>` (each segment `[A-Za-z0-9_-]+`,
+at most 160 bytes after `/colab/` or `/design/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
 and the document reads no cookie or session. Its policy is the pairing page policy below plus only
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
@@ -120,10 +121,12 @@ plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`;
 its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
-always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules and
-TMT settings, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
+Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
+TMT settings last, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
-its reason. `/` is Home: it lists, per module,
+its reason. Design follows Colab's availability; the composed rail order places it
+between Colab and Remote. Its root route imports only the explicitly described, mount-confined extra entry.
+A missing entry stays link-only via the paired Colab alias. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
@@ -184,7 +187,8 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table or a web app route named for the extension (`/colab/…`), or null. It
+entry in the same Remote-owned table or a mapped app family (`/colab/…` and `/design/…`
+both map to Colab), or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.
@@ -1575,8 +1579,8 @@ to both attach and supervised-start use.
 
 ### Operations
 
-Payloads for core API operations are the existing API envelope, decoded without rewriting input.
-Remote narrows supported operations/authority before core calls.
+Payloads use the existing API envelope. Remote admits operation-specific bounded input and
+applies its published public Core mapping after narrowing supported operations and authority.
 
 | Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1588,12 +1592,58 @@ Remote narrows supported operations/authority before core calls.
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
+| `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID; fixed Core `requests.list` `view:"conversation"` below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
-| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
+| global `changes.cursor`, `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
 | reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
+
+**Owner-browser DM history.** Signed `requests.list` takes
+`{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
+Only this machine's own-origin browser grant with `results.read` and the selected
+canonical member UUID is admitted, under the existing live-grant observation fence.
+Native, CLI, add-on and foreign-browser grants refuse before Core. Browser input cannot
+choose a viewer, originator, room or another view. Remote fixes Core's `view:"conversation"`;
+Core resolves only the existing configured person, without identity creation, and filters
+the viewer/member pair before pagination. Missing Core support/person or a failed or
+malformed read is unavailable; there is no broader-history fallback or compatibility probe.
+
+The default page is 20, maximum 50. Core subprocess output, the projected response
+and SDK decoding share the 801-KiB response bound: 50 rows times six-byte JSON escaping
+for two 640-byte previews, a 1-KiB withdrawal reason and a 256-byte state reason, plus
+1 KiB of metadata per row and per page. The response is `{viewerId,member,items,nextBefore,changePosition,changedSince?}`:
+`viewerId` is Core's server-derived canonical person UUID, disclosed only to this admitted
+browser; `member` is `active`, `unknown` or `retired` (the latter two have no items).
+Items allow only the Core results-view fields `requestId`, `recipientId`, `sender`, `kind`,
+`origin`, `preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
+`previewTruncated`, plus `direction` (`toMember`/`fromMember`), `changePosition` and optional
+`responseId`. Remote checks both parties against the resolved viewer/selected member.
+Final states and metadata keep their Core meanings; nested final text, receipts, pane/cwd,
+provider data and unknown fields are excluded. Previews are at most 160 Unicode scalars /
+640 UTF-8 bytes; unavailable content stays null. Reads never renew retention, acknowledge
+Core work, send, or expand into full-text detail.
+
+`nextBefore` is null or `{preparedAtMs,requestId}`; pass it unchanged as `before` for the
+same scope. No string cursor is accepted. Item/top-level `changePosition` and `since` are
+opaque strings matching `^[A-Za-z0-9_-]{1,64}$`: store and echo only, never parse, compare
+or perform arithmetic. Malformed positions refuse; a well-formed foreign or pre-pruning
+baseline returns `changedSince:"unknown"`. Only a request with `since` has `changedSince`:
+`{count,more}` counts distinct changed in-scope requests, exact up to 50 (`more:true`
+means 50+), or `"unknown"`; late finals on older requests count as changes.
+
+The Ops DM view keeps only a browser-local seen position keyed by machine + server
+`viewerId` + member UUID, never previews or whole pages. No baseline or a storage failure
+means unread unknown. Unread comes only from Core's `changedSince`: N, 50+, or unknown;
+zero is shown only when Core proves it. Seen advances to a verified response's top-level
+position only after its newest page renders in a visible DM panel and visible document.
+Opening that newest page counts as seeing the conversation; background reads, older-page
+navigation and hidden documents never advance it. No per-item maximum watermark is used.
+The Ops page refreshes only the selected/last-opened conversation on its existing visible
+five-second cadence, with one read in flight and failure backoff; it does not fan out across
+members or invent a global unread total. Viewer/machine changes isolate the seen key and
+clear old sidebar observations. Only verified positive counts add the shared unread emphasis.
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
@@ -2042,6 +2092,13 @@ headers are stripped. Only the door sets these headers: `tmt-mount` identifies t
 `tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
 is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
+Design uses Colab's existing mounted path `/r/<prefix>/x/colab/design/…`, forwarded
+as `/design/…` to the same admitted Colab socket. There is no `/x/design/` extension
+alias, additional public-reader entry or new socket. Root Design app documents use
+the same static shell/pair bootstrap as Colab; content remains behind the existing
+mounted owner context and Colab admission. Cookie scope, pairing, session framing,
+forwarded-header filtering and CSP are unchanged.
+
 ### Module descriptions and composed shell
 
 `-` is reserved and can never be an extension or mount name. The door handles
@@ -2087,16 +2144,21 @@ or bidi controls and are text, never markup. Icons are names from `house`, `file
 `monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`, `palette`; an unknown
 lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
-escape. The door resolves every path inside that module's own mount, never another module.
+escape. The door resolves paths inside that module's own mount, never another module,
+with one navigation exception: a Colab extra's rail, menu or settings path matching the
+bounded `/design` app family resolves at the door root. Every script `entry` remains
+inside Colab's own mount; this exception grants no script, session or content authority.
 
 The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
 needsYou?, home?, entry?}]}`. The primary has no `module` field; an extra has the
 same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
 its own primary and sorts by rail order, extension name, then primary before extra.
-All paths stay inside the same extension mount. Extras share their extension's
+Only the Design navigation exception above leaves the same extension mount. Extras share their extension's
 one callback, cache age and socket-incarnation fence; removal or expiry removes
 both. Primary-only composition stays byte-identical. Extension-wide consumers
-(Needs-you, Home cards and the Colab loader) select the primary, never an extra.
+(Needs-you, Home cards, search transport and primary Colab discovery) select the primary,
+never an extra. The Design route loads only its described extra's script, confined using
+the primary Colab mount, without a primary-script fallback.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good

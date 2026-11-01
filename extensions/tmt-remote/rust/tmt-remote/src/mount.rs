@@ -503,14 +503,10 @@ impl Mounts {
                 // A route of the one web app named for a mounted extension (`/colab/...`): the
                 // page the extension's module renders in.
                 let bare = path.split(['?', '#']).next().unwrap_or(path);
-                let name = bare.strip_prefix('/')?.split('/').next()?;
-                crate::pages::app_route(bare)
-                    .then(|| {
-                        self.extensions
-                            .iter()
-                            .find(|extension| extension.name == name)
-                    })
-                    .flatten()
+                let name = crate::pages::app_extension(bare)?;
+                self.extensions
+                    .iter()
+                    .find(|extension| extension.name == name)
                     .map(|extension| (extension.name, self.mount(extension)))
             })
     }

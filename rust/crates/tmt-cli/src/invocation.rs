@@ -599,6 +599,16 @@ pub enum OrchOperation {
         before: Option<u64>,
         limit: u16,
     },
+    Talks {
+        member_query: Option<String>,
+        limit: Option<u16>,
+        after: Option<String>,
+    },
+    Routes {
+        member_query: Option<String>,
+        limit: Option<u16>,
+        after: Option<String>,
+    },
 }
 /// What `learn --skill` prints instead of the entry: one embedded reference,
 /// or the list of reference topics.
@@ -622,5 +632,21 @@ pub enum OrchWriteOperation {
     Focus {
         member: String,
         duration_ms: Option<u64>,
+    },
+    SetLeads {
+        members: Vec<String>,
+        identity: Option<String>,
+    },
+    /// `duration_ms` `None` lasts to the end of the restricting slot, at most 24 hours.
+    AllowRoute {
+        from: String,
+        to: String,
+        duration_ms: Option<u64>,
+        identity: Option<String>,
+    },
+    ResumeTalks {
+        first: String,
+        second: String,
+        identity: Option<String>,
     },
 }

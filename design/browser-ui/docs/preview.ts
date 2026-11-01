@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
 
 /** The page-level preview settings (#5821): the viewer theme and the one radius knob, kept on the
- * document root and in localStorage, so every page and mock opens the way it was left. */
+ * preview root and in localStorage, so every page and mock opens the way it was left. The root is
+ * the document's on the docs site and the docs' own element when Design hosts them (#5866). */
 export type Theme = 'dark' | 'light';
 export type Radius = '2' | '4' | 'current';
-const root = document.documentElement;
+let root: HTMLElement | undefined;
 const listeners = new Set<() => void>();
 const stored = (key: string) => {
   try {
@@ -39,6 +40,7 @@ let radius: Radius =
   (['2', '4', 'current'] as const).find((r) => r === stored('tmt-docs-radius')) ?? '2';
 let reduced = false;
 function apply() {
+  if (!root) return;
   root.dataset.theme = theme;
   root.dataset.tmtPalette = 'b';
   if (reduced) root.dataset.tmtReducedMotion = '';
@@ -48,7 +50,11 @@ function apply() {
     root.style.setProperty(name, value);
   for (const listener of listeners) listener();
 }
-apply();
+/** Where the settings apply; a hosted surface passes undefined when it unmounts. */
+export function previewRoot(element: HTMLElement | undefined) {
+  root = element;
+  apply();
+}
 
 export function setTheme(next: Theme) {
   theme = next;

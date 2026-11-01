@@ -2,6 +2,7 @@
 import { shellCount, type ShellMenu } from '@tmt/browser-ui/shell';
 import type { OpsBoard } from './ops-source.js';
 import { bySquad } from './ops-parts.js';
+import type { ConversationUnread } from './conversation-seen.js';
 
 export const OPS_SECTIONS = [
   { id: 'agents', label: 'Agents' },
@@ -46,6 +47,7 @@ export function opsMenu(
   board: OpsBoard | undefined,
   pathname: string,
   disclosure?: { collapsed: ReadonlySet<string>; toggle(squad: string): void },
+  unread?: ReadonlyMap<string, ConversationUnread>,
 ): ShellMenu {
   // A bounded subset cannot establish a total, and an unavailable read is not an empty board.
   const observed = board && !board.unavailable && !board.truncated ? board : undefined;
@@ -62,6 +64,15 @@ export function opsMenu(
     href: `${pathname}#${id}`,
     current: section === id,
   });
+  const unreadItem = (id: string) => {
+    const value = unread?.get(id);
+    return value?.state === 'known' && value.count > 0
+      ? {
+          emphasis: 'unread' as const,
+          count: { text: value.more ? '50+' : String(value.count), needsYou: false },
+        }
+      : {};
+  };
   return {
     title: 'Ops',
     groups: [
@@ -87,6 +98,7 @@ export function opsMenu(
                 children: group.agents.map((agent) => ({
                   id: `dm:${group.name}:${agent.id}`,
                   label: agent.name,
+                  ...unreadItem(agent.id),
                   href: opsHref(pathname, { squad: group.name, memberId: agent.id }),
                   current:
                     typeof section !== 'string' &&

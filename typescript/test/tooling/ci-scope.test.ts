@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -731,7 +732,7 @@ describe('native dependency notices selection', () => {
     expect(workflow).toContain('    timeout-minutes: 40\n');
     // The Firestore emulator shares the Unit tests pins: hosted Temurin 21 and firebase-tools.
     const ci = read('.github/workflows/ci.yml');
-    const firebaseTools = 'npm install --global firebase-tools@15.29.0';
+    const firebaseTools = 'uses: ./.github/actions/setup-firebase-tools';
     expect(ci).toContain(firebaseTools);
     expect(workflow).toContain(firebaseTools);
     expect(workflow).toContain('test -n "$JAVA_HOME_21_X64"');
@@ -2606,8 +2607,8 @@ describe('CI diff and command integration', () => {
     expect(steps).toContain('timeout-minutes: 8');
     expect(steps).toContain('test -n "$JAVA_HOME_21_X64"');
     expect(steps).toContain('"$JAVA_HOME_21_X64/bin/java" -version');
-    // No third-party action, retry, cache or relaxed failure in the selected steps.
-    for (const forbidden of ['uses:', 'continue-on-error', 'retry', 'cache', '|| true']) {
+    // Only the shared locked installer; no third-party action, retry, cache or relaxed failure.
+    for (const forbidden of ['continue-on-error', 'retry', 'cache', '|| true']) {
       expect(steps).not.toContain(forbidden);
     }
     // Both retained emulator suites use the same pinned tools.
@@ -2618,7 +2619,7 @@ describe('CI diff and command integration', () => {
     ]) {
       expect(read(file)).toContain(pin);
     }
-    expect(steps).toContain(pin);
+    expect(steps).toContain('uses: ./.github/actions/setup-firebase-tools');
     const javaImage = /eclipse-temurin:21-jre-jammy@sha256:[0-9a-f]{64}/;
     expect(
       read('extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile').match(javaImage)?.[0]
@@ -2674,7 +2675,7 @@ describe('CI diff and command integration', () => {
       job.indexOf('# Firestore Rules emulator suites'),
       job.indexOf('- name: Run retained developer tooling tests')
     );
-    expect(steps.match(/npm install --global firebase-tools@15\.29\.0/g)).toHaveLength(1);
+    expect(steps.match(/uses: \.\/\.github\/actions\/setup-firebase-tools/g)).toHaveLength(1);
     const colab = steps.slice(
       steps.indexOf('- name: Run the Colab Firestore Rules emulator suite')
     );
@@ -4391,7 +4392,7 @@ describe('native Auth+Firestore emulator selection', () => {
     const job = ci.split('\n  producer:\n')[1].split('\n  consumers:')[0];
     expect(job).toContain('runs-on: ubuntu-latest');
     expect(job).toContain("inputs.scope == 'full' && inputs.native-sync");
-    expect(job).toContain('firebase-tools@15.29.0');
+    expect(job).toContain('uses: ./.github/actions/setup-firebase-tools');
     expect(job).toContain('timeout-minutes: 8');
     expect(job).toContain('test/emulator/native-qualify.mjs');
     const runner = readFileSync(
@@ -4503,6 +4504,118 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(acceptance).toContain('permissions:\n      contents: read');
   });
 
+  it('installs Firebase only through one committed npm lockfile', () => {
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const owner = '.github/actions/setup-firebase-tools';
+    const action = readFileSync(path.join(root, owner, 'action.yml'), 'utf8');
+    const manifest = JSON.parse(readFileSync(path.join(root, owner, 'package.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(path.join(root, owner, 'package-lock.json'), 'utf8'));
+    expect(manifest).toMatchObject({
+      private: true,
+      dependencies: { 'firebase-tools': '15.29.0' },
+    });
+    expect(lock.lockfileVersion).toBe(3);
+    expect(lock.packages[''].dependencies).toEqual(manifest.dependencies);
+    expect(lock.packages['node_modules/firebase-tools'].version).toBe('15.29.0');
+    for (const [name, entry] of Object.entries(lock.packages)) {
+      if (!name) continue;
+      expect(entry, name).toMatchObject({
+        resolved: expect.stringMatching(/^https:\/\/registry\.npmjs\.org\//),
+        integrity: expect.stringMatching(/^sha512-/),
+      });
+    }
+    expect(action).toContain(
+      'npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund'
+    );
+    expect(action).toContain('"$GITHUB_ACTION_PATH/node_modules/.bin" >> "$GITHUB_PATH"');
+    const callers = [
+      '.github/workflows/ci.yml',
+      '.github/workflows/workspace-partitions.yml',
+      '.github/workflows/remote-squads-emulator.yml',
+      '.github/actions/hosted-reader-emulator/action.yml',
+    ];
+    // Installed node_modules contain vendor workflows; only repository-owned inputs count.
+    const tracked = spawnSync('git', ['ls-files', '-z', '--', '.github'], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 5_000,
+    });
+    expect(tracked.status).toBe(0);
+    const files = tracked.stdout.split('\0').filter((file) => /\.ya?ml$/.test(file));
+    const actual = [];
+    for (const file of files) {
+      const source = readFileSync(path.join(root, file), 'utf8');
+      expect(source, file).not.toMatch(/(?:npm|pnpm|npx|yarn)[^\n]*firebase-tools/);
+      if (source.includes(`uses: ./${owner}`)) actual.push(file);
+    }
+    expect(actual.sort()).toEqual(callers.sort());
+    for (const file of ['action.yml', 'package.json', 'package-lock.json']) {
+      const input = `${owner}/${file}`;
+      expect(selectRemoteFirestore([input])).toBe(true);
+      expect(selectNativeSyncEmulator([input])).toBe(true);
+      expect(selectHostedReaderEmulator([input])).toBe(true);
+    }
+  });
+
+  it.each([0, 23])(
+    'publishes only the local Firebase path after npm ci succeeds (exit %s)',
+    (exit) => {
+      const action = readFileSync(
+        new URL('../../../.github/actions/setup-firebase-tools/action.yml', import.meta.url),
+        'utf8'
+      );
+      const script = action
+        .split('      run: |\n')[1]
+        .split('\n')
+        .map((line) => line.replace(/^        /, ''))
+        .join('\n');
+      const root = mkdtempSync(path.join(tmpdir(), 'firebase install path-'));
+      try {
+        const bin = path.join(root, 'bin');
+        const owner = path.join(root, 'action');
+        mkdirSync(bin);
+        mkdirSync(owner);
+        const args = path.join(root, 'npm-args.json');
+        const published = path.join(root, 'github-path');
+        writeFileSync(published, '');
+        writeExecutable(
+          path.join(bin, 'npm'),
+          `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.NPM_ARGS, JSON.stringify(process.argv.slice(2))); process.exit(Number(process.env.NPM_EXIT));\n`
+        );
+        const result = spawnSync(
+          'bash',
+          ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+          {
+            encoding: 'utf8',
+            timeout: 5_000,
+            env: {
+              PATH: `${bin}:${process.env.PATH}`,
+              GITHUB_ACTION_PATH: owner,
+              GITHUB_PATH: published,
+              NPM_ARGS: args,
+              NPM_EXIT: String(exit),
+            },
+          }
+        );
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(exit);
+        expect(JSON.parse(readFileSync(args, 'utf8'))).toEqual([
+          'ci',
+          '--prefix',
+          owner,
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-fund',
+        ]);
+        expect(readFileSync(published, 'utf8')).toBe(
+          exit === 0 ? `${owner}/node_modules/.bin\n` : ''
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('reuses the owner wrapper with pinned Java/Firebase and no retry or credentials', () => {
     const action = readFileSync(
       new URL('../../../.github/actions/hosted-reader-emulator/action.yml', import.meta.url),
@@ -4512,7 +4625,7 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(action).toContain('test -n "$JAVA_HOME_21_X64"');
     expect(action).toContain('echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"');
     expect(action).toContain('echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"');
-    expect(action).toContain('npm install --global firebase-tools@15.29.0');
+    expect(action).toContain('uses: ./.github/actions/setup-firebase-tools');
     expect(action).toContain('firebase setup:emulators:firestore');
     expect(action).toContain('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs');
     const diagnostics = action.split('    - name: Preserve failed hosted reader diagnostics\n')[1];

@@ -939,6 +939,9 @@ body:not(:has(.tmt-ui-shell)) {
 }
 
 /* Local channel geometry; shared rail, tabs, lists and states retain their leaf owner. */
+.ops-channel {
+  overflow-wrap: anywhere;
+}
 .ops-channel-context > :not(.ops-channel-summary) {
   margin-top: var(--tmt-ui-space-m);
 }

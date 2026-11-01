@@ -1,0 +1,14 @@
+/* The docs hosted in Design (#5866): the host's header sits above the docs and the host scrolls
+   them, so nothing may be fixed to the viewport. On a phone the nav drawer opens in the docs' own
+   flow, just under the docs' sticky top bar, and scrolls within itself. Loaded only through the
+   scoped docs-embed.css. */
+@media (max-width: 760px) {
+  :root[data-chrome='hosted'] .docs-nav {
+    position: sticky;
+    inset: auto;
+    top: 56px;
+    max-height: 70dvh;
+    overflow-y: auto;
+    border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  }
+}

@@ -125,3 +125,28 @@ it('keeps expansion host-owned and delegates the deepest visible UUID selection 
   expect(visibleCurrent(hidden)?.id).toBe('channel:sample');
   expect(source.agents[0]!.name).toBe('working');
 });
+
+it('DM emphasis and counts come only from verified conversation observations, without a global total', () => {
+  const source = board();
+  source.agents = source.agents.map((agent, index) => ({
+    ...agent,
+    id: `00000000-0000-4000-8000-00000000000${index + 1}`,
+  }));
+  const id = source.agents[0]!.id;
+  for (const [observation, expected] of [
+    [{ state: 'unknown' }, undefined],
+    [{ state: 'known', count: 0, more: false }, undefined],
+    [{ state: 'known', count: 1, more: false }, '1'],
+    [{ state: 'known', count: 50, more: true }, '50+'],
+  ] as const) {
+    const menu = opsMenu('agents', source, '/ops', undefined, new Map([[id, observation]]));
+    const dm = menu.groups[1]!.items[0]!.children![0]!;
+    expect(dm.count?.text).toBe(expected);
+    expect(dm.emphasis).toBe(expected ? 'unread' : undefined);
+    expect(dm.count?.needsYou).toBe(expected ? false : undefined);
+    expect(
+      menu.groups[1]!.items[0]!.children!.slice(1).every((item) => !item.count && !item.emphasis),
+    ).toBe(true);
+    expect(menu.groups[0]!.items.map((item) => item.total)).toEqual([3, 1, undefined]);
+  }
+});

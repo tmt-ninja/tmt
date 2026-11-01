@@ -1,0 +1,12 @@
+// The Button component doc's source (schema 1): plain JavaScript and htm, no imports. It receives
+// the fixed skeleton (runtime 2: React, html, cn) and returns the component.
+export default ({ html, cn }) =>
+  function Button({ variant = 'primary', size = 'md', disabled = false, icon, children }) {
+    return html`<button
+      type="button"
+      class=${cn('tmt-ui-button', `tmt-ui-button-${variant}`, `tmt-ui-button-${size}`)}
+      disabled=${disabled}
+    >
+      ${icon}${children}
+    </button>`;
+  };

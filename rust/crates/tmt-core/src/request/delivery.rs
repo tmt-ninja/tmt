@@ -38,6 +38,10 @@ pub enum DeliveryReason {
     WaitingForDelivery,
     AwaitingApproval,
     HeldToSaveUsage,
+    /// Held at its pair's talk limit until a person or a lead resumes the pair (#4892).
+    HeldAtTalkLimit,
+    /// Held at the talk limit and not resumed in time: never sent, never retried.
+    TalkHoldExpired,
     ReachedTheAgent,
     WaitingForPerson,
     SessionNotBound,
@@ -59,6 +63,8 @@ impl DeliveryReason {
             Self::WaitingForDelivery => "waiting_for_delivery",
             Self::AwaitingApproval => "awaiting_approval",
             Self::HeldToSaveUsage => "held_to_save_usage",
+            Self::HeldAtTalkLimit => "held_at_talk_limit",
+            Self::TalkHoldExpired => "talk_hold_expired",
             Self::ReachedTheAgent => "reached_the_agent",
             Self::WaitingForPerson => "waiting_for_person",
             Self::SessionNotBound => "session_not_bound",
@@ -82,6 +88,10 @@ impl DeliveryReason {
             Self::HeldToSaveUsage => {
                 "batched to save usage, sends when the agent finishes this turn"
             }
+            Self::HeldAtTalkLimit => {
+                "held at the talk limit, sends when a person or a lead resumes the pair"
+            }
+            Self::TalkHoldExpired => "not sent, the talk-limit hold was not resumed in time",
             Self::ReachedTheAgent => "delivered",
             Self::WaitingForPerson => "waiting for the person",
             Self::SessionNotBound => "session not bound",
@@ -187,6 +197,8 @@ pub struct DeliveryFacts {
     pub recipient_session_recovery: Option<String>,
     pub recipient_name: Option<String>,
     pub answer: ReturnedAnswer,
+    /// The talk limit held it for a person (#4892); it stays prepared with no wake.
+    pub talk_held: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -411,6 +423,15 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     let started = busy
         && !turn_over
         && working_since.is_some_and(|since| now_ms.saturating_sub(since) <= WORKING_WINDOW_MS);
+    // A held attempt never reached a wake, so its own status tells held from expired.
+    if facts.talk_held {
+        if facts.status == AttemptStatus::DefinitelyFailed {
+            return DeliveryView::of(State::NotSent, Why::TalkHoldExpired);
+        }
+        if handover(facts) == Handover::Waiting {
+            return DeliveryView::of(State::Batched, Why::HeldAtTalkLimit);
+        }
+    }
     let mut view = match (handover(facts), facts.hold) {
         (Handover::Uncertain, _) | (_, Some(DigestHold::Uncertain | DigestHold::Unconfirmed)) => {
             DeliveryView::of(State::Unconfirmed, Why::HandedOver)

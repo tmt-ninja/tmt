@@ -1,3 +1,4 @@
+import { withoutDesignSystems } from './design-system-pages.js';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { readRecentlyOpened } from './recently-opened.js';
 import type { PageSummary, PageTransport } from './transport.js';
@@ -116,7 +117,7 @@ export class SwitcherSourceStore {
         rememberPages(this.transport, this.space, list.value.pages);
         const ready: Cached = {
           state: 'ready',
-          pages: list.value.pages,
+          pages: withoutDesignSystems(list.value).pages,
           opened: opened.status === 'fulfilled' ? opened.value : NO_OPENED,
         };
         cache.get(this.transport)!.set(this.space, ready);

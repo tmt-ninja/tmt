@@ -111,7 +111,7 @@
         // attributes and the design-system match are fixed when the frame binds.
         function pageKey(source, doc) {
           if (
-            doc.querySelector('script,meta[name="tmt-colab-runtime"]') ||
+            doc.querySelector('script,meta[name="tmt-colab-runtime"],meta[name="tmt-ds"]') ||
             [...doc.querySelectorAll('*')].some((el) =>
               [...el.attributes].some((a) => /^on/i.test(a.name)),
             )
@@ -2504,6 +2504,25 @@
             !closes(style, 'style')
           );
         };
+        // A pinned design system (#5821): the parent's verified `{script, style}` for the page's
+        // components, written after the runtime. The same rule as the runtime: two plain strings that
+        // cannot end their own element, within their caps.
+        const designSystem = (value) => {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+          const keys = Object.keys(value);
+          if (keys.length !== 2 || !keys.includes('script') || !keys.includes('style'))
+            return false;
+          const size = (text) =>
+            typeof text === 'string' ? new TextEncoder().encode(text).byteLength : -1;
+          return (
+            size(value.script) >= 0 &&
+            size(value.script) <= 512 * 1024 &&
+            size(value.style) >= 0 &&
+            size(value.style) <= 512 * 1024 &&
+            !closes(value.script, 'script') &&
+            !closes(value.style, 'style')
+          );
+        };
         const bind = (event) => {
           if (window.parent === window || event.source !== window.parent) return;
           const value = event.data;
@@ -2512,10 +2531,12 @@
             Object.keys(value).length !==
               5 +
                 (Object.hasOwn(value, 'layout') ? 1 : 0) +
-                (Object.hasOwn(value, 'runtime') ? 1 : 0) ||
+                (Object.hasOwn(value, 'runtime') ? 1 : 0) +
+                (Object.hasOwn(value, 'ds') ? 1 : 0) ||
             (Object.hasOwn(value, 'layout') &&
               !['column', 'full', 'canvas', 'freeform'].includes(value.layout)) ||
             (Object.hasOwn(value, 'runtime') && !runtimeBundle(value.runtime)) ||
+            (Object.hasOwn(value, 'ds') && (!designSystem(value.ds) || !value.runtime)) ||
             value.type !== 'colab.render.bind' ||
             (value.theme !== 'light' && value.theme !== 'dark') ||
             typeof value.renderId !== 'string' ||
@@ -2540,13 +2561,16 @@
           const runtime = value.runtime
             ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
             : '';
+          const ds = value.ds
+            ? `<style>${value.ds.style}</style><script>${value.ds.script}<\/script>`
+            : '';
           // A page that uses the design system (#5057) gets the root attribute that the lowest layer's
           // paper and ink rule keys on; any other page keeps the white canvas. A plain text test of the
           // source, with no parsing: a page that only mentions a name opts in, which does no harm.
           const design = usesDesign(value.source) ? ' data-colab-design' : '';
           document.open();
           document.write(
-            `<!doctype html><html${design}><head>${acknowledgement}${runtime}</head><body>${value.source}</body></html>`,
+            `<!doctype html><html${design}><head>${acknowledgement}${runtime}${ds}</head><body>${value.source}</body></html>`,
           );
           document.close();
         };

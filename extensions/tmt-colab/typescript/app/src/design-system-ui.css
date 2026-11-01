@@ -1,0 +1,8 @@
+/* The Design header's New design system dialog (#5821, epic #5866). */
+.design-system-dialog {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+}
+.design-system-dialog p {
+  margin: 0;
+}

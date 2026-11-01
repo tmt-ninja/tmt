@@ -47,6 +47,8 @@ extension-owned skills, and every fixture uses the isolated HOME/config sandbox.
 Review semantic changes and provider invocation behavior; matching installed bytes
 alone does not prove instruction correctness. Canonical ownership stays in
 [Development](../../../../DEVELOPMENT.md#installed-guidance-source-ownership).
+Provider and custom-root usage is in the [Settings chapter](../../../../site/src/chapters/settings.mdx)
+and `skills/README.md`.
 
 ## Native installation
 

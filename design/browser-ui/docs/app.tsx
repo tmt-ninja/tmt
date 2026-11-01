@@ -9,7 +9,9 @@ import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
-import { follow } from './router.js';
+import { follow, hosted } from './router.js';
+import { Article, ComponentTemplate, Snippet } from './templates.js';
+export { Article, Snippet } from './templates.js';
 import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
 
 interface Page {
@@ -207,23 +209,28 @@ function TopBar({ system, onMenu }: { system: DesignSystem; onMenu?: () => void 
           ☰
         </button>
       )}
-      <a className="docs-brand" href={system.root} onClick={follow}>
-        <BrandMark size={22} />
-        <span>tmt</span>
-        <span className="docs-brand-sub">design system</span>
-      </a>
-      <nav className="docs-segment docs-systems" aria-label="Design system">
-        {designSystems.map((entry) => (
-          <a
-            key={entry.id}
-            href={entry.root}
-            aria-current={entry === system ? 'page' : undefined}
-            onClick={follow}
-          >
-            {entry.name}
+      {/* Hosted in Design (#5866), the host's header carries the brand and the system switcher. */}
+      {!hosted() && (
+        <>
+          <a className="docs-brand" href={system.root} onClick={follow}>
+            <BrandMark size={22} />
+            <span>tmt</span>
+            <span className="docs-brand-sub">design system</span>
           </a>
-        ))}
-      </nav>
+          <nav className="docs-segment docs-systems" aria-label="Design system">
+            {designSystems.map((entry) => (
+              <a
+                key={entry.id}
+                href={entry.root}
+                aria-current={entry === system ? 'page' : undefined}
+                onClick={follow}
+              >
+                {entry.name}
+              </a>
+            ))}
+          </nav>
+        </>
+      )}
       <div className="docs-switches">
         <system.Controls />
       </div>
@@ -289,24 +296,6 @@ function TuiIntroduction() {
         </a>
       </div>
     </Article>
-  );
-}
-
-export function Article({
-  title,
-  lead,
-  children,
-}: {
-  title: string;
-  lead: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <article className="docs-article">
-      <h1>{title}</h1>
-      <p className="docs-lead">{lead}</p>
-      {children}
-    </article>
   );
 }
 
@@ -394,38 +383,15 @@ function Principles() {
 
 function ComponentPage({ doc }: { doc: ComponentDoc }) {
   return (
-    <Article title={doc.name} lead={doc.description}>
-      <div className="docs-canvas docs-canvas-hero">
-        {motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
-      </div>
-      {motionNotes[doc.slug] && (
-        <p className="docs-motion-line">
-          <b>Motion</b> {motionNotes[doc.slug]}
-        </p>
-      )}
-      <h2>Usage</h2>
-      <Snippet code={doc.usage} />
-      {doc.variants.length > 0 && <h2>Variants and states</h2>}
-      {doc.variants.map(([label, render]) => (
-        <section key={label} className="docs-variant">
-          <h3>{label}</h3>
-          <div className="docs-canvas">{render()}</div>
-        </section>
-      ))}
-      {doc.dos && (
-        <>
-          <h2>Do and don&apos;t</h2>
-          <div className="docs-dos">
-            {doc.dos.map(([kind, text]) => (
-              <div key={text} className="docs-do" data-kind={kind}>
-                <b>{kind === 'do' ? 'Do' : 'Don’t'}</b>
-                <p>{text}</p>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </Article>
+    <ComponentTemplate
+      title={doc.name}
+      lead={doc.description}
+      preview={motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
+      motion={motionNotes[doc.slug]}
+      usage={doc.usage}
+      variants={doc.variants.map(([label, render]) => ({ label, render: render() }))}
+      dos={doc.dos}
+    />
   );
 }
 
@@ -448,27 +414,5 @@ function BrowserPage({ doc }: { doc: BrowserDoc }) {
         <doc.Demo />
       </div>
     </Article>
-  );
-}
-
-export function Snippet({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="docs-snippet">
-      <button
-        type="button"
-        onClick={() => {
-          void navigator.clipboard?.writeText(code).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          });
-        }}
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-      <pre>
-        <code>{code}</code>
-      </pre>
-    </div>
   );
 }

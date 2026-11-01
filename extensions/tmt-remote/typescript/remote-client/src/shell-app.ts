@@ -19,7 +19,7 @@ import tmtSettings from '../../../rust/tmt-remote/assets/tmt-settings.html?raw';
 import ops from '../../../rust/tmt-remote/assets/ops.html?raw';
 import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
-import { moduleLoad, type ModuleLoad } from './module-entry.js';
+import { designModuleLoad, moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { remoteApp } from './remote-app.js';
 import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
@@ -27,6 +27,8 @@ import { homePage, hostRemote, remoteShell, setRouteTitle } from './remote-shell
 import { tmtSettingsPage } from './tmt-settings-page.js';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { navigationSnapshot, RootSearch, type SearchModule } from './root-search.js';
+import { channelFor } from './session-channel.js';
+import type { Session } from './device.js';
 
 /** Root-private cancellation; modules still consume the existing shared slot contract. */
 interface RootSlot extends ShellSlot {
@@ -166,7 +168,10 @@ function remotePage(
         return;
       }
       const lifetime = new AbortController();
-      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason));
+      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason), {
+        get: rootSession,
+        forget: forgetSession,
+      });
       let ended = false;
       const end = () => {
         if (ended) return;
@@ -238,6 +243,64 @@ function message(
   setRouteTitle(slot, title);
 }
 
+/** The same owner-session/reopen lifetime loads Colab and its described Design module. */
+function colabRouteLoad(
+  title: string,
+  select: (answer: ShellAnswer | undefined) => ModuleLoad | undefined,
+): ShellRoute['load'] {
+  return async (_remembered, settled) => {
+    // Colab loads only from what this page's own read describes: never unpaired.
+    let answer = await settled();
+    // A paired browser whose door restarted has no session yet: reopen it (an unpaired browser
+    // fails on its local record, before any request) and read the shell again.
+    if (!answer && (await reopened())) answer = await started?.redescribe();
+    const load = select(answer);
+    const entry = load?.entry;
+    if (!entry)
+      return {
+        mount: (slot) =>
+          load
+            ? // Described, but not loadable from here: the module's own link is the way in.
+              message(
+                slot,
+                title,
+                `${title} could not be opened here.`,
+                load.link ? { href: load.link, label: `Open ${title}` } : undefined,
+              )
+            : answer
+              ? message(
+                  slot,
+                  title,
+                  title === 'Colab'
+                    ? 'Colab is not running on your machine. Run tmt colab serve there, then reload.'
+                    : 'Design is not available from this Colab. Start or update Colab on your machine, then reload.',
+                )
+              : message(
+                  slot,
+                  title,
+                  `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`,
+                  { href: '/remote/', label: 'Pair this browser' },
+                ),
+      };
+    try {
+      return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
+    } catch {
+      // An older Colab has no module to load here; its own mounted app is still the way in.
+      return {
+        mount: (slot) =>
+          message(
+            slot,
+            title,
+            title === 'Colab'
+              ? 'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.'
+              : 'Design could not start here. Colab may have stopped on your machine. Reload to try again.',
+            load.link ? { href: load.link, label: `Open ${title}` } : undefined,
+          ),
+      };
+    }
+  };
+}
+
 export const routes: readonly ShellRoute[] = [
   {
     id: 'home',
@@ -299,53 +362,16 @@ export const routes: readonly ShellRoute[] = [
     id: 'colab',
     paths: ['/colab', '/colab/'],
     rail: 'colab',
-    async load(_remembered, settled) {
-      // Colab loads only from what this page's own read describes: never unpaired.
-      let answer = await settled();
-      // A paired browser whose door restarted has no session yet: reopen it (an unpaired browser
-      // fails on its local record, before any request) and read the shell again.
-      if (!answer && (await reopened())) answer = await started?.redescribe();
-      const load = colabLoad(answer);
-      const entry = load?.entry;
-      if (!entry)
-        return {
-          mount: (slot) =>
-            load
-              ? // Described, but not loadable from here: the module's own link is the way in.
-                message(
-                  slot,
-                  'Colab',
-                  'Colab could not be opened here.',
-                  load.link ? { href: load.link, label: 'Open Colab' } : undefined,
-                )
-              : answer
-                ? message(
-                    slot,
-                    'Colab',
-                    'Colab is not running on your machine. Run tmt colab serve there, then reload.',
-                  )
-                : message(
-                    slot,
-                    'Colab',
-                    'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
-                    { href: '/remote/', label: 'Pair this browser' },
-                  ),
-        };
-      try {
-        return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
-      } catch {
-        // An older Colab has no module to load here; its own mounted app is still the way in.
-        return {
-          mount: (slot) =>
-            message(
-              slot,
-              'Colab',
-              'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.',
-              load.link ? { href: load.link, label: 'Open Colab' } : undefined,
-            ),
-        };
-      }
-    },
+    load: colabRouteLoad('Colab', colabLoad),
+  },
+  {
+    id: 'design',
+    paths: ['/design', '/design/'],
+    rail: 'design',
+    load: colabRouteLoad('Design', (answer) => {
+      const load = designModuleLoad(answer, location.href);
+      return load.link ? load : undefined;
+    }),
   },
 ];
 
@@ -375,6 +401,35 @@ let heldBy: (() => string) | undefined;
 function observedSession(next: object): void {
   if (session === next) return;
   session = next;
+  search?.replace();
+  publishSearch?.();
+}
+
+let sessionAdmission: { signal: AbortSignal; result: Promise<Session> } | undefined;
+/** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
+function rootSession(signal: AbortSignal): Promise<Session> {
+  signal.throwIfAborted();
+  if (session && channelFor(session as Session)?.ended === false)
+    return Promise.resolve(session as Session);
+  if (sessionAdmission?.signal === signal) return sessionAdmission.result;
+  const result = import('./browser.js').then(async ({ reopenSession }) => {
+    const next = await reopenSession(undefined, { signal });
+    signal.throwIfAborted();
+    observedSession(next);
+    return next;
+  });
+  const admitted = { signal, result };
+  sessionAdmission = admitted;
+  void result
+    .finally(() => {
+      if (sessionAdmission === admitted) sessionAdmission = undefined;
+    })
+    .catch(() => {});
+  return result;
+}
+function forgetSession(previous: Session): void {
+  if (session !== previous) return;
+  session = undefined;
   search?.replace();
   publishSearch?.();
 }
@@ -489,6 +544,7 @@ export function shellApp(): ShellHost | undefined {
   });
   const dispose = () => {
     currentRoute?.abort();
+    session = undefined;
     search?.dispose();
     host.dispose();
     status.remove();

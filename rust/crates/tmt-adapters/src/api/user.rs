@@ -54,6 +54,26 @@ pub(super) fn identity(
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
 }
 
+/// The configured person, read-only (#5807): the identity `user.identity` would resolve,
+/// only when it already exists and is marked a person. Nothing is created or marked.
+pub(super) fn configured_person(
+    storage: &Storage,
+    settings: &Settings,
+    login: Option<&str>,
+) -> Result<Option<String>, Fault> {
+    let Ok(wanted) = user::wanted_name(settings.user_name.as_ref(), login) else {
+        return Ok(None);
+    };
+    for name in [wanted.clone(), user::beside_agent(&wanted)] {
+        if let Some(identity) = find_by_name(storage, &name).map_err(|_| Fault::unavailable())?
+            && is_person(storage, &identity)?
+        {
+            return Ok(Some(identity.id));
+        }
+    }
+    Ok(None)
+}
+
 /// An identity with a recorded binding is an agent, unless its own `user` entry says it is a person.
 fn holds_an_agent(storage: &Storage, name: &str) -> Result<bool, Fault> {
     let Some(held) = find_by_name(storage, name).map_err(|_| Fault::unavailable())? else {
@@ -296,6 +316,25 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .contains(&json!("user.identity"))
+        );
+    }
+
+    #[test]
+    fn the_configured_person_is_read_without_creating_or_marking() {
+        let (_directory, mut storage) = open();
+        let settings = named("ben");
+        assert_eq!(configured_person(&storage, &settings, None).unwrap(), None);
+        assert!(find_by_name(&storage, "ben").unwrap().is_none());
+        // An unmarked identity with the name is not the person either.
+        create_or_resolve(&mut storage, "ben", Lifetime::Saved).unwrap();
+        assert_eq!(configured_person(&storage, &settings, None).unwrap(), None);
+        let id = call(&mut storage, &settings, None)["identityId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            configured_person(&storage, &settings, None).unwrap(),
+            Some(id)
         );
     }
 }

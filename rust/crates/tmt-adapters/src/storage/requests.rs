@@ -607,6 +607,25 @@ impl RequestRecords for RequestRows<'_> {
         history::list_request_history(self.0, query, limit, now_ms)
     }
 
+    fn list_conversation(
+        &self,
+        query: &tmt_core::request::history::ConversationQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::history::ConversationRecord>, Self::Error> {
+        history::list_conversation(self.0, query, limit, now_ms)
+    }
+
+    fn conversation_counts(
+        &self,
+        viewer_id: &str,
+        member_id: &str,
+        since: Option<&tmt_core::request::history::ConversationPosition>,
+        now_ms: u64,
+    ) -> Result<tmt_core::request::history::ConversationCounts, Self::Error> {
+        history::conversation_counts(self.0, viewer_id, member_id, since, now_ms)
+    }
+
     fn list_answers(
         &self,
         query: &tmt_core::request::history::AnswersQuery,
@@ -839,6 +858,51 @@ impl RequestRecords for RequestRows<'_> {
             .map_err(|error| classify(error, "Check active request recipient"))
     }
 
+    fn talk_admission(
+        &self,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<tmt_core::orchestration::sending::OrchTalkAdmission, Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .talk_admission(self.0, from, to, now_ms)
+    }
+    fn held_for_person(
+        &self,
+        a: &str,
+        b: &str,
+    ) -> Result<Vec<tmt_core::orchestration::sending::OrchHeld>, Self::Error> {
+        super::orchestration::held_for_person(self.0, a, b)
+    }
+    fn release_person_holds(
+        &mut self,
+        a: &str,
+        b: &str,
+        released: &[tmt_core::orchestration::sending::OrchHeld],
+        actor: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .release_person_holds(self.0, a, b, released, actor, now_ms)
+    }
+    fn expire_person_hold(&mut self, request_id: &str, now_ms: u64) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .expire_person_hold(self.0, request_id, now_ms)
+    }
+    fn hold_for_person(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error> {
+        self.1
+            .ok_or_else(admitted_calendar_missing)?
+            .hold_for_person(self.0, request_id, from, to, now_ms)
+    }
     fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error> {
         self.0
             .query_row(
@@ -1625,4 +1689,11 @@ pub(super) fn receiving_window(
     id: &str,
 ) -> Result<Option<tmt_core::request::digest::DigestPolicy>, StorageError> {
     digest::policy(db, id)
+}
+
+fn admitted_calendar_missing() -> StorageError {
+    StorageError::new(
+        StorageErrorCode::Unknown,
+        "Orchestration calendar was not admitted before the request transaction",
+    )
 }
