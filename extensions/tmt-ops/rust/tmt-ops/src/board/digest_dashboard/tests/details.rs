@@ -1,5 +1,4 @@
 //! Details tabs, the Estimate basis modal and its copy of the price sources.
-use super::super::details::Tab;
 use super::{paint, press, select_worker, valued_board, valued_document};
 use crate::board::app::{App, Choice, CopyFeedback, Effect, Request};
 use ratatui::crossterm::event::{
@@ -40,44 +39,29 @@ fn digest() -> App {
 }
 
 #[test]
-fn chips_and_the_bound_key_switch_tabs_and_the_tab_survives_a_new_selection() {
+fn one_panel_keeps_delivery_totals_models_and_timers_and_range_keys_do_not_change_selection() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = digest();
-    let shown = paint(&mut app, 160, 44);
-    for label in ["Details · worker · 1d", "▸ Impact", "Delivery", "Evidence"] {
+    let shown = paint(&mut app, 160, 50);
+    for label in [
+        "Details · worker · 1d",
+        "Delivery",
+        "Saved · 1d",
+        "Models",
+        "Timers",
+    ] {
         assert!(shown.contains(label), "{label}: {shown}");
     }
-    assert!(
-        !shown.contains("▸ Delivery"),
-        "only the shown tab is marked"
-    );
-    assert!(shown.contains("Est. ctx avoided 18.2k"), "{shown}");
-    assert_eq!(
-        click(&mut app, &Choice::DigestDetails(Tab::Delivery)),
-        Effect::None
-    );
-    assert_eq!(app.digest_details, Tab::Delivery);
-    let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Digest: Auto"), "{shown}");
-    assert!(shown.contains("▸ Delivery") && !shown.contains("▸ Impact"));
-    assert!(!shown.contains("Est. ctx avoided"), "{shown}");
-
-    // `]` steps through the tabs and wraps.
+    assert!(!shown.contains("▸ Impact") && !shown.contains("▸ Evidence"));
+    let selected = app.workspace.selected.clone();
     key(&mut app, KeyCode::Char(']'));
-    assert_eq!(app.digest_details, Tab::Evidence);
-    let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Prices as of 2026-10-14"), "{shown}");
-    key(&mut app, KeyCode::Char(']'));
-    assert_eq!(app.digest_details, Tab::Impact);
-
-    // A new selection keeps the tab.
-    app.choose(Choice::DigestDetails(Tab::Evidence));
+    assert_eq!(app.digest_window(), crate::config::DigestWindow::Week);
+    key(&mut app, KeyCode::Char('['));
+    assert_eq!(app.digest_window(), crate::config::DigestWindow::Day);
+    assert_eq!(app.workspace.selected, selected);
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
     app.workspace_reconcile();
-    let shown = paint(&mut app, 160, 44);
-    assert_eq!(app.digest_details, Tab::Evidence);
-    assert!(shown.contains("Details · all · 1d"), "{shown}");
-    assert!(shown.contains("Method: saved"), "{shown}");
+    assert!(paint(&mut app, 160, 50).contains("Details · all · 1d"));
 }
 
 #[test]
@@ -87,7 +71,6 @@ fn the_key_is_offered_only_on_the_digest_tab() {
     paint(&mut app, 160, 44);
     assert!(!app.bindings().contains_key("]"));
     key(&mut app, KeyCode::Char(']'));
-    assert_eq!(app.digest_details, Tab::Impact);
     press(&mut app, '2');
     assert!(app.bindings().contains_key("]"));
 }
@@ -147,27 +130,30 @@ fn the_basis_modal_shows_evidence_copies_its_sources_and_closes_on_esc_or_outsid
 }
 
 #[test]
-fn a_long_source_address_wraps_whole_in_the_evidence_tab() {
+fn a_long_source_address_stays_whole_and_copyable_in_estimate_basis() {
     let _no_commands = crate::runner::forbid_commands();
     let long = format!("https://example.test/{}", "pricing/".repeat(12));
     let mut document = valued_document();
     document["pricing"]["models"][0]["source"] = serde_json::json!(long);
-    let mut app = valued_board();
+    let mut app = digest();
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-    press(&mut app, '2');
-    select_worker(&mut app);
-    app.choose(Choice::DigestDetails(Tab::Evidence));
-    paint(&mut app, 160, 60);
-    let lines: Vec<String> =
-        super::super::render::detail_lines(&app, 40, 121_000, app.selected_row())
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-    assert!(lines.iter().all(|line| line.chars().count() <= 40));
+    app.choose(Choice::DigestBasis);
+    paint(&mut app, 80, 60);
+    let evidence = super::super::details::evidence(&app, 121_000, app.selected_row());
+    let wrapped: Vec<_> = evidence
+        .iter()
+        .flat_map(|line| crate::board::notes::wrap(line, 40))
+        .collect();
     assert!(
-        lines.concat().replace(' ', "").contains(&long),
-        "{lines:#?}"
+        wrapped
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(line.as_str()) <= 40)
     );
+    assert!(wrapped.concat().replace(' ', "").contains(&long));
+    let Effect::Act(Request::Copy { text, .. }) = key(&mut app, KeyCode::Char('y')) else {
+        panic!("copy source");
+    };
+    assert!(text.lines().any(|line| line == long));
 }
 
 #[test]
@@ -181,5 +167,4 @@ fn the_modal_takes_input_before_the_board() {
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     key(&mut app, KeyCode::Char(']'));
     assert_eq!(app.workspace.selected, selected);
-    assert_eq!(app.digest_details, Tab::Impact);
 }

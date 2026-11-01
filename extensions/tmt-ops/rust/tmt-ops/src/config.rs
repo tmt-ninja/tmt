@@ -169,15 +169,17 @@ pub enum DigestWindow {
     #[default]
     Day,
     Week,
+    Month,
 }
 
 impl DigestWindow {
-    pub const ALL: [Self; 2] = [Self::Day, Self::Week];
+    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Month];
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "24h" | "1d" => Some(Self::Day),
             "7d" => Some(Self::Week),
+            "30d" => Some(Self::Month),
             _ => None,
         }
     }
@@ -186,6 +188,7 @@ impl DigestWindow {
         match self {
             Self::Day => "24h",
             Self::Week => "7d",
+            Self::Month => "30d",
         }
     }
 
@@ -193,6 +196,7 @@ impl DigestWindow {
         match self {
             Self::Day => "1d",
             Self::Week => "7d",
+            Self::Month => "30d",
         }
     }
 
@@ -201,6 +205,7 @@ impl DigestWindow {
         match self {
             Self::Day => TokRange::Day,
             Self::Week => TokRange::Week,
+            Self::Month => TokRange::Month,
         }
     }
 }

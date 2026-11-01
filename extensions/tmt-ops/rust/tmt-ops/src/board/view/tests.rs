@@ -1167,7 +1167,6 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                 app.right_tab = crate::board::shell::RightTab::Measure;
                 app.shell.tab = tab;
                 // Supplier labels without typed statistics are Delivery facts.
-                app.digest_details = crate::board::digest_dashboard::DetailsTab::Delivery;
                 for (mode, text, held) in [
                     ("auto", "Auto", false),
                     ("auto", "Auto", true),
@@ -1231,6 +1230,14 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     // Complete trailing labels may be omitted at compact widths.
                     if width == 160 && tab != crate::board::shell::OpsTab::Agents {
                         assert_eq!(screen.contains("Latest in 4:58"), held, "{context}");
+                    }
+                    if tab == OpsTab::Digest {
+                        assert!(screen.contains(text), "{context}");
+                        assert!(
+                            app.chip_hits.borrow().is_empty(),
+                            "display-only mode: {context}"
+                        );
+                        continue;
                     }
                     for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {
                         assert_eq!(

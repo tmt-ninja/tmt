@@ -313,8 +313,8 @@ Digest first opens on `all`. Switching destinations remembers each selection for
 this board session; explicit named views and reload restores keep their selected UUID.
 Existing Core-owned policy controls stay in place. A squad's theme applies to Agents/Digest.
 Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
-not billed tokens, cost or turns saved. The Digest window is 1d (default) or 7d; choose it
-with `Window 1d ▾` at the top of the Digest tab or in workspace settings (`,`). It applies to
+not billed tokens, cost or turns saved. The Digest window is 1d (default), 7d or 30d; choose it
+with the Range control at the top of the Digest tab or in workspace settings (`,`). It applies to
 every estimate and, on the Digest tab, to its usage figures too; the Agents TOK range stays
 separate. The board remembers it per named view, like the pane sizes; an older
 `workspace.digest_window` in Config is accepted and ignored. `—` means unavailable; known zero
@@ -326,7 +326,7 @@ Click any estimate to cycle its unit on every view at once: tokens (default), pe
 (`12% of input`) and cost (`≈ $12.40 at list price`). The saved preference is
 `workspace.savings_unit` (`tokens`, `percent`, `cost`).
 Cost is an estimate at list price for uncached input, never money saved or a bill;
-the Digest tab's Evidence (a Details tab, and the `Estimate basis…` window) lists the price
+the Digest tab's `Estimate basis…` window lists the price
 table, where it came from (fetched, cached or built-in) and each member's quote basis.
 A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
@@ -414,58 +414,39 @@ on explicit message focus; Escape returns to rows and retains the draft.
 Retired Digest status/usage/report switches and ordering are reported without
 rewriting authored config.
 
-Digest has a summary, Agents by TOK, Exchanges and selection details. The summary's first row
-shows Digest's switch, the held count, the last tick and the window; under it TOK USED,
-SAVED · estimate and ≈ LIST PRICE SAVED each carry their own `N of M agents` coverage, and a
-faint line defines Saved. A short frame folds the amounts onto one line.
-Once a provider's weekly window has been sampled, ALLOWANCE LEFT sits beside the amounts, or
-under them on a narrower frame, with one row per provider: the percent left, the worst projection
-(`✗ runs out <weekday hh:mm>` in the attention colour, or `lasts past reset`) and when it resets.
-The projection takes the worst of five rates: the last 3h, 6h and 1d, TOKENS and the average
-since the window last reset. TOKENS is the last 3 hours of the provider's members' tokens
-(input + output, cache not counted, from the Digest usage report's hourly cells) at the points
-per token the last 24 hours cost, so it needs the 1d window. A rate the history does not cover
-leaves that line out; with none left the row shows `—`. More providers than rows scroll inside
-the tile with the wheel. A reading older than two hours is not quoted (`no recent reading`);
-the percent is whole-number sampling, an unsampled reset is assumed, and usage on other
-machines is not seen.
-The shared `workspace.tok_range` is `1h` (default), `3h`, `6h`, `1d` or `7d`;
-Workspace settings selects it, and clicking the window word of an Agents `TOK 1h`
-heading, clicking the Digest Range control or an explicit `cycle-tok-range`
-binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
-window word is its own hit area, apart from the unit word, which switches tokens and cost,
-and from the flat list's sort mark before it; each lights up alone under the pointer, and a
-hovered unit word shows the unit a click switches to. Agents TOK headings
-and values follow it. Chart Time per bar/Range controls keep their independent viewport.
-`all` sums the admitted visible identities and never sends a message or changes a
-member's mode. Real members keep UUID selection as usage sorting changes.
-Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?`,
-known zero is `·`. Whole optional columns yield on narrow terminals; details carry
-the hourly strip at 60 columns. Tab exposes Exchanges in the lower pane.
-Exchanges counts only talk and reply messages, with sender rows and recipient
-columns, busiest first by sent plus received, then name and UUID. Up to five agents
-fit, fewer on narrow or short frames; a selected agent takes the last slot if needed.
-Self is blank, `·` observed none and `—` unavailable. An observed empty flow says
-`No exchanges in this range`; an empty roster says `No agents observed`.
-Enter opens the selected member's Agents conversation. D uses the existing
-Digest chooser; e toggles details, u opens the Unread overlay and w stays Snapshots.
-Hints follow configured bindings. `≈ $ USED` requires full input-model attribution and
-held quotes: input tokens at list price; not a bill. SAVED is Digest's estimate in the
-savings unit; clicking its `SAVED ▾` heading switches tokens, percent and cost, and while
-the unit is cost `≈ $ SAVED` (the estimate at list price) steps aside. On `all`, a sum
-that leaves agents out reads `≥`. Narrow tables drop SHARE and TALKS TO first, then the
-money columns below 94 columns, and the last line names what is left out. Avoided
-estimates remain supplier-owned and show unavailable when their window differs
-from the Digest window. Details has three tabs, chosen by their chips or `]`
-(`digest-details`): Impact holds the usage and saved amounts, Delivery each member's mode,
-who set it, held messages and the supplier's clocks (for `all`: the switch, the held total,
-members per mode and the last tick), and Evidence the source windows, observation times, the
-price table with full source addresses and the method. `Estimate basis…` opens the same
-Evidence in a window over the board: `y` copies the price sources, and Esc or a click outside
-closes it.
-Usage and traffic come from bounded background Core reads, even without Digest;
-held and avoided values then show unavailable, with `tmt extension install digest`.
-Missing, partial and failed/stale observations never become measured zeros.
+Digest uses one tab-wide 1d/7d/30d Range for the chart, list and selected-agent totals,
+independently of the Agents TOK range. `[` and `]` step through it. The top chart shows
+observed TOK above estimated avoided input; missing buckets are gray dots, never measured
+zero. Time per bar only combines whole source buckets (hourly for 1d, daily for 7d/30d).
+`u` switches window totals between TOK and list-price equivalent; the chart stays TOK and
+list columns do not change. The one-line Allowance shows each sampled provider's remaining
+weekly allowance, worst exhaustion projection and reset; wheel over it reveals later
+providers. Estimates and prices are not bills. Missing/stale observations remain unavailable.
+
+The list has AGENT, STATE, ACTIVITY, TOK, SAVED, SAVED %, HELD and display-only MODE;
+whole columns yield on narrow frames, with a hint naming them. ACTIVITY covers the selected
+window, with gray `·` for no observation; an explicit missing source reads `no usage source`.
+Saved tokens and percent come from Digest for that same window. Partial sums carry `≥`;
+a partial percent names its included agents instead. A null percent, including 30d before
+full gap-free coverage, stays unavailable. `all` deduplicates the admitted roster and is
+read-only. UUID selection survives sorting and filtering.
+
+Exchanges sits above one selected-agent panel: Delivery, saved window totals, model usage
+shares and owned Timers. There are no Impact/Delivery/Evidence tabs or agent mini chart.
+Next eligible is an eligibility observation, never a send promise; last delivery appears
+only when supplied. Models use input plus output over matching window totals, with explicit
+unattributed usage and partial coverage. Timers use the held worker observation.
+`Estimate basis…` opens provenance and full price sources; `y` copies their exact addresses,
+Esc or an outside click closes it. Exchanges keeps sender rows and recipient columns,
+with the selected UUID retained, blank self, `·` observed none and `—` unavailable.
+Enter on a real member opens its Agents Talk pane; `all` has no chat target.
+
+`o` opens in-panel member Digest settings after the existing authorization check. ↑↓ moves
+fields, ←→ changes the value, Enter applies Auto/Off/Use default or opens an Interval/cap
+chooser, and Esc discards an unsubmitted edit. Auto caps use public max-hold/max-messages
+writes; Use default removes the override. A clipped focused field cannot submit. Settings
+run on the existing action lane; errors stay visible and a requested setting is never
+reported as observed. Workspace switches remain in `?` settings. No TOML is edited directly.
 
 The Measure view shows `Exchanges · <range>` under the tiles: the same matrix as Digest
 over the shared range, for the selected squad (or every visible agent), the busiest

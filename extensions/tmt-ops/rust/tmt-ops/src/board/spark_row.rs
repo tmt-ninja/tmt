@@ -615,3 +615,90 @@ mod tests {
         );
     }
 }
+
+/// Shared two-row chart quantization. Nullable buckets stay gaps; saved is the lower segment.
+pub(in crate::board) fn stacked(
+    buffer: &mut Buffer,
+    area: Rect,
+    points: &[(Option<u64>, Option<u64>)],
+    look: crate::look::Look,
+) {
+    use ratatui::text::Span;
+    use tmt_tui::components::strip;
+    if area.is_empty() {
+        return;
+    }
+    if points.is_empty() {
+        strip::paint_left(
+            buffer,
+            Rect { height: 1, ..area },
+            Line::styled(
+                "No aligned used/saved observations yet",
+                look.role(Role::Muted),
+            ),
+        );
+        return;
+    }
+    let maximum = points
+        .iter()
+        .filter_map(|(used, saved)| (*used)?.checked_add(saved.unwrap_or(0)))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    for row in 0..area.height.min(2) {
+        let base = u128::from(1 - row) * 8;
+        let spans = (0..area.width)
+            .map(|x| {
+                let (used, saved) = points[usize::from(x) * points.len() / usize::from(area.width)];
+                let (Some(used), Some(saved)) = (used, saved) else {
+                    return Span::styled("·", look.role(Role::Dim));
+                };
+                let total = used.saturating_add(saved);
+                let pixels = (u128::from(total) * 16).div_ceil(u128::from(maximum));
+                let height = pixels.saturating_sub(base).min(8) as usize;
+                let saved_pixels = (u128::from(saved) * 16) / u128::from(maximum);
+                let role = if saved_pixels > base {
+                    Role::Accent
+                } else {
+                    Role::Text
+                };
+                Span::styled(
+                    [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"][height],
+                    look.role(role),
+                )
+            })
+            .collect::<Vec<_>>();
+        strip::paint_left(
+            buffer,
+            Rect::new(area.x, area.y + row, area.width, 1),
+            Line::from(spans),
+        );
+    }
+}
+
+#[cfg(test)]
+mod digest_stack_tests {
+    #[test]
+    fn a_missing_segment_is_a_gap_and_known_zero_is_blank() {
+        use ratatui::{buffer::Buffer, layout::Rect};
+        let area = Rect::new(0, 0, 3, 2);
+        let mut buffer = Buffer::empty(area);
+        super::stacked(
+            &mut buffer,
+            area,
+            &[(None, Some(0)), (Some(0), Some(0)), (Some(8), Some(8))],
+            crate::look::Look::default(),
+        );
+        for y in 0..2 {
+            assert_eq!(buffer[(0, y)].symbol(), "·");
+            assert_eq!(buffer[(1, y)].symbol(), " ");
+        }
+        assert_eq!(
+            buffer[(2, 1)].fg,
+            crate::look::Look::default()
+                .role(tmt_cli_style::Role::Accent)
+                .fg
+                .unwrap()
+        );
+    }
+}

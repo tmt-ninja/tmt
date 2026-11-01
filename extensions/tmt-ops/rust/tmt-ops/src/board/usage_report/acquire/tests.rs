@@ -392,3 +392,34 @@ fn skewed_batch_clocks_keep_the_all_row_total_and_activity_on_one_cut() {
         );
     }
 }
+
+#[test]
+fn digest_redesign_models_use_input_plus_output_with_explicit_remainder() {
+    let bucket = json!({"inputTokens":100,"outputTokens":50,"byModel":[{"modelId":"model-a","inputTokens":80,"outputTokens":20}]});
+    assert_eq!(
+        model_totals(&bucket),
+        Some(vec![("model-a".into(), 100), ("unattributed".into(), 50)])
+    );
+    assert!(model_totals(&json!({"inputTokens":1,"outputTokens":0,"byModel":[{"modelId":"a","inputTokens":2,"outputTokens":0}]})).is_none());
+}
+
+#[test]
+fn digest_redesign_daily_buckets_keep_real_resolution_gaps_and_exact_bounds() {
+    for range in [TokRange::Week, TokRange::Month] {
+        let from = NOW - range.milliseconds();
+        let day = 86_400_000u64;
+        let count = range.milliseconds() / day;
+        let points: Vec<_> = (0..count).map(|n| json!({"fromMs":from+n*day,"toMs":from+(n+1)*day,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"coveredMs":if n==0 {0} else {day},"complete":n!=0})).collect();
+        let mut document = json!({"asOfMs":NOW,"throughMs":NOW,"identities":[{"id":ID,"found":true,"windows":[{"windowMs":range.milliseconds(),"fromMs":from,"toMs":NOW,"bucketMs":day,"buckets":points}]}]});
+        let series = window_series(&document, ID, range).unwrap();
+        assert_eq!(series.points.len(), count as usize);
+        assert_eq!(series.bucket_ms, day);
+        assert!(!series.points[0].complete);
+        assert!(series.points[1].complete);
+        assert_eq!(series.points[1].tokens, 0);
+        document["identities"][0]["windows"][0]["buckets"][1]["fromMs"] = json!(from + day + 1);
+        assert!(window_series(&document, ID, range).is_err());
+        document["identities"][0]["windows"][0]["bucketMs"] = json!(3_600_000);
+        assert!(window_series(&document, ID, range).is_err());
+    }
+}

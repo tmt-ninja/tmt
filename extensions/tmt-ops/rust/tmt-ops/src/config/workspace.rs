@@ -118,6 +118,8 @@ pub enum TokRange {
     SixHours,
     Day,
     Week,
+    /// Digest-only range; not offered by the Agents controls.
+    Month,
 }
 
 impl TokRange {
@@ -142,6 +144,7 @@ impl TokRange {
             Self::SixHours => "6h",
             Self::Day => "1d",
             Self::Week => "7d",
+            Self::Month => "30d",
         }
     }
 
@@ -152,6 +155,7 @@ impl TokRange {
             Self::SixHours => "TOK 6h",
             Self::Day => "TOK 1d",
             Self::Week => "TOK 7d",
+            Self::Month => "TOK 30d",
         }
     }
 
@@ -163,6 +167,7 @@ impl TokRange {
             Self::SixHours => "≈$ 6h",
             Self::Day => "≈$ 1d",
             Self::Week => "≈$ 7d",
+            Self::Month => "≈$ 30d",
         }
     }
 
@@ -182,6 +187,7 @@ impl TokRange {
             Self::SixHours => 21_600_000,
             Self::Day => 86_400_000,
             Self::Week => 604_800_000,
+            Self::Month => 2_592_000_000,
         }
     }
 
@@ -191,7 +197,7 @@ impl TokRange {
             Self::ThreeHours => Self::SixHours,
             Self::SixHours => Self::Day,
             Self::Day => Self::Week,
-            Self::Week => Self::Hour,
+            Self::Week | Self::Month => Self::Hour,
         }
     }
 }

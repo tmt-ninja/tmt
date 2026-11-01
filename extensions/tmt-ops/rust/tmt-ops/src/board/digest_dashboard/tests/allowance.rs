@@ -85,19 +85,20 @@ fn words(row: &str) -> Vec<&str> {
 /// The tile's words on the row whose provider is `source`: what follows the tile's rule.
 fn row_of(rows: &[String], source: &str) -> Vec<String> {
     rows.iter()
-        .filter_map(|row| row.rsplit_once(['│', '|']).map(|(_, tile)| words(tile)))
-        .find(|tile| tile.first() == Some(&source))
-        .map(|tile| tile.into_iter().map(str::to_owned).collect())
-        .unwrap_or_else(|| panic!("no {source} row in\n{}", rows.join("\n")))
+        .filter_map(|row| row.split_once("Allowance ").map(|(_, row)| row))
+        .flat_map(|row| row.split(" · "))
+        .map(words)
+        .find(|row| row.first() == Some(&source))
+        .map(|row| row.into_iter().map(str::to_owned).collect())
+        .unwrap_or_else(|| panic!("no {source} in {}", rows.join("\n")))
 }
 
 #[test]
 fn a_row_shows_left_the_worst_projection_and_the_reset() {
     let mut app = digest(vec![claude()]);
-    let rows = rows(&buffer(&mut app, 120, 40));
+    let rows = rows(&buffer(&mut app, 240, 40));
     assert!(
-        rows.iter()
-            .any(|row| row.contains("ALLOWANCE LEFT  1 provider")),
+        rows.iter().any(|row| row.contains("Allowance Claude")),
         "{}",
         rows.join("\n")
     );
@@ -127,7 +128,7 @@ fn only_a_window_that_runs_out_takes_the_attention_colour() {
     let view = app.view.as_mut().unwrap();
     view.look = crate::look::Look::default();
     view.home.as_mut().unwrap().workspace.squad_looks.clear();
-    let buffer = buffer(&mut app, 120, 40);
+    let buffer = buffer(&mut app, 240, 40);
     let rows = rows(&buffer);
     let waiting = app
         .look()
@@ -137,16 +138,20 @@ fn only_a_window_that_runs_out_takes_the_attention_colour() {
     let coloured = |source: &str| {
         let y = rows
             .iter()
-            .position(|row| {
-                row.rsplit_once('│')
-                    .is_some_and(|(_, tile)| words(tile).first() == Some(&source))
-            })
+            .position(|row| row.contains("Allowance ") && row.contains(source))
             .unwrap();
-        (0..buffer.area.width)
-            .map(|x| &buffer[(x, y as u16)])
-            .filter(|cell| cell.fg == waiting && cell.symbol() != " ")
-            .map(|cell| cell.symbol())
-            .collect::<String>()
+        {
+            let row = &rows[y];
+            let start = row.find(source).unwrap() as u16;
+            let end = row[usize::from(start)..]
+                .find(" · ")
+                .map_or(buffer.area.width, |end| start + end as u16);
+            start..end
+        }
+        .map(|x| &buffer[(x, y as u16)])
+        .filter(|cell| cell.fg == waiting && cell.symbol() != " ")
+        .map(|cell| cell.symbol())
+        .collect::<String>()
     };
     assert_eq!(coloured("Claude"), "✗runsoutSu04:40", "{rows:?}");
     assert_eq!(row_of(&rows, "Openai")[2..5], ["lasts", "past", "reset"]);
@@ -166,7 +171,7 @@ fn a_stale_reading_is_not_quoted_and_an_unsampled_provider_has_no_row() {
     };
     let fresh_without_rates = standing("openai", 55.0, 100, 60_000, Rates::default());
     let mut app = digest(vec![claude(), stale, unsampled, fresh_without_rates]);
-    let rows = rows(&buffer(&mut app, 120, 40));
+    let rows = rows(&buffer(&mut app, 240, 40));
     assert_eq!(
         row_of(&rows, "Muse"),
         ["Muse", "—", "no", "recent", "reading"]
@@ -176,58 +181,47 @@ fn a_stale_reading_is_not_quoted_and_an_unsampled_provider_has_no_row() {
         ["Openai", "55%", "—", "resets", "We", "06:40"]
     );
     assert!(
-        rows.iter()
-            .any(|row| row.contains("ALLOWANCE LEFT  3 providers")),
+        rows.iter().any(|row| row.contains("Allowance Claude")),
         "a provider never sampled has no row: {rows:?}"
     );
 }
 
 #[test]
-fn more_providers_than_rows_scroll_inside_the_tile() {
+fn providers_share_one_line_and_the_wheel_can_reveal_the_last_provider() {
     let providers = ["claude", "codex", "gemini", "muse", "openai"]
         .map(|name| standing(name, 50.0, 100, 60_000, Rates::default()));
     let mut app = digest(providers.to_vec());
     let shown = rows(&buffer(&mut app, 120, 40));
-    // Four tile rows: the heading and three providers, with the track on the right edge.
-    assert!(
-        shown
-            .iter()
-            .any(|row| row.contains("ALLOWANCE LEFT  5 providers"))
-    );
-    assert!(
-        shown.iter().any(|row| row.trim_end().ends_with('▲')),
-        "{shown:?}"
-    );
-    assert!(
-        shown.iter().any(|row| row.trim_end().ends_with('▼')),
-        "{shown:?}"
-    );
-    row_of(&shown, "Claude");
-    assert!(!shown.iter().any(|row| row.contains("Openai")));
     let y = shown
         .iter()
-        .position(|row| row.contains("ALLOWANCE LEFT"))
+        .position(|row| row.starts_with("Allowance "))
         .unwrap();
-    let x = shown[y].chars().position(|cell| cell == '│').unwrap();
-    let inside = ratatui::layout::Position::new(x as u16 + 2, y as u16 + 1);
+    assert_eq!(
+        shown
+            .iter()
+            .filter(|row| row.starts_with("Allowance "))
+            .count(),
+        1
+    );
+    row_of(&shown, "Claude");
+    let inside = ratatui::layout::Position::new(1, y as u16);
     for _ in 0..5 {
         assert!(app.digest_allowance.wheel(inside, true));
     }
     let scrolled = rows(&buffer(&mut app, 120, 40));
     row_of(&scrolled, "Openai");
+    assert!(!scrolled[y].contains("Claude"));
     assert!(
-        !scrolled.iter().any(|row| row.contains("Claude ")),
-        "clamped to the last page: {scrolled:?}"
+        !app.digest_allowance
+            .wheel(ratatui::layout::Position::new(0, 0), false)
     );
-    let outside = ratatui::layout::Position::new(0, 0);
-    assert!(!app.digest_allowance.wheel(outside, false));
 }
 
 #[test]
 fn an_ascii_terminal_gets_an_ascii_marker_and_rule() {
     let mut app = digest(vec![claude()]);
     app.cron_glyphs = GlyphSet::Ascii;
-    let rows = rows(&buffer(&mut app, 120, 40));
+    let rows = rows(&buffer(&mut app, 240, 40));
     assert_eq!(
         row_of(&rows, "Claude")[2..7],
         ["x", "runs", "out", "Su", "04:40"]
@@ -248,57 +242,18 @@ fn no_reading_or_no_height_shows_no_allowance() {
 }
 
 #[test]
-fn a_narrow_frame_stacks_the_allowance_under_the_amounts() {
-    let steady = standing(
-        "openai",
-        55.0,
-        100,
-        60_000,
-        Rates::measured(Some(0.3), Some(0.3), None, Some(0.3)),
-    );
-    for (width, height) in [(80, 40), (60, 36)] {
-        let mut app = digest(vec![claude(), steady.clone()]);
-        let rows = rows(&buffer(&mut app, width, height));
-        let heading = rows
+fn a_narrow_frame_keeps_allowance_to_one_line_under_the_window_totals() {
+    for width in [60, 80, 120] {
+        let mut app = digest(vec![claude()]);
+        let rows = rows(&buffer(&mut app, width, 40));
+        let at = rows
             .iter()
-            .position(|row| row.contains("ALLOWANCE LEFT  2 providers"))
-            .unwrap_or_else(|| panic!("{width}: {}", rows.join("\n")));
-        let amounts = rows
-            .iter()
-            .position(|row| row.contains("TOK USED"))
+            .position(|row| row.starts_with("Allowance "))
             .unwrap();
-        assert_eq!(
-            heading,
-            amounts + 3,
-            "{width}: right under the coverage lines"
-        );
-        assert!(!rows[heading].contains('│'), "no tile rule when stacked");
-        assert_eq!(
-            words(&rows[heading + 1]),
-            [
-                "Claude", "26%", "✗", "runs", "out", "Su", "04:40", "resets", "Su", "18:40"
-            ],
-            "{width}"
-        );
-        assert_eq!(
-            words(&rows[heading + 2])[..5],
-            ["Openai", "55%", "lasts", "past", "reset"]
-        );
-        assert!(
-            rows[heading + 3].starts_with("○ Saved = context"),
-            "{width}"
-        );
+        assert!(rows[at - 1].starts_with("TOK "));
+        assert!(rows[at].contains("Claude") && rows[at].contains("26%"));
+        assert!(rows[at + 1].starts_with("Saved = avoided input"));
     }
-    // Rows the table cannot spare are clipped and scroll inside the stacked block.
-    let mut app = digest(vec![claude(), steady]);
-    // One row shorter than the body that fits both: the board has no boundary band.
-    let rows = rows(&buffer(&mut app, 80, 21));
-    let heading = rows
-        .iter()
-        .position(|row| row.contains("ALLOWANCE LEFT"))
-        .unwrap();
-    assert!(rows[heading + 1].starts_with("  Claude"), "{rows:?}");
-    assert!(rows[heading + 2].starts_with("○ Saved"), "{rows:?}");
 }
 
 /// A claude window at 20 % left, 40 h to the reset, that lost 0.5 points an hour over the last

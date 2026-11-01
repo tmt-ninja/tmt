@@ -1,11 +1,6 @@
-//! Details for the selected Digest row in three tabs: Impact holds the amounts, Delivery what the
-//! supplier holds now, Evidence the basis behind both. Each line belongs to exactly one tab; the
-//! Estimate basis modal paints the Evidence lines, so the two never drift apart.
+//! Selected-agent totals and delivery, with full provenance behind Estimate basis.
 use super::{metrics, model};
-use crate::board::{
-    app::{App, Effect, Request},
-    usage_report::View,
-};
+use crate::board::app::{App, Effect, Request};
 use ratatui::{Frame, crossterm::event::Event, layout::Rect};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
@@ -17,41 +12,11 @@ use tmt_tui::{
     },
 };
 
-/// The Details tab on the Digest tab; session state until slice 5 persists it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::board) enum Tab {
-    #[default]
-    Impact,
-    Delivery,
-    Evidence,
-}
-
-impl Tab {
-    pub(in crate::board) const ALL: [Self; 3] = [Self::Impact, Self::Delivery, Self::Evidence];
-
-    pub(in crate::board) fn label(self) -> &'static str {
-        match self {
-            Self::Impact => "Impact",
-            Self::Delivery => "Delivery",
-            Self::Evidence => "Evidence",
-        }
-    }
-
-    pub(in crate::board) fn next(self) -> Self {
-        match self {
-            Self::Impact => Self::Delivery,
-            Self::Delivery => Self::Evidence,
-            Self::Evidence => Self::Impact,
-        }
-    }
-}
-
 pub(super) const METHOD: &str =
     "Method: saved = context each message would have reread if delivered alone";
 
 /// The selected row and the identities it stands for.
 struct Selection<'a> {
-    title: Option<String>,
     all: bool,
     ids: Vec<&'a str>,
     id: Option<&'a str>,
@@ -66,7 +31,6 @@ fn selection<'a>(
         .iter()
         .find(|row| Some(&row.target) == app.workspace.selected.as_ref());
     Selection {
-        title: selected.map(|row| row.title.clone()),
         all: selected.is_some_and(|row| metrics::id(row).is_none()),
         ids: selected.map_or_else(Vec::new, |row| metrics::identities(row, rows)),
         id: row.and_then(|row| row["id"].as_str()),
@@ -85,103 +49,6 @@ pub(super) fn title(app: &App) -> String {
         .find(|row| Some(&row.target) == app.workspace.selected.as_ref())
         .map_or("none".into(), |row| row.title.clone());
     format!("Details · {name} · {}", app.digest_window().label())
-}
-
-/// The amounts: usage, then the saved estimate.
-pub(super) fn impact(app: &App, row: Option<&Value>) -> Vec<String> {
-    let rows = app.workspace_rows();
-    let selected = selection(&rows, app, row);
-    let report = metrics::report(app);
-    let reading = metrics::tokens(report, &selected.ids);
-    let mut text = vec!["USAGE".to_owned()];
-    if selected.title.is_none() {
-        text.push("Select a visible agent or all".into());
-    }
-    // Without the supplier the saved amounts below are unavailable; say how to get them.
-    if app.labels.digest().is_none()
-        && selected
-            .id
-            .is_none_or(|id| model::labels(&app.labels, id).is_empty())
-    {
-        text.push("Digest not available".into());
-        text.push("Install: tmt extension install digest".into());
-    }
-    text.push(format!(
-        "TOK used {} · {}",
-        metrics::token_text(reading),
-        match reading {
-            Some((_, true)) => format!("{} agents · partial", selected.ids.len()),
-            Some(_) => format!("{} agents", selected.ids.len()),
-            None => "usage unavailable".into(),
-        }
-    ));
-    text.push(format!(
-        "≈ $ used {}",
-        metrics::input_price(app, report, &selected.ids).map_or_else(
-            || "— usage incomplete".into(),
-            crate::board::savings::usd_text
-        )
-    ));
-    if !super::table::price_column_shown(app) {
-        text.push(super::table::PRICE_NOTE.into());
-    }
-    if selected.all {
-        text.push(format!("Held now {}", super::held_text(app)));
-    } else if let Some(id) = selected.id {
-        let held = app
-            .labels
-            .digest()
-            .and_then(|(status, _)| status.members.get(id)?.held_count);
-        text.push(format!(
-            "Held now {}",
-            held.map_or("unavailable".into(), |n| crate::source::tokens(u128::from(
-                n
-            )))
-        ));
-        text.push(super::talks(app).busiest(id).map_or(
-            "Talks to unavailable".into(),
-            |(recipient, count)| {
-                format!(
-                    "Talks to {} · {} messages",
-                    metrics::name(app, recipient),
-                    crate::source::tokens(u128::from(count))
-                )
-            },
-        ));
-    }
-    match app.usage_report.view_for(app.digest_range()) {
-        View::Loading => text.push("Usage loading…".into()),
-        View::Failed(error) => text.push(format!("Usage unavailable: {error}")),
-        View::Report(_) => {}
-    }
-    if let Some(error) = app.usage_report.refresh_error(app.digest_range()) {
-        text.push(format!("Stale usage retained · refresh failed: {error}"));
-    }
-    text.push(String::new());
-    text.push("SAVED · estimate".into());
-    // The all row reads the sum its tiles and table row share; a member reads its own.
-    let summary = if selected.all {
-        super::savings(app)
-    } else {
-        std::rc::Rc::new(metrics::savings(app, &selected.ids))
-    };
-    // The same labels as the Agents surfaces, so one estimate reads one way everywhere.
-    text.extend(super::summary::fields(
-        &summary,
-        ["Est. ctx avoided", "List-price equivalent:"],
-    ));
-    if let Some(points) = summary.percent.value {
-        text.push(format!(
-            "Estimated input reduction: {} ({}/{} agents)",
-            model::detail_percent(points),
-            summary.percent.included,
-            summary.total
-        ));
-    } else if summary.percent.conflict {
-        text.push("Estimated input reduction: — · intervals differ".into());
-    }
-    text.push(super::summary::DEFINITION.into());
-    text
 }
 
 /// What the supplier holds now: modes, held messages and its own clocks.
@@ -253,6 +120,12 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
     let report = metrics::report(app);
     let zone = zone(app);
     let mut text = Vec::new();
+    if let Some(price) = metrics::input_price(app, report, &selected.ids) {
+        text.push(format!(
+            "Observed input at list price: {} · not a bill",
+            crate::board::savings::usd_text(price)
+        ));
+    }
     if let Some(id) = selected.id {
         if let Some(member) = app
             .labels
@@ -349,13 +222,187 @@ pub(super) fn links(app: &App) -> Vec<String> {
     links
 }
 
-/// The lines of the shown tab, before wrapping.
-pub(super) fn lines(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
-    match app.digest_details {
-        Tab::Impact => impact(app, row),
-        Tab::Delivery => delivery(app, now_ms, row),
-        Tab::Evidence => evidence(app, now_ms, row),
+/// The single agent panel shares the held status/report, never acquires on paint.
+pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> {
+    let rows = app.workspace_rows();
+    let selected = selection(&rows, app, row);
+    let mut lines = vec!["── Delivery ──".into()];
+    if app.labels.digest().is_none() {
+        lines.push("Digest not available · Install: tmt extension install digest".into());
     }
+    if let Some(id) = selected.id {
+        if let Some((status, stale)) = app.labels.digest() {
+            if let Some(member) = status.members.get(id) {
+                lines.push(format!(
+                    "{} · {}",
+                    metrics::mode(app, Some(id)),
+                    if member.setting_source == crate::labels::digest::SettingSource::Default {
+                        "inherited from workspace"
+                    } else {
+                        "member override"
+                    }
+                ));
+                lines.push(format!(
+                    "held {} · next eligible {}",
+                    member
+                        .held_count
+                        .map_or("unavailable".into(), |n| n.to_string()),
+                    member
+                        .next_eligible_at_ms
+                        .map_or("unavailable".into(), |at| {
+                            if at > now_ms {
+                                format!("in {}", model::human_duration(at - now_ms))
+                            } else {
+                                "now".into()
+                            }
+                        })
+                ));
+                if let Some(last) = &member.last_delivery {
+                    lines.push(format!(
+                        "last {} ({} → {})",
+                        model::observation_clock(Some(last.settled_at_ms), now_ms, &zone(app)),
+                        last.messages,
+                        last.batches
+                    ));
+                }
+                if let Some((wait, count)) = member.auto_caps {
+                    lines.push(format!(
+                        "max hold {} ▾ · max messages {count} ▾",
+                        model::human_duration(wait)
+                    ));
+                }
+                if stale {
+                    lines.push("Stale observation · refresh before acting".into());
+                }
+            } else {
+                lines.push("Delivery unavailable".into());
+            }
+        } else {
+            lines.extend(
+                model::delivery(&app.labels, id, now_ms, &zone(app), |id| {
+                    metrics::name(app, Some(id))
+                })
+                .into_iter()
+                .map(|line| line.replace(" ▾", "")),
+            );
+        }
+    } else {
+        lines.extend(delivery(app, now_ms, row));
+    }
+    if let Some(inline) = app
+        .digest_inline
+        .as_ref()
+        .filter(|inline| Some(&inline.target) == app.workspace.selected.as_ref())
+    {
+        lines.extend(inline.lines());
+    }
+    if let Some((status, _)) = app.labels.digest() {
+        lines.push(format!(
+            "Status observed: {}",
+            model::observation_time(Some(status.observed_at_ms), now_ms, &zone(app))
+        ));
+    }
+    if let Some(error) = app.usage_report.refresh_error(app.digest_range()) {
+        lines.push(format!("Stale usage retained · refresh failed: {error}"));
+    }
+    if let crate::board::usage_report::View::Failed(error) =
+        app.usage_report.view_for(app.digest_range())
+    {
+        lines.push(format!("Usage unavailable: {error}"));
+    }
+    lines.push(format!("── Saved · {} ──", app.digest_window().label()));
+    let sum = if selected.all {
+        super::savings(app)
+    } else {
+        std::rc::Rc::new(metrics::savings(app, &selected.ids))
+    };
+    lines.push(format!(
+        "used {} · saved {}",
+        metrics::token_text(metrics::tokens(metrics::report(app), &selected.ids)),
+        super::table::saved(&sum, crate::config::SavingsUnit::Tokens)
+    ));
+    lines.push(format!(
+        "saved % {} ({}/{} agents)",
+        sum.percent
+            .value
+            .map_or("unavailable".into(), model::detail_percent),
+        sum.percent.included,
+        sum.total
+    ));
+    lines.push(format!(
+        "List-price equivalent: {} ({}/{} agents)",
+        super::table::saved(&sum, crate::config::SavingsUnit::Cost),
+        sum.cost.included,
+        sum.total
+    ));
+    lines.push(format!("── Models · {} ──", app.digest_window().label()));
+    let mut models = BTreeMap::<String, u128>::new();
+    let mut missing = false;
+    for id in &selected.ids {
+        if let Some(values) = metrics::report(app)
+            .and_then(|report| report.seat(id))
+            .and_then(|seat| seat.model_totals.as_ref())
+        {
+            for (name, value) in values {
+                *models.entry(name.clone()).or_default() += u128::from(*value);
+            }
+        } else {
+            missing = true;
+        }
+    }
+    let models_empty = models.is_empty();
+    let reading = metrics::tokens(metrics::report(app), &selected.ids);
+    missing |= matches!(reading, Some((_, true)));
+    let total = reading.map_or(0, |(total, _)| total);
+    if let Some(total) = std::num::NonZeroU128::new(total) {
+        for (name, value) in models {
+            lines.push(format!(
+                "{name} · {}% · {}{}",
+                value * 100 / total.get(),
+                crate::source::tokens(value),
+                if missing { " · partial" } else { "" }
+            ));
+        }
+    }
+    if total == 0 || missing && models_empty {
+        lines.push("Model distribution unavailable".into());
+    }
+    lines.push("── Timers ──".into());
+    if let Some(cron) = app.cron.cron.as_ref() {
+        let jobs = cron
+            .jobs
+            .iter()
+            .filter(|job| {
+                selected.all
+                    || job
+                        .job
+                        .owner_id
+                        .as_deref()
+                        .is_some_and(|id| selected.ids.contains(&id))
+            })
+            .collect::<Vec<_>>();
+        if jobs.is_empty() {
+            lines.push("No timers".into());
+        }
+        for job in jobs {
+            lines.push(format!(
+                "{} · {} · {} · {} · {}",
+                job.job.id(),
+                job.squad,
+                job.state_label(),
+                job.next_ms.first().map_or("next unavailable".into(), |at| {
+                    crate::board::cronboard::countdown(
+                        *at,
+                        i64::try_from(now_ms).unwrap_or(i64::MAX),
+                    )
+                }),
+                crate::board::notes::single_line(&job.job.message)
+            ));
+        }
+    } else {
+        lines.push("Timers unavailable".into());
+    }
+    lines
 }
 
 const FILE: &str = "digest.estimate-basis.xml";
@@ -499,13 +546,5 @@ impl App {
                 Some(Effect::None)
             }
         }
-    }
-
-    /// Shows a Details tab; its content starts at the top.
-    pub(in crate::board) fn show_digest_details(&mut self, tab: Tab) -> Effect {
-        self.digest_details = tab;
-        self.scrolls.restore([(crate::config::Pane::Replies, 0)]);
-        self.invalidate_frame_geometry();
-        Effect::None
     }
 }

@@ -91,6 +91,8 @@ pub(in crate::board) fn key_label(event: &str) -> &str {
         "enter" => "⏎",
         "esc" => "Esc",
         "backspace" => "⌫",
+        "up" => "↑",
+        "down" => "↓",
         "left" => "←",
         "right" => "→",
         "tab" => "Tab",
@@ -526,7 +528,78 @@ fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
     line
 }
 
+fn digest_pairs(app: &App, width: usize) -> Vec<Hint> {
+    use crate::action::{OpsUiAction as Ui, Verb};
+    if app.digest_inline.is_some() {
+        return fit_hints(
+            vec![
+                ("↑↓".into(), "field".into()),
+                ("←→".into(), "value".into()),
+                ("⏎".into(), "apply/open".into()),
+            ],
+            vec![("Esc".into(), "cancel".into())],
+            width,
+        );
+    }
+    let bindings = app.bindings();
+    let key = |verb, preferred| {
+        effective_key(app, &bindings, verb, preferred).map(|key| key_label(&key).to_owned())
+    };
+    let movement = [
+        (Ui::Previous, "up"),
+        (Ui::Next, "down"),
+        (Ui::Fold, "left"),
+        (Ui::Expand, "right"),
+    ]
+    .into_iter()
+    .filter_map(|(action, preferred)| key(Verb::Ui(action), preferred))
+    .collect::<Vec<_>>()
+    .join("");
+    let mut hints = vec![(movement, "move".into())];
+    for (verb, preferred, label) in [
+        (Verb::Talk, "enter", "chat"),
+        (Verb::Digest, "o", "mode"),
+        (Verb::Ui(Ui::SavingsUnit), "u", "TOK/$"),
+        (Verb::Ui(Ui::Search), "/", "search"),
+    ] {
+        if row_allows(
+            app,
+            &crate::action::Action::parse(match verb {
+                Verb::Digest => "digest",
+                Verb::Talk => "talk",
+                Verb::Ui(Ui::SavingsUnit) => "savings-unit",
+                _ => "search",
+            })
+            .unwrap(),
+        ) && let Some(key) = key(verb, preferred)
+        {
+            hints.push((key, label.into()));
+        }
+    }
+    let range = [
+        key(Verb::Ui(Ui::DigestPreviousWindow), "["),
+        key(Verb::Ui(Ui::CycleTokRange), "]"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ");
+    if !range.is_empty() {
+        hints.insert(3.min(hints.len()), (range, "range".into()));
+    }
+    let tail = [(Ui::Help, "?", "help"), (Ui::Quit, "q", "quit")]
+        .into_iter()
+        .filter_map(|(action, preferred, label)| {
+            Some((key(Verb::Ui(action), preferred)?, label.into()))
+        })
+        .collect();
+    fit_hints(hints, tail, width)
+}
+
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
+    if app.shell.tab == crate::board::shell::OpsTab::Digest && !app.searching {
+        return digest_pairs(app, width);
+    }
     if app.shell.tab == crate::board::shell::OpsTab::Orchestration && !app.searching {
         return orchestration_pairs(app, width);
     }

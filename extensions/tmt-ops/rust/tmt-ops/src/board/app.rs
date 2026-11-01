@@ -346,9 +346,10 @@ pub enum Choice {
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
     DigestWindowMenu,
+    DigestBarsMenu,
+    DigestBars(usize),
     DigestBasis,
     /// A Details tab chip on the Digest tab.
-    DigestDetails(super::digest_dashboard::DetailsTab),
     /// The shared saved TOK range for Agents and Digest.
     TokRange(crate::config::TokRange),
     /// A click on an Agents column header: sort by it, or reverse it.
@@ -378,8 +379,6 @@ pub enum Choice {
     Digest(super::digest::Set),
     /// The dropdown's own entry: type a value instead.
     DigestCustom(Box<super::digest::Granted>),
-    /// The Digest tab's on/off chip: flip the one switch.
-    DigestSwitch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -785,8 +784,10 @@ pub struct App {
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
     /// The Digest tab's window, kept by the view-state layer.
     pub(in crate::board) digest_window: crate::config::DigestWindow,
+    pub(in crate::board) digest_cost: bool,
+    pub(in crate::board) digest_each: usize,
+    pub(in crate::board) digest_inline: Option<super::digest::Inline>,
     /// The Details tab shown on the Digest tab.
-    pub(in crate::board) digest_details: super::digest_dashboard::DetailsTab,
     pub(super) estimate_basis: Option<RefCell<super::digest_dashboard::EstimateBasis>>,
     pub(in crate::board) digest_allowance: super::digest_dashboard::AllowanceScroll,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
@@ -2515,7 +2516,7 @@ impl App {
             && member.is_none()
             && self.workspace.selected == Some(super::workspace::OpsTarget::DigestAll)
         {
-            return self.digest_switch();
+            return self.say("Select an agent to edit Digest.");
         }
         // UI actions dispatch before resolving a row. A member action uses the
         // same verified occurrence as paint, including an observed squad lead.
@@ -3239,7 +3240,6 @@ impl App {
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::DigestWindowMenu => self.digest_window_menu(),
             Choice::DigestBasis => super::digest_dashboard::open_basis(self),
-            Choice::DigestDetails(tab) => self.show_digest_details(tab),
             Choice::TokRange(range) => self.select_tok_range(range),
             Choice::SortBy(header) => self.sort_by_header(header),
             Choice::ExchangeCell { sender, recipient } => {
@@ -3260,9 +3260,16 @@ impl App {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
-            Choice::Digest(set) => Effect::Act(Request::Digest(set)),
+            Choice::Digest(set) => {
+                self.digest_inline = None;
+                Effect::Act(Request::Digest(set))
+            }
+            Choice::DigestBarsMenu => self.digest_bars_menu(),
+            Choice::DigestBars(each) => {
+                self.digest_each = each;
+                Effect::None
+            }
             Choice::DigestCustom(granted) => self.digest_custom(*granted),
-            Choice::DigestSwitch => self.digest_switch(),
         }
     }
 
@@ -4106,6 +4113,13 @@ impl App {
         self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
+        }
+        if self.menu.is_none()
+            && !self.modal_open()
+            && self.input.is_none()
+            && let Some(effect) = self.digest_inline_key(key)
+        {
+            return effect;
         }
         if let Some(effect) = self.moving_key(key) {
             return effect;

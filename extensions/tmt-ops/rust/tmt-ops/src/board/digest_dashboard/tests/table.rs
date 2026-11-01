@@ -1,11 +1,10 @@
 //! Agents by TOK: saved columns, their unit switch, the width order and the shared sum.
 use super::super::table::{Field, narrow_hint, tracks};
-use super::{MEMBER, paint, press, save, valued_board, valued_document};
+use super::{MEMBER, paint, press, valued_board, valued_document};
 use crate::{
-    board::app::{App, Choice},
+    board::app::App,
     config::{DigestWindow, SavingsUnit},
 };
-use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::rc::Rc;
 
 fn fields(width: u16, unit: SavingsUnit) -> Vec<Field> {
@@ -16,104 +15,38 @@ fn fields(width: u16, unit: SavingsUnit) -> Vec<Field> {
 }
 
 #[test]
-fn money_and_saved_columns_show_before_share_and_recipients_and_agent_names_yield_first() {
+fn fixed_token_columns_fit_whole_and_do_not_change_with_the_totals_unit() {
     use Field::*;
-    let all = vec![
-        Agent, State, Activity, Tokens, Share, Saved, Cost, SavedCost, Digest, Talks,
-    ];
-    let common = vec![
-        Agent, State, Activity, Tokens, Saved, Cost, SavedCost, Digest,
-    ];
-    let narrow = vec![Agent, State, Activity, Tokens, Saved, Digest];
-    for (width, expected) in [
-        (160, all.clone()),
-        (120, all.clone()),
-        (112, all),
-        (111, {
-            let mut shared = common.clone();
-            shared.insert(4, Share);
-            shared
-        }),
-        (100, common.clone()),
-        (96, common.clone()),
-        (94, common),
-        (93, narrow.clone()),
-        (80, narrow.clone()),
-        (76, narrow),
-        (75, vec![Agent, State, Tokens, Saved, Digest]),
-        (60, vec![Agent, State, Tokens, Saved, Digest]),
-    ] {
-        assert_eq!(
-            fields(width, SavingsUnit::Tokens),
-            expected,
-            "width={width}"
-        );
-        let tracks = tracks(width, SavingsUnit::Tokens);
-        let span = tracks.iter().map(|(_, w)| w + 1).sum::<u16>() - 1;
-        assert!(span <= width, "width={width}: {tracks:?}");
+    for width in [60, 75, 76, 80, 100, 112, 120, 160] {
+        let shown = fields(width, SavingsUnit::Tokens);
+        assert!(shown.contains(&Tokens) && shown.contains(&Saved) && shown.contains(&Percent));
+        assert_eq!(shown, fields(width, SavingsUnit::Cost));
+        let total = tracks(width, SavingsUnit::Tokens)
+            .iter()
+            .map(|(_, w)| w + 1)
+            .sum::<u16>()
+            - 1;
+        assert!(total <= width);
     }
-    assert_eq!(tracks(96, SavingsUnit::Tokens)[0], (Agent, 12));
-    assert_eq!(tracks(94, SavingsUnit::Tokens)[0], (Agent, 10));
-    assert_eq!(tracks(76, SavingsUnit::Tokens)[0], (Agent, 9));
-    // A cost unit already shows money under SAVED; its width goes to share first.
     assert_eq!(
-        fields(96, SavingsUnit::Cost),
-        vec![Agent, State, Activity, Tokens, Share, Saved, Cost, Digest]
-    );
-    assert_eq!(
-        fields(160, SavingsUnit::Cost),
-        vec![
-            Agent, State, Activity, Tokens, Share, Saved, Cost, Digest, Talks
-        ]
+        fields(160, SavingsUnit::Tokens),
+        vec![Agent, State, Activity, Tokens, Saved, Percent, Held, Mode]
     );
 }
 
 #[test]
-fn the_narrow_hint_names_exactly_the_columns_left_out_for_width() {
-    for (width, unit, hint) in [
-        (160, SavingsUnit::Tokens, None),
-        (112, SavingsUnit::Tokens, None),
-        (
-            100,
-            SavingsUnit::Tokens,
-            Some("Widen to 112 columns for share and recipients."),
-        ),
-        (
-            80,
-            SavingsUnit::Tokens,
-            Some("Widen to 112 columns for share, price, saved price and recipients."),
-        ),
-        (
-            60,
-            SavingsUnit::Percent,
-            Some("Widen to 112 columns for activity, share, price, saved price and recipients."),
-        ),
-        (102, SavingsUnit::Cost, None),
-        (
-            96,
-            SavingsUnit::Cost,
-            Some("Widen to 102 columns for recipients."),
-        ),
-        (
-            80,
-            SavingsUnit::Cost,
-            Some("Widen to 102 columns for share, price and recipients."),
-        ),
-    ] {
+fn the_narrow_hint_names_only_columns_which_are_not_painted() {
+    for width in [60, 80, 100, 120, 160] {
+        let shown = fields(width, SavingsUnit::Tokens);
+        let hint = narrow_hint(width, SavingsUnit::Tokens, usize::MAX);
         assert_eq!(
-            narrow_hint(width, unit, usize::MAX).as_deref(),
-            hint,
-            "width={width} unit={unit:?}"
+            hint.is_some(),
+            !shown.contains(&Field::Activity) || !shown.contains(&Field::Mode)
         );
-    } // Names that do not fit the footer become a count; a single name always fits.
-    assert_eq!(
-        narrow_hint(60, SavingsUnit::Tokens, 50).as_deref(),
-        Some("Widen to 112 columns for 5 more columns.")
-    );
-    assert_eq!(
-        narrow_hint(96, SavingsUnit::Cost, 10).as_deref(),
-        Some("Widen to 102 columns for recipients.")
-    );
+        if let Some(hint) = hint {
+            assert!(!hint.contains("price") && !hint.contains("recipients"));
+        }
+    }
 }
 
 /// Each painted row as its cells, so a column reads from its heading's position.
@@ -146,11 +79,15 @@ fn text(row: &[String], from: usize, width: usize) -> String {
 /// The value under `heading` on the row whose AGENT cell starts with `agent`.
 fn cell(grid: &[Vec<String>], heading: &str, agent: &str) -> Option<String> {
     let width = heading.chars().count();
-    let (header, column) = grid.iter().enumerate().find_map(|(y, row)| {
-        (0..row.len().saturating_sub(width))
-            .find(|&x| row[x..x + width].concat() == heading)
-            .map(|x| (y, x))
-    })?;
+    let (header, column) = grid
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.concat().contains("AGENT"))
+        .find_map(|(y, row)| {
+            (0..row.len().saturating_sub(width))
+                .find(|&x| row[x..x + width].concat() == heading)
+                .map(|x| (y, x))
+        })?;
     let agent_column = (0..grid[header].len())
         .find(|&x| grid[header][x..].concat().starts_with("AGENT"))
         .unwrap();
@@ -172,16 +109,16 @@ fn saved_cells_show_the_supplied_estimate_in_the_shared_unit_and_at_list_price()
     let shown = digest(&mut app);
     for agent in ["worker", "all"] {
         assert_eq!(
-            cell(&shown, "SAVED ▾", agent).as_deref(),
+            cell(&shown, "SAVED", agent).as_deref(),
             Some("18.2k"),
             "{agent}"
         );
         assert_eq!(
-            cell(&shown, "≈ $ SAVED", agent).as_deref(),
-            Some("$12.4"),
+            cell(&shown, "SAVED %", agent).as_deref(),
+            Some("18%"),
             "{agent}"
         );
-        assert!(cell(&shown, "≈ $ USED", agent).is_some(), "{agent}");
+        assert!(cell(&shown, "≈ $ USED", agent).is_none(), "{agent}");
     }
     assert!(cell(&shown, "≈ $ in", "worker").is_none());
 }
@@ -198,53 +135,34 @@ fn a_sum_that_leaves_agents_out_is_a_lower_bound_and_unknown_never_reads_zero() 
     let _no_commands = crate::runner::forbid_commands();
     let mut app = crowd(valued_document());
     let shown = grid(&mut app, 160, 40);
-    assert_eq!(cell(&shown, "SAVED ▾", "all").as_deref(), Some("≥18.2k"));
-    assert_eq!(cell(&shown, "≈ $ SAVED", "all").as_deref(), Some("≥$12.4"));
-    assert_eq!(cell(&shown, "SAVED ▾", "agent-1").as_deref(), Some("—"));
-    assert_eq!(cell(&shown, "≈ $ SAVED", "agent-1").as_deref(), Some("—"));
-    assert!(!shown.concat().concat().contains("SAVED % covers"));
-    // A partial percent carries no bound mark; the table names its coverage instead.
-    let effect = app.perform(&crate::action::Action::parse("savings-unit").unwrap());
-    save(&mut app, effect);
-    let shown = grid(&mut app, 160, 40);
-    assert_eq!(cell(&shown, "SAVED ▾", "all").as_deref(), Some("18%"));
+    assert_eq!(cell(&shown, "SAVED", "all").as_deref(), Some("≥18.2k"));
+    assert_eq!(cell(&shown, "SAVED", "agent-1").as_deref(), Some("—"));
+    assert_eq!(cell(&shown, "SAVED %", "all").as_deref(), Some("18%"));
     assert!(
         shown
             .concat()
             .concat()
-            .contains("SAVED % covers 1 of 7 agents"),
-        "the partial percent names its coverage"
+            .contains("SAVED % covers 1 of 7 agents")
     );
-
-    // A known zero is zero.
+    assert_eq!(sum(&app).cost.value, Some(12_398_600));
     let mut zero = valued_document();
     zero["members"][0]["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(0);
     zero["members"][0]["savings"]["cost"]["usdMicros"] = serde_json::json!(0);
     let mut app = valued_board();
     app.labels = crate::labels::Supplied::from_document("digest", &zero, false);
     let shown = digest(&mut app);
-    assert_eq!(cell(&shown, "SAVED ▾", "worker").as_deref(), Some("0"));
-    assert_eq!(cell(&shown, "≈ $ SAVED", "worker").as_deref(), Some("$0"));
-
-    // Stale or absent evidence is unavailable, never a measured value.
+    assert_eq!(cell(&shown, "SAVED", "worker").as_deref(), Some("0"));
+    assert_eq!(sum(&app).cost.value, Some(0));
     for labels in [
         crate::labels::Supplied::from_document("digest", &valued_document(), true),
-        crate::labels::Supplied::default(),
+        Default::default(),
     ] {
         let mut app = valued_board();
         app.labels = labels;
         let shown = digest(&mut app);
-        for agent in ["worker", "all"] {
-            assert_eq!(
-                cell(&shown, "SAVED ▾", agent).as_deref(),
-                Some("—"),
-                "{agent}"
-            );
-            assert_eq!(
-                cell(&shown, "≈ $ SAVED", agent).as_deref(),
-                Some("—"),
-                "{agent}"
-            );
+        for agent in ["all", "worker"] {
+            assert_eq!(cell(&shown, "SAVED", agent).as_deref(), Some("—"));
+            assert_eq!(cell(&shown, "SAVED %", agent).as_deref(), Some("—"));
         }
     }
 }
@@ -254,81 +172,45 @@ fn quotes_under_different_price_tables_never_combine() {
     let _no_commands = crate::runner::forbid_commands();
     let mut document = valued_document();
     let mut other = document["members"][0].clone();
-    let id = "40000000-0000-4000-8000-000000000001";
-    other["identityId"] = serde_json::json!(id);
+    other["identityId"] = serde_json::json!("40000000-0000-4000-8000-000000000001");
     other["savings"]["cost"]["pricingVersion"] = serde_json::json!("2026-10-01");
     other["savings"]["percent"]["fromMs"] = serde_json::json!(0);
     document["members"].as_array_mut().unwrap().push(other);
     let mut app = crowd(document);
     let shown = grid(&mut app, 160, 40);
-    assert_eq!(cell(&shown, "≈ $ SAVED", "all").as_deref(), Some("—"));
-    assert_eq!(
-        cell(&shown, "≈ $ SAVED", "agent-1").as_deref(),
-        Some("$12.4")
-    );
-    // Tokens still add up; only the money and the ratio cannot combine.
-    assert_eq!(cell(&shown, "SAVED ▾", "all").as_deref(), Some("≥36.4k"));
-}
-
-fn click_heading(app: &mut App, shown: &[Vec<String>]) -> crate::board::app::Effect {
-    let hit = app
-        .workspace_strip_hits
-        .borrow()
-        .iter()
-        .find(|(area, choice)| {
-            *choice == Choice::SavingsUnit
-                && shown[usize::from(area.y)][usize::from(area.x)..]
-                    .concat()
-                    .starts_with("SAVED ▾")
-        })
-        .map(|(area, _)| *area)
-        .expect("the SAVED heading answers a click");
-    app.mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: hit.x,
-            row: hit.y,
-            modifiers: KeyModifiers::NONE,
-        },
-        std::time::Instant::now(),
-    )
+    let all = sum(&app);
+    assert!(all.cost.conflict && all.cost.value.is_none());
+    assert!(all.percent.conflict && all.percent.value.is_none());
+    assert_eq!(cell(&shown, "SAVED", "all").as_deref(), Some("≥36.4k"));
 }
 
 #[test]
-fn the_saved_heading_cycles_the_shared_unit_and_cost_hides_the_duplicate_money_column() {
+fn the_totals_switch_is_local_and_never_changes_list_units_or_writes_config() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
-    let shown = digest(&mut app);
-    let effect = click_heading(&mut app, &shown);
-    // Nothing changes until Config accepts the write.
-    let pending = grid(&mut app, 160, 36);
+    let before = digest(&mut app);
+    let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     assert_eq!(
-        cell(&pending, "SAVED ▾", "worker").as_deref(),
-        Some("18.2k")
+        app.perform(&crate::action::Action::parse("savings-unit").unwrap()),
+        crate::board::app::Effect::None
     );
-    save(&mut app, effect);
-    assert_eq!(app.savings_unit(), SavingsUnit::Percent);
-    let shown = grid(&mut app, 160, 36);
-    assert_eq!(cell(&shown, "SAVED ▾", "worker").as_deref(), Some("18%"));
-    assert_eq!(
-        cell(&shown, "≈ $ SAVED", "worker").as_deref(),
-        Some("$12.4")
+    let after = grid(&mut app, 160, 36);
+    assert!(app.digest_cost);
+    assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
+    for heading in ["SAVED", "SAVED %", "TOK"] {
+        assert_eq!(
+            cell(&before, heading, "worker"),
+            cell(&after, heading, "worker")
+        );
+    }
+    assert!(
+        after
+            .concat()
+            .concat()
+            .contains("Window list-price equivalent")
     );
-
-    let effect = click_heading(&mut app, &shown);
-    save(&mut app, effect);
-    assert_eq!(app.savings_unit(), SavingsUnit::Cost);
-    let shown = grid(&mut app, 160, 36);
-    assert_eq!(cell(&shown, "SAVED ▾", "worker").as_deref(), Some("≈$12.4"));
-    assert!(cell(&shown, "≈ $ SAVED", "worker").is_none());
-    assert!(cell(&shown, "SHARE", "worker").is_some());
-
-    // The Actions route is the same switch.
-    let effect = app.perform(&crate::action::Action::parse("savings-unit").unwrap());
-    save(&mut app, effect);
-    assert_eq!(app.savings_unit(), SavingsUnit::Tokens);
-    let shown = grid(&mut app, 160, 36);
-    assert_eq!(cell(&shown, "SAVED ▾", "worker").as_deref(), Some("18.2k"));
+    app.perform(&crate::action::Action::parse("savings-unit").unwrap());
+    assert!(!app.digest_cost);
 }
 
 fn sum(app: &App) -> Rc<crate::labels::digest::SavingsSummary> {
@@ -370,4 +252,19 @@ fn the_summary_and_the_all_row_share_one_sum_until_its_status_or_window_changes(
     let read = sum(&app);
     assert!(!Rc::ptr_eq(&first, &read), "a new read sums again");
     assert_eq!(*read, *first);
+}
+
+#[test]
+fn digest_redesign_list_has_window_saved_percent_without_used_price() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    let shown = digest(&mut app).concat().concat();
+    assert!(
+        shown.contains("SAVED %"),
+        "range percentage is an independent column"
+    );
+    assert!(
+        !shown.contains("≈ $ USED"),
+        "uncomputable used-price column is removed"
+    );
 }

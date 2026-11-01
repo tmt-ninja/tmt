@@ -1,5 +1,4 @@
-//! The top of the Digest tab: one status line with the tab-wide window, then the usage,
-//! saved and list-price tiles beside the allowance tile, over the admitted, held evidence.
+//! Digest window controls, aligned TOK bars and totals over admitted, held evidence.
 use super::{metrics, model};
 use crate::{
     board::{
@@ -20,57 +19,8 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-/// Status, rule, four tile rows and the definition.
-const FULL: u16 = 7;
-/// Rows the amount tiles fill: label, value and coverage.
-const AMOUNT_ROWS: u16 = 3;
-/// Status, one line of amounts and the definition, when tiles do not fit.
-const COMPACT: u16 = 3;
-/// Rows the table below keeps before the summary gives up its tiles.
-const BODY_MINIMUM: u16 = 10;
-const TILE_ROWS: u16 = 4;
-/// Narrowest amount tile; below three of them the amounts take the one-line form.
-const TILE_MINIMUM: u16 = 18;
-/// Narrowest amount tile beside the allowance tile, so neither clips its values.
-const TILE_BESIDE: u16 = 20;
-pub(super) const DEFINITION: &str = "○ Saved = context the agents did not have to reread because messages were delivered together · at list price · not a bill";
-const SCOPE: &str = "applies to this whole tab";
-const BASIS: &str = "Estimate basis…";
-
-/// The rows the summary takes from `available`. Allowance that cannot sit beside the amounts
-/// stacks under them, clipped to what the table below can spare.
-pub(super) fn height(app: &App, width: u16, available: u16) -> u16 {
-    if available < FULL + BODY_MINIMUM || width < TILE_MINIMUM * 3 {
-        return COMPACT.min(available);
-    }
-    let stacked = super::allowance::stacked_rows(app, width.saturating_sub(TILE_BESIDE * 3))
-        .min(available - FULL - BODY_MINIMUM + 1);
-    // A heading alone shows nothing; it needs at least one provider row.
-    if stacked >= 2 {
-        FULL - 1 + stacked
-    } else {
-        FULL
-    }
-}
-
-/// Each amount carries its own coverage. Missing quotes never borrow token coverage.
-pub(super) fn fields(summary: &SavingsSummary, labels: [&str; 2]) -> [String; 2] {
-    let field = |unit, label, included| {
-        format!(
-            "{label} {} ({included}/{} agents{})",
-            amount(summary, unit),
-            summary.total,
-            if included < summary.total {
-                " · partial"
-            } else {
-                ""
-            }
-        )
-    };
-    [
-        field(SavingsUnit::Tokens, labels[0], summary.included),
-        field(SavingsUnit::Cost, labels[1], summary.cost.included),
-    ]
+pub(super) fn height(_app: &App, _width: u16, available: u16) -> u16 {
+    if available >= 17 { 7 } else { 3.min(available) }
 }
 
 /// One unit's amount without its coverage: a conflict names itself, missing is `—`.
@@ -83,72 +33,191 @@ fn amount(summary: &SavingsSummary, unit: SavingsUnit) -> String {
     value.trim_end_matches(" at list price").to_owned()
 }
 
+/// One bucket is observed usage plus estimated avoided input, with saved at its base.
+#[derive(Clone)]
+pub(in crate::board) struct Bucket {
+    pub used: Option<u64>,
+    pub saved: Option<u64>,
+}
+pub(super) fn capture_buckets(app: &App, ids: &[&str]) -> Vec<Bucket> {
+    let Some(report) = metrics::report(app) else {
+        return Vec::new();
+    };
+    let Some(first) = ids
+        .iter()
+        .find_map(|id| report.seat(id)?.window_series.as_ref())
+    else {
+        return Vec::new();
+    };
+    let status = app
+        .labels
+        .digest()
+        .filter(|(_, stale)| !*stale)
+        .map(|(status, _)| status);
+    (0..first.points.len())
+        .map(|i| {
+            let from = first.from_ms + i as u64 * first.bucket_ms;
+            let mut used = Some(0u64);
+            let mut saved = Some(0u64);
+            for id in ids {
+                let point = report
+                    .seat(id)
+                    .and_then(|seat| seat.window_series.as_ref())
+                    .filter(|series| {
+                        series.from_ms == first.from_ms && series.bucket_ms == first.bucket_ms
+                    })
+                    .and_then(|series| series.points.get(i));
+                used = used
+                    .zip(point.filter(|p| p.complete))
+                    .and_then(|(sum, p)| sum.checked_add(p.tokens));
+                let value = status
+                    .and_then(|status| status.members.get(*id))
+                    .and_then(|member| member.savings.as_ref());
+                let value = value
+                    .filter(|s| s.window == app.digest_window())
+                    .and_then(|s| s.series.as_ref())
+                    .and_then(|points| {
+                        points.iter().find(|point| {
+                            point.from_ms == from && point.to_ms == from + first.bucket_ms
+                        })
+                    });
+                saved = saved
+                    .zip(
+                        value
+                            .filter(|point| point.complete)
+                            .and_then(|point| point.tokens),
+                    )
+                    .and_then(|(sum, n)| sum.checked_add(n));
+            }
+            Bucket { used, saved }
+        })
+        .collect()
+}
+
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     if area.is_empty() {
         return;
     }
-    let rows = app.workspace_rows();
-    let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
+    super::allowance::forget(app);
     status_row(frame, app, Rect { height: 1, ..area });
-    let look = app.look();
-    let paint_row = |frame: &mut Frame, offset: u16, line: Line<'_>| {
-        if offset < area.height {
+    let rows = app.workspace_rows();
+    let ids = rows.iter().filter_map(metrics::id).collect::<Vec<_>>();
+    let sum = super::savings(app);
+    let totals = if app.digest_cost {
+        format!(
+            "Window list-price equivalent · saved {} · not a bill",
+            amount(&sum, SavingsUnit::Cost)
+        )
+    } else {
+        format!(
+            "TOK {} · saved {} · saved % {}",
+            metrics::token_text(metrics::tokens(metrics::report(app), &ids)),
+            amount(&sum, SavingsUnit::Tokens),
+            sum.percent
+                .value
+                .map_or("unavailable".into(), crate::board::savings::percent_text)
+        )
+    };
+    let line = |frame: &mut Frame, y: u16, text: String, role: Role| {
+        if y < area.height {
             strip::paint_left(
                 frame.buffer_mut(),
-                Rect::new(area.x, area.y + offset, area.width, 1),
-                line,
+                Rect::new(area.x, area.y + y, area.width, 1),
+                Line::styled(
+                    crate::board::view::fit(&text, usize::from(area.width)),
+                    app.look().role(role),
+                ),
             );
         }
     };
-    let definition = Line::styled(DEFINITION, look.role(Role::Muted));
-    if area.height < FULL {
-        super::allowance::forget(app);
-        let summary = super::savings(app);
-        let tok = format!(
-            "TOK used {}",
-            metrics::token_text(metrics::tokens(metrics::report(app), &ids))
-        );
-        let [saved, price] = fields(&summary, ["Saved", "≈ list price saved"]);
-        paint_row(
-            frame,
-            1,
-            Line::styled([tok, saved, price].join("  ·  "), look.role(Role::Text)),
-        );
-        paint_row(frame, 2, definition);
+    if area.height < 7 {
+        line(frame, 1, totals, Role::Text);
         return;
     }
-    paint_row(
+    line(
         frame,
         1,
-        Line::styled("─".repeat(usize::from(area.width)), look.role(Role::Dim)),
+        format!(
+            "█ used TOK  ▄ saved input (estimate) · {}",
+            if app.digest_cost {
+                "$ window totals; chart stays TOK"
+            } else {
+                "TOK"
+            }
+        ),
+        Role::Muted,
     );
-    tiles(
-        frame,
-        app,
-        Rect::new(area.x, area.y + 2, area.width, TILE_ROWS),
-        &ids,
+    let buckets = super::chart_buckets(app);
+    let each = app.digest_each.max(1);
+    let each = if buckets.len().is_multiple_of(each) {
+        each
+    } else {
+        1
+    };
+    let grouped = buckets
+        .chunks(each)
+        .map(|chunk| Bucket {
+            used: chunk
+                .iter()
+                .try_fold(0u64, |sum, p| sum.checked_add(p.used?)),
+            saved: chunk
+                .iter()
+                .try_fold(0u64, |sum, p| sum.checked_add(p.saved?)),
+        })
+        .collect::<Vec<_>>();
+    let side = if area.width >= 120 { 40 } else { 0 };
+    crate::board::spark_row::stacked(
+        frame.buffer_mut(),
+        Rect::new(area.x, area.y + 2, area.width - side, 2),
+        &grouped
+            .iter()
+            .map(|p| (p.used, p.saved))
+            .collect::<Vec<_>>(),
+        app.look(),
     );
-    if area.height > FULL {
-        let top = 2 + AMOUNT_ROWS;
-        super::allowance::paint_rows(
-            frame,
-            app,
-            Rect::new(area.x, area.y + top, area.width, area.height - top - 1),
-            false,
-        );
+    if side > 0 {
+        let texts = [
+            format!(
+                "used {}",
+                metrics::token_text(metrics::tokens(metrics::report(app), &ids))
+            ),
+            format!(
+                "saved {} · {}",
+                amount(&sum, SavingsUnit::Tokens),
+                sum.percent
+                    .value
+                    .map_or("unavailable".into(), crate::board::savings::percent_text)
+            ),
+        ];
+        for (i, text) in texts.into_iter().enumerate() {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.right() - side, area.y + 2 + i as u16, side, 1),
+                Line::styled(text, app.look().role(Role::Text)),
+            );
+        }
     }
-    paint_row(frame, area.height - 1, definition);
+    line(frame, 4, totals, Role::Text);
+    super::allowance::paint_inline(frame, app, Rect::new(area.x, area.y + 5, area.width, 1));
+    line(
+        frame,
+        6,
+        "Saved = avoided input · estimate, not a bill".into(),
+        Role::Muted,
+    );
 }
-
-/// Supplier state and health on the left, the tab-wide window and the basis on the right.
 fn status_row(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let window = format!("{} ▾", app.digest_window().label());
     let chip = |label: &str| label.width() as u16 + 2;
-    let controls = "Window  ".width() as u16 + chip(&window) + 3 + chip(BASIS);
-    // The scope note is the first thing a short row gives up.
-    let scoped = controls + SCOPE.width() as u16 + 3 <= area.width / 2;
-    let right = controls + if scoped { SCOPE.width() as u16 + 3 } else { 0 };
+    let native = if app.digest_window() == crate::config::DigestWindow::Day {
+        "h"
+    } else {
+        "d"
+    };
+    let each = format!("{}{} per bar ▾", app.digest_each.max(1), native);
+    let unit = if app.digest_cost { "$ ▾" } else { "TOK ▾" };
+    let right = "Range ".width() as u16 + chip(&window) + chip(&each) + chip(unit) + 4;
     let start = area.right().saturating_sub(right).max(area.x);
     let mut x = start;
     let text = |frame: &mut Frame, x: &mut u16, text: &str| {
@@ -173,14 +242,11 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
             *x = rect.right();
         }
     };
-    text(frame, &mut x, "Window  ");
+    text(frame, &mut x, "Range ");
     button(frame, &mut x, &window, Choice::DigestWindowMenu);
     x = x.saturating_add(3);
-    if scoped {
-        text(frame, &mut x, SCOPE);
-        x = x.saturating_add(3);
-    }
-    button(frame, &mut x, BASIS, Choice::DigestBasis);
+    button(frame, &mut x, &each, Choice::DigestBarsMenu);
+    button(frame, &mut x, unit, Choice::SavingsUnit);
 
     let left = Rect::new(area.x, area.y, start.saturating_sub(area.x + 2), 1);
     let mut parts: Vec<(String, Role, Option<Choice>)> = Vec::new();
@@ -210,7 +276,7 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
             parts.push(("stale".into(), Role::Waiting, None));
         }
         if let Some(global) = status.global.as_ref() {
-            parts.push((global.text.clone(), Role::Text, Some(Choice::DigestSwitch)));
+            parts.push((global.text.clone(), Role::Text, None));
         }
         parts.push((format!("{} held", super::held_text(app)), Role::Text, None));
         if let Some(tick) = status.tick {
@@ -251,57 +317,4 @@ fn status_row(frame: &mut Frame, app: &App, area: Rect) {
 /// Values read as bright bold text; states keep their mark and word, never a colour.
 fn strong(app: &App) -> Style {
     app.look().role(Role::Text).add_modifier(Modifier::BOLD)
-}
-
-/// Three amount tiles, then the allowance tile when providers are sampled and it fits.
-fn tiles(frame: &mut Frame, app: &App, area: Rect, ids: &[&str]) {
-    let look = app.look();
-    let allowance = super::allowance::tile_width(app, area.width.saturating_sub(TILE_BESIDE * 3));
-    let tile = area.width.saturating_sub(allowance) / 3;
-    let reading = metrics::tokens(metrics::report(app), ids);
-    let summary = super::savings(app);
-    let coverage = |included: usize| format!("{included} of {} agents", summary.total);
-    let usage = match reading {
-        Some((_, true)) => format!("{} agents · partial", ids.len()),
-        Some(_) => format!("{} agents", ids.len()),
-        None => "usage unavailable".into(),
-    };
-    let saved = amount(&summary, SavingsUnit::Tokens);
-    let saved = if saved == "—" {
-        saved
-    } else {
-        format!("{saved} context tokens")
-    };
-    let content = [
-        ("TOK USED", metrics::token_text(reading), usage),
-        ("SAVED · estimate", saved, coverage(summary.included)),
-        (
-            "≈ LIST PRICE SAVED",
-            amount(&summary, SavingsUnit::Cost),
-            coverage(summary.cost.included),
-        ),
-    ];
-    for (index, (label, value, note)) in content.into_iter().enumerate() {
-        let x = area.x + 2 + index as u16 * tile;
-        let lines = [
-            Line::styled(label, look.role(Role::Muted)),
-            Line::styled(value, strong(app)),
-            Line::styled(note, look.role(Role::Muted)),
-        ];
-        for (row, line) in lines.into_iter().enumerate() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect::new(x, area.y + row as u16, tile.saturating_sub(2), 1),
-                line,
-            );
-        }
-    }
-    if allowance > 0 {
-        super::allowance::paint_rows(
-            frame,
-            app,
-            Rect::new(area.right() - allowance, area.y, allowance, area.height),
-            true,
-        );
-    }
 }

@@ -191,11 +191,11 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
             super::Projection {
                 rows: std::rc::Rc::from([]),
                 exchanges: std::rc::Rc::from([]),
-                talks: Default::default(),
             },
         )),
         savings: None,
         held_text: None,
+        chart: None,
     };
     drop(old);
     assert_eq!(
@@ -215,7 +215,6 @@ fn a_new_projection_is_built_after_the_stale_one_and_its_report_are_released() {
         super::Projection {
             rows: std::rc::Rc::from([]),
             exchanges: std::rc::Rc::from([]),
-            talks: Default::default(),
         }
     });
     assert!(built);
@@ -272,12 +271,9 @@ fn an_explicit_digest_member_selection_uses_the_supplied_picker() {
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Digest);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_rows().len(), 2);
-    app.digest_details = super::DetailsTab::Delivery;
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Digest"));
-    assert!(shown.contains("Auto ▾"));
-    assert!(shown.contains("Digest: Auto ▾ · when idle (default)"));
-    assert!(shown.contains("when idle (default)"));
+    assert!(shown.contains("Auto · inherited from workspace"));
     match app.perform(&crate::action::Action::parse("digest").unwrap()) {
         Effect::Act(Request::DigestOpen(ask)) => {
             assert_eq!(ask.squad, "product");
@@ -297,13 +293,12 @@ fn status_loss_and_low_height_do_not_leave_old_chip_pointer_authority() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     paint(&mut app, 160, 36);
-    assert!(!app.chip_hits.borrow().is_empty());
+    assert!(app.chip_hits.borrow().is_empty(), "MODE is display only");
     let selected = app.workspace.selected.clone();
     app.labels = Default::default();
     app.invalidate_frame_geometry();
-    let shown = paint(&mut app, 60, 8);
+    paint(&mut app, 60, 8);
     assert_eq!(app.workspace.selected, selected);
-    assert!(shown.contains("unavailable"));
     assert!(app.chip_hits.borrow().is_empty());
     paint(&mut app, 80, 18);
     assert!(app.chip_hits.borrow().is_empty());
@@ -704,9 +699,9 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
                 text.contains("3 held"),
                 "the scoped summary must actually paint: {text}"
             );
-            assert!(text.contains("Window   1d ▾"), "{text}");
+            assert!(text.contains("1d ▾"), "{text}");
             assert!(
-                text.contains("TOK USED") || text.contains("TOK used —"),
+                text.contains("TOK "),
                 "TOK follows the Digest window: {text}"
             );
             assert!(
@@ -779,29 +774,22 @@ fn switched_board(enabled: bool, text: &str) -> crate::board::app::App {
 }
 
 #[test]
-fn the_digest_tab_shows_the_suppliers_switch_and_the_all_row_flips_it() {
-    use crate::board::app::{Effect, Request};
-    for (enabled, text, flipped) in [
-        (true, "Digest: on (auto)", false),
-        (false, "Digest: off", true),
-    ] {
+fn the_digest_tab_shows_the_supplier_switch_but_all_is_read_only() {
+    use crate::board::app::Effect;
+    for (enabled, text) in [(true, "Digest: on (auto)"), (false, "Digest: off")] {
         let mut app = switched_board(enabled, text);
         press(&mut app, '2');
         let shown = paint(&mut app, 160, 36);
-        assert!(shown.contains(text), "{shown}");
-        assert!(
-            app.workspace_strip_hits
-                .borrow()
-                .iter()
-                .any(|(_, choice)| *choice == crate::board::app::Choice::DigestSwitch),
-            "the painted switch answers a click"
+        assert!(shown.contains(text));
+        assert!(app.chip_hits.borrow().is_empty());
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("digest").unwrap()),
+            Effect::None
         );
-        app.workspace.selected = Some(OpsTarget::DigestAll);
-        app.workspace_reconcile();
-        match app.perform(&crate::action::Action::parse("digest").unwrap()) {
-            Effect::Act(Request::DigestSwitch(on)) => assert_eq!(on, flipped),
-            other => panic!("the all row flips the switch, got {other:?}"),
-        }
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Select an agent to edit Digest.")
+        );
     }
 }
 
@@ -823,7 +811,7 @@ fn an_older_digest_without_a_switch_shows_none_and_flips_nothing() {
     );
     assert_eq!(
         app.notice.as_deref(),
-        Some("Digest has not reported its switch yet.")
+        Some("Select an agent to edit Digest.")
     );
 }
 
@@ -832,7 +820,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 18.2k"), "{shown}");
+    assert!(shown.contains("saved 18.2k"), "{shown}");
 }
 
 #[test]
@@ -1010,26 +998,11 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     assert!(
-        super::details::impact(&app, app.selected_row())
-            .contains(&"Estimated input reduction: 18% (1/1 agents)".into())
+        super::details::panel(&app, 121_000, app.selected_row())
+            .contains(&"saved % 18% (1/1 agents)".into())
     );
-    app.digest_details = super::DetailsTab::Evidence;
+    app.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut app, 200, 60);
-    let pane = app.conversation.borrow().pane.unwrap();
-    let cells: Vec<_> = shown.chars().collect();
-    let shown = cells
-        .chunks(200)
-        .map(|line| {
-            line[usize::from(pane.x)..usize::from(pane.right())]
-                .iter()
-                .collect::<String>()
-                .trim()
-                .trim_matches('│')
-                .trim()
-                .to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
     for expected in [
         "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
@@ -1060,7 +1033,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         let mut app = valued_board();
         app.labels = crate::labels::Supplied::from_document("digest", &document, false);
         press(&mut app, '2');
-        app.digest_details = super::DetailsTab::Evidence;
+        app.choose(crate::board::app::Choice::DigestBasis);
         let shown = paint(&mut app, 200, 60);
         let shown = shown.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -1080,14 +1053,14 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     let mut app = valued_board();
     app.labels = crate::labels::Supplied::from_document("digest", &older, false);
     press(&mut app, '2');
-    app.digest_details = super::DetailsTab::Evidence;
+    app.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut app, 200, 60);
     assert!(shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("source:"), "{shown}");
     // Without a price table or valuations the details say nothing about them.
     let mut plain = savings_board();
     press(&mut plain, '2');
-    plain.digest_details = super::DetailsTab::Evidence;
+    plain.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut plain, 200, 60);
     assert!(!shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("Cost quote"), "{shown}");
@@ -1270,15 +1243,12 @@ fn window_choice_is_view_state_and_never_relabels_old_evidence() {
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
     let shown = paint(&mut app, 160, 60);
+    assert!(shown.contains("saved —"), "{shown}");
     assert!(
-        shown.contains("Est. ctx avoided — (0/1 agents · partial)"),
-        "{shown}"
-    );
-    assert!(
-        !shown.contains("Est. ctx avoided 18.2k"),
+        !shown.contains("saved 18.2k"),
         "old-window estimate cannot become a new-window value"
     );
-    app.digest_details = super::DetailsTab::Evidence;
+    app.choose(crate::board::app::Choice::DigestBasis);
     let shown = paint(&mut app, 160, 60);
     assert!(
         shown.contains("Context evidence 1d: under 1 s · complete"),
@@ -1374,6 +1344,7 @@ fn capture_savings_packet() {
                             let from = match window {
                                 DigestWindow::Day => through - 86_400_000,
                                 DigestWindow::Week => through - 604_800_000,
+                                DigestWindow::Month => through - 2_592_000_000,
                             };
                             let tokens = match coverage {
                                 "zero" => json!(0),
@@ -1517,11 +1488,20 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     press(&mut app, '2');
     assert_eq!(app.workspace.selected, Some(OpsTarget::DigestAll));
     select_worker(&mut app);
-    app.digest_details = super::DetailsTab::Delivery;
     crate::status::with_now_ms(1_791_600_120_000, || {
         let shown = paint(&mut app, 160, 44);
         assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");
-        assert!(shown.contains("Stats observed: 3m ago (11:39)"), "{shown}");
+        assert!(
+            model::delivery(
+                &app.labels,
+                MEMBER,
+                1_791_600_120_000,
+                &app.local_zone.clone().unwrap(),
+                str::to_owned
+            )
+            .join(" ")
+            .contains("3m ago (11:39)")
+        );
         assert!(!shown.contains("1791600000000 ms"));
         app.frame_clocks.borrow_mut().retain(|surface| {
             matches!(
@@ -1608,7 +1588,8 @@ fn legacy_panel_bytes_survive_details_toggle_and_picker_save() {
         .configure(&config)
         .unwrap();
     press(&mut app, '2');
-    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) = press(&mut app, 'e')
+    let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+        app.perform(&crate::action::Action::parse("monitor-details").unwrap())
     else {
         panic!("e must request a Config CAS");
     };
@@ -1791,28 +1772,54 @@ fn impact_window_is_saved_window_at_every_tok_range() {
 }
 
 #[test]
-fn the_summary_keeps_its_tiles_and_definition_at_each_width() {
+fn the_summary_keeps_its_tok_chart_totals_and_allowance_at_each_width() {
     let mut app = savings_board();
     press(&mut app, '2');
     let selected = app.workspace.selected.clone();
     for (width, height) in [(160, 50), (120, 40), (100, 32)] {
         let shown = paint(&mut app, width, height);
-        let cells: Vec<_> = shown.chars().collect();
-        let lines: Vec<String> = cells
-            .chunks(usize::from(width))
-            .map(|line| line.iter().collect())
-            .collect();
-        let status = lines
-            .iter()
-            .position(|line| line.contains("Window   1d ▾"))
-            .expect(&shown);
-        assert!(lines[status + 2].contains("TOK USED"), "{shown}");
-        assert!(lines[status + 2].contains("SAVED · estimate"), "{shown}");
-        assert!(lines[status + 3].contains("18.2k"), "{shown}");
-        assert!(
-            lines[status + 6].starts_with("○ Saved = context"),
-            "{shown}"
-        );
+        for text in [
+            "Range",
+            "1d ▾",
+            "used TOK",
+            "saved 18.2k",
+            "Allowance",
+            "Saved = avoided input",
+        ] {
+            assert!(shown.contains(text), "{text}: {shown}");
+        }
         assert_eq!(app.workspace.selected, selected);
     }
+}
+
+#[test]
+fn digest_redesign_selected_agent_has_one_panel_with_models_and_timers() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    press(&mut app, '2');
+    select_worker(&mut app);
+    let shown = paint(&mut app, 160, 50);
+    assert!(
+        shown.contains("Models"),
+        "selected agent model totals belong in the one panel"
+    );
+    assert!(
+        shown.contains("Timers"),
+        "selected agent timers belong in the same panel"
+    );
+    assert!(!shown.contains("▸ Impact") && !shown.contains("▸ Evidence"));
+}
+
+#[test]
+fn digest_redesign_basis_remains_reachable_on_a_short_native_board() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    press(&mut app, '2');
+    paint(&mut app, 160, 24);
+    assert!(
+        app.workspace_strip_hits
+            .borrow()
+            .iter()
+            .any(|(_, choice)| *choice == crate::board::app::Choice::DigestBasis)
+    );
 }
