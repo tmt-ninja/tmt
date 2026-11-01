@@ -4631,16 +4631,31 @@ args=sys.argv[1:]
 if args[0]=='whoami':
  value=json.loads((root/'digest-caller.json').read_text())
  print(json.dumps(value)); sys.exit(1 if 'error' in value else 0)
+def refusal(q):
+ if not q['operation'].startswith('digest.policy.'): return None
+ with open(root/'digest-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
+ mode=(root/'digest-mode').read_text()
+ if mode=='old' or (mode=='conflict' and q['operation']!='digest.policy.show'):
+  code='API_INPUT_INVALID' if mode=='old' else 'DIGEST_REVISION_CONFLICT'
+  return json.dumps({'error':{'code':code,'message':'injected refusal'}})
+ return None
+cli=${JSON.stringify(sandbox.cli.executable)}
+# A listing reuses one 'api --session': relay it a line at a time, observing the same calls.
+if args[:2]==['api','--session']:
+ child=subprocess.Popen([cli]+args,stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+ for line in sys.stdin.buffer:
+  injected=refusal(json.loads(line))
+  if injected is None:
+   child.stdin.write(line); child.stdin.flush(); out=child.stdout.readline()
+  else:
+   out=(injected+chr(10)).encode()
+  sys.stdout.buffer.write(out); sys.stdout.buffer.flush()
+ child.stdin.close(); sys.exit(child.wait())
 body=sys.stdin.buffer.read() if args[0]=='api' else None
 if body:
- q=json.loads(body)
- if q['operation'].startswith('digest.policy.'):
-  with open(root/'digest-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
-  mode=(root/'digest-mode').read_text()
-  if mode=='old' or (mode=='conflict' and q['operation']!='digest.policy.show'):
-   code='API_INPUT_INVALID' if mode=='old' else 'DIGEST_REVISION_CONFLICT'
-   print(json.dumps({'error':{'code':code,'message':'injected refusal'}})); sys.exit(1)
-result=subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=body)
+ injected=refusal(json.loads(body))
+ if injected is not None: print(injected); sys.exit(1)
+result=subprocess.run([cli]+args,input=body)
 sys.exit(result.returncode)
 `,
         0o700
