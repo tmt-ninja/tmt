@@ -185,9 +185,11 @@ describe('template, publish and the renderer source', () => {
       'acme-button',
       'acme-card',
       'acme-checkbox',
+      'acme-empty',
       'acme-input',
       'acme-separator',
       'acme-skeleton',
+      'acme-surface',
       'acme-switch',
       'acme-textarea',
     ]);

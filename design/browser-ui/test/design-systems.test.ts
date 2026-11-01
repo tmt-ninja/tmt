@@ -35,6 +35,8 @@ describe('buildBundle', () => {
       'tmt-ui-checkbox',
       'tmt-ui-card',
       'tmt-ui-alert',
+      'tmt-ui-surface',
+      'tmt-ui-empty',
     ]);
   });
 

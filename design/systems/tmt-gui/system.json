@@ -39,6 +39,12 @@
     },
     {
       "doc": "components/alert.json"
+    },
+    {
+      "doc": "components/surface.json"
+    },
+    {
+      "doc": "components/empty.json"
     }
   ],
   "principles": {

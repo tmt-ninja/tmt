@@ -74,6 +74,14 @@
    {
     "tag": "alert",
     "status": "stable"
+   },
+   {
+    "tag": "surface",
+    "status": "stable"
+   },
+   {
+    "tag": "empty",
+    "status": "stable"
    }
   ]
  },
@@ -569,6 +577,99 @@
     }
    ],
    "source": "// Ports browser-ui's ui Alert and its parts (#5866): plain JavaScript and htm on the skeleton\n// (React, html, cn). The compiler fills `classes` from the ui component; every example must draw\n// like the ui parts composed as `ui.compose` says.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{\"alert\":\"tmt:animate-rise-in tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current tmt:bg-card tmt:text-card-foreground\"},\"base\":\"tmt:animate-rise-in tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current tmt:bg-card\",\"by\":{\"default\":\"tmt:text-card-foreground\",\"destructive\":\"tmt:text-destructive tmt:*:data-[slot=alert-description]:text-destructive\"},\"parts\":{\"alert-title\":\"tmt:col-start-2 tmt:line-clamp-1 tmt:min-h-4 tmt:font-(weight:--tmt-foundation-eyebrow-weight)\",\"alert-description\":\"tmt:col-start-2 tmt:grid tmt:justify-items-start tmt:gap-1 tmt:text-(length:--tmt-foundation-command-size) tmt:text-muted-foreground\"}};\n  return function Alert({ variant = 'default', heading, children }) {\n    return html`<div data-slot=\"alert\" role=\"alert\" className=${cn(classes.base, classes.by[variant])}>\n      ${heading !== undefined &&\n      html`<div data-slot=\"alert-title\" className=${classes.parts['alert-title']}>${heading}</div>`}\n      <div data-slot=\"alert-description\" className=${classes.parts['alert-description']}>${children}</div>\n    </div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "surface",
+   "props": {
+    "level": {
+     "enum": [
+      "paper",
+      "sheet",
+      "raised",
+      "overlay",
+      "modal"
+     ],
+     "default": "sheet"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Sheet",
+     "markup": "<tmt-ui-surface>A card or panel resting on the page.</tmt-ui-surface>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Raised",
+     "markup": "<tmt-ui-surface level=\"raised\">Lifted while dragged.</tmt-ui-surface>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Overlay",
+     "markup": "<tmt-ui-surface level=\"overlay\">A floating layer.</tmt-ui-surface>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Modal",
+     "markup": "<tmt-ui-surface level=\"modal\">A dialog above the scrim.</tmt-ui-surface>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Surface (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{},\"base\":\"tmt:box-border tmt:font-body tmt:text-foreground\",\"by\":{\"paper\":\"tmt:bg-background\",\"sheet\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-elevation-1\",\"raised\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-overlay\",\"overlay\":\"tmt:rounded-control tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:shadow-overlay\",\"modal\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:shadow-elevation-3\"},\"parts\":{}};\n  return function Surface({ level = 'sheet', children }) {\n    return html`<div data-slot=\"surface\" data-level=${level} className=${cn(classes.base, classes.by[level])}>${children}</div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "empty",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default",
+    "icon"
+   ],
+   "examples": [
+    {
+     "title": "With an action",
+     "markup": "<tmt-ui-empty heading=\"No pages yet\" description=\"Make the first page to start the space.\"><tmt-ui-button>New page</tmt-ui-button></tmt-ui-empty>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Title only",
+     "markup": "<tmt-ui-empty heading=\"Nothing needs you\"></tmt-ui-empty>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Empty and its parts (#5866): plain JavaScript and htm on the skeleton\n// (React, html, cn). The compiler fills `classes` from the ui component; every example must draw\n// like the ui parts composed as `ui.compose` says.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"empty\":\"tmt:box-border tmt:font-body tmt:flex tmt:min-w-0 tmt:flex-1 tmt:flex-col tmt:items-center tmt:justify-center tmt:gap-4 tmt:rounded-surface tmt:border-dashed tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:p-6 tmt:text-center tmt:text-balance tmt:text-foreground\"},\"base\":\"tmt:box-border tmt:font-body tmt:flex tmt:min-w-0 tmt:flex-1 tmt:flex-col tmt:items-center tmt:justify-center tmt:gap-4 tmt:rounded-surface tmt:border-dashed tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:p-6 tmt:text-center tmt:text-balance tmt:text-foreground\",\"by\":{\"\":\"\"},\"parts\":{\"empty-header\":\"tmt:flex tmt:max-w-sm tmt:flex-col tmt:items-center tmt:gap-2\",\"empty-icon\":\"tmt:mb-1 tmt:flex tmt:size-10 tmt:shrink-0 tmt:items-center tmt:justify-center tmt:rounded-control tmt:bg-muted tmt:text-foreground tmt:[&_svg]:pointer-events-none tmt:[&_svg]:size-5\",\"empty-title\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight)\",\"empty-description\":\"tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground\",\"empty-content\":\"tmt:flex tmt:w-full tmt:max-w-sm tmt:min-w-0 tmt:flex-col tmt:items-center tmt:gap-2\"}};\n  const part = (slot, content) =>\n    html`<div data-slot=${slot} className=${classes.parts[slot]}>${content}</div>`;\n  return function Empty({ heading, description, icon, children }) {\n    return html`<div data-slot=\"empty\" className=${classes.base}>\n      <div data-slot=\"empty-header\" className=${classes.parts['empty-header']}>\n        ${icon !== undefined && part('empty-icon', icon)}\n        ${part('empty-title', heading)}\n        ${description !== undefined && part('empty-description', description)}\n      </div>\n      ${children !== undefined && part('empty-content', children)}\n    </div>`;\n  };\n};\n",
    "css": ""
   }
  ]

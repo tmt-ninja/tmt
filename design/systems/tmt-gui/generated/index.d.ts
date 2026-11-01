@@ -76,3 +76,17 @@ export interface AlertProps {
   heading?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-surface>: props from its schema, slots as nodes. */
+export interface SurfaceProps {
+  level?: "paper" | "sheet" | "raised" | "overlay" | "modal";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-empty>: props from its schema, slots as nodes. */
+export interface EmptyProps {
+  heading?: string;
+  description?: string;
+  children?: ReactNode;
+  icon?: ReactNode;
+}
