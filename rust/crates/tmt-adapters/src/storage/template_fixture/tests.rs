@@ -15,7 +15,7 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, types::Value};
 
-use super::{TemplateStore, admit, key, published};
+use super::{STALE_RUN_SCOPE_AGE, TemplateStore, admit, key, published};
 use crate::{
     storage::{Storage, hook_queue::HookQueue, migrations},
     test_support::{TestChild, TestDirectory},
@@ -397,6 +397,64 @@ fn the_template_root_must_be_private_and_outside_host_stores() {
     })));
     assert!(message.contains("inside host store"), "{message}");
     assert_eq!(entries(&host), Vec::<String>::new());
+}
+
+/// Sets the modification time of `path` itself, not of a link target.
+fn set_age(path: &Path, age: Duration) {
+    use nix::sys::time::{TimeVal, TimeValLike};
+    let when = std::time::SystemTime::now()
+        .checked_sub(age)
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let time = TimeVal::seconds(i64::try_from(when.as_secs()).unwrap());
+    nix::sys::stat::lutimes(path, &time, &time).unwrap();
+}
+
+#[test]
+fn a_run_scope_prunes_only_stale_run_scopes_of_earlier_runs() {
+    let directory = TestDirectory::new();
+    let root = directory.path.join("templates");
+    fs::create_dir(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let stale = STALE_RUN_SCOPE_AGE + Duration::from_secs(60 * 60);
+    let scope = |name: &str, age: Duration| {
+        let path = root.join(name);
+        fs::create_dir_all(path.join("key")).unwrap();
+        fs::write(path.join("key").join("template.db"), b"old").unwrap();
+        for private in [path.join("key"), path.clone()] {
+            fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        set_age(&path, age);
+        path
+    };
+    scope("run-old", stale);
+    scope("run-current", stale);
+    scope("run-fresh", Duration::from_secs(60));
+    scope("process-1-2-3", stale);
+    scope("run-not.an.id", stale);
+    // An old link named like a run scope is not followed and not removed.
+    let outside = directory.path.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("keep"), b"keep").unwrap();
+    symlink(&outside, root.join("run-link")).unwrap();
+    set_age(&root.join("run-link"), stale);
+
+    let store = TemplateStore::new(root.clone(), Some("current".into()), &[], |_| {});
+    let _lease = store.place(&directory.path.join("tmt.db"));
+
+    assert_eq!(
+        entries(&root),
+        [
+            "process-1-2-3",
+            "run-current",
+            "run-fresh",
+            "run-link",
+            "run-not.an.id"
+        ]
+    );
+    assert_eq!(entries(&outside), ["keep"]);
+    assert!(published(&store).is_some());
 }
 
 #[test]
