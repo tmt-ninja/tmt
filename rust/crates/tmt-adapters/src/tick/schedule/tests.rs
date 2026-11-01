@@ -86,6 +86,25 @@ fn active_subminute_slots_rollback_and_standalone_windows_keep_shipped_semantics
     );
 }
 #[test]
+fn active_gaps_cap_at_five_minutes_and_new_lifetimes_never_reconstruct_absence() {
+    let mut p = Port::new();
+    let mut window = TickWindow::new(1, false);
+    window.pass(1_000_000, &mut p).unwrap();
+    assert_eq!(p.calls, (71..=100).map(|n| n * 10_000).collect::<Vec<_>>());
+    for start in [10_000i64, 60_000, 300_000, 10_000_000] {
+        let mut p = Port::new();
+        let mut window = TickWindow::new(start, false);
+        window.pass(start as u64, &mut p).unwrap();
+        assert!(
+            p.calls.is_empty(),
+            "a new lifetime baselines without absent-clock history"
+        );
+        window.pass((start + 10_000) as u64, &mut p).unwrap();
+        assert_eq!(p.calls, vec![start + 10_000]);
+    }
+}
+
+#[test]
 fn deadline_and_uncertain_failure_stop_new_calls_and_do_not_retry_in_the_minute() {
     let mut w = TickWindow::new(100_000, false);
     let mut p = Port::new();
