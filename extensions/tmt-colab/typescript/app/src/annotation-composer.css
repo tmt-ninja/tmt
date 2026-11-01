@@ -88,6 +88,27 @@
   flex: none;
 }
 
+/* The composer's notice slot keeps one caption line reserved above the field, empty and unmarked
+   until a refusal fills it. */
+.annotation-compose .annotation-notice-slot {
+  /* Whole pixels: a fractional slot would round the history's pinned end differently each frame. */
+  min-height: round(up, calc(var(--tmt-ui-caption-size) * 1.5), 1px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: 1.5;
+}
+.annotation-compose .annotation-notice-slot > * {
+  min-width: 0;
+}
+/* A next step follows the notice on its line; its taller hit box does not open the line up. */
+.annotation-compose .annotation-notice-slot > .tmt-ui-action {
+  margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
+  padding-inline: 0;
+}
 .annotation-send-notice {
   margin: 0;
   color: var(--c-text);

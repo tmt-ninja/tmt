@@ -317,8 +317,19 @@ for (const surface of ['reply', 'chat']) {
         throw new Error('post-record private failure');
       };
     });
+    // Where the field sits in its composer, and the composer's height: this fixture stacks the
+    // composer under the history, so the echo itself moves the whole composer.
+    const place = () =>
+      input.evaluate((field) => {
+        const composer = field.closest('.annotation-compose')!.getBoundingClientRect();
+        return [field.getBoundingClientRect().top - composer.top, composer.height];
+      });
+    const empty = await place();
     await input.press('Enter');
     await expect(page.locator('.annotation-send-notice')).toContainText('(ref S13)');
+    // A one-line notice fills the composer's reserved slot: the field neither moves nor grows
+    // (#5911). Chat's narrow composer wraps this notice and its next step onto a second line.
+    if (surface === 'reply') expect(await place()).toEqual(empty);
     // Recorded: no Retry and no restored draft, which would send it twice.
     await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
     await expect(echo(page).getByRole('button', { name: 'Retry' })).toHaveCount(0);
