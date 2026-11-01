@@ -11,7 +11,7 @@ impl Fixture {
         let root = Scratch::new("core-clock-stream");
         fs::write(root.join("mode"), mode).unwrap();
         let program = root.join("core.py");
-        write_ready_executable(
+        fs::write(
             &program,
             r#"#!/usr/bin/python3
 import json,os,pathlib,select,signal,subprocess,sys
@@ -29,8 +29,11 @@ def report(accepted,complete=True):
  return json.dumps({'schemaVersion':1,'jobs':{'accepted':accepted,'failures':[]},'complete':complete,'stopped':False})
 if mode in ['finite','incomplete']:
  print(report(3,mode!='incomplete'));sys.exit(0 if mode=='finite' else 1)
-children=[]
+children=[]; launching=True; pending_stop=False
 def cleanup(signum,frame):
+ global pending_stop
+ if launching:
+  pending_stop=True; return
  for child in children:
   try:os.killpg(child.pid,signal.SIGTERM)
   except ProcessLookupError:pass
@@ -38,10 +41,10 @@ def cleanup(signum,frame):
  (root/'cleaned').write_text('nested child reaped')
  sys.exit(0)
 signal.signal(signal.SIGTERM,cleanup);signal.signal(signal.SIGINT,cleanup)
-blocked=signal.pthread_sigmask(signal.SIG_BLOCK,{signal.SIGTERM,signal.SIGINT})
 child=subprocess.Popen(['/bin/sleep','300'],start_new_session=True);children.append(child)
 (root/'nested.pid').write_text(str(child.pid))
-signal.pthread_sigmask(signal.SIG_SETMASK,blocked)
+launching=False
+if pending_stop: cleanup(signal.SIGTERM,None)
 (root/'core.pid').write_text(str(os.getpid()))
 if mode=='malformed':print('not json',flush=True)
 elif mode=='oversized':print('x'*(1024*1024+1),flush=True)
@@ -53,10 +56,17 @@ while True:
   data=os.read(0,4096)
   if data:(root/'unexpected-input').write_bytes(data)
 "#,
+        ).unwrap();
+        let executable = root.join("core");
+        write_ready_executable(
+            &executable,
+            r#"#!/bin/sh
+exec /usr/bin/python3 "$0.py" "$@"
+"#,
         );
         Self {
             root,
-            core: Core::at(program),
+            core: Core::at(executable),
         }
     }
     fn pid(&self, name: &str) -> Option<i32> {

@@ -122,13 +122,24 @@ impl ClockWorker {
         Self::spawn_mode(core, config, foreground, true)
     }
     fn spawn_mode(core: Core, config: Config, foreground: bool, continuous: bool) -> Self {
+        Self::spawn_clock(core, config, foreground, continuous, now)
+    }
+    fn spawn_clock(
+        core: Core,
+        config: Config,
+        foreground: bool,
+        continuous: bool,
+        mut clock: impl FnMut() -> i64 + Send + 'static,
+    ) -> Self {
         let cancellation = Cancellation::default();
         let reader = core.cancellable(cancellation.clone());
         let token = cancellation.clone();
         let (stop, waiting) = mpsc::channel();
         let (completed, finished) = mpsc::channel();
         let thread = std::thread::spawn(move || {
-            let result = match serve(&reader, &config, &waiting, &token, foreground, continuous) {
+            let result = match serve(
+                &reader, &config, &waiting, &token, foreground, continuous, &mut clock,
+            ) {
                 Err(error) if token.cancelled() && error.was_cancelled() => {
                     Ok(json!({"action":"run","warnings":[],"complete":true}))
                 }
@@ -199,6 +210,30 @@ pub(crate) fn status(core: &Core) -> ClockStatus {
         .map_or(ClockStatus::Unknown, ClockStatus::Running)
 }
 
+// A natural end and a requested stop share one presentation disposition after
+// joined cleanup. A UI clock refusal is a warning, never a reason to lose its
+// independent idle-alert duty or a different error solely due to stop timing.
+fn clock_result(
+    last: &mut Value,
+    result: Result<(), SquadError>,
+    foreground: bool,
+) -> Result<(), SquadError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if foreground || error.code == "SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED" => {
+            Err(error)
+        }
+        Err(error) => {
+            last["complete"] = json!(false);
+            last["warnings"]
+                .as_array_mut()
+                .unwrap()
+                .push(error.to_json());
+            Ok(())
+        }
+    }
+}
+
 fn serve(
     core: &Core,
     config: &Config,
@@ -206,6 +241,7 @@ fn serve(
     cancellation: &Cancellation,
     foreground: bool,
     continuous: bool,
+    clock: &mut impl FnMut() -> i64,
 ) -> Result<Value, SquadError> {
     let migrated_config;
     let config = if !foreground && crate::migration::paths(core, None)?.legacy {
@@ -236,7 +272,7 @@ fn serve(
     let mut idle = idle_alert::Watch::new();
     let zone = jiff::tz::TimeZone::system();
     let mut last = json!({"action":"tick","accepted":0,"warnings":[],"complete":true});
-    let result = (|| {
+    let result: Result<(), SquadError> = (|| {
         while !cancellation.cancelled() {
             if let Some(current) = &feed {
                 let (report, ended) = current.take();
@@ -245,18 +281,7 @@ fn serve(
                 }
                 if let Some(ended) = ended {
                     let cleaned = feed.take().unwrap().stop();
-                    cleaned?;
-                    match ended {
-                        Err(error) if foreground => return Err(error),
-                        Err(error) => {
-                            last["complete"] = json!(false);
-                            last["warnings"]
-                                .as_array_mut()
-                                .unwrap()
-                                .push(error.to_json());
-                        }
-                        Ok(()) => {}
-                    }
+                    clock_result(&mut last, cleaned.and(ended), foreground)?;
                     if foreground || !continuous {
                         break;
                     }
@@ -265,7 +290,7 @@ fn serve(
                 }
             }
             if continuous {
-                let warnings = idle.advance(core, config.path(), now(), &zone, &mut || {
+                let warnings = idle.advance(core, config.path(), clock(), &zone, &mut || {
                     !cancellation.cancelled()
                 });
                 if !warnings.is_empty() {
@@ -281,13 +306,14 @@ fn serve(
                 _ => break,
             }
         }
-        last["action"] = json!(if continuous { "run" } else { "tick" });
-        Ok(last)
+        Ok(())
     })();
     if let Some(mut owned) = feed {
-        owned.stop()?;
+        clock_result(&mut last, owned.stop(), foreground)?;
     }
-    result
+    result?;
+    last["action"] = json!(if continuous { "run" } else { "tick" });
+    Ok(last)
 }
 
 fn foreground(core: &Core, config: &Config) -> Result<Value, SquadError> {

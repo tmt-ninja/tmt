@@ -58,7 +58,6 @@ pub fn drain_retired(
                 definition["ownerIdentityId"] = Value::Null;
                 let applied = canonical::mutation(
                     core,
-                    None,
                     json!({"kind":"job.set","jobId":current.id,"revision":current.job.revision,"candidate":definition}),
                 )?;
                 changed = Some(canonical::written(&applied["job"])?);

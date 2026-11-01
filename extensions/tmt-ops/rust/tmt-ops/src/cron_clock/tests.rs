@@ -1,6 +1,7 @@
 //! Public clock projection and manual dispatch contracts; process ownership is in stream tests.
 use super::*;
 use crate::cron_service::{Mutation, test_support::*};
+mod lifecycle;
 mod stream;
 
 #[test]
@@ -117,4 +118,24 @@ fn a_lost_manual_response_never_causes_an_automatic_second_run() {
             .count(),
         1
     );
+}
+
+#[test]
+fn ui_clock_refusal_is_visible_but_unconfirmed_cleanup_never_becomes_success() {
+    let mut report = json!({"complete":true,"warnings":[]});
+    clock_result(
+        &mut report,
+        Err(SquadError::new("TICK_CLOCK_RUNNING", "owned elsewhere")),
+        false,
+    )
+    .unwrap();
+    assert_eq!(report["complete"], false);
+    assert_eq!(report["warnings"][0]["error"]["code"], "TICK_CLOCK_RUNNING");
+    let before = report.clone();
+    let cleanup = SquadError::new("SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED", "not reaped");
+    assert_eq!(
+        clock_result(&mut report, Err(cleanup.clone()), false).unwrap_err(),
+        cleanup
+    );
+    assert_eq!(report, before);
 }

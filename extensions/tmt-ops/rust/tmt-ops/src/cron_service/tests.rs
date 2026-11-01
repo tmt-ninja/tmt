@@ -76,8 +76,8 @@ fn conflict_export_warns_once_per_cli_and_board_channel() {
         "jobs":[make("c1","product"),make("c1","old-name"),make("c2","product")]});
     let bytes = serde_json::to_vec(&legacy).unwrap();
     f.seed_legacy(&bytes);
-    let _ = ready(&f.core).unwrap();
-    let _ = ready(&f.core).unwrap();
+    ready(&f.core).unwrap();
+    ready(&f.core).unwrap();
     let first = list_jobs(&f.core, &f.config, None, 100).unwrap();
     assert_eq!(first.jobs.len(), 1);
     assert_eq!(first.jobs[0].job.id(), "c2");
@@ -217,7 +217,9 @@ fn direct_reassignment_of_a_missing_owner_keeps_a_pause_until_explicit_resume() 
         .job
         .job;
     assert!(reassigned.pause.is_some());
-    assert_eq!(reassigned.revision, job.revision + 1);
+    // A missing-owner pause may be durably published before reassignment.
+    // The new revision must advance; neither operation may clear that pause.
+    assert!(reassigned.revision > job.revision);
     assert!(
         f.mutate(&user, &reassigned, Mutation::Resume)
             .unwrap()
@@ -258,7 +260,11 @@ fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
             .jobs
             .is_empty()
     );
-    assert!(!f.directory.join("ops").exists());
+    assert!(f.current_jobs().jobs().is_empty());
+    assert!(
+        f.model()["jobCounters"].as_object().unwrap().is_empty(),
+        "empty-source adoption allocates no job selector"
+    );
     let bytes = fs::read(f.config.path()).unwrap();
     f.change_model(|m| m["caller"] = json!(WORKER));
     let member = actor(&f.core, None).unwrap();
@@ -314,11 +320,14 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
     assert_eq!(stored_jobs(&f.directory), before);
     assert_eq!(f.current_jobs(), before_jobs);
     let calls = f.model()["calls"].as_array().unwrap().clone();
+    // Final admission is Core's writer fence. Ops must never hold its private
+    // writer across a public Core observation or effect.
     assert!(
         calls
             .iter()
-            .any(|call| call["locked"] == true && call["request"]["operation"] == "rooms.roster")
+            .any(|call| call["request"]["operation"] == "rooms.roster")
     );
+    assert!(calls.iter().all(|call| call["locked"] != true));
 }
 
 #[test]

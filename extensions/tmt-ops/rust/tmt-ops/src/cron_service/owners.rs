@@ -46,7 +46,6 @@ pub(super) fn pause_current(
     }
     let applied = canonical::mutation(
         core,
-        None,
         json!({"kind":"job.pause","jobId":current.id,"revision":current.job.revision,"by":by}),
     )?;
     canonical::written(&applied["job"])

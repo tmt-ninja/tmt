@@ -30,6 +30,12 @@ fn error(error: impl std::fmt::Display) -> SquadError {
         &format!("Core clock could not be confirmed: {error}"),
     )
 }
+fn cleanup_error(error: impl std::fmt::Display) -> SquadError {
+    failed(
+        "SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED",
+        &format!("Core clock cleanup could not be confirmed: {error}"),
+    )
+}
 fn projection(value: &Value) -> Result<Value, SquadError> {
     if let (Some(code), Some(message)) = (
         value["error"]["code"].as_str(),
@@ -110,7 +116,7 @@ impl Feed {
                     } else {
                         channel.close(Instant::now() + CLEANUP, || false)
                     };
-                    let output = cleaned.map_err(error)?;
+                    let output = cleaned.map_err(cleanup_error)?;
                     let complete = work?;
                     if !stop.cancelled()
                         && !output.status.success()
@@ -138,7 +144,9 @@ impl Feed {
     pub fn stop(&mut self) -> Result<(), SquadError> {
         self.cancellation.cancel();
         if let Some(thread) = self.thread.take() {
-            thread.join().map_err(|_| error("worker panicked"))?;
+            thread
+                .join()
+                .map_err(|_| cleanup_error("worker panicked"))?;
         }
         if let Some(Err(error)) = self.state.lock().unwrap().ended.take() {
             return Err(error);
