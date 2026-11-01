@@ -211,6 +211,24 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   });
 });
 
+test('an action error stays through a refresh of the same records and clears when the ask changes (#5911)', async ({
+  page,
+}) => {
+  await mount(page);
+  await run(page, 'syncRecords');
+  await run(page, 'refuseRead', 'REMOTE_CORE_UNAVAILABLE');
+  await page.getByRole('button', { name: 'Check again' }).click();
+  const alert = page.locator('.ask-panel [role=alert]');
+  await expect(alert).toContainText('The agent service is unavailable.');
+  // The page reads its records again and nothing changed: the error is still the answer.
+  await run(page, 'syncRecords');
+  await page.waitForTimeout(100);
+  await expect(alert).toContainText('The agent service is unavailable.');
+  // The ask itself moved on: its old error no longer describes it.
+  await run(page, 'syncRecords', 'accepted');
+  await expect(alert).toHaveCount(0);
+});
+
 test('mobile floating Chat keeps the shared autocomplete visible and clickable', async ({
   page,
 }) => {

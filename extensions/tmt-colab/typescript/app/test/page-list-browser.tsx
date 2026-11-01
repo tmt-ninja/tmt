@@ -74,6 +74,16 @@ function automaticPins(pages: readonly PageSummary[]): string[] {
     .map(([name]) => name);
 }
 
+/** Holds the space home's list read until `releaseHome`: a slow load the router waits on. */
+let homeGate: Promise<void> | undefined;
+let openHome = () => {};
+export function holdHome() {
+  homeGate = new Promise((resolve) => (openHome = resolve));
+}
+export function releaseHome() {
+  openHome();
+  homeGate = undefined;
+}
 export async function mountPageList(
   size:
     | 'groups'
@@ -384,6 +394,7 @@ export async function mountPageList(
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
     spaceHome: async () => {
+      await homeGate;
       window.__listReads += 1;
       return {
         title: 'Studio pages',

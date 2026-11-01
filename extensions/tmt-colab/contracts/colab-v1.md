@@ -2923,14 +2923,14 @@ show a temporary polite hint and create nothing. Starting a comment exits select
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
 Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat draft retained and busy sends uninterrupted; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure after closing is named in a page alert row whose Open action, like annotating the same quote, shows that window with its failed row and draft), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat draft retained and busy sends uninterrupted; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure before recording after closing, whether a first comment or reply, is named in a page alert row whose Open action restores that same window with its failed row, draft and files), then selection mode. A failed first comment also reopens on the same quote. Editing a failed row, deliberately clearing its text and closing releases the retained failure and alert; Send's automatically cleared field never discards it. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
-`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft`,
+`quiet` and `unsent`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
 quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
 Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
 (see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
@@ -2941,7 +2941,18 @@ instead of forwarding caller records. Results contain `type:"colab.render.anchor
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
 nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
-Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
+`unsent` contains at most 64 entries, each exactly `{selector,state}` with the same quote
+validation as `draft` and state exactly `sending` or `failed`. The parent projects only first
+comments with no recorded thread, failed first then oldest creation order; the paint cap does
+not discard sends or limit the page's failure notices. Recording the first comment removes its
+unsent paint even while delivery continues; Retry changes failed to sending, and discard or
+leaving the page clears it. The frame resolves these quotes within the existing bounded batch
+and draws only a waiting or danger underline, using `color-waiting` or the existing danger treatment `color-blocked`, and the rule-width
+token. Missing or ambiguous quotes detach. Unsent passages have no ordinal, marker, hover target,
+selection, navigation or report-back: they never enter resolved IDs or position feedback. CSS
+Highlights and the pointer-inert fallback leave authored text and layout unchanged. The page's
+failure notice remains the primary signal; the underline only locates the passage.
+Batches are at most 1,000 anchors and 256 KiB UTF-8, including all unsent entries. Collection is bounded to 20,000
 text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
 per anchor with a 20 ms batch deadline. Over-budget, missing, changed or ambiguous
 matches detach. A unique exact quote must match every supplied prefix/suffix.
