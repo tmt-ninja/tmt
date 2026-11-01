@@ -7,9 +7,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { XIcon } from 'lucide-react';
-import { Badge } from './badge.js';
 import { assignRefs } from './utils.js';
-import { Button } from './button.js';
 import {
   Combobox,
   type ComboboxProps,
@@ -38,57 +36,52 @@ export function Chip({ item, onRemove, readOnly, busy, stateLabel, removeRef }: 
   const reason = useId();
   const blocked = readOnly || busy || item.disabled;
   return (
-    // The remove control is a full-height square segment flush with the badge's inner edges: its
-    // fill meets them, a left rule separates it, and focus recolours its own border.
-    <Badge
-      variant="outline"
-      className="tmt:max-w-full tmt:whitespace-normal tmt:break-words tmt:p-0 tmt:gap-0 tmt:items-stretch"
+    // A small pill that owns its size (#5821 A5c): chip-height, no edge, and a round remove control
+    // inside it. It reads no Button or host action sizes, and its dimensions are important, so neither
+    // a host's variables nor its descendant control rules (`.host button { height }`) can grow it.
+    <span
+      data-slot="chip"
+      className="tmt:box-border tmt:inline-flex tmt:h-(--tmt-foundation-chip-height)! tmt:min-h-0! tmt:max-w-full tmt:items-center tmt:gap-0.5 tmt:rounded-pill tmt:bg-secondary tmt:ps-2 tmt:pe-0.5 tmt:align-middle tmt:font-body tmt:text-(length:--tmt-foundation-caption-size) tmt:leading-none tmt:text-secondary-foreground"
     >
-      <span className="tmt:self-center tmt:px-2 tmt:py-0.5">{item.label}</span>
+      <span className="tmt:min-w-0 tmt:truncate">{item.label}</span>
       {stateLabel && (
-        <span id={reason} className="tmt:self-center tmt:pe-2">
+        <span id={reason} className="tmt:pe-1 tmt:text-muted-foreground">
           {stateLabel}
         </span>
       )}
-      <Button
-        asChild
+      <button
         ref={removeRef}
-        variant="ghost"
-        size="icon-sm"
-        className="tmt:h-auto tmt:min-h-8 tmt:border-l-border tmt:focus-visible:outline-none"
+        type="button"
+        data-slot="chip-remove"
+        aria-label={item.removeLabel}
+        aria-describedby={stateLabel ? reason : undefined}
+        aria-disabled={blocked || undefined}
+        aria-busy={busy || undefined}
         disabled={item.disabled || busy}
+        className="tmt:m-0! tmt:box-border tmt:inline-grid tmt:size-[calc(var(--tmt-foundation-chip-height)-4px)]! tmt:min-h-0! tmt:min-w-0! tmt:flex-none tmt:cursor-pointer tmt:appearance-none tmt:place-items-center tmt:rounded-pill tmt:border-0 tmt:bg-transparent tmt:p-0! tmt:text-inherit tmt:hover:bg-accent tmt:focus-visible:outline-solid tmt:focus-visible:outline-(length:--tmt-foundation-focus-width) tmt:focus-visible:outline-ring tmt:focus-visible:-outline-offset-(length:--tmt-foundation-focus-width) tmt:disabled:cursor-default tmt:disabled:opacity-50 tmt:[&_svg]:size-3"
+        onClickCapture={(event) => {
+          if (readOnly) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+        onKeyDownCapture={(event) => {
+          if (readOnly && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+        }}
+        onClick={(event) => {
+          if (!blocked && event.nativeEvent.isTrusted && !event.defaultPrevented)
+            onRemove(item, event);
+        }}
       >
-        <button
-          type="button"
-          aria-label={item.removeLabel}
-          aria-describedby={stateLabel ? reason : undefined}
-          aria-disabled={blocked || undefined}
-          aria-busy={busy || undefined}
-          disabled={item.disabled || busy}
-          onClickCapture={(event) => {
-            if (readOnly) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-          }}
-          onKeyDownCapture={(event) => {
-            if (readOnly && (event.key === 'Enter' || event.key === ' ')) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-          }}
-          onClick={(event) => {
-            if (!blocked && event.nativeEvent.isTrusted && !event.defaultPrevented)
-              onRemove(item, event);
-          }}
-        >
-          <XIcon aria-hidden="true" />
-        </button>
-      </Button>
-    </Badge>
+        <XIcon aria-hidden="true" />
+      </button>
+    </span>
   );
 }
 export interface ChipsProps extends Omit<

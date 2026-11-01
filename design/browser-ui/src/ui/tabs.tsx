@@ -131,4 +131,78 @@ function TabsContent({ className, ...props }: React.ComponentProps<typeof TabsPr
   );
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants };
+/**
+ * A tabs row with trailing actions (#5821 A5a): the tab list on the left, the actions pinned at the
+ * right end, `space-l` apart. When the tabs do not fit they scroll sideways with a fade at the edge
+ * that hides more, and the selected tab is kept in view. The scroller contains its inline size, so
+ * the tabs never widen the row or the page around it.
+ */
+function TabsBar({
+  actions,
+  className,
+  children,
+  ...props
+}: React.ComponentProps<'div'> & { actions?: React.ReactNode }) {
+  const scroller = React.useRef<HTMLDivElement>(null);
+  const [fade, setFade] = React.useState({ start: false, end: false });
+  React.useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const measure = () => {
+      const end = node.scrollWidth - node.clientWidth - node.scrollLeft;
+      setFade({ start: node.scrollLeft > 1, end: end > 1 });
+    };
+    const reveal = () => {
+      const active = node.querySelector<HTMLElement>(
+        '[data-slot="tabs-trigger"][data-state="active"]',
+      );
+      if (active) {
+        const box = active.getBoundingClientRect();
+        const left = box.left - node.getBoundingClientRect().left + node.scrollLeft;
+        const right = left + box.width;
+        if (left < node.scrollLeft) node.scrollLeft = left;
+        else if (right > node.scrollLeft + node.clientWidth)
+          node.scrollLeft = right - node.clientWidth;
+      }
+      measure();
+    };
+    reveal();
+    node.addEventListener('scroll', measure, { passive: true });
+    const states = new MutationObserver(reveal);
+    states.observe(node, { attributes: true, attributeFilter: ['data-state'], subtree: true });
+    const sizes = new ResizeObserver(reveal);
+    sizes.observe(node);
+    return () => {
+      node.removeEventListener('scroll', measure);
+      states.disconnect();
+      sizes.disconnect();
+    };
+  }, []);
+  return (
+    <div
+      data-slot="tabs-bar"
+      className={cn('tmt:flex tmt:min-w-0 tmt:items-center tmt:gap-4', className)}
+      {...props}
+    >
+      <div
+        ref={scroller}
+        data-slot="tabs-bar-scroller"
+        data-fade-start={fade.start || undefined}
+        data-fade-end={fade.end || undefined}
+        className="tmt:relative tmt:min-w-0 tmt:flex-1 tmt:[contain:inline-size] tmt:overflow-x-auto tmt:[scrollbar-width:none] tmt:data-[fade-end]:[mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)] tmt:data-[fade-start]:[mask-image:linear-gradient(to_right,transparent,black_32px)] tmt:data-[fade-start]:data-[fade-end]:[mask-image:linear-gradient(to_right,transparent,black_32px,black_calc(100%-32px),transparent)]"
+      >
+        {children}
+      </div>
+      {actions && (
+        <div
+          data-slot="tabs-bar-actions"
+          className="tmt:flex tmt:flex-none tmt:items-center tmt:gap-2"
+        >
+          {actions}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export { Tabs, TabsBar, TabsList, TabsTrigger, TabsContent, tabsListVariants };

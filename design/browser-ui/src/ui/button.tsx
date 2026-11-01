@@ -48,6 +48,7 @@ function Button({
   asChild = false,
   busy = false,
   busyLabel,
+  collapseLabel,
   disabled,
   children,
   onClickCapture,
@@ -56,6 +57,12 @@ function Button({
 }: React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    /**
+     * A labelled action that collapses (#5821 A5b): the icon in `children`, then this label; below
+     * the compact width (760px) the label hides and the button turns square at control-size-l. The
+     * label stays its accessible name at every width.
+     */
+    collapseLabel?: string;
   } & ({ busy?: false; busyLabel?: string } | { busy: true; busyLabel: string })) {
   const Comp = asChild ? Slot.Root : 'button';
   const blocked = disabled || busy;
@@ -84,19 +91,35 @@ function Button({
       },
     });
   };
+  const labelled = collapseLabel ? (
+    <>
+      {children}
+      <span data-slot="button-label" className="tmt:max-[760px]:sr-only">
+        {collapseLabel}
+      </span>
+    </>
+  ) : (
+    children
+  );
   const content =
     asChild && blocked
       ? React.isValidElement(children)
         ? fenceCapture(children)
         : React.Children.map(children, fenceCapture)
-      : children;
+      : labelled;
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({ variant, size }),
+        collapseLabel &&
+          'tmt:h-(--tmt-foundation-control-size-l) tmt:max-[760px]:w-(--tmt-foundation-control-size-l) tmt:max-[760px]:px-0',
+        className,
+      )}
+      aria-label={collapseLabel}
       {...props}
       disabled={blocked}
       aria-disabled={blocked || undefined}

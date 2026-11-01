@@ -2,6 +2,7 @@ import { CompactControlsFrame } from './compact-controls-frame.js';
 import { UiContrastFrame } from './ui-contrast-frame.js';
 import { FloatingFrame } from './floating-frame.js';
 import { RichInputFrame } from './rich-input-frame.js';
+import { TabsBarFrame } from './tabs-bar-frame.js';
 import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
 import { RailFrame } from './rail-frame.js';
@@ -673,6 +674,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <NotificationsFrame />;
     case 'theme-b':
       return <ThemeBFrame params={params} />;
+    case 'tabs-bar':
+      return <TabsBarFrame params={params} />;
     case 'rich-input':
       return <RichInputFrame params={params} />;
     case 'floating':
