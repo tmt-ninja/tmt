@@ -878,13 +878,18 @@ export function mountShell(
       railList(next.rail.bottom, current, selected, 'tmt-ui-rail-bottom', next.menu),
     ];
     const live = [...rail.children].slice(2);
+    const pairs = lists.flatMap((list, index) => {
+      const shown = live[index];
+      return shown ? [[shown, list] as const] : [];
+    });
     // The same rows, links and controls: move the highlight and update the counts and labels in
     // place (#5911). Rebuilding would drop hover, focus and the open tip on every page change.
     if (
       live.length === lists.length &&
-      lists.every((list, index) => sameShape(live[index]!, list))
+      pairs.length === lists.length &&
+      pairs.every(([shown, list]) => sameShape(shown, list))
     ) {
-      lists.forEach((list, index) => patchShape(live[index]!, list));
+      for (const [shown, list] of pairs) patchShape(shown, list);
       for (const controls of menuInteractions) controls.dispose();
       menuInteractions = previous;
       root.dataset.menu = next.menu ? 'shown' : 'none';
