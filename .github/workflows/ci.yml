@@ -342,11 +342,20 @@ jobs:
           retention-days: 7
 
   browser-ui:
-    name: Design gallery audits (Chromium)
+    name: Design gallery audits (Chromium, ${{ matrix.suite == 'tui-docs' && 'TUI docs' || format('shard {0}/3', matrix.shard) }})
     needs: changes
     if: needs.changes.outputs.browser_ui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # The gallery outgrew one 15-minute job: three gallery shards plus the TUI docs audits.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { suite: gallery, shard: 1 }
+          - { suite: gallery, shard: 2 }
+          - { suite: gallery, shard: 3 }
+          - { suite: tui-docs, shard: 4 }
     permissions:
       contents: read
     steps:
@@ -381,10 +390,11 @@ jobs:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ steps.browsers.outputs.cache-primary-key }}
       - name: Run design gallery audits
+        if: matrix.suite == 'gallery'
         working-directory: typescript
-        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2
+        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2 --shard=${{ matrix.shard }}/3
       - name: Run TUI docs audits
-        if: ${{ !cancelled() }}
+        if: matrix.suite == 'tui-docs'
         working-directory: typescript
         env:
           TUI_DOCS_TEST_RESULTS: ${{ github.workspace }}/design/browser-ui/test-results/tui-docs
@@ -394,7 +404,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-ui-traces
+          name: browser-ui-traces-${{ matrix.suite }}-${{ matrix.shard }}
           path: design/browser-ui/test-results
           if-no-files-found: ignore
           retention-days: 7
