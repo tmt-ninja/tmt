@@ -465,14 +465,15 @@ describe('release version gate workflow boundaries', () => {
     );
   });
   it('builds a gated synthetic debug alpha only for selected installation and upgrade tests', () => {
-    const processTests = job(read('.github/workflows/ci.yml'), 'native-process-tests');
+    // The build job packs the synthetic fixture for the process-test shards after the restore.
+    const processTests = job(read('.github/workflows/ci.yml'), 'native-process-build');
     const injection = processTests.indexOf('name: Inject the synthetic alpha installation fixture');
     const build = processTests.indexOf(
       'name: Build the synthetic alpha installation fixture in debug mode'
     );
     const verify = processTests.indexOf('name: Verify the synthetic alpha fixture source gate');
     const restore = processTests.indexOf('name: Restore the reviewed development source');
-    const tests = processTests.indexOf('name: Verify native process and shared parser contracts');
+    const tests = processTests.indexOf('name: Pack the process-test executables');
     expect(injection).toBeGreaterThan(0);
     expect(build).toBeGreaterThan(injection);
     expect(verify).toBeGreaterThan(build);
@@ -529,7 +530,7 @@ describe('release version gate workflow boundaries', () => {
       }
     }
     expect(callers.sort()).toEqual([
-      'ci.yml:native-process-tests',
+      'ci.yml:native-process-build',
       'native-release-prepare.yml:assemble',
       'native-release-prepare.yml:build',
       'native-release-prepare.yml:verify',

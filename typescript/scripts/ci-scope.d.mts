@@ -138,6 +138,11 @@ export function rustGatePasses(
   map?: ComponentMap
 ): boolean;
 export function e2eGatePasses(scope: string, results: E2eShardResults, map?: ComponentMap): boolean;
+export function processGatePasses(
+  scope: string,
+  results: readonly string[],
+  map?: ComponentMap
+): boolean;
 export function renderSelectionEvidence(input: {
   readonly base: string;
   readonly head: string;
@@ -167,6 +172,7 @@ export function runCiScope(
 ): void;
 export function ciGatePasses(selected: string, results: readonly string[]): boolean;
 export const RUST_WORKERS: readonly ['clippy', 'tests', 'process', 'msrv'];
+export const PROCESS_JOBS: readonly ['build', 'shard1', 'shard2'];
 export interface MainVerificationContext {
   readonly repository?: string;
   readonly eventName?: string;
