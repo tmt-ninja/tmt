@@ -7,9 +7,6 @@ import {
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-  Tabs,
-  TabsList,
-  TabsTrigger,
 } from '../src/ui/index.js';
 import { follow } from './router.js';
 
@@ -65,30 +62,6 @@ export const patterns: { slug: string; title: string; lead: string; render(): Re
         <PageRow title="Release plan" tags={['spec', 'tmt']} updated="2 min ago" unread />
         <PageRow title="Theme B review" tags={['design']} updated="1 h ago" state="waiting" />
         <PageRow title="CI flake triage" tags={['infra']} updated="Yesterday" state="blocked" />
-      </div>
-    ),
-  },
-  {
-    slug: 'page-header',
-    title: 'Page header with tabs',
-    lead: 'The title, one line of context, the primary action on the right and the views as line tabs.',
-    render: () => (
-      <div className="docs-canvas docs-canvas-flush">
-        <div className="pattern-header">
-          <div>
-            <h2 className="pattern-title">Pages</h2>
-            <p className="docs-muted">38 pages · 4 need you</p>
-          </div>
-          <Button type="button">New page</Button>
-        </div>
-        <Tabs defaultValue="all">
-          <TabsList variant="line">
-            <TabsTrigger value="all">All</TabsTrigger>
-            <TabsTrigger value="needs">Needs you</TabsTrigger>
-            <TabsTrigger value="mine">Mine</TabsTrigger>
-            <TabsTrigger value="archived">Archived</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
     ),
   },

@@ -4,6 +4,7 @@ import { UiTheme } from '../src/ui/index.js';
 import { browserDocs, browserExports, type BrowserDoc } from './browser-catalog.js';
 import { components, type ComponentDoc } from './catalog.js';
 import { patterns } from './patterns.js';
+import { morePatterns, PatternViewports } from './patterns-more.js';
 import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
@@ -69,15 +70,26 @@ const sections: { title: string; pages: Page[] }[] = [
   },
   {
     title: 'Patterns',
-    pages: patterns.map((pattern) => ({
-      href: `/docs/patterns/${pattern.slug}`,
-      title: pattern.title,
-      render: () => (
-        <Article title={pattern.title} lead={pattern.lead}>
-          {pattern.render()}
-        </Article>
-      ),
-    })),
+    pages: [
+      ...morePatterns.map((pattern) => ({
+        href: `/docs/patterns/${pattern.slug}`,
+        title: pattern.title,
+        render: () => (
+          <Article title={pattern.title} lead={pattern.lead}>
+            <PatternViewports doc={pattern} />
+          </Article>
+        ),
+      })),
+      ...patterns.map((pattern) => ({
+        href: `/docs/patterns/${pattern.slug}`,
+        title: pattern.title,
+        render: () => (
+          <Article title={pattern.title} lead={pattern.lead}>
+            {pattern.render()}
+          </Article>
+        ),
+      })),
+    ],
   },
 ];
 const pages = sections.flatMap((section) => section.pages);

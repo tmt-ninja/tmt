@@ -1292,6 +1292,21 @@
   .tmt\:has-data-\[slot\=card-action\]\:grid-cols-\[1fr_auto\]:has([data-slot='card-action']) {
     grid-template-columns: 1fr auto;
   }
+  .tmt\:has-\[input\:focus-visible\]\:outline-\(length\:--tmt-foundation-focus-width\):has(
+    :is(input:focus-visible)
+  ) {
+    outline-style: var(--tmt-foundation-tw-outline-style);
+    outline-width: var(--tmt-foundation-focus-width);
+  }
+  .tmt\:has-\[input\:focus-visible\]\:-outline-offset-\(length\:--tmt-foundation-focus-width\):has(
+    :is(input:focus-visible)
+  ) {
+    outline-offset: calc(var(--tmt-foundation-focus-width) * -1);
+  }
+  .tmt\:has-\[input\:focus-visible\]\:outline-solid:has(:is(input:focus-visible)) {
+    --tmt-foundation-tw-outline-style: solid;
+    outline-style: solid;
+  }
   .tmt\:has-\[\>svg\]\:grid-cols-\[calc\(var\(--tmt-foundation-spacing-unit\)\*4\)_1fr\]:has(
     > svg
   ) {
@@ -1578,6 +1593,9 @@
   }
   .tmt\:\[\&\>\*\]\:pointer-events-auto > * {
     pointer-events: auto;
+  }
+  .tmt\:\[\&\>\[data-slot\=dialog-header\]\]\:pe-8 > [data-slot='dialog-header'] {
+    padding-inline-end: calc(var(--tmt-foundation-spacing-unit) * 8);
   }
   .tmt\:\[\&\>svg\]\:pointer-events-none > svg {
     pointer-events: none;

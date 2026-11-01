@@ -16,6 +16,7 @@ import { ColabMock } from './mock-colab.js';
 import { TuiMock } from './tui-nav.js';
 import { usePath } from './router.js';
 import { frameFor } from '../gallery/frames.js';
+import { PatternFrame } from './patterns-more.js';
 
 function Root() {
   const path = usePath();
@@ -38,5 +39,13 @@ if (frame) {
 }
 setPaletteBFavicon();
 createRoot(document.querySelector('#root')!).render(
-  <StrictMode>{frame ? frameFor(frame, params) : <Root />}</StrictMode>,
+  <StrictMode>
+    {frame === 'pattern' ? (
+      <PatternFrame params={params} />
+    ) : frame ? (
+      frameFor(frame, params)
+    ) : (
+      <Root />
+    )}
+  </StrictMode>,
 );

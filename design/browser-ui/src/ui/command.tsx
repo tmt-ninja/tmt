@@ -55,7 +55,9 @@ export function CommandInput({ className, ...props }: ComponentProps<typeof Prim
   return (
     <div
       data-slot="command-input-wrapper"
-      className="tmt:flex tmt:min-w-0 tmt:items-center tmt:gap-2 tmt:border-0 tmt:border-b-(length:--tmt-foundation-rule-width) tmt:border-solid tmt:border-border tmt:px-3"
+      // The wrapper draws the focus ring (#5859): the input itself has none, so the icon and the field
+      // read as one control.
+      className="tmt:flex tmt:min-w-0 tmt:items-center tmt:gap-2 tmt:border-0 tmt:border-b-(length:--tmt-foundation-rule-width) tmt:border-solid tmt:border-border tmt:px-3 tmt:outline-ring tmt:has-[input:focus-visible]:outline-solid tmt:has-[input:focus-visible]:outline-(length:--tmt-foundation-focus-width) tmt:has-[input:focus-visible]:-outline-offset-(length:--tmt-foundation-focus-width)"
     >
       <SearchIcon aria-hidden="true" className="tmt:size-4 tmt:shrink-0" />
       <Primitive.Input
