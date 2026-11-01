@@ -289,7 +289,8 @@ a.work-row-title:hover {
   }
 }
 
-/* The one Add window (Mock 5). */
+/* The one Add window (Mock 5): a viewport-bounded column whose title, field and footer stay put
+ * while only the page list scrolls. */
 .work-add-dialog[data-slot='dialog-content'] {
   display: flex;
   flex-direction: column;
@@ -312,8 +313,11 @@ a.work-row-title:hover {
   overflow: hidden;
   gap: var(--tmt-ui-space-s);
 }
+/* The whole field (icon and input) is one bordered area and owns the focus ring. */
 .work-add-command [data-slot='command-input-wrapper'] {
   flex: none;
+  box-sizing: border-box;
+  height: var(--tmt-ui-control-size-l);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
 }
@@ -335,7 +339,7 @@ a.work-row-title:hover {
   margin-top: var(--tmt-ui-space-m);
 }
 .work-add-command [cmdk-input] {
-  height: var(--tmt-ui-control-size-l);
+  height: 100%;
 }
 .work-add-command [data-slot='command-item'] {
   min-height: var(--tmt-ui-row-height);

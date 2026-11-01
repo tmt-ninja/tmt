@@ -427,7 +427,8 @@ test('measured spacing matches the mock table at 1440 and 390', async ({ page })
     };
     if (width === 1440) expect((await content.boundingBox())!.width).toBe(440);
     await expect(content).toHaveCSS('padding', '16px');
-    await expect(dialog.getByRole('combobox')).toHaveCSS('height', '36px');
+    // The field is one control-size-l area: its rule border sits inside, around icon and input.
+    await expect(dialog.locator('[data-slot="command-input-wrapper"]')).toHaveCSS('height', '36px');
     expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(40);
   }
   writeFileSync(capturePath('work-panel-spacing.json'), JSON.stringify(measured, null, 2));
@@ -473,9 +474,17 @@ for (const width of [390, 1440])
       const wrapper = dialog.locator('[data-slot="command-input-wrapper"]');
       const list = dialog.locator('[cmdk-list]');
       await expect(dialog.getByRole('option')).toHaveCount(78);
+      // Bounded by the viewport minus space-l on each side.
+      const inset = await page.evaluate(() =>
+        Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--tmt-ui-space-l'),
+        ),
+      );
       const bounds = await dialog.boundingBox();
-      expect(bounds!.y).toBeGreaterThanOrEqual(0);
-      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(900);
+      expect(bounds!.y).toBeGreaterThanOrEqual(inset - 0.5);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(900 - inset + 0.5);
+      // The window itself never scrolls; only its list does.
+      expect(await dialog.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
       const overflow = await list.evaluate((node) => ({
         scroll: node.scrollHeight,
         client: node.clientHeight,

@@ -13,39 +13,6 @@
   overflow-anchor: none;
 }
 
-.page-list-hero {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 24px;
-}
-
-/* The description and its controls shrink beside New page instead of pushing it out of view; the
- * list's name is the bar's title. */
-.page-list-hero-text {
-  min-width: 0;
-  flex: 1;
-}
-
-.page-list-hero h2 {
-  margin: 0 0 4px;
-  font-size: 22px;
-}
-
-.home .page-list-hero p {
-  margin: 0;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 14px;
-  font-weight: 400;
-}
-
-.page-list-hero-create {
-  flex: none;
-  white-space: nowrap;
-}
-
 .page-pins {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -509,10 +476,6 @@
   line-height: 14px;
 }
 
-.page-list-hero p {
-  font-size: 14px;
-}
-
 .page-pin-project,
 .pages [data-page-id] .page-project {
   border: 0;
@@ -678,14 +641,6 @@
 }
 
 @media (max-width: 760px) {
-  .page-list-hero {
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-  .home .page-list-hero p {
-    font-size: 12px;
-  }
   .page-pins {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -880,7 +835,7 @@
 .home[data-compact] .page-list-compact-create {
   display: inline-flex;
 }
-.home[data-compact] .page-list-hero-create {
+.home[data-compact] .page-list-create {
   visibility: hidden;
 }
 @keyframes page-list-full-in {
@@ -921,11 +876,6 @@
   }
 }
 
-/* The action row is independent of the navigation title. */
-.page-list-hero {
-  justify-content: flex-end;
-  gap: 8px;
-}
 .page-list-shortcut-phone {
   display: none;
 }
@@ -1027,6 +977,8 @@
   .page-stage-tabs .tmt-ui-tab-list {
     flex-wrap: nowrap;
     overflow-x: auto;
+    /* An alpha mask, not a colour: the scrolling tabs fade out before the fixed actions. */
+    mask-image: linear-gradient(to right, black calc(100% - var(--tmt-ui-space-xl)), transparent);
   }
 }
 @media (max-width: 760px) {
@@ -1069,7 +1021,7 @@
   > .tmt-ui-menu
   > .tmt-ui-icon-action
   > .tmt-ui-icon-action-control,
-.page-list-compact-create > .tmt-ui-action,
+.page-list-controls > .page-list-compact-create > .tmt-ui-action,
 .page-list-compact-create > .tmt-ui-icon-action > .tmt-ui-icon-action-control {
   box-sizing: border-box;
   height: var(--tmt-ui-control-size-l);
@@ -1097,4 +1049,9 @@
   flex: none;
   align-items: center;
   gap: var(--tmt-ui-space-s);
+}
+.page-list-create {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
 }

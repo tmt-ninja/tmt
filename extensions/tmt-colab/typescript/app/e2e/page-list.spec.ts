@@ -1938,14 +1938,14 @@ for (const width of [1440, 390, 320])
         await expect(heading).toHaveText(name);
         await expect(heading).toHaveAttribute('title', name);
         const create = app(page)
-          .locator('.page-list-hero-create')
+          .locator('.page-list-create')
           .getByRole('button', { name: 'New page' });
         await expect(create).toBeVisible();
         const bar = await page.evaluate(() => {
           const title = document.querySelector('#list-fixture .tmt-ui-topbar-title-current')!;
           const controls = document.querySelector('#list-fixture .tmt-ui-topbar-controls')!;
           const button = document.querySelector(
-            '#list-fixture .page-list-hero-create button',
+            '#list-fixture .page-list-create button',
           ) as HTMLElement;
           const box = title.getBoundingClientRect();
           const action = button.getBoundingClientRect();

@@ -364,10 +364,10 @@ export function Home() {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
       const active = document.activeElement;
       if (active instanceof HTMLElement && root.contains(active)) {
-        if (next && active.closest('.page-list-hero-create'))
+        if (next && active.closest('.page-list-create'))
           compactFocus.current = '.page-list-compact-create button';
         else if (!next && active.closest('.page-list-compact-create'))
-          compactFocus.current = '.page-list-hero-create button';
+          compactFocus.current = '.page-list-create button';
         else if (next && active.closest('.page-list-sort'))
           compactFocus.current = '.page-list-search [contenteditable]';
       }
@@ -889,7 +889,7 @@ export function Home() {
           </span>
         </>
       )}
-      <span className="page-list-hero-create" inert={compact}>
+      <span className="page-list-create" inert={compact}>
         {newPageAction}
       </span>
     </div>
@@ -1152,7 +1152,7 @@ export function Home() {
         onClose={() => setNewPage(false)}
         focusFallback={() =>
           section.current?.querySelector<HTMLElement>(
-            compact ? '.page-list-compact-create button' : '.page-list-hero-create button',
+            compact ? '.page-list-compact-create button' : '.page-list-create button',
           ) ?? null
         }
       />
