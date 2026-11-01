@@ -714,8 +714,12 @@ The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
 cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
 subscription or write, and only selects from that projection.
-Static module availability (rail, Pages link and script entry) does not depend on the
-registration mutex. While that mutex is busy, the reply keeps this navigation and omits
+When the callback's `tmt-describe-features` tokens contain `modules`, the answer also carries
+one extra module, `{id:"design", rail:{label:"Design", icon:"palette", path:"/design/",
+order:101}, menu:[], settings:[]}`: link-only, inside Colab's own mount, with no count. Without
+that token the answer is the exact primary-only one.
+Static module availability (rail, Pages link, script entry and the Design extra) does not depend
+on the registration mutex. While that mutex is busy, the reply keeps this navigation and omits
 all catalog-derived fields: the Pages count, `needsYou` and `home`. Omitted counts are
 unknown, never zero; the shell draws no count or badge for them. A missing or poisoned
 registration still refuses. When the mutex is available, both counts exclude archived

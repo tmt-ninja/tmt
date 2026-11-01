@@ -6692,6 +6692,53 @@ fn describe_fixture_removes_its_root_when_bind_fails() {
 }
 
 #[test]
+fn describe_adds_the_design_module_only_when_remote_admits_modules() {
+    let running = describe_fixture(DescribeRoot::new()).unwrap();
+    let body = |features: &str| -> Value {
+        let answer = running.request(&Running::get(
+            "/.tmt/remote/describe",
+            &format!("tmt-describe: 1\r\n{features}tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n"),
+        ));
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    // An older Remote sends no features: the exact primary-only answer.
+    let old = body("");
+    assert!(old.get("modules").is_none(), "{old}");
+    for features in [
+        "tmt-describe-features: modules\r\n",
+        "tmt-describe-features: x, modules\r\n",
+    ] {
+        let new = body(features);
+        assert_eq!(
+            new["modules"],
+            serde_json::json!([{
+                "id":"design",
+                "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
+                "menu":[],
+                "settings":[]
+            }])
+        );
+        let mut primary = new.clone();
+        primary.as_object_mut().unwrap().remove("modules");
+        assert_eq!(primary, old, "the primary is unchanged beside the extra");
+    }
+    assert!(
+        body("tmt-describe-features: modulesx\r\n")
+            .get("modules")
+            .is_none()
+    );
+    // The busy path answers the same shape.
+    let held = running.registration.lock().unwrap();
+    assert_eq!(
+        body("tmt-describe-features: modules\r\n")["modules"][0]["id"],
+        "design"
+    );
+    assert!(body("").get("modules").is_none());
+    drop(held);
+}
+
+#[test]
 fn describe_keeps_navigation_without_unknown_counts_and_during_busy_catalog() {
     let running = describe_fixture(DescribeRoot::new()).unwrap();
     let layout = Layout::open(&running.root).unwrap();
