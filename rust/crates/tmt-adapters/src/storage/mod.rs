@@ -54,7 +54,10 @@ pub use footprint::{
     ColabFootprint, DatabaseFootprint, Footprint, NotesFootprint, StoreFile, footprint,
 };
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
-pub use orchestration::{ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState};
+pub use orchestration::{
+    ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState, OrchTalkPair,
+    active_leads as orchestration_active_leads, route_refusal_decision,
+};
 pub use requests::PassthroughFacts;
 use responses::CaptureFailure;
 pub use responses::{ResponseCapture, TurnCapture, TurnCaptureOutcome};

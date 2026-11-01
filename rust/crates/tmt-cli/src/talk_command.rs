@@ -55,6 +55,8 @@ struct Correlation {
     /// neither confirmed nor safe to resend, and every later failure says so.
     delivery_uncertain: bool,
     digest_until_ms: Option<u64>,
+    /// Held at the pair's talk limit until a person resumes it (#4892): nothing is sent.
+    held_for_person: bool,
     /// A person's own text typed into the pane as is; the report says so.
     passthrough: bool,
 }
@@ -143,6 +145,13 @@ impl Correlation {
                 self.request_id, self.target
             )
         }
+    }
+    /// How a held request continues: only a person or a lead may release the pair.
+    fn resume_hint(&self) -> String {
+        format!(
+            "A person or a lead releases it with 'tmt orch talks resume <sender> {}'; 'tmt orch talks' lists held pairs.",
+            self.target
+        )
     }
     fn recipient_recovery(&self) -> String {
         if self.unbound {
@@ -254,7 +263,7 @@ fn deliver(
     interrupt: Option<&Interrupt>,
 ) -> Result<Option<FinalResponse>, Failure> {
     let correlation = &mut prepared.correlation;
-    if correlation.digest_until_ms.is_some() {
+    if correlation.digest_until_ms.is_some() || correlation.held_for_person {
         return Ok(None);
     }
     let wait = prepared.wait;
@@ -767,6 +776,11 @@ fn warn_unattributed_record(record: &std::path::Path) {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "A person or a lead releases it with 'tmt orch talks resume <sender> {}'; 'tmt orch talks' lists held pairs.",
+        &["';", "' lists"],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "The recipient must pull with tmt inbox --identity {} --json. In the recipient's pane, start a new turn or session, or run tmt resume {} there to repair live delivery.",
         &[". In", " there to repair"],

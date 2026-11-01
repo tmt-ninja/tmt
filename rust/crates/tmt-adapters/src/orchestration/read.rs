@@ -242,6 +242,28 @@ pub fn orchestration_read_with_time(
             let changes = changed_members(&before, &after)?;
             json!({"schemaVersion":1,"observedAtMs":observed,"configurationRevision":snapshot.revision,"before":before,"after":after,"changes":changes})
         }
+        OrchReadQuery::Talks {
+            member_query,
+            limit,
+            after,
+        } => super::talks::talks(
+            storage,
+            member_query.as_deref(),
+            limit,
+            after.as_deref(),
+            observed,
+        )?,
+        OrchReadQuery::Routes {
+            member_query,
+            limit,
+            after,
+        } => super::talks::routes(
+            storage,
+            member_query.as_deref(),
+            limit,
+            after.as_deref(),
+            observed,
+        )?,
     };
     let bytes = serde_json::to_vec(&value).map_err(|_| OrchError::Invalid)?;
     if bytes.len() > crate::api::OUTPUT_LIMIT {

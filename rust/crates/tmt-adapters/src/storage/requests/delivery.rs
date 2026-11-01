@@ -88,6 +88,13 @@ pub(super) fn facts(
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
         turn: super::turns::read(db, &attempt.request_id)?,
         answer: answer(db, attempt, now)?,
+        talk_held: db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM orchestration_talk_holds WHERE request_id=?)",
+                [&attempt.request_id],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(|e| classify(e, "Read talk-limit hold"))?,
     })
 }
 
