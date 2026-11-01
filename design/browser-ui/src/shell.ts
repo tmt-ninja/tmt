@@ -882,9 +882,9 @@ export function mountShell(
     // place (#5911). Rebuilding would drop hover, focus and the open tip on every page change.
     if (
       live.length === lists.length &&
-      lists.every((list, index) => sameShape(live[index], list))
+      lists.every((list, index) => sameShape(live[index]!, list))
     ) {
-      lists.forEach((list, index) => patchShape(live[index], list));
+      lists.forEach((list, index) => patchShape(live[index]!, list));
       for (const controls of menuInteractions) controls.dispose();
       menuInteractions = previous;
       root.dataset.menu = next.menu ? 'shown' : 'none';
