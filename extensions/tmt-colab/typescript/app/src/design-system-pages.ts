@@ -251,22 +251,21 @@ export function exampleIds<T extends { title: string }>(examples: readonly T[]) 
 const docs = {
   h1: 'text-3xl font-semibold mt-6 mb-3',
   h2: 'text-xl font-semibold mt-10 mb-3',
-  h3: 'text-base font-semibold mt-6 mb-2',
   block: 'my-3',
   code: 'font-mono text-sm',
-  pre: 'font-mono text-sm bg-code p-3 overflow-x-auto',
   link: 'text-link underline',
-  label: 'font-mono text-xs text-secondary px-4 pt-3',
+  label: 'font-mono text-xs text-secondary mb-2',
 };
 
-/** A component page: its block (what publish compiles), then its docs: notes, the props table and
- * the live examples. */
+/** A component page: its block (what publish compiles), then its docs in the tmt GUI docs' own
+ * component layout (the system CSS carries their scoped styles): notes, the live examples and the
+ * props table. */
 export function componentPageSource(doc: ComponentDoc & { notes?: string }, prefix: string) {
   const tag = `${prefix}-${doc.tag}`;
   const rows = Object.entries(doc.props)
     .map(
       ([name, spec]) =>
-        `<tr><td><code class="${docs.code}">${escape(name)}</code></td><td>${escape(spec.enum ? spec.enum.join(' · ') : (spec.type ?? ''))}</td><td>${escape(spec.default ?? '')}</td></tr>`,
+        `<tr><td><code>${escape(name)}</code></td><td>${escape(spec.enum ? spec.enum.join(' · ') : (spec.type ?? ''))}</td><td>${escape(spec.default ?? '')}</td></tr>`,
     )
     .join('');
   const examples = exampleIds(doc.examples ?? [])
@@ -275,20 +274,22 @@ export function componentPageSource(doc: ComponentDoc & { notes?: string }, pref
       // The example root holds its label, the live elements and their markup: a comment anywhere in
       // it quotes all three, and the label keeps the quote unique when two examples share markup.
       const anchor = escape(`${doc.tag}:${id}`);
-      return `<section class="tmt-ui-section"><h3 class="${docs.h3}">${escape(example.title)}</h3><div data-ds-example="${anchor}" class="rounded border border-rule overflow-hidden"><p class="${docs.label}">${anchor}</p><div class="flex flex-wrap items-center gap-3 p-4">${markup}</div><pre class="${docs.pre}"><code>${escape(markup)}</code></pre></div></section>`;
+      return `<section class="docs-variant"><h3>${escape(example.title)}</h3><div data-ds-example="${anchor}"><p class="${docs.label}">${anchor}</p><div class="docs-canvas">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
     })
     .join('\n');
   // The block keeps what publish compiles; the notes and examples live only in the HTML below, so an
   // agent's patch of an example has one place to change.
   const { notes: _notes, examples: _examples, ...compiled } = doc;
   return `${blockHtml('component', compiled)}
-<h1 class="${docs.h1}">&lt;${tag}&gt;</h1>
-<div class="space-y-3">${doc.notes ?? ''}</div>
-<h2 class="${docs.h2}">Props</h2>
-<table class="tmt-ui-table"><thead><tr><th>Prop</th><th>Values</th><th>Default</th></tr></thead><tbody>${rows}</tbody></table>
-<p class="${docs.block}">Slots: ${doc.slots.map((slot) => `<code class="${docs.code}">${escape(slot)}</code>`).join(', ')}</p>
-<h2 class="${docs.h2}">Examples</h2>
-${examples}`;
+<div class="tmt-design-docs"><article class="docs-article">
+<h1>&lt;${tag}&gt;</h1>
+<div class="docs-lead">${doc.notes ?? ''}</div>
+<h2>Variants and states</h2>
+${examples}
+<h2>Props</h2>
+<table class="docs-props"><thead><tr><th scope="col">Prop</th><th scope="col">Values</th><th scope="col">Default</th></tr></thead><tbody>${rows}</tbody></table>
+<p>Slots: ${doc.slots.map((slot) => `<code>${escape(slot)}</code>`).join(', ')}</p>
+</article></div>`;
 }
 
 /** The root page: its config block, then the system's home. */
