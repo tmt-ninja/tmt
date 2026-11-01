@@ -197,6 +197,8 @@ const PAGE = [
   '<h1 id="t">Release plan</h1>',
   'Loose text at the top, then a comment.',
   '<!-- kept -->',
+  // Left open: the next paragraph closes it. Only an edit beside it parses it again.
+  '<p id="open">Left open, never closed',
   '<p id="p1">First <b>bold</b> paragraph &amp; more.</p>',
   '<ul id="l"><li>One</li><li>Two <i>it</i></li></ul>',
   '<div id="d"><p>Nested</p><pre>\ncode</pre></div>',
@@ -207,6 +209,32 @@ const PAGE = [
   'Tail text <3 with a bare angle.',
 ].join('\n');
 const edits: { name: string; after: string; fragment: boolean }[] = [
+  {
+    name: 'edit inside the open paragraph',
+    after: PAGE.replace('never closed', 'still never closed'),
+    fragment: true,
+  },
+  {
+    name: 'text now follows the open paragraph',
+    after: PAGE.replace('<p id="p1">First <b>bold</b> paragraph &amp; more.</p>', 'Plain now.'),
+    fragment: true,
+  },
+  {
+    // Text and a comment follow it, which a paragraph holds: the page parses whole.
+    name: 'a paragraph left open before nodes it would hold',
+    after: PAGE.replace('<h1 id="t">Release plan</h1>', '<p id="t">Release plan'),
+    fragment: false,
+  },
+  {
+    name: 'the open paragraph is closed',
+    after: PAGE.replace('never closed', 'now closed</p>'),
+    fragment: true,
+  },
+  {
+    name: 'an inline node now follows the open paragraph',
+    after: PAGE.replace('<p id="p1">First <b>bold</b> paragraph &amp; more.</p>', '<b>Bold</b>'),
+    fragment: true,
+  },
   {
     name: 'change at the start',
     after: PAGE.replace('Release plan', 'Release plan v2'),
@@ -248,9 +276,10 @@ const edits: { name: string; after: string; fragment: boolean }[] = [
   },
   { name: 'text beside text', after: PAGE.replace('Loose text', 'Looser text'), fragment: true },
   {
+    // The section after it closes it, as the parser does.
     name: 'an unclosed paragraph',
     after: PAGE.replace('<p id="p2">Second paragraph.</p>', '<p id="p2">Open'),
-    fragment: false,
+    fragment: true,
   },
   {
     name: 'a block inside a paragraph',

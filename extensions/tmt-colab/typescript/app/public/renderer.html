@@ -229,7 +229,15 @@
               continue;
             }
             if (source[end - 1] === '/' && !VOID.has(name)) return null;
-            if (stack.includes('p') && CLOSES_P.has(name)) return null;
+            if (stack.includes('p') && CLOSES_P.has(name)) {
+              // A top-level paragraph left open, with nothing open inside it, ends here exactly as
+              // the parser closes it: one node of its own, marked so an edit beside it parses it
+              // again. Any other implied close cannot be placed.
+              if (stack.length !== 1) return null;
+              stack.pop();
+              spans.push([start, open, 'open']);
+              start = open;
+            }
             if (
               (name === 'li' || name === 'dd' || name === 'dt') &&
               // An open item of its list closes; a list between them keeps it open.
@@ -267,10 +275,20 @@
             stack.push(name);
             at = tagEnd;
           }
+          if (stack.length === 1 && stack[0] === 'p') {
+            stack.pop();
+            spans.push([start, source.length, 'open']);
+            start = source.length;
+          }
           if (stack.length) return null;
           text(source.length);
           return spans;
         }
+        // Whether `source` at `at` is a start tag that closes an open paragraph.
+        const closesParagraph = (source, at) => {
+          const match = /^<([A-Za-z][^\s/>]*)/.exec(source.slice(at, at + 32));
+          return !!match && CLOSES_P.has(match[1].toLowerCase());
+        };
         // What an update must parse when `before` (bound, with its top-level `spans`) becomes
         // `after`: the changed run widened to whole top-level nodes, with their index range in the
         // bound body, the new text and its spans; null when the page must be parsed whole. A run
@@ -308,7 +326,10 @@
           let to = spans.length;
           while (to > from && spans[to - 1][0] >= before.length - tail) to--;
           const textAt = (index) => spans[index]?.[2] === 'text';
-          while (from > 0 && (textAt(from - 1) || from === to)) from--;
+          // A paragraph left open before the run ended where the run's first tag was: it is parsed
+          // again with the run, so whatever now follows it closes it, or not, as in the full parse.
+          while (from > 0 && (textAt(from - 1) || spans[from - 1][2] === 'open' || from === to))
+            from--;
           while (to < spans.length && (textAt(to) || from === to)) to++;
           const start = from < spans.length ? spans[from][0] : before.length;
           const end = to > 0 && to > from ? spans[to - 1][1] : start;
@@ -318,6 +339,14 @@
           if (WHOLE.test(old) || WHOLE.test(text)) return null;
           const placed = topLevelSpans(text);
           if (!placed) return null;
+          // A paragraph the run leaves open is closed in the full parse only if the next node
+          // starts with a tag that closes it.
+          if (
+            placed.at(-1)?.[2] === 'open' &&
+            to < spans.length &&
+            !closesParagraph(before, spans[to][0])
+          )
+            return null;
           return {
             from,
             to,

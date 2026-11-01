@@ -323,7 +323,8 @@ region in `renderer.html` changes the body in place, skipping what the frame own
 node cases is `e2e/page-morph.spec.ts`. An update costs what changed, not the page (#5891): the
 morph leaves a node whose source equals the previous source's node in the same place, a change
 inside whole top-level nodes parses only those nodes when `planFragment` shows that equals the
-whole parse (`topLevelSpans` refuses anything it cannot place; styles, scripts, tables, document
+whole parse (`topLevelSpans` refuses anything it cannot place, and a top-level paragraph left open is its
+own node that an edit beside it parses again; styles, scripts, tables, document
 tags, question, review and read blocks, handlers and design markers always parse whole), the frame's
 style element is written only when its text changes (a rewrite restyles and relays the whole
 page), and the anchor and question passes walk the page text only when they have something to
