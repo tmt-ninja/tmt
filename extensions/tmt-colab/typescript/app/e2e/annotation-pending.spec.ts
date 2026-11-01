@@ -232,3 +232,82 @@ test('leaving and reopening the page clears unsent paint and late completion can
   await expect.poll(() => paint(page, 'failed')).toBe(0);
   await expect(page.locator('.page-unsent')).toHaveCount(0);
 });
+
+for (const recovery of ['Retry', 'clear and close'] as const)
+  test(`a reply failing before its record after close keeps its failed row and file until ${recovery}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', { attachments: true });
+    await annotate(page, FIRST, 'Recorded opening comment.');
+    await send(page).click();
+    await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(1);
+    await expect(input(page)).toHaveText('', { useInnerText: true });
+    const body = 'Keep this failed reply and its file.';
+    await input(page).pressSequentially(body);
+    await dialog(page)
+      .getByTestId('attachment-input')
+      .setInputFiles([
+        { name: 'reply.txt', mimeType: 'text/plain', buffer: Buffer.from('Retained reply file') },
+      ]);
+    await expect(dialog(page).getByTestId('attachment-chip')).toHaveCount(1);
+    await run(page, 'holdReply');
+    await run(page, 'failNextReply');
+    await send(page).click();
+    await expect(dialog(page).getByTestId('comment-echo')).toContainText(body);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toHaveCount(0);
+    await run(page, 'releaseReply');
+    const notice = page.locator('.page-unsent').getByRole('listitem');
+    await expect(notice).toHaveCount(1);
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
+    if (recovery === 'Retry') await captureUnsent(page, 'reply-notice');
+    await notice.getByRole('button', { name: 'Open', exact: true }).click();
+    const echo = dialog(page).getByTestId('comment-echo');
+    await expect(echo).toHaveAttribute('data-echo', 'failed');
+    await expect(echo).toContainText(body);
+    await expect(echo).toContainText('reply.txt');
+    // Send's automatic empty field must not discard the retained failure on another close.
+    await page.keyboard.press('Escape');
+    await expect(notice).toHaveCount(1);
+    await notice.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(echo).toHaveAttribute('data-echo', 'failed');
+    await expect(echo).toContainText('reply.txt');
+    if (recovery === 'Retry') {
+      await captureUnsent(page, 'reply-recovered');
+      await echo.getByRole('button', { name: 'Retry', exact: true }).click();
+      await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(2);
+      const threads = await run(page, 'discussionProof');
+      expect(threads).toHaveLength(1);
+      expect(threads[0].comments).toHaveLength(2);
+      expect(
+        threads[0].comments.filter((comment: { body: string }) => comment.body === body),
+      ).toHaveLength(1);
+      expect(threads[0].comments[1].attachments).toEqual([
+        expect.objectContaining({ filename: 'reply.txt' }),
+      ]);
+      await expect(notice).toHaveCount(0);
+      await captureUnsent(page, 'reply-recorded');
+      await page.keyboard.press('Escape');
+    } else {
+      await echo.getByRole('button', { name: 'Edit', exact: true }).click();
+      await expect(input(page)).toHaveText(body, { useInnerText: true });
+      await expect(dialog(page).getByTestId('attachment-chip')).toHaveCount(1);
+      await input(page).press('ControlOrMeta+A');
+      await input(page).press('Backspace');
+      await expect(input(page)).toHaveText('', { useInnerText: true });
+      await page.keyboard.press('Escape');
+      await expect(notice).toHaveCount(0);
+      const threads = await run(page, 'discussionProof');
+      expect(threads).toHaveLength(1);
+      expect(threads[0].comments).toHaveLength(1);
+      await captureUnsent(page, 'reply-cleared');
+    }
+    await expect(page.locator('.annotation-new')).toHaveCount(0);
+    await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
+  });

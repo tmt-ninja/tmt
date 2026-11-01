@@ -240,9 +240,12 @@ immutable one-comment send capture. Echo turns reserve their recipients' status 
 remain until the original send settles and its admitted outcomes replace them, so an intent
 awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
 windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
-send runs. It is dropped once that send records. A first comment that failed stays hidden
-with its draft, and `unsentAnnotations` lists it for the page's alert row, whose Open (like the same
-quote) shows it again; discarding its kept draft (`discardDraft`) releases it. The same owner
+send runs. It is dropped once that send settles with a record. A comment that failed before recording, including a reply, stays hidden
+with its failed row, files and draft, and `unsentAnnotations` lists it for the page's alert row.
+Open restores that window; a failed first comment also opens on its same quote.
+Discarding a kept first-comment draft (`discardDraft`)
+releases its window. For any retained failure, Edit followed by deliberately clearing its text
+and Close releases that window and alert; Send's automatically cleared field does not. The same owner
 projects unrecorded first-comment selectors and sending/failed paint state to the renderer;
 send and record transitions trigger a render, and unchanged projections retain their identity.
 The 64-entry paint cap prioritizes failed then oldest windows without dropping any composer or
