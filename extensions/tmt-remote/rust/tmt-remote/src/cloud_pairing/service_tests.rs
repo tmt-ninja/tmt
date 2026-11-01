@@ -2547,3 +2547,100 @@ fn member_observation_link_does_not_keep_cloud_or_its_operations_alive() {
     assert!(weak.upgrade().is_none());
     assert_eq!(link.invitation(), MemberInvitationView::Unavailable);
 }
+
+#[test]
+fn provider_port_factory_preserves_pairing_purpose_and_pin_before_descriptor() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::provider_port_factory_preserves_pairing_purpose_and_pin_before_descriptor",
+    ) {
+        return;
+    }
+    struct FakeFactory {
+        provider: Arc<crate::cloud_provider::test_support::RecordingProvider>,
+        opened: Mutex<Vec<(String, bool)>>,
+    }
+    impl crate::cloud_provider::Factory for FakeFactory {
+        fn open(
+            &self,
+            _: &Value,
+            machine: &str,
+            purpose: Purpose,
+        ) -> Result<Arc<dyn crate::cloud_provider::Provider>, RemoteError> {
+            self.opened
+                .lock()
+                .unwrap()
+                .push((machine.into(), matches!(purpose, Purpose::ExplicitPairing)));
+            Ok(self.provider.clone())
+        }
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (service, _lease) = service(
+        &core.root.join("provider-port"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let fake = Arc::new(crate::cloud_provider::test_support::RecordingProvider::new(
+        &service.machine,
+        crate::pairing::now_ms().unwrap(),
+    ));
+    let factory = Arc::new(FakeFactory {
+        provider: fake.clone(),
+        opened: Mutex::new(vec![]),
+    });
+    let service = Arc::try_unwrap(service)
+        .ok()
+        .unwrap()
+        .with_provider_factory(factory.clone());
+    let existing = service
+        .provider(&config(), &service.machine, false)
+        .unwrap();
+    assert_eq!(
+        service
+            .descriptor(&existing, &service.key.public(), &[], &service.io())
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_CLOUD_MACHINE_CONFLICT"
+    );
+    let explicit = service.provider(&config(), &service.machine, true).unwrap();
+    assert_eq!(
+        service
+            .register(&explicit, b"descriptor", None, &service.io())
+            .unwrap_err()
+            .code,
+        "REMOTE_CLOUD_MACHINE_CONFLICT"
+    );
+    assert_eq!(
+        *factory.opened.lock().unwrap(),
+        vec![
+            (service.machine.clone(), false),
+            (service.machine.clone(), true)
+        ]
+    );
+    assert_eq!(
+        fake.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.0.as_str())
+            .collect::<Vec<_>>(),
+        vec!["machine_metadata", "machine_metadata"]
+    );
+    assert!(wire.docs.lock().unwrap().is_empty());
+    assert!(wire.commits.lock().unwrap().is_empty());
+    assert_eq!(
+        wire.next.load(Ordering::SeqCst),
+        0,
+        "injected factory starts no Auth bootstrap"
+    );
+    assert_eq!(core.sends(), 0);
+}

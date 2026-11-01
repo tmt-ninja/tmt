@@ -752,3 +752,6 @@ fn paired_missing_cache_is_unavailable_without_fabricating_an_observation() {
 
 #[path = "publisher_io_tests.rs"]
 mod io_tests;
+
+#[path = "provider_port_tests.rs"]
+mod provider_port_tests;
