@@ -93,6 +93,16 @@ export type {
 import { channelFor } from './session-channel.js';
 import { RefusalError, parseCapabilities, verifiedSessionRequest } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
+export { conversations } from './conversations.js';
+export type {
+  RemoteConversations,
+  ConversationInput,
+  ConversationPage,
+  ConversationItem,
+  ConversationFinal,
+  ConversationCursor,
+  ConversationChanges,
+} from './conversations.js';
 export { management } from './management.js';
 export { members } from './members.js';
 export { invitations } from './invitations.js';

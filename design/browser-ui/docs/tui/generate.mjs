@@ -49,6 +49,11 @@ export const scenes = [
   'bindings-list',
   'bindings-preview',
   'bindings-unavailable',
+  'conversation-loading',
+  'usage-disabled-each',
+  'mention-picker',
+  'terminal-live',
+  'terminal-connecting',
 ];
 /** Only TUI-owned token inputs participate; GUI foundation edits are independent. */
 export function tokenInput(tokens) {

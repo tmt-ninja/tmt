@@ -90,6 +90,10 @@ elif wire['operation']=='user.identity':
     print(json.dumps(person))
 elif wire['operation']=='identities.status':
     print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
+elif wire['operation']=='requests.list':
+    if (root/'conversation-error').exists():
+        print(json.dumps({'error':{'code':'API_INPUT_INVALID','message':(root/'conversation-error').read_text()}}));sys.exit(1)
+    print((root/'conversation').read_text())
 elif wire['operation']=='requests.show':
     final_path=root/('final-'+wire['input']['requestId'])
     if not final_path.exists(): final_path=root/'final'

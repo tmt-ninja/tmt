@@ -3,7 +3,6 @@ import { Button } from '../../src/ui/index.js';
 import { useQuery, setQuery } from '../router.js';
 import { TuiFrame } from '../tui/frame.js';
 import { framesFor, looks, selectFrame, states } from '../tui/model.js';
-import './mock-tui.css';
 
 export function TuiMock({ path }: { path: string }) {
   const query = useQuery();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
-import { scopeCss } from '../docs/scope-css.js';
+import { scopeCss } from '../scripts/scope-css.mjs';
 
 /** #5866: the hosted docs' styles stay inside the docs' element. */
 describe('scopeCss', () => {

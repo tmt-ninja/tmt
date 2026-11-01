@@ -172,9 +172,9 @@ const MANAGEMENT_PRE_EFFECT = new Set<string>([
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const coreId = (value: unknown): value is string =>
+export const coreId = (value: unknown): value is string =>
   typeof value === 'string' && UUID.test(value) && value !== '00000000-0000-0000-0000-000000000000';
-const requestId = (value: unknown): value is string =>
+export const requestId = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('req_') && coreId(value.slice(4));
 const utf8 = new TextEncoder();
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
@@ -221,7 +221,7 @@ const timestamp = (value: unknown): value is number | null =>
 /** Optional, and exact when present: a state that does not parse makes the whole reply unverifiable.
  * A well-formed state this SDK does not know is dropped and the rest of the reply kept, so a new
  * Core state needs an additive SDK release but never breaks result(). */
-function messageState(value: Record<string, unknown>): { messageState?: MessageState } {
+export function messageState(value: Record<string, unknown>): { messageState?: MessageState } {
   if (value.messageState === undefined) return {};
   const state = record(value.messageState);
   if (typeof state.state === 'string' && !MESSAGE_STATES.includes(state.state)) return {};

@@ -1,6 +1,5 @@
 import { createElement, useLayoutEffect, useRef } from 'react';
 import { cells, oracle, styleFor, type Frame } from './model.js';
-import './tui.css';
 
 /** Docs-only renderer of frozen painter cells. No TUI input or action is dispatched. */
 export function registerTuiFrame() {
