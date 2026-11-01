@@ -1180,7 +1180,7 @@ test.describe('the Ops route on the owner read', () => {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / core-3');
       await expect(
         page.getByRole('heading', {
-          name: "History isn't available in the browser yet",
+          name: 'Talk history',
           exact: true,
         }),
       ).toBeVisible();

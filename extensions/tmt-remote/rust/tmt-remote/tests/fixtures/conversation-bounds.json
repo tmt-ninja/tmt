@@ -1,0 +1,10 @@
+{
+  "pageMax": 50,
+  "previewBytes": 640,
+  "withdrawalBytes": 1024,
+  "messageReasonBytes": 256,
+  "jsonEscapeBytes": 6,
+  "itemMetadataBytes": 1024,
+  "pageMetadataBytes": 1024,
+  "responseBytes": 820224
+}

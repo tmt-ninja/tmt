@@ -67,6 +67,24 @@ if (process.argv[2] === 'list') {
       output(receipt);
       break;
     }
+    case 'requests.list': {
+      const fixture = JSON.parse(readFileSync(join(root, 'conversation-fixture.json'), 'utf8'));
+      assert.equal(request.input.view, 'conversation');
+      assert.equal(request.input.memberId, fixture.memberId);
+      assert.ok(request.input.limit >= 1 && request.input.limit <= 50);
+      assert.ok(
+        Object.keys(request.input).every((key) =>
+          ['view', 'memberId', 'limit', 'before', 'since'].includes(key),
+        ),
+      );
+      assert.deepEqual(Object.keys(request).sort(), ['input', 'operation', 'version']);
+      const page = structuredClone(fixture.page);
+      if (request.input.since !== undefined)
+        page.changedSince =
+          request.input.since === page.changePosition ? { count: 0, more: false } : 'unknown';
+      output(page);
+      break;
+    }
     case 'requests.show': {
       const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
       assert.equal(request.input.requestId, receipt.items[0].requestId);

@@ -168,6 +168,7 @@ export class Door {
   messageState?: unknown;
   /** What `requests.sendNow` answers; the request ID is filled in. */
   sendNowReply: Record<string, unknown> = { state: 'sent' };
+  conversationReply?: (input: Record<string, unknown>) => unknown;
   managementReply?: (operation: string, payload: Record<string, unknown>) => unknown;
   sendState = 'accepted';
   error?: {
@@ -289,6 +290,12 @@ export class Door {
             requestId: (payload.input as Record<string, unknown>).requestId,
             ...this.sendNowReply,
           };
+          break;
+        case 'requests.list':
+          assert.ok(this.conversationReply, 'Conversation fixture is explicitly configured.');
+          assert.equal(payload.version, 1);
+          assert.equal(payload.operation, 'requests.list');
+          result = this.conversationReply(payload.input as Record<string, unknown>);
           break;
         case 'agents.list':
           assert.deepEqual(payload, {});
