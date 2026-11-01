@@ -17,7 +17,10 @@
         // that `rememberSource` fills with each element's last source value of the attributes the
         // reader changes too (`open`, `value`, `checked`, `selected`): those, and their live
         // properties, change only when the source changes them. Elements match by `id`, then by kind
-        // and position. e2e/page-morph.spec.ts reads this region and tests its cases.
+        // and position. `owner.previous`, when given, is the body parsed from the source the live
+        // body was last brought to: a node in the same place whose source did not change is left
+        // alone, so an update costs what changed, not the page (#5891). e2e/page-morph.spec.ts reads
+        // this region and tests its cases.
         // BEGIN PAGE MORPH
         const readerAttributes = ['open', 'value', 'checked', 'selected'];
         function rememberSource(root, state) {
@@ -58,8 +61,13 @@
               (a.namespaceURI === b.namespaceURI &&
                 a.localName === b.localName &&
                 (a.localName !== 'template' || a.innerHTML === b.innerHTML)));
-          const children = (parent, source) => {
+          const children = (parent, source, previous) => {
             const candidates = [...parent.childNodes].filter((n) => !owner.node(n));
+            // The live children stand for the previous source's, one to one, or nothing is skipped.
+            const before =
+              previous && previous.childNodes.length === candidates.length
+                ? previous.childNodes
+                : undefined;
             const ids = new Map();
             for (const n of candidates)
               if (n.nodeType === 1 && n.id && !ids.has(n.id)) ids.set(n.id, n);
@@ -80,21 +88,23 @@
                 continue;
               }
               used.add(match);
+              const earlier = match === cursor ? before?.[index] : undefined;
               if (match === cursor) index++;
               else parent.insertBefore(match, cursor ?? null);
-              patch(match, child);
+              if (earlier?.isEqualNode(child)) continue;
+              patch(match, child, earlier && same(earlier, child) ? earlier : undefined);
             }
             for (const n of candidates) if (!used.has(n)) n.remove();
           };
-          const patch = (a, b) => {
+          const patch = (a, b, previous) => {
             if (a.nodeType !== 1) {
               if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue;
               return;
             }
             attributes(a, b);
-            if (!owner.expanded(a)) children(a, b);
+            if (!owner.expanded(a)) children(a, b, previous);
           };
-          patch(live, next);
+          patch(live, next, owner.previous);
         }
         // END PAGE MORPH
         // What an update compares with: the same shape bind writes, parsed inertly (no script runs
@@ -644,11 +654,19 @@
             hintTimer,
             hoverFrame,
             hoverPointer;
+          // Writing a style element's text replaces its sheet, and the whole page's style and
+          // layout follow (#5891), so the sheet is written only when its text changes.
+          function paintSheet(text) {
+            if (sheet.textContent !== text) sheet.textContent = text;
+          }
           function clearTarget() {
+            clearHover();
+            paintSheet(highlightStyle);
+          }
+          function clearHover() {
             cancelAnimationFrame(hoverFrame);
             hoverFrame = undefined;
             hoverPointer = undefined;
-            sheet.textContent = highlightStyle;
             CSS.highlights?.delete('colab-hover');
             hover?.remove();
             hover = undefined;
@@ -708,10 +726,10 @@
           }
           function renderHover() {
             const event = hoverPointer;
-            clearTarget();
-            if (stopped || !event?.target.isConnected) return;
+            clearHover();
+            if (stopped || !event?.target.isConnected) return paintSheet(highlightStyle);
             const hit = highlightAt(event.clientX, event.clientY);
-            if (hit) sheet.textContent = highlightStyle + '*{cursor:pointer!important}';
+            paintSheet(hit ? highlightStyle + '*{cursor:pointer!important}' : highlightStyle);
             const target = selecting ? targetAt(event.target) : null;
             if (!hit && !target) return;
             const box = hit ? hit.range.getBoundingClientRect() : target.getBoundingClientRect();
@@ -1479,7 +1497,16 @@
                   choice.removeAttribute('hidden');
                   frameHidden.delete(choice);
                 }
-              const map = collect(),
+              // The page's text is read only when something needs it: on a large page the walk
+              // spends its whole budget and fails (#5891), and with nothing to match the answer
+              // is the same.
+              const map =
+                  questionThreads.length ||
+                  questionBlocks.length ||
+                  reviewBlocks.length ||
+                  readingBlocks.length
+                    ? collect()
+                    : null,
                 deadline = performance.now() + 20;
               const threads = questionThreads.map((thread) => ({
                 id: thread.id,
@@ -1603,7 +1630,8 @@
               ranges = [],
               positions = [];
             try {
-              const map = collect(),
+              // As in resolveQuestions: no text walk when there is nothing to match.
+              const map = batch.length || quiet ? collect() : null,
                 deadline = performance.now() + 20;
               for (const item of batch) {
                 if (performance.now() > deadline) throw new Error('match budget');
@@ -1820,12 +1848,16 @@
           };
           // The source an update compares with; parsed once, at the first update.
           const sourceState = new WeakMap();
-          let boundKey;
+          let boundKey, boundBody;
           // Applies a new source to this page in place (#5022), or answers false when the page needs
           // a fresh frame: its key differs from the bound one, or it is a page that never updates in
           // place. Everything the frame reports is measured again before the answer.
           function applySource(source) {
-            if (boundKey === undefined) boundKey = pageKey(boundSource, parsePage(boundSource));
+            if (boundKey === undefined) {
+              const bound = parsePage(boundSource);
+              boundKey = pageKey(boundSource, bound);
+              boundBody = bound.body;
+            }
             const doc = parsePage(source);
             if (boundKey === null || pageKey(source, doc) !== boundKey) return false;
             clearTarget();
@@ -1845,7 +1877,9 @@
                 name.startsWith('data-colab-') || (name === 'hidden' && frameHidden.has(el)),
               expanded: (el) => el.localName === 'tmt-icon',
               state: sourceState,
+              previous: boundBody,
             });
+            boundBody = doc.body;
             if (imageRequestId) configureImages(imageRequestId);
             boundSource = source;
             prepareLockQuotes();

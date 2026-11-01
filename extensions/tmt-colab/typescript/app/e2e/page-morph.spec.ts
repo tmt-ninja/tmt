@@ -83,6 +83,26 @@ const cases: MorphCase[] = [
       '<details id="d" open=""><summary>S</summary>T, edited</details><input id="t" value="one"><input id="u" value="two">',
     kept: ['d', 't', 'u'],
   },
+  {
+    // With the previous source given, a node whose source did not change is not compared again:
+    // what the live node holds stays, while the changed node takes its new source.
+    name: 'an unchanged source node is left alone',
+    before: '<p id="a">A</p><section id="s"><p id="b">B</p></section>',
+    live: 'drift',
+    after: '<p id="a">A changed</p><section id="s"><p id="b">B</p></section>',
+    expected:
+      '<p id="a">A changed</p><section id="s"><p id="b">B, as the reader left it</p></section>',
+    kept: ['a', 's', 'b'],
+  },
+  {
+    name: 'a changed child inside an unchanged parent position is patched',
+    before: '<section id="s"><p id="a">A</p><p id="b">B</p></section>',
+    live: 'drift-a',
+    after: '<section id="s"><p id="a">A</p><p id="b">B changed</p></section>',
+    expected:
+      '<section id="s"><p id="a">A, as the reader left it</p><p id="b">B changed</p></section>',
+    kept: ['s', 'a', 'b'],
+  },
 ];
 
 test('the page morph table', async ({ page }) => {
@@ -117,22 +137,29 @@ test('the page morph table', async ({ page }) => {
           svg.setAttribute('data-drawn', '');
           body.querySelector('#i')!.append(svg);
         }
+        if (item.live === 'drift')
+          body.querySelector('#b')!.firstChild!.nodeValue = 'B, as the reader left it';
+        if (item.live === 'drift-a')
+          body.querySelector('#a')!.firstChild!.nodeValue = 'A, as the reader left it';
         if (item.live === 'reader') {
           (body.querySelector('#d') as HTMLDetailsElement).open = true;
           (body.querySelector('#t') as HTMLInputElement).value = 'typed';
           (body.querySelector('#u') as HTMLInputElement).value = 'typed';
         }
         const nodes = new Map(item.kept.map((id) => [id, body.querySelector(`#${id}`)]));
-        const next = new DOMParser().parseFromString(
-          `<!doctype html><html><head></head><body>${item.after}</body></html>`,
-          'text/html',
-        ).body;
+        const parse = (source: string) =>
+          new DOMParser().parseFromString(
+            `<!doctype html><html><head></head><body>${source}</body></html>`,
+            'text/html',
+          ).body;
+        const next = parse(item.after);
         morphPage(body, next, {
           node: (node: Node) => owned.has(node),
           attribute: (el: Element, name: string) =>
             name.startsWith('data-colab-') || (name === 'hidden' && hidden.has(el)),
           expanded: (el: Element) => el.localName === 'tmt-icon',
           state,
+          previous: parse(item.before),
         });
         if (item.live === 'reader') {
           values.t = (body.querySelector('#t') as HTMLInputElement).value;
@@ -154,5 +181,9 @@ test('the page morph table', async ({ page }) => {
     expect(result.kept, item.name).toEqual(item.kept);
   }
   // A typed value stays while its source attribute stays; a changed attribute replaces it.
-  expect(results.at(-1)!.values).toEqual({ t: 'typed', u: 'two' });
+  expect(
+    results.find(
+      (result) => result.name === 'reader state stays until its source attribute changes',
+    )!.values,
+  ).toEqual({ t: 'typed', u: 'two' });
 });

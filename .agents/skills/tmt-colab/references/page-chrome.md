@@ -320,7 +320,11 @@ its whole text), so a metadata-only change remounts the frame. Any other source 
 open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstrap's `PAGE MORPH`
 region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
 `data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
-node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
+node cases is `e2e/page-morph.spec.ts`. An update costs what changed, not the page (#5891): the
+morph leaves a node whose source equals the previous source's node in the same place, the frame's
+style element is written only when its text changes (a rewrite restyles and relays the whole
+page), and the anchor and question passes walk the page text only when they have something to
+match. On success the router's `contentRevision` counter re-runs
 the highlight, select, question and slot effects without a `loading` state; the question pass sets
 the question, review and reading marks on the blocks the parent admits and clears them (and the
 `hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s
