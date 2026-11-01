@@ -11,7 +11,8 @@ import { Badge, Button, DropdownMenuItem } from '../src/ui/index.js';
 /*
  * The Colab page list on DataTable (#5821 A6/C9), with sample data shared by the gallery frame, the
  * /docs pattern and the /mock/colab list. Titles include CJK text on purpose: the table must
- * truncate and align it like Latin text (fixture data, see AGENTS.md language exceptions).
+ * truncate and align it like Latin text (technically required fixture data, a repository language
+ * exception).
  */
 export type PageStage = 'discussion' | 'in-progress' | 'done' | 'archived';
 export interface SamplePage {

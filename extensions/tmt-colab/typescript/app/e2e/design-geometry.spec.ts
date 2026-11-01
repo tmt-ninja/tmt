@@ -46,32 +46,55 @@ test('a busy action centres its mark on the label for every variant and theme', 
   for (const entry of offsets) expect(entry.offset, entry.name ?? '').toBeLessThanOrEqual(0.5);
 });
 
-test('a chip remove control is a segment flush with the chip inner edges', async ({ page }) => {
-  await mount(page);
-  const chips = await page.$$eval(
-    '#geometry-fixture .tmt-ui-chip, #geometry-fixture [data-slot="badge"]',
-    (chips) =>
-      chips.map((chip) => {
-        const outer = chip.getBoundingClientRect();
-        const inner = {
-          top: outer.top + chip.clientTop,
-          right: outer.left + chip.clientLeft + chip.clientWidth,
-          bottom: outer.top + chip.clientTop + chip.clientHeight,
-        };
-        const remove = chip.querySelector('button')!.getBoundingClientRect();
-        return {
-          name: chip.textContent,
-          top: Math.abs(remove.top - inner.top),
-          right: Math.abs(remove.right - inner.right),
-          bottom: Math.abs(remove.bottom - inner.bottom),
-        };
-      }),
+/** Each chip's remove control against the chip's inner box (inside its border). */
+async function removeInsets(page: Page, selector: string) {
+  return page.$$eval(selector, (chips) =>
+    chips.map((chip) => {
+      const outer = chip.getBoundingClientRect();
+      const inner = {
+        top: outer.top + chip.clientTop,
+        right: outer.left + chip.clientLeft + chip.clientWidth,
+        bottom: outer.top + chip.clientTop + chip.clientHeight,
+      };
+      const remove = chip.querySelector('button')!.getBoundingClientRect();
+      return {
+        name: chip.textContent,
+        top: remove.top - inner.top,
+        right: inner.right - remove.right,
+        bottom: inner.bottom - remove.bottom,
+        width: remove.width,
+        height: remove.height,
+      };
+    }),
   );
-  expect(chips).toHaveLength(4);
+}
+
+test('a browser chip remove control is a segment flush with the chip inner edges', async ({
+  page,
+}) => {
+  await mount(page);
+  const chips = await removeInsets(page, '#geometry-fixture .tmt-ui-chip');
+  expect(chips).toHaveLength(2);
   for (const chip of chips) {
-    expect(chip.top, `${chip.name} top`).toBeLessThanOrEqual(0.5);
-    expect(chip.right, `${chip.name} right`).toBeLessThanOrEqual(0.5);
-    expect(chip.bottom, `${chip.name} bottom`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.top), `${chip.name} top`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.right), `${chip.name} right`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.bottom), `${chip.name} bottom`).toBeLessThanOrEqual(0.5);
+  }
+});
+
+// The size-owning pill chip (#5821 A5c): a round remove control, centred, inset equally on its
+// three edges.
+test('a pill chip remove control is round and inset equally from the chip edges', async ({
+  page,
+}) => {
+  await mount(page);
+  const chips = await removeInsets(page, '#geometry-fixture [data-slot="chip"]');
+  expect(chips).toHaveLength(2);
+  for (const chip of chips) {
+    expect(Math.abs(chip.width - chip.height), `${chip.name} round`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.top - chip.bottom), `${chip.name} centred`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.right - chip.top), `${chip.name} inset`).toBeLessThanOrEqual(0.5);
+    expect(chip.top, `${chip.name} inside`).toBeGreaterThan(0);
   }
 });
 

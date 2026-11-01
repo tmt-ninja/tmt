@@ -97,9 +97,12 @@ test('the preview check catches a frame that keeps its full width', async ({ pag
 test('the 390 tabs-row preview shows the phone row', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${docs}/ds/gui/patterns/tabs-row`);
-  const phone = page.frameLocator('iframe[title="Tabs row with actions Default 390 dark"]');
+  const frame = 'iframe[title="Tabs row with actions Default 390 dark"]';
+  // The preview frames load lazily: bring this one into view so it loads on a slow runner too.
+  await page.locator(frame).scrollIntoViewIfNeeded();
+  const phone = page.frameLocator(frame);
   const actions = phone.locator('[data-slot="button"]');
-  await expect(actions).toHaveCount(2);
+  await expect(actions).toHaveCount(2, { timeout: 15_000 });
   const [first, second] = [await actions.nth(0).boundingBox(), await actions.nth(1).boundingBox()];
   expect(first!.width).toBeCloseTo(first!.height, 0);
   expect(second!.width).toBeCloseTo(first!.width, 0);
