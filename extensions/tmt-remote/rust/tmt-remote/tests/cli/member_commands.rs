@@ -447,19 +447,6 @@ fn public_exact_machine_commands_and_offline_browser_recovery_preserve_receipts(
     );
     assert_eq!(designated["designatedClientId"], browser.client_id);
     assert_eq!(designated["changed"], true);
-    let legacy = pilot
-        .command()
-        .args(["devices", "designate", &browser.client_id, "--json"])
-        .output()
-        .unwrap();
-    assert!(legacy.status.success());
-    assert_eq!(
-        String::from_utf8(legacy.stdout).unwrap(),
-        format!(
-            "{}\n",
-            serde_json::json!({"designatedClientId":browser.client_id})
-        )
-    );
     let same = json_command(
         &pilot,
         &["members", "designate", &browser.client_id, "--json"],

@@ -18,7 +18,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                                                 |
 | `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                                          |
 | `authority`, `members`, `store`, `state`         | Scoped members/machines and typed grants in one Store; schema history, layout/machine key/serve lock                                                                                                                                                |
-| `pairing`, `control`, `devices`                  | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename and explicit sending-scope toggles                                                                                                            |
+| `pairing`, `control`, `devices`                  | One pairing offer per run, owner-only control socket for discovery/stop and shared grant/session cleanup and revision-fenced member/machine effects                                                                                                 |
 | `mount`, `shell`, `pages`                        | Allowlisted mounts, bounded display-only describe composition, static pages and embedded assets                                                                                                                                                     |
 | `reads`, `reads::ops`                            | Owner browser reads: fixed public `ops`/`digest` argv, single-flight 5 s reuse, Ops allowlist projection ([contract](../../../../contracts/remote-channel-v1.md#owner-browser-reads)); public CLI only, no state or worker                          |
 | `objects`                                        | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                                                            |
@@ -68,8 +68,8 @@ Rules that are easy to get wrong:
   untrusted origin metadata; signed refusals and effect uncertainty stay in the common
   owner. A finite subscribe does not acknowledge; only the explicit signed ack does.
 - **One opener.** `store::Store` opens only with the `state::Serving` proof of the
-  serve lock. Pairing and device commands reach state through serve's control
-  socket; local `members` and legacy `devices` take the serve lock when stopped.
+  serve lock. Pairing and members commands reach state through serve's control
+  socket; local `members` takes the serve lock when stopped.
 - **Authority lives in the transaction.** An effect runs in `Store::effect`: it
   rereads the persisted grant (revision, liveness, scope, recipients, expiry)
   inside an IMMEDIATE transaction and performs the core call under that fence. A
@@ -247,7 +247,8 @@ serve-lease adapter. Each terminal effect rechecks captured member/grant revisio
 IMMEDIATE writer transaction and uses shared policy/grant/designation SQL, with no journal or
 migration. Same-state effects do not widen narrower machine scope. Session cleanup and existing
 route-worker wakes follow Store release; an uncertain answer never causes resend or fallback.
-The legacy `devices` handler remains independent during consumer migration.
+The legacy `devices` CLI and its inventory/effect control aliases are removed; browser device APIs
+retain their shared grant/session owner and wire shapes.
 `members::observations` captures the existing invitation coordinator before acquiring
 live/Store locks, and aggregates existing desired-route/ACK rows under the same Store.
 The Cloud composition attaches a weak link once, avoiding a Cloud/Operations cycle.

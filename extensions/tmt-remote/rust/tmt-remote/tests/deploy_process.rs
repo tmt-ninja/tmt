@@ -1021,7 +1021,7 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
         .unwrap();
     assert!(add.status.success(), "{:?}", add);
     let owned_command = base(&root)
-        .args(["devices", "--remote", "other", "--json"])
+        .args(["members", "--remote", "other", "--json"])
         .output()
         .unwrap();
     let refused: serde_json::Value = serde_json::from_slice(&owned_command.stdout).unwrap();
@@ -1055,7 +1055,7 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
     export_human(
         "local-required",
         &base(&root)
-            .args(["devices", "--remote", "other"])
+            .args(["members", "--remote", "other"])
             .output()
             .unwrap(),
     );
@@ -1097,7 +1097,7 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
     export_human(
         "kind-unsupported",
         &base(&root)
-            .args(["devices", "--remote", "tenant"])
+            .args(["members", "--remote", "tenant"])
             .output()
             .unwrap(),
     );

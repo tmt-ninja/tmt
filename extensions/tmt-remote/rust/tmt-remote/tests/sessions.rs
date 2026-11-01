@@ -435,6 +435,36 @@ fn control(h: &Harness, request: Value) -> Value {
     serde_json::from_str(&line).unwrap()
 }
 
+fn machine_change(h: &Harness, client: &str, action: &str, name: Option<&str>) -> Value {
+    let read = control(
+        h,
+        json!({"op":"members.read","input":{"view":"resolveMachine","clientId":client}}),
+    );
+    if read.get("error").is_some() {
+        return read;
+    }
+    let target = read["target"].clone();
+    assert_eq!(target["clientId"], client);
+    assert!(target["grantRevision"].is_u64());
+    assert!(target["member"]["memberRevision"].is_u64());
+    let mut input = json!({"action":action,"target":target});
+    if let Some(name) = name {
+        input["name"] = json!(name);
+    }
+    control(h, json!({"op":"members.machine.mutate","input":input}))
+}
+fn enable_sending(h: &Harness, client: &str) -> Value {
+    let read = control(
+        h,
+        json!({"op":"members.read","input":{"view":"resolveMachine","clientId":client}}),
+    );
+    assert!(read.get("error").is_none(), "{read}");
+    control(
+        h,
+        json!({"op":"members.mutate","input":{"action":"sending","target":read["target"]["member"],"enabled":true}}),
+    )
+}
+
 #[test]
 fn session_open_returns_a_signed_response_and_a_door_cookie() {
     let h = Harness::new(FAST);
@@ -724,7 +754,7 @@ fn fresh_open_terminal_proof_respects_call_budget_and_repair_has_a_new_identity(
     let h = Harness::new(FAST);
     let device = Device::browser(&h, 7);
     let client = paired(&h, &device);
-    control(&h, json!({"op":"revoke","clientId":client}));
+    machine_change(&h, &client, "remove", None);
     let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
     oracle
         .execute(
@@ -810,18 +840,21 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     let second = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
     let second_cookie = pair_of(&second.cookie().unwrap());
     let mut second_tunnel = tunnel_for(&h, &second_cookie, None);
-    let listed = control(&h, json!({"op":"devices"}));
-    assert_eq!(listed["devices"][0]["clientId"], client_id);
-    assert_eq!(listed["devices"][0]["revoked"], false);
-    assert_eq!(
-        listed["devices"][0]["words"],
-        canonical::fingerprint_words(&device.public())
-            .unwrap()
-            .join(" ")
+    let roster = control(&h, json!({"op":"members.list","cursor":null,"limit":50}));
+    let member = roster["members"][0]["memberId"].as_str().unwrap();
+    let listed = control(
+        &h,
+        json!({"op":"members.machines","memberId":member,"cursor":null,"limit":50}),
     );
-    let revoked = control(&h, json!({"op":"revoke","clientId":client_id}));
-    assert_eq!(revoked["device"]["revoked"], true);
-    assert_eq!(revoked["device"]["revision"], 2);
+    assert_eq!(listed["machines"][0]["clientId"], client_id);
+    assert_eq!(listed["machines"][0]["revoked"], false);
+    assert!(
+        listed["machines"][0].get("words").is_none(),
+        "member projections do not disclose key fingerprints"
+    );
+    let revoked = machine_change(&h, &client_id, "remove", None);
+    assert_eq!(revoked["machine"]["revoked"], true);
+    assert_eq!(revoked["machine"]["revision"], 2);
     closes(&mut tunnel);
     closes(&mut second_tunnel);
     assert_eq!(mounted(&h, &colab, Some(&second_cookie)), None);
@@ -832,10 +865,10 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     assert_eq!(payload(&reopen)["error"]["code"], "REMOTE_DEVICE_REVOKED");
     assert!(reopen.cookie().is_none());
     verify_reply(&h, &reopen);
-    let again = control(&h, json!({"op":"revoke","clientId":client_id}));
-    assert_eq!(again["device"]["revision"], 2);
-    let missing = control(&h, json!({"op":"revoke","clientId":uuid_v4().unwrap()}));
-    assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
+    let again = machine_change(&h, &client_id, "remove", None);
+    assert_eq!(again["machine"]["revision"], 2);
+    let missing = machine_change(&h, &uuid_v4().unwrap(), "remove", None);
+    assert_eq!(missing["error"]["code"], "REMOTE_MACHINE_NOT_FOUND");
 }
 
 #[test]
@@ -1056,21 +1089,15 @@ fn rename_preserves_authority_and_the_same_session_context() {
         let cookie = pair_of(&opened.cookie().unwrap());
         let mut socket = tunnel(&h, &cookie);
         let before = h.store.lock().unwrap().grant(&client_id).unwrap().unwrap();
-        let renamed = control(
-            &h,
-            json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
-        );
-        assert_eq!(renamed["device"]["revision"], 1);
+        let renamed = machine_change(&h, &client_id, "rename", Some("New laptop"));
+        assert_eq!(renamed["machine"]["revision"], 1);
         cap_echo(&mut socket);
         let context = mounted(&h, &colab, Some(&cookie)).unwrap();
         assert_eq!(context["deviceId"], client_id);
         assert_eq!(context["name"], "New laptop");
         assert_eq!(context["grantRevision"], 1);
-        let repeated = control(
-            &h,
-            json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
-        );
-        assert_eq!(repeated["device"]["revision"], 1);
+        let repeated = machine_change(&h, &client_id, "rename", Some("New laptop"));
+        assert_eq!(repeated["machine"]["revision"], 1);
         assert!(mounted(&h, &colab, Some(&cookie)).is_some());
         let mut after = h.store.lock().unwrap().grant(&client_id).unwrap().unwrap();
         after.name = before.name.clone();
@@ -1278,11 +1305,8 @@ fn latest_cookie_rebinds_from_issuer_b_to_carrier_a_then_older_survivor_c() {
     cap_echo(&mut legacy);
     cap_echo(&mut c_transport);
     // A name change preserves even the latest cookie whose issuer has already ended.
-    let renamed = control(
-        &h,
-        json!({"op":"rename","clientId":client,"name":"Renamed alias"}),
-    );
-    assert_eq!(renamed["device"]["revision"], 1);
+    let renamed = machine_change(&h, &client, "rename", Some("Renamed alias"));
+    assert_eq!(renamed["machine"]["revision"], 1);
     assert_eq!(
         mounted(&h, &colab, Some(&latest)).unwrap()["name"],
         "Renamed alias"
@@ -1334,10 +1358,10 @@ fn rebound_cookie_does_not_survive_revoke_revision_expiry_or_stop() {
         assert!(h.sessions.context(Some(&latest)).is_some());
         match action {
             "revoke" => {
-                control(&h, json!({"op":"revoke","clientId":client}));
+                machine_change(&h, &client, "remove", None);
             }
             "revision" => {
-                control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
+                enable_sending(&h, &client);
             }
             "expiry" => {
                 rusqlite::Connection::open(h.root.join("remote/remote.db"))
@@ -1738,10 +1762,10 @@ fn detached_sessions_count_against_cap_and_authority_loss_remains_immediate() {
                 );
             }
             "revoke" => {
-                control(&h, json!({"op":"revoke","clientId":client}));
+                machine_change(&h, &client, "remove", None);
             }
             "revision" => {
-                control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
+                enable_sending(&h, &client);
             }
             "expiry" => {
                 let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
@@ -2186,7 +2210,7 @@ fn real_revision_and_orderly_shutdown_have_bounded_signed_notices_without_a_revo
         if stopped {
             h.sessions.shutdown();
         } else {
-            control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
+            enable_sending(&h, &client);
         }
         closes(&mut transport);
         assert!(state.ended());
@@ -2266,7 +2290,7 @@ fn composed_shell_uses_the_existing_owner_cookie_and_refuses_expiry_and_revocati
                 .any(|m| m["extension"] == "remote")
         );
         if action == "revoke" {
-            control(&h, json!({"op":"revoke","clientId":client}));
+            machine_change(&h, &client, "remove", None);
         } else {
             rusqlite::Connection::open(h.root.join("remote/remote.db"))
                 .unwrap()

@@ -789,7 +789,7 @@ fn one_ceremony_can_enable_talk_and_receipt_cleanup_never_changes_trust() {
 }
 
 #[test]
-fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
+fn person_management_refuses_ambiguous_names_and_accepts_exact_machine_ids() {
     let (root, serving, candidate) = world();
     let mut store = Store::open(&serving).unwrap();
     let key = response_key(&[4; 16], &candidate.challenge, &candidate.candidate).unwrap();
@@ -800,7 +800,34 @@ fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
     let name = candidate.candidate.name.clone();
     let shared = std::sync::Arc::new(std::sync::Mutex::new(store));
     let devices = crate::devices::Devices::new(shared.clone(), None);
-    assert!(devices.talk(&name, true).unwrap().permits_scope("talk"));
+    use crate::members::{
+        selectors,
+        terminal::{self, MemberTerminalMutation, MemberTerminalTarget},
+        terminal_machines::{self, MemberMachineMutation},
+    };
+    let person = selectors::local_member(&shared.lock().unwrap(), &name).unwrap();
+    let target = MemberTerminalTarget {
+        remote_id: person.remote_id,
+        member_id: person.member_id,
+        member_revision: person.revision,
+    };
+    terminal::mutate(
+        &devices,
+        &MemberTerminalMutation::Sending {
+            target,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        shared
+            .lock()
+            .unwrap()
+            .grant(&peer)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
     let mut other = shared.lock().unwrap().grant(&peer).unwrap().unwrap();
     other.client_id = uuid_v4().unwrap();
     other.public_key = ed25519_dalek::SigningKey::from_bytes(&[6; 32])
@@ -808,12 +835,16 @@ fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
         .to_bytes();
     shared.lock().unwrap().insert_grant(&other).unwrap();
     assert_eq!(
-        devices.talk(&name, false).unwrap_err().code,
-        "REMOTE_DEVICE_AMBIGUOUS"
+        selectors::local_member(&shared.lock().unwrap(), &name)
+            .unwrap_err()
+            .code,
+        "REMOTE_MEMBER_AMBIGUOUS"
     );
     assert_eq!(
-        devices.revoke(&name).unwrap_err().code,
-        "REMOTE_DEVICE_AMBIGUOUS"
+        terminal_machines::resolve(&shared.lock().unwrap(), &name)
+            .unwrap_err()
+            .code,
+        "REMOTE_MACHINE_NOT_FOUND"
     );
     assert!(
         shared
@@ -824,10 +855,39 @@ fn person_management_requires_a_unique_name_and_accepts_an_exact_client_id() {
             .unwrap()
             .permits_scope("talk")
     );
-    assert!(devices.revoke(&peer).unwrap().disabled);
-    assert_eq!(
-        devices.talk(&name, false).unwrap().client_id,
-        other.client_id
+    let target = terminal_machines::resolve(&shared.lock().unwrap(), &peer).unwrap();
+    let removed =
+        terminal_machines::mutate(&devices, &MemberMachineMutation::Remove { target }, None)
+            .unwrap();
+    assert_eq!(removed["machine"]["revoked"], true);
+    // Exact member identity remains unambiguous after machine removal.
+    let member = shared
+        .lock()
+        .unwrap()
+        .member_for_client(&other.client_id)
+        .unwrap()
+        .unwrap();
+    let target = MemberTerminalTarget {
+        remote_id: member.remote_id,
+        member_id: member.member_id,
+        member_revision: member.revision,
+    };
+    terminal::mutate(
+        &devices,
+        &MemberTerminalMutation::Sending {
+            target,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    assert!(
+        !shared
+            .lock()
+            .unwrap()
+            .grant(&other.client_id)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
     );
     drop(devices);
     drop(shared);

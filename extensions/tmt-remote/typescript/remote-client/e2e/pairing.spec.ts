@@ -553,6 +553,99 @@ async function expectUnbrokenPairingCommands(page: Page) {
   }
 }
 
+interface PairedMachine {
+  clientId: string;
+  name: string;
+  revision: number;
+  revoked: boolean;
+  memberId: string;
+  memberRevision: number;
+  origin: string;
+  issuedAtMs: number;
+  scopes: string[];
+}
+
+interface StoredGrantPolicy {
+  clientId: string;
+  origin: string;
+  issuedAtMs: number;
+  scopes: string[];
+}
+
+/** Independent durable-state oracle for exact scope policy and atomic bulk effects. */
+function activeGrantPolicies(): StoredGrantPolicy[] {
+  const policy = JSON.parse(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import sqlite3,sys,json;db=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True);db.row_factory=sqlite3.Row;print(json.dumps([dict(r) for r in db.execute('SELECT client_id AS clientId,origin,issued_at_ms AS issuedAtMs,scopes FROM grants WHERE disabled=0 ORDER BY client_id')]));db.close()",
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ),
+  ) as { clientId: string; origin: string; issuedAtMs: number; scopes: string }[];
+  return policy.map((grant) => ({ ...grant, scopes: grant.scopes.split(' ').filter(Boolean) }));
+}
+
+/** Public member views supply identity; private fixture SQL independently checks enrollment policy. */
+function pairedMachines(): PairedMachine[] {
+  const rows = <T>(args: string[], key: string): T[] => {
+    const all: T[] = [];
+    let cursor: string | null = null;
+    do {
+      const view = JSON.parse(
+        execFileSync(BINARY, [...args, '--json', ...(cursor ? ['--cursor', cursor] : [])], {
+          env,
+          encoding: 'utf8',
+        }),
+      ) as Record<string, unknown> & { nextCursor: string | null };
+      all.push(...(view[key] as T[]));
+      cursor = view.nextCursor;
+    } while (cursor);
+    return all;
+  };
+  const machines = rows<{ memberId: string; revision: number }>(['members'], 'members').flatMap(
+    (member) =>
+      rows<{ clientId: string; name: string; revision: number; revoked: boolean }>(
+        ['members', 'machines', member.memberId],
+        'machines',
+      )
+        .filter((machine) => !machine.revoked)
+        .map((machine) => ({
+          ...machine,
+          memberId: member.memberId,
+          memberRevision: member.revision,
+        })),
+  );
+  // Read only this test world's database. Origin, issued time and the exact scope set
+  // are intentionally not added to the public members projection just for a fixture.
+  const policy = activeGrantPolicies();
+  expect(machines.map((machine) => machine.clientId).sort()).toEqual(
+    policy.map((row) => row.clientId).sort(),
+  );
+  return machines.map((machine) => {
+    const grant = policy.find((row) => row.clientId === machine.clientId)!;
+    return {
+      ...machine,
+      origin: grant.origin,
+      issuedAtMs: grant.issuedAtMs,
+      scopes: grant.scopes,
+    };
+  });
+}
+
+// Raw grant fixtures also create distinct person IDs so public member reads and
+// revision-fenced exact-machine effects can observe every seeded machine.
+const ASSOCIATE_SEEDED_MEMBERS = `
+import uuid
+remote=db.execute('SELECT machine_id FROM machine WHERE singleton=1').fetchone()[0]
+for client,name,scopes in db.execute('SELECT g.client_id,g.name,g.scopes FROM grants g LEFT JOIN member_machines mm ON mm.remote_id=? AND mm.client_id=g.client_id WHERE mm.client_id IS NULL',(remote,)).fetchall():
+    member=str(uuid.uuid4())
+    db.execute('INSERT INTO members VALUES(?,?,?,?,?,?,?,?)',(remote,member,'user',name,int('talk' in scopes.split()),1,0,None))
+    db.execute('INSERT INTO member_machines VALUES(?,?,?,?)',(remote,client,member,0))
+`;
+
 test('native plain opening preserves a manual offer and leaves an unpaired browser unpaired', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
@@ -579,9 +672,7 @@ test('native plain opening preserves a manual offer and leaves an unpaired brows
   await expect(page.locator('#state-label')).toHaveText('Not paired');
   expect(page.url()).toBe(`${origin}/remote/overview`);
   expect(await (await page.request.get(`${origin}/sdk/pair-offer`)).json()).toEqual(original);
-  expect(
-    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })).devices,
-  ).toHaveLength(0);
+  expect(pairedMachines()).toHaveLength(0);
   expect(original).toEqual(offer.descriptor);
   // The existing teardown owner closes the still-live manual command and joins serve.
 });
@@ -604,21 +695,13 @@ test('native automatic opening is single-use, strips history and reuses a paired
   expect(response?.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
   // The short page link now redirects into the one TMT app.
   await page.waitForURL(`${origin}/colab/p/abcd`);
-  const list = () =>
-    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
-      devices: { clientId: string; origin: string; issuedAtMs: number; scopes: string[] }[];
-    };
+  const list = () => pairedMachines();
   const paired = list();
-  expect(paired.devices).toHaveLength(1);
-  expect(paired.devices[0]!.origin).toBe(origin);
-  expect(paired.devices[0]!.issuedAtMs).toBeGreaterThan(0);
-  expect(paired.devices[0]!.scopes).toEqual([
-    'agents.read',
-    'check.read',
-    'results.read',
-    'status.read',
-  ]);
-  expect(logs).toContain(paired.devices[0]!.clientId);
+  expect(paired).toHaveLength(1);
+  expect(paired[0]!.origin).toBe(origin);
+  expect(paired[0]!.issuedAtMs).toBeGreaterThan(0);
+  expect(paired[0]!.scopes).toEqual(['agents.read', 'check.read', 'results.read', 'status.read']);
+  expect(logs).toContain(paired[0]!.clientId);
   expect(logs).toContain(origin);
   expect(logs).not.toContain(code);
   expect(
@@ -628,8 +711,8 @@ test('native automatic opening is single-use, strips history and reuses a paired
   const second = await automaticOffer('/remote/overview');
   await page.goto(second.link, { waitUntil: 'domcontentloaded' });
   await page.waitForURL(`${origin}/remote/overview`);
-  expect(list().devices).toHaveLength(1);
-  expect(list().devices[0]!.clientId).toBe(paired.devices[0]!.clientId);
+  expect(list()).toHaveLength(1);
+  expect(list()[0]!.clientId).toBe(paired[0]!.clientId);
   expect((await page.request.get(`${origin}/sdk/pair-offer`)).status()).toBe(404);
   await page.goBack();
   expect(page.url()).not.toContain('#');
@@ -647,14 +730,14 @@ test('native automatic opening is single-use, strips history and reuses a paired
     await expect(stranger.locator('#status code')).toHaveText('tmt remote open');
     await expectUnbrokenPairingCommands(stranger);
     expect(stranger.url()).toBe(`${origin}/remote/pair`);
-    expect(list().devices).toHaveLength(1);
+    expect(list()).toHaveLength(1);
     await expectAutomaticLabels(stranger, true);
     await captureState(stranger, 'automatic-used', '#notice', [1280, 390], ['light', 'dark']);
     // A fresh native offer works for another profile even though the machine already has a device.
     const fresh = await automaticOffer('/read/abcd');
     await stranger.goto(fresh.link, { waitUntil: 'domcontentloaded' });
     await stranger.waitForURL(`${origin}/read/abcd`);
-    expect(list().devices).toHaveLength(2);
+    expect(list()).toHaveLength(2);
   } finally {
     await other.close();
   }
@@ -1427,11 +1510,13 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     deviceId: device.deviceId,
   });
   expect((await page.request.get(`${origin}/sdk/pair-offer`)).status()).toBe(404);
-  const revoke = spawn(BINARY, ['devices', 'revoke', device.deviceId as string, '--json'], { env });
+  const revoke = spawn(BINARY, ['members', 'remove-machine', device.deviceId as string, '--json'], {
+    env,
+  });
   const revoked = await lines(revoke).next();
   await exited(revoke);
   expect(revoke.exitCode).toBe(0);
-  expect(revoked.device).toMatchObject({ clientId: device.deviceId, revoked: true, revision: 2 });
+  expect(revoked.machine).toMatchObject({ clientId: device.deviceId, revoked: true, revision: 2 });
   // Keep the revoked cookie and certificate: neither is fresh owner authority.
   await app.reload();
   await expect(app.locator('#context')).toHaveText('none');
@@ -2233,8 +2318,8 @@ test('the native entry checks once and presents all seven evidenced states witho
     ),
   ).toBe(beforeGrants);
 
-  const revoke = spawn(BINARY, ['devices', 'revoke', original.clientId, '--json'], { env });
-  expect((await lines(revoke).next()).device).toMatchObject({
+  const revoke = spawn(BINARY, ['members', 'remove-machine', original.clientId, '--json'], { env });
+  expect((await lines(revoke).next()).machine).toMatchObject({
     clientId: original.clientId,
     revoked: true,
   });
@@ -2435,12 +2520,10 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   expect((await events.next()).reason).toBe('paired');
   await expect(page.locator('#status')).toContainText('This browser is paired.');
   await exited(pair);
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string; scopes: string[] }[] };
-  const device = inventory.devices[0]!;
+  const inventory = pairedMachines();
+  const device = inventory[0]!;
   expect(device.scopes).toEqual(['agents.read', 'check.read', 'results.read', 'status.read']);
-  execFileSync(BINARY, ['devices', 'designate', device.clientId, '--json'], { env });
+  execFileSync(BINARY, ['members', 'designate', device.clientId, '--json'], { env });
   await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(
@@ -2539,10 +2622,8 @@ test('bare pairing is read only and settings explicitly enables audited sending'
     [390],
     ['dark'],
   );
-  const enabled = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { scopes: string[] }[] };
-  expect(enabled.devices[0]!.scopes).toContain('talk');
+  const enabled = pairedMachines();
+  expect(enabled[0]!.scopes).toContain('talk');
   expect(mutations).toBe(1);
   await context.close();
 });
@@ -2562,10 +2643,8 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   expect((await events.next()).reason).toBe('paired');
   await expect(page.locator('#status')).toContainText('This browser is paired.');
   await exited(pair);
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string }[] };
-  const clientId = inventory.devices[0]!.clientId;
+  const inventory = pairedMachines();
+  const clientId = inventory[0]!.clientId;
   async function descriptions(editable: boolean): Promise<void> {
     await expect(page.locator('.device-summary').first()).toContainText(
       ' · This device · browser · Paired · ',
@@ -2624,7 +2703,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last used .+$/,
   );
   await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · default');
-  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  execFileSync(BINARY, ['members', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#opening')).toBeEnabled();
   await expect(page.locator('#read-only')).toBeHidden();
@@ -2802,7 +2881,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   // Role removal fences stale admitted capabilities and keeps unsent text.
   await chooseSetting(page, 'limit-mode', 'custom');
   await page.fill('#limit-custom', '19');
-  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  execFileSync(BINARY, ['members', 'undesignate', '--json'], { env });
   await page.click('#limit-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
   await expect(page.locator('#limit-custom')).toHaveValue('19');
@@ -2906,7 +2985,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
       .sessionsPerDevice,
   ).toBe(null);
-  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  execFileSync(BINARY, ['members', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#read-only')).toBeHidden();
   await descriptions(true);
@@ -3125,15 +3204,15 @@ test('settings pagination retains later-page drafts across refresh and guards na
   expect((await events.next()).reason).toBe('paired');
   await expect(page.locator('#status')).toContainText('This browser is paired.');
   await exited(pair);
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string }[] };
-  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  const inventory = pairedMachines();
+  execFileSync(BINARY, ['members', 'designate', inventory[0]!.clientId, '--json'], { env });
   // Populate only the disposable fixture's Store with 52 distinct live grants.
   // The paired browser still supplies every signed read/effect; no authority is mocked.
   execFileSync('python3', [
     '-c',
-    "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [('00000000-0000-4000-8000-%012d'%i, i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','capabilities','direct',0,None,1,0) for i in range(1,53)]); db.commit(); db.close()",
+    "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [('00000000-0000-4000-8000-%012d'%i, i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','agents.read','direct',0,None,1,0) for i in range(1,53)]); " +
+      ASSOCIATE_SEEDED_MEMBERS +
+      'db.commit(); db.close()',
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
@@ -3236,12 +3315,10 @@ test('settings pagination retains later-page drafts across refresh and guards na
   );
   await revoke.click();
   await expect(target).toHaveCount(0);
-  const removed = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string }[] };
-  expect(
-    removed.devices.some((row) => row.clientId === '00000000-0000-4000-8000-000000000001'),
-  ).toBe(false);
+  const removed = pairedMachines();
+  expect(removed.some((row) => row.clientId === '00000000-0000-4000-8000-000000000001')).toBe(
+    false,
+  );
   await captureState(
     page,
     'settings-other-device-removed',
@@ -3252,7 +3329,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
     '-c',
     "import sqlite3,sys,uuid,json;d=sqlite3.connect(sys.argv[1]);client=sys.argv[2];n=d.execute('select count(*) from management_receipts where client_id=?',(client,)).fetchone()[0];d.executemany('insert into management_receipts values(?,?,?,?,?,?,?,?)',[(str(uuid.uuid4()),client,'remote.settings.set',bytes(32),1,0,0,json.dumps({'state':'unknown','reason':'effect_outcome_unconfirmed'})) for _ in range(1000-n)]);d.commit();d.close()",
     join(root, 'state/remote/remote.db'),
-    inventory.devices[0]!.clientId,
+    inventory[0]!.clientId,
   ]);
   await chooseSetting(page, 'opening', 'off');
   await page.click('#opening-form button[type=submit]');
@@ -3296,10 +3373,8 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
   expect((await events.next()).reason).toBe('paired');
   await expect(page.locator('#status')).toContainText('This browser is paired.');
   await exited(pair);
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string }[] };
-  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  const inventory = pairedMachines();
+  execFileSync(BINARY, ['members', 'designate', inventory[0]!.clientId, '--json'], { env });
   await gotoSettings(page);
   await expect(page.locator('#opening')).toBeEnabled();
   const startupCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
@@ -3495,10 +3570,8 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     };
   }
   // Hold the optional signed reply, not the base management reads or page assets.
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  );
-  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0].clientId, '--json'], { env });
+  const inventory = pairedMachines();
+  execFileSync(BINARY, ['members', 'designate', inventory[0]!.clientId, '--json'], { env });
   const optional = routeBarrier();
   const optionalJoined = routeBarrier();
   const holdOptional = async (route: import('@playwright/test').Route) => {
@@ -3554,7 +3627,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   } finally {
     await page.unroute('**/append', failOptional);
   }
-  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  execFileSync(BINARY, ['members', 'undesignate', '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#firestore-content')).toContainText('Firestore is not configured.');
   expect((await recorded()).firestoreLayers).toEqual([]);
@@ -3611,11 +3684,11 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     });
   };
   await page.route('**/sdk/settings-v1.js', fixtureModule);
-  const settingsBrowser = inventory.devices.find(
+  const settingsBrowser = inventory.find(
     (row: { name: string }) => row.name === 'Firestore browser',
   );
   expect(settingsBrowser).toBeTruthy();
-  execFileSync(BINARY, ['devices', 'designate', settingsBrowser.clientId, '--json'], { env });
+  execFileSync(BINARY, ['members', 'designate', settingsBrowser!.clientId, '--json'], { env });
   await gotoSettings(page, { tab: 'service' });
   await expect(page.locator('#remote-designation')).toHaveText('This browser manages this Remote.');
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Enabled');
@@ -3971,14 +4044,14 @@ async function feedbackFixture(width: number, theme: 'light' | 'dark') {
   pair.stdin.write('confirm\n');
   expect((await events.next()).reason).toBe('paired');
   await exited(pair);
-  const inventory = JSON.parse(
-    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-  ) as { devices: { clientId: string }[] };
-  const clientId = inventory.devices[0]!.clientId;
-  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  const inventory = pairedMachines();
+  const clientId = inventory[0]!.clientId;
+  execFileSync(BINARY, ['members', 'designate', clientId, '--json'], { env });
   execFileSync('python3', [
     '-c',
-    "import sqlite3,sys;d=sqlite3.connect(sys.argv[1]);d.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[('00000000-0000-4000-8000-%012d'%i,i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','capabilities','direct',0,None,1,0) for i in range(1,3)]);d.commit();d.close()",
+    "import sqlite3,sys;db=sqlite3.connect(sys.argv[1]);db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[('00000000-0000-4000-8000-%012d'%i,i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','agents.read','direct',0,None,1,0) for i in range(1,3)]);" +
+      ASSOCIATE_SEEDED_MEMBERS +
+      'db.commit();db.close()',
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
@@ -4174,7 +4247,7 @@ for (const [width, theme] of [
     await expect(openingSave).toBeDisabled();
 
     await managementTab(page, 'my-devices');
-    execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+    execFileSync(BINARY, ['members', 'undesignate', '--json'], { env });
     await name.fill('Refused draft');
     await row.evaluate((form) => scrollTo(0, form.getBoundingClientRect().top + scrollY - 70));
     await name.press('Enter');
@@ -4189,7 +4262,7 @@ for (const [width, theme] of [
       [theme],
       `[data-feedback="${targetId}"] [data-outcome-slot]`,
     );
-    execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+    execFileSync(BINARY, ['members', 'designate', clientId, '--json'], { env });
     await page.click('#refresh');
     await expect(name).toBeEnabled();
     await page.evaluate(async () => {
@@ -4471,7 +4544,7 @@ for (const [width, theme] of [
       [width],
       [theme],
     );
-    execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+    execFileSync(BINARY, ['members', 'undesignate', '--json'], { env });
     await gatedRefresh(false);
     await expect(page.locator('#read-only')).toBeVisible();
     const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
@@ -5596,16 +5669,12 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
       'remote-menu',
       'Current origin verified; foreign Open neutral; module menu rows and actions.',
     );
-    const ownerDevices = JSON.parse(
-      execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
-    );
+    const ownerDevices = pairedMachines();
     const currentClient = (first.paired as { clientId: string }).clientId;
     expect(
-      ownerDevices.devices.some(
-        (device: { clientId: string }) => device.clientId === currentClient,
-      ),
+      ownerDevices.some((device: { clientId: string }) => device.clientId === currentClient),
     ).toBe(true);
-    execFileSync(BINARY, ['devices', 'designate', currentClient, '--json'], { env });
+    execFileSync(BINARY, ['members', 'designate', currentClient, '--json'], { env });
     // Designation is an external owner action; observe its current permission before editing.
     await page.reload();
     await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
@@ -5719,11 +5788,7 @@ test('legacy pair redirect retains the auto fragment and erases it before every 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((state) => state.hash === '' && state.automatic === 'true')).toBe(true);
     expect(requests.every((request) => !request.includes(code))).toBe(true);
-    const devices = (
-      JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
-        devices: { scopes: string[] }[];
-      }
-    ).devices;
+    const devices = pairedMachines();
     expect(devices).toHaveLength(1);
     expect(devices[0]!.scopes).toEqual([
       'agents.read',
@@ -6138,15 +6203,14 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
   const first = await automaticOffer('/remote/');
   await page.goto(first.link);
   await page.waitForURL(`${origin}/remote/`);
-  const inventory = () =>
-    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
-      devices: { clientId: string }[];
-    };
-  const keeper = inventory().devices[0]!.clientId;
+  const inventory = () => activeGrantPolicies();
+  const keeper = inventory()[0]!.clientId;
   const seed = (start: number, count: number) =>
     execFileSync('python3', [
       '-c',
-      "import sqlite3,sys;db=sqlite3.connect(sys.argv[1]);start=int(sys.argv[3]);count=int(sys.argv[4]);db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[('00000000-0000-4000-8000-%012d'%i,i.to_bytes(32,'big'),'browser',sys.argv[2],'Old browser %d'%i,'all','agents.read','direct',0,None,1,0) for i in range(start,start+count)]);db.commit();db.close()",
+      "import sqlite3,sys;db=sqlite3.connect(sys.argv[1]);start=int(sys.argv[3]);count=int(sys.argv[4]);db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[('00000000-0000-4000-8000-%012d'%i,i.to_bytes(32,'big'),'browser',sys.argv[2],'Old browser %d'%i,'all','agents.read','direct',0,None,1,0) for i in range(start,start+count)]);" +
+        ASSOCIATE_SEEDED_MEMBERS +
+        'db.commit();db.close()',
       join(root, 'state/remote/remote.db'),
       origin,
       String(start),
@@ -6167,7 +6231,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
     'permanent-pairing-read-only',
     'Default unlimited; exact local designation command',
   );
-  execFileSync(BINARY, ['devices', 'designate', keeper, '--json'], { env });
+  execFileSync(BINARY, ['members', 'designate', keeper, '--json'], { env });
   // Same origin-local key must not answer a new manual offer or notify its terminal.
   pair = spawn(BINARY, ['pair', '--json'], { env });
   let terminalOutput = '';
@@ -6207,7 +6271,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
       .map((line) => JSON.parse(line).event),
   ).toEqual(['offer']);
   pair = undefined;
-  expect(inventory().devices.filter((row) => row.clientId === keeper)).toHaveLength(1);
+  expect(inventory().filter((row) => row.clientId === keeper)).toHaveLength(1);
   await gotoSettings(page, { tab: 'my-devices' });
   await expect(page.locator('#remove-others')).toBeEnabled();
   let commits = 0;
@@ -6222,26 +6286,30 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
     'This ends Remote access for 60 other devices. This browser stays connected. Press Remove the others again to confirm.',
   );
   expect(commits).toBe(0);
-  expect(inventory().devices).toHaveLength(61);
+  expect(inventory()).toHaveLength(61);
   await captureState(
     page,
     'permanent-pairing-remove-others-plural',
     'Read-only preview across three device pages; no mutation on double-click',
   );
-  execFileSync(BINARY, ['devices', 'revoke', '00000000-0000-4000-8000-000000000001', '--json'], {
-    env,
-  });
+  execFileSync(
+    BINARY,
+    ['members', 'remove-machine', '00000000-0000-4000-8000-000000000001', '--json'],
+    {
+      env,
+    },
+  );
   await page.locator('#remove-others').click();
   await expect(page.locator('#outcome')).toHaveText(
     'The device list changed. Review it, then confirm again.',
   );
   expect(commits).toBe(1);
-  expect(inventory().devices).toHaveLength(60);
+  expect(inventory()).toHaveLength(60);
   await page.locator('#remove-others').click();
   await expect(page.locator('#remove-others-consequence')).toContainText('59 other devices');
   await page.locator('#remove-others').click();
   await expect(page.locator('.device')).toHaveCount(1);
-  expect(inventory().devices.map((row) => row.clientId)).toEqual([keeper]);
+  expect(inventory().map((row) => row.clientId)).toEqual([keeper]);
   expect(commits).toBe(2);
   await captureState(
     page,
@@ -6258,7 +6326,7 @@ test('permanent pairing short-circuits manual offers and atomically removes the 
   await captureState(page, 'permanent-pairing-remove-others-singular', 'Singular confirmation');
   await page.locator('#remove-others').click();
   await expect(page.locator('.device')).toHaveCount(1);
-  expect(inventory().devices.map((row) => row.clientId)).toEqual([keeper]);
+  expect(inventory().map((row) => row.clientId)).toEqual([keeper]);
   expect(commits).toBe(3);
   await context.close();
 });
@@ -6326,7 +6394,7 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     // The Member browser must never send the owner-only summary read.
     expect(operations).not.toContain('remote.members.summary');
     const clientId = (current.paired as { clientId: string }).clientId;
-    execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+    execFileSync(BINARY, ['members', 'designate', clientId, '--json'], { env });
     await page.reload();
     await expect(page.locator('#remote-designation')).toHaveText(
       'This browser manages this Remote.',

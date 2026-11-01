@@ -682,9 +682,19 @@ fn public_core_talk_and_exact_finals_both_directions() {
             json!(true)
         })
     });
+    let member = a
+        .store
+        .as_ref()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .member_for_client(&b.machine)
+        .unwrap()
+        .unwrap()
+        .member_id;
     ok(
         &proof.a,
-        &["remote", "devices", "talk", &b.machine, "on"],
+        &["remote", "members", "sending", &member, "on"],
         &[],
     );
     let second = conversation(&proof.b, &proof.a, &a, "");
