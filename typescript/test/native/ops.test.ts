@@ -5121,13 +5121,27 @@ describe('Ops path migration with unchanged Squad commands', () => {
       ]);
       const jobs = await canonicalJobs(sandbox);
       expect(jobs).toHaveLength(1);
+      // The retained anchor is a due calendar slot; wall-clock now is usually not.
+      const dueSlot = stored.jobs[0].schedule.anchorMs;
+      const offCalendar = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'orchestration.job.run',
+          originator: 'anonymous',
+          input: { jobId: jobs[0].jobId, revision: jobs[0].revision, slotMs: dueSlot + 1 },
+        }),
+      });
+      expect(offCalendar.status).toBe(1);
+      expect(parseWholeStdout(offCalendar)).toMatchObject({
+        error: { code: 'ORCH_INPUT_INVALID' },
+      });
       const run = parseWholeStdout(
         await runCli(sandbox, ['api'], {
           stdin: JSON.stringify({
             version: 1,
             operation: 'orchestration.job.run',
             originator: 'anonymous',
-            input: { jobId: jobs[0].jobId, revision: jobs[0].revision, slotMs: Date.now() },
+            input: { jobId: jobs[0].jobId, revision: jobs[0].revision, slotMs: dueSlot },
           }),
         })
       );
