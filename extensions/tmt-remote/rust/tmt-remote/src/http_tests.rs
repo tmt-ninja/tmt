@@ -84,6 +84,9 @@ fn app_query_values_are_opaque_escapes_and_keys_stay_plain() {
     ] {
         for query in [
             "project=%5B%22blog%22%5D",
+            // URLSearchParams over JSON project names: spaces use + and * stays literal.
+            "project=%5B%22Q4+plan*%28a%29%21%7E%22%2C%22%E6%96%87%22%5D",
+            "read=Q4+plan*",
             "project=%E6%96%87&shortcut=a-1",
             "read=%2f%2F%23%25%3D%26",
             "a=%2e",
@@ -102,6 +105,8 @@ fn app_query_values_are_opaque_escapes_and_keys_stay_plain() {
             "a=%1G",
             "tmt%2Dsession=x",
             "%61=b",
+            "a+b=x",
+            "a*b=x",
             "tmt-session=x",
             "tmt-session=11111111-1111-4111-8111-111111111111",
             "a=b&tmt-session=x",

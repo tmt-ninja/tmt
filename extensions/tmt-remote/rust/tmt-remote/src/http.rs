@@ -363,7 +363,7 @@ fn app_query(query: &str) -> bool {
                     {
                         return false;
                     }
-                } else if !unreserved(byte) {
+                } else if !unreserved(byte) && !matches!(byte, b'+' | b'*') {
                     return false;
                 }
             }

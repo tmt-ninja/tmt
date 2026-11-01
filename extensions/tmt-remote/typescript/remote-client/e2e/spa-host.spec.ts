@@ -234,10 +234,18 @@ test.describe('the door', () => {
 
   test('app routes keep well-formed escaped query values opaque without widening paths or handoff', async () => {
     const shell = await (await get('/')).text();
+    // Colab's locked TanStack serializer uses URLSearchParams over JSON search values.
+    const projectQuery = new URLSearchParams({
+      project: JSON.stringify(['Q4 plan*(a)!~', '文']),
+    }).toString();
+    expect(projectQuery).toBe('project=%5B%22Q4+plan*%28a%29%21%7E%22%2C%22%E6%96%87%22%5D');
+    const spacedName = new URLSearchParams({ project: JSON.stringify(['Q4 plan']) }).toString();
     for (const method of ['GET', 'HEAD']) {
       for (const path of ['/', '/colab/', '/colab/p/abcd', '/remote/']) {
         for (const query of [
           'project=%5B%22blog%22%5D',
+          projectQuery,
+          spacedName,
           'project=%E6%96%87',
           'read=%20',
           'read=%2F%26tmt-session%3Dopaque',
@@ -254,6 +262,8 @@ test.describe('the door', () => {
         'a=%',
         'tmt%2Dsession=x',
         '%61=b',
+        'a+b=x',
+        'a*b=x',
         'tmt-session=x',
         'tmt-session=11111111-1111-4111-8111-111111111111',
         'a=b=c',

@@ -1026,6 +1026,7 @@ fn door_routes_app_routes_keep_opaque_query_values() {
         "/colab/pages/abcd?anchor=a-1&read=r_2",
         "/colab/pages/abcd?read=%2F",
         "/colab/pages/abcd?project=%5B%22blog%22%5D",
+        "/colab/pages/abcd?project=%5B%22Q4+plan*%28a%29%21%7E%22%2C%22%E6%96%87%22%5D",
         "/colab/pages/abcd?read=%26tmt-session%3Dopaque",
         "/settings?tab=one",
     ] {
