@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * The in-place update's morph (#5022), one table of node cases. It runs the exact code of the
@@ -242,6 +242,25 @@ const edits: { name: string; after: string; fragment: boolean }[] = [
     fragment: false,
   },
   {
+    name: 'an edit beside an icon with a title',
+    after: PAGE.replace(
+      '<p id="p2">',
+      '<p id="ic"><svg viewBox="0 0 1 1"><title>Icon</title><path d="M0 0"/></svg> Icon</p>\n<p id="p2">',
+    ),
+    fragment: false,
+  },
+  {
+    // An svg whose content breaks back out into HTML cannot be placed by its end tag.
+    name: 'an svg that breaks out',
+    after: PAGE.replace('<p id="p2">', '<svg><p>out</p></svg><p id="p2">'),
+    fragment: false,
+  },
+  {
+    name: 'a list of options',
+    after: PAGE.replace('Second paragraph.', 'Pick <select><option>a<option>b</select>'),
+    fragment: false,
+  },
+  {
     name: 'the open paragraph is closed',
     after: PAGE.replace('never closed', 'now closed</p>'),
     fragment: true,
@@ -342,9 +361,11 @@ const edits: { name: string; after: string; fragment: boolean }[] = [
   },
 ];
 
-test('a large page update parses only what changed, exactly as a full parse', async ({ page }) => {
+/** Each edit of `before` run both ways: the parse of its run spliced into the bound body, and the
+ * live body morphed over that run only, each against the full parse of the edited page. */
+async function parity(page: Page, before: string, edits: { name: string; after: string }[]) {
   await page.setContent('<!doctype html><html><body></body></html>');
-  const results = await page.evaluate(
+  return page.evaluate(
     ({ region, before, edits }) => {
       const { morphPage, rememberSource, topLevelSpans, planFragment } = new Function(
         `${region}\nreturn { morphPage, rememberSource, topLevelSpans, planFragment };`,
@@ -358,7 +379,8 @@ test('a large page update parses only what changed, exactly as a full parse', as
       return {
         placed: spans?.length === parse(before).childNodes.length,
         edits: edits.map((edit) => {
-          const full = parse(edit.after).innerHTML;
+          const fullBody = parse(edit.after);
+          const full = fullBody.innerHTML;
           const plan = planFragment(before, spans, edit.after);
           if (!plan) return { name: edit.name, fragment: false };
           const part = parse(plan.text);
@@ -400,14 +422,132 @@ test('a large page update parses only what changed, exactly as a full parse', as
             fragment: true,
             count: part.childNodes.length === plan.count,
             bound: bound.innerHTML === full,
-            live: body.innerHTML === full,
+            // Equal nodes: a morph may put a new attribute after the kept ones.
+            live:
+              body.childNodes.length === fullBody.childNodes.length &&
+              [...body.childNodes].every((node, at) => node.isEqualNode(fullBody.childNodes[at]!)),
             spans: JSON.stringify(respanned) === JSON.stringify(plan.spans),
           };
         }),
       };
     },
-    { region, before: PAGE, edits },
+    { region, before, edits },
   );
+}
+
+// Pages with their own document tags, an icon and options: each later edit takes the fragment path.
+const DOCUMENT = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Doc</title>\n<style>p{margin:0}</style>\n</head>\n<body>\n${PAGE.replace('<style>.note{color:teal}</style>\n', '').replace('<table id="tb"><tr><td>1</td><td>2</td></tr></table>\n', '')}\n<p id="icon"><svg viewBox="0 0 1 1"><title>Icon</title><path d="M0 0"/></svg> Icon</p>\n<p id="pick">Pick <select><option>a<option>b</select></p>\n<p id="end">End</p>\n</body>\n</html>\n`;
+
+test('a full document with an icon and options updates its own nodes only', async ({ page }) => {
+  const edits = [
+    { name: 'last paragraph', after: DOCUMENT.replace('>End<', '>The end<') },
+    {
+      name: 'first paragraph',
+      after: DOCUMENT.replace('First <b>bold</b>', 'First <b>bolder</b>'),
+    },
+    {
+      name: 'a node before the end tags',
+      after: DOCUMENT.replace('</body>', '<p>Added</p>\n</body>'),
+    },
+  ];
+  const results = await parity(page, DOCUMENT, edits);
+  expect(results.placed).toBe(true);
+  for (const result of results.edits)
+    expect(result, result.name).toEqual({
+      name: result.name,
+      fragment: true,
+      count: true,
+      bound: true,
+      live: true,
+      spans: true,
+    });
+});
+
+// The scanner is a partial HTML tokenizer: random edits over real page shapes find what chosen cases
+// miss. Every edit that takes the fragment path must equal the full parse; the rest parse whole.
+test('200 seeded random edits over the page templates each equal a full parse', async ({
+  page,
+}) => {
+  const templates = ['board', 'compare', 'gallery', 'report', 'review', 'starter'].map((name) =>
+    readFileSync(
+      new URL(`../../../rust/tmt-colab/templates/${name}.html`, import.meta.url),
+      'utf8',
+    ),
+  );
+  const pages = [PAGE, DOCUMENT, ...templates];
+  let seed = 5891;
+  const random = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let value = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(values: readonly T[]) => values[Math.floor(random() * values.length)]!;
+  const snippets = [
+    'text',
+    '\n',
+    ' &amp; ',
+    '<p>',
+    '</p>',
+    '<p id="r">New</p>',
+    '<li>',
+    '</li>',
+    '<ul><li>a<li>b</ul>',
+    '<div>',
+    '</div>',
+    '<b>',
+    '</b>',
+    '<span>x</span>',
+    '<br>',
+    '<hr>',
+    '<!-- c -->',
+    '<h2>H</h2>',
+    '<svg><title>t</title><path d="M0 0"/></svg>',
+    '<select><option>a</select>',
+    '<table><tr><td>1</td></tr></table>',
+    '</body>',
+    '<!doctype html>',
+    '<a href="#">a</a>',
+    '<img src="x.png" alt="">',
+  ];
+  let total = 0;
+  let fragments = 0;
+  for (const [index, before] of pages.entries()) {
+    const edits: { name: string; after: string }[] = [];
+    for (let n = 0; n < Math.ceil(200 / pages.length); n++) {
+      let at = Math.floor(random() * before.length);
+      // Half the edits land on a tag boundary, where the scanner's choices matter most.
+      if (random() < 0.5) at = Math.max(0, before.indexOf('<', at));
+      const cut = random() < 0.4 ? Math.floor(random() * 40) : 0;
+      const insert = random() < 0.85 ? pick(snippets) : '';
+      edits.push({
+        name: `page ${index} edit ${n}: at ${at}, cut ${cut}, insert ${JSON.stringify(insert)}`,
+        after: before.slice(0, at) + insert + before.slice(at + cut),
+      });
+    }
+    const results = await parity(page, before, edits);
+    for (const result of results.edits) {
+      total++;
+      if (!result.fragment) continue;
+      fragments++;
+      expect(result, result.name).toEqual({
+        name: result.name,
+        fragment: true,
+        count: true,
+        bound: true,
+        live: true,
+        spans: true,
+      });
+    }
+  }
+  expect(total).toBeGreaterThanOrEqual(200);
+  // Enough of them take the fragment path for the comparison to mean something (58 with this seed;
+  // the templates' design-marked sections send most of the rest to the full parse).
+  expect(fragments).toBeGreaterThanOrEqual(50);
+});
+
+test('a large page update parses only what changed, exactly as a full parse', async ({ page }) => {
+  const results = await parity(page, PAGE, edits);
   expect(results.placed).toBe(true);
   for (const [index, edit] of edits.entries()) {
     const result = results.edits[index];
