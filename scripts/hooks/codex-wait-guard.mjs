@@ -16,8 +16,11 @@
 //    tool name and the command (another tool's input), cut to 2000 characters. A timeout, an HTTP
 //    error, an unreadable answer or a missing key allows (fail open), logged.
 //
-// The key is read from TMT_WAIT_GUARD_API_KEY inside this process only; it is
-// never printed, logged or written. Every judged or prefiltered call adds one
+// The key is read at call time from the macOS Keychain item
+// `tmt-codex-hook-anthropic` (`security find-generic-password -s … -w`, Ben
+// creates it once with `security add-generic-password -a "$USER" -s
+// tmt-codex-hook-anthropic -w`), inside this process only, within the judge's
+// 2 s budget; it is never printed, logged or written, and any failure fails open. Every judged or prefiltered call adds one
 // JSONL line to ${XDG_STATE_HOME:-~/.local/state}/tmt/codex-wait-guard.jsonl
 // (directory 0700, file 0600) with the command cut to 300 characters.
 //
@@ -59,9 +62,21 @@ Deny it when the call waits or polls for something slow from the agent's main se
 Allow short bounded waits that are part of a script or test (for example waiting a few seconds for a local server or file to appear), and anything that is not a wait.
 Answer with JSON only: {"verdict":"allow"|"deny","reason":"<one short sentence>"}.`;
 
-/** The key source: one place, so a later switch (for example to the Keychain) is one change. */
+const KEYCHAIN_ITEM = 'tmt-codex-hook-anthropic';
+const KEY_MS = 500;
+
+/** The key source, in one place: the Keychain item, or null on any failure. stderr is discarded. */
 function key() {
-  return process.env.TMT_WAIT_GUARD_API_KEY || null;
+  try {
+    const value = execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_ITEM, '-w'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: KEY_MS,
+    }).replace(/\r?\n$/, '');
+    return value || null;
+  } catch {
+    return null;
+  }
 }
 
 const WAIT_TOOL = /^clocksleep$|wait_agent$/;
@@ -128,14 +143,16 @@ function whoami() {
 
 /** `{verdict, reason, tokens}`; `fail_open` for any failure, with why. */
 async function judge(tool, command) {
-  const secret = key();
-  if (!secret) return { verdict: 'fail_open', reason: 'no key' };
+  const started = Date.now();
   const url = judgeUrl();
   if (!url) return { verdict: 'fail_open', reason: 'untrusted judge url' };
+  // The key read counts against the same 2 s budget as the request.
+  const secret = key();
+  if (!secret) return { verdict: 'fail_open', reason: 'no key' };
   try {
     const response = await fetch(url, {
       method: 'POST',
-      signal: AbortSignal.timeout(JUDGE_MS),
+      signal: AbortSignal.timeout(Math.max(1, JUDGE_MS - (Date.now() - started))),
       headers: {
         'content-type': 'application/json',
         'x-api-key': secret,

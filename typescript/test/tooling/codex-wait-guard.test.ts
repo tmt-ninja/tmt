@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -27,6 +35,18 @@ beforeAll(async () => {
   mkdirSync(bin);
   // The seat lookup, so the test never asks the host's tmt.
   writeExecutable(path.join(bin, 'tmt'), '#!/bin/sh\necho \'{"name":"seat-1"}\'\n', 0o755);
+  // The fake key source: never the host Keychain. It prints $HOME/keychain with the trailing
+  // newline `security -w` adds, records its arguments, and otherwise fails like a missing item.
+  writeExecutable(
+    path.join(bin, 'security'),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$HOME/security.log"
+if [ -f "$HOME/keychain" ]; then cat "$HOME/keychain"; echo; exit 0; fi
+echo "stderr-that-must-not-be-logged" >&2
+exit 44
+`,
+    0o755
+  );
   server = createServer((request, response) => {
     let text = '';
     request.on('data', (chunk) => (text += chunk));
@@ -57,6 +77,7 @@ const verdict = (text: string) => (_: IncomingMessage, response: ServerResponse)
 
 function newCase() {
   const dir = mkdtempSync(path.join(root, 'case-'));
+  writeFileSync(path.join(dir, 'keychain'), KEY);
   const logFile = path.join(dir, 'state', 'tmt', 'codex-wait-guard.jsonl');
   received = [];
   const guard = (
@@ -71,7 +92,6 @@ function newCase() {
           HOME: dir,
           TMT_WAIT_GUARD_URL: url,
           TMT_WAIT_GUARD_LOG: logFile,
-          TMT_WAIT_GUARD_API_KEY: KEY,
           ...environment,
         },
       });
@@ -109,6 +129,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(decision.permissionDecisionReason).toContain('scripts/ci-wake.sh');
     // One request: the model, the key header, and only the tool name and command.
     expect(received).toHaveLength(1);
+    // The Keychain item, read once, with `security -w`'s trailing newline trimmed.
+    expect(readFileSync(path.join(c.dir, 'security.log'), 'utf8')).toBe(
+      'find-generic-password -s tmt-codex-hook-anthropic -w\n'
+    );
     expect(received[0].headers['x-api-key']).toBe(KEY);
     expect(received[0].body.model).toBe('claude-haiku-5-5');
     expect(received[0].body.messages).toEqual([
@@ -203,7 +227,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       (request: IncomingMessage, response: ServerResponse) => void,
       Record<string, string>,
     ][] = [
-      ['no key', verdict('{"verdict":"deny","reason":"x"}'), { TMT_WAIT_GUARD_API_KEY: '' }],
+      ['no key', verdict('{"verdict":"deny","reason":"x"}'), { NO_KEY: '1' }],
       [
         'http 500',
         (_, response) => {
@@ -218,6 +242,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     ];
     for (const [reason, respond, environment] of cases) {
       const c = newCase();
+      if (environment.NO_KEY) rmSync(path.join(c.dir, 'keychain'));
       answer = respond;
       const result = await c.guard(
         bash('while true; do gh run view 1; sleep 30; done'),
@@ -227,7 +252,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       expect(c.lines(), reason).toEqual([
         expect.objectContaining({ verdict: 'fail_open', reason }),
       ]);
-      if (reason === 'no key') expect(received).toEqual([]);
+      if (reason === 'no key') {
+        expect(received).toEqual([]);
+        expect(readFileSync(c.logFile, 'utf8')).not.toContain('stderr-that-must-not-be-logged');
+      }
       // The judge's budget is 2 s; the seat lookup runs after it with its own short limit.
       expect(result.ms, reason).toBeLessThan(4_000);
     }
@@ -246,6 +274,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       expect(c.lines(), override).toEqual([
         expect.objectContaining({ verdict: 'fail_open', reason: 'untrusted judge url' }),
       ]);
+      // The key is not even read for a foreign endpoint.
+      expect(existsSync(path.join(c.dir, 'security.log')), override).toBe(false);
     }
   });
 
