@@ -21,12 +21,13 @@ export function CommentSendFailures({
   const chat = useContext(ConversationPresentation) === 'chat';
   return (
     <>
-      {failures.map((failure, index) => (
+      {failures.map((failure) => (
         <div
           role="status"
           data-testid="recipient-failure"
           data-message-id={failure.message}
-          key={index}
+          // One row per recipient of a message: a settled row leaves without renaming the rest.
+          key={`${failure.message}:${failure.recipient.machine}:${failure.recipient.agent}`}
         >
           <p>
             {chat && !failure.uncertain && <span aria-hidden="true">✗ </span>}
