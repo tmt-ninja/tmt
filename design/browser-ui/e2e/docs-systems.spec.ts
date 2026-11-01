@@ -54,11 +54,11 @@ test('header controls follow the system: radius only in GUI', async ({ page }) =
 
 test('the mocks open from their system nav', async ({ page }) => {
   await page.goto(`${docs}/ds/gui`);
-  await page.locator('nav.docs-nav').getByRole('link', { name: 'Colab' }).click();
+  await page.locator('nav.docs-nav a[href="/ds/gui/mocks/colab"]').click();
   await expect(page).toHaveURL(`${docs}/ds/gui/mocks/colab`);
   await expect(page.getByRole('grid', { name: 'Pages' })).toBeVisible();
   await page.goto(`${docs}/ds/tui`);
-  await page.locator('nav.docs-nav').getByRole('link', { name: 'Agents' }).click();
+  await page.locator('nav.docs-nav a[href="/ds/tui/mocks/agents"]').click();
   await expect(page).toHaveURL(`${docs}/ds/tui/mocks/agents`);
   await expect(page.getByText('No recorded state for this URL')).toHaveCount(0);
 });
