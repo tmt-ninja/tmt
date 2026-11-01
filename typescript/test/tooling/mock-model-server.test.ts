@@ -673,6 +673,44 @@ describe('bounded same-model side requests (#4610)', () => {
       expect(server.snapshot()).toMatchObject({ completedTurns: 1, sideRequestsSeen: 0 });
     }
   );
+  it.each([
+    [
+      'a separate leading block',
+      (reminder: string) => [
+        { type: 'text', text: reminder },
+        { type: 'text', text: prompt },
+      ],
+    ],
+    [
+      'the same text block',
+      (reminder: string) => [{ type: 'text', text: `${reminder}\n\n${prompt}` }],
+    ],
+  ] as const)(
+    'matches the prompt after leading hook <system-reminder> context in %s (#5619)',
+    async (_shape, content) => {
+      const server = await startMockModelServer(options('messages'));
+      servers.push(server);
+      const reminder =
+        '<system-reminder>\nSessionStart hook additional context: TMT identity: "real-claude"\n</system-reminder>';
+      const request = {
+        ...body('messages'),
+        messages: [{ role: 'user', content: content(reminder) }],
+      };
+      expect((await post(server, 'messages', request)).status).toBe(200);
+      expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
+    }
+  );
+  it('does not treat other text before the prompt as the scripted turn', async () => {
+    const server = await startMockModelServer(options('messages'));
+    servers.push(server);
+    const request = {
+      ...body('messages'),
+      messages: [{ role: 'user', content: [{ type: 'text', text: `Also do X.\n${prompt}` }] }],
+    };
+    // Only leading reminder blocks are skipped; any other prefix stays a non-matching call.
+    expect((await post(server, 'messages', request)).status).toBe(200);
+    expect(server.snapshot()).toMatchObject({ completedTurns: 0, sideRequestsSeen: 1 });
+  });
   it('refuses empty user text instead of treating it as a background request', async () => {
     const server = await startMockModelServer(options('responses'));
     servers.push(server);

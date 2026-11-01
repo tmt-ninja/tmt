@@ -61,7 +61,17 @@ export function describeMockInputMismatch(parsed, scripted) {
   };
 }
 
+// A real Claude client puts hook context (such as tmt's SessionStart notice) in front of
+// the prompt as `<system-reminder>` blocks in the same user message (#5619, attempt 11).
+// The scripted prompt is what follows those leading blocks; any other prefix still differs.
+const LEADING_REMINDERS = /^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+\s*/;
+
 function lastUserText(input) {
+  const text = rawLastUserText(input);
+  return text?.replace(LEADING_REMINDERS, '').trim() || undefined;
+}
+
+function rawLastUserText(input) {
   if (typeof input === 'string') return input.trim() || undefined;
   const content = input.findLast((item) => item?.role === 'user')?.content;
   if (typeof content === 'string') return content.trim() || undefined;
