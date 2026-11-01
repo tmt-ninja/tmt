@@ -113,3 +113,43 @@ fn jobs_have_bounded_filters_and_explicit_mutation_consent() {
         assert!(parse(&args(&argv)).is_err(), "{argv:?}");
     }
 }
+
+#[test]
+fn finite_user_timer_controls_keep_consent_explicit_and_read_flags_narrow() {
+    use crate::invocation::TickOperation;
+    use crate::invocation::TickTimerAction as Action;
+    for (verb, action) in [
+        ("preview", Action::Preview),
+        ("status", Action::Status),
+        ("install", Action::Install),
+        ("remove", Action::Remove),
+    ] {
+        let invocation = parsed(&["tick", "timer", verb, "--json"]).invocation;
+        assert!(
+            matches!(invocation,Invocation::Tick(TickOperation::Timer{action:actual,yes:false}) if actual==action)
+        );
+        if matches!(action, Action::Install | Action::Remove) {
+            assert!(
+                matches!(parsed(&["tick","timer",verb,"--yes"]).invocation,Invocation::Tick(TickOperation::Timer{action:actual,yes:true}) if actual==action)
+            );
+        } else {
+            assert_eq!(
+                parse_error(&["tick", "timer", verb, "--yes"]).code,
+                "USAGE_ERROR"
+            );
+        }
+    }
+    assert!(matches!(
+        parsed(&["tick", "timer"]).invocation,
+        Invocation::Tick(TickOperation::Timer {
+            action: Action::Preview,
+            yes: false
+        })
+    ));
+    for args in [
+        &["tick", "timer", "--system"][..],
+        &["tick", "timer", "install", "--system"][..],
+    ] {
+        assert_eq!(parse_error(args).code, "USAGE_ERROR");
+    }
+}

@@ -118,3 +118,36 @@ fn status_is_read_only_and_foreground_clock_runs_subminute_jobs_then_releases_on
     assert_eq!(shown["job"]["lastRun"]["acceptance"], "queued");
     assert!(shown["job"]["lastRun"]["operationId"].is_string());
 }
+
+#[test]
+fn timer_preview_and_unconsented_install_create_no_store_unit_or_clock() {
+    let mut f = Fixture::new();
+    let preview = f.json(&["tick", "timer", "preview", "--json"], None);
+    assert_eq!(preview["requiresConsent"], true);
+    assert_eq!(preview["scope"], "user");
+    assert_eq!(preview["command"][1], "tick");
+    assert_eq!(preview["command"][2], "--json");
+    let files = preview["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+    for file in files {
+        let path = std::path::Path::new(file["path"].as_str().unwrap());
+        assert!(
+            path.starts_with(&f.root),
+            "timer plan escaped its private world"
+        );
+        assert!(!path.exists());
+    }
+    // Never pass --yes or call status here: OS-manager behavior is covered only
+    // by the injected Manager in adapters, even in this otherwise private world.
+    let refused = f.run(&["tick", "timer", "install", "--json"], None);
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&refused.stdout).unwrap()["error"]["code"],
+        "TICK_TIMER_CONSENT_REQUIRED"
+    );
+    assert!(!f.db().exists());
+    assert!(!support::state_dir(&f.root).join("tick").exists());
+    for file in files {
+        assert!(!std::path::Path::new(file["path"].as_str().unwrap()).exists());
+    }
+}

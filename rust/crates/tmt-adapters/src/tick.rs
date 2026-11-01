@@ -3,6 +3,7 @@ mod clock;
 mod lease;
 mod port;
 mod schedule;
+pub mod timer;
 use crate::storage::StorageError;
 pub use clock::run;
 pub use lease::{Lease, status};

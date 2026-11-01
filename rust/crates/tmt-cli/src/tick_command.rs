@@ -1,6 +1,7 @@
 //! Thin command composition over the invocation-owned clock.
+mod timer;
 use crate::{
-    invocation::{OutputMode, TickOperation},
+    invocation::{OutputMode, TickOperation, TickTimerAction},
     output::Failure,
 };
 use serde_json::Value;
@@ -53,7 +54,17 @@ pub fn execute(operation: TickOperation, mode: OutputMode) -> io::Result<u8> {
         }
     };
     let mut out = tmt_cli_style::stream::stdout(mode.json);
+    if let TickOperation::Timer { action, yes } = operation {
+        let action = match action {
+            TickTimerAction::Preview => tick::timer::Action::Preview,
+            TickTimerAction::Status => tick::timer::Action::Status,
+            TickTimerAction::Install => tick::timer::Action::Install,
+            TickTimerAction::Remove => tick::timer::Action::Remove,
+        };
+        return timer::execute(&paths, action, yes, mode);
+    }
     let result = match operation {
+        TickOperation::Timer { .. } => unreachable!("handled before clock selection"),
         TickOperation::Status => tick::status(
             &paths.global_dir,
             tmt_adapters::request_runtime::wall_time_ms(),

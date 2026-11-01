@@ -3,8 +3,8 @@
 Core owns one resolver for plans and personal focus. Plan/focus writes share an
 effect preview and explicit consent. Receiving uses existing Digest admission,
 claims and transport; sending rules and talk limits use existing request
-admission; jobs remain a separate slice.
-No timer is installed or resident process added. Existing readiness, approval,
+admission. Canonical jobs use the same request acceptance and current policy.
+No timer is installed automatically and no resident process is added. Existing readiness, approval,
 person and delivery owners retain authority.
 
 ## Commands and API
@@ -412,6 +412,12 @@ plus the job revision. The writer rechecks the complete observed job (including
 its held slot) and configuration in one transaction before publication. A race
 returns `ORCH_CONFLICT`; no-op pause changes neither revision nor attribution.
 Configuration mutations create no run outcomes. Removal never reuses a j-id.
+`job.addSquad` uses the same candidate with a required room and optional `pausedBy`.
+Its preview reports `proposedLegacy:{roomId,cronId}` without reserving a number;
+that proposal is covered by the snapshot, digest and writer fence. Ops registers
+the exact retirement-hook reference before applying this preview, so a refused
+registration publishes no job. A concurrent allocation refuses the stale preview;
+retirement consumers still compare the current owner before acting on a reference.
 
 ### Job execution
 
@@ -437,6 +443,55 @@ contains `runId` and the immutable canonical `dispatch` receipt with its advisor
 wake result. Acceptance is not final delivery or an agent answer. Exact run replay
 recovers the existing receipt and never performs a second wake. Interrupted or
 uncertain work is inspected by its canonical operation ID, not blindly resent.
+
+## Unified clock and optional user timer
+
+`tmt tick [--json]` observes jobs, Digest and workspace capture until the current
+minute ends. `tmt tick run [--json]` keeps that clock in the foreground until
+interrupted. `tmt tick status --json`, also exposed as the read-only `tick.status`
+API operation, reads bounded holder evidence without opening the Core store.
+A stable kernel lock under the selected data root owns the clock lifetime;
+expired advisory JSON cannot preempt it. The status distinguishes a proven live
+holder, stopped, stale metadata and unconfirmed ownership. Bounded component
+children are cancelled and joined before the clock releases its lock.
+
+A foreground clock starts its slot baseline at now. A finite tick starts with a
+60-second window; subsequent observations are capped at five minutes. Neither
+reconstructs an absent-clock backlog. One admission gate covers jobs, Digest and
+capture in each increasing wall minute; same-minute retry and a backwards clock
+do not admit another component pass. Automatic failures remain inspectable by
+operation ID; they never authorize a second uncertain send. Ops forwards its
+cron clock to this owner and retains its independent idle-alert worker.
+
+The optional commands are:
+
+```text
+tmt tick timer preview [--json]
+tmt tick timer status [--json]
+tmt tick timer install [--yes] [--json]
+tmt tick timer remove [--yes] [--json]
+```
+
+`timer` alone means preview. Preview creates no files and contacts no manager.
+Install and remove use the existing CLI whole-plan consent; noninteractive or
+JSON mutations require explicit `--yes`. Installation writes only derived user
+LaunchAgents files on macOS, or user systemd service/timer files on Linux. The
+unit invokes finite `tmt tick --json` once per minute with the selected data root,
+HOME, executable and PATH; it does not start a resident worker, enable linger,
+install a system timer or run Ops idle alerts. Managed installations use their
+stable launcher. The systemd timer has no absent-time replay, and stopping it
+also stops its currently active oneshot service.
+
+A typed manifest is embedded in each generated unit. Ownership requires bounded,
+regular, user-owned files whose complete bytes match regeneration from that
+manifest. Edited, mixed or unknown files are preserved. An older generated plan
+can be reviewed and removed after an executable or PATH change; changing a plan
+requires explicit removal before installation. Mutations serialize under the
+selected root's timer lock and revalidate before removing files. A manager error
+can follow a partial effect: files remain for inspection and no automatic retry
+or rollback is attempted. Status reports manager registration only after a
+positive manager response; failure to query remains unconfirmed. Removal does
+not claim completion if stopping the user manager cannot be confirmed.
 
 ## Calendar
 
