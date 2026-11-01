@@ -113,7 +113,8 @@ export function noticeFrame(failure: DesignSystemFailure): FrameDesignSystem {
 
 /** The frame's `{script, style}` for a verified bundle: one custom element per component, rendering
  * the component with the page runtime's React into the element's own light DOM. Slotted children
- * move, as DOM, into the rendered component. */
+ * move, as DOM, into the rendered component; an element met while the page still parses waits for
+ * its children, since the definitions run before the body. */
 export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem {
   const meta = JSON.stringify(
     bundle.components.map(({ tag, props, slots }) => ({ tag, props, slots })),
@@ -129,11 +130,11 @@ const skeleton=Object.freeze({React,html:t.html,cn});
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
 meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
-connectedCallback(){if(!this.root){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}this.root=t.createRoot(this);}this.paint();}
+connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}this.root=t.createRoot(this);}this.paint();}
 attributeChangedCallback(){if(this.root)this.paint();}
 paint(){const props={};for(const [name,rule] of Object.entries(spec.props)){if(rule.type==='boolean')props[name]=this.hasAttribute(name);else if(this.hasAttribute(name))props[name]=this.getAttribute(name);}
 for(const slot of spec.slots){const nodes=this.slots[slot];if(nodes&&nodes.length)props[slot==='default'?'children':slot]=React.createElement(Nodes,{nodes});}
-React.startTransition?this.root.render(React.createElement(Component,props)):this.root.render(React.createElement(Component,props));}});});})();`;
+this.root.render(React.createElement(Component,props));}});});})();`;
   if (closes(script, 'script') || closes(style, 'style'))
     throw new Error('A design system bundle may not end its own element');
   const size = (text: string) => new TextEncoder().encode(text).byteLength;
