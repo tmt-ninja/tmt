@@ -14,15 +14,16 @@ import { DocsApp } from './app.js';
 import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
 import { TuiMock } from './tui-nav.js';
-import { usePath } from './router.js';
+import { currentLocation, embedded, replacePath, usePath } from './router.js';
 import { frameFor } from '../gallery/frames.js';
 import { PatternFrame } from './patterns-more.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 
 // An old /docs or /mock URL, or the bare root, moves to its design system's route (#5821).
 function redirect() {
-  const next = canonicalPath(location.pathname);
-  if (next) history.replaceState(null, '', `${next}${location.search}${location.hash}`);
+  const { path, search } = currentLocation();
+  const next = canonicalPath(path);
+  if (next) replacePath(`${next}${search}${embedded ? '' : location.hash}`);
   return next;
 }
 redirect();
@@ -30,7 +31,7 @@ redirect();
 function Root() {
   const path = usePath();
   useLayoutEffect(() => {
-    if (redirect()) dispatchEvent(new PopStateEvent('popstate'));
+    redirect();
   }, [path]);
   const current = canonicalPath(path) ?? path;
   if (current.startsWith(colabMockBase)) return <ColabMock path={current} />;
