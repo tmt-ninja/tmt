@@ -69,14 +69,68 @@ export function patchArgs(
   ];
 }
 
-/** The paired device's Remote client ID, for `devices revoke`. */
-export function clientId(world: AcceptanceWorld, name: string): string {
-  const listing = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
-    devices: { clientId: string; name: string; revoked: boolean }[];
+/** One paired machine with its person's revision, as `tmt remote members` reports them. */
+export interface PairedMachine {
+  memberId: string;
+  memberRevision: number;
+  clientId: string;
+  name: string;
+  /** The machine grant revision. */
+  revision: number;
+  revoked: boolean;
+  sendingScope: boolean;
+}
+
+/** Every machine of every person paired with this Remote, following each view's cursor. */
+export function pairedMachines(world: AcceptanceWorld): PairedMachine[] {
+  const rows = <T>(args: string[], key: string): T[] => {
+    const all: T[] = [];
+    let cursor: string | null = null;
+    do {
+      const view = JSON.parse(
+        run(world, world.binaries.remote, [
+          ...args,
+          '--json',
+          ...(cursor ? ['--cursor', cursor] : []),
+        ]),
+      ) as Record<string, unknown> & { nextCursor: string | null };
+      all.push(...(view[key] as T[]));
+      cursor = view.nextCursor;
+    } while (cursor);
+    return all;
   };
-  const device = listing.devices.find((d) => d.name === name && !d.revoked);
-  if (!device) throw new Error(`No active paired device named ${name}`);
-  return device.clientId;
+  return rows<{ memberId: string; revision: number }>(['members'], 'members').flatMap((member) =>
+    rows<Omit<PairedMachine, 'memberId' | 'memberRevision'>>(
+      ['members', 'machines', member.memberId],
+      'machines',
+    ).map((machine) => ({
+      ...machine,
+      memberId: member.memberId,
+      memberRevision: member.revision,
+    })),
+  );
+}
+
+/** The active paired machine with this name. */
+export function pairedMachine(world: AcceptanceWorld, name: string): PairedMachine {
+  const machine = pairedMachines(world).find((m) => m.name === name && !m.revoked);
+  if (!machine) throw new Error(`No active paired machine named ${name}`);
+  return machine;
+}
+
+/** Revoke one exact machine through Remote, fenced on the revisions just observed. */
+export function revokeMachine(world: AcceptanceWorld, name: string): void {
+  const machine = pairedMachine(world, name);
+  run(world, world.binaries.remote, [
+    'members',
+    'remove-machine',
+    machine.clientId,
+    '--member-revision',
+    String(machine.memberRevision),
+    '--grant-revision',
+    String(machine.revision),
+    '--json',
+  ]);
 }
 
 export interface CreatedPage {

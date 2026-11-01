@@ -3,7 +3,7 @@ import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   askEntry,
-  clientId,
+  pairedMachine,
   composeChat,
   createPage,
   freePort,
@@ -41,7 +41,7 @@ test('a device paired without sending reads the page, is refused with the sendin
     // The agent list is readable without sending: the draft starts addressed to the page's agent.
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     // The notice names the device the owner turns sending on for: Remote's own client ID.
-    const notice = text.askTalkNotEnabled(clientId(world, 'talk-reader'));
+    const notice = text.askTalkNotEnabled(pairedMachine(world, 'talk-reader').clientId);
     const composed = await composeChat(page, agent, 'Can this device send?');
     const { operationId } = await sendChat(page, composed);
     const entry = panel.getByTestId('ask-entry');
