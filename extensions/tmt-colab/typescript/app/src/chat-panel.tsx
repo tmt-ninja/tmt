@@ -60,7 +60,11 @@ export function ChatPanel({
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = useMemo(() => asks.filter((ask) => !ask.thread), [asks]);
   const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? [], asks);
+  // A stable binding can advance disclosure: attachment readers must dispose and reread then.
+  const attachmentScope = discussion?.attachments?.scope?.();
   const { history, legacyDays, messageIds } = useMemo(() => {
+    // Descendant attachment readers consult the binding themselves; invalidate their cached JSX.
+    void attachmentScope;
     // Called where the verified record will render, so it takes the same day heading.
     const echoTurn = () =>
       echoes.map((echo) => (
@@ -147,7 +151,20 @@ export function ChatPanel({
       );
     const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
     return { history, legacyDays, messageIds };
-  }, [chats, own, legacy, echoes, held, discussion, binding, asks, blocked, archived, title]);
+  }, [
+    chats,
+    own,
+    legacy,
+    echoes,
+    held,
+    discussion,
+    binding,
+    asks,
+    blocked,
+    archived,
+    title,
+    attachmentScope,
+  ]);
   return (
     <ConversationPresentation value="chat">
       <ConversationWindow
