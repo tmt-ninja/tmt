@@ -13,6 +13,14 @@ const text = (n: number) => {
     out += `<p id="p${i}">Line ${i}: ${'lorem ipsum dolor sit amet '.repeat(3)}</p>\n`;
   return out.slice(0, n);
 };
+/** Whole paragraphs, at least `n` bytes: a page whose last paragraph is cut is never left open
+ * before the next node, which would make every update parse the page whole (#5891). */
+const paragraphs = (n: number) => {
+  let out = '';
+  for (let i = 0; out.length < n; i++)
+    out += `<p id="p${i}">Line ${i}: ${'lorem ipsum dolor sit amet '.repeat(3)}</p>\n`;
+  return out;
+};
 test.afterEach(disposeActiveWorlds);
 test('260 CLI changes with a browser edit in the middle read back exact in the CLI and the browser', async () => {
   test.setTimeout(600_000);
@@ -143,7 +151,7 @@ test('a 2 MiB page keeps its main thread free while it takes live writes', async
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'large-owner');
     const colab = world.binaries.colab;
-    const body = text(2 * MIB - 16 * 1024);
+    const body = paragraphs(2 * MIB - 16 * 1024);
     let source = `${body}<p id="n">0</p>`;
     const created = createPage(world, 'Large and live', source);
     const page = await openPage(door, browser, created);
