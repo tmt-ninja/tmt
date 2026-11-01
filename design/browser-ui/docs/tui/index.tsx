@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { usePreview } from '../preview.js';
 import { tuiMockBase } from '../routes.js';
+import { patternDocs, type PatternDoc } from './patterns.js';
 import { TuiPreview } from './preview.js';
 import { looks, oracle } from './model.js';
 import {
@@ -147,7 +148,16 @@ function ComponentPage({ doc }: { doc: ComponentDoc }) {
   const selected = doc.states[state]!;
   const missing = stateKinds.filter((kind) => !doc.states.some((entry) => entry.kind === kind));
   return (
-    <section className="tui-component" data-tui-component={doc.slug}>
+    <section
+      className="tui-component"
+      data-tui-component={doc.slug}
+      data-tui-source-module={doc.module}
+    >
+      <p className="docs-muted">
+        {doc.family === 'Ops'
+          ? 'Ops application surface. These frames show its real application composition.'
+          : 'Reusable tmt-tui component. Recorded examples show the real Ops composition; they do not claim its painter calls this widget.'}
+      </p>
       <p className="docs-muted">
         Source:{' '}
         {doc.source.map((path, index) => (
@@ -180,6 +190,19 @@ function ComponentPage({ doc }: { doc: ComponentDoc }) {
           })}
         </ol>
       </section>
+      <section data-tui-variants="">
+        <h2>Variants</h2>
+        <dl>
+          {doc.variants.map((variant) => (
+            <div key={variant.name}>
+              <dt>
+                <b>{variant.name}</b>
+              </dt>
+              <dd>{variant.description}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
       <section data-tui-states="">
         <h2>States</h2>
         <div className="tui-controls">
@@ -187,7 +210,7 @@ function ComponentPage({ doc }: { doc: ComponentDoc }) {
             Recorded state
             <select value={state} onChange={(event) => setState(Number(event.target.value))}>
               {doc.states.map((entry, index) => (
-                <option key={entry.kind} value={index}>
+                <option key={`${entry.kind}-${entry.label}-${index}`} value={index}>
                   {stateLabels[entry.kind]} · {entry.label}
                 </option>
               ))}
@@ -327,57 +350,65 @@ const foundations: LibraryPage[] = [
     ],
   },
 ];
-const patterns: LibraryPage[] = [
-  {
-    slug: 'agents-board',
-    title: 'Agents board',
-    lead: 'The composed board, with a link to its URL-addressable real-frame mock.',
-    section: 'full-screen-interaction',
-    samples: [{ label: 'Agents workspace', sample: { state: 'agents' } }],
-  },
-  {
-    slug: 'layers-focus',
-    title: 'Layers and focus',
-    lead: 'Recorded row focus, composer focus and a reference layer above the board.',
-    section: 'layers-and-focus',
-    samples: [
-      { label: 'Rows own focus', sample: { state: 'agents' } },
-      { label: 'Composer owns focus', sample: { state: 'composer-2' } },
-      { label: 'Help layer', sample: { state: 'help' } },
-    ],
-  },
-  {
-    slug: 'keyboard',
-    title: 'Keyboard map',
-    lead: 'The effective key map painted by the real Help surface.',
-    section: 'keys',
-    samples: [{ label: 'Effective bindings, first page', sample: { state: 'help' } }],
-  },
-  {
-    slug: 'narrow-widths',
-    title: 'Narrow widths',
-    lead: 'The same workspace at three recorded terminal widths.',
-    section: 'narrow-widths',
-    samples: [60, 100, 160].map((width) => ({
-      label: `${width} recorded columns`,
-      sample: { state: 'agents', width, height: 36 },
-    })),
-  },
-  {
-    slug: 'patterns',
-    title: 'Partial, stale, filtered and overflow states',
-    lead: 'Workspace composition when evidence is incomplete or content exceeds its pane.',
-    section: 'empty-loading-and-error-states',
-    samples: [
-      'empty',
-      'conversation-loading',
-      'partial',
-      'stale',
-      'search-agents-all-empty',
-      'dense',
-    ].map((state) => ({ label: state.replaceAll('-', ' '), sample: { state } })),
-  },
-];
+function PatternPageView({ doc }: { doc: PatternDoc }) {
+  const look = useTuiLook();
+  const { frame } = resolveSample(doc.anatomy.sample, look);
+  return (
+    <section className="tui-section" data-tui-pattern={doc.slug}>
+      <section>
+        <h2>Problem</h2>
+        <p>{doc.problem}</p>
+      </section>
+      <section>
+        <h2>Anatomy</h2>
+        <TuiPreview {...doc.anatomy} look={look} />
+        <ol className="tui-part-list">
+          {doc.anatomy.parts.map((part) => {
+            const position = locatePart(frame, part);
+            return (
+              <li key={part.name}>
+                <b>{part.name}</b> · <code>{part.text}</code> · row {position.row}, cells{' '}
+                {position.column}–{position.end}
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      <section>
+        <h2>Rules</h2>
+        <ul>
+          {doc.rules.map((rule) => (
+            <li key={rule}>{rule}</li>
+          ))}
+        </ul>
+        <Rules section={doc.section} />
+      </section>
+      <section>
+        <h2>Variants and states</h2>
+        {doc.samples.map((entry) => (
+          <TuiPreview key={entry.label} {...entry} look={look} />
+        ))}
+        {doc.missing && <p className="tui-missing">{doc.missing}</p>}
+      </section>
+      <section>
+        <h2>Links</h2>
+        <ul>
+          {doc.links.map((link) => (
+            <li key={link.slug}>
+              <a href={`${tuiRoot}/${link.slug}`}>{link.title}</a>
+            </li>
+          ))}
+        </ul>
+        {doc.slug === 'agents-board' && (
+          <p>
+            <a href={agentsMockPath}>Open the Agents mock</a>
+          </p>
+        )}
+      </section>
+      <Source />
+    </section>
+  );
+}
 function LibraryPageView({ doc }: { doc: LibraryPage }) {
   const look = useTuiLook();
   return (
@@ -387,11 +418,14 @@ function LibraryPageView({ doc }: { doc: LibraryPage }) {
         <TuiPreview key={entry.label} {...entry} look={look} />
       ))}
       {doc.data === 'roles' && <RoleData />}
-      {doc.data === 'marks' && <MarkData />}
-      {doc.slug === 'agents-board' && (
-        <p>
-          <a href={agentsMockPath}>Open the Agents mock</a>
-        </p>
+      {doc.data === 'marks' && (
+        <>
+          <MarkData />
+          <p>
+            Status marks describe state; <a href={`${tuiRoot}/chip`}>Chip variants</a> add count or
+            state labels.
+          </p>
+        </>
       )}
       <Rules section={doc.section} />
       <Source />
@@ -418,9 +452,9 @@ export const tuiPages: TuiPage[] = [
     group: 'Components' as const,
     render: () => <ComponentPage doc={doc} />,
   })),
-  ...patterns.map((doc) => ({
+  ...patternDocs.map((doc) => ({
     ...doc,
     group: 'Patterns' as const,
-    render: () => <LibraryPageView doc={doc} />,
+    render: () => <PatternPageView doc={doc} />,
   })),
 ];
