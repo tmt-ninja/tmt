@@ -178,7 +178,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 88);
+    assert_eq!(storage.health().unwrap().schema_version, 89);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -453,7 +453,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 88);
+    assert_eq!(storage.health().unwrap().schema_version, 89);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,
