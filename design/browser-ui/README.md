@@ -1260,8 +1260,9 @@ migration or Select revival is included.
 From `typescript/`, install the frozen leaf tools with
 `pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
 `pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
-only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
-It never attaches to an existing server or opens a product/host fixture.
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it),
+and the /docs site one port above it for the docs preview layout sweep. It never
+attaches to an existing server or opens a product/host fixture.
 
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
 border-only control contrast and the named soft-edge field exception, plus overlay exit
