@@ -5781,6 +5781,12 @@ var RAIL = [
 		path: "/colab/"
 	},
 	{
+		id: "design",
+		label: "Design",
+		icon: "palette",
+		path: "/colab/design/"
+	},
+	{
 		id: "remote",
 		label: "Remote",
 		icon: "monitor-smartphone",
@@ -5797,12 +5803,6 @@ var RAIL = [
 		label: "Digest",
 		icon: "chart-column",
 		path: "/digest/"
-	},
-	{
-		id: "design",
-		label: "Design",
-		icon: "palette",
-		path: "/colab/design/"
 	}
 ];
 /**
@@ -5818,7 +5818,7 @@ var HOST_SERVED = /* @__PURE__ */ new Set([
 	"digest"
 ]);
 /**
-* Home, the fixed modules (Colab, Remote, Ops, Digest, Design), any other described module in Remote's
+* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
 * order, then TMT settings at the bottom. Colab is available
 * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
 * The current item is the host's module, else the longest matching path.
