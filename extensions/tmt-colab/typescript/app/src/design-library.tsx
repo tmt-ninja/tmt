@@ -15,7 +15,8 @@ const DesignDocs = lazy(() =>
     default: module.DesignDocs,
   })),
 );
-const base = '/colab/design';
+import { designBase } from './entry.js';
+import { browserUiClasses } from '@tmt/browser-ui/static';
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 function findPage(node: DesignTreeNode, id: string): DesignTreeNode | undefined {
   return encodeURIComponent(node.id) === id
@@ -26,11 +27,13 @@ function Tree({
   node,
   current,
   rootId,
+  base,
   navigate,
 }: {
   node: DesignTreeNode;
   current: string;
   rootId: string;
+  base: string;
   navigate(href: string): void;
 }) {
   const href = `${base}/systems/${encodeURIComponent(rootId)}/${encodeURIComponent(node.id)}`;
@@ -62,6 +65,7 @@ function Tree({
               node={child}
               current={current}
               rootId={rootId}
+              base={base}
               navigate={navigate}
             />
           ))}
@@ -80,6 +84,7 @@ export function DesignLibrary({
   path: string;
   navigate(href: string): void;
 }) {
+  const base = designBase();
   const [systems, setSystems] = useState<DesignSystemEntry[]>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -186,30 +191,41 @@ export function DesignLibrary({
           )
         }
         actions={
-          transport.management ? (
-            <>
-              <BrowserAction
-                type="button"
-                variant="secondary"
-                label="New design system"
-                disabled={publishing || loading}
-                onActivate={() => {
-                  setNotice(undefined);
-                  setCreating(true);
-                }}
-              />
-              {selected && (
+          <>
+            {page && (
+              <a
+                className={browserUiClasses.action}
+                data-variant="text"
+                href={new URL(`/colab/pages/${encodeURIComponent(page.id)}`, location.href).href}
+              >
+                Open in Colab
+              </a>
+            )}
+            {transport.management ? (
+              <>
                 <BrowserAction
                   type="button"
-                  variant="primary"
-                  label={`Publish ${selected.next}`}
-                  disabled={loading || error !== undefined}
-                  busy={publishing}
-                  onActivate={() => void publish()}
+                  variant="secondary"
+                  label="New design system"
+                  disabled={publishing || loading}
+                  onActivate={() => {
+                    setNotice(undefined);
+                    setCreating(true);
+                  }}
                 />
-              )}
-            </>
-          ) : undefined
+                {selected && (
+                  <BrowserAction
+                    type="button"
+                    variant="primary"
+                    label={`Publish ${selected.next}`}
+                    disabled={loading || error !== undefined}
+                    busy={publishing}
+                    onActivate={() => void publish()}
+                  />
+                )}
+              </>
+            ) : undefined}
+          </>
         }
       />
       <section ref={workspace} className="design-workspace" aria-label="Design system library">
@@ -255,12 +271,19 @@ export function DesignLibrary({
                       node={selected.tree}
                       current={page?.id ?? ''}
                       rootId={selected.id}
+                      base={base}
                       navigate={go}
                     />
                   </ul>
                 </nav>
                 {page ? (
-                  <DesignPage key={page.id} transport={transport} pageId={page.id} />
+                  <DesignPage
+                    key={page.id}
+                    transport={transport}
+                    pageId={page.id}
+                    system={selected}
+                    navigate={go}
+                  />
                 ) : (
                   <p role="alert">This page is not in the selected design-system tree.</p>
                 )}

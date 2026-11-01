@@ -157,24 +157,21 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div><div class="tmt-ui-shell-main"></div></div>';
   history.replaceState(null, '', url);
   hostInShell(null);
-  const host = startShellHost(element, [
-    {
-      id: 'colab',
-      paths: ['/colab', '/colab/'],
-      rail: 'colab',
-      load: async () => ({
-        mount: (slot) => {
-          const root = createRoot(slot.main);
-          const router = createAppRouter(transport);
-          root.render(
-            <ShellHostSlot value={slot}>
-              <RouterProvider router={router} />
-            </ShellHostSlot>,
-          );
-          return () => root.unmount();
-        },
-      }),
+  const load = async () => ({
+    mount: (slot: import('@tmt/browser-ui/shell-host').ShellSlot) => {
+      const root = createRoot(slot.main);
+      const router = createAppRouter(transport);
+      root.render(
+        <ShellHostSlot value={slot}>
+          <RouterProvider router={router} />
+        </ShellHostSlot>,
+      );
+      return () => root.unmount();
     },
+  });
+  const host = startShellHost(element, [
+    { id: 'colab', paths: ['/colab', '/colab/'], rail: 'colab', load },
+    { id: 'design', paths: ['/design', '/design/'], rail: 'design', load },
   ]);
   host.setCommonControls({
     openSearch: () => {},
