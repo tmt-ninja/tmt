@@ -413,7 +413,6 @@ its held slot) and configuration in one transaction before publication. A race
 returns `ORCH_CONFLICT`; no-op pause changes neither revision nor attribution.
 Configuration mutations create no run outcomes. Removal never reuses a j-id.
 
-
 ### Job execution
 
 `orchestration.job.run` takes `jobId`, exact definition `revision`, and the
