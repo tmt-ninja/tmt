@@ -55,6 +55,7 @@ it('orders Home, Colab, Design, Remote, Ops, Digest, then TMT settings at the bo
   ).toEqual(['ops']);
   expect(rail.main[0]!.count).toEqual({ text: '3', needsYou: true });
   // Design is a peer rail module (#5866); the product rail has no Search.
+  expect(rail.main.find((item) => item.id === 'design')?.icon).toBe('palette');
   expect([...rail.main, ...rail.bottom].map((item) => item.id)).not.toContain('search');
   expect(rail.bottom.map((item) => [item.id, item.label, item.href])).toEqual([
     ['settings', 'TMT settings', `${origin}/settings/`],
@@ -70,6 +71,7 @@ it('marks the longest matching module, or the host-named one, and settings on /s
   expect(at('/remote/settings')).toEqual(['remote']);
   expect(at('/r/abc/x/colab/pages/p1')).toEqual(['colab']);
   expect(at('/colab/', colab)).toEqual(['colab']);
+  expect(at('/colab/design/', colab)).toEqual(['design']);
   expect(at('/settings/')).toEqual(['settings']);
 });
 
