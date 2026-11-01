@@ -104,9 +104,9 @@ runners retain default cleanup.
 `macos` flag is false for pull requests and merge groups, where both macOS build/smoke
 results must be exactly skipped, so no required check waits on macOS (#2547). Linux
 stays required. macOS coverage moved after merge: the admitted main push and weekly
-schedule run both macOS runtime builds and packed installs; the main push also runs the
-selected release rehearsal, whose prepare stages build, verify and upgrade-prove both
-Darwin targets; `release-version-injection.yml` runs its macOS hosts on main push and
+schedule run both macOS runtime builds and packed installs; each main push also triggers
+`release-rehearsal.yml` for the products it selects, in its own workflow so main verification
+never waits on macOS, whose prepare stages build, verify and upgrade-prove both Darwin targets; `release-version-injection.yml` runs its macOS hosts on main push and
 daily (PRs run Linux only); and every release's `native-release-prepare.yml` assembles and
 proves all four targets before any publish. A macOS-only break is found after merge and
 fixed forward. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
@@ -340,8 +340,8 @@ Infra's `.github/release-parity.json` inventories executable steps in `native-re
 carry `followUp`; each gap needs a counterpart or that reason, never an open marker.
 
 A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output for a pull
-request or merge group; a `mainPush` counterpart names one that runs on the admitted main
-push, and the guard requires a main push trigger, a path selection and no PR-only `verify`
+request or merge group; a `mainPush` counterpart names a job that runs on a main
+push (here `release-rehearsal.yml:prepare`), and the guard requires a main push trigger, a path selection and no PR-only `verify`
 condition. An entry may list both, or name a `releaseOnly` reason instead. The release
 rehearsal is mainPush coverage: it rehearses the products the push's `before..sha` diff
 selects. A push superseded while pending, or one whose selection missed an input, is

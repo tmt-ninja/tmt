@@ -42,8 +42,8 @@
         "sha256": "1d64f3cc4df7dd250df4df9123617057806939f2c6ba39b5157e6db6ef2ea536",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -146,8 +146,8 @@
         "sha256": "e4b37a9d82b83aff0ba75799d3c29960d606ac26f858278ab86cfeed20991ec8",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -179,8 +179,8 @@
         "sha256": "280bbaa59e5c802e940b17279b1b5ff9b0fbf3cb89880ff6f1dad0e47492559c",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -212,8 +212,8 @@
         "sha256": "8a5e36b6fba79c00f5bf62d485bd27f823e5716efe42c760ec5d72d0c2bee508",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -236,8 +236,8 @@
         "sha256": "a0498eb9e7823642faa199aa374c2a2f2a55694b81435ca28cedbfaf051764c3",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -253,8 +253,8 @@
         "sha256": "1ce6ec4608d87b59cae6619e322b95b706bfd3a506e9a5041fd7f3ea0224e251",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -277,8 +277,8 @@
         "sha256": "5feb85467e527dd68b65549db19759d2750bccd54d27509faa3e01f04cc2e701",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -292,8 +292,8 @@
       "declaration": {
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -325,8 +325,8 @@
         "sha256": "0089ff050ffbef90286d45cd9082bbab097b10136c6af8070584b5f4ac590c76",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -360,8 +360,8 @@
         "sha256": "0367bde2c500814d525fdef4e38b684550329966866b985c3d5b915280dcdac6",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -383,8 +383,8 @@
         "sha256": "7b63f062c9f0e24f4d9c3942e2852cf898185efdbda93cf6fcb8f39dbddf84ba",
         "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -483,8 +483,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -532,8 +532,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -563,8 +563,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -594,8 +594,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -634,8 +634,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -654,8 +654,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -690,8 +690,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -722,8 +722,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -750,8 +750,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -770,8 +770,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -808,8 +808,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -836,8 +836,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -900,8 +900,8 @@
       ],
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -1086,8 +1086,8 @@
       },
       "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",

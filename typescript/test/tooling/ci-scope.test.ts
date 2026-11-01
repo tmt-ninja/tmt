@@ -121,7 +121,6 @@ describe('complete trusted-main verification', () => {
       verify: 'true',
       macos: 'true',
       main_full_admitted: 'true',
-      release_rehearsal: 'true',
     };
     return needs;
   };
@@ -228,23 +227,6 @@ describe('complete trusted-main verification', () => {
     extra.unclassified = { result: 'success' };
     expect(mainFullGatePasses(context, extra)).toBe(false);
     expect(mainFullGatePasses(context, null)).toBe(false);
-  });
-
-  it('requires the main-push release rehearsal exactly when the push selected it', () => {
-    const unselected = completeNeeds();
-    unselected.changes.outputs!.release_rehearsal = 'false';
-    expect(mainFullGatePasses(context, unselected)).toBe(false);
-    unselected['release-rehearsal'] = { result: 'skipped' };
-    expect(mainFullGatePasses(context, unselected)).toBe(true);
-    for (const result of ['failure', 'cancelled', '']) {
-      unselected['release-rehearsal'] = { result };
-      expect(mainFullGatePasses(context, unselected), result).toBe(false);
-    }
-    for (const value of ['', 'yes', undefined]) {
-      const needs = completeNeeds();
-      needs.changes.outputs!.release_rehearsal = value as never;
-      expect(mainFullGatePasses(context, needs), String(value)).toBe(false);
-    }
   });
 
   it.each(MAIN_FULL_JOBS)('cannot omit or skip any complete obligation: %s', (name) => {

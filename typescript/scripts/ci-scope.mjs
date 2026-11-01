@@ -831,13 +831,9 @@ export const RUST_WORKERS = ['clippy', 'tests', 'process', 'msrv'];
 /** Positional result order accepted by the gate-process CLI. */
 export const PROCESS_JOBS = ['build', 'shard1', 'shard2'];
 
-/**
- * Direct obligations of the main-only complete aggregate. The release rehearsal runs only
- * when the push changed a release input, so it must succeed when selected and skip otherwise.
- */
+/** Direct obligations of the main-only complete aggregate; release rehearsal has its own workflow. */
 export const MAIN_FULL_JOBS = [
   'changes',
-  'release-rehearsal',
   'code-quality',
   'native-notices',
   'colab-chrome',
@@ -882,15 +878,11 @@ export function mainFullGatePasses(context, needs) {
   if (!trustedMain(context) || !record(needs)) return false;
   if (
     Object.keys(needs).length !== MAIN_FULL_JOBS.length ||
-    MAIN_FULL_JOBS.some((job) => !Object.hasOwn(needs, job))
+    MAIN_FULL_JOBS.some((job) => !Object.hasOwn(needs, job) || needs[job]?.result !== 'success')
   )
     return false;
-  const outputs = needs.changes?.outputs;
+  const outputs = needs.changes.outputs;
   if (!record(outputs) || outputs.native_scope !== 'full') return false;
-  if (!['true', 'false'].includes(outputs.release_rehearsal)) return false;
-  const expected = (job) =>
-    job === 'release-rehearsal' && outputs.release_rehearsal === 'false' ? 'skipped' : 'success';
-  if (MAIN_FULL_JOBS.some((job) => needs[job]?.result !== expected(job))) return false;
   if (
     [
       'verify',
