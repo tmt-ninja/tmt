@@ -8,7 +8,7 @@ import { morePatterns, PatternViewports } from './patterns-more.js';
 import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
-import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
+import { usePreview } from './preview.js';
 import { follow, hosted } from './router.js';
 import { Article, ComponentTemplate, Snippet } from './templates.js';
 export { Article, Snippet } from './templates.js';
@@ -23,13 +23,12 @@ interface Section {
   title: string;
   pages: Page[];
 }
-/** A design system the docs shell serves (#5821): its own route root, nav and header controls. */
+/** A design system the docs shell serves (#5821): its own route root and nav. */
 interface DesignSystem {
   id: 'gui' | 'tui';
   name: string;
   root: string;
   sections: Section[];
-  Controls(): ReactNode;
 }
 /** A Mocks entry: the route renders the full-screen mock, so the docs shell never draws it. */
 const mock = (href: string, title: string): Page => ({ href, title, render: () => null });
@@ -39,7 +38,6 @@ const gui: DesignSystem = {
   id: 'gui',
   name: 'tmt GUI',
   root: guiRoot,
-  Controls: GuiControls,
   sections: [
     {
       title: 'Getting started',
@@ -124,7 +122,6 @@ const tui: DesignSystem = {
   id: 'tui',
   name: 'tmt TUI',
   root: tuiRoot,
-  Controls: TuiControls,
   sections: [
     ...tuiGroups.map((title) => ({
       title,
@@ -231,52 +228,8 @@ function TopBar({ system, onMenu }: { system: DesignSystem; onMenu?: () => void 
           </nav>
         </>
       )}
-      <div className="docs-switches">
-        <system.Controls />
-      </div>
     </header>
   );
-}
-
-function ThemeSwitch() {
-  const { theme } = usePreview();
-  return (
-    <button
-      type="button"
-      className="docs-theme"
-      aria-label={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-    >
-      {theme === 'dark' ? '☾ Dark' : '☀ Light'}
-    </button>
-  );
-}
-
-/** The GUI system's header controls: the radius knob and the viewer theme. */
-function GuiControls() {
-  const { radius } = usePreview();
-  return (
-    <>
-      <div className="docs-segment" role="group" aria-label="Radius">
-        {(['2', '4', 'current'] as Radius[]).map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={radius === value}
-            onClick={() => setRadius(value)}
-          >
-            {radiusLabel[value]}
-          </button>
-        ))}
-      </div>
-      <ThemeSwitch />
-    </>
-  );
-}
-
-/** The TUI system's header controls: the viewer theme; the 16-colour fallback joins from #5835. */
-function TuiControls() {
-  return <ThemeSwitch />;
 }
 
 function TuiIntroduction() {
@@ -317,10 +270,10 @@ function Introduction() {
         shadcn set on Radix; the <code>Browser*</code> family from <code>/react</code> moves onto
         those internals next, so there is one family.
       </p>
-      <h2>Use the switches</h2>
+      <h2>Theme</h2>
       <p>
-        The top bar switches the theme and the one radius knob for every page and the Colab mock:
-        2/4, 4/6, or today&apos;s values for comparison.
+        Every page and the Colab mock follow the GUI theme: the shell&apos;s light and dark toggle
+        in Design, and this browser&apos;s stored choice or the device on this site.
       </p>
       <div className="docs-cards">
         <a className="docs-card" href={`${guiRoot}/principles`} onClick={follow}>

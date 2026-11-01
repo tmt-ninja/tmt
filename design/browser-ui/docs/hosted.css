@@ -2,11 +2,26 @@
    them, so nothing may be fixed to the viewport. On a phone the nav drawer opens in the docs' own
    flow, just under the docs' sticky top bar, and scrolls within itself. Loaded only through the
    scoped docs-embed.css. */
+/* The host's workspace is the docs' viewport: the docs layout keeps its outline sticky inside it. */
+:root[data-chrome='hosted'] .docs {
+  --docs-viewport: calc(100dvh - var(--design-header-height, var(--tmt-ui-header-height)));
+}
+/* On a desktop the docs' own top bar is empty (the host's header carries brand, switcher and
+   actions), so the outline sits at the top of the workspace. */
+@media (min-width: 761px) {
+  :root[data-chrome='hosted'] .docs {
+    --docs-top: 0px;
+  }
+  :root[data-chrome='hosted'] .docs-top {
+    display: none;
+  }
+}
 @media (max-width: 760px) {
   :root[data-chrome='hosted'] .docs-nav {
     position: sticky;
     inset: auto;
     top: 56px;
+    height: auto;
     max-height: 70dvh;
     overflow-y: auto;
     border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);

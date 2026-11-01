@@ -46,11 +46,20 @@ async function open(page: Page, owner = true, routeBase = base) {
     }),
   );
   await page.goto(`${routeBase}/`);
-  await expect(
-    page
-      .getByRole('combobox', { name: 'Design system', exact: true })
-      .getByRole('option', { name: 'Acme', exact: true }),
-  ).toHaveCount(1);
+  await expect.poll(() => systemNames(page)).toContain('Acme');
+}
+/** The header crumb's DS menu: open it, choose a system by name, or read its names. */
+const systemMenu = (page: Page) => page.getByRole('button', { name: /^Design system/ });
+async function systemNames(page: Page): Promise<string[]> {
+  await systemMenu(page).click();
+  const names = await page.getByRole('menuitemradio').allTextContents();
+  await page.keyboard.press('Escape');
+  // A checked row draws its mark after the name.
+  return names.map((name) => name.replace(/✓$/, '').trim());
+}
+async function pickSystem(page: Page, name: string) {
+  await systemMenu(page).click();
+  await page.getByRole('menuitemradio', { name, exact: true }).click();
 }
 async function chromePaint(page: Page) {
   return page
@@ -97,11 +106,10 @@ for (const width of [1440, 390])
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.setViewportSize({ width, height: 1000 });
-      await page.addInitScript((value) => {
-        if (window === window.top) localStorage.setItem('tmt-docs-theme', value);
-      }, theme);
+      // The docs follow the GUI theme (#5866): here the device's, since nothing is stored.
       await page.emulateMedia({ colorScheme: theme });
       await open(page);
+      await expect(page.locator('.tmt-design-docs')).toHaveAttribute('data-theme', theme);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveCount(1);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveText('Design');
       await expect(page.locator('.colab-route .tmt-ui-rail-sub')).toHaveCount(0);
@@ -114,7 +122,7 @@ for (const width of [1440, 390])
       await expect(page.locator('.docs-main h1')).toHaveText('Button');
       const withDesignDocs = await chromePaint(page);
       await capture(page, `design-gui-button-${width}-${theme}.png`);
-      await page.getByRole('combobox', { name: 'Design system', exact: true }).selectOption('tui');
+      await pickSystem(page, 'tmt TUI');
       await docsMenu(page);
       await page.locator('.docs-nav a[href$="/ds/tui/roles"]').click();
       await expect(page).toHaveURL(new RegExp(`${base}/ds/tui/roles$`));
@@ -129,11 +137,7 @@ for (const width of [1440, 390])
       await capture(page, `design-new-${width}-${theme}.png`);
       await dialog.getByRole('button', { name: 'Create', exact: true }).click();
       await expect(dialog).toHaveCount(0);
-      await expect(
-        page
-          .getByRole('combobox', { name: 'Design system', exact: true })
-          .getByRole('option', { name: 'Brio', exact: true }),
-      ).toHaveCount(1);
+      await expect.poll(() => systemNames(page)).toContain('Brio');
       await expect(
         page.locator('.docs-article').getByRole('heading', { name: 'Brio', exact: true }),
       ).toBeVisible();
@@ -143,10 +147,11 @@ for (const width of [1440, 390])
       await expect(
         page.locator('.docs-cards').getByRole('link', { name: /brio-button/ }),
       ).toBeVisible();
-      const pickerBox = await page
-        .getByRole('combobox', { name: 'Design system', exact: true })
-        .boundingBox();
-      expect(pickerBox!.width).toBeGreaterThan(60);
+      // The crumb shows the whole system name, not a clipped stub.
+      await expect(systemMenu(page)).toContainText('Brio');
+      expect(
+        await systemMenu(page).evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+      ).toBe(true);
       await capture(page, `design-user-home-${width}-${theme}.png`);
       await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
       await expect(page.locator('.design-feedback[role="status"]')).toContainText(
@@ -292,9 +297,7 @@ test('read-only Design viewers can select a tree but cannot create or publish', 
 }) => {
   await open(page, false);
   await expect(page.getByRole('button', { name: 'New design system', exact: true })).toHaveCount(0);
-  const picker = page.getByRole('combobox', { name: 'Design system', exact: true });
-  const id = await picker.getByRole('option', { name: 'Acme', exact: true }).getAttribute('value');
-  await picker.selectOption(id!);
+  await pickSystem(page, 'Acme');
   await expect(
     page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
   ).toBeVisible();
@@ -305,10 +308,7 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   page,
 }) => {
   await open(page);
-  const picker = page.getByRole('combobox', { name: 'Design system', exact: true });
-  await picker.selectOption(
-    (await picker.getByRole('option', { name: 'Acme', exact: true }).getAttribute('value'))!,
-  );
+  await pickSystem(page, 'Acme');
   await expect(page.getByRole('button', { name: 'Publish 0.1.1', exact: true })).toBeEnabled();
   await page.evaluate(
     () =>
@@ -341,10 +341,7 @@ test('standalone Design keeps its docs, system cards and editing links on their 
   await expect(page).toHaveURL(/\/design\/ds\/gui$/);
   await page.locator('.docs-nav').getByRole('link', { name: 'Button', exact: true }).click();
   await expect(page).toHaveURL(/\/design\/ds\/gui\/components\/button$/);
-  const picker = page.getByRole('combobox', { name: 'Design system', exact: true });
-  await picker.selectOption(
-    (await picker.getByRole('option', { name: 'Acme', exact: true }).getAttribute('value'))!,
-  );
+  await pickSystem(page, 'Acme');
   await expect(
     page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
   ).toBeVisible();
@@ -359,4 +356,25 @@ test('standalone Design keeps its docs, system cards and editing links on their 
     'href',
     /^http:\/\/127\.0\.0\.1:[0-9]+\/colab\/pages\/[0-9a-f-]+$/,
   );
+});
+
+test('the header crumb opens the DS menu from the keyboard and closes on Escape', async ({
+  page,
+}) => {
+  await open(page);
+  await expect(page.locator('.design-header-title select')).toHaveCount(0);
+  const trigger = systemMenu(page);
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const items = page.getByRole('menuitemradio');
+  await expect(items.first()).toBeVisible();
+  await expect(page.getByRole('menuitemradio', { name: 'tmt GUI', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator(':focus')).toHaveAttribute('role', 'menuitemradio');
+  await page.keyboard.press('Escape');
+  await expect(items).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });

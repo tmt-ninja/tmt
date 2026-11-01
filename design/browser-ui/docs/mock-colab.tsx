@@ -13,7 +13,7 @@ import { Button, Separator, UiTheme } from '../src/ui/index.js';
 import { ListScreen } from './mock-list.js';
 import { ManageDialog, menuControls, SettingsScreen } from './mock-menu.js';
 import { ReaderScreen } from './mock-reader.js';
-import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
+import { usePreview } from './preview.js';
 import { follow, navigate, setQuery, useQuery } from './router.js';
 import { colabMockBase, guiRoot } from './routes.js';
 
@@ -117,9 +117,8 @@ function buildMenu(current: string, withShortcuts: boolean, needs: boolean): She
   };
 }
 
-/** The mock's global switches: screen, theme and radius, and the way back to the docs. */
+/** The mock's global switches: the screen, and the way back to the docs. The theme is the GUI's. */
 export function GlobalSwitches({ screen }: { screen: Screen }) {
-  const { theme, radius } = usePreview();
   return (
     <>
       <p className="mock-switch-label">Screen</p>
@@ -134,36 +133,6 @@ export function GlobalSwitches({ screen }: { screen: Screen }) {
             onClick={() => navigate(entry.href)}
           >
             {entry.label}
-          </Button>
-        ))}
-      </div>
-      <p className="mock-switch-label">Theme</p>
-      <div className="mock-switch-row">
-        {(['dark', 'light'] as const).map((value) => (
-          <Button
-            key={value}
-            type="button"
-            size="xs"
-            variant={theme === value ? 'secondary' : 'ghost'}
-            aria-pressed={theme === value}
-            onClick={() => setTheme(value)}
-          >
-            {value === 'dark' ? 'Dark' : 'Light'}
-          </Button>
-        ))}
-      </div>
-      <p className="mock-switch-label">Radius</p>
-      <div className="mock-switch-row">
-        {(['2', '4', 'current'] as Radius[]).map((value) => (
-          <Button
-            key={value}
-            type="button"
-            size="xs"
-            variant={radius === value ? 'secondary' : 'ghost'}
-            aria-pressed={radius === value}
-            onClick={() => setRadius(value)}
-          >
-            {radiusLabel[value]}
           </Button>
         ))}
       </div>

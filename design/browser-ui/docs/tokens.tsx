@@ -6,9 +6,9 @@ import { usePreview } from './preview.js';
 const names = (group: Record<string, unknown>) =>
   Object.keys(group).filter((name) => !name.startsWith('$'));
 
-/** A custom property's computed value on the document, re-read when the theme or radius changes. */
+/** A custom property's computed value on the document, re-read when the theme changes. */
 function useComputed(property: string, measure?: (node: HTMLElement) => string) {
-  const { theme, radius } = usePreview();
+  const { theme } = usePreview();
   const ref = useRef<HTMLSpanElement>(null);
   const [value, setValue] = useState('');
   useLayoutEffect(() => {
@@ -17,7 +17,7 @@ function useComputed(property: string, measure?: (node: HTMLElement) => string) 
     setValue(
       measure ? measure(node) : getComputedStyle(node).getPropertyValue(property).trim() || '—',
     );
-  }, [property, measure, theme, radius]);
+  }, [property, measure, theme]);
   return { ref, value };
 }
 const hex = (node: HTMLElement) => {

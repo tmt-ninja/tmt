@@ -43,13 +43,44 @@ test('each system has its own nav, with no page of the other system', async ({ p
   await expect(page.getByRole('link', { name: 'tmt TUI' })).toHaveAttribute('aria-current', 'page');
 });
 
-test('header controls follow the system: radius only in GUI', async ({ page }) => {
+test('the docs follow the GUI theme and draw no theme or radius controls of their own', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('tmt-ui-theme', 'light'));
   await page.goto(`${docs}/ds/gui/components/button`);
-  await expect(page.getByRole('group', { name: 'Radius' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Switch to/ })).toBeVisible();
-  await page.goto(`${docs}/ds/tui/roles`);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('.docs').locator('xpath=..')).toHaveAttribute(
+    'data-tmt-theme',
+    'light',
+  );
+  await expect(page.getByRole('button', { name: /Switch to/ })).toHaveCount(0);
   await expect(page.getByRole('group', { name: 'Radius' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Switch to/ })).toBeVisible();
+  // A theme change on the document reaches the previews without a reload.
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+  await expect(page.locator('.docs').locator('xpath=..')).toHaveAttribute('data-tmt-theme', 'dark');
+});
+
+test('the outline stays in view and scrolls on its own while the page scrolls', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 700 });
+  await page.goto(`${docs}/ds/gui/components/button`);
+  const nav = page.locator('nav.docs-nav');
+  await page.mouse.wheel(0, 4000);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(500);
+  const box = (await nav.boundingBox())!;
+  expect(Math.round(box.y)).toBe(56);
+  expect(Math.round(box.height)).toBe(700 - 56);
+  const own = await nav.evaluate((node) => {
+    node.scrollTop = 200;
+    return {
+      top: node.scrollTop,
+      page: scrollY,
+      scrollable: node.scrollHeight > node.clientHeight,
+    };
+  });
+  expect(own.scrollable).toBe(true);
+  expect(own.top).toBeGreaterThan(0);
 });
 
 test('the mocks open from their system nav', async ({ page }) => {

@@ -1,21 +1,6 @@
-.design-header-title {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: var(--tmt-ui-ref-space-3);
-}
-.design-header-title select {
-  max-width: 45vw;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-2);
-  background: var(--tmt-ui-surface-paper);
-  color: var(--tmt-ui-color-text);
-  font: inherit;
-}
-.design-header-title select:focus-visible {
-  outline: 0;
-  border-color: var(--tmt-ui-color-focus);
+/* The crumb's menu opens below the bar, so the title slot must not clip it. */
+.design-header-title .tmt-ui-topbar-title-current {
+  overflow: visible;
 }
 .design-workspace {
   height: calc(100dvh - var(--design-header-height, var(--tmt-ui-header-height)));
@@ -111,13 +96,6 @@
   .tmt-ui-topbar:has(.design-header-title) .tmt-ui-topbar-actions {
     grid-column: 1 / -1;
     justify-self: end;
-  }
-  .design-header-title {
-    gap: var(--tmt-ui-space-xs);
-  }
-  .design-header-title select {
-    min-width: 0;
-    width: 100%;
   }
 }
 

@@ -45,12 +45,6 @@ code {
   color: var(--tmt-ui-color-secondary);
   font-weight: 400;
 }
-.docs-switches {
-  display: flex;
-  align-items: center;
-  gap: var(--tmt-ui-ref-space-2);
-  margin-left: auto;
-}
 .docs-segment {
   display: flex;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -58,7 +52,6 @@ code {
   overflow: hidden;
 }
 .docs-segment > :is(button, a),
-.docs-theme,
 .docs-menu-button {
   padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-4);
   border: 0;
@@ -79,20 +72,21 @@ code {
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-text);
 }
-.docs-theme {
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  color: var(--tmt-ui-color-text);
-}
 .docs-menu-button {
   display: none;
   font-size: var(--tmt-ui-ref-size-6);
 }
-:is(.docs-segment > button, .docs-segment > a, .docs-theme, .docs-menu-button):focus-visible {
+:is(.docs-segment > button, .docs-segment > a, .docs-menu-button):focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
 
-/* Body: nav and one column */
+/* Body: nav and one column. The outline is sticky and scrolls on its own: it sits under the top
+   bar and is exactly as tall as the viewport below it. A host that scrolls the docs inside its own
+   viewport sets --docs-viewport and --docs-top (hosted.css). */
+.docs {
+  --docs-top: 56px;
+  --docs-viewport: 100dvh;
+}
 .docs-body {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -101,10 +95,11 @@ code {
 }
 .docs-nav {
   position: sticky;
-  top: 56px;
+  top: var(--docs-top);
   align-self: start;
-  max-height: calc(100vh - 56px);
+  height: calc(var(--docs-viewport) - var(--docs-top));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--tmt-ui-ref-space-6) var(--tmt-ui-ref-space-4);
   box-sizing: border-box;
 }
@@ -520,8 +515,7 @@ code {
   .docs-menu-button {
     display: block;
   }
-  .docs-brand-sub,
-  .docs-switches > .docs-segment {
+  .docs-brand-sub {
     display: none;
   }
   .docs-body {
@@ -532,7 +526,7 @@ code {
     inset: 56px 0 0;
     z-index: 9;
     display: none;
-    max-height: none;
+    height: auto;
     background: var(--tmt-ui-surface-paper);
   }
   .docs-nav[data-open] {
