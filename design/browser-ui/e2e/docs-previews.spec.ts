@@ -5,13 +5,18 @@ import { expect, test, type Page } from '@playwright/test';
 // second web server in playwright.config.ts.
 const docs = `http://127.0.0.1:${Number(process.env.BROWSER_UI_TEST_PORT ?? 5184) + 1}`;
 
+/** Every docs page of both design systems, from each system's own nav (mocks excluded). */
 async function docsPages(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${docs}/docs`);
-  const hrefs = await page
-    .locator('nav.docs-nav a[href^="/docs"]')
-    .evaluateAll((links) => links.map((link) => link.getAttribute('href')!));
-  return [...new Set(['/docs', ...hrefs])];
+  const paths: string[] = [];
+  for (const root of ['/ds/gui', '/ds/tui']) {
+    await page.goto(`${docs}${root}`);
+    const hrefs = await page
+      .locator('nav.docs-nav a')
+      .evaluateAll((links) => links.map((link) => link.getAttribute('href')!));
+    paths.push(root, ...hrefs.filter((href) => !href.includes('/mocks/')));
+  }
+  return [...new Set(paths)];
 }
 
 /** The layout faults of one page's previews, as readable lines; empty when the page is sound. */
@@ -70,7 +75,7 @@ for (const width of [1440, 390]) {
 
 test('the preview check catches a frame that keeps its full width', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${docs}/docs/patterns/tabs-row`);
+  await page.goto(`${docs}/ds/gui/patterns/tabs-row`);
   await page.locator('[data-preview-frame]').first().waitFor();
   // The #5821 fault: the old two-column grid with a fixed 720px box for the 1440 frame, which spills
   // out of its column over the 390 frame next to it.
@@ -91,7 +96,7 @@ test('the preview check catches a frame that keeps its full width', async ({ pag
 
 test('the 390 tabs-row preview shows the phone row', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${docs}/docs/patterns/tabs-row`);
+  await page.goto(`${docs}/ds/gui/patterns/tabs-row`);
   const phone = page.frameLocator('iframe[title="Tabs row with actions Default 390 dark"]');
   const actions = phone.locator('[data-slot="button"]');
   await expect(actions).toHaveCount(2);

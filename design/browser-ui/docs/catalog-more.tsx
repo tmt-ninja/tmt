@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich-input/index.js';
 import { ScaledFrame } from '../gallery/kit.js';
+import { guiRoot } from './routes.js';
 import { PageTable, samplePages } from '../gallery/page-table.js';
 import {
   Badge,
@@ -595,7 +596,7 @@ export const moreComponents: ComponentDoc[] = [
                   <ScaledFrame
                     key={theme}
                     title={`Data table ${title} ${theme}`}
-                    src={`/docs?frame=data-table&theme=${theme}&${query}`}
+                    src={`${guiRoot}?frame=data-table&theme=${theme}&${query}`}
                     width={width}
                     height={width === 390 ? 640 : 520}
                   />

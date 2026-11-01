@@ -48,6 +48,7 @@ import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich
 import { StatePanel, type StateControl } from './mock-reader.js';
 import { PageTable, samplePages } from '../gallery/page-table.js';
 import { follow, navigate, setQuery, useQuery } from './router.js';
+import { colabMockBase } from './routes.js';
 
 /*
  * The Colab page list, reconstructed (#5821, GUI lead notes 10 and 11): today's list on main
@@ -419,7 +420,7 @@ export function ListScreen({
                   <Surface level="sheet" className="list-pin">
                     <FileText className="list-pin-icon" aria-hidden="true" />
                     <div>
-                      <a href="/mock/colab/page" onClick={follow}>
+                      <a href={`${colabMockBase}/page`} onClick={follow}>
                         {row.title}
                       </a>
                       <div className="list-pin-meta">
@@ -507,7 +508,7 @@ export function ListScreen({
         ) : (
           <>
             <p className="list-quiet list-status">{shown.length} pages in this view</p>
-            <PageTable rows={shown} onOpen={() => navigate('/mock/colab/page')} />
+            <PageTable rows={shown} onOpen={() => navigate(`${colabMockBase}/page`)} />
           </>
         )}
         <section className="reader-notes">

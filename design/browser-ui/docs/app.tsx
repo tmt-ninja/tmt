@@ -10,102 +10,152 @@ import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow } from './router.js';
+import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
 
 interface Page {
   href: string;
   title: string;
   render(): ReactNode;
 }
-const intro: Page = { href: '/docs', title: 'Introduction', render: () => <Introduction /> };
-const principles: Page = {
-  href: '/docs/principles',
-  title: 'Principles',
-  render: () => <Principles />,
+interface Section {
+  title: string;
+  pages: Page[];
+}
+/** A design system the docs shell serves (#5821): its own route root, nav and header controls. */
+interface DesignSystem {
+  id: 'gui' | 'tui';
+  name: string;
+  root: string;
+  sections: Section[];
+  Controls(): ReactNode;
+}
+/** A Mocks entry: the route renders the full-screen mock, so the docs shell never draws it. */
+const mock = (href: string, title: string): Page => ({ href, title, render: () => null });
+
+const guiIntro: Page = { href: guiRoot, title: 'Introduction', render: () => <Introduction /> };
+const gui: DesignSystem = {
+  id: 'gui',
+  name: 'tmt GUI',
+  root: guiRoot,
+  Controls: GuiControls,
+  sections: [
+    {
+      title: 'Getting started',
+      pages: [
+        guiIntro,
+        { href: `${guiRoot}/principles`, title: 'Principles', render: () => <Principles /> },
+      ],
+    },
+    {
+      title: 'Tokens',
+      pages: tokenPages.map((page) => ({
+        href: `${guiRoot}/tokens/${page.slug}`,
+        title: page.title,
+        render: () => (
+          <Article title={page.title} lead={page.lead}>
+            {page.render()}
+          </Article>
+        ),
+      })),
+    },
+    {
+      title: 'Components',
+      pages: [...components]
+        .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+        .map((doc) => ({
+          href: `${guiRoot}/components/${doc.slug}`,
+          title: doc.name,
+          render: () => <ComponentPage doc={doc} />,
+        })),
+    },
+    {
+      title: 'Browser components',
+      pages: [...browserDocs]
+        .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+        .map((doc) => ({
+          href: `${guiRoot}/browser/${doc.slug}`,
+          title: doc.name,
+          render: () => <BrowserPage doc={doc} />,
+        })),
+    },
+    {
+      title: 'Patterns',
+      pages: [
+        ...morePatterns.map((pattern) => ({
+          href: `${guiRoot}/patterns/${pattern.slug}`,
+          title: pattern.title,
+          render: () => (
+            <Article title={pattern.title} lead={pattern.lead}>
+              <PatternViewports doc={pattern} />
+            </Article>
+          ),
+        })),
+        ...patterns.map((pattern) => ({
+          href: `${guiRoot}/patterns/${pattern.slug}`,
+          title: pattern.title,
+          render: () => (
+            <Article title={pattern.title} lead={pattern.lead}>
+              {pattern.render()}
+            </Article>
+          ),
+        })),
+      ],
+    },
+    { title: 'Mocks', pages: [mock(colabMockBase, 'Colab')] },
+  ],
 };
-const sections: { title: string; pages: Page[] }[] = [
-  { title: 'Getting started', pages: [intro, principles] },
-  {
-    title: 'Tokens',
-    pages: tokenPages.map((page) => ({
-      href: `/docs/tokens/${page.slug}`,
-      title: page.title,
-      render: () => (
-        <Article title={page.title} lead={page.lead}>
-          {page.render()}
-        </Article>
-      ),
+
+/** The TUI pages, grouped by the group they name (#5835); an ungrouped page is a component. */
+const tuiGroups = ['Getting started', 'Foundations', 'Components', 'Patterns'] as const;
+const tuiPage = (page: (typeof tuiPages)[number]): Page => ({
+  href: `${tuiRoot}/${page.slug}`,
+  title: page.title,
+  render: () => (
+    <Article title={page.title} lead={page.lead}>
+      {page.render()}
+    </Article>
+  ),
+});
+const tuiGroup = (page: (typeof tuiPages)[number]) =>
+  (page as { group?: string }).group ?? 'Components';
+const tui: DesignSystem = {
+  id: 'tui',
+  name: 'tmt TUI',
+  root: tuiRoot,
+  Controls: TuiControls,
+  sections: [
+    ...tuiGroups.map((title) => ({
+      title,
+      pages: [
+        ...(title === 'Getting started'
+          ? [{ href: tuiRoot, title: 'Introduction', render: () => <TuiIntroduction /> }]
+          : []),
+        ...tuiPages.filter((page) => tuiGroup(page) === title).map(tuiPage),
+      ],
     })),
-  },
-  {
-    title: 'Components',
-    pages: [...components]
-      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
-      .map((doc) => ({
-        href: `/docs/components/${doc.slug}`,
-        title: doc.name,
-        render: () => <ComponentPage doc={doc} />,
-      })),
-  },
-  {
-    title: 'Browser components',
-    pages: [...browserDocs]
-      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
-      .map((doc) => ({
-        href: `/docs/browser/${doc.slug}`,
-        title: doc.name,
-        render: () => <BrowserPage doc={doc} />,
-      })),
-  },
-  {
-    title: 'TUI components',
-    pages: tuiPages.map((page) => ({
-      href: `/docs/tui/${page.slug}`,
-      title: page.title,
-      render: () => (
-        <Article title={page.title} lead={page.lead}>
-          {page.render()}
-        </Article>
-      ),
-    })),
-  },
-  {
-    title: 'Patterns',
-    pages: [
-      ...morePatterns.map((pattern) => ({
-        href: `/docs/patterns/${pattern.slug}`,
-        title: pattern.title,
-        render: () => (
-          <Article title={pattern.title} lead={pattern.lead}>
-            <PatternViewports doc={pattern} />
-          </Article>
-        ),
-      })),
-      ...patterns.map((pattern) => ({
-        href: `/docs/patterns/${pattern.slug}`,
-        title: pattern.title,
-        render: () => (
-          <Article title={pattern.title} lead={pattern.lead}>
-            {pattern.render()}
-          </Article>
-        ),
-      })),
-    ],
-  },
-];
-const pages = sections.flatMap((section) => section.pages);
+    { title: 'Mocks', pages: [mock(`${tuiMockBase}/agents`, 'Agents')] },
+  ].filter((section) => section.pages.length > 0),
+};
+export const designSystems = [gui, tui];
 
 export function DocsApp({ path }: { path: string }) {
   const { theme } = usePreview();
-  const page = pages.find((entry) => entry.href === path) ?? intro;
+  const system = path === tuiRoot || path.startsWith(`${tuiRoot}/`) ? tui : gui;
+  const pages = system.sections.flatMap((section) => section.pages);
+  const page = pages.find((entry) => entry.href === path) ?? pages[0]!;
   const index = pages.indexOf(page);
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <UiTheme theme={theme}>
-      <div className="docs">
-        <TopBar onMenu={() => setMenuOpen((open) => !open)} />
+      <div className="docs" data-system={system.id}>
+        <TopBar system={system} onMenu={() => setMenuOpen((open) => !open)} />
         <div className="docs-body">
-          <nav className="docs-nav" data-open={menuOpen || undefined} aria-label="Documentation">
-            {sections.map((section) => (
+          <nav
+            className="docs-nav"
+            data-open={menuOpen || undefined}
+            aria-label={`${system.name} documentation`}
+          >
+            {system.sections.map((section) => (
               <div key={section.title} className="docs-nav-group">
                 <p className="docs-nav-title">{section.title}</p>
                 {section.pages.map((entry) => (
@@ -149,8 +199,7 @@ export function DocsApp({ path }: { path: string }) {
   );
 }
 
-export function TopBar({ onMenu }: { onMenu?: () => void }) {
-  const { theme, radius } = usePreview();
+function TopBar({ system, onMenu }: { system: DesignSystem; onMenu?: () => void }) {
   return (
     <header className="docs-top">
       {onMenu && (
@@ -158,48 +207,88 @@ export function TopBar({ onMenu }: { onMenu?: () => void }) {
           ☰
         </button>
       )}
-      <a className="docs-brand" href="/docs" onClick={follow}>
+      <a className="docs-brand" href={system.root} onClick={follow}>
         <BrandMark size={22} />
         <span>tmt</span>
         <span className="docs-brand-sub">design system</span>
       </a>
-      <nav className="docs-top-links" aria-label="Sections">
-        <a href="/docs" onClick={follow}>
-          Docs
-        </a>
-        <a href="/docs/components/button" onClick={follow}>
-          Components
-        </a>
-        <a href="/mock/colab" onClick={follow}>
-          Colab mock
-        </a>
-        <a href="/mock/tui/agents" onClick={follow}>
-          TUI mock
-        </a>
+      <nav className="docs-segment docs-systems" aria-label="Design system">
+        {designSystems.map((entry) => (
+          <a
+            key={entry.id}
+            href={entry.root}
+            aria-current={entry === system ? 'page' : undefined}
+            onClick={follow}
+          >
+            {entry.name}
+          </a>
+        ))}
       </nav>
       <div className="docs-switches">
-        <div className="docs-segment" role="group" aria-label="Radius">
-          {(['2', '4', 'current'] as Radius[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={radius === value}
-              onClick={() => setRadius(value)}
-            >
-              {radiusLabel[value]}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="docs-theme"
-          aria-label={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        >
-          {theme === 'dark' ? '☾ Dark' : '☀ Light'}
-        </button>
+        <system.Controls />
       </div>
     </header>
+  );
+}
+
+function ThemeSwitch() {
+  const { theme } = usePreview();
+  return (
+    <button
+      type="button"
+      className="docs-theme"
+      aria-label={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+    >
+      {theme === 'dark' ? '☾ Dark' : '☀ Light'}
+    </button>
+  );
+}
+
+/** The GUI system's header controls: the radius knob and the viewer theme. */
+function GuiControls() {
+  const { radius } = usePreview();
+  return (
+    <>
+      <div className="docs-segment" role="group" aria-label="Radius">
+        {(['2', '4', 'current'] as Radius[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={radius === value}
+            onClick={() => setRadius(value)}
+          >
+            {radiusLabel[value]}
+          </button>
+        ))}
+      </div>
+      <ThemeSwitch />
+    </>
+  );
+}
+
+/** The TUI system's header controls: the viewer theme; the 16-colour fallback joins from #5835. */
+function TuiControls() {
+  return <ThemeSwitch />;
+}
+
+function TuiIntroduction() {
+  return (
+    <Article
+      title="TMT TUI design system"
+      lead="The terminal side of tmt: the roles, glyphs, components and patterns the Ops board and the CLI paint, shown from real painter frames rather than drawn by hand."
+    >
+      <p>
+        Every frame on these pages is decoded from the recorded Ops oracle, so a page shows what a
+        terminal shows. The TUI keeps its own palette; GUI palette B does not apply here.
+      </p>
+      <div className="docs-cards">
+        <a className="docs-card" href={`${tuiMockBase}/agents`} onClick={follow}>
+          <b>Agents mock</b>
+          <span>The Agents board in each recorded state and terminal rendering.</span>
+        </a>
+      </div>
+    </Article>
   );
 }
 
@@ -245,19 +334,19 @@ function Introduction() {
         2/4, 4/6, or today&apos;s values for comparison.
       </p>
       <div className="docs-cards">
-        <a className="docs-card" href="/docs/principles" onClick={follow}>
+        <a className="docs-card" href={`${guiRoot}/principles`} onClick={follow}>
           <b>Principles</b>
           <span>Five rules every screen follows.</span>
         </a>
-        <a className="docs-card" href="/docs/tokens/colour" onClick={follow}>
+        <a className="docs-card" href={`${guiRoot}/tokens/colour`} onClick={follow}>
           <b>Tokens</b>
           <span>Colour, type, spacing, radius and motion, read live.</span>
         </a>
-        <a className="docs-card" href="/docs/components/button" onClick={follow}>
+        <a className="docs-card" href={`${guiRoot}/components/button`} onClick={follow}>
           <b>Components</b>
           <span>{components.length} parts, each with variants, states and usage.</span>
         </a>
-        <a className="docs-card" href="/mock/colab" onClick={follow}>
+        <a className="docs-card" href={colabMockBase} onClick={follow}>
           <b>Colab mock</b>
           <span>The side menu, page list and page view rebuilt from these parts.</span>
         </a>

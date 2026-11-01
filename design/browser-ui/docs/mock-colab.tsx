@@ -15,6 +15,7 @@ import { ManageDialog, menuControls, SettingsScreen } from './mock-menu.js';
 import { ReaderScreen } from './mock-reader.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow, navigate, setQuery, useQuery } from './router.js';
+import { colabMockBase, guiRoot } from './routes.js';
 
 /*
  * The Colab mockup (#5821): the side menu, the page list, the reader and Colab settings, built from the
@@ -22,7 +23,7 @@ import { follow, navigate, setQuery, useQuery } from './router.js';
  * the content area is a `ui` part. Each screen lists the pieces that are stand-ins until a part exists.
  */
 
-const base = '/mock/colab';
+const base = colabMockBase;
 const colab: ShellModule = {
   extension: 'colab',
   rail: { label: 'Colab', icon: 'file-text', path: `${base}`, order: 100 },
@@ -36,14 +37,19 @@ const answer: ShellAnswer = {
     colab,
     {
       extension: 'remote',
-      rail: { label: 'Remote', icon: 'monitor-smartphone', path: '/mock/remote', order: 200 },
+      rail: {
+        label: 'Remote',
+        icon: 'monitor-smartphone',
+        path: `${guiRoot}/mocks/remote`,
+        order: 200,
+      },
       menu: [],
       settings: [],
       needsYou: 1,
     },
     {
       extension: 'ops',
-      rail: { label: 'Ops', icon: 'users', path: '/mock/ops', order: 300 },
+      rail: { label: 'Ops', icon: 'users', path: `${guiRoot}/mocks/ops`, order: 300 },
       menu: [],
       settings: [],
       needsYou: 0,
@@ -162,7 +168,7 @@ export function GlobalSwitches({ screen }: { screen: Screen }) {
         ))}
       </div>
       <Separator />
-      <a className="mock-switch-link" href="/docs" onClick={follow}>
+      <a className="mock-switch-link" href={guiRoot} onClick={follow}>
         ← Design system docs
       </a>
     </>

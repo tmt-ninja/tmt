@@ -8,7 +8,7 @@ import './docs.css';
 import './mock-colab.css';
 import './mock-reader.css';
 import './mock-list.css';
-import { StrictMode, useEffect } from 'react';
+import { StrictMode, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocsApp } from './app.js';
 import { setPaletteBFavicon } from './favicon.js';
@@ -17,15 +17,27 @@ import { TuiMock } from './tui-nav.js';
 import { usePath } from './router.js';
 import { frameFor } from '../gallery/frames.js';
 import { PatternFrame } from './patterns-more.js';
+import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
+
+// An old /docs or /mock URL, or the bare root, moves to its design system's route (#5821).
+function redirect() {
+  const next = canonicalPath(location.pathname);
+  if (next) history.replaceState(null, '', `${next}${location.search}${location.hash}`);
+  return next;
+}
+redirect();
 
 function Root() {
   const path = usePath();
-  useEffect(() => {
-    if (path === '/' || path === '') history.replaceState(null, '', '/docs');
+  useLayoutEffect(() => {
+    if (redirect()) dispatchEvent(new PopStateEvent('popstate'));
   }, [path]);
-  if (path.startsWith('/mock/colab')) return <ColabMock path={path} />;
-  if (path.startsWith('/mock/tui')) return <TuiMock path={path} />;
-  return <DocsApp path={path === '/' ? '/docs' : path} />;
+  const current = canonicalPath(path) ?? path;
+  if (current.startsWith(colabMockBase)) return <ColabMock path={current} />;
+  // The TUI mock still matches its first URLs (docs/mock-tui, #5835) until it reads tuiMockBase.
+  if (current.startsWith(tuiMockBase))
+    return <TuiMock path={`/mock/tui${current.slice(tuiMockBase.length)}`} />;
+  return <DocsApp path={current} />;
 }
 
 // A gallery frame (`?frame=`): the iframe demos of the Browser entries, in palette B and the theme

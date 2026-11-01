@@ -9,6 +9,7 @@ import {
   EmptyTitle,
 } from '../src/ui/index.js';
 import { follow } from './router.js';
+import { colabMockBase } from './routes.js';
 
 /** A list row: title, tags, time and an unread state in weight alone. */
 export function PageRow({
@@ -27,7 +28,7 @@ export function PageRow({
   return (
     <a
       className="pattern-row"
-      href="/mock/colab/page"
+      href={`${colabMockBase}/page`}
       onClick={follow}
       data-unread={unread || undefined}
     >

@@ -45,18 +45,6 @@ code {
   color: var(--tmt-ui-color-secondary);
   font-weight: 400;
 }
-.docs-top-links {
-  display: flex;
-  gap: var(--tmt-ui-ref-space-4);
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-ref-size-3);
-}
-.docs-top-links a {
-  text-decoration: none;
-}
-.docs-top-links a:hover {
-  color: var(--tmt-ui-color-text);
-}
 .docs-switches {
   display: flex;
   align-items: center;
@@ -69,7 +57,7 @@ code {
   border-radius: var(--tmt-ui-radius);
   overflow: hidden;
 }
-.docs-segment > button,
+.docs-segment > :is(button, a),
 .docs-theme,
 .docs-menu-button {
   padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-4);
@@ -79,10 +67,15 @@ code {
   font: var(--tmt-ui-ref-size-2) var(--tmt-ui-font-body);
   cursor: pointer;
 }
-.docs-segment > button + button {
+.docs-segment > :is(button, a) + :is(button, a) {
   border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-.docs-segment > button[aria-pressed='true'] {
+/* The design-system switcher (#5821): one segment per system, the current one selected. */
+.docs-systems > a {
+  text-decoration: none;
+  white-space: nowrap;
+}
+.docs-segment > :is(button[aria-pressed='true'], a[aria-current='page']) {
   background: var(--tmt-ui-surface-selection);
   color: var(--tmt-ui-color-text);
 }
@@ -95,7 +88,7 @@ code {
   display: none;
   font-size: var(--tmt-ui-ref-size-6);
 }
-:is(.docs-segment > button, .docs-theme, .docs-menu-button):focus-visible {
+:is(.docs-segment > button, .docs-segment > a, .docs-theme, .docs-menu-button):focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
 
@@ -507,8 +500,8 @@ code {
   .docs-menu-button {
     display: block;
   }
-  .docs-top-links,
-  .docs-brand-sub {
+  .docs-brand-sub,
+  .docs-switches > .docs-segment {
     display: none;
   }
   .docs-body {
