@@ -43,6 +43,15 @@ pub struct DigestHandoff {
     pub digest: String,
 }
 
+/// Internal worker result for a turn boundary that handed off nothing while Digest
+/// references were due: one fixed name, never provider output, a refusal or evidence of
+/// delivery (#5459).
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DigestEmptyReport {
+    pub digest_empty: String,
+}
+
 pub fn encode_context(context: &str) -> Option<String> {
     encode_event_context("SessionStart", context)
 }

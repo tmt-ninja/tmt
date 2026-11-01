@@ -441,7 +441,7 @@ const MIGRATIONS: &[Migration] = &[
         "schema/089.sql"
     ),
     migration!(
-        "name an empty Digest turn boundary while references are held",
+        "record an empty Digest turn boundary while references are due",
         "schema/090.sql"
     ),
 ];

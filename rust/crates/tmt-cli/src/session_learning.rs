@@ -23,8 +23,9 @@ use tmt_core::{
             HarnessId, RuntimeState, SessionTransition,
             launch::{
                 LaunchObservation, LaunchStatus, PendingStart, SessionLearningDetail,
-                SessionLearningDiagnostic, SessionLearningDigestStop, SessionLearningEvent,
-                SessionLearningReason, SessionLearningStep, SessionLearningStop,
+                SessionLearningDiagnostic, SessionLearningDigestEmpty, SessionLearningDigestStop,
+                SessionLearningEvent, SessionLearningReason, SessionLearningStep,
+                SessionLearningStop,
             },
         },
     },
@@ -253,7 +254,7 @@ impl Learning {
                 return Ok(observed.diagnostic.is_some());
             }
             // Only a Digest Stop sets or clears its own reason on an admitted launch.
-            if observed.status == LaunchStatus::Admitted && digest_stopped(&observed) {
+            if observed.status == LaunchStatus::Admitted && digest_owned(&observed) {
                 return Ok(true);
             }
 
@@ -348,7 +349,7 @@ impl Learning {
             }
             if observed.status != LaunchStatus::Admitted
                 || observed.diagnostic.is_none()
-                || digest_stopped(&observed)
+                || digest_owned(&observed)
                 || no_admitted_start(&observed)
             {
                 return Ok(true);
@@ -379,7 +380,16 @@ impl Learning {
     ) -> Result<(), ()> {
         self.digest_outcome(Some(stop.diagnostic()), deadline)
     }
-    /// A delivered Digest Stop clears the reason an earlier one stored.
+    /// Names an empty boundary while references were due (#5459). Evidence only: it never
+    /// replaces a stored refusal, which keeps its own priority until a Digest delivers.
+    pub fn digest_empty(
+        &self,
+        empty: SessionLearningDigestEmpty,
+        deadline: Instant,
+    ) -> Result<(), ()> {
+        self.digest_outcome(Some(empty.diagnostic()), deadline)
+    }
+    /// A delivered Digest Stop clears the reason or evidence an earlier one stored.
     pub fn digest_delivered(&self, deadline: Instant) -> Result<(), ()> {
         self.digest_outcome(None, deadline)
     }
@@ -399,7 +409,15 @@ impl Learning {
                 if observed.driver != self.driver || observed.status != LaunchStatus::Admitted {
                     return Ok(false);
                 }
-                if diagnostic.is_none() && !digest_stopped(&observed) {
+                if diagnostic.is_none() && !digest_owned(&observed) {
+                    return Ok(true);
+                }
+                let evidence = |d: &Option<SessionLearningDiagnostic>| {
+                    d.is_some_and(|d| {
+                        matches!(d.detail, Some(SessionLearningDetail::DigestEmpty(_)))
+                    })
+                };
+                if evidence(&diagnostic) && digest_stopped(&observed) {
                     return Ok(true);
                 }
                 let mut next = observed.clone();
@@ -583,6 +601,16 @@ fn digest_stopped(observed: &LaunchObservation) -> bool {
     observed
         .diagnostic
         .is_some_and(|d| matches!(d.detail, Some(SessionLearningDetail::DigestStop(_))))
+}
+
+/// A Digest Stop's own refusal or empty-boundary evidence, which only a Digest Stop changes.
+fn digest_owned(observed: &LaunchObservation) -> bool {
+    observed.diagnostic.is_some_and(|d| {
+        matches!(
+            d.detail,
+            Some(SessionLearningDetail::DigestStop(_) | SessionLearningDetail::DigestEmpty(_))
+        )
+    })
 }
 
 const NO_ADMITTED_START: SessionLearningDetail = SessionLearningDetail::Stopped(

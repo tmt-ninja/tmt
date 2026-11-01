@@ -136,6 +136,7 @@ fn admission(
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+    use tmt_core::binding::session::launch::SessionLearningDigestEmpty;
     use tmt_core::identity::{Lifetime, create_or_resolve};
 
     fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
@@ -299,11 +300,11 @@ mod tests {
     }
 
     /// The worker's storage steps at one turn boundary: the checklist it claims, or the step
-    /// that ended empty and what the Stop would name for it.
+    /// that ended empty and the evidence the Stop would store for it.
     fn boundary(
         storage: &mut Storage,
         expected: &IdentityContextSnapshot,
-    ) -> Result<DigestChecklist, (&'static str, Option<crate::digest::EmptyBoundary>)> {
+    ) -> Result<DigestChecklist, (&'static str, Option<SessionLearningDigestEmpty>)> {
         let id = &expected.entry.identity.id;
         let Some(through) = crate::digest::fitting_through(
             storage,
@@ -335,15 +336,19 @@ mod tests {
         }
     }
 
+    fn opened(
+        directory: &(TestDirectory, std::path::PathBuf, String),
+    ) -> (Storage, IdentityContextSnapshot) {
+        let (_, path, id) = directory;
+        let expected = Storage::context_by_identity(path, id, 1).unwrap().unwrap();
+        (Storage::open(path).unwrap(), expected)
+    }
+
     #[test]
-    fn an_empty_boundary_is_named_only_while_references_are_held() {
-        use crate::digest::EmptyBoundary;
-        // Nothing held: the Stop names nothing, so it writes nothing.
-        let (_directory, path, id) = fixture();
-        let expected = Storage::context_by_identity(&path, &id, 1)
-            .unwrap()
-            .unwrap();
-        let mut storage = Storage::open(&path).unwrap();
+    fn ordinary_holding_names_nothing_and_only_due_references_are_evidence() {
+        // Nothing held.
+        let world = fixture();
+        let (mut storage, expected) = opened(&world);
         storage
             .connection()
             .unwrap()
@@ -353,25 +358,18 @@ mod tests {
             boundary(&mut storage, &expected).unwrap_err(),
             ("fitting", None)
         );
-        assert_eq!(
-            crate::digest::empty_boundary(&mut storage, &id, true).unwrap(),
-            None
-        );
         storage.close().unwrap();
 
-        // Held, but no reference is claimable at this boundary.
-        let (_directory, path, id) = fixture();
-        let expected = Storage::context_by_identity(&path, &id, 1)
-            .unwrap()
-            .unwrap();
-        let mut storage = Storage::open(&path).unwrap();
+        // Held, but the receiving rule admits nothing yet: ordinary holding, not evidence.
+        let world = fixture();
+        let (mut storage, expected) = opened(&world);
         storage
             .connection()
             .unwrap()
             .execute(
                 "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?1,?2,?3)",
                 [
-                    id.as_str(),
+                    world.2.as_str(),
                     tmt_core::identity_metadata::USER_KEY,
                     tmt_core::identity_metadata::USER_VALUE,
                 ],
@@ -379,51 +377,59 @@ mod tests {
             .unwrap();
         assert_eq!(
             boundary(&mut storage, &expected).unwrap_err(),
-            ("fitting", Some(EmptyBoundary::NotEligible))
+            ("fitting", None)
+        );
+        assert_eq!(
+            crate::digest::empty_boundary(&mut storage, &world.2, true).unwrap(),
+            None
         );
         storage.close().unwrap();
 
-        // Fitted, then nothing claimable by the time the launch claims.
-        let (_directory, path, id) = fixture();
-        let expected = Storage::context_by_identity(&path, &id, 1)
-            .unwrap()
-            .unwrap();
-        let mut storage = Storage::open(&path).unwrap();
-        let through = crate::digest::fitting_through(
-            &mut storage,
-            &id,
-            tmt_core::request::digest::DigestOpportunity::TurnBoundary,
-            false,
-        )
-        .unwrap();
-        assert!(through.is_some());
-        storage
-            .connection()
-            .unwrap()
-            .execute(
-                "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?1,?2,?3)",
-                [
-                    id.as_str(),
-                    tmt_core::identity_metadata::USER_KEY,
-                    tmt_core::identity_metadata::USER_VALUE,
-                ],
-            )
-            .unwrap();
-        assert!(matches!(
-            storage
-                .claim_digest_for_launch(
-                    &expected,
-                    tmt_core::operation::new_operation_id(),
-                    tmt_core::operation::new_operation_id(),
-                    through,
-                )
-                .unwrap(),
-            LaunchClaim::Nothing
-        ));
+        // Due references that a step still found nothing for name that step.
+        let world = fixture();
+        let (mut storage, _) = opened(&world);
         assert_eq!(
-            crate::digest::empty_boundary(&mut storage, &id, true).unwrap(),
-            Some(EmptyBoundary::ClaimNothing)
+            crate::digest::empty_boundary(&mut storage, &world.2, false).unwrap(),
+            Some(SessionLearningDigestEmpty::DueUnclaimable)
         );
+        assert_eq!(
+            crate::digest::empty_boundary(&mut storage, &world.2, true).unwrap(),
+            Some(SessionLearningDigestEmpty::ClaimNothing)
+        );
+        storage.close().unwrap();
+    }
+
+    /// A member holding messages under a Digest interval whose deadline is still ahead: its
+    /// turn boundary keeps the broader eligibility and hands the checklist off, and an empty
+    /// result for it would be ordinary holding with nothing marked due.
+    #[test]
+    fn an_interval_held_member_before_its_deadline_is_not_evidence() {
+        use tmt_core::request::{RequestService, digest::DigestPolicyWrite};
+        let world = fixture();
+        let (mut storage, expected) = opened(&world);
+        let id = world.2.clone();
+        RequestService::new(&mut storage, crate::request_runtime::wall_time_ms)
+            .write_digest(DigestPolicyWrite {
+                identity_id: id.clone(),
+                owner_identity_id: id.clone(),
+                setter_identity_id: id.clone(),
+                until_ms: crate::request_runtime::wall_time_ms() + 3_600_000,
+                max_hold_ms: None,
+                expected_revision: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            RequestService::new(&mut storage, crate::request_runtime::wall_time_ms)
+                .digest_stats(std::slice::from_ref(&id))
+                .unwrap()[0]
+                .due_count,
+            0
+        );
+        assert_eq!(
+            crate::digest::empty_boundary(&mut storage, &id, false).unwrap(),
+            None
+        );
+        assert!(boundary(&mut storage, &expected).is_ok());
         storage.close().unwrap();
     }
 
@@ -431,16 +437,13 @@ mod tests {
     /// the provider's turn boundary arrives.
     #[test]
     fn a_turn_boundary_behind_an_open_idle_claim_hands_off_nothing_and_names_it() {
-        use crate::digest::EmptyBoundary;
         use tmt_core::request::{
             RequestService,
             digest::{DigestOpportunity, DigestState},
         };
-        let (_directory, path, id) = fixture();
-        let expected = Storage::context_by_identity(&path, &id, 1)
-            .unwrap()
-            .unwrap();
-        let mut storage = Storage::open(&path).unwrap();
+        let world = fixture();
+        let (mut storage, expected) = opened(&world);
+        let id = world.2.clone();
         let idle = RequestService::new(&mut storage, crate::request_runtime::wall_time_ms)
             .claim_digest_checklist(
                 &id,
@@ -451,8 +454,10 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        let empty = boundary(&mut storage, &expected).unwrap_err();
-        assert_eq!(empty, ("fitting", Some(EmptyBoundary::ActiveClaim)));
+        assert_eq!(
+            boundary(&mut storage, &expected).unwrap_err(),
+            ("fitting", Some(SessionLearningDigestEmpty::ActiveClaim))
+        );
         // The boundary sealed nothing of its own and left the idle claim as it was.
         assert_eq!(
             storage
