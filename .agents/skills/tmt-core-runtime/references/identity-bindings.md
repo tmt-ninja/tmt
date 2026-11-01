@@ -641,7 +641,9 @@ continuation and names that check as a `digest_stop:` detail on its admitted lau
 [session-learning row](../../../../contracts/identity-status-v1.md); its worker reports
 its own refusal to the supervisor by name on stderr. Worker command outcomes and
 storage operations, initial caller observation and awaiting-session continuation
-retain distinct bounded details; backend messages never enter the row. The linked
+retain distinct bounded details; backend messages never enter the row. An empty
+boundary is named the same way only while Digest references are held, after one read
+on the empty path; with nothing held a Stop writes nothing. The linked
 contract owns their vocabulary; diagnostic classification changes no admission,
 publication, cleanup or deadline decision.
 

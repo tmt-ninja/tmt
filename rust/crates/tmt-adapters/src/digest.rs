@@ -373,6 +373,36 @@ pub fn fitting_through(
     Ok(through.or_else(|| pending.then_some(0)))
 }
 
+/// Why a turn boundary handed off nothing although the identity holds Digest references
+/// (#5459). Content-free: which path ended empty and whether another checklist is claimed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyBoundary {
+    /// Another checklist was still claimed.
+    ActiveClaim,
+    /// [`fitting_through`] found nothing claimable.
+    NotEligible,
+    /// The launch's claim sealed nothing.
+    ClaimNothing,
+}
+
+/// Names an empty turn boundary after [`fitting_through`] (`after_claim` false) or the
+/// launch's claim (`after_claim` true) found nothing. `None` when nothing is held: an
+/// ordinary Stop names nothing, so the caller writes nothing for it.
+pub fn empty_boundary(
+    storage: &mut Storage,
+    identity: &str,
+    after_claim: bool,
+) -> Result<Option<EmptyBoundary>, RequestError<StorageError>> {
+    let views =
+        RequestService::new(&mut *storage, wall_time_ms).digest_policies(&[identity.into()])?;
+    Ok(match &views[0] {
+        view if view.held_count == 0 => None,
+        view if view.active_checklist.is_some() => Some(EmptyBoundary::ActiveClaim),
+        _ if after_claim => Some(EmptyBoundary::ClaimNothing),
+        _ => Some(EmptyBoundary::NotEligible),
+    })
+}
+
 /// Claims the next checklist and renders it. A failed render releases the claim
 /// as definitely unsent, so the items stay held.
 pub fn claim(

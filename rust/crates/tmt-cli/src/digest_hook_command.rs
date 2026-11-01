@@ -41,8 +41,8 @@ pub fn execute(
     let mut empty_hook_output = "";
     let mut wrote_stdout = false;
     let mut delivered = false;
-    // Why this Stop ends with no output, when a check refused. A Stop with no Digest due
-    // is not a refusal and names nothing.
+    // Why this Stop ends with no output: a check refused, or the boundary handed off
+    // nothing while Digest references are held. A Stop with nothing held names nothing.
     let mut refusal: Option<DigestStop> = None;
     let mut refuse = |stop: DigestStop| {
         refusal.get_or_insert(stop);
@@ -99,9 +99,14 @@ pub fn execute(
             )
             .map_err(|error| refuse(worker_request_failure(WorkerStorageStage::Fitting, &error)))?
             else {
+                let empty = empty_stop(&mut storage, &launch.identity_id, false);
                 storage.close().map_err(|error| {
                     refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
                 })?;
+                if let Some(stop) = empty {
+                    refuse(stop);
+                    return Err(());
+                }
                 return Ok(());
             };
             let claimed = storage
@@ -116,11 +121,15 @@ pub fn execute(
                 })?;
             let batch = match claim_refusal(claimed) {
                 Ok(Some(batch)) => batch,
-                // Nothing to claim is not a refusal and names nothing.
                 Ok(None) => {
+                    let empty = empty_stop(&mut storage, &launch.identity_id, true);
                     storage.close().map_err(|error| {
                         refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
                     })?;
+                    if let Some(stop) = empty {
+                        refuse(stop);
+                        return Err(());
+                    }
                     return Ok(());
                 }
                 Err(stop) => {
@@ -345,6 +354,20 @@ fn claim_refusal(
         LaunchClaim::BindingChanged => Err(DigestStop::LaunchBinding),
         LaunchClaim::RememberedChanged => Err(DigestStop::LaunchRemembered),
     }
+}
+
+/// An empty turn boundary is named only while Digest references are held, so an ordinary
+/// Stop with nothing held stores nothing (#5459). A failed diagnostic read leaves the Stop
+/// as silent as before; it is never a refusal of its own.
+fn empty_stop(storage: &mut Storage, identity: &str, after_claim: bool) -> Option<DigestStop> {
+    use digest::EmptyBoundary;
+    Some(
+        match digest::empty_boundary(storage, identity, after_claim).ok()?? {
+            EmptyBoundary::ActiveClaim => DigestStop::WorkerEmptyActiveClaim,
+            EmptyBoundary::NotEligible => DigestStop::WorkerEmptyNotEligible,
+            EmptyBoundary::ClaimNothing => DigestStop::WorkerEmptyClaimNothing,
+        },
+    )
 }
 
 /// Keep only an operation and a bounded cause class, never backend error text.

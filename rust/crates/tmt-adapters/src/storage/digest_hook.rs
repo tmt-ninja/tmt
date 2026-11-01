@@ -297,4 +297,180 @@ mod tests {
         );
         storage.close().unwrap();
     }
+
+    /// The worker's storage steps at one turn boundary: the checklist it claims, or the step
+    /// that ended empty and what the Stop would name for it.
+    fn boundary(
+        storage: &mut Storage,
+        expected: &IdentityContextSnapshot,
+    ) -> Result<DigestChecklist, (&'static str, Option<crate::digest::EmptyBoundary>)> {
+        let id = &expected.entry.identity.id;
+        let Some(through) = crate::digest::fitting_through(
+            storage,
+            id,
+            tmt_core::request::digest::DigestOpportunity::TurnBoundary,
+            false,
+        )
+        .unwrap() else {
+            return Err((
+                "fitting",
+                crate::digest::empty_boundary(storage, id, false).unwrap(),
+            ));
+        };
+        match storage
+            .claim_digest_for_launch(
+                expected,
+                tmt_core::operation::new_operation_id(),
+                tmt_core::operation::new_operation_id(),
+                Some(through),
+            )
+            .unwrap()
+        {
+            LaunchClaim::Claimed(checklist) => Ok(checklist),
+            LaunchClaim::Nothing => Err((
+                "claim",
+                crate::digest::empty_boundary(storage, id, true).unwrap(),
+            )),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_boundary_is_named_only_while_references_are_held() {
+        use crate::digest::EmptyBoundary;
+        // Nothing held: the Stop names nothing, so it writes nothing.
+        let (_directory, path, id) = fixture();
+        let expected = Storage::context_by_identity(&path, &id, 1)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&path).unwrap();
+        storage
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM focus_items", [])
+            .unwrap();
+        assert_eq!(
+            boundary(&mut storage, &expected).unwrap_err(),
+            ("fitting", None)
+        );
+        assert_eq!(
+            crate::digest::empty_boundary(&mut storage, &id, true).unwrap(),
+            None
+        );
+        storage.close().unwrap();
+
+        // Held, but no reference is claimable at this boundary.
+        let (_directory, path, id) = fixture();
+        let expected = Storage::context_by_identity(&path, &id, 1)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&path).unwrap();
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?1,?2,?3)",
+                [
+                    id.as_str(),
+                    tmt_core::identity_metadata::USER_KEY,
+                    tmt_core::identity_metadata::USER_VALUE,
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            boundary(&mut storage, &expected).unwrap_err(),
+            ("fitting", Some(EmptyBoundary::NotEligible))
+        );
+        storage.close().unwrap();
+
+        // Fitted, then nothing claimable by the time the launch claims.
+        let (_directory, path, id) = fixture();
+        let expected = Storage::context_by_identity(&path, &id, 1)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&path).unwrap();
+        let through = crate::digest::fitting_through(
+            &mut storage,
+            &id,
+            tmt_core::request::digest::DigestOpportunity::TurnBoundary,
+            false,
+        )
+        .unwrap();
+        assert!(through.is_some());
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?1,?2,?3)",
+                [
+                    id.as_str(),
+                    tmt_core::identity_metadata::USER_KEY,
+                    tmt_core::identity_metadata::USER_VALUE,
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            storage
+                .claim_digest_for_launch(
+                    &expected,
+                    tmt_core::operation::new_operation_id(),
+                    tmt_core::operation::new_operation_id(),
+                    through,
+                )
+                .unwrap(),
+            LaunchClaim::Nothing
+        ));
+        assert_eq!(
+            crate::digest::empty_boundary(&mut storage, &id, true).unwrap(),
+            Some(EmptyBoundary::ClaimNothing)
+        );
+        storage.close().unwrap();
+    }
+
+    /// #5459's lead hypothesis, isolated: a talk's idle handoff still holds its claim when
+    /// the provider's turn boundary arrives.
+    #[test]
+    fn a_turn_boundary_behind_an_open_idle_claim_hands_off_nothing_and_names_it() {
+        use crate::digest::EmptyBoundary;
+        use tmt_core::request::{
+            RequestService,
+            digest::{DigestOpportunity, DigestState},
+        };
+        let (_directory, path, id) = fixture();
+        let expected = Storage::context_by_identity(&path, &id, 1)
+            .unwrap()
+            .unwrap();
+        let mut storage = Storage::open(&path).unwrap();
+        let idle = RequestService::new(&mut storage, crate::request_runtime::wall_time_ms)
+            .claim_digest_checklist(
+                &id,
+                tmt_core::operation::new_operation_id(),
+                tmt_core::operation::new_operation_id(),
+                DigestOpportunity::Idle,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        let empty = boundary(&mut storage, &expected).unwrap_err();
+        assert_eq!(empty, ("fitting", Some(EmptyBoundary::ActiveClaim)));
+        // The boundary sealed nothing of its own and left the idle claim as it was.
+        assert_eq!(
+            storage
+                .connection()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM focus_checklists WHERE state='claimed'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        // Once that handoff proves unsent, the held item is offered at the next boundary.
+        RequestService::new(&mut storage, crate::request_runtime::wall_time_ms)
+            .settle_digest_checklist(&id, &idle.id, &idle.attempt_token, DigestState::Unsent)
+            .unwrap();
+        assert!(boundary(&mut storage, &expected).is_ok());
+        storage.close().unwrap();
+    }
 }
