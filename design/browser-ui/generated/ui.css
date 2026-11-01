@@ -9,6 +9,8 @@
   --tmt-foundation-floating-header-height: 44px;
   --tmt-foundation-floating-header-control: 28px;
   --tmt-foundation-chip-height: 22px;
+  --tmt-foundation-table-row-compact: 36px;
+  --tmt-foundation-table-row-comfortable: 48px;
   --tmt-foundation-radius: 8px;
   --tmt-foundation-radius-s: 6px;
   --tmt-foundation-radius-l: 12px;
@@ -22,6 +24,7 @@
   --tmt-foundation-dock-width: 360px;
   --tmt-foundation-attention-dot-size: 8px;
   --tmt-foundation-attention-dot-ring-width: 2px;
+  --tmt-foundation-control-size: 32px;
   --tmt-foundation-control-size-l: 36px;
   --tmt-foundation-motion-fast: 120ms;
   --tmt-foundation-motion-base: 180ms;

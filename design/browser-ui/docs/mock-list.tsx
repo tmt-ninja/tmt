@@ -1,12 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import {
-  Archive,
   Bookmark,
   ChevronDown,
-  ExternalLink,
   FileText,
   ListFilter,
-  Lock,
   Pin,
   Plus,
   Search,
@@ -19,7 +16,6 @@ import {
   AlertTitle,
   Badge,
   Button,
-  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -50,7 +46,8 @@ import {
 } from '../src/ui/index.js';
 import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich-input/index.js';
 import { StatePanel, type StateControl } from './mock-reader.js';
-import { follow, setQuery, useQuery } from './router.js';
+import { PageTable, samplePages } from '../gallery/page-table.js';
+import { follow, navigate, setQuery, useQuery } from './router.js';
 
 /*
  * The Colab page list, reconstructed (#5821, GUI lead notes 10 and 11): today's list on main
@@ -191,13 +188,6 @@ function ProjectChip({ name }: { name: string }) {
     </Badge>
   );
 }
-function StageChip({ stage }: { stage: Stage }) {
-  return (
-    <span className="list-stage" data-stage={stage}>
-      {stageName[stage]}
-    </span>
-  );
-}
 
 const needsItems = [
   ['Theme B review', 'Answer: Which radius ships with B?'],
@@ -333,133 +323,6 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
   );
 }
 
-function Table({ shown }: { shown: Row[] }) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  return (
-    <div className="list-scroll">
-      <table className="list-table">
-        <thead>
-          <tr>
-            <th className="list-select">
-              <Checkbox
-                aria-label="Select all matching pages"
-                checked={selected.size === shown.length && shown.length > 0}
-                onCheckedChange={(on) =>
-                  setSelected(on ? new Set(shown.map((row) => row.title)) : new Set())
-                }
-              />
-            </th>
-            <th>Title</th>
-            <th className="list-col-project">Project</th>
-            <th>Stage</th>
-            <th className="list-col-updated">Updated</th>
-            <th className="list-col-author">Author</th>
-            <th className="list-col-access">Access</th>
-            <th aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((row) => (
-            <tr
-              key={row.title}
-              data-selected={selected.has(row.title) || undefined}
-              data-unread={row.unread || undefined}
-            >
-              <td className="list-select">
-                <Checkbox
-                  aria-label={`Select ${row.title}`}
-                  checked={selected.has(row.title)}
-                  onCheckedChange={(on) =>
-                    setSelected((now) => {
-                      const next = new Set(now);
-                      if (on) next.add(row.title);
-                      else next.delete(row.title);
-                      return next;
-                    })
-                  }
-                />
-              </td>
-              <td>
-                <div className="list-title">
-                  {row.pinned ? (
-                    <Pin className="list-icon" aria-hidden="true" />
-                  ) : (
-                    <FileText className="list-icon" aria-hidden="true" />
-                  )}
-                  <a href="/mock/colab/page" onClick={follow}>
-                    {row.title}
-                  </a>
-                </div>
-                {row.work && (
-                  <span className="list-work">
-                    {row.work}
-                    {row.workers?.map((who) => (
-                      <Badge key={who} variant="secondary">
-                        @{who}
-                      </Badge>
-                    ))}
-                  </span>
-                )}
-                <span className="list-meta-phone">
-                  {row.projects.join(' · ')} · {row.updated}
-                </span>
-              </td>
-              <td className="list-col-project">
-                <div className="list-projects">
-                  {row.projects.map((name) => (
-                    <ProjectChip key={name} name={name} />
-                  ))}
-                </div>
-              </td>
-              <td>
-                {row.needs ? (
-                  <span className="list-waiting">
-                    <span className="list-needs-dot" aria-hidden="true" /> Needs you · {row.needs}
-                  </span>
-                ) : (
-                  <StageChip stage={row.stage} />
-                )}
-              </td>
-              <td className="list-col-updated list-quiet">{row.updated}</td>
-              <td className="list-col-author list-quiet">{row.author}</td>
-              <td className="list-col-access list-quiet">
-                {row.access === 'Private' && <Lock className="list-lock" aria-hidden="true" />}
-                {row.access}
-              </td>
-              <td className="list-actions">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={row.pinned ? `Unpin ${row.title}` : `Pin ${row.title}`}
-                >
-                  <Pin aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Archive ${row.title}`}
-                >
-                  <Archive aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Open ${row.title} in a new tab`}
-                >
-                  <ExternalLink aria-hidden="true" />
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 const views: [string, string, number][] = [
   ['all', 'All', 38],
   ['needs', 'Needs you', 4],
@@ -519,7 +382,6 @@ const listMissing = [
   'Tabs count slot: a muted count after the label (here a span in the trigger).',
   'Stage chip: dot and word in the stage hue (here a styled span).',
   'Project chip with its hue dot: an outline Badge plus a dot.',
-  'Data table: header, selection column, row hover actions, column hiding at the compact width (here a table with classes).',
   'Pinned page card: a sheet Surface with icon, title and meta.',
   'Needs-you dot: the 8px waiting dot shared with the Chat unread dot.',
 ];
@@ -539,7 +401,7 @@ export function ListScreen({
   const shown =
     filter === 'none'
       ? []
-      : rows.filter(
+      : samplePages.filter(
           (row) =>
             (filter !== '1' || row.projects.includes('design')) &&
             (view === 'all' || (view === 'needs' ? row.needs : row.stage === view)),
@@ -645,7 +507,7 @@ export function ListScreen({
         ) : (
           <>
             <p className="list-quiet list-status">{shown.length} pages in this view</p>
-            <Table shown={shown} />
+            <PageTable rows={shown} onOpen={() => navigate('/mock/colab/page')} />
           </>
         )}
         <section className="reader-notes">

@@ -689,6 +689,19 @@ code {
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-ref-size-1) var(--tmt-ui-font-mono);
 }
+/* A component entry's frame demos: light above dark, each scaled to the column. */
+.docs-frame-pair {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-3);
+  min-width: 0;
+}
+/* The dense-table pattern's hover state, pinned on one row for the capture. */
+.pattern-frame [data-force-hover] {
+  background: var(--tmt-foundation-secondary);
+}
+.pattern-frame [data-force-hover] .tmt-data-table-actions {
+  opacity: 1;
+}
 
 /* The pattern frame page and the pieces the patterns compose. */
 .pattern-frame {

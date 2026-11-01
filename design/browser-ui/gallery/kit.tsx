@@ -130,7 +130,13 @@ export function ScaledFrame({
       className="scaled-frame"
       data-preview-frame=""
       style={{ maxWidth: width, height: height * scale }}
+      data-scaled={scale < 1 || undefined}
     >
+      {scale < 1 && (
+        <a className="scaled-frame-open" href={src} target="_blank" rel="noopener">
+          Open at 100%
+        </a>
+      )}
       <iframe
         className="gallery-frame"
         loading="lazy"

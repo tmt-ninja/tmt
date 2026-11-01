@@ -64,6 +64,7 @@ const entries: Record<string, string> = {
   './search': 'search query parsing for hosts, not a visual part',
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
+  './data-table': 'Components entry data-table',
   './gallery/frames': 'the gallery itself',
   './test-fixtures/*': 'test fixtures',
 };
@@ -76,6 +77,7 @@ it('names every ui export in a component entry', () => {
       ...names('src/ui/selection.ts'),
       ...names('src/ui/index.ts'),
       ...names('src/rich-input/index.ts'),
+      ...names('src/data-table/index.ts'),
     ]),
   ];
   const missing = exported.filter(

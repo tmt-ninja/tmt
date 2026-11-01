@@ -15,6 +15,8 @@ import {
   SendHorizontal,
 } from 'lucide-react';
 import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich-input/index.js';
+import { ScaledFrame } from '../gallery/kit.js';
+import { PageTable, samplePages } from '../gallery/page-table.js';
 import {
   Badge,
   Button,
@@ -552,6 +554,66 @@ export const moreComponents: ComponentDoc[] = [
             <li>Esc closes the suggestion list and stops there, so a window around stays open.</li>
             <li>Backspace after a chip removes it; nothing acts during an IME composition.</li>
             <li>Paste is plain text; on the single line a pasted break becomes a space.</li>
+          </ul>
+        ),
+      ],
+    ],
+  },
+  {
+    slug: 'data-table',
+    name: 'Data table',
+    description:
+      'The dense table for lists such as the Colab page list: declared columns with a role and widths, a reserved actions column so hover actions never cover a cell, every cell on the first line so a sub-line never moves the menu, a sticky sortable header, selection with a bulk bar, loading, empty and error rows, and two-line cards under 760px (dataTablePhoneWidth). It ships in its own entry with its stylesheet.',
+    preview: () => <PageTable rows={samplePages.slice(0, 5)} />,
+    usage: `${importLine('data-table', 'DataTable')}<DataTable label="Pages" rows={pages} rowKey={(page) => page.id} rowLabel={(page) => page.title}
+  columns={[{ id: 'title', header: 'Title', role: 'primary', min: 220, text: (page) => page.title, sub: progress },
+    { id: 'updated', header: 'Updated', role: 'time', min: 88, max: 104, sortable: true, text: (page) => page.updated }]}
+  sort={sort} onSortChange={setSort} selected={selected} onSelectedChange={setSelected}
+  actions={(page) => [{ id: 'pin', label: \`Pin \${page.title}\`, icon: <Pin />, onSelect: pin }]} menu={rowMenu} onOpen={openPage} />`,
+    variants: [
+      ...(
+        [
+          ['1440, compact (the list default)', 1440, 'rows=12'],
+          [
+            '1440, one row selected: the bulk bar replaces the header',
+            1440,
+            'rows=6&selected=page-2',
+          ],
+          ['1440, comfortable', 1440, 'rows=6&density=comfortable'],
+          ['390: two-line cards; Author and Access move to the row menu', 390, 'rows=8'],
+          ['Loading', 1440, 'state=loading'],
+          ['Empty', 1440, 'state=empty'],
+          ['Error', 1440, 'state=error'],
+        ] as const
+      ).map(
+        ([title, width, query]) =>
+          [
+            title,
+            () => (
+              <div className="docs-frame-pair">
+                {(['light', 'dark'] as const).map((theme) => (
+                  <ScaledFrame
+                    key={theme}
+                    title={`Data table ${title} ${theme}`}
+                    src={`/docs?frame=data-table&theme=${theme}&${query}`}
+                    width={width}
+                    height={width === 390 ? 640 : 520}
+                  />
+                ))}
+              </div>
+            ),
+          ] as [string, () => ReactNode],
+      ),
+      [
+        'Keyboard contract',
+        () => (
+          <ul className="docs-list">
+            <li>Tab reaches the table once; ↑ and ↓ move the row focus, Home and End jump.</li>
+            <li>Enter opens the focused row; Space selects it.</li>
+            <li>
+              The menu key or Shift+F10 opens the row menu; Esc closes it and focus returns to ⋯.
+            </li>
+            <li>Hover and focus actions are also in the row menu, so no action needs a pointer.</li>
           </ul>
         ),
       ],

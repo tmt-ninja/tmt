@@ -171,12 +171,39 @@
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .scaled-frame {
+  position: relative;
   width: 100%;
   overflow: hidden;
 }
+/* The edge sits on the box, not the iframe, so scaling never thins it away. */
+.scaled-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  pointer-events: none;
+}
 .scaled-frame > iframe {
-  box-sizing: border-box;
+  border: 0;
   transform-origin: 0 0;
+}
+.scaled-frame-open {
+  position: absolute;
+  top: var(--tmt-ui-space-xs);
+  right: var(--tmt-ui-space-xs);
+  z-index: 2;
+  padding: 2px var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: 12px / 1.5 var(--tmt-ui-font-body);
+  text-decoration: none;
+}
+.scaled-frame-open:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
 }
 .gallery-theme-label {
   position: absolute;
@@ -403,4 +430,29 @@
 .gallery-people-table {
   --tmt-ui-list-tracks: 2fr 1fr;
   --tmt-ui-list-tracks-compact: minmax(0, 1fr);
+}
+
+/* The page list's chips on DataTable (gallery/page-table.tsx, #5821 A6/C9). */
+.page-table-chip {
+  gap: var(--tmt-ui-space-xs);
+  max-width: 100%;
+}
+.page-table-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-color-secondary);
+}
+.page-table-chip[data-stage='in-progress'] .page-table-dot {
+  background: var(--tmt-ui-color-link);
+}
+.page-table-chip[data-stage='done'] .page-table-dot {
+  background: var(--tmt-ui-color-working);
+}
+.page-table-chip[data-stage='needs'] {
+  color: var(--tmt-ui-color-text);
+}
+.page-table-chip[data-stage='needs'] .page-table-dot {
+  background: var(--tmt-ui-color-waiting);
 }

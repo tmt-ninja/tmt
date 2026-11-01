@@ -21,7 +21,8 @@
     "./gallery/frames": "./gallery/frames.tsx",
     "./test-fixtures/*": "./test/fixtures/*",
     "./list-table": "./src/list-table-host.ts",
-    "./rich-input": "./src/rich-input/index.ts"
+    "./rich-input": "./src/rich-input/index.ts",
+    "./data-table": "./src/data-table/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",

@@ -57,6 +57,7 @@ import {
   UiTheme,
 } from '../src/ui/index.js';
 import { ScaledFrame } from '../gallery/kit.js';
+import { PageTable, samplePages } from '../gallery/page-table.js';
 import { PageRow } from './patterns.js';
 
 /**
@@ -528,6 +529,36 @@ export const morePatterns: PatternDoc[] = [
       'Filter and Sort never move above the tabs.',
     ],
     Body: () => <ListControls />,
+  },
+  {
+    slug: 'dense-table',
+    title: 'Dense list table',
+    lead: 'The Colab page list on the Data table: sixty pages with long and CJK titles, several projects, every stage and sub-page progress. Actions appear in their own column, every row keeps the menu on its first line, and under 760px each row is a two-line card.',
+    states: [
+      ['default', 'Default'],
+      ['hover', 'Hover actions'],
+      ['bulk', 'Selected, with the bulk bar'],
+      ['empty', 'Empty'],
+    ],
+    height: 720,
+    rules: [
+      'Compact is the list default; comfortable is for short lists.',
+      'A cut title or chip shows its full text on hover; +N opens every project.',
+      'Hover actions live in the reserved column; the row menu is always last and holds them too.',
+      'Under 760px nothing is dropped: Author and Access move to the row menu.',
+    ],
+    Body: ({ state }) => (
+      <PageTable
+        rows={state === 'empty' ? [] : samplePages}
+        state={state === 'empty' ? 'empty' : 'ready'}
+        empty={<p>No pages match this view. Clear the filters to see every page.</p>}
+        initialSelected={state === 'bulk' ? ['page-2', 'page-3', 'page-5'] : []}
+        rowData={(page) => ({
+          unread: page.unread ? '' : undefined,
+          'force-hover': state === 'hover' && page.id === 'page-2' ? '' : undefined,
+        })}
+      />
+    ),
   },
   {
     slug: 'fab-window',
