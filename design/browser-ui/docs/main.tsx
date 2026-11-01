@@ -2,6 +2,8 @@
 import '../generated/static.css';
 import '../generated/ui.css';
 import '../generated/editorial.css';
+// The gallery's host metrics and demo layout: the Browser component entries reuse its sections.
+import '../gallery/gallery.css';
 import './docs.css';
 import './mock-colab.css';
 import './mock-reader.css';
@@ -13,6 +15,7 @@ import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
 import { TuiMock } from './tui-nav.js';
 import { usePath } from './router.js';
+import { frameFor } from '../gallery/frames.js';
 
 function Root() {
   const path = usePath();
@@ -24,9 +27,16 @@ function Root() {
   return <DocsApp path={path === '/' ? '/docs' : path} />;
 }
 
+// A gallery frame (`?frame=`): the iframe demos of the Browser entries, in palette B and the theme
+// the frame names, not the viewer's stored one.
+const params = new URLSearchParams(location.search);
+const frame = params.get('frame');
+if (frame) {
+  document.documentElement.dataset.frame = frame;
+  const theme = params.get('theme');
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+}
 setPaletteBFavicon();
 createRoot(document.querySelector('#root')!).render(
-  <StrictMode>
-    <Root />
-  </StrictMode>,
+  <StrictMode>{frame ? frameFor(frame, params) : <Root />}</StrictMode>,
 );
