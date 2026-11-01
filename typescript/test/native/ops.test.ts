@@ -110,7 +110,7 @@ async function identity(sandbox: Sandbox, name: string): Promise<string> {
   return JSON.parse(result.stdout).identity.id;
 }
 
-/** Human lead output keeps its original membership result and a complete unapplied Core preview. */
+/** Human lead output keeps its original membership result and a readable unapplied Core preview. */
 function expectLeadTextPreview(
   result: Awaited<ReturnType<typeof runCli>>,
   summary: string,
@@ -119,24 +119,14 @@ function expectLeadTextPreview(
   expect(result.status, result.stderr).toBe(0);
   expect(result.stderr).toBe('');
   expect(result.stdout.slice(0, summary.length)).toBe(summary);
-  const marker = '\n\nCore preview:\n';
-  const at = result.stdout.indexOf(marker, summary.length);
-  expect(at).toBeGreaterThan(summary.length);
-  const explanation = result.stdout.slice(summary.length, at);
+  const explanation = result.stdout.slice(summary.length);
   expect(explanation).toContain('Squad changed. Core leads not updated yet.');
   expect(explanation).toContain("Replace Core's global leads with all active Ops squad leads.");
   expect(explanation).toContain('Core-only leads below will be removed.');
-  expect(JSON.parse(result.stdout.slice(at + marker.length))).toMatchObject({
-    schemaVersion: 1,
-    configurationRevision: 0,
-    previewAtMs: expect.any(Number),
-    previewDigest: expect.stringMatching(/\S/),
-    requiresConsent: true,
-    mutation: { kind: 'leads.set', identityIds },
-    before: expect.any(Object),
-    after: expect.any(Object),
-    changes: expect.any(Array),
-  });
+  for (const id of identityIds) expect(explanation).toContain(id);
+  if (!identityIds.length) expect(explanation).toContain("Core's leads list will be empty.");
+  expect(explanation).not.toContain('previewDigest');
+  expect(explanation).not.toContain('Core preview:');
 }
 
 // Independent observation of the authoritative roster and board metadata.

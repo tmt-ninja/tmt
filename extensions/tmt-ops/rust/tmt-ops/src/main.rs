@@ -509,20 +509,10 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         squad.as_object_mut().unwrap().remove("coreLeads");
         let mut output = human(command, &squad, terminal);
         if let Ok(preview) = membership::publish::Preview::from_document(&document["coreLeads"]) {
-            output.push_str(&format!(
-                "{}\n\nCore preview:\n{}\n",
-                preview.text(),
-                serde_json::to_string_pretty(&document["coreLeads"]["preview"]).unwrap()
-            ));
+            output.push_str(&format!("{}\n", preview.text()));
         } else if document["coreLeads"]["status"] != "failed"
             && let Some(message) = membership::publish::message(&document["coreLeads"])
         {
-            if let Some(preview) = document["coreLeads"].get("preview") {
-                output.push_str(&format!(
-                    "Core preview:\n{}\n",
-                    serde_json::to_string_pretty(preview).unwrap()
-                ));
-            }
             output.push_str(&format!("{message}\n"));
         }
         return output;
@@ -1776,6 +1766,24 @@ mod tests {
         ] {
             assert_eq!(bare_is_list(argv(kept)), argv(kept), "{kept:?}");
         }
+    }
+
+    #[test]
+    fn human_lead_preview_is_readable_without_core_json() {
+        let document = json!({"squad":"product","lead":null,"replaced":[],"coreLeads":{
+            "status":"preview","before":[],"after":[],"preview":{
+                "schemaVersion":1,"requiresConsent":true,"mutation":{"kind":"leads.set","identityIds":[]},
+                "configurationRevision":7,"previewAtMs":1,"previewDigest":"digest"
+            }
+        }});
+        let shown = human("lead", &document, Terminal::PLAIN);
+        assert!(shown.contains("0 removed · 0 added"), "{shown}");
+        assert!(
+            shown.contains("Core's leads list will be empty."),
+            "{shown}"
+        );
+        assert!(!shown.contains("previewDigest"));
+        assert!(!shown.contains("Core preview:"));
     }
 
     #[test]

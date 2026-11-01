@@ -168,11 +168,7 @@ pub fn caller(core: &Core) -> Result<Option<Caller>, SquadError> {
                 "tmt whoami returned no identity.",
             )),
         },
-        Ok(shown) if shown["bound"] == false => Ok(None),
-        Ok(_) => Err(SquadError::new(
-            "SQUAD_CORE_UNAVAILABLE",
-            "tmt whoami returned incomplete caller attribution.",
-        )),
+        Ok(_) => Ok(None),
         Err(error) if error.code == "PANE_NOT_FOUND" => Ok(None),
         Err(error) => Err(error),
     }

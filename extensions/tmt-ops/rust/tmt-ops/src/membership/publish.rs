@@ -1,9 +1,8 @@
 //! Explicit publication of Ops' lead union through Core's preview/consent/CAS port.
-use super::{Outcome, Squad};
+use super::Outcome;
 use crate::{
     consent::{self, Consent},
     core::{Core, SquadError},
-    me,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -114,26 +113,77 @@ impl Preview {
 }
 
 fn prepare(core: &Core) -> Result<Preview, SquadError> {
-    // Names and per-squad markers retain the same owner as the board's roster.
+    // Publication needs a complete replacement inventory. Keep this stricter admission
+    // local: ordinary board/CLI readers deliberately tolerate incomplete optional fields.
+    let listed = core.json(&["room", "list"])?;
+    let rooms = listed["rooms"]
+        .as_array()
+        .ok_or_else(|| invalid("Core returned no squad room inventory."))?;
     let mut leads = BTreeMap::new();
-    for squad in Squad::list(core)? {
-        for member in squad
-            .roster(core)?
-            .into_iter()
-            .filter(|member| member.is_lead())
-        {
-            leads.insert(member.id, member.name);
-            if leads.len() > 256 {
-                return Err(SquadError::new(
-                    "SQUAD_LEADS_LIMIT",
-                    "Core accepts at most 256 distinct leads; nothing was published.",
-                ));
+    for room in rooms {
+        let name = room["name"]
+            .as_str()
+            .ok_or_else(|| invalid("Core returned an incomplete room inventory."))?;
+        let Some(name) = name
+            .strip_prefix("squad-")
+            .filter(|name| crate::squad::valid_name(name))
+        else {
+            continue;
+        };
+        let id = room["id"]
+            .as_str()
+            .ok_or_else(|| invalid("Core returned no squad room ID."))?;
+        let prefix = format!("squad.{name}.");
+        let roster = core.api("rooms.roster", json!({"room":id,"metadataPrefix":prefix}))?;
+        let members = roster["members"]
+            .as_array()
+            .ok_or_else(|| invalid("Core returned no squad members."))?;
+        for member in members {
+            let id = member["id"]
+                .as_str()
+                .ok_or_else(|| invalid("Core returned no member ID."))?;
+            let name = member["name"]
+                .as_str()
+                .ok_or_else(|| invalid("Core returned no member name."))?;
+            let metadata = member["metadata"]
+                .as_object()
+                .ok_or_else(|| invalid("Core returned incomplete member metadata."))?;
+            let mut fields = BTreeMap::new();
+            for (key, value) in metadata {
+                let value = value
+                    .as_str()
+                    .ok_or_else(|| invalid("Core returned invalid member metadata."))?;
+                if let Some(field) = key.strip_prefix(&prefix) {
+                    fields.insert(field.to_owned(), value.to_owned());
+                }
+            }
+            let marker = fields
+                .remove(crate::squad::LEAD_MARKER)
+                .map(|marker| marker == "true");
+            if crate::squad::lead_from_fields(&fields, marker) {
+                leads.insert(id.to_owned(), name.to_owned());
+                if leads.len() > 256 {
+                    return Err(SquadError::new(
+                        "SQUAD_LEADS_LIMIT",
+                        "Core accepts at most 256 distinct leads; nothing was published.",
+                    ));
+                }
             }
         }
     }
-    // Only the actual public caller is attributed. The board's display "me"
-    // cannot turn an identified agent into a person for Core's permission check.
-    let actor = me::caller(core)?.map(|caller| caller.me.id);
+    // Never let unknown caller evidence become an unattributed person for this write.
+    let actor = match core.json(&["whoami"]) {
+        Ok(shown) if shown["bound"] == false => None,
+        Ok(shown) if shown["bound"] == true && shown["name"].is_string() => Some(
+            shown["id"]
+                .as_str()
+                .ok_or_else(|| invalid("Core returned no caller identity."))?
+                .to_owned(),
+        ),
+        Ok(_) => return Err(invalid("Core returned incomplete caller attribution.")),
+        Err(error) if error.code == "PANE_NOT_FOUND" => None,
+        Err(error) => return Err(error),
+    };
     let mut mutation = json!({"kind":"leads.set","identityIds":leads.keys().collect::<Vec<_>>()});
     if let Some(actor) = actor {
         mutation["actorId"] = json!(actor);
@@ -146,6 +196,22 @@ fn prepare(core: &Core) -> Result<Preview, SquadError> {
             .map(|(id, name)| json!({"identityId":id,"name":name}))
             .collect(),
     )
+}
+
+fn same_intent(left: &Value, right: &Value) -> bool {
+    let ids = |value: &Value| {
+        let mut ids = value["identityIds"]
+            .as_array()?
+            .iter()
+            .map(Value::as_str)
+            .collect::<Option<Vec<_>>>()?;
+        ids.sort_unstable();
+        Some(ids.into_iter().map(str::to_owned).collect::<Vec<_>>())
+    };
+    left["kind"] == "leads.set"
+        && right["kind"] == "leads.set"
+        && left.get("actorId") == right.get("actorId")
+        && ids(left).is_some_and(|left_ids| Some(left_ids) == ids(right))
 }
 
 fn prepare_intent(core: &Core, mutation: Value, after: Vec<Value>) -> Result<Preview, SquadError> {
@@ -170,7 +236,7 @@ fn prepare_intent(core: &Core, mutation: Value, after: Vec<Value>) -> Result<Pre
         "orchestration.write",
         json!({"phase":"preview","mutation":mutation}),
     )?;
-    if preview["mutation"] != mutation {
+    if !same_intent(&preview["mutation"], &mutation) {
         return Err(invalid(
             "Core returned a different leads intent; nothing was published.",
         ));
@@ -255,11 +321,7 @@ pub(crate) fn command(core: &Core, outcome: Outcome, consent: Consent) -> Outcom
     if consent == Consent::Unavailable {
         return outcome;
     }
-    let plan = format!(
-        "{}\n\nCore preview:\n{}",
-        preview.text(),
-        serde_json::to_string_pretty(&preview.0["preview"]).unwrap()
-    );
+    let plan = preview.text();
     if consent::ask(consent, &plan, "Publish squad leads to Core?").is_err() {
         outcome.document["coreLeads"] = json!({"status":"declined"});
         return outcome;
@@ -612,5 +674,57 @@ esac
                 .iter()
                 .all(|call| call["input"]["phase"] != "apply")
         );
+    }
+    #[test]
+    fn publication_strictness_does_not_change_shared_readers() {
+        let f = Fixture::new();
+        f.put("rooms", json!({"rooms":[{}]}));
+        assert!(crate::squad::Squad::list(&f.core).unwrap().is_empty());
+        assert!(prepare(&f.core).is_err());
+        let f = Fixture::new();
+        f.put("a", json!({"members":[{"id":ONE,"name":"one","lifetime":"saved","metadata":{"squad.a.role":"lead","odd":1}}]}));
+        assert_eq!(
+            crate::squad::Squad {
+                name: "a".into(),
+                room_id: "a".into()
+            }
+            .roster(&f.core)
+            .unwrap()
+            .len(),
+            1
+        );
+        assert!(prepare(&f.core).is_err());
+        let f = Fixture::new();
+        f.put("caller", json!({}));
+        assert!(crate::me::caller(&f.core).unwrap().is_none());
+        assert!(prepare(&f.core).is_err());
+    }
+
+    #[test]
+    fn publication_admits_core_id_order_and_additive_mutation_fields() {
+        let f = Fixture::new();
+        let mut raw: Value =
+            serde_json::from_str(&fs::read_to_string(f.root.join("preview")).unwrap()).unwrap();
+        raw["mutation"]["identityIds"] = json!([TWO, ONE]);
+        raw["mutation"]["additive"] = json!(true);
+        f.put("preview", raw.clone());
+        let preview = prepare(&f.core).unwrap();
+        assert_eq!(
+            preview.apply_input()["mutation"],
+            raw["mutation"],
+            "apply retains Core's normalized mutation"
+        );
+        assert!(!same_intent(
+            &json!({"kind":"leads.set","identityIds":[ONE],"actorId":ONE}),
+            &json!({"kind":"leads.set","identityIds":[ONE],"actorId":TWO})
+        ));
+        assert!(!same_intent(
+            &json!({"kind":"leads.set","identityIds":[ONE]}),
+            &json!({"kind":"leads.set","identityIds":[TWO]})
+        ));
+        assert!(!same_intent(
+            &json!({"kind":"leads.set","identityIds":[1]}),
+            &json!({"kind":"leads.set","identityIds":[1]})
+        ));
     }
 }

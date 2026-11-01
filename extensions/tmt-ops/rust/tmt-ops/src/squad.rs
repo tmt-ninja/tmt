@@ -152,20 +152,10 @@ impl Squad {
     /// Every active squad room, in core's room order (by name).
     pub fn list(core: &Core) -> Result<Vec<Self>, SquadError> {
         let listed = core.json(&["room", "list"])?;
-        let rooms = listed["rooms"].as_array().ok_or_else(|| {
-            SquadError::new(
-                "SQUAD_CORE_UNAVAILABLE",
-                "Core returned no squad room inventory.",
-            )
-        })?;
-        if rooms.iter().any(|room| room["name"].as_str().is_none()) {
-            return Err(SquadError::new(
-                "SQUAD_CORE_UNAVAILABLE",
-                "Core returned an incomplete room inventory.",
-            ));
-        }
-        rooms
-            .iter()
+        listed["rooms"]
+            .as_array()
+            .into_iter()
+            .flatten()
             .filter_map(|room| {
                 let name = room["name"].as_str()?.strip_prefix("squad-")?;
                 valid_name(name).then(|| {
@@ -227,19 +217,7 @@ impl Squad {
             })?
             .iter()
             .map(|member| {
-                let metadata = member["metadata"].as_object().ok_or_else(|| {
-                    SquadError::new(
-                        "SQUAD_CORE_UNAVAILABLE",
-                        "rooms.roster returned incomplete member metadata.",
-                    )
-                })?;
-                if metadata.values().any(|value| !value.is_string()) {
-                    return Err(SquadError::new(
-                        "SQUAD_CORE_UNAVAILABLE",
-                        "rooms.roster returned invalid member metadata.",
-                    ));
-                }
-                let metadata = metadata.iter();
+                let metadata = member["metadata"].as_object().into_iter().flatten();
                 let (fields, meta): (Vec<_>, Vec<_>) = metadata
                     .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
                     .partition(|(key, _)| key.starts_with(&prefix));
