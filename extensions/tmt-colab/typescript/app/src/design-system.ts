@@ -6,6 +6,13 @@
  * below is runtime 2 and ships with the app, never in a bundle.
  */
 
+import {
+  checkElements,
+  findingText,
+  type Bundle,
+  type Finding,
+} from '../../../../../design/systems/compiler.mjs';
+
 /** The skeleton API this app runs bundles on: the page runtime's React and htm, plus cn. */
 export const SKELETON_RUNTIME = '2';
 const MARKER = 'tmt-ds';
@@ -68,7 +75,10 @@ export const namesDesignSystem = (source: string) =>
 /** The bundle's own hash: SHA-256 over its JSON without the `hash` field, in written key order. */
 export async function bundleHash(bundle: DesignSystemBundle): Promise<string> {
   const { hash: _hash, ...body } = bundle;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(body)));
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(body)),
+  );
   return `sha256-${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
@@ -143,14 +153,43 @@ this.root.render(React.createElement(Component,props));}});});})();`;
   return { script, style };
 }
 
-/** The frame's design system for a page, or undefined when it names none. */
+/** Whether the page writes an element of the TMT prefix, pinned or not (the page check's reach). */
+export const writesDesignSystemTags = (source: string) => /<tmt-ui-[a-z]/i.test(source);
+
+/** Every element of the page as `{tag, attrs}`, parsed inertly. */
+function pageElements(source: string) {
+  return [...new DOMParser().parseFromString(source, 'text/html').body.querySelectorAll('*')].map(
+    (element) => ({
+      tag: element.localName,
+      attrs: Object.fromEntries([...element.attributes].map((a) => [a.name, a.value])),
+    }),
+  );
+}
+
+/** A frame script that lists the page check's findings at the top of the page. */
+function findingsScript(findings: readonly Finding[]): string {
+  if (!findings.length) return '';
+  const lines = JSON.stringify(
+    findings.map((finding) => findingText[finding.code](finding)),
+  ).replace(/</g, '\\u003c');
+  return `addEventListener('DOMContentLoaded',()=>{const box=document.createElement('aside');box.setAttribute('data-tmt-ds-findings','');box.setAttribute('role','status');box.setAttribute('aria-label','Design system check');box.style.cssText='margin:0 0 12px;padding:8px 12px;border:1px solid var(--tmt-ui-color-waiting,#8a5a08);border-radius:6px;font:13px/1.4 system-ui,sans-serif;color:inherit';const list=document.createElement('ul');list.style.cssText='margin:0;padding-left:18px';for(const line of ${lines}){const item=document.createElement('li');item.textContent=line;list.append(item);}box.append(list);document.body.prepend(box);});`;
+}
+
+/** The frame's design system for a page, or undefined when it needs none: the components of the
+ * pinned release, the page check's findings, or the notice that the release cannot be used. */
 export async function loadDesignSystem(
   source: string,
   from: DesignSystemSource | undefined,
 ): Promise<FrameDesignSystem | undefined> {
-  if (!namesDesignSystem(source)) return undefined;
-  const pin = designSystemPin(source);
+  const named = namesDesignSystem(source);
+  if (!named && !writesDesignSystemTags(source)) return undefined;
+  const pin = named ? designSystemPin(source) : null;
+  const elements = pageElements(source);
+  if (!named) return { style: '', script: findingsScript(checkElements(elements, null, null)) };
   if (!pin || !from) return noticeFrame('unknown-release');
   const bundle = await resolveDesignSystem(pin, from);
-  return typeof bundle === 'string' ? noticeFrame(bundle) : frameDesignSystem(bundle);
+  if (typeof bundle === 'string') return noticeFrame(bundle);
+  const frame = frameDesignSystem(bundle);
+  const findings = findingsScript(checkElements(elements, pin, bundle as unknown as Bundle));
+  return { style: frame.style, script: `${frame.script}${findings}` };
 }

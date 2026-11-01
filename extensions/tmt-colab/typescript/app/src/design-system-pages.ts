@@ -18,10 +18,7 @@ import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 
 export type BlockKind = 'design-system' | 'component';
 const blockPattern = (kind: BlockKind) =>
-  new RegExp(
-    `<script type="application/json" data-tmt-ds="${kind}">([\\s\\S]*?)</script>`,
-    'i',
-  );
+  new RegExp(`<script type="application/json" data-tmt-ds="${kind}">([\\s\\S]*?)</script>`, 'i');
 /** The page's data block of one kind, parsed, or undefined. */
 export function readBlock<T>(source: string, kind: BlockKind): T | undefined {
   const match = blockPattern(kind).exec(source);
@@ -63,7 +60,16 @@ async function withPage<T>(
   id: string,
   use: (page: Snapshot) => Promise<T>,
 ): Promise<T> {
-  const page = (await transport.page(id)) as Snapshot;
+  // A page made a moment ago may not be listed yet: try again briefly before giving up.
+  let page: Snapshot | undefined;
+  for (let attempt = 0; !page; attempt++) {
+    try {
+      page = (await transport.page(id)) as Snapshot;
+    } catch (error) {
+      if (attempt >= 10) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
   try {
     return await use(page);
   } finally {
@@ -98,7 +104,9 @@ export function pageDesignSystems(transport: PageTransport): DesignSystemSource 
         const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
         return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
       });
-      bundle.then((value) => value ?? bundles.delete(pin.hash)).catch(() => bundles.delete(pin.hash));
+      bundle
+        .then((value) => value ?? bundles.delete(pin.hash))
+        .catch(() => bundles.delete(pin.hash));
       bundles.set(pin.hash, bundle);
     }
     return bundle;

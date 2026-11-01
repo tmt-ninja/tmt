@@ -5,6 +5,7 @@ import {
   loadDesignSystem,
   namesDesignSystem,
   noticeFrame,
+  writesDesignSystemTags,
   type DesignSystemSource,
 } from './design-system.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
@@ -1267,7 +1268,9 @@ export async function mountRenderer(
     noticeFrame('unknown-release'),
   );
   const runtime =
-    wantsRuntime(source) || namesDesignSystem(source) ? loadRuntime(base) : undefined;
+    wantsRuntime(source) || namesDesignSystem(source) || writesDesignSystemTags(source)
+      ? loadRuntime(base)
+      : undefined;
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {

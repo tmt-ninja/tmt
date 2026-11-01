@@ -89,6 +89,35 @@ test('an unreadable release and a malformed pin both say so', async ({ page }) =
     null,
   );
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
-  frame = await mount(page, `<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>`);
+  frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>`,
+  );
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
+});
+
+test('the page check shows its findings on the page', async ({ page }) => {
+  let frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-button tone="red">Save</tmt-ui-button><tmt-ui-card>Card</tmt-ui-card><acme-button>Other</acme-button>`,
+  );
+  const findings = frame.getByRole('status', { name: 'Design system check' });
+  await expect(findings).toContainText('<tmt-ui-button> has an invalid tone attribute.');
+  await expect(findings).toContainText(
+    '<tmt-ui-card> is not a component of the pinned design system.',
+  );
+  await expect(findings).toContainText('<acme-button> is not from the pinned design system.');
+  // The valid parts still draw.
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+  frame = await mount(page, '<tmt-ui-button>Save</tmt-ui-button>');
+  await expect(frame.getByRole('status', { name: 'Design system check' })).toContainText(
+    'needs the page to pin a design system',
+  );
+  frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Fine</tmt-ui-button>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Fine' })).toBeVisible();
+  await expect(frame.getByRole('status', { name: 'Design system check' })).toHaveCount(0);
 });
