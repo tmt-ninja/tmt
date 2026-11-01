@@ -15,7 +15,25 @@ for (const width of [1440, 390])
             : `/docs/tui/${route}`,
         );
         if (route !== 'agents')
-          await page.getByLabel('Terminal rendering', { exact: true }).selectOption(look);
+          await page
+            .getByRole('combobox', { name: 'Terminal rendering', exact: true })
+            .selectOption(look);
+        if (route === 'agents') {
+          const states = page.getByRole('button', { name: 'States', exact: true });
+          const paint = await states.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              appearance: style.appearance,
+              height: node.getBoundingClientRect().height,
+              radius: parseFloat(style.borderTopLeftRadius),
+              scoped: !!node.closest('[data-tmt-ui]'),
+            };
+          });
+          expect(paint.scoped).toBe(true);
+          expect(paint.appearance).toBe('none');
+          expect(paint.height).toBeGreaterThanOrEqual(32);
+          expect(paint.radius).toBeGreaterThanOrEqual(paint.height / 2);
+        }
         const frame = page.locator('tmt-tui-frame').first();
         await expect(frame).toHaveAttribute('data-look', look);
         await expect(frame.locator('.tui-frame-row')).not.toHaveCount(0);
@@ -59,19 +77,22 @@ test('Agents state, rendering, size and States disclosure are reproducible and i
 }) => {
   await page.goto('/mock/tui/agents');
   const frame = page.locator('tmt-tui-frame');
-  const names = await page.getByLabel('State', { exact: true }).locator('option').allTextContents();
+  const names = await page
+    .getByRole('combobox', { name: 'State', exact: true })
+    .locator('option')
+    .allTextContents();
   expect(names.length).toBe(40);
   for (const state of names) {
-    await page.getByLabel('State', { exact: true }).selectOption(state);
+    await page.getByRole('combobox', { name: 'State', exact: true }).selectOption(state);
     await expect(frame).toHaveAttribute('data-state', state);
     expect(new URL(page.url()).searchParams.get('state')).toBe(state);
   }
-  await page.getByLabel('State', { exact: true }).selectOption('agents');
+  await page.getByRole('combobox', { name: 'State', exact: true }).selectOption('agents');
   for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
-    await page.getByLabel('Rendering', { exact: true }).selectOption(look);
+    await page.getByRole('combobox', { name: 'Rendering', exact: true }).selectOption(look);
     await expect(frame).toHaveAttribute('data-look', look);
   }
-  await page.getByLabel('Terminal size', { exact: true }).selectOption('60x8');
+  await page.getByRole('combobox', { name: 'Terminal size', exact: true }).selectOption('60x8');
   await expect(frame).toHaveAttribute('data-columns', '60');
   await expect(frame.locator('.tui-frame-row')).toHaveCount(8);
   const url = page.url();

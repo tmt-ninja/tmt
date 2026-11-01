@@ -20,7 +20,7 @@ export function TuiMock({ path }: { path: string }) {
       </main>
     );
   return (
-    <main className="tui-mock">
+    <main className="tui-mock" data-tmt-ui="">
       <header className="tui-mock-heading">
         <div>
           <p className="docs-muted">Ops board · real painter oracle</p>

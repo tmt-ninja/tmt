@@ -25,6 +25,6 @@
   background: var(--tmt-ui-surface-sheet);
 }
 
-.tui-states-toggle {
-  border-radius: var(--tmt-ui-radius-badge);
+.tui-mock .tui-states-toggle {
+  border-radius: var(--tmt-ui-radius-pill);
 }

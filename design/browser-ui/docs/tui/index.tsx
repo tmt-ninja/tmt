@@ -30,6 +30,9 @@ function Source() {
             <code>{source.path}</code>
             <br />
             <code>sha256 {source.sha256}</code>
+            {'fields' in source && source.fields && (
+              <span> · {source.fields.join(', ')} subset</span>
+            )}
           </li>
         ))}
       </ul>

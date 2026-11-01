@@ -11,6 +11,8 @@ frozen real painter cells; it never draws a replacement terminal interface.
 - `generate.mjs` reads the Ops HOME oracle, the CLI theme, cell style definitions
   and the design tokens. It expands the oracle dictionaries without modifying
   source cells, then interns only the chosen fixtures into `data/oracle.json`.
+  Token provenance hashes only the consumed top-level `color`, `mark` and
+  `surface` groups; unrelated GUI foundation token edits stay independent.
 - `model.ts` decodes those dictionaries and interprets the frozen style table.
   `Reset` uses an explicit preview terminal default. ANSI16 uses the real theme's
   representative `ANSI_RGB` values; an actual terminal can configure its palette.
@@ -24,7 +26,7 @@ From `design/browser-ui`:
 ```sh
 node docs/tui/generate.mjs --check
 ../../typescript/node_modules/.bin/vp test run --config vitest.config.ts test/tui-frame.test.ts
-../../typescript/node_modules/.bin/playwright test --config docs/tui/playwright.config.ts
+./node_modules/.bin/playwright test --config docs/tui/playwright.config.ts
 ```
 
 Regenerate the frozen selection with `node docs/tui/generate.mjs`, then format
