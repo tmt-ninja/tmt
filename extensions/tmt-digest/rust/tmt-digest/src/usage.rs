@@ -176,6 +176,16 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
             }
         });
     }
+    // Account-level limits are preferred whole; an older Core does not know the operation
+    // and keeps today's per-seat derivation, as does any failed read.
+    usage.accounts = match core.api("consumption.limits", json!({})) {
+        Ok(document) => model::accounts(&document),
+        Err(error) if error.code == "API_INPUT_INVALID" => None,
+        Err(error) => {
+            warnings.push(warning("limits", &error));
+            None
+        }
+    };
     Ok(Report {
         as_of_ms: now,
         since: since.text(),

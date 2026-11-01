@@ -119,6 +119,10 @@ Each row contains:
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
+`nextEligibleAtMs` is an additive nullable row field copied from the same Core stats observation: Core's next mechanical eligibility, never the extension deadline `nextSendAtMs` and never proof that the agent is ready.
+
+`lastDelivery` is an additive nullable row field from [history](#history): the latest delivery turn, `{settledAtMs, messages, batches}`. A turn is the newest delivered checklist plus the delivered checklists handed off back to back before it, each settled within two minutes of the next one's claim. `settledAtMs` is the newest settle time, `messages` the sum of their sealed references and `batches` the number of checklists. It is null without collected history or a delivered checklist.
+
 `ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and, besides a person marked `user` in Core, only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
 
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
@@ -326,11 +330,19 @@ they are consumer examples, never commands to run during fixture verification.
 
 ## Savings
 
-`status --json --window 24h|7d|lifetime` selects one window (default `24h`).
+`status --json --window 24h|7d|30d|lifetime` selects one window (default `24h`).
 The additive `savings` object is `{method, window, fromMs, throughMs,
 estimatedInputTokensAvoided, avoidedSeparateDeliveries, complete, gap}`.
 It also contains additive nullable `cost` and `percent` fields defined under
 [Valuation](#valuation). `method` is `context-input-avoided-v1`.
+It also contains additive `series`: null for `lifetime`; otherwise the window as
+`usage report` buckets it (24 hourly buckets for `24h`, 7 or 30 daily for `7d` and
+`30d`), ending at the last completed five-minute boundary at status time, as Core's
+rollup ends those windows, so saved and used bars line up bucket for bucket. Each bucket
+is `{fromMs, toMs, estimatedInputTokensAvoided, avoidedSeparateDeliveries, complete, gap}`
+for deliveries settled in `(fromMs, toMs]`, with the window's gap rules; a bucket that
+ends after `throughMs` is `uncollected_deliveries`. A bucket with a gap has a null token
+figure, never zero.
 The [normative vectors](vectors/savings-v1.json) fix the event formula.
 
 For a confirmed delivered sealed batch of N original hold references, the

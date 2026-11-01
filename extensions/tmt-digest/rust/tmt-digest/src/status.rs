@@ -53,16 +53,17 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
             .iter_mut()
             .zip(&stats)
         {
-            let id = row["identityId"].as_str().expect("projected id");
+            let id = row["identityId"].as_str().expect("projected id").to_owned();
             row["savings"] = history
                 .status(
-                    id,
+                    &id,
                     window,
                     now,
                     observation.and_then(|stats| stats.delivered),
                     prices.table(),
                 )
                 .unwrap_or(Value::Null);
+            row["lastDelivery"] = history.last_delivery(&id).unwrap_or(Value::Null);
         }
     }
     Ok(document)
@@ -109,6 +110,7 @@ struct Observation {
     observed: u64,
     age: Option<u64>,
     delivered: Option<u64>,
+    next_eligible: Option<u64>,
 }
 impl Observation {
     fn parse(value: &Value) -> Option<Self> {
@@ -116,6 +118,7 @@ impl Observation {
         Some(Self {
             held: number("heldCount")?,
             delivered: number("deliveredDigests"),
+            next_eligible: number("nextEligibleAtMs"),
             observed: number("observedAtMs")?,
             age: if value.get("oldestHeldAgeMs")?.is_null() {
                 None
@@ -210,7 +213,8 @@ fn member(
         "intervalMs":interval,"settingSource":if inherited {"default"} else {"member"},
         "settingValue":value,"heldCount":held,"statsObservedAtMs":observation.map(|stats| stats.observed),
         "oldestHeldAgeMs":observation.and_then(|stats| stats.age),"deliveredDigests":observation.and_then(|stats| stats.delivered),
-        "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"labels":labels,
+        "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"lastDelivery":null,"labels":labels,
+        "nextEligibleAtMs":observation.and_then(|stats| stats.next_eligible),
         "ownerBypass":owner_bypass(settings, id, &mode)});
     if let Some(caps) = caps {
         row["autoCaps"] = json!({"maxWaitMs":caps.max_wait_ms,"maxCount":caps.max_count});
