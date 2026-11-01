@@ -460,7 +460,17 @@ Unavailable or uncertain delivery remains queued; uncertainty still returns
 `DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
 its agent as waiting on its user (an approval or a question) refuses the
 prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
-the pane, the request stays queued, and nothing types around the agent. Offline recipients with a recorded endpoint produce an
+the pane, the request stays queued, and nothing types around the agent. A
+recipient whose active binding runs a plain program rather than an agent
+(`plainProgram`, [identity status](identity-status-v1.md#plain-program)) refuses
+before anything is stored: `talk` returns `RECIPIENT_NOT_AGENT` (exit 1), no
+request is created and nothing is pasted. If the binding becomes a plain program
+after preparation stored the request, `talk` returns the same code with that
+request's ID: nothing is pasted, its wake settles as unavailable and the request
+stays queued until an agent binds there. A person's own passthrough text is not a
+request and is typed as written. Digest checklists, reply and result notices for
+that recipient are held, never pasted or dropped, until an agent binds there.
+Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake.
 
@@ -826,13 +836,17 @@ because every held message goes out together. The count trigger of a rule can on
 earlier. `working` rests on the driver's last admitted event for the exact session and process
 the recipient is bound to now; it is not liveness evidence. `canSendNow` says whether a send-now
 applies to the message; who may ask is that operation's own check. A refusal's cause is not
-retained, so `not_sent` carries one of the two generic reasons.
+retained, so `not_sent` carries one of the two generic reasons, except a talk-limit hold that
+expired unresumed (`talk_hold_expired`). A talk-limit hold (`held_at_talk_limit`, see
+[orchestration](orchestration-v1.md)) has no deadline and no send-now; only a talk resume releases it.
 
 | `reason.code`               | `state`       | `reason.text`                                                                                       |
 | --------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
 | `waiting_for_delivery`      | `sent`        | waiting for delivery                                                                                |
 | `awaiting_approval`         | `sent`        | waiting for the agent's approval prompt to clear                                                    |
 | `held_to_save_usage`        | `batched`     | batched to save usage, sends when the agent finishes this turn                                      |
+| `held_at_talk_limit`        | `batched`     | held at the talk limit, sends when a person or a lead resumes the pair                              |
+| `talk_hold_expired`         | `not_sent`    | not sent, the talk-limit hold was not resumed in time                                               |
 | `waiting_for_person`        | `delivered`   | waiting for the person                                                                              |
 | `reached_the_agent`         | `delivered`   | delivered                                                                                           |
 | `agent_working`             | `working`     | the agent has started on it                                                                         |
@@ -899,6 +913,7 @@ Each code has one sentence, owned by Core: the CLI, the API's fault `message` an
 | `DELIVERY_AWAITING_APPROVAL`   | Could not send now: the agent is waiting for approval on its machine       |
 | `DELIVERY_CHANNEL_UNAVAILABLE` | Could not send now: the agent's channel is not available                   |
 | `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again. |
+| `RECIPIENT_NOT_AGENT`          | Could not send now: the member runs a plain program, not an AI agent       |
 
 ## Verification ownership
 
@@ -974,6 +989,10 @@ core does not infer question/blocked categories. Results order and page by final
 submission time with request ID as the tie-breaker, not preparation time. The
 `answers` view lists the same originator's finals together with its answered
 passthrough turns, metadata only, in one order.
+
+The `conversation` view reads the configured person's two-party history with one
+member, both directions, outside rooms, with an opaque change position from the two
+identities' attention counters.
 
 The [extension API contract](extension-api.md#other-operation-details) owns the
 input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain

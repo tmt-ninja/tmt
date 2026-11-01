@@ -44,6 +44,12 @@ failure/cleanup observations; the basic badge case belongs to `pane-badge`.
 
 ## Harness rules
 
+The harness builds its pinned image, then runs it with `--network none`, private
+tmux sockets and deterministic mock agents. The wrapper's `--init` is part of
+orphan-child cleanup evidence. The image places its binary at
+`rust/target/debug/tmt` and leaves the selector unset, so it exercises the
+developer default path.
+
 Hosted Docker E2E, Packed install musl and dependency-archive seed jobs use a best-effort registry mirror for unchanged digest-pinned base images; admitted-archive and seed Buildx builders use a digest-pinned mirrored builder image and retain the original setup on failure. Local `pnpm test:e2e` is unchanged.
 
 - CI may restore an exact main-owned Actions archive of dev Cargo dependencies before compiling current source; misses use the original single Docker build, and the default local command does not read this archive.

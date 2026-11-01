@@ -48,7 +48,7 @@ function nonEmptyStrings(value, label) {
 /** File names only: they reach a shell word list, so no other character is allowed. */
 const TEST_FILE = /^[A-Za-z0-9._-]+$/;
 
-function parseScopedChecks(name, checks) {
+function parseScopedChecks(name, checks, historical) {
   if (checks === undefined) return undefined;
   const label = (key) => `components.${name}.scopedChecks.${key}`;
   const plainFiles = (key, list) => {
@@ -62,12 +62,19 @@ function parseScopedChecks(name, checks) {
   if (!Array.isArray(e2eFiles) || e2eFiles.some((file) => typeof file !== 'string')) {
     throw new Error(`${label('e2eFiles')} must be a list of plain file names.`);
   }
+  // Skipping Unit tests must be stated, never inferred from a missing value. Snapshots
+  // from before the field existed are read only for release membership, never for CI.
+  const unitTests = historical && checks.unitTests === undefined ? false : checks.unitTests;
+  if (typeof unitTests !== 'boolean') {
+    throw new Error(`${label('unitTests')} must be true or false.`);
+  }
   return {
     nativeTests: plainFiles(
       'nativeTests',
       nonEmptyStrings(checks.nativeTests, label('nativeTests'))
     ),
     e2eFiles: plainFiles('e2eFiles', e2eFiles),
+    unitTests,
   };
 }
 
@@ -232,7 +239,7 @@ export function parseComponentMap(text, { historical = false } = {}) {
         ? []
         : nonEmptyStrings(component.migrations, `components.${name}.migrations`),
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
-    scopedChecks: parseScopedChecks(name, component.scopedChecks),
+    scopedChecks: parseScopedChecks(name, component.scopedChecks, historical),
     neverShippedPaths: parseNeverShipped(name, component.neverShippedPaths),
     generatedInputs: parseGenerated(name, component.generatedInputs),
   }));
@@ -632,6 +639,7 @@ export function selectBrowserUi(paths) {
 // steps of the Unit tests job. Remote is a CLI-scope owner, so every selected path below is a
 // full native scope and that job always runs for it; selection stays a plain path match.
 const REMOTE_FIRESTORE_ROOTS = [
+  '.github/actions/setup-firebase-tools',
   'extensions/tmt-remote/rust/tmt-remote/tests/emulator',
   'extensions/tmt-remote/rust/tmt-remote/tests/fixtures/rules',
 ];
@@ -672,6 +680,7 @@ export function selectNativeSyncEmulator(paths) {
     (path) =>
       path === '.github/workflows/ci.yml' ||
       path === 'typescript/scripts/ci-scope.mjs' ||
+      within('.github/actions/setup-firebase-tools', path) ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/native_sync.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/sealed_sync.rs' ||
@@ -712,6 +721,7 @@ const HOSTED_READER_EMULATOR_INPUTS = new Set([
 ]);
 const HOSTED_READER_EMULATOR_ROOTS = [
   '.github/actions/hosted-reader-emulator',
+  '.github/actions/setup-firebase-tools',
   'extensions/tmt-colab/typescript/colab-client/src',
   'extensions/tmt-remote/rust/tmt-remote/src',
   'extensions/tmt-remote/rust/tmt-remote/assets',
@@ -741,13 +751,21 @@ export function selectNativeScope(paths, map = componentMap()) {
   if (native.length === 0) return 'none';
   const owner = native[0].owner;
   const component = map.components.find(({ name }) => name === owner);
-  return component?.scopedChecks && native.every((row) => row.owner === owner) ? owner : 'full';
+  // A path no rule maps keeps full native verification, even inside a scoped component.
+  return component?.scopedChecks &&
+    native.every((row) => row.owner === owner && row.rule !== 'unmapped')
+    ? owner
+    : 'full';
 }
 
 /** The tests a scoped component runs, for the workflow to pass on as word lists. */
 export function scopedChecks(scope, map = componentMap()) {
   const checks = map.components.find(({ name }) => name === scope)?.scopedChecks;
-  return { nativeTests: checks?.nativeTests ?? [], e2eFiles: checks?.e2eFiles ?? [] };
+  return {
+    nativeTests: checks?.nativeTests ?? [],
+    e2eFiles: checks?.e2eFiles ?? [],
+    unitTests: checks?.unitTests ?? false,
+  };
 }
 
 const EVIDENCE_ROWS = 100;
@@ -960,9 +978,10 @@ export function notifyMainFullFailure(context, request) {
 
 /**
  * What each native job must have reported for the scope. A scoped component runs
- * its Rust checks and, when it names E2E files, the first E2E shard (which holds
- * them); the second shard, the CLI runtime builds, packed installs and tooling unit
- * tests are skipped because the CLI is unchanged. `none` skips everything. Anything
+ * its Rust checks, the first E2E shard (which holds them) when it names E2E files,
+ * and the Linux runtime builds with tooling unit tests when `unitTests` is true
+ * because tooling tests read its sources; the second shard, packed installs and
+ * macOS jobs are skipped because the CLI is unchanged. `none` skips everything. Anything
  * unexpected, including an unknown scope, fails: a selected job that was skipped,
  * cancelled or missing is as wrong as a job that ran when the selector skipped it.
  */
@@ -978,12 +997,14 @@ function expectedNativeResults(scope, map, macos = 'true') {
   if (!map.components.some((component) => component.name === scope && component.scopedChecks)) {
     return undefined;
   }
+  const checks = scopedChecks(scope, map);
+  const unitTests = checks.unitTests ? 'success' : 'skipped';
   return {
     nativeRust: 'success',
-    unitTests: 'skipped',
-    e2eShard1: scopedChecks(scope, map).e2eFiles.length > 0 ? 'success' : 'skipped',
+    unitTests,
+    e2eShard1: checks.e2eFiles.length > 0 ? 'success' : 'skipped',
     e2eShard2: 'skipped',
-    runtimeBuild: 'skipped',
+    runtimeBuild: unitTests,
     packedInstall: 'skipped',
     macosRuntimeBuild: 'skipped',
     macosPackedInstall: 'skipped',
@@ -1222,6 +1243,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       `native_sync_emulator=${nativeSyncEmulator}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
+      `scoped_unit_tests=${checks.unitTests}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +
       `e2e_shard_2=${secondShard.join(' ')}\n`
   );

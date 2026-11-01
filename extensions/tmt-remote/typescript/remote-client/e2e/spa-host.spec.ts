@@ -1042,34 +1042,79 @@ test.describe('the Ops route on the owner read', () => {
           await expect(tree.locator(':scope > li:last-child')).toHaveClass('tmt-ui-rail-settings');
           await expect(tree.locator('button.tmt-ui-rail-add')).toHaveCount(0);
           const geometry = await tree.evaluate((node) => ({
-            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')].map(
+            indents: [...node.querySelectorAll('a.tmt-ui-rail-sub-item')]
+              .filter((item) => !item.closest('.tmt-ui-rail-sub-children'))
+              .map((item) => getComputedStyle(item).paddingLeft),
+            nestedIndents: [...node.querySelectorAll('.tmt-ui-rail-sub-children a')].map(
               (item) => getComputedStyle(item).paddingLeft,
             ),
+            nestedPadding: getComputedStyle(node)
+              .getPropertyValue('--tmt-ui-rail-sub-padding-inline')
+              .trim(),
+            branches: [...node.querySelectorAll('.tmt-ui-rail-sub-children')].map((item) => ({
+              indent: getComputedStyle(item).paddingLeft,
+              rule: getComputedStyle(item).borderLeftStyle,
+              edge: getComputedStyle(item).borderLeftWidth,
+            })),
             edge: getComputedStyle(node.querySelector('[aria-current="page"]')!).borderLeftWidth,
             rule: getComputedStyle(node.lastElementChild!, '::before').borderTopStyle,
             overflow: document.documentElement.scrollWidth > innerWidth,
           }));
           expect(new Set(geometry.indents)).toEqual(new Set(['36px']));
+          const nested = labels.includes('#tmt-core');
+          expect(geometry.nestedIndents).toEqual(
+            nested ? [geometry.nestedPadding, geometry.nestedPadding] : [],
+          );
+          expect(geometry.branches).toEqual(
+            nested ? [{ indent: '8px', rule: 'solid', edge: '1px' }] : [],
+          );
           expect(geometry.edge).toBe('0px');
           expect(geometry.rule).toBe('solid');
           expect(geometry.overflow).toBe(false);
         };
         try {
-          const opsLabels = ['Agents', 'Squads', 'Timers', 'Ops settings'];
+          const opsLabels = [
+            'Agents',
+            'Squads',
+            'Timers',
+            '#tmt-core',
+            'tmt-lead',
+            'core-3',
+            'Ops settings',
+          ];
           await inspect(opsLabels, 'squads');
           const agents = modulePages(page).locator('a[data-id="agents"]');
-          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2', '1']);
-          await expect(agents.locator('.tmt-ui-shell-count').last()).toHaveAttribute(
-            'data-kind',
-            'needs-you',
+          // #5826: one muted total and a decorative attention dot replace the two pills.
+          await expect(agents.locator('.tmt-ui-shell-count')).toHaveText(['2']);
+          await expect(agents).toHaveAccessibleName('Agents · 2 total, 1 need you');
+          await expect(agents.locator('.tmt-ui-attention-dot')).toHaveAttribute(
+            'aria-hidden',
+            'true',
           );
           await expect(
             modulePages(page).locator('a[data-id="schedules"] .tmt-ui-shell-count'),
           ).toHaveCount(0);
-          const colours = await agents
-            .locator('.tmt-ui-shell-count')
-            .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
-          expect(colours[0]).not.toBe(colours[1]);
+          const readColours = () =>
+            agents.evaluate((element) => {
+              const probe = document.createElement('span');
+              probe.style.color = 'var(--tmt-ui-color-secondary)';
+              probe.style.background = 'var(--tmt-ui-color-waiting)';
+              element.append(probe);
+              const css = getComputedStyle(probe);
+              const result = {
+                total: getComputedStyle(element.querySelector('.tmt-ui-shell-count')!).color,
+                dot: getComputedStyle(element.querySelector('.tmt-ui-attention-dot')!)
+                  .backgroundColor,
+                secondary: css.color,
+                waiting: css.backgroundColor,
+              };
+              probe.remove();
+              return result;
+            });
+          const colours = await readColours();
+          expect(colours.total).toBe(colours.secondary);
+          expect(colours.dot).toBe(colours.waiting);
+          expect(colours.dot).not.toBe(colours.total);
           await page.mouse.move(width - 1, 899);
           await page.screenshot({
             path: testInfo.outputPath(`rail-ops-${width}-${colorScheme}.png`),
@@ -1079,19 +1124,9 @@ test.describe('the Ops route on the owner read', () => {
             await modulePages(page).locator(`a[data-id="${id}"]`).click();
             await expect(page).toHaveURL(`${origin}/ops#${id}`);
             await inspect(opsLabels, id);
-            expect(
-              await modulePages(page)
-                .locator('a[data-id="agents"] .tmt-ui-shell-count')
-                .evaluateAll((nodes) =>
-                  nodes.map((node) => getComputedStyle(node).backgroundColor),
-                ),
-            ).toEqual(colours);
+            expect(await readColours()).toEqual(colours);
           }
-          expect(
-            await modulePages(page)
-              .locator('a[data-id="agents"] .tmt-ui-shell-count')
-              .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor)),
-          ).toEqual(colours);
+          expect(await readColours()).toEqual(colours);
           await page.goto(`${origin}/remote/`);
           await page.evaluate(async () => {
             const { remoteRegistry } = (await import(
@@ -1127,6 +1162,40 @@ test.describe('the Ops route on the owner read', () => {
           await page.close();
         }
       });
+
+  test('serves the local channel and UUID DM through the existing owner-read route', async () => {
+    const { page, requests } = await openApp('/ops#channel/tmt-core', async (page) => {
+      await stub(page, [board]);
+    });
+    try {
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / #tmt-core');
+      await expect(page.locator('.ops-channel-context .tmt-ui-list-state')).toHaveText([
+        'Working',
+        'Offline',
+      ]);
+      await modulePages(page).getByRole('link', { name: 'core-3', exact: true }).click();
+      await expect(page).toHaveURL(
+        `${origin}/ops#dm/00000000-0000-4000-8000-000000000002/tmt-core`,
+      );
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / core-3');
+      await expect(
+        page.getByRole('heading', {
+          name: 'Talk history',
+          exact: true,
+        }),
+      ).toBeVisible();
+      await page.getByRole('tab', { name: 'Squad timers', exact: true }).click();
+      await expect(page.getByRole('tabpanel', { name: 'Squad timers', exact: true })).toContainText(
+        'Hourly pass',
+      );
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+      expect(
+        requests.some((request) => /requests\.list|dispatch\.create/.test(request.url())),
+      ).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
 
   test('shows the board, refreshes it while visible and stops on leaving the route', async () => {
     let reads: number[] = [];
@@ -1253,7 +1322,7 @@ test.describe('the Ops route on the owner read', () => {
   /** A board of two squads: core has an agent that needs the person, ux has an idle lead. */
   const squadBoard = () => {
     const agent = (name: string, squad: string, extra: Record<string, unknown> = {}) => ({
-      id: `id-${name}`,
+      id: `00000000-0000-4000-8000-${String(['tmt-lead', 'core-1', 'core-3', 'ux-lead', 'ux-1'].indexOf(name) + 1).padStart(12, '0')}`,
       name,
       squad,
       role: name.endsWith('lead') ? 'lead' : 'member',
@@ -1266,7 +1335,7 @@ test.describe('the Ops route on the owner read', () => {
       {
         name: 'tmt-core',
         layout: 'team',
-        lead: { id: 'id-tmt-lead', name: 'tmt-lead' },
+        lead: { id: '00000000-0000-4000-8000-000000000001', name: 'tmt-lead' },
         idleAlertMs: 1800000,
       },
       { name: 'tmt-ux', layout: 'team' },

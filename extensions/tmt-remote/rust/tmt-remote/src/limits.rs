@@ -286,6 +286,7 @@ pub const DESCRIBE_COUNT: u16 = 9999;
 pub const DESCRIBE_MENU: usize = 24;
 pub const DESCRIBE_SETTINGS: usize = 16;
 pub const DESCRIBE_HOME: usize = 8;
+pub const DESCRIBE_MODULES: usize = 1;
 
 /// One REST JSON document containing the maximum base64 carrier plus provider metadata.
 pub const CLOUD_PROVIDER_BYTES: usize = CLOUD_CARRIER_BYTES.div_ceil(3) * 4 + 2 * METADATA_BYTES;
@@ -334,3 +335,28 @@ pub const SQUAD_SUMMARY_MACHINES: usize = 32;
 /// Allow routing/status JSON overhead per row, without enlarging any carrier.
 pub const SQUAD_DIRECTORY_CONTROL_BYTES: usize =
     SQUAD_SUMMARY_MACHINES * (SQUAD_SUMMARY_BYTES + 1024) + 1024;
+
+/// Owner-browser conversation projection; Core owns the opaque cursor and retention.
+pub const CONVERSATION_PAGE_DEFAULT: u64 = 20;
+pub const CONVERSATION_PAGE_MAX: u64 = 50;
+pub const CONVERSATION_POSITION_BYTES: usize = 64;
+pub const CONVERSATION_PREVIEW_SCALARS: usize = 160;
+pub const CONVERSATION_PREVIEW_BYTES: usize = 640;
+pub const CONVERSATION_WITHDRAWAL_BYTES: usize = 1024;
+pub const CONVERSATION_RESPONSE_ID_BYTES: usize = 128;
+
+/// Existing message-state reason bound; budget it even alongside both previews and a
+/// withdrawal, although not every final state carries all those fields together.
+const CONVERSATION_REASON_BYTES: usize = 256;
+/// A JSON string byte may require six ASCII bytes (`\u0000`). One KiB per row
+/// covers field names, maximal IDs/positions, numeric metadata and punctuation;
+/// one further KiB covers the page/cursor and the Core output newline.
+const CONVERSATION_JSON_ESCAPE_BYTES: usize = 6;
+const CONVERSATION_METADATA_BYTES: usize = 1024;
+pub const CONVERSATION_RESPONSE_BYTES: usize = CONVERSATION_PAGE_MAX as usize
+    * (CONVERSATION_JSON_ESCAPE_BYTES
+        * (2 * CONVERSATION_PREVIEW_BYTES
+            + CONVERSATION_WITHDRAWAL_BYTES
+            + CONVERSATION_REASON_BYTES)
+        + CONVERSATION_METADATA_BYTES)
+    + CONVERSATION_METADATA_BYTES;

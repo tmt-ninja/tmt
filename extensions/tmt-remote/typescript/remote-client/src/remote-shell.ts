@@ -1,6 +1,7 @@
 /** Remote's routes inside the one TMT web app (design/browser-ui `shell-host.ts`). */
 import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
+import type { Session } from './device.js';
 
 type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {
@@ -9,7 +10,12 @@ export interface RemoteShell {
   /** Go to another TMT URL without reloading; the same route only follows the new path. */
   navigate(href: string): void;
   /** Route identity in the top bar and the shell-owned document title. */
-  setTitle(title: string, ancestors?: readonly string[], documentTitle?: string): void;
+  setTitle(
+    title: string,
+    ancestors?: readonly string[],
+    documentTitle?: string,
+    chips?: readonly string[],
+  ): void;
   /**
    * Read the owner's composed shell once: at `address` when the page already holds the door's
    * answer, otherwise through the door. Pages call it only when it may send work; the landing
@@ -20,6 +26,10 @@ export interface RemoteShell {
   described(listener: (answer: ShellAnswer | undefined) => void): void;
   /** A verified Session replacement invalidates root-owned search state, never grants authority. */
   observedSession?(session: object): void;
+  /** Reuse the root's verified signed Session; one joined admission if it has none. */
+  session?(): Promise<Session>;
+  /** Retire only the failed handle, never a newer Session observed meanwhile. */
+  forgetSession?(session: Session): void;
   /** Reuse the settings model's existing hold reason for root search navigation. */
   holdNavigation?(reason: () => string): void;
   /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
@@ -32,26 +42,46 @@ export function setRouteTitle(
   title: string,
   ancestors: readonly string[] = [],
   documentTitle = title,
+  chips: readonly string[] = [],
 ): void {
   if (!slot.topBarReady()) return;
   slot.setTitle(documentTitle);
   const target = slot.setTopBar().title;
   const label = [...ancestors, title].join(' / ');
-  if (target.querySelector('h1')?.getAttribute('aria-label') === label) return;
-  const heading = document.createElement('h1');
-  heading.setAttribute('aria-label', label);
-  heading.tabIndex = -1;
-  if (ancestors.length) {
-    const prefix = document.createElement('span');
-    prefix.className = 'tmt-ui-topbar-title-prefix';
-    prefix.textContent = `${ancestors.join(' / ')} / `;
-    heading.append(prefix);
+  if (
+    target.querySelector('h1')?.getAttribute('aria-label') === label &&
+    (target.querySelector('.tmt-ui-topbar-title-chips')?.textContent ?? '') === chips.join('')
+  )
+    return;
+  if (target.querySelector('h1')?.getAttribute('aria-label') !== label) {
+    const heading = document.createElement('h1');
+    heading.setAttribute('aria-label', label);
+    heading.tabIndex = -1;
+    if (ancestors.length) {
+      const prefix = document.createElement('span');
+      prefix.className = 'tmt-ui-topbar-title-prefix';
+      prefix.textContent = `${ancestors.join(' / ')} / `;
+      heading.append(prefix);
+    }
+    const current = document.createElement('span');
+    current.className = 'tmt-ui-topbar-title-current';
+    current.textContent = title;
+    heading.append(current);
+    target.replaceChildren(heading);
   }
-  const current = document.createElement('span');
-  current.className = 'tmt-ui-topbar-title-current';
-  current.textContent = title;
-  heading.append(current);
-  target.replaceChildren(heading);
+  const group = document.createElement('span');
+  group.className = 'tmt-ui-topbar-title-chips';
+  for (const text of chips) {
+    const chip = document.createElement('span');
+    chip.className = 'tmt-ui-chip';
+    const label = document.createElement('span');
+    label.className = 'tmt-ui-chip-label';
+    label.textContent = text;
+    chip.append(label);
+    group.append(chip);
+  }
+  target.querySelector('.tmt-ui-topbar-title-chips')?.remove();
+  if (chips.length) target.append(group);
 }
 
 let current: RemoteShell | undefined;
@@ -67,18 +97,21 @@ export function hostRemote(
   signal?: AbortSignal,
   observedSession?: (session: object) => void,
   holdNavigation?: (reason: () => string) => void,
+  connection?: { get(signal: AbortSignal): Promise<Session>; forget(session: Session): void },
 ): void {
   current = slot &&
     signal && {
       setMenu: (menu, select) => slot.setMenu(menu, select),
       navigate: (href) => slot.navigate(href),
-      setTitle: (title, ancestors, documentTitle) =>
-        setRouteTitle(slot, title, ancestors, documentTitle),
+      setTitle: (title, ancestors, documentTitle, chips) =>
+        setRouteTitle(slot, title, ancestors, documentTitle, chips),
       describe: (address) => slot.describe(address),
       described: (listener) => slot.described(listener),
       observedSession: (session) => {
         if (!signal.aborted) observedSession?.(session);
       },
+      session: connection ? () => connection.get(signal) : undefined,
+      forgetSession: connection ? (session) => connection.forget(session) : undefined,
       holdNavigation: (reason) => {
         if (!signal.aborted) holdNavigation?.(reason);
       },

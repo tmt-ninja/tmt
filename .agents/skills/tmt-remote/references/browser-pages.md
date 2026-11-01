@@ -57,7 +57,9 @@ for each section, including loading and unavailable states. Content keeps its on
 and page actions, without a duplicate heading or hero sentence. The shell retains document titles,
 Back navigation and common controls; the GUI-owned leaf controls their order. The leaf owns the single trusted Command/Ctrl+K listener; Remote owns the
 confined module prefetch, registry and pending-open lifetime. Navigation is unavailable until the
-live composed shell describes its admitted modules and sections. Unconfirmed session counts stay
+live composed shell describes its admitted modules and sections. A capability-gated
+extra shares its extension mount and cache lifetime; extension-wide counts and
+the Colab loader use only the primary description. Unconfirmed session counts stay
 unconfirmed, rather than using a device count. Search uses Colab's `mountSearchSession` entry;
 Colab owns transport admission, the dialog and focus return. Prefetch imports code only after a
 live description admits the entry; an unpaired page acquires no extra session or read. Route or
@@ -205,6 +207,20 @@ changed and gives each reason one sentence with what to do; Digest uses the same
 
 `ops-menu.ts` projects fixed children, observed totals and Agents-state attention into the shared
 rail, with Ops settings last. Missing, unavailable, truncated and null evidence produces no pill.
+`ops-menu.ts` also supplies this machine's squad channels and member DMs through the same
+shared menu: one channel per squad with member children keyed by canonical UUIDs retained by `ops-source.ts`.
+No name-to-identity resolution, extra board read or product-local rail is added. The route retains squad expansion across observations and navigation; the shared leaf owns
+nesting, disclosure, keyboard traversal and the deepest visible selection on desktop and phone.
+`ops-channel.ts` renders local channel Members and DM About panels with four plain states
+(Working, Idle, Unknown, Offline) from explicit presence/activity, not attention or raw board
+colour. Both panels label timers as squad timers; an owner display name never associates one
+to a member UUID. Failed timer reads and partial boards retain unavailable/partial wording.
+DM history is explicitly unavailable with a terminal reference; unread is not shown. The
+browser never discovers request IDs or treats the Remote journal as conversation history.
+Sending and timer/idle-reminder writes remain disabled with their reason. Existing workspace
+sections remain reachable. Unchanged observations retain the selected tab in its always-open panel;
+removed members clear their old facts rather than selecting a namesake.
+
 `ops-page.ts` retains section selection and the read lifetime; `ops-agents.ts`,
 `ops-squads.ts` and `ops-timers.ts` render the observed board through shared
 `ops-parts.ts` presentation helpers. Ops settings (`ops-settings.ts`) has no browser read: it

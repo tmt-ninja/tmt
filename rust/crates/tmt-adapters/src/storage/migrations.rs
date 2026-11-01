@@ -422,6 +422,14 @@ const MIGRATIONS: &[Migration] = &[
         "name bounded Digest worker and caller failure stages",
         "schema/085.sql"
     ),
+    migration!(
+        "record a binding that runs a plain program, not an agent",
+        "schema/086.sql"
+    ),
+    migration!(
+        "record leads, route grants and talk-limit holds",
+        "schema/087.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -1094,6 +1094,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'bindSyncContext',
     'budget',
     'certifyKey',
+    'conversations',
     'firebaseRemote',
     'invitationPage',
     'invitations',
@@ -5402,7 +5403,9 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
       await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await modulePages(page).getByRole('link', { name: 'My Remotes', exact: true }).click();
+      await modulePages(page)
+        .getByRole('link', { name: 'My Remotes · 2 total', exact: true })
+        .click();
       await remoteAction(page, 'studio-2', 'Rename');
       await page.getByLabel('Remote name').fill('studio');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -5571,7 +5574,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     });
     await expect(currentItem).toHaveAttribute('aria-current', 'page');
     await expect(menu.locator('a', { hasText: /^Open desk/ })).toHaveCount(0);
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await expect(foreignItem).toBeVisible();
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Member');
@@ -5605,17 +5608,16 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     execFileSync(BINARY, ['devices', 'designate', currentClient, '--json'], { env });
     // Designation is an external owner action; observe its current permission before editing.
     await page.reload();
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#remotes')).toBeVisible();
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
     await expect(page.locator('[data-remote="studio"] [data-role]')).toHaveText('Admin');
     await expect(page.locator('[data-remote="desk"] [data-role]')).toHaveText('Role unknown');
     await expect(page.locator('[data-remote="studio"] .tmt-ui-list-state')).toHaveText('Connected');
-    await expect(menu.getByRole('link', { name: 'My Remotes', exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await expect(
+      menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
     await switchShot(
       'settings-remotes',
       'Same B1 registry controller reused in settings; no browser default or signed projection.',
@@ -5648,7 +5650,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
     await page.mouse.move(1000, 600);
     await menu.hover();
     await expect(foreignItem).toHaveAttribute('aria-disabled', 'false');
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await foreignItem.click();
     await expect(
       page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
@@ -5662,7 +5664,7 @@ test('My Remotes is the one list and keeps settings drafts across origin switche
       'aria-current',
       'page',
     );
-    await menu.getByRole('link', { name: 'My Remotes', exact: true }).click();
+    await menu.getByRole('link', { name: 'My Remotes · 2 total', exact: true }).click();
     await page.getByRole('link', { name: 'Open studio', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -5883,6 +5885,8 @@ test('the root prefetches one confined search entry and owns one shortcut across
   expect((await events.next()).event).toBe('candidate');
   pair.stdin.write('confirm\n');
   expect((await events.next()).reason).toBe('paired');
+  // Native confirmation precedes the browser's durable save and verified Session.
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
   await page.goto(`${origin}/remote/`);
   await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
   await page.waitForFunction(() => 'searchProof' in window);
@@ -6481,4 +6485,162 @@ test('Remote tab frame keeps unknown, Member locks and designated Admin separate
     await expect(page).toHaveURL(`${origin}/remote/overview`);
     await expect(tabs.getByRole('tab', { name: 'Overview', exact: true })).toBeFocused();
   });
+});
+
+// Real browser/native signed bridge over the frozen public Core fixture, not Core SQL acceptance.
+test('owner DM history reuses one root Session and strips private Core fields', async () => {
+  const memberId = '00000000-0000-4000-8000-000000000001';
+  const viewerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  await writeFile(
+    join(root, 'conversation-fixture.json'),
+    JSON.stringify({
+      memberId,
+      page: {
+        viewerId,
+        member: 'active',
+        changePosition: 'native_position',
+        nextBefore: null,
+        receipt: 'PRIVATE-CONVERSATION-LEAK',
+        items: [
+          {
+            requestId: 'req_cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            recipientId: memberId,
+            sender: {
+              kind: 'verified',
+              identityId: viewerId,
+              provider: 'PRIVATE-CONVERSATION-LEAK',
+            },
+            kind: 'request',
+            origin: 'person',
+            preparedAtMs: 1720000000000,
+            delivery: 'sent',
+            messageState: {
+              state: 'answered',
+              reason: { code: 'answered_by_reply', text: 'Answered by reply' },
+              latestMs: 1720000001000,
+              remainingMs: null,
+              canSendNow: false,
+            },
+            final: {
+              status: 'retained',
+              submittedAtMs: 1720000001000,
+              bodyBytes: 20,
+              expiresAtMs: 1920000000000,
+              response: 'PRIVATE-CONVERSATION-LEAK',
+            },
+            preview: 'Native retained question',
+            responsePreview: 'Native retained preview',
+            previewTruncated: false,
+            direction: 'toMember',
+            changePosition: 'native_item',
+          },
+        ],
+      },
+    }),
+  );
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/remote/overview');
+  await page.goto(offer.link);
+  await page.waitForURL(`${origin}/remote/overview`);
+  await expect(page.locator('#state-label')).toHaveText('Connected');
+  const board = {
+    version: 1,
+    state: 'ok',
+    observedAtMs: Date.now(),
+    squads: [{ name: 'sample', idleAlertMs: 900000 }],
+    agents: [
+      {
+        id: memberId,
+        name: 'Browser agent',
+        squad: 'sample',
+        role: 'member',
+        state: 'idle',
+        presence: 'active',
+        activity: { state: 'idle' },
+        waitingOnYou: 0,
+      },
+    ],
+    timers: [],
+    truncated: false,
+  };
+  await page.route(`${mounts}-/ops`, (route) =>
+    route.fulfill({ json: { ...board, observedAtMs: Date.now() } }),
+  );
+  const sent: { operation: string; payload?: string }[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/append')) return;
+    const body = request.postDataJSON() as { operation: string; payload?: string };
+    sent.push(body);
+  });
+  const callsBefore = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n').length;
+  await page.goto(`${origin}/ops/#dm/${memberId}/sample`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ops / Browser agent');
+  await expect(page.getByRole('list', { name: 'Conversation previews' })).toContainText(
+    'Native retained preview',
+  );
+  await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  const opens = sent.filter((call) => call.operation === 'session.open').length;
+  expect(opens).toBe(1);
+  await page.getByRole('button', { name: 'Refresh history', exact: true }).click();
+  await expect(page.getByText('Unread changes: 0', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Talk history' })).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  expect(sent.filter((call) => call.operation === 'session.open')).toHaveLength(opens);
+  const history = sent.filter((call) => call.operation === 'requests.list');
+  expect(history.length).toBeGreaterThanOrEqual(2);
+  for (const call of history) {
+    const value = JSON.parse(Buffer.from(call.payload!, 'base64url').toString()) as {
+      input: Record<string, unknown>;
+    };
+    expect(value.input.memberId).toBe(memberId);
+    expect(
+      Object.keys(value.input).every((key) =>
+        ['memberId', 'limit', 'before', 'since'].includes(key),
+      ),
+    ).toBe(true);
+  }
+  const after = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .slice(callsBefore)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(after.filter((call) => call.operation === 'requests.list').length).toBeGreaterThanOrEqual(
+    2,
+  );
+  expect(
+    after.some((call) =>
+      ['user.identity', 'requests.acknowledge', 'dispatch.create'].includes(call.operation),
+    ),
+  ).toBe(false);
+  await expect(page.locator('body')).not.toContainText('PRIVATE-CONVERSATION-LEAK');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(
+    'Native retained',
+  );
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await page.close();
+  const outsider = await browser.newContext();
+  const other = await outsider.newPage();
+  // Board/mount fixture data is not authority: the absent pairing still blocks the signed read.
+  await other.route(`${origin}/sdk/mount`, (route) =>
+    route.fulfill({ json: { address: mounts.slice(0, -3) } }),
+  );
+  await other.route(`${mounts}-/ops`, (route) => route.fulfill({ json: board }));
+  const before = (await readFile(join(root, 'core-calls.jsonl'), 'utf8')).trim().split('\n').length;
+  await other.goto(`${origin}/ops/#dm/${memberId}/sample`);
+  await expect(other.getByRole('region', { name: 'Talk history' })).toContainText(
+    'unavailable for this browser',
+  );
+  const final = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(final.slice(before).some((call) => call.operation === 'requests.list')).toBe(false);
+  await outsider.close();
 });

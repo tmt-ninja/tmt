@@ -214,8 +214,8 @@ function PageArchiveAction({ page, operate }: { page: PageSummary; operate(): vo
 }
 
 /**
- * A stage tab with no page. While the list is still reading the pages' tasks it says so instead of
- * claiming the tab is empty; an empty In progress names where pages without tasks are and offers
+ * A stage tab with no page. While the list is still reading the pages' sub-pages it says so instead of
+ * claiming the tab is empty; an empty In progress names where pages without sub-pages are and offers
  * the way out, and never opens another tab by itself.
  */
 function StageEmpty({
@@ -257,7 +257,7 @@ function StageEmpty({
 }
 
 export function Home() {
-  const phone = useMedia('(max-width: 650px)');
+  const phone = useMedia('(max-width: 760px)');
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
   const shortcutRequest = useContext(ShortcutMenuRequestSlot);
@@ -301,14 +301,14 @@ export function Home() {
     archived ? Boolean(p.archived) : search.includeArchived || !p.archived,
   );
   // The pages the tab holds: a stage tab keeps the pages at that stage, so one that has not
-  // reported its tasks yet is in none of them.
+  // reported its sub-pages yet is in none of them.
   const staged = filter.stage ? shown.filter((p) => pageStage(p) === filter.stage) : shown;
   const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
   const scope = knownScope(search.scope, projectNames);
   const scoped = inScope(staged, scope);
   // The tabs count what the scope holds: an archived page counts only under Archived, and a page
-  // that has not reported its tasks yet under no stage.
+  // that has not reported its sub-pages yet under no stage.
   const archivedInScope = inScope(
     homePages.filter((p) => p.archived),
     scope,
@@ -364,10 +364,10 @@ export function Home() {
       const next = boundary.getBoundingClientRect().bottom <= root.getBoundingClientRect().top;
       const active = document.activeElement;
       if (active instanceof HTMLElement && root.contains(active)) {
-        if (next && active.closest('.page-list-hero-create'))
+        if (next && active.closest('.page-list-create'))
           compactFocus.current = '.page-list-compact-create button';
         else if (!next && active.closest('.page-list-compact-create'))
-          compactFocus.current = '.page-list-hero-create button';
+          compactFocus.current = '.page-list-create button';
         else if (next && active.closest('.page-list-sort'))
           compactFocus.current = '.page-list-search [contenteditable]';
       }
@@ -379,7 +379,7 @@ export function Home() {
     root.addEventListener('scroll', measure, { passive: true });
     const resize = new ResizeObserver(measure);
     resize.observe(root);
-    for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
+    for (const node of root.querySelectorAll('.page-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
     return () => {
@@ -816,27 +816,83 @@ export function Home() {
           />
         </span>
         <span className="page-list-compact-create" inert={!compact}>
-          <BrowserAction
-            type="button"
-            variant="primary"
-            presentation="compact"
-            label={t.newPage}
-            leadingIcon={<Plus size={14} />}
-            onActivate={() => setNewPage(true)}
-          />
+          {phone ? (
+            <BrowserIconAction
+              type="button"
+              variant="primary"
+              label={t.newPage}
+              icon={<Plus />}
+              onActivate={() => setNewPage(true)}
+            />
+          ) : (
+            <BrowserAction
+              type="button"
+              variant="primary"
+              presentation="compact"
+              label={t.newPage}
+              leadingIcon={<Plus />}
+              onActivate={() => setNewPage(true)}
+            />
+          )}
         </span>
       </div>
     </>
   );
-  const newPageAction = (
+  const newPageAction = phone ? (
+    <BrowserIconAction
+      type="button"
+      variant="primary"
+      label={t.newPage}
+      icon={<Plus />}
+      onActivate={() => setNewPage(true)}
+    />
+  ) : (
     <BrowserAction
       type="button"
       variant="primary"
       label={t.newPage}
-      visibleLabel={phone ? t.newShort : undefined}
-      leadingIcon={<Plus size={14} />}
+      leadingIcon={<Plus />}
       onActivate={() => setNewPage(true)}
     />
+  );
+  const listActions = (
+    <div className="page-list-actions">
+      {port && (
+        <>
+          <span className="page-list-shortcut-wide">
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+              leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
+              disabled={!shortcuts.store}
+              onActivate={() => {
+                shortcutFromMenu.current = false;
+                setShortcutTarget(undefined);
+                setShortcutDialog(currentShortcut ? 'edit' : 'save');
+              }}
+            />
+          </span>
+          <span className="page-list-shortcut-phone">
+            <BrowserIconAction
+              type="button"
+              variant="secondary"
+              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+              icon={currentShortcut ? <Pencil /> : <Bookmark />}
+              disabled={!shortcuts.store}
+              onActivate={() => {
+                shortcutFromMenu.current = false;
+                setShortcutTarget(undefined);
+                setShortcutDialog(currentShortcut ? 'edit' : 'save');
+              }}
+            />
+          </span>
+        </>
+      )}
+      <span className="page-list-create" inert={compact}>
+        {newPageAction}
+      </span>
+    </div>
   );
   const content = (
     <>
@@ -1037,43 +1093,7 @@ export function Home() {
         title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
-      <header className="page-list-hero">
-        {port && (
-          <>
-            <span className="page-list-shortcut-wide">
-              <BrowserAction
-                type="button"
-                variant="secondary"
-                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-                leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
-                disabled={!shortcuts.store}
-                onActivate={() => {
-                  shortcutFromMenu.current = false;
-                  setShortcutTarget(undefined);
-                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
-                }}
-              />
-            </span>
-            <span className="page-list-shortcut-phone">
-              <BrowserIconAction
-                type="button"
-                variant="secondary"
-                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-                icon={currentShortcut ? <Pencil /> : <Bookmark />}
-                disabled={!shortcuts.store}
-                onActivate={() => {
-                  shortcutFromMenu.current = false;
-                  setShortcutTarget(undefined);
-                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
-                }}
-              />
-            </span>
-          </>
-        )}
-        <span className="page-list-hero-create" inert={compact}>
-          {newPageAction}
-        </span>
-      </header>
+      {!port && listActions}
       {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
@@ -1132,7 +1152,7 @@ export function Home() {
         onClose={() => setNewPage(false)}
         focusFallback={() =>
           section.current?.querySelector<HTMLElement>(
-            compact ? '.page-list-compact-create button' : '.page-list-hero-create button',
+            compact ? '.page-list-compact-create button' : '.page-list-create button',
           ) ?? null
         }
       />
@@ -1140,6 +1160,7 @@ export function Home() {
         <div className="page-stage-tabs">
           <BrowserTabs
             label={t.views}
+            status={listActions}
             variant="flat"
             tabs={viewTabs}
             selected={view}

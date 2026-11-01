@@ -98,6 +98,70 @@ pub(in crate::grammar) fn orch() -> Command {
             .default_value("50")
             .value_parser(clap::value_parser!(u16).range(1..=100)),
     );
+    let page = |c: Command| {
+        c.arg(
+            Arg::new("member")
+                .long("member")
+                .help("Filter canonical names case-insensitively, prefix matches first"),
+        )
+        .arg(
+            Arg::new("limit")
+                .long("limit")
+                .help("Read 1 through 256 rows")
+                .value_parser(clap::value_parser!(u16).range(1..=256)),
+        )
+        .arg(
+            Arg::new("after")
+                .long("after")
+                .help("Continue after the nextAfter cursor of the previous page"),
+        )
+    };
+    let leads = storage(spec!(
+        "leads", "Set who counts as a lead for sending rules and talk limits",
+        ["Set the leads" => "tmt orch leads set tmt-lead core-lead"]
+    ))
+    .subcommand_required(true)
+    .subcommand(
+        consent(storage(spec!(
+            "set", "Preview replacing the leads list and save only with consent",
+            ["Set two leads" => "tmt orch leads set tmt-lead core-lead --yes", "Clear the leads" => "tmt orch leads set --yes"]
+        )))
+        .arg(Arg::new("member-name").num_args(0..).help("Lead names; none clears the list")),
+    );
+    let route = storage(spec!(
+        "route", "Allow one route past its sending rule",
+        ["Allow once for an hour" => "tmt orch route allow worker-1 reviewer --until 1h"]
+    ))
+    .subcommand_required(true)
+    .subcommand(
+        consent(storage(spec!(
+            "allow", "Preview allowing FROM to message TO and save only with consent",
+            ["Allow until the rule's slot ends" => "tmt orch route allow worker-1 reviewer --yes", "Allow for 30 minutes" => "tmt orch route allow worker-1 reviewer --until 30m --yes"]
+        )))
+        .arg(operand("from-name", true))
+        .arg(operand("to-name", true))
+        .arg(
+            Arg::new("until")
+                .long("until")
+                .help("Allow for a ms/s/m/h duration of at most 24 hours (default: until the restricting slot ends)"),
+        ),
+    );
+    let talks = page(storage(spec!(
+        "talks", "Read agent pairs with recent or held talk",
+        ["List pairs" => "tmt orch talks", "List pairs as JSON" => "tmt orch talks --json"]
+    )))
+    .subcommand(
+        consent(storage(spec!(
+            "resume", "Preview releasing a pair's held requests and save only with consent",
+            ["Resume a held pair" => "tmt orch talks resume worker-1 worker-2 --yes"]
+        )))
+        .arg(operand("member-name", true))
+        .arg(operand("other-name", true)),
+    );
+    let routes = page(storage(spec!(
+        "routes", "Read the sending verdict for each ordered pair of members",
+        ["Read a squad's routes" => "tmt orch routes --member core"]
+    )));
     selection(storage(spec!(
         "orch", "Read orchestration slots and effective member policies",
         ["Read the current local day" => "tmt orch", "Inspect a week as JSON" => "tmt orch --range 7d --json"]
@@ -105,5 +169,9 @@ pub(in crate::grammar) fn orch() -> Command {
     .subcommand(plans)
     .subcommand(preview)
     .subcommand(why)
+    .subcommand(leads)
+    .subcommand(route)
+    .subcommand(talks)
+    .subcommand(routes)
     .subcommand(consent(storage(spec!("focus","Preview personal focus above every plan, or clear it",["Focus for two hours"=>"tmt orch focus worker-1 2h --yes","End focus early"=>"tmt orch focus worker-1 off --yes"])).arg(operand("member-name",true)).arg(operand("focus-duration",true))))
 }

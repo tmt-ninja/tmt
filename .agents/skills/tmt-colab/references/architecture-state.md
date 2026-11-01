@@ -183,20 +183,27 @@ Review sections ride the same renderer handshake and slot batch: `review-layer.t
 parent bands and `review-actions.ts` publishes the explicit actions through the existing thread,
 Ask and status owners; see [Review sections](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections).
 Recommended-reading metadata uses the same inert parser and shared check vectors. `reading.ts`
-projects person read state from ordinary verified thread records; `reading-layer.tsx` reuses the shared NeedsYouBar and exposes its ordered read projection and
+projects person read state from ordinary verified thread records (the frame and `page_check/anchors.rs` locate a reading's heading thread by its quote alone once nearby edits drift its stored context, #5841); `reading-layer.tsx` reuses the shared NeedsYouBar and exposes its ordered read projection and
 cosmetic navigation; `reading-actions.ts` records
 and resolves through the existing binding/coordinator, and answers `ready` for the same condition
 the click needs, so the layer disables `Mark read` until it can act and a click never does nothing. Its named-agent restriction excludes
-other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints (`read`, `anchor`
-and `task`, at most one, each with its own shape; `hintSearch`/`hintFragment` are the one spelling of a
+other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints (`read` and
+`anchor`, at most one, each with its own shape; `hintSearch`/`hintFragment` are the one spelling of a
 hint in a router search or a fragment); Ask capture accepts only that exact hint and removes it from the
-canonical admitted URL. A `task=T-n` hint picks which task of the page's own work list its band
-opens (`WorkBand` `focusTask`, once, and nothing for a task the page lacks); the child page's crumb
-links to its parent page with it. Reader capabilities are unchanged.
+canonical admitted URL. The task-era `task` hint is gone (#5825): an old link opens at the top. Reader
+capabilities are unchanged.
 
-`needs-you.ts` combines the admitted layers' pending navigation without a stored count;
-`needs-you-header.tsx` owns only its header menu. Layer-owned jumps scroll/focus existing
-targets and open question disclosures; they never publish an action or create a thread.
+`needs-you.ts` combines the admitted layers' pending navigation without a stored count.
+Only current attached targets enter the header, including registered questions; an unanchored
+item keeps its records. `needs-you-header.tsx` owns the menu and one confirmed Clear all.
+Readings use `ReadingActions.mark` without advancing navigation. Questions, reviews and
+proposals use `needs-you-acknowledgement.ts`: exact item/version acknowledgements published
+by `ThreadStore` in the admitted viewer's own messages. The native decoder protects these
+acknowledgements from later own-record replacement or removal. They never answer, decide or close
+a domain item. `use-needs-you-versions.ts` binds each version to the inert authored target HTML
+and admitted owner state with SHA-256, excluding neighboring anchor context; changed items return.
+The captured Clear all confirmation outlives projection refresh. Layer-owned jumps only scroll/focus existing targets
+and open question disclosures.
 
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,
@@ -229,7 +236,14 @@ opens completion at `@` or full-width `＠` after non-address-like text, includi
 `email@host` never routes. No Lexical document is persisted or sent as authority.
 
 `AnnotationInput` owns the draft, trusted action, current content/Ask admission and
-immutable one-comment send capture. `message-send-refusal.ts` shares its button and
+immutable one-comment send capture. Echo turns reserve their recipients' status footprint and
+remain until the original send settles and its admitted outcomes replace them, so an intent
+awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
+windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
+send runs. It is dropped once that send records. A first comment that failed stays hidden
+with its draft, and `unsentAnnotations` lists it for the page's alert row, whose Open (like the same
+quote) shows it again; discarding its kept draft (`discardDraft`) releases it. Only a status change fences opening,
+closing and Resolve all. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
 text edit, retry or successful Send; saved S2/S13 states stay neutral, without an
@@ -771,7 +785,7 @@ page lacks a summary the visible list also reads every 2 s, at most 15 times (`h
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
-Manual `state` is independent of task-derived `stage`; selected states are a union and missing
+Manual `state` is independent of the sub-page-derived `stage`; selected states are a union and missing
 state does not match. A legacy single-state saved filter is read as one selection. Include
 archived is a union, while the Archived tab remains archived-only. `shortcuts.ts` validates saved
 filters and names; `shortcut-store.ts` persists one versioned browser-local record per space,
@@ -783,7 +797,7 @@ unchanged. Corrupt/newer data and failed writes are reported and retained.
 `shortcut-dialogs.tsx` owns Save and the Edit/Manage filter editor, matching previews and
 ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
 use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
-through its Filter menu. The action row offers Save/Edit; the sidebar Shortcuts group opens Manage.
+through its Filter menu. The end of the stage tabs row offers Save/Edit; the sidebar Shortcuts group opens Manage.
 On phones Manage opens its full-screen list, then an editor with a back action. These preferences
 are not synced or shared.
 
@@ -833,7 +847,7 @@ then view tabs, project-scope pills, search and Sort, then the list. `page-list-
 owns display-only pinned cards and rows; Home retains filtering, selection and all write lifetimes.
 Pins wrap after three on a wide screen and stack on compact screens; no pins means no card block.
 Project membership remains plural; `projectTone` maps exact names deterministically to existing role tints for header, pin and row tags; missing summaries never become a fabricated stage.
-Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact task-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
+Wide rows have Title, Project, Stage, Updated, Author and Access columns, with compact sub-page-count words under the title; compact rows stack metadata without sideways overflow. Unknown authors stay absent; a long creator is one ellipsized line with the full label as its tooltip, and a project name used as the heading wraps in at most two lines with the full name as its tooltip, so neither moves `New page` or the row height. The shared
 flat tabs show separate numeric counts and wrap on compact screens, without a horizontal scroller. The `New page` action (`new-page-dialog.tsx`) still gives the
 `tmt colab page create` command with `CopyCommand`; the browser creates no page.
 The list fills the shell content pane using the shared `tmt-ui-page` insets. Home is its one vertical viewport: hero, pins, controls, rows and footer scroll together; `.page-list-scroll` adds no nested scroller. Successful action feedback stays in a visually hidden live region; refusals remain visible.
@@ -849,6 +863,11 @@ Cancel and its lifecycle action through the shared footer. It only confirms the 
 names the first five titles for bulk actions; Home retains statement submission, busy dismissal
 and verified, awaiting or refused outcomes. The shared dialog owns the divider and action layout.
 
+The list controls retain one flexible search with its chips, Filter and Sort in normal and sticky
+states, separated from tabs and table by `space-l`. All controls use `control-size-l`; the sticky
+bar adds New page, `space-s` vertical padding, paper surface and bottom rule. Phone actions
+are square icon controls. Only the background/rule fade; the editor and commands stay mounted.
+
 The views are the tabs All, Needs you, Discussion, In progress, Done and Archived, in that order
 (`BrowserTabs variant="flat"` with wrapping); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
 `DEFAULT_VIEW`, `HomeView`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
@@ -858,8 +877,8 @@ counts only under Archived, and a page whose summary has not arrived (`pageStage
 fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
 state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
 selects the tab and leaves the search text, and a tab click removes one still typed. A row shows its
-progress and who works (`page-work.tsx`: the count as `done of total tasks done` and at most three
-assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
+sub-page progress (`page-work.tsx`: the count from `summary.work` as `done of total sub-pages
+done`); an empty stage tab names its stage, an empty
 In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
 `Reading page details…` while `useSummaryFill` is still reading (at most 15 re-reads) and a page in
 the scope has not reported, so a cold start never claims a tab is empty. A page waiting on the viewer
@@ -901,6 +920,9 @@ The TMT web shell's module menu (`colab-shell.tsx`, rendered by the leaf's `Brow
 shows All pages, device-local Shortcuts, Dashboards and Colab settings. Shortcuts open their
 saved list filters; the rail uses already remembered page rows and `shortcutCounts` for known
 matching totals and attention counts, omitting values whose required data is unavailable.
+All pages has a list icon; shortcuts have bookmarks, a muted plain total and an attention dot
+whose count remains in the tooltip and accessible name. The sentence-case Shortcuts heading
+has the text Manage command; saving starts from the list bookmark, without a rail add row.
 Shared rail actions open the selected shortcut's editor or delete it; its drag and Alt+Arrow
 requests persist an atomic target-index move through `ShortcutStore`. A failed write is reported.
 The list's `scope` route field remains a base filter: `inScope` (`project-scope.ts`) determines
@@ -1140,11 +1162,15 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 ## Sub-page relationship admission
 
 `work_links::Graph` owns cross-page relationship checks and diagnostics; the stored work value
-keeps accepting old links. Admission permits one parent/task and one level, with no cycles.
+keeps accepting old links. Admission permits one parent at any depth, with no cycles.
 `work_admission` maps refusals to `COLAB_LINK_REFUSED` and a stable reason shared by native JSON
-and browser `workresult`. CLI and `page/convert` run its conversion preflight before creation,
-then retain the existing post-create link admission and publication fences. Unlink bypasses WIP
-admission so legacy links remain repairable; task/value and authority/revision checks still apply.
+and browser `workresult`; it runs for list actions only, since the summary is the value's own rule.
+First, though, it refuses every action but `work.migrate` on a page still at version 1
+(`COLAB_WORK_NOT_MIGRATED`), and its creation preflight does the same from the work index;
+`work::apply` refuses the same, so a racing write cannot rewrite the value either.
+CLI `subpage create` and `page/subpage_create` run its creation preflight before a page is made,
+then the ordinary attach admission and publication fences. Detach and move are always admitted so
+stored conflicts remain repairable; value and authority/revision checks still apply.
 
 Explicit `tmt colab show PAGE --json` diagnostics share admission's `work_index::scan` graph,
 refreshing only changed page fingerprints in the rebuildable cache, and report connected-component
@@ -1155,40 +1181,24 @@ new links; unrelated components remain usable. `page/save::SaveResult` and the s
 
 ## The work band
 
-Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, even
-without work. The share reader uses the same read-only presentation; dashboards do not draw it.
-The compact line shows verified manual `pageState`, native `PageProgress` buckets and an expand
-control. It scrolls with content; expansion pushes the canvas down. Its measured height participates
-in renderer viewport room and canvas minimum height; expanding/collapsing resizes the existing frame
-without remounting or introducing another scroll region. Progress never sets state.
-Missing progress is unavailable, zero is `0 of 0 done`, and unknown children stay unknown.
-`Live` retains optional owner details across subscription and coalesces invalidations through
-`ProgressReads` in `reading-details.ts`: one active read and a trailing read per burst, no polling.
-Snapshot joins the admitted read. The first owner-list observation establishes the child-state
-baseline; later changes refresh details without clearing the last verified bar.
-Only a matching published document/work projection receives those counts; close/recovery fences
-obsolete reads. Child titles/manual states come from existing owner-list rows in `useLinkedPages`
-(`work-stages.ts`), without wider rows or child subscriptions. Share readers make no owner reads.
+Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and canvas, pinned
+under the nav on the signed-in and reader routes; dashboards do not draw it. It lists sub-pages
+only (#5820). `subpageTree` (`work-tree.ts`) derives the rows: direct sub-pages from the page's own
+`work.order`, deeper levels and titles/states from owner-list parent links, counts from direct
+sub-page manual states, and Add refusals (self, ancestor, already attached). The owner list comes
+from `useLinkedPages` (`work-stages.ts`), without wider rows or child subscriptions; share readers
+make no owner reads and get no counts. The list is one CSS grid whose rows are subgrids, so the
+right-hand columns align at every depth. Its measured height participates in renderer viewport
+room; expanding/collapsing resizes the existing frame without remounting or another scroll region.
+`Live` still retains optional owner progress details through `ProgressReads` in
+`reading-details.ts` (one active and one trailing read per burst, no polling).
 
-Expanded content shows the native bucket legend and either direct sub-pages with `Tasks N` for
-unlinked tasks, or one directly selectable task list when there are no sub-pages. `work-list.tsx` and `work-detail.tsx` retain task detail/actions and one-shot task
-deep links, including a linked task's direct detail. A known parent remains a link to its task
-inside the expanded panel; unknown parents trigger no parent-page read. Owner pages with work
-capability offer Attach unless the observed list identifies the page as a child; unknown parentage
-is admitted or refused by the owner. The picker reuses the observed list, sends `task.add` followed
-by `task.link` for a new task (or links an existing unlinked task), and keeps the task and refusal
-for a same-task retry. An unsettled result is not resent automatically: the user checks the task
-list before reopening the control; an admitted matching link closes it as success.
-
-`PageWorkBand` (`work-band-live.tsx`) fills owner-only task action slots from `work-controls.tsx`
-and the manual state menu from `PageBinding.metadata('page.state', ...)`. State revision capture
-uses an explicit page-state scope; creator/question editors retain their existing comparison.
-The chip moves only on the admitted stream, with busy/refusal feedback at the control. Task
-controls retain state/reason, sign-off/send-back, assign, edit, convert, remove and add actions
-through `PageBinding.work`. A convert-made page whose link was refused remains named with Link
-and Open actions. A lost owner-write reply is settled through `savestatus`, never resent. Other
-viewers retain expansion and task details without owner controls. `work-people.tsx` remains the
-assignee presentation owner (`AgentChip` for agents).
+`PageWorkBand` (`work-band-live.tsx`) adds the owner controls: the manual state menu through
+`PageBinding.metadata('page.state', ...)` with an explicit page-state revision scope; a row's state
+chip and Detach (`subpage.detach` on the page whose list holds the row) on another page through that
+page's binding, opened for the one write and closed; the row menu's Open, which navigates in the app
+through `PageRouting.open`; and `AddSubpageDialog` (`work-add-dialog.tsx`), which sends one
+`subpage.attach` or one `subpage.create`, so a refusal leaves nothing to clean up.
 
 ## Short owner-page links
 
@@ -1250,4 +1260,4 @@ assignee presentation owner (`AgentChip` for agents).
 
 ## Manual page state and progress (#5504)
 
-Ordinary-page `meta.pageState` is a closed value in the encrypted content document; the native decoder, browser fold and structured metadata action share the validation and admission boundaries. The work index keeps only a fingerprinted derived copy for fresh owner projections, while direct-page progress is computed from tasks and at most one level of referenced child state. Shell pages have no manual state. The contract owns state values, progress buckets, unknown data and CLI shapes.
+Ordinary-page `meta.pageState` is a closed value in the encrypted content document; the native decoder, browser fold and structured metadata action share the validation and admission boundaries. The work index keeps only a fingerprinted derived copy for fresh owner projections, while direct-page progress is computed from the direct sub-pages' own manual states, one level and never recursively. Shell pages have no manual state. The contract owns state values, progress buckets, unknown data and CLI shapes.

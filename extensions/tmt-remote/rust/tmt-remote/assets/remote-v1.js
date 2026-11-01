@@ -28,19 +28,19 @@ var serviceCommands = Object.freeze({
 var MAX_BYTES = 12288;
 var MAX_INVITATION_INPUT = Math.ceil(MAX_BYTES * 4 / 3) + 2048;
 var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-function valid$7(condition) {
+function valid$8(condition) {
 	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
 }
-function object$3(value, keys) {
-	valid$7(value !== null && typeof value === "object" && !Array.isArray(value));
+function object$4(value, keys) {
+	valid$8(value !== null && typeof value === "object" && !Array.isArray(value));
 	const row = value;
-	valid$7(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
+	valid$8(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
 	return row;
 }
 function bytes(value, length) {
-	valid$7(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
-	valid$7(length === void 0 || value.length === length);
-	valid$7(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
+	valid$8(Array.isArray(value) && value.length > 0 && value.length <= MAX_BYTES);
+	valid$8(length === void 0 || value.length === length);
+	valid$8(value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255));
 	return new Uint8Array(value);
 }
 function hasControl(value) {
@@ -49,28 +49,28 @@ function hasControl(value) {
 		return point < 32 || point >= 127 && point <= 159;
 	});
 }
-var utf8$2 = new TextDecoder("utf-8", { fatal: true });
+var utf8$3 = new TextDecoder("utf-8", { fatal: true });
 /** Reads the native v2 carrier unchanged, with no network or authority inference. */
 function decodeDetails(token, now) {
-	valid$7(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
-	valid$7(/^[A-Za-z0-9_-]+$/.test(token));
+	valid$8(token.length > 0 && token.length <= Math.ceil(MAX_BYTES * 4 / 3));
+	valid$8(/^[A-Za-z0-9_-]+$/.test(token));
 	const encoded = token.replace(/-/g, "+").replace(/_/g, "/");
 	const raw = atob(encoded);
-	valid$7(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
-	const text = utf8$2.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+	valid$8(raw.length <= MAX_BYTES && btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") === token);
+	const text = utf8$3.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
 	const value = JSON.parse(text);
-	valid$7(JSON.stringify(value) === text);
-	const invite = object$3(value, [
+	valid$8(JSON.stringify(value) === text);
+	const invite = object$4(value, [
 		"version",
 		"context",
 		"publicConfig",
 		"machineName",
 		"code"
 	]);
-	valid$7(invite.version === 2);
+	valid$8(invite.version === 2);
 	bytes(invite.code, 16);
-	valid$7(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$3(invite.context, [
+	valid$8(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
+	const context = object$4(invite.context, [
 		"binding",
 		"owner",
 		"owner_key",
@@ -79,30 +79,30 @@ function decodeDetails(token, now) {
 		"issued_at_ms",
 		"expires_at_ms"
 	]);
-	valid$7(typeof context.owner === "string" && UUID$5.test(context.owner));
-	valid$7(typeof context.offer === "string" && UUID$5.test(context.offer));
+	valid$8(typeof context.owner === "string" && UUID$5.test(context.owner));
+	valid$8(typeof context.offer === "string" && UUID$5.test(context.offer));
 	bytes(context.owner_key, 32);
 	bytes(context.nonce, 16);
 	const issued = context.issued_at_ms;
 	const expiry = context.expires_at_ms;
-	valid$7(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
-	valid$7(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
-	valid$7(issued <= now + 6e4 && now < expiry);
-	const binding = object$3(context.binding, [
+	valid$8(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
+	valid$8(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
+	valid$8(issued <= now + 6e4 && now < expiry);
+	const binding = object$4(context.binding, [
 		"backend",
 		"reference",
 		"owner_principal"
 	]);
-	valid$7(binding.backend === "firestore");
-	const project = utf8$2.decode(bytes(binding.reference));
-	const principal = utf8$2.decode(bytes(binding.owner_principal));
-	valid$7(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
+	valid$8(binding.backend === "firestore");
+	const project = utf8$3.decode(bytes(binding.reference));
+	const principal = utf8$3.decode(bytes(binding.owner_principal));
+	valid$8(principal.length > 0 && new TextEncoder().encode(principal).length <= 128 && principal !== "." && principal !== ".." && !hasControl(principal) && !principal.includes("/"));
 	const config = invite.publicConfig;
-	valid$7(config !== null && typeof config === "object" && !Array.isArray(config));
-	valid$7(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
-	valid$7(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
-	valid$7(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
-	valid$7(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
+	valid$8(config !== null && typeof config === "object" && !Array.isArray(config));
+	valid$8(typeof project === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project) && config.projectId === project);
+	valid$8(typeof config.apiKey === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(config.apiKey));
+	valid$8(typeof config.appId === "string" && /^1:[0-9]{1,32}:web:.+$/.test(config.appId));
+	valid$8(config.authDomain === void 0 || config.authDomain === `${project}.firebaseapp.com`);
 	return {
 		owner: context.owner,
 		offer: context.offer,
@@ -127,12 +127,12 @@ function invitationExpiry(token, now = Date.now()) {
 /** Accept a native code or its hosted /join link without fetching or trusting the origin. */
 function invitationFromInput(input, now = Date.now()) {
 	try {
-		valid$7(input.length <= MAX_INVITATION_INPUT);
+		valid$8(input.length <= MAX_INVITATION_INPUT);
 		const value = input.trim();
 		let token = value;
 		if (value.includes("://")) {
 			const url = new URL(value);
-			valid$7((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
+			valid$8((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && url.pathname === "/join" && !url.search && url.hash.length > 1);
 			token = url.hash.slice(1);
 		}
 		return {
@@ -576,29 +576,29 @@ var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var coreId = (value) => typeof value === "string" && UUID$3.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
-var utf8$1 = new TextEncoder();
+var utf8$2 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$6(condition) {
+function valid$7(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$7(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$7(typeof value.reason === "string" && utf8$2.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 /** One plain line of at most 256 bytes, sent with a `reason`: Core's sentence for its code. */
 function reasonText(value) {
 	if (value.reasonText === void 0) return {};
 	const text = value.reasonText;
-	valid$6(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$1.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
+	valid$7(typeof text === "string" && value.reason !== void 0 && text.length > 0 && utf8$2.encode(text).length <= 256 && !/\p{Cc}/u.test(text));
 	return { reasonText: text };
 }
 var MESSAGE_STATES = [
@@ -618,9 +618,9 @@ function messageState(value) {
 	if (value.messageState === void 0) return {};
 	const state = record(value.messageState);
 	if (typeof state.state === "string" && !MESSAGE_STATES.includes(state.state)) return {};
-	valid$6(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
+	valid$7(Object.keys(state).sort().join() === "canSendNow,latestMs,reason,remainingMs,state" && MESSAGE_STATES.includes(state.state) && typeof state.canSendNow === "boolean" && timestamp$1(state.latestMs) && timestamp$1(state.remainingMs));
 	const why = record(state.reason);
-	valid$6(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$1.encode(why.text).length <= 256);
+	valid$7(Object.keys(why).sort().join() === "code,text" && typeof why.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(why.code) && typeof why.text === "string" && utf8$2.encode(why.text).length <= 256);
 	return { messageState: {
 		state: state.state,
 		reason: {
@@ -638,7 +638,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_TAKEN"
 ];
 function text(value) {
-	return typeof value === "string" && value.length > 0 && utf8$1.encode(value).length <= 512;
+	return typeof value === "string" && value.length > 0 && utf8$2.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
 function identity$1(value) {
@@ -646,16 +646,16 @@ function identity$1(value) {
 	const notice = record(value.identity);
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
-		valid$6(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$6(text(notice.message));
+		valid$7(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
+		valid$7(text(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
 			message: notice.message
 		} };
 	}
-	valid$6(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$6(text(notice.name) && text(notice.renamedFrom));
+	valid$7(notice.state === "person" && keys === "name,renamedFrom,state");
+	valid$7(text(notice.name) && text(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -670,21 +670,21 @@ function sendState(value, id) {
 }
 function sendStateBase(value, id) {
 	const state = record(value);
-	valid$6(state.operationId === id);
+	valid$7(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$6(requestId(state.requestId));
+			valid$7(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$6(state.requestId === void 0 || requestId(state.requestId));
+			valid$7(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -701,7 +701,7 @@ function sendStateBase(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$6(state.requestId === id);
+	valid$7(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
@@ -709,7 +709,7 @@ function resultState(value, id) {
 			...messageState(state)
 		};
 		case "replied":
-			valid$6(typeof state.message === "string");
+			valid$7(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -734,7 +734,7 @@ var SEND_NOW_STATES = [
 * `unconfirmed`, so a future state can never read as `sent`. */
 function sendNowState(value, id) {
 	const state = record(value);
-	valid$6(state.requestId === id);
+	valid$7(state.requestId === id);
 	return {
 		state: SEND_NOW_STATES.includes(state.state) ? state.state : "unconfirmed",
 		requestId: id,
@@ -745,10 +745,10 @@ function sendNowState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$6(Array.isArray(rows));
+	valid$7(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$7(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		const activity = row.activity;
 		const observedAtMs = row.observedAtMs;
 		return {
@@ -768,24 +768,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$6(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$7(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$6(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$7(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$6(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$6(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$7(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$7(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$6(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$7(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$6(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$7(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$6(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$7(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$6(PRE_EFFECT.has(error.code) || [
+	valid$7(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -918,8 +918,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$6(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$6(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$7(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$7(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -929,7 +929,7 @@ async function synchronize(channel, timeoutMs) {
 	const unavailable = () => new ClientError("sequence_unavailable", "Remote sequence recovery failed; reopen before observing the original operation.");
 	if (unresolved === "unavailable") throw unavailable();
 	const id = crypto.randomUUID();
-	const payload = utf8$1.encode("{}");
+	const payload = utf8$2.encode("{}");
 	try {
 		try {
 			await attempt(channel, timeoutMs, "capabilities", id, payload, channel.clientSequence, parseCapabilities);
@@ -970,7 +970,7 @@ function verifiedSessionRequest(session, options = {}) {
 	const timeoutMs = options.timeoutMs ?? 4e4;
 	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
 	return function call(operation, id, value, parse, mutationOutcome = false) {
-		const payload = utf8$1.encode(JSON.stringify(value));
+		const payload = utf8$2.encode(JSON.stringify(value));
 		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
 	};
 }
@@ -984,7 +984,7 @@ function operations(session, options = {}) {
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
+			input$1(typeof value.operationId === "string" && V4$1.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$2.encode(value.message)) === value.message);
 			const { operationId, agentId, message } = value;
 			try {
 				return await call("dispatch.create", operationId, {
@@ -1061,20 +1061,20 @@ async function managementMutation(call, operation, value, decode) {
 }
 //#endregion
 //#region src/management-codec.ts
-function valid$5(condition) {
+function valid$6(condition) {
 	if (!condition) throw new Error("Invalid management response.");
 }
 function input(condition) {
 	if (!condition) throw new TypeError("Invalid management input.");
 }
-function object$2(value) {
-	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
+function object$3(value) {
+	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function exact(value, keys) {
-	valid$5(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+	valid$6(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
 }
-var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+var integer$1 = (value) => Number.isSafeInteger(value) && value >= 0;
 /** The signed member service accepts nonblank names of at most 64 UTF-8 bytes. */
 function memberName(value) {
 	return typeof value === "string" && value.trim().length > 0 && new TextEncoder().encode(value).length <= 64 && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -1147,11 +1147,11 @@ var firestoreSpecs = [
 function requireValid(condition) {
 	if (!condition) throw new Error("Invalid Firestore readiness response.");
 }
-function object$1(value) {
+function object$2(value) {
 	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
-function keys(row, expected) {
+function keys$1(row, expected) {
 	requireValid(Object.keys(row).length === expected.length && expected.every((key) => Object.hasOwn(row, key)));
 }
 function parseFirestoreLayers(value) {
@@ -1159,8 +1159,8 @@ function parseFirestoreLayers(value) {
 	if (!value.length) return [];
 	requireValid(value.length === firestoreSpecs.length);
 	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object$1(value[index]);
-		keys(row, [
+		const row = object$2(value[index]);
+		keys$1(row, [
 			"layer",
 			"state",
 			"prerequisites"
@@ -1168,7 +1168,7 @@ function parseFirestoreLayers(value) {
 		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
 		const states = [];
 		for (const [i, item] of items.entries()) {
-			const entry = object$1(row.prerequisites[i]);
+			const entry = object$2(row.prerequisites[i]);
 			requireValid(entry.item === item && [
 				"enabled",
 				"not-enabled",
@@ -1176,13 +1176,13 @@ function parseFirestoreLayers(value) {
 			].includes(entry.state));
 			states.push(entry.state);
 			if (entry.state === "enabled") {
-				keys(entry, ["item", "state"]);
+				keys$1(entry, ["item", "state"]);
 				continue;
 			}
 			const reason = typeof entry.reason === "string" && Object.hasOwn(firestoreReasons[item], entry.reason) ? firestoreReasons[item][entry.reason] : void 0;
 			requireValid(reason && entry.state === "unknown" === (entry.reason === "not-checked"));
 			requireValid(entry.reason !== "paid-plan-required" || layer === "operations");
-			keys(entry, reason[1] ? [
+			keys$1(entry, reason[1] ? [
 				"item",
 				"state",
 				"reason",
@@ -1486,7 +1486,7 @@ function parsePublishedLimits(value) {
 var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
 function settings(value) {
-	const row = object$2(value);
+	const row = object$3(value);
 	exact(row, [
 		"open",
 		"source",
@@ -1494,14 +1494,14 @@ function settings(value) {
 		"sessionsPerDeviceSource",
 		"warning"
 	]);
-	valid$5(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
-	valid$5(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
-	valid$5(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
-	valid$5(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	valid$6(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid$6(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid$6(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid$6(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
 	return row;
 }
 function device(value, activity = false) {
-	const row = object$2(value);
+	const row = object$3(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -1518,16 +1518,16 @@ function device(value, activity = false) {
 			"lastUsedAtMs"
 		] : []
 	]);
-	valid$5(typeof row.clientId === "string" && UUID$2.test(row.clientId));
-	valid$5(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
-	valid$5([
+	valid$6(typeof row.clientId === "string" && UUID$2.test(row.clientId));
+	valid$6(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid$6([
 		"browser",
 		"addon",
 		"cli"
-	].includes(row.kind) && integer(row.issuedAtMs));
-	valid$5(row.expiresAtMs === null || integer(row.expiresAtMs));
-	valid$5(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
-	if (activity) valid$5(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer(row.lastUsedAtMs)));
+	].includes(row.kind) && integer$1(row.issuedAtMs));
+	valid$6(row.expiresAtMs === null || integer$1(row.expiresAtMs));
+	valid$6(integer$1(row.revision) && row.revision > 0 && typeof row.revoked === "boolean" && typeof row.talkEnabled === "boolean");
+	if (activity) valid$6(typeof row.thisBrowser === "boolean" && integer$1(row.liveSessionCount) && (row.lastActivityAtMs === null || integer$1(row.lastActivityAtMs)) && (row.lastUsedAtMs === null || integer$1(row.lastUsedAtMs)));
 	return row;
 }
 var refusalCodes = /* @__PURE__ */ new Set([
@@ -1559,8 +1559,8 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_CONFLICT"
 ]);
 function parseManagementOutcome(value, operationId) {
-	const row = object$2(value);
-	valid$5(row.operationId === operationId);
+	const row = object$3(value);
+	valid$6(row.operationId === operationId);
 	if (row.state === "committed") {
 		exact(row, [
 			"operationId",
@@ -1568,11 +1568,11 @@ function parseManagementOutcome(value, operationId) {
 			"result",
 			"sessionEnded"
 		]);
-		valid$5(typeof row.sessionEnded === "boolean");
-		const result = object$2(row.result);
-		valid$5(Object.keys(result).length === 1);
+		valid$6(typeof row.sessionEnded === "boolean");
+		const result = object$3(row.result);
+		valid$6(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
-		else if (Object.hasOwn(result, "removed")) valid$5(integer(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
+		else if (Object.hasOwn(result, "removed")) valid$6(integer$1(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
 		else device(result.device);
 	} else {
 		exact(row, [
@@ -1580,8 +1580,8 @@ function parseManagementOutcome(value, operationId) {
 			"state",
 			"reason"
 		]);
-		if (row.state === "unknown") valid$5(row.reason === "effect_outcome_unconfirmed");
-		else valid$5(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+		if (row.state === "unknown") valid$6(row.reason === "effect_outcome_unconfirmed");
+		else valid$6(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
 	}
 	return row;
 }
@@ -1598,13 +1598,13 @@ function management(session, options = {}) {
 		return managementMutation(call, operation, value, (reply) => {
 			const parsed = parseManagementOutcome(reply, operationId);
 			if (parsed.state === "committed") {
-				if (operation === "remote.settings.set") valid$5("settings" in parsed.result);
-				else if (operation === "remote.devices.remove-others") valid$5("removed" in parsed.result && parsed.sessionEnded === false);
+				if (operation === "remote.settings.set") valid$6("settings" in parsed.result);
+				else if (operation === "remote.devices.remove-others") valid$6("removed" in parsed.result && parsed.sessionEnded === false);
 				else {
-					valid$5("device" in parsed.result && parsed.result.device.clientId === value.clientId);
-					if (operation === "remote.devices.rename") valid$5(parsed.result.device.name === value.name);
-					if (operation === "remote.devices.revoke") valid$5(parsed.result.device.revoked);
-					if (operation === "remote.devices.talk") valid$5(parsed.result.device.talkEnabled === value.enabled);
+					valid$6("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+					if (operation === "remote.devices.rename") valid$6(parsed.result.device.name === value.name);
+					if (operation === "remote.devices.revoke") valid$6(parsed.result.device.revoked);
+					if (operation === "remote.devices.talk") valid$6(parsed.result.device.talkEnabled === value.enabled);
 				}
 			}
 			return parsed;
@@ -1613,9 +1613,9 @@ function management(session, options = {}) {
 	return {
 		clientId,
 		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$2(value);
+			const row = object$3(value);
 			exact(row, ["count", "fingerprint"]);
-			valid$5(integer(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
+			valid$6(integer$1(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
 			return row;
 		}),
 		removeOthers: (change) => {
@@ -1623,7 +1623,7 @@ function management(session, options = {}) {
 			return mutate("remote.devices.remove-others", { ...change });
 		},
 		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$2(value);
+			const row = object$3(value);
 			exact(row, [
 				"settings",
 				"capabilities",
@@ -1635,26 +1635,26 @@ function management(session, options = {}) {
 				parsePublishedLimits(row.firestoreBudget);
 			}
 			settings(row.settings);
-			const capabilities = object$2(row.capabilities);
+			const capabilities = object$3(row.capabilities);
 			exact(capabilities, ["settingsWrite", "devicesWrite"]);
-			valid$5(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
-			valid$5(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
-			valid$5(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			valid$6(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid$6(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid$6(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
 			return row;
 		})),
 		devices: (page) => {
 			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
 			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$2(value);
+				const row = object$3(value);
 				exact(row, ["devices", "nextCursor"]);
-				valid$5(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
 				const ids = /* @__PURE__ */ new Set();
 				for (const entry of row.devices) {
 					const item = device(entry, true);
-					valid$5(!item.revoked && !ids.has(item.clientId));
+					valid$6(!item.revoked && !ids.has(item.clientId));
 					ids.add(item.clientId);
 				}
-				valid$5(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				valid$6(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
 				return row;
 			});
 		},
@@ -1694,7 +1694,7 @@ var snapshot$1 = (value) => {
 	}
 };
 function parsePendingInvitation(value) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state === "none") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -1706,8 +1706,8 @@ function parsePendingInvitation(value) {
 			"cleanup",
 			"candidate"
 		]);
-		valid$5(row.state === "current" && id$1(row.offerId) && integer(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
-		valid$5([
+		valid$6(row.state === "current" && id$1(row.offerId) && integer$1(row.expiresAtMs) && typeof row.localConfirmationKnown === "boolean");
+		valid$6([
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -1716,28 +1716,28 @@ function parsePendingInvitation(value) {
 			"expired",
 			"unconfirmed"
 		].includes(row.phase));
-		valid$5([
+		valid$6([
 			"not-requested",
 			"acknowledged",
 			"unconfirmed"
 		].includes(row.cleanup));
 		if (row.candidate !== null) {
-			const candidate = object$2(row.candidate);
+			const candidate = object$3(row.candidate);
 			exact(candidate, [
 				"clientId",
 				"name",
 				"words",
 				"snapshot"
 			]);
-			valid$5(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
-			valid$5(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
-			valid$5(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
+			valid$6(row.phase === "awaiting-owner" && id$1(candidate.clientId) && snapshot$1(candidate.snapshot));
+			valid$6(typeof candidate.name === "string" && candidate.name.length > 0 && candidate.name.length <= 256 && Array.from(candidate.name).every((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127));
+			valid$6(Array.isArray(candidate.words) && candidate.words.length === 4 && candidate.words.every((word) => typeof word === "string" && /^[a-z]+$/.test(word) && word.length <= 64));
 		}
 	}
 	return row;
 }
 function parseInvitationOutcome(value, operationId) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -1745,11 +1745,11 @@ function parseInvitationOutcome(value, operationId) {
 		"sessionEnded",
 		"result"
 	]);
-	valid$5(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$2(row.result);
+	valid$6(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$3(row.result);
 	exact(result, ["invitation"]);
-	const invitation = object$2(result.invitation);
-	valid$5(id$1(invitation.offerId) && id$1(invitation.clientId));
+	const invitation = object$3(result.invitation);
+	valid$6(id$1(invitation.offerId) && id$1(invitation.clientId));
 	if (invitation.state === "refused") exact(invitation, [
 		"offerId",
 		"clientId",
@@ -1763,22 +1763,22 @@ function parseInvitationOutcome(value, operationId) {
 			"state",
 			"sendingEnabled"
 		]);
-		valid$5(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
+		valid$6(invitation.state === "confirmed" && typeof invitation.memberId === "string" && invitation.memberId.length > 0 && invitation.memberId.length <= 128 && typeof invitation.sendingEnabled === "boolean");
 	}
 	return row;
 }
 function parseIssuedInvitationPage(value, remoteId) {
-	const page = object$2(value);
+	const page = object$3(value);
 	exact(page, [
 		"remoteId",
 		"invitations",
 		"nextCursor"
 	]);
-	valid$5(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
-	valid$5(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
+	valid$6(page.remoteId === remoteId && Array.isArray(page.invitations) && page.invitations.length <= 50);
+	valid$6(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
 	const ids = /* @__PURE__ */ new Set();
 	for (const value of page.invitations) {
-		const row = object$2(value);
+		const row = object$3(value);
 		exact(row, [
 			"offerId",
 			"issuedAtMs",
@@ -1787,10 +1787,10 @@ function parseIssuedInvitationPage(value, remoteId) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid$5(id$1(row.offerId) && !ids.has(row.offerId));
+		valid$6(id$1(row.offerId) && !ids.has(row.offerId));
 		ids.add(row.offerId);
-		valid$5(integer(row.issuedAtMs) && integer(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
-		valid$5([
+		valid$6(integer$1(row.issuedAtMs) && integer$1(row.expiresAtMs) && row.expiresAtMs > row.issuedAtMs && row.expiresAtMs - row.issuedAtMs <= 6e5);
+		valid$6([
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -1800,7 +1800,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 			"unconfirmed",
 			"interrupted"
 		].includes(row.state));
-		valid$5(typeof row.localConfirmationKnown === "boolean" && [
+		valid$6(typeof row.localConfirmationKnown === "boolean" && [
 			"not-requested",
 			"acknowledged",
 			"unconfirmed"
@@ -1809,7 +1809,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 	return page;
 }
 function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	const secret = Object.hasOwn(row, "secret");
 	exact(row, [
@@ -1819,52 +1819,52 @@ function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
 		"result",
 		...secret ? ["secret"] : []
 	]);
-	valid$5(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$2(row.result);
+	valid$6(row.operationId === operationId && row.sessionEnded === false);
+	const result = object$3(row.result);
 	exact(result, ["invitation"]);
-	const invite = object$2(result.invitation);
-	valid$5(id$1(invite.offerId));
-	if (creatingRemote !== void 0) valid$5(invite.state === "created");
+	const invite = object$3(result.invitation);
+	valid$6(id$1(invite.offerId));
+	if (creatingRemote !== void 0) valid$6(invite.state === "created");
 	if (invite.state === "created") {
 		exact(invite, [
 			"offerId",
 			"state",
 			"expiresAtMs"
 		]);
-		valid$5(invite.offerId !== operationId && integer(invite.expiresAtMs));
+		valid$6(invite.offerId !== operationId && integer$1(invite.expiresAtMs));
 	} else {
 		exact(invite, [
 			"offerId",
 			"state",
 			"code"
 		]);
-		valid$5(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
+		valid$6(invite.state === "cancelled" && invite.code === "REMOTE_INVITATION_CANCELLED" || invite.state === "not-active" && invite.code === "REMOTE_INVITATION_NOT_ACTIVE");
 	}
 	if (secret) {
-		valid$5(creatingRemote !== void 0 && invite.state === "created");
-		const part = object$2(row.secret);
+		valid$6(creatingRemote !== void 0 && invite.state === "created");
+		const part = object$3(row.secret);
 		exact(part, ["code", "link"]);
-		valid$5(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
+		valid$6(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
 		const details = invitationDetails(part.code);
-		valid$5(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
-		if (part.link !== null) valid$5(invitationFromInput(part.link).token === part.code);
+		valid$6(details.owner === creatingRemote && details.offer === invite.offerId && details.expiry === invite.expiresAtMs);
+		if (part.link !== null) valid$6(invitationFromInput(part.link).token === part.code);
 	}
 	return row;
 }
 function parseOriginal(value, id) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state === "committed" && [
 		"created",
 		"cancelled",
 		"not-active"
-	].includes(object$2(object$2(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
+	].includes(object$3(object$3(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
 	return parseInvitationOutcome(value, id);
 }
 /** A presenter over the current offer. No admission, provider call or retry is created here. */
 function invitations(session, options = {}) {
 	const call = verifiedSessionRequest(session, options);
 	const remoteId = channelFor(session)?.paired.machineId;
-	valid$5(typeof remoteId === "string");
+	valid$6(typeof remoteId === "string");
 	return {
 		create: (value) => {
 			input(Object.keys(value).length === 1 && Object.hasOwn(value, "operationId") && id$1(value.operationId));
@@ -1880,7 +1880,7 @@ function invitations(session, options = {}) {
 			const frozen = { ...value };
 			return managementMutation(call, "remote.invites.cancel", frozen, (reply) => {
 				const outcome = parseInvitationIssueOutcome(reply, frozen.operationId);
-				if (outcome.state === "committed") valid$5(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
+				if (outcome.state === "committed") valid$6(outcome.result.invitation.offerId === frozen.offerId && outcome.result.invitation.state !== "created");
 				return outcome;
 			});
 		},
@@ -1903,8 +1903,8 @@ function invitations(session, options = {}) {
 				const outcome = parseInvitationOutcome(value, frozen.operationId);
 				if (outcome.state === "committed") {
 					const invitation = outcome.result.invitation;
-					valid$5(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
-					if (invitation.state === "confirmed") valid$5(invitation.sendingEnabled === frozen.sending);
+					valid$6(invitation.offerId === frozen.offerId && invitation.state === (frozen.matched ? "confirmed" : "refused"));
+					if (invitation.state === "confirmed") valid$6(invitation.sendingEnabled === frozen.sending);
 				}
 				return outcome;
 			});
@@ -2230,7 +2230,7 @@ async function originLink(origin, fetcher) {
 	const controller = new AbortController();
 	let timer;
 	try {
-		valid$4(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
+		valid$5(/^https:\/\/[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?\.web\.app$/.test(origin));
 		const deadline = new Promise((_, reject) => {
 			timer = setTimeout(() => {
 				controller.abort();
@@ -2256,7 +2256,7 @@ async function originLink(origin, fetcher) {
 				...body,
 				checksum: await checksum(body)
 			});
-			valid$4(!controller.signal.aborted);
+			valid$5(!controller.signal.aborted);
 			return `${origin}/pair#${base64url(encoder$1.encode(descriptor))}`;
 		})()]);
 	} catch {
@@ -2266,25 +2266,25 @@ async function originLink(origin, fetcher) {
 		controller.abort();
 	}
 }
-function valid$4(condition) {
+function valid$5(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function object(value, keys) {
-	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
+function object$1(value, keys) {
+	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
-	valid$4(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
 function parsePublicWebConfig(value) {
-	const r = object(value, [
+	const r = object$1(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
 		"projectId"
 	]);
-	valid$4(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
-	valid$4(r.authDomain === `${r.projectId}.firebaseapp.com`);
-	for (const key of ["apiKey", "appId"]) valid$4(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	valid$5(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$5(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$5(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
 	return Object.freeze(r);
 }
 function canonical$1(value) {
@@ -2297,38 +2297,38 @@ async function checksum(value) {
 }
 async function verifyHostedLink(link, origin) {
 	try {
-		valid$4(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
 		const url = new URL(link);
-		valid$4(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		valid$5(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
 		const fragment = url.hash.slice(1);
-		valid$4(/^[A-Za-z0-9_-]+$/.test(fragment));
+		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
 		const raw = JSON.parse(text);
 		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
-		const r = object(raw, [
+		const r = object$1(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
 			"checksum",
 			...hasSite ? ["hostingSite"] : []
 		]);
-		valid$4(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
 		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		let site = publicConfig.projectId;
 		if (hasSite) {
 			const selected = r.hostingSite;
-			valid$4(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
+			valid$5(typeof selected === "string" && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(selected) && selected !== publicConfig.projectId);
 			site = selected;
 		}
-		valid$4(origin === `https://${site}.web.app`);
-		valid$4(await checksum({
+		valid$5(origin === `https://${site}.web.app`);
+		valid$5(await checksum({
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version,
 			...hasSite ? { hostingSite: site } : {}
 		}) === r.checksum && text === canonical$1(r));
-		valid$4(link === `${origin}/pair#${base64url(bytes)}`);
+		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
 		return Object.freeze({
 			origin,
 			publicWebConfig: publicConfig,
@@ -2383,17 +2383,17 @@ async function readHostedConfig(origin, fetcher, signal) {
 //#region src/sealed-sync-mapping.ts
 /** Frozen resource field/query mapping. Names are release data, never a Colab-specific list. */
 var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
-function valid$3(condition) {
+function valid$4(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function row$2(value, keys) {
-	valid$3(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
 	const r = value;
-	valid$3(Object.keys(r).sort().join(",") === keys.sort().join(","));
+	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
 	return r;
 }
 function parseSyncMapping(value) {
-	valid$3(typeof value === "object" && value !== null);
+	valid$4(typeof value === "object" && value !== null);
 	const r = row$2(value, [
 		"fields",
 		"spaceField",
@@ -2401,19 +2401,19 @@ function parseSyncMapping(value) {
 		"query",
 		...Object.hasOwn(value, "writeModes") ? ["writeModes"] : []
 	]);
-	if (r.writeModes !== void 0) valid$3(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
+	if (r.writeModes !== void 0) valid$4(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
 		"create",
 		"put",
 		"delete"
 	].includes(m)));
-	valid$3(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
+	valid$4(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
 	const fields = new Set(r.fields);
-	valid$3(fields.size === r.fields.length);
+	valid$4(fields.size === r.fields.length);
 	const declared = (v) => typeof v === "string" && fields.has(v);
-	valid$3(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
+	valid$4(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
 	let query = null;
 	if (r.query !== null) {
-		valid$3(typeof r.query === "object" && r.query !== null);
+		valid$4(typeof r.query === "object" && r.query !== null);
 		const q = row$2(r.query, [
 			"scopeFields",
 			"streamField",
@@ -2421,10 +2421,10 @@ function parseSyncMapping(value) {
 			"order",
 			...Object.hasOwn(r.query, "discovery") ? ["discovery"] : []
 		]);
-		valid$3(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
+		valid$4(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
 		const scope = new Set(q.scopeFields);
-		valid$3(scope.size === q.scopeFields.length);
-		valid$3(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
+		valid$4(scope.size === q.scopeFields.length);
+		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
 		let discovery;
 		if (q.discovery !== void 0) {
 			const d = row$2(q.discovery, [
@@ -2432,9 +2432,9 @@ function parseSyncMapping(value) {
 				"scopeFields",
 				"seqEquals"
 			]);
-			valid$3(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
-			valid$3([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
-			valid$3(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
+			valid$4(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
+			valid$4([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
+			valid$4(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
 			discovery = Object.freeze({
 				name: d.name,
 				scopeFields: Object.freeze([...d.scopeFields]),
@@ -2558,7 +2558,7 @@ async function verifyHostedDeclaration(input) {
 }
 //#endregion
 //#region src/sealed-sync-codec.ts
-function valid$2(condition) {
+function valid$3(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function timestamp(s) {
@@ -2595,9 +2595,9 @@ function validateSyncFields(bytes) {
 	try {
 		const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 		const row = JSON.parse(text);
-		valid$2(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
+		valid$3(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
 		const fields = row;
-		valid$2(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
+		valid$3(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
 		return fields;
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -2608,46 +2608,46 @@ function textIs(value, expected) {
 }
 async function validateSyncDocument(context, document, access) {
 	const resource = context.resources.find((r) => r.name === document.target.resource);
-	valid$2(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
+	valid$3(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
 	const mapping = resource.sync;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const bytes = new Uint8Array(document.bytes);
 	const expectedDigest = document.digest;
 	const row = validateSyncFields(bytes);
-	valid$2(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
+	valid$3(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
 	if (mapping.query) {
 		const stream = row[mapping.query.streamField];
 		const sequence = row[mapping.query.seqField];
-		valid$2(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
+		valid$3(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
 	}
-	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
+	valid$3(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
 	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 function validateSyncQuery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$2(resource !== void 0);
+	valid$3(resource !== void 0);
 	const mapping = resource.sync;
 	const spec = mapping?.query;
 	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
-	valid$2(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
+	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
 	if (!textIs(query.scope[mapping.spaceField], context.space) || !textIs(query.scope[spec.streamField], query.stream)) throw new RefusalError("REMOTE_SCOPE_DENIED");
-	valid$2(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
+	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
 }
 function validateSyncDiscovery(context, query) {
 	const resource = context.resources.find((r) => r.name === query.resource);
-	valid$2(resource !== void 0);
+	valid$3(resource !== void 0);
 	const mapping = resource.sync;
 	const discovery = mapping?.query?.discovery;
 	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	if (!discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
-	valid$2(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
+	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
 	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 async function validateSyncMutation(context, mutation) {
 	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
-	valid$2(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$2(resource !== void 0);
+	valid$3(resource !== void 0);
 	const mapping = resource.sync;
 	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
@@ -2655,12 +2655,12 @@ async function validateSyncMutation(context, mutation) {
 /** Page-scope registration, not a stream query or mandatory discovery shape. */
 function validateSyncInterest(context, interest) {
 	const resource = context.resources.find((r) => r.name === interest.resource);
-	valid$2(resource !== void 0);
+	valid$3(resource !== void 0);
 	const mapping = resource.sync;
 	const query = mapping?.query;
 	if (!mapping || !query) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	const fields = query.scopeFields.filter((key) => key !== query.streamField);
-	valid$2(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
+	valid$3(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
 	if (!textIs(interest.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 //#endregion
@@ -2668,20 +2668,20 @@ function validateSyncInterest(context, interest) {
 /** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 var identity = /^[A-Za-z0-9_+-]{1,128}$/;
 var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
-function valid$1(condition) {
+function valid$2(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 /** Caller supplies bootstrap-verified public config. This pure binding does not attest an origin. */
 async function bindSyncContext(config, declaration, space, auth) {
 	config = parsePublicWebConfig(config);
 	await verifyHostedDeclaration(declaration);
-	valid$1(identity.test(space) && identity.test(auth.identity.uid));
+	valid$2(identity.test(space) && identity.test(auth.identity.uid));
 	if (config.projectId !== auth.identity.projectId) throw new RefusalError("REMOTE_SCOPE_DENIED");
 	const row = JSON.parse(declaration.bytes);
 	for (const [i, resource] of row.resources.entries()) {
 		const segments = resource.path.split("/").length;
-		valid$1(segments <= 7 && segments % 2 === 1);
-		valid$1(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
+		valid$2(segments <= 7 && segments % 2 === 1);
+		valid$2(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
 	}
 	const resources = row.resources.map((r) => Object.freeze({
 		name: r.name,
@@ -2703,26 +2703,26 @@ async function bindSyncContext(config, declaration, space, auth) {
 /** A document target cannot escape its declared collection or select an operations route. */
 function syncDocumentPath(context, target) {
 	const resource = context.resources.find((r) => r.name === target.resource);
-	valid$1(resource !== void 0 && documentId.test(target.id));
+	valid$2(resource !== void 0 && documentId.test(target.id));
 	return `x/${context.extension}/${resource.path}/${target.id}`;
 }
 /** Pure complete-or-absent validation; never returns a truncated object. */
 async function verifySealedObject(original, manifest, chunks, maxObjectBytes) {
-	valid$1(documentId.test(original) && manifest.original === original);
-	valid$1(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
-	valid$1(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
-	valid$1(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
-	valid$1(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
-	valid$1(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
+	valid$2(documentId.test(original) && manifest.original === original);
+	valid$2(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
+	valid$2(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
+	valid$2(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
+	valid$2(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
+	valid$2(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
 	const bytes = new Uint8Array(manifest.bytes);
 	let offset = 0;
 	for (let i = 0; i < chunks.length; i++) {
 		const chunk = chunks[i];
-		valid$1(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
+		valid$2(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
+	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
 }
 //#endregion
 //#region src/browser-store.ts
@@ -2871,26 +2871,41 @@ function remoteTabAccess(item, role) {
 //#endregion
 //#region src/remote-shell.ts
 /** Routes supply plain title segments; the shared leaf owns layout and phone truncation. */
-function setRouteTitle(slot, title, ancestors = [], documentTitle = title) {
+function setRouteTitle(slot, title, ancestors = [], documentTitle = title, chips = []) {
 	if (!slot.topBarReady()) return;
 	slot.setTitle(documentTitle);
 	const target = slot.setTopBar().title;
 	const label = [...ancestors, title].join(" / ");
-	if (target.querySelector("h1")?.getAttribute("aria-label") === label) return;
-	const heading = document.createElement("h1");
-	heading.setAttribute("aria-label", label);
-	heading.tabIndex = -1;
-	if (ancestors.length) {
-		const prefix = document.createElement("span");
-		prefix.className = "tmt-ui-topbar-title-prefix";
-		prefix.textContent = `${ancestors.join(" / ")} / `;
-		heading.append(prefix);
+	if (target.querySelector("h1")?.getAttribute("aria-label") === label && (target.querySelector(".tmt-ui-topbar-title-chips")?.textContent ?? "") === chips.join("")) return;
+	if (target.querySelector("h1")?.getAttribute("aria-label") !== label) {
+		const heading = document.createElement("h1");
+		heading.setAttribute("aria-label", label);
+		heading.tabIndex = -1;
+		if (ancestors.length) {
+			const prefix = document.createElement("span");
+			prefix.className = "tmt-ui-topbar-title-prefix";
+			prefix.textContent = `${ancestors.join(" / ")} / `;
+			heading.append(prefix);
+		}
+		const current = document.createElement("span");
+		current.className = "tmt-ui-topbar-title-current";
+		current.textContent = title;
+		heading.append(current);
+		target.replaceChildren(heading);
 	}
-	const current = document.createElement("span");
-	current.className = "tmt-ui-topbar-title-current";
-	current.textContent = title;
-	heading.append(current);
-	target.replaceChildren(heading);
+	const group = document.createElement("span");
+	group.className = "tmt-ui-topbar-title-chips";
+	for (const text of chips) {
+		const chip = document.createElement("span");
+		chip.className = "tmt-ui-chip";
+		const label = document.createElement("span");
+		label.className = "tmt-ui-chip-label";
+		label.textContent = text;
+		chip.append(label);
+		group.append(chip);
+	}
+	target.querySelector(".tmt-ui-topbar-title-chips")?.remove();
+	if (chips.length) target.append(group);
 }
 var current;
 /** The mounted route's part of the one shell, or undefined outside the app (unit tests). */
@@ -2898,16 +2913,18 @@ function remoteShell() {
 	return current;
 }
 /** Give Remote's page code the mounted route's slot and lifetime; `undefined` when it unmounts. */
-function hostRemote(slot, signal, observedSession, holdNavigation) {
+function hostRemote(slot, signal, observedSession, holdNavigation, connection) {
 	current = slot && signal && {
 		setMenu: (menu, select) => slot.setMenu(menu, select),
 		navigate: (href) => slot.navigate(href),
-		setTitle: (title, ancestors, documentTitle) => setRouteTitle(slot, title, ancestors, documentTitle),
+		setTitle: (title, ancestors, documentTitle, chips) => setRouteTitle(slot, title, ancestors, documentTitle, chips),
 		describe: (address) => slot.describe(address),
 		described: (listener) => slot.described(listener),
 		observedSession: (session) => {
 			if (!signal.aborted) observedSession?.(session);
 		},
+		session: connection ? () => connection.get(signal) : void 0,
+		forgetSession: connection ? (session) => connection.forget(session) : void 0,
 		holdNavigation: (reason) => {
 			if (!signal.aborted) holdNavigation?.(reason);
 		},
@@ -3545,6 +3562,8 @@ function createMenuController(options) {
 * of Remote's describe contract; an unknown name falls back to `box`.
 */
 var shellIconNodes = {
+	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
+	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
 	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
@@ -4295,33 +4314,33 @@ var empty = {
 	version: 1,
 	entries: []
 };
-function valid(condition, message = "The remote name or link is invalid") {
+function valid$1(condition, message = "The remote name or link is invalid") {
 	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
 }
 function fields(value, keys) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
 	const object = value;
-	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
 function name(value) {
-	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
 function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
 	name(alias);
-	valid(typeof address === "string" && address.length <= LIMIT);
+	valid$1(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
 		url = new URL(address);
 	} catch {
-		valid(false);
+		valid$1(false);
 	}
 	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") {
 		const { publicWebConfig: config } = await verifyHostedLink(address, url.origin).catch(() => {
-			valid(false);
+			valid$1(false);
 		});
 		return {
 			name: alias,
@@ -4330,7 +4349,7 @@ async function reference(alias, address) {
 			project: config.projectId
 		};
 	}
-	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	valid$1(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
 	return {
 		name: alias,
 		kind: "local",
@@ -4340,8 +4359,8 @@ async function reference(alias, address) {
 }
 async function parseCatalog(value) {
 	const row = fields(value, ["version", "entries"]);
-	valid(row.version === 1 && Array.isArray(row.entries));
-	valid(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	valid$1(row.version === 1 && Array.isArray(row.entries));
+	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
 	const entries = [];
 	for (const raw of row.entries) {
 		const r = fields(raw, [
@@ -4351,51 +4370,51 @@ async function parseCatalog(value) {
 			"project"
 		]);
 		const entry = await reference(r.name, r.url);
-		valid(entry.kind === r.kind && entry.project === r.project);
-		valid(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		valid$1(entry.kind === r.kind && entry.project === r.project);
+		valid$1(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
 		entries.push(Object.freeze(entry));
 	}
 	const catalog = {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
 	return JSON.stringify(catalog);
 }
 function decode$1(value) {
-	valid(/^[A-Za-z0-9_-]+$/.test(value));
+	valid$1(/^[A-Za-z0-9_-]+$/.test(value));
 	try {
 		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
-		valid(base64url(bytes) === value);
+		valid$1(base64url(bytes) === value);
 		return JSON.parse(decoder.decode(bytes));
 	} catch {
-		valid(false);
+		valid$1(false);
 	}
 }
 function hint(value) {
 	const r = fields(value, ["spaceId", "pageId"]);
-	valid(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
-	valid(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	valid$1(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid$1(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
 	return {
 		spaceId: r.spaceId,
 		pageId: r.pageId
 	};
 }
 async function parseHandoff(fragment) {
-	valid(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
 	const params = new URLSearchParams(fragment.slice(1));
 	const keys = [...params.keys()];
-	valid(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
 	const raw = params.get("tmt-remotes");
-	valid(raw !== null);
+	valid$1(raw !== null);
 	const catalog = await parseCatalog(decode$1(raw));
-	valid(base64url(encoder.encode(json(catalog))) === raw);
+	valid$1(base64url(encoder.encode(json(catalog))) === raw);
 	const page = params.get("tmt-page");
 	const checkedHint = page === null ? void 0 : hint(decode$1(page));
-	if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
 	return {
 		catalog,
 		...checkedHint ? { hint: checkedHint } : {}
@@ -4403,12 +4422,12 @@ async function parseHandoff(fragment) {
 }
 async function buildHandoff(destination, value, page) {
 	const checked = await reference(destination.name, destination.url);
-	valid(checked.kind === destination.kind && checked.project === destination.project);
+	valid$1(checked.kind === destination.kind && checked.project === destination.project);
 	if (checked.kind === "firestore") return checked.url;
 	const catalog = await parseCatalog(value);
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
 	return `${new URL("/remote/overview", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -4447,7 +4466,7 @@ async function planImport(incoming, current) {
 }
 async function mergeImport(plan, choices) {
 	const checked = await planImport(plan.incoming, plan.current);
-	valid(choices.length === checked.rows.length);
+	valid$1(choices.length === checked.rows.length);
 	const entries = [...checked.current.entries];
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
@@ -4467,9 +4486,9 @@ async function mergeImport(plan, choices) {
 async function snapshot() {
 	try {
 		const raw = await readRegistry();
-		valid(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		valid$1(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
 		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
-		valid(raw === void 0 || raw === json(catalog));
+		valid$1(raw === void 0 || raw === json(catalog));
 		return {
 			raw,
 			catalog
@@ -4504,14 +4523,14 @@ var remoteRegistry = {
 			version: 1,
 			entries: [entry]
 		}, latest.catalog);
-		valid(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		valid$1(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
 		name(alias);
 		const latest = await snapshot();
-		valid(latest.catalog.entries.some((entry) => entry.name === previous));
-		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
 		const next = await parseCatalog({
 			version: 1,
 			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
@@ -4523,7 +4542,7 @@ var remoteRegistry = {
 	},
 	async remove(alias) {
 		const latest = await snapshot();
-		valid(latest.catalog.entries.some((entry) => entry.name === alias));
+		valid$1(latest.catalog.entries.some((entry) => entry.name === alias));
 		await commit(latest.raw, {
 			version: 1,
 			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
@@ -5273,7 +5292,21 @@ function createShellMenuInteractions(current, drawIcon, activate, announce) {
 					}
 				}, listen);
 				handle.addEventListener("dragend", cancel, listen);
-				row.append(handle);
+				const slot = doc.createElement("span");
+				slot.className = "tmt-ui-swap";
+				const leading = anchor.querySelector(":scope > svg.tmt-ui-shell-icon");
+				const rest = leading ?? doc.createElement("span");
+				if (leading) {
+					const placeholder = doc.createElement("span");
+					placeholder.className = "tmt-ui-shell-icon";
+					placeholder.setAttribute("aria-hidden", "true");
+					anchor.replaceChild(placeholder, leading);
+				}
+				rest.setAttribute("data-swap", "rest");
+				rest.setAttribute("aria-hidden", "true");
+				handle.setAttribute("data-swap", "reveal");
+				slot.append(rest, handle);
+				row.append(slot);
 			}
 			row.addEventListener("keydown", (event) => {
 				if (event.key === "Escape" && fromId !== void 0) {
@@ -5631,12 +5664,12 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/shell.ts
-/** The counts a menu entry draws, in order: a plain total only above zero (a page list of none has
-* nothing to count), then the needs-you count, which exists only above zero. */
+/** Bounded count values, omitting zero and unknown. The renderer draws attention as a dot
+* before the plain total and retains its count in the accessible description. */
 function entryCounts(item) {
 	return [...item.total && item.total > 0 ? [shellCount(item.total, "plain")] : [], ...item.count && item.count.text !== "0" ? [item.count] : []];
 }
-/** Counts above 99 read `99+`; needs-you counts carry the ◆ mark and colour. */
+/** Count text is bounded at `99+`; the renderer uses attention as a dot and spoken count. */
 function shellCount(value, kind = "needs-you") {
 	return {
 		text: countText(value),
@@ -5820,14 +5853,32 @@ function icon(document, name) {
 	}
 	return svg;
 }
-function count(document, value) {
+function count(document, text) {
 	const badge = document.createElement("span");
 	badge.className = "tmt-ui-shell-count";
-	if (value.needsYou) badge.dataset.kind = "needs-you";
-	badge.textContent = value.text;
+	badge.textContent = text;
 	badge.setAttribute("aria-hidden", "true");
 	return badge;
 }
+function attention(document) {
+	const dot = document.createElement("span");
+	dot.className = "tmt-ui-attention-dot";
+	dot.setAttribute("aria-hidden", "true");
+	return dot;
+}
+/**
+* The one selected row a menu shows: the first current entry, where a current child selects
+* itself while its parent is expanded and selects its parent while collapsed.
+*/
+function visibleCurrent(menu) {
+	if (!menu) return void 0;
+	for (const item of [...menu.groups.flatMap((group) => group.items), ...menu.settings ? [menu.settings] : []]) {
+		const child = item.children?.find((entry) => entry.current);
+		if (child) return item.expanded ? child : item;
+		if (item.current) return item;
+	}
+}
+var branchIds = 0;
 /**
 * Render the rail and module menu into `root`, the `.tmt-ui-shell` element that holds
 * `.tmt-ui-shell-content` with the host's `.tmt-ui-shell-bar` (its one header) and
@@ -5968,13 +6019,30 @@ function mountShell(root, view, select) {
 		label.className = "tmt-ui-module-menu-label";
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
+		if (item.icon) anchor.append(icon(document, item.icon));
 		anchor.append(label);
+		if (item.emphasis === "unread") {
+			anchor.dataset.emphasis = "unread";
+			const spoken = document.createElement("span");
+			spoken.className = "tmt-ui-visually-hidden";
+			spoken.textContent = " unread";
+			anchor.append(spoken);
+		}
 		const shown = entryCounts(item);
+		const total = shown.find((value) => !value.needsYou);
+		const waiting = shown.find((value) => value.needsYou);
 		if (shown.length || item.actions?.length) {
 			const counts = document.createElement("span");
 			counts.className = "tmt-ui-shell-counts";
-			for (const value of shown) counts.append(count(document, value));
+			if (waiting) counts.append(attention(document));
+			if (total) counts.append(count(document, total.text));
 			anchor.append(counts);
+		}
+		if (shown.length) {
+			const summary = [total && `${item.total ?? total.text} total`, waiting && `${waiting.text} need you`].filter(Boolean).join(", ");
+			anchor.setAttribute("aria-label", `${item.label}${item.emphasis === "unread" ? " unread" : ""} · ${summary}`);
+			anchor.title = item.note ? `${summary} · ${item.note}` : summary;
+			tipFor(anchor, `${item.label} · ${anchor.title}`);
 		}
 		return anchor;
 	};
@@ -6010,10 +6078,73 @@ function mountShell(root, view, select) {
 		menuInteractions.push(controls);
 		return controls;
 	};
+	const disclose = (row, anchor, item, index, selected) => {
+		const live = () => latest.menu?.groups[index]?.items.find((entry) => entry.id === item.id);
+		const expanded = item.expanded === true;
+		row.classList.add("tmt-ui-rail-menu-row");
+		row.dataset.menuItem = item.id;
+		row.dataset.disclosure = expanded ? "open" : "closed";
+		anchor.dataset.railPart = "link";
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "tmt-ui-rail-group-action tmt-ui-rail-disclosure";
+		button.dataset.railPart = "disclosure";
+		button.setAttribute("aria-expanded", String(expanded));
+		button.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ${item.label}`);
+		button.append(icon(document, "chevron-right"));
+		button.onclick = () => live()?.toggle?.();
+		row.append(button);
+		if (!expanded) return;
+		const children = document.createElement("ul");
+		children.className = "tmt-ui-rail-sub-children";
+		children.id = `tmt-ui-rail-children-${++branchIds}`;
+		children.setAttribute("aria-label", item.label);
+		button.setAttribute("aria-controls", children.id);
+		for (const child of item.children) {
+			const childRow = document.createElement("li");
+			const link = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", child, selected);
+			childRow.classList.add("tmt-ui-rail-menu-row");
+			childRow.dataset.menuItem = child.id;
+			childRow.dataset.menuGroup = String(index);
+			link.dataset.railPart = "link";
+			childRow.append(link);
+			if (child.actions?.length) interactions(() => {
+				const branch = live()?.children;
+				return branch ? { items: [...branch] } : void 0;
+			}).decorate(childRow, link, child);
+			children.append(childRow);
+		}
+		row.append(children);
+	};
+	const walk = (list) => list.addEventListener("keydown", (event) => {
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		const row = event.target.closest("li");
+		const link = row?.querySelector(":scope > a");
+		if (!row || !link) return;
+		const disclosure = row.querySelector(":scope > .tmt-ui-rail-disclosure");
+		const open = disclosure?.getAttribute("aria-expanded") === "true";
+		const branch = row.parentElement?.classList.contains("tmt-ui-rail-sub-children") ? row.parentElement.parentElement?.querySelector(":scope > a") : void 0;
+		let next;
+		if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+			const links = [...list.querySelectorAll("a.tmt-ui-rail-sub-item")];
+			next = links[links.indexOf(link) + (event.key === "ArrowUp" ? -1 : 1)];
+			event.preventDefault();
+		} else if (event.key === "ArrowRight" && disclosure) {
+			event.preventDefault();
+			if (open) next = row.querySelector(":scope > ul a");
+			else disclosure.click();
+		} else if (event.key === "ArrowLeft" && (open || branch)) {
+			event.preventDefault();
+			if (open) disclosure.click();
+			else next = branch;
+		}
+		next?.focus();
+	});
 	const nested = (menuView, selected) => {
 		const list = document.createElement("ul");
 		list.className = "tmt-ui-rail-sub";
 		list.setAttribute("aria-label", menuView.title);
+		walk(list);
 		menuView.groups.forEach((group, index) => {
 			const controls = group.reorder || group.items.some((item) => item.actions?.length) ? interactions(() => latest.menu?.groups[index]) : void 0;
 			let entries = list;
@@ -6025,7 +6156,7 @@ function mountShell(root, view, select) {
 				label.textContent = group.label ?? "";
 				label.title = group.label ?? "";
 				heading.append(label);
-				if (group.action) heading.append(command("tmt-ui-rail-group-action", group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
+				if (group.action) heading.append(command(`tmt-ui-rail-group-action${group.action.icon ? "" : " tmt-ui-rail-group-text-action"}`, group.action, () => latest.menu?.groups[index]?.action?.onActivate(), group.action.icon));
 				entries = document.createElement("ul");
 				entries.className = "tmt-ui-rail-sub-items";
 				if (group.label) entries.setAttribute("aria-label", group.label);
@@ -6038,6 +6169,7 @@ function mountShell(root, view, select) {
 				row.dataset.menuGroup = String(index);
 				row.append(anchor);
 				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
+				if (item.children?.length) disclose(row, anchor, item, index, selected);
 				entries.append(row);
 			}
 			if (group.add) {
@@ -6068,12 +6200,15 @@ function mountShell(root, view, select) {
 			const badge = item.count?.needsYou && item.count.text !== "0" ? item.count : void 0;
 			if (badge) anchor.setAttribute("aria-label", `${item.label}, ${badge.text}${badge.text === "1" ? " needs you" : " need you"}`);
 			anchor.title = item.note ?? item.label;
-			if (item.note) tipFor(anchor, `${item.label}: ${item.note}`);
+			if (item.note && !badge) tipFor(anchor, `${item.label}: ${item.note}`);
 			const label = document.createElement("span");
 			label.className = "tmt-ui-rail-label";
 			label.textContent = item.label;
 			anchor.append(icon(document, item.icon), label);
-			if (badge) anchor.append(count(document, badge));
+			if (badge) {
+				anchor.append(attention(document));
+				tipFor(anchor, `${item.label}, ${badge.text} need you${item.note ? `: ${item.note}` : ""}`);
+			}
 			const row = document.createElement("li");
 			row.append(anchor);
 			if (item === current && pages) row.append(nested(pages, selected));
@@ -6100,7 +6235,7 @@ function mountShell(root, view, select) {
 		hideTip();
 		const railTop = rail.scrollTop;
 		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
-		const selected = current ? [...next.menu?.groups.flatMap((group) => group.items) ?? [], ...next.menu?.settings ? [next.menu.settings] : []].find((item) => item.current) : void 0;
+		const selected = current ? visibleCurrent(next.menu) : void 0;
 		rail.replaceChildren(brand, railSearch, railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu));
 		rail.scrollTop = railTop;
 		syncRailScroll();
@@ -6923,11 +7058,17 @@ var address;
 async function reopenOnce$1(signal) {
 	try {
 		const { reopenSession } = await import("./remote-v1.js");
-		await reopenSession(void 0, { signal });
-		return "reopened";
+		signal.throwIfAborted();
+		const shell = remoteShell();
+		const session = shell?.session ? await shell.session() : await reopenSession(void 0, { signal });
+		signal.throwIfAborted();
+		return {
+			state: "reopened",
+			session
+		};
 	} catch (error) {
 		const reason = error?.reason;
-		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? "no-session" : "unreachable";
+		return reason === "unpaired" || reason === "revoked" || reason === "expired" ? { state: "no-session" } : { state: "unreachable" };
 	}
 }
 /** The reopen in flight: reads that meet the same door restart together wait on this one. */
@@ -6956,7 +7097,7 @@ function reopen(signal) {
 				shared.stop.abort();
 				if (reopening === shared) reopening = void 0;
 			}
-			resolve("unreachable");
+			resolve({ state: "unreachable" });
 		};
 		if (signal.aborted) return leave();
 		signal.addEventListener("abort", leave, { once: true });
@@ -6995,8 +7136,9 @@ async function ownerRead(name, signal) {
 	let response = await readOnce(url, signal);
 	if (response?.status === 404) {
 		const reopened = await reopen(signal);
-		if (reopened !== "reopened") return { state: reopened };
+		if (reopened.state !== "reopened") return reopened;
 		response = await readOnce(url, signal);
+		if (response?.status === 404 && reopened.session) remoteShell()?.forgetSession?.(reopened.session);
 	}
 	if (response?.status !== 200) return UNREACHABLE;
 	try {
@@ -8153,7 +8295,7 @@ function unavailableBoard(reason) {
 }
 /** The page's board from one `ok` payload; a payload off the contract is a failed read. */
 function opsBoard(payload) {
-	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents)) return unavailableBoard("read_failed");
+	if (!Array.isArray(payload.squads) || !Array.isArray(payload.agents) || payload.agents.some((agent) => !agent || typeof agent.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(agent.id))) return unavailableBoard("read_failed");
 	return {
 		squads: payload.squads.map((squad) => ({
 			name: squad.name,
@@ -8163,6 +8305,9 @@ function opsBoard(payload) {
 		agents: payload.agents.map((agent) => {
 			const state = agentState(agent);
 			return {
+				id: agent.id,
+				...agent.presence ? { presence: agent.presence } : {},
+				...agent.activity ? { activity: { state: agent.activity.state } } : {},
 				name: agent.name,
 				squad: agent.squad,
 				role: agent.role,
@@ -8350,7 +8495,7 @@ function terminalCard(options) {
 	card.append(tile, title, el("p", void 0, options.text), commandCopy("tmt ops ui"));
 	return card;
 }
-var keyOf = (agent) => `${agent.squad}/${agent.name}`;
+var keyOf = (agent) => `${agent.squad}/${agent.id}`;
 /** The agents by squad in the order the pages draw them: squads as the board lists them (then any
 * squad only an agent names), each lead first; a squad with no agents only when asked for. */
 function bySquad(board, keepEmpty = false) {
@@ -9021,7 +9166,26 @@ var OPS_SECTIONS = [
 function opsSection(hash) {
 	return OPS_SECTIONS.find((section) => `#${section.id}` === hash)?.id ?? "agents";
 }
-function opsMenu(section, board, pathname) {
+function opsPlace(hash) {
+	try {
+		if (hash.startsWith("#channel/")) {
+			const squad = decodeURIComponent(hash.slice(9));
+			if (squad) return { squad };
+		}
+		const dm = /^#dm\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/.exec(hash);
+		if (dm) return {
+			memberId: dm[1],
+			squad: decodeURIComponent(dm[2])
+		};
+	} catch {}
+	return opsSection(hash);
+}
+function opsHref(pathname, place) {
+	if (typeof place === "string") return `${pathname}#${place}`;
+	const squad = encodeURIComponent(place.squad);
+	return place.memberId ? `${pathname}#dm/${place.memberId}/${squad}` : `${pathname}#channel/${squad}`;
+}
+function opsMenu(section, board, pathname, disclosure, unread) {
 	const observed = board && !board.unavailable && !board.truncated ? board : void 0;
 	const totals = {
 		agents: observed?.agents.length,
@@ -9035,14 +9199,738 @@ function opsMenu(section, board, pathname) {
 		href: `${pathname}#${id}`,
 		current: section === id
 	});
+	const unreadItem = (id) => {
+		const value = unread?.get(id);
+		return value?.state === "known" && value.count > 0 ? {
+			emphasis: "unread",
+			count: {
+				text: value.more ? "50+" : String(value.count),
+				needsYou: false
+			}
+		} : {};
+	};
 	return {
 		title: "Ops",
 		groups: [{ items: OPS_SECTIONS.filter((entry) => entry.id !== "settings").map((entry) => ({
 			...item(entry.id, entry.label),
 			total: totals[entry.id],
 			count: entry.id === "agents" && attention ? shellCount(attention) : void 0
-		})) }],
+		})) }, ...!board?.unavailable && board ? bySquad(board, true).map((group) => ({ items: [{
+			id: `channel:${group.name}`,
+			label: `#${group.name}`,
+			href: opsHref(pathname, { squad: group.name }),
+			current: typeof section !== "string" && section.squad === group.name && !section.memberId,
+			expanded: !disclosure?.collapsed.has(group.name),
+			toggle: disclosure ? () => disclosure.toggle(group.name) : void 0,
+			children: group.agents.map((agent) => ({
+				id: `dm:${group.name}:${agent.id}`,
+				label: agent.name,
+				...unreadItem(agent.id),
+				href: opsHref(pathname, {
+					squad: group.name,
+					memberId: agent.id
+				}),
+				current: typeof section !== "string" && section.squad === group.name && section.memberId === agent.id
+			}))
+		}] })) : []],
 		settings: item("settings", "Ops settings")
+	};
+}
+//#endregion
+//#region src/ops-channel.ts
+/** Local channel / DM context. The board owns members/timers; admitted conversation reads
+* own DM history. Channel messages and all writes remain unavailable. */
+function memberState(agent) {
+	if (agent.presence === "offline") return "Offline";
+	if (agent.activity?.state === "working") return "Working";
+	if (agent.activity?.state === "idle") return "Idle";
+	return "Unknown";
+}
+function channelView(pathname) {
+	const page = el("div", "ops-channel");
+	const context = el("p", browserUiClasses.pageSubtitle, "This machine");
+	const panel = el("section", `${browserUiClasses.tabs} ops-channel-context`);
+	panel.dataset.variant = "flat";
+	panel.dataset.presentation = "compact";
+	const summary = el("p", `${browserUiClasses.sectionHeading} ops-channel-summary`);
+	summary.tabIndex = -1;
+	const tabs = el("div", browserUiClasses.tabList);
+	tabs.setAttribute("role", "tablist");
+	tabs.setAttribute("aria-label", "Channel details");
+	const facts = el("section", browserUiClasses.tabPanel);
+	facts.id = "ops-channel-about";
+	facts.setAttribute("role", "tabpanel");
+	const timers = el("section", browserUiClasses.tabPanel);
+	timers.id = "ops-channel-timers";
+	timers.setAttribute("role", "tabpanel");
+	let selected = 0;
+	const buttons = [0, 1].map((index) => {
+		const button = el("button", browserUiClasses.tab);
+		button.type = "button";
+		button.id = `ops-channel-tab-${index}`;
+		button.setAttribute("role", "tab");
+		button.setAttribute("aria-controls", index ? timers.id : facts.id);
+		button.addEventListener("click", () => select(index));
+		button.addEventListener("keydown", (event) => {
+			if (![
+				"ArrowLeft",
+				"ArrowRight",
+				"Home",
+				"End"
+			].includes(event.key)) return;
+			event.preventDefault();
+			const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+			select(next);
+			buttons[next].focus();
+		});
+		return button;
+	});
+	function select(index) {
+		selected = index;
+		buttons.forEach((button, at) => {
+			button.tabIndex = at === index ? 0 : -1;
+			button.setAttribute("aria-selected", String(at === index));
+		});
+		facts.hidden = index !== 0;
+		timers.hidden = index !== 1;
+	}
+	facts.setAttribute("aria-labelledby", buttons[0].id);
+	timers.setAttribute("aria-labelledby", buttons[1].id);
+	tabs.append(...buttons);
+	panel.append(summary, tabs, facts, timers);
+	const history = el("section", "ops-channel-history");
+	const unavailable = el("h2", browserUiClasses.sectionHeading);
+	const explanation = el("p");
+	const terminalHistory = commandCopy("tmt ops ui");
+	history.append(unavailable, explanation, terminalHistory);
+	const compose = el("section", "ops-channel-compose");
+	const reason = el("p", "ops-detail-note");
+	reason.id = "ops-channel-write-reason";
+	const actions = el("div", browserUiClasses.actions);
+	for (const label of [
+		"Send",
+		"New timer",
+		"Edit idle reminder"
+	]) {
+		const button = el("button", browserUiClasses.action, label);
+		button.type = "button";
+		button.disabled = true;
+		button.setAttribute("aria-describedby", reason.id);
+		actions.append(button);
+	}
+	compose.append(actions, reason);
+	page.append(context, panel, history, compose, pageFoot());
+	select(0);
+	let identity = "";
+	let fingerprint = "";
+	const memberList = el("ul", browserUiClasses.list);
+	const memberRows = /* @__PURE__ */ new Map();
+	function memberRow(agent) {
+		const row = el("li", browserUiClasses.listRow);
+		const title = el("div", browserUiClasses.listTitle);
+		const name = el("a", void 0, agent.name);
+		title.append(name);
+		name.href = opsHref(pathname, {
+			squad: agent.squad,
+			memberId: agent.id
+		});
+		const detail = el("div", browserUiClasses.listMeta);
+		detail.append(el("span", browserUiClasses.listUpdated, agent.role === "lead" ? "Lead" : "Member"), el("span", browserUiClasses.listState, memberState(agent)));
+		row.append(title, detail);
+		return row;
+	}
+	return {
+		node: page,
+		history,
+		update(board, place) {
+			const key = opsHref(pathname, place);
+			const people = board.agents.filter((agent) => agent.squad === place.squad).sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+			const member = place.memberId ? people.find((agent) => agent.id === place.memberId) : void 0;
+			const squad = board.squads.find((squad) => squad.name === place.squad);
+			const known = place.memberId ? !!member : !!squad || people.length > 0;
+			const jobs = board.schedules?.filter((job) => job.squad === place.squad);
+			const seen = JSON.stringify({
+				key,
+				people,
+				squad,
+				jobs,
+				known,
+				truncated: board.truncated
+			});
+			if (seen === fingerprint) return;
+			fingerprint = seen;
+			if (identity !== key) {
+				identity = key;
+				memberRows.clear();
+				memberList.replaceChildren();
+				select(0);
+			}
+			context.textContent = `This machine · ${place.squad}`;
+			panel.hidden = !known;
+			history.hidden = !known;
+			compose.hidden = !known;
+			let missing = page.querySelector("[data-ops-channel-missing]");
+			if (!known) {
+				missing ??= el("p", "ops-empty");
+				missing.dataset.opsChannelMissing = "";
+				missing.textContent = board.truncated ? "This selection is not in the partial board. Open Ops in the terminal to see the full list." : place.memberId ? "This member is no longer listed in this squad. Choose a current member from the sidebar." : "This squad is no longer listed. Choose a current squad from the sidebar.";
+				if (!missing.isConnected) page.append(missing);
+				summary.textContent = "Details unavailable";
+				memberRows.clear();
+				memberList.replaceChildren();
+				facts.replaceChildren();
+				timers.replaceChildren();
+				return;
+			}
+			missing?.remove();
+			const timerCount = jobs && !board.truncated ? ` · Timers ${jobs.length}` : " · Timers unavailable";
+			summary.textContent = place.memberId ? `About ${member.name}${timerCount}` : `Members ${board.truncated ? "(partial)" : people.length}${timerCount}`;
+			buttons[0].textContent = place.memberId ? "About" : "Members";
+			buttons[1].textContent = "Squad timers";
+			tabs.setAttribute("aria-label", place.memberId ? "Member details" : "Channel details");
+			if (member) {
+				const details = el("dl", browserUiClasses.facts);
+				for (const [term, value] of [
+					["Name", member.name],
+					["Squad", member.squad],
+					["Role", member.role === "lead" ? "Lead" : "Member"],
+					["State", memberState(member)],
+					["Model", member.model || "Not reported"],
+					["Task", member.task || "Not reported"],
+					["Next step", member.next || "Not reported"]
+				]) details.append(el("dt", void 0, term), el("dd", void 0, value));
+				facts.replaceChildren(details);
+			} else {
+				const ids = new Set(people.map((agent) => agent.id));
+				for (const [id, row] of memberRows) if (!ids.has(id)) {
+					const heldFocus = row.contains(document.activeElement);
+					row.remove();
+					memberRows.delete(id);
+					if (heldFocus) summary.focus();
+				}
+				people.forEach((agent, index) => {
+					let row = memberRows.get(agent.id);
+					if (!row) {
+						row = memberRow(agent);
+						memberRows.set(agent.id, row);
+					}
+					row.querySelector("a").textContent = agent.name;
+					row.querySelector(`.${browserUiClasses.listState}`).textContent = memberState(agent);
+					row.querySelector(`.${browserUiClasses.listUpdated}`).textContent = agent.role === "lead" ? "Lead" : "Member";
+					if (memberList.children[index] !== row) memberList.insertBefore(row, memberList.children[index] ?? null);
+				});
+				if (people.length) {
+					if (memberList.parentElement !== facts) facts.replaceChildren(memberList);
+				} else facts.replaceChildren(el("p", "ops-empty", "No members listed."));
+			}
+			const timerRows = el("ul", browserUiClasses.list);
+			for (const job of jobs ?? []) {
+				const row = el("li", browserUiClasses.listRow);
+				const meta = el("div", browserUiClasses.listMeta);
+				meta.append(el("span", browserUiClasses.listUpdated, job.when));
+				row.append(el("span", browserUiClasses.listTitle, job.what || job.id), meta);
+				timerRows.append(row);
+			}
+			timers.replaceChildren(el("p", "ops-detail-note", "Squad timers · Shown for the whole squad."), jobs === void 0 ? el("p", "ops-empty", "Squad timers are unavailable.") : jobs.length ? timerRows : el("p", "ops-empty", board.truncated ? "No squad timers in this partial read." : "No squad timers are set."), ...board.truncated ? [el("p", "ops-detail-note", "Partial board; totals are not known.")] : []);
+			if (!place.memberId) history.replaceChildren(unavailable, explanation, terminalHistory);
+			unavailable.textContent = place.memberId ? "History isn't available in the browser yet" : "Channel messages aren't available in the browser yet";
+			explanation.textContent = place.memberId ? "Open Ops in this machine’s terminal, choose this member and open Talk to read the retained conversation." : "This browser shows members and squad timers. Channel messages and threads are not available yet.";
+			reason.textContent = "Sending, timer changes and idle-reminder changes are not available in the browser yet. Use this machine’s terminal.";
+			select(selected);
+		}
+	};
+}
+//#endregion
+//#region src/conversations.ts
+var CONVERSATION_PAGE_MAX = 50;
+var CONVERSATION_PREVIEW_BYTES = 640;
+var CONVERSATION_WITHDRAWAL_BYTES = 1024;
+var utf8$1 = new TextEncoder();
+var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
+function valid(condition) {
+	if (!condition) throw new Error("Invalid conversation response.");
+}
+function object(value) {
+	valid(value !== null && typeof value === "object" && !Array.isArray(value));
+	return value;
+}
+function keys(row, required, optional = []) {
+	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
+}
+var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
+function cursor$1(value) {
+	const row = object(value);
+	keys(row, ["preparedAtMs", "requestId"]);
+	valid(integer(row.preparedAtMs) && requestId(row.requestId));
+	return {
+		preparedAtMs: row.preparedAtMs,
+		requestId: row.requestId
+	};
+}
+function final(value) {
+	const row = object(value);
+	switch (row.status) {
+		case "not_submitted":
+		case "not_required":
+			keys(row, ["status"]);
+			break;
+		case "withdrawn":
+			keys(row, [
+				"status",
+				"reason",
+				"withdrawnAtMs"
+			]);
+			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
+			break;
+		case "retained":
+			keys(row, [
+				"status",
+				"submittedAtMs",
+				"expiresAtMs",
+				"bodyBytes"
+			]);
+			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs) && integer(row.bodyBytes));
+			break;
+		case "expired":
+		case "unavailable":
+			keys(row, [
+				"status",
+				"submittedAtMs",
+				"expiresAtMs"
+			]);
+			valid(integer(row.submittedAtMs) && integer(row.expiresAtMs));
+			break;
+		default: throw new Error("Invalid conversation final.");
+	}
+	return { ...row };
+}
+/** Called only after signature/correlation verification by the shared Session lane. */
+function parseConversation(value, memberId, input) {
+	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
+	const row = object(value);
+	keys(row, [
+		"viewerId",
+		"member",
+		"items",
+		"nextBefore",
+		"changePosition"
+	], input.since === void 0 ? [] : ["changedSince"]);
+	valid(coreId(row.viewerId) && [
+		"active",
+		"unknown",
+		"retired"
+	].includes(row.member) && conversationPosition(row.changePosition) && Array.isArray(row.items) && row.items.length <= (input.limit ?? 20));
+	valid(row.member === "active" || row.items.length === 0);
+	const ids = /* @__PURE__ */ new Set();
+	const items = row.items.map((value) => {
+		const item = object(value);
+		keys(item, [
+			"requestId",
+			"recipientId",
+			"sender",
+			"kind",
+			"origin",
+			"preparedAtMs",
+			"delivery",
+			"messageState",
+			"final",
+			"preview",
+			"responsePreview",
+			"previewTruncated",
+			"direction",
+			"changePosition"
+		], ["responseId"]);
+		const sender = object(item.sender);
+		keys(sender, ["kind", "identityId"]);
+		valid(requestId(item.requestId) && !ids.has(item.requestId) && coreId(item.recipientId) && coreId(sender.identityId) && ["explicit", "verified"].includes(sender.kind) && ["request", "announcement"].includes(item.kind) && [
+			"person",
+			"automation",
+			"unknown"
+		].includes(item.origin) && [
+			"prepared",
+			"sending",
+			"sent",
+			"queued",
+			"uncertain",
+			"definitely_failed"
+		].includes(item.delivery) && integer(item.preparedAtMs) && preview(item.preview) && preview(item.responsePreview) && typeof item.previewTruncated === "boolean" && conversationPosition(item.changePosition));
+		ids.add(item.requestId);
+		valid(item.direction === "toMember" ? item.recipientId === memberId && sender.identityId === row.viewerId : item.direction === "fromMember" && item.recipientId === row.viewerId && sender.identityId === memberId);
+		const settled = final(item.final);
+		valid(settled.status === "retained" || item.responsePreview === null && item.previewTruncated === false);
+		if (item.responseId !== void 0) valid(typeof item.responseId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(item.responseId));
+		const { messageState: state } = messageState(item);
+		const { messageState: _rawState, ...rest } = item;
+		return {
+			...rest,
+			sender: { ...sender },
+			final: settled,
+			...state ? { messageState: state } : {}
+		};
+	});
+	let changedSince;
+	if (input.since !== void 0) {
+		valid(Object.hasOwn(row, "changedSince"));
+		if (row.changedSince === "unknown") changedSince = "unknown";
+		else {
+			const changes = object(row.changedSince);
+			keys(changes, ["count", "more"]);
+			valid(integer(changes.count) && changes.count <= CONVERSATION_PAGE_MAX && typeof changes.more === "boolean" && (!changes.more || changes.count === CONVERSATION_PAGE_MAX));
+			changedSince = {
+				count: changes.count,
+				more: changes.more
+			};
+		}
+	}
+	return {
+		viewerId: row.viewerId,
+		member: row.member,
+		items,
+		nextBefore: row.nextBefore === null ? null : cursor$1(row.nextBefore),
+		changePosition: row.changePosition,
+		...changedSince === void 0 ? {} : { changedSince }
+	};
+}
+function conversations(session, options = {}) {
+	const channel = channelFor(session);
+	if (!channel) throw new TypeError("Use a verified Session.");
+	const call = verifiedSessionRequest(session, options);
+	return {
+		machineId: channel.paired.machineId,
+		read(memberId, value = {}) {
+			if (!coreId(memberId) || Object.keys(value).some((key) => ![
+				"limit",
+				"before",
+				"since"
+			].includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
+			let before;
+			if (value.before !== void 0) try {
+				before = cursor$1(value.before);
+			} catch {
+				throw new TypeError("Invalid conversation cursor.");
+			}
+			const frozen = {
+				limit: value.limit ?? 20,
+				...before ? { before } : {},
+				...value.since === void 0 ? {} : { since: value.since }
+			};
+			return call("requests.list", crypto.randomUUID(), {
+				version: 1,
+				operation: "requests.list",
+				input: {
+					memberId,
+					...frozen
+				}
+			}, (answer) => parseConversation(answer, memberId, frozen));
+		}
+	};
+}
+//#endregion
+//#region src/conversation-seen.ts
+/** Browser-local positions only. Opening a visible newest page counts as seeing a DM. */
+function key(scope) {
+	if (![
+		scope.machineId,
+		scope.viewerId,
+		scope.memberId
+	].every(coreId)) throw new TypeError("Invalid conversation scope.");
+	return JSON.stringify([
+		"tmt.dm.seen.v1",
+		scope.machineId,
+		scope.viewerId,
+		scope.memberId
+	]);
+}
+function conversationSeen(storage) {
+	return {
+		read(scope) {
+			try {
+				if (!storage) return {
+					available: false,
+					position: null
+				};
+				const value = storage.getItem(key(scope));
+				return {
+					available: true,
+					position: conversationPosition(value) ? value : null
+				};
+			} catch {
+				return {
+					available: false,
+					position: null
+				};
+			}
+		},
+		markVisibleNewest(scope, page, view) {
+			if (!view.newest || !view.documentVisible || !view.panelVisible || page.viewerId !== scope.viewerId || !conversationPosition(page.changePosition)) return false;
+			try {
+				if (!storage) return false;
+				storage.setItem(key(scope), page.changePosition);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+	};
+}
+/** No baseline or failed storage is unknown; only Core can prove a count, including zero. */
+function conversationUnread(baseline, changes) {
+	if (!baseline.available || baseline.position === null || !changes || changes === "unknown") return { state: "unknown" };
+	return {
+		state: "known",
+		count: changes.count,
+		more: changes.more
+	};
+}
+//#endregion
+//#region src/conversation-history.ts
+/** One bounded DM read at a time; positions and seen state never leave their owners. */
+function sessionRead(shell) {
+	return async (memberId, input) => {
+		if (!shell.session) throw new Error("No signed browser session.");
+		const session = await shell.session();
+		shell.signal.throwIfAborted();
+		try {
+			const client = conversations(session);
+			return {
+				machineId: client.machineId,
+				page: await client.read(memberId, input)
+			};
+		} catch (error) {
+			if (error instanceof ClientError && [
+				"transport_failure",
+				"timeout",
+				"sequence_unavailable"
+			].includes(error.code) || error instanceof RefusalError && [
+				"REMOTE_SESSION_ENDED",
+				"REMOTE_SESSION_EVICTED",
+				"REMOTE_SERVE_STOPPED",
+				"REMOTE_GRANT_CHANGED"
+			].includes(error.code)) shell.forgetSession?.(session);
+			throw error;
+		}
+	};
+}
+function storage() {
+	try {
+		return localStorage;
+	} catch {
+		return;
+	}
+}
+var UNKNOWN = { state: "unknown" };
+var finalLabel = (item) => {
+	switch (item.final.status) {
+		case "not_submitted": return "No reply submitted";
+		case "not_required": return "No reply required";
+		case "withdrawn": return `Withdrawn · ${item.final.reason}`;
+		case "expired": return "Reply expired";
+		case "unavailable": return "Reply unavailable";
+		case "retained": return item.previewTruncated ? "Reply preview · truncated" : "Reply preview";
+	}
+};
+function conversationHistory(shell, observed, read = sessionRead(shell)) {
+	const node = el("section", "ops-channel-history");
+	node.setAttribute("aria-label", "Talk history");
+	const heading = el("h2", browserUiClasses.sectionHeading, "Talk history");
+	const unread = el("p", "ops-detail-note", "Unread changes: Unknown");
+	const status = el("p", "ops-empty", "Choose a member to read the retained conversation.");
+	status.setAttribute("role", "status");
+	const list = el("ul", browserUiClasses.list);
+	list.setAttribute("aria-label", "Conversation previews");
+	const actions = el("div", browserUiClasses.actions);
+	const refreshButton = el("button", browserUiClasses.action, "Refresh history");
+	refreshButton.type = "button";
+	const olderButton = el("button", browserUiClasses.action, "Older");
+	olderButton.type = "button";
+	const footer = el("p", "ops-foot", "Reading here does not acknowledge requests or send messages. Seen state stays in this browser.");
+	actions.append(refreshButton, olderButton);
+	node.append(heading, unread, status, list, actions, footer);
+	const terminal = commandCopy("tmt ops ui");
+	terminal.hidden = true;
+	node.append(terminal);
+	const seen = conversationSeen(storage());
+	const rows = /* @__PURE__ */ new Map();
+	let memberId, memberName = "", panelVisible = false, newest = true;
+	let generation = 0, running = false, wanted = false;
+	let scope, page;
+	let reported = "";
+	function report(value) {
+		const fingerprint = JSON.stringify(value);
+		unread.textContent = value.unread.state === "unknown" ? "Unread changes: Unknown" : `Unread changes: ${value.unread.more ? "50+" : value.unread.count}`;
+		if (fingerprint !== reported) {
+			reported = fingerprint;
+			observed(value);
+		}
+	}
+	function buttons() {
+		refreshButton.disabled = running || !memberId;
+		refreshButton.textContent = newest ? "Refresh history" : "Newest page";
+		olderButton.disabled = running || !page?.nextBefore;
+		olderButton.textContent = page && !page.nextBefore ? "No older page" : "Older";
+		node.setAttribute("aria-busy", String(running));
+	}
+	function draw(next) {
+		terminal.hidden = true;
+		page = next;
+		status.textContent = next.member === "unknown" ? "This member is unknown on this machine." : next.member === "retired" ? "This member has been retired." : next.items.length ? "" : "No retained conversation in this page.";
+		status.hidden = status.textContent === "";
+		const remaining = new Set(next.items.map((item) => item.requestId));
+		for (const [id, row] of rows) if (!remaining.has(id)) {
+			row.node.remove();
+			rows.delete(id);
+		}
+		next.items.forEach((item, index) => {
+			const fingerprint = JSON.stringify([item, memberName]);
+			let row = rows.get(item.requestId);
+			if (!row) {
+				row = {
+					node: el("li", browserUiClasses.listRow),
+					fingerprint: ""
+				};
+				row.node.dataset.requestId = item.requestId;
+				rows.set(item.requestId, row);
+			}
+			if (row.fingerprint !== fingerprint) {
+				row.fingerprint = fingerprint;
+				const title = el("div", `${browserUiClasses.listTitle} ops-detail-block`);
+				title.append(el("strong", browserUiClasses.listLabel, item.direction === "toMember" ? `You → ${memberName}` : `${memberName} → You`), el("p", browserUiClasses.listDescription, item.preview ?? "Request preview unavailable"), el("p", browserUiClasses.listDescription, item.responsePreview === null ? finalLabel(item) : `${finalLabel(item)} · ${item.responsePreview}`));
+				const meta = el("div", browserUiClasses.listMeta);
+				const at = new Date(item.preparedAtMs);
+				const time = el("time", browserUiClasses.listUpdated, Number.isFinite(at.valueOf()) ? at.toLocaleString() : "Time unavailable");
+				if (Number.isFinite(at.valueOf())) time.dateTime = at.toISOString();
+				meta.append(time, el("span", browserUiClasses.listState, item.messageState?.reason.text ?? item.delivery.replaceAll("_", " ")));
+				row.node.replaceChildren(title, meta);
+			}
+			if (list.children[index] !== row.node) list.insertBefore(row.node, list.children[index] ?? null);
+		});
+	}
+	async function load(before) {
+		if (!memberId || shell.signal.aborted || document.visibilityState !== "visible") return true;
+		if (running) return true;
+		running = true;
+		buttons();
+		const selected = memberId, ticket = generation;
+		const input = {
+			limit: 20,
+			...before ? { before } : {}
+		};
+		if (scope?.memberId === selected) {
+			const baseline = seen.read(scope);
+			if (baseline.available && baseline.position) input.since = baseline.position;
+		}
+		const current = () => !shell.signal.aborted && ticket === generation && memberId === selected;
+		try {
+			let next = await read(selected, input);
+			if (!current()) return false;
+			let nextScope = {
+				machineId: next.machineId,
+				viewerId: next.page.viewerId,
+				memberId: selected
+			};
+			let baseline = seen.read(nextScope);
+			if (baseline.available && baseline.position && input.since !== baseline.position) {
+				input.since = baseline.position;
+				next = await read(selected, input);
+				if (!current()) return false;
+				const secondScope = {
+					machineId: next.machineId,
+					viewerId: next.page.viewerId,
+					memberId: selected
+				};
+				if (JSON.stringify(secondScope) !== JSON.stringify(nextScope)) baseline = {
+					available: false,
+					position: null
+				};
+				nextScope = secondScope;
+			}
+			if (scope && (scope.machineId !== nextScope.machineId || scope.viewerId !== nextScope.viewerId)) {
+				rows.clear();
+				list.replaceChildren();
+			}
+			scope = nextScope;
+			let changes = input.since === baseline.position ? conversationUnread(baseline, next.page.changedSince) : UNKNOWN;
+			const renderedNewest = !before && newest;
+			if (before && !newest || renderedNewest) draw(next.page);
+			const visible = panelVisible && node.isConnected && document.visibilityState === "visible";
+			if (renderedNewest && visible && !seen.markVisibleNewest(scope, next.page, {
+				newest: true,
+				documentVisible: true,
+				panelVisible: true
+			})) changes = UNKNOWN;
+			report({
+				scope,
+				unread: changes
+			});
+			return true;
+		} catch {
+			if (current()) {
+				page = void 0;
+				rows.clear();
+				list.replaceChildren();
+				terminal.hidden = false;
+				status.hidden = false;
+				status.textContent = "Conversation history is unavailable for this browser. Use Ops in this machine’s terminal.";
+				report({ unread: UNKNOWN });
+			}
+			return false;
+		} finally {
+			running = false;
+			buttons();
+			if (wanted && !shell.signal.aborted) {
+				wanted = false;
+				refresh();
+			}
+		}
+	}
+	async function refresh() {
+		if (panelVisible && !newest) return true;
+		return load();
+	}
+	refreshButton.addEventListener("click", () => {
+		newest = true;
+		generation++;
+		load();
+	});
+	olderButton.addEventListener("click", () => {
+		const before = page?.nextBefore;
+		if (!before || running) return;
+		newest = false;
+		generation++;
+		load(before);
+	});
+	shell.signal.addEventListener("abort", () => {
+		generation++;
+		rows.clear();
+	}, { once: true });
+	whileVisible(5e3, shell.signal, refresh);
+	buttons();
+	return {
+		node,
+		select(member) {
+			const wasVisible = panelVisible;
+			panelVisible = member !== void 0;
+			if (member && member.id !== memberId) {
+				memberId = member.id;
+				memberName = member.name;
+				newest = true;
+				generation++;
+				scope = void 0;
+				page = void 0;
+				rows.clear();
+				list.replaceChildren();
+				status.hidden = false;
+				status.textContent = "Reading retained conversation…";
+				report({ unread: UNKNOWN });
+				if (running) wanted = true;
+				else refresh();
+			} else if (member) {
+				memberName = member.name;
+				if (!wasVisible) refresh();
+			}
+			buttons();
+		}
 	};
 }
 //#endregion
@@ -9052,12 +9940,12 @@ function opsMenu(section, board, pathname) {
 * the board's refreshes. */
 /** The board's own reload cadence (`tmt ops ui`). */
 var REFRESH_MS = 5e3;
-function opsPage(shell, source = opsSource) {
+function opsPage(shell, source = opsSource, historyRead) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
 	const href = (id) => `${location.pathname}#${id}`;
-	const current = () => opsSection(location.hash);
+	const current = () => opsPlace(location.hash);
 	let board;
 	const views = {
 		agents: agentsView(),
@@ -9065,15 +9953,54 @@ function opsPage(shell, source = opsSource) {
 		schedules: timersView()
 	};
 	let settings;
+	const channel = channelView(location.pathname);
+	const collapsedSquads = /* @__PURE__ */ new Set();
+	const unread = /* @__PURE__ */ new Map();
+	let unreadScope = "";
+	const history = conversationHistory(shell, (value) => {
+		const next = value.scope ? `${value.scope.machineId}/${value.scope.viewerId}` : "";
+		if (next !== unreadScope || !value.scope) {
+			unread.clear();
+			unreadScope = next;
+		}
+		if (value.scope) unread.set(value.scope.memberId, value.unread);
+		paintMenu();
+	}, historyRead);
+	const paintMenu = () => {
+		const section = current();
+		shell.setMenu(opsMenu(section, board, location.pathname, {
+			collapsed: collapsedSquads,
+			toggle(squad) {
+				if (collapsedSquads.has(squad)) collapsedSquads.delete(squad);
+				else collapsedSquads.add(squad);
+				paint();
+			}
+		}, unread));
+	};
 	const paint = () => {
 		const section = current();
 		if (section !== "squads") views.squads.close();
-		shell.setMenu(opsMenu(section, board, location.pathname));
-		const label = OPS_SECTIONS.find((item) => item.id === section).label;
-		shell.setTitle(label, ["Ops"], "Ops");
+		paintMenu();
+		const member = board && !board.unavailable && typeof section !== "string" && section.memberId ? board.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad) : void 0;
+		history.select(member ? {
+			id: member.id,
+			name: member.name
+		} : void 0);
+		const label = typeof section === "string" ? OPS_SECTIONS.find((item) => item.id === section).label : section.memberId ? board?.agents.find((agent) => agent.id === section.memberId && agent.squad === section.squad)?.name ?? "Member unavailable" : `#${section.squad}`;
+		const chips = [];
+		if (board && !board.unavailable && typeof section !== "string") {
+			const squad = board.squads.find((item) => item.name === section.squad);
+			const timers = board.schedules?.filter((item) => item.squad === section.squad);
+			chips.push(squad ? squad.idleAlertMinutes ? `Idle alert ${squad.idleAlertMinutes} min` : "Idle alert not configured" : "Idle alert unavailable", timers && !board.truncated ? `Timers ${timers.length}` : "Timers unavailable", "Read only");
+		}
+		shell.setTitle(label, ["Ops"], "Ops", chips);
 		if (!board) main.replaceChildren(pageLoading());
 		else if (board.unavailable) main.replaceChildren();
-		else if (section === "settings") {
+		else if (typeof section !== "string") {
+			if (channel.node.parentElement !== main) main.replaceChildren(channel.node);
+			channel.update(board, section);
+			if (member && history.node.parentElement !== channel.history) channel.history.replaceChildren(history.node);
+		} else if (section === "settings") {
 			settings ??= settingsView(href);
 			if (settings.parentElement !== main) main.replaceChildren(settings);
 		} else {
@@ -9109,16 +10036,16 @@ function opsPage(shell, source = opsSource) {
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var cursor = (v) => v === null || typeof v === "string" && /^[A-Za-z0-9_-]{54}$/.test(v);
 var id = (v) => typeof v === "string" && v.length > 0;
-var revision = (v) => integer(v) && v > 0;
-var time = (v) => v === null || integer(v);
+var revision = (v) => integer$1(v) && v > 0;
+var time = (v) => v === null || integer$1(v);
 function inputKeys(value, keys) {
 	input(Object.keys(value).length === keys.length && keys.every((k) => Object.hasOwn(value, k)));
 }
 function page(value) {
-	input(cursor(value.cursor) && integer(value.limit) && value.limit >= 1 && value.limit <= 50);
+	input(cursor(value.cursor) && integer$1(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$2(value);
+	const row = object$3(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -9129,11 +10056,11 @@ function person(value) {
 		"createdAtMs",
 		"revokedAtMs"
 	]);
-	valid$5(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer(row.createdAtMs) && time(row.revokedAtMs));
+	valid$6(typeof row.remoteId === "string" && V4.test(row.remoteId) && id(row.memberId) && ["owner", "user"].includes(row.role) && memberName(row.displayName) && typeof row.sendingEnabled === "boolean" && revision(row.revision) && integer$1(row.createdAtMs) && time(row.revokedAtMs));
 	return row;
 }
 function invitation(value) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -9143,7 +10070,7 @@ function invitation(value) {
 			"localConfirmationKnown",
 			"cleanup"
 		]);
-		valid$5(row.state === "current" && time(row.expiresAtMs) && [
+		valid$6(row.state === "current" && time(row.expiresAtMs) && [
 			"open",
 			"awaiting-owner",
 			"confirmed",
@@ -9160,7 +10087,7 @@ function invitation(value) {
 	return row;
 }
 function routes$1(value) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -9168,12 +10095,12 @@ function routes$1(value) {
 			"publicationPending",
 			"removalPending"
 		]);
-		valid$5(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
+		valid$6(row.state === "recorded" && typeof row.publicationPending === "boolean" && typeof row.removalPending === "boolean");
 	}
 	return row;
 }
 function machine(value, caller) {
-	const row = object$2(value);
+	const row = object$3(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -9190,19 +10117,19 @@ function machine(value, caller) {
 		"liveSessionCount",
 		"lastActivityAtMs"
 	]);
-	valid$5(id(row.clientId) && memberName(row.name) && [
+	valid$6(id(row.clientId) && memberName(row.name) && [
 		"browser",
 		"addon",
 		"cli"
 	].includes(row.kind) && revision(row.revision) && typeof row.revoked === "boolean" && time(row.expiresAtMs) && typeof row.sendingScope === "boolean" && ["direct", "hold"].includes(row.delivery) && ["all", "restricted"].includes(row.recipientAccess) && typeof row.grantLive === "boolean" && time(row.lastUsedAtMs) && row.thisBrowser === (row.clientId === caller) && time(row.liveSessionCount) && time(row.lastActivityAtMs));
-	valid$5(!row.revoked || !row.grantLive);
-	valid$5(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer(row.lastActivityAtMs));
+	valid$6(!row.revoked || !row.grantLive);
+	valid$6(row.liveSessionCount === null || row.liveSessionCount === 0 ? row.lastActivityAtMs === null : integer$1(row.lastActivityAtMs));
 	return row;
 }
 function original(value, operationId) {
-	const row = object$2(value);
+	const row = object$3(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$2(row.result);
+	const result = object$3(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -9210,15 +10137,15 @@ function original(value, operationId) {
 		"result",
 		"sessionEnded"
 	]);
-	valid$5(row.operationId === operationId && typeof row.sessionEnded === "boolean");
+	valid$6(row.operationId === operationId && typeof row.sessionEnded === "boolean");
 	if (Object.hasOwn(result, "member")) {
 		exact(result, ["member"]);
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$2(result.remote);
+		const remote = object$3(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
-		valid$5(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
+		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
 	return row;
 }
@@ -9234,12 +10161,12 @@ function members(session, options = {}) {
 		return managementMutation(call, operation, frozen, (value) => {
 			const parsed = original(value, frozen.operationId);
 			if (parsed.state === "committed") {
-				if (kind === "remote") valid$5("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
+				if (kind === "remote") valid$6("remote" in parsed.result && parsed.result.remote.remoteId === frozen.remoteId && parsed.result.remote.displayName === frozen.name);
 				else {
-					valid$5("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
-					if (operation === "remote.members.rename") valid$5(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
-					if (operation === "remote.members.sending") valid$5(parsed.result.member.sendingEnabled === frozen.enabled);
-					if (operation === "remote.members.revoke") valid$5(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
+					valid$6("member" in parsed.result && "memberId" in frozen && parsed.result.member.remoteId === frozen.remoteId && parsed.result.member.memberId === frozen.memberId && parsed.result.member.revision >= frozen.memberRevision);
+					if (operation === "remote.members.rename") valid$6(parsed.result.member.displayName === frozen.name && parsed.sessionEnded === false);
+					if (operation === "remote.members.sending") valid$6(parsed.result.member.sendingEnabled === frozen.enabled);
+					if (operation === "remote.members.revoke") valid$6(parsed.result.member.revokedAtMs !== null && !parsed.result.member.sendingEnabled);
 				}
 			}
 			return parsed;
@@ -9251,13 +10178,13 @@ function members(session, options = {}) {
 	return {
 		clientId,
 		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
-			const row = object$2(value);
+			const row = object$3(value);
 			exact(row, [
 				"remoteId",
 				"memberCount",
 				"lastActiveAtMs"
 			]);
-			valid$5(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
+			valid$6(row.remoteId === remoteId && time(row.memberCount) && time(row.lastActiveAtMs));
 			return row;
 		}),
 		list: (value) => {
@@ -9265,7 +10192,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$2(value);
+				const row = object$3(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -9275,18 +10202,18 @@ function members(session, options = {}) {
 					"invitation",
 					"routes"
 				]);
-				valid$5(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
+				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
-					const observed = object$2(entry);
-					valid$5(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
+					const observed = object$3(entry);
+					valid$6(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
 					const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
 					const member = person(base);
-					valid$5(member.remoteId === row.remoteId && !seen.has(member.memberId));
+					valid$6(member.remoteId === row.remoteId && !seen.has(member.memberId));
 					seen.add(member.memberId);
 				}
 				if (row.administrator) invitation(row.invitation);
-				else valid$5(row.members.length <= 1 && row.invitation === null);
+				else valid$6(row.members.length <= 1 && row.invitation === null);
 				routes$1(row.routes);
 				return row;
 			});
@@ -9301,18 +10228,18 @@ function members(session, options = {}) {
 			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$2(value);
+				const row = object$3(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
 					"machines",
 					"nextCursor"
 				]);
-				valid$5(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
+				valid$6(row.remoteId === remoteId && row.memberId === frozen.memberId && Array.isArray(row.machines) && row.machines.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.machines) {
 					const item = machine(entry, clientId);
-					valid$5(!seen.has(item.clientId));
+					valid$6(!seen.has(item.clientId));
 					seen.add(item.clientId);
 				}
 				return row;
@@ -9366,8 +10293,8 @@ function members(session, options = {}) {
 			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => {
 				const parsed = original(value, operationId);
 				if (parsed.state === "committed") {
-					if ("member" in parsed.result) valid$5(parsed.result.member.remoteId === remoteId);
-					if ("remote" in parsed.result) valid$5(parsed.result.remote.remoteId === remoteId);
+					if ("member" in parsed.result) valid$6(parsed.result.member.remoteId === remoteId);
+					if ("remote" in parsed.result) valid$6(parsed.result.remote.remoteId === remoteId);
 				}
 				return parsed;
 			});
@@ -9846,7 +10773,7 @@ async function remoteApp(shell, main, bar, settingsStyles, pages) {
 	localRename?.addEventListener("click", () => registry.renameCurrent(localRename), { signal: shell.signal });
 	shell.described((answer) => {
 		if (shell.signal.aborted) return;
-		reportedNeeds = answer?.modules.find((module) => module.extension === "remote")?.needsYou;
+		reportedNeeds = answer?.modules.find((module) => module.extension === "remote" && !("module" in module))?.needsYou;
 		layout();
 	});
 	function observeSummary() {
@@ -10699,7 +11626,7 @@ function navigationSnapshot(answer, rail, here, href) {
 	};
 	for (const item of rail) {
 		if (item.disabled) continue;
-		const module = answer.modules.find((module) => module.extension === item.id);
+		const module = answer.modules.find((module) => module.extension === item.id && !("module" in module));
 		if (!module && item.id !== "home" && item.id !== "settings") continue;
 		add(item.id, item.label, item.href, item.icon);
 		if (!module) continue;
@@ -10930,7 +11857,10 @@ function remotePage(html, run) {
 			return;
 		}
 		const lifetime = new AbortController();
-		hostRemote(slot, lifetime.signal, observedSession, (reason) => heldBy = reason);
+		hostRemote(slot, lifetime.signal, observedSession, (reason) => heldBy = reason, {
+			get: rootSession,
+			forget: forgetSession
+		});
 		let ended = false;
 		const end = () => {
 			if (ended) return;
@@ -10959,7 +11889,7 @@ function remotePage(html, run) {
 var COLAB_ENTRY = "assets/colab-module.js";
 /** Colab as the composed answer describes it: its own link, and its entry only if confined. */
 function colabLoad(answer) {
-	const colab = answer?.modules.find((module) => module.extension === "colab");
+	const colab = answer?.modules.find((module) => module.extension === "colab" && !("module" in module));
 	if (!colab) return void 0;
 	return moduleLoad(colab.rail.path, colab.entry, location.href, COLAB_ENTRY);
 }
@@ -11085,6 +12015,34 @@ function observedSession(next) {
 	search?.replace();
 	publishSearch?.();
 }
+var sessionAdmission;
+/** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
+function rootSession(signal) {
+	signal.throwIfAborted();
+	if (session && channelFor(session)?.ended === false) return Promise.resolve(session);
+	if (sessionAdmission?.signal === signal) return sessionAdmission.result;
+	const result = import("./remote-v1.js").then(async ({ reopenSession }) => {
+		const next = await reopenSession(void 0, { signal });
+		signal.throwIfAborted();
+		observedSession(next);
+		return next;
+	});
+	const admitted = {
+		signal,
+		result
+	};
+	sessionAdmission = admitted;
+	result.finally(() => {
+		if (sessionAdmission === admitted) sessionAdmission = void 0;
+	}).catch(() => {});
+	return result;
+}
+function forgetSession(previous) {
+	if (session !== previous) return;
+	session = void 0;
+	search?.replace();
+	publishSearch?.();
+}
 /** Start the app once in the served shell document. */
 function shellApp() {
 	const root = document.querySelector(".tmt-ui-shell");
@@ -11191,6 +12149,7 @@ function shellApp() {
 	});
 	const dispose = () => {
 		currentRoute?.abort();
+		session = void 0;
 		search?.dispose();
 		host.dispose();
 		status.remove();
@@ -13073,4 +14032,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, conversations, firebaseRemote, invitationPage, invitations, invitePage, landingPage, management, members, operations, pairingPage, remoteRegistry, reopenSession, shellApp, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

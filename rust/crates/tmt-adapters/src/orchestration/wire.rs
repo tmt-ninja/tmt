@@ -165,7 +165,23 @@ pub enum OrchReadQuery {
         before: Option<u64>,
         limit: Option<u16>,
     },
+    /// Agent pairs with recent or held talk (#4892).
+    Talks {
+        #[serde(rename = "memberQuery")]
+        member_query: Option<String>,
+        limit: Option<u16>,
+        after: Option<String>,
+    },
+    /// The sending verdict for each ordered pair among the selected members (#4892).
+    Routes {
+        #[serde(rename = "memberQuery")]
+        member_query: Option<String>,
+        limit: Option<u16>,
+        after: Option<String>,
+    },
 }
+/// The page bound of the `talks` and `routes` views, and of `routes`' selected members.
+pub(crate) const ORCH_PAGE_MAX: u16 = 256;
 pub fn decode_orch_query(bytes: &[u8]) -> Result<OrchReadQuery, OrchError> {
     if bytes.len() > ORCH_DOCUMENT_BYTES + 4096 {
         return Err(OrchError::Limit);
@@ -210,6 +226,23 @@ pub(crate) fn validate_query(query: &OrchReadQuery) -> Result<(), OrchError> {
             if !subject.valid()
                 || before.is_some_and(|v| !valid_ms(v))
                 || limit.is_some_and(|v| !(1..=100).contains(&v))
+            {
+                return Err(OrchError::Invalid);
+            }
+        }
+        OrchReadQuery::Talks {
+            member_query,
+            limit,
+            after,
+        }
+        | OrchReadQuery::Routes {
+            member_query,
+            limit,
+            after,
+        } => {
+            if member_query.as_ref().is_some_and(|s| !label(s, 80))
+                || limit.is_some_and(|v| !(1..=ORCH_PAGE_MAX).contains(&v))
+                || after.as_ref().is_some_and(|s| !label(s, 160))
             {
                 return Err(OrchError::Invalid);
             }

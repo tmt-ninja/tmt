@@ -8,6 +8,11 @@ import { ReaderApp } from '../src/reader-app.js';
 let root: Root | undefined;
 let publish: ((view: PageView) => void) | undefined;
 let current: PageView;
+/** One linked sub-page, so the status band has a list to open. */
+const SUBPAGE_WORK: NonNullable<PageView['work']> = {
+  version: 2,
+  order: ['20000000-0000-4000-8000-000000000002'],
+};
 export function mount(
   source: string,
   attribution?: Pick<Projection, 'originalAuthor' | 'publisherAgent'>,
@@ -22,7 +27,7 @@ export function mount(
     document.body.append(host);
   }
   root = createRoot(host);
-  current = { title: header.title ?? 'Release notes', source, ...attribution };
+  current = { title: header.title ?? 'Release notes', source, work: SUBPAGE_WORK, ...attribution };
   const binding: PageBinding = {
     subscribe(next) {
       publish = next;
@@ -77,7 +82,10 @@ export async function mountReader(
   root = createRoot(host);
   root.render(
     <ReaderApp
-      state={{ kind: 'ready', view: { title: 'Reader notes', source, ...attribution } }}
+      state={{
+        kind: 'ready',
+        view: { title: 'Reader notes', source, work: SUBPAGE_WORK, ...attribution },
+      }}
     />,
   );
 }

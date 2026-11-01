@@ -694,7 +694,7 @@ never silently truncate. The daily sweep recovers missed dispatches and genuine 
 failures without authorizing publication or a publishing-workflow replay.
 
 `project-release.yml` sweeps closed issue items (except `epic`) of
-[pj-tmt project 1](https://github.com/orgs/pj-tmt/projects/1) and owns `Status` and
+[tmt-ninja project 1](https://github.com/orgs/tmt-ninja/projects/1) and owns `Status` and
 `Released in` for them; it needs **Organization projects: read and write** on the release App
 token (main-only `release` Environment) and no PAT. The daily cron is 04:23 UTC, and
 `native-release-bundle.yml` dispatches a full sweep after publication read-back and
@@ -729,8 +729,9 @@ and `--tag-pr N` (repeatable) marks
 confounder PRs. Terminal job pages refresh once through complete acquisition before cache reuse;
 unqualified offline pages cannot prove completion. API source SHA/tree stay separate from each
 worker's checkout-log and immutable Git-tree proof; missing or ambiguous checkout evidence and
-legacy source-only snapshots are excluded from same-tested-tree candidates. Only relevant failed
-workers and subsequent successes acquire bounded logs within the REST budget. The script and
+legacy source-only snapshots are excluded from same-tested-tree candidates. Failed workers acquire
+bounded logs within the REST budget; a later success does only while a same-worker failure with a
+proven tree is unpaired and the success reruns that run or carries that API head tree. The script and
 report state their methodology limits. Verify with
 `pnpm exec vp test run --config vitest.config.ts test/tooling/merge-queue-metrics.test.ts` from
 `typescript/`.

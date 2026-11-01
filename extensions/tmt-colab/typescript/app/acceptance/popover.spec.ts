@@ -60,7 +60,9 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
         // The × closes, returns focus to the page frame and the selection (and its Annotate
         // control) is still there; clearing the selection then removes the control.
         await open(touch);
-        await page.screenshot({ path: `/tmp/1713-native-${width}-${theme}-popover.png` });
+        await page.screenshot({
+          path: test.info().outputPath(`1713-native-${width}-${theme}-popover.png`),
+        });
         if (touch) await tap(page, close);
         else await close.click();
         await expect(popover).toHaveCount(0);
@@ -119,7 +121,8 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await close.click();
     expect(agent.received()).toHaveLength(0);
 
-    // A send in flight is not interrupted by the ×, Escape or an outside press.
+    // A send in flight belongs to its window (#5816): the × closes it without waiting, and the same
+    // quote shows that window again, still sending and still fencing a second send.
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
@@ -144,12 +147,14 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
       popover.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
     ).toBeDisabled();
     await close.click();
-    await close.focus();
-    await page.keyboard.press('Escape');
-    await page.locator('.tmt-ui-topbar:visible').click({ position: { x: 4, y: 4 } });
-    await clearSelection(page);
-    await page.waitForTimeout(300);
-    await expect(popover).toBeVisible();
+    await expect(popover).toHaveCount(0);
+    await selectInRenderer(page, '#quote');
+    await page.getByTestId('selection-ask').click();
+    await expect(popover.getByTestId('comment-echo')).toContainText('Hold this send.');
+    await expect(
+      popover.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
+    expect(agent.received()).toHaveLength(0);
     release();
     await expect.poll(() => agent.received().length).toBe(1);
     await expect(popover).toBeVisible();

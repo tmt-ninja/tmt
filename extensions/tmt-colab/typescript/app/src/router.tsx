@@ -1,3 +1,4 @@
+import { useNeedsYouVersions } from './use-needs-you-versions.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
@@ -38,6 +39,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   MousePointer2,
+  X,
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { AppHeader } from './app-header.js';
@@ -89,7 +91,8 @@ import { ColabSettings } from './colab-settings.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { shareView } from './share-view.js';
-import { pendingNeedsYou } from './needs-you.js';
+import { pendingNeedsYou, type NeedsYouCandidate } from './needs-you.js';
+import { needsYouTarget, readNeedsYouAcknowledgements } from './needs-you-acknowledgement.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
@@ -105,7 +108,7 @@ import {
   type ThreadFilter,
 } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
-import type { QuoteSelector } from './thread-records.js';
+import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
@@ -144,10 +147,10 @@ import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
- * footers, and the open work band's controls and add-task row, which can fill a phone's viewport. */
-const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card, .work-add';
+ * footers, and the open work band's controls, which can fill a phone's viewport. */
+const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
 const AVOIDED_BAND =
-  '.work-band :is(button, a[href], input, select, textarea, [role="combobox"], [role="menuitem"])';
+  '.work-band :is(button, a[href], input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"])';
 
 /** The control belongs to trusted chrome; only mode is projected into author content. */
 function PageFloatingActions({
@@ -262,11 +265,18 @@ function PageFloatingActions({
         }
         if (!moved) break;
       }
+      // The work band is pinned right under the page bar: above its top there is only chrome.
+      const ceiling = Math.max(
+        0,
+        workspace?.querySelector('.work-band')?.getBoundingClientRect().top ?? 0,
+      );
       const next = {
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
         visibility:
-          bottom - margin - (fab?.height ?? 0) >= 8 ? ('visible' as const) : ('hidden' as const),
+          bottom - margin - (fab?.height ?? 0) >= ceiling + 8
+            ? ('visible' as const)
+            : ('hidden' as const),
       };
       setPlacement(next);
       onPlacement({ right: next.right, bottom: next.bottom, height: fab?.height ?? 0 });
@@ -336,9 +346,11 @@ function PageFloatingActions({
               <>
                 <MessageCircle />
                 {chatUnread && (
-                  <span className="chat-unread">
-                    <span aria-hidden="true">•</span> {text.chatUnread}
-                  </span>
+                  <span
+                    className="chat-unread tmt-ui-attention-dot"
+                    data-placement="overlay"
+                    aria-hidden="true"
+                  />
                 )}
               </>
             }
@@ -385,6 +397,8 @@ function SelectionAnnotation({
   noticeVisible,
   toggleVisible,
   open,
+  expanded,
+  control,
   thread,
   arrivals,
   children,
@@ -395,13 +409,16 @@ function SelectionAnnotation({
   noticeVisible: boolean;
   toggleVisible: boolean;
   open(): void;
+  /** An annotation window is shown; otherwise the Annotate control, when `control`. */
+  expanded: boolean;
+  control: boolean;
   /** The thread the window shows, so a different thread starts from its own place. */
   thread?: string;
   /** The records in the window's thread; an arrival after the first grows it upward, not downward. */
   arrivals: number;
+  /** Every annotation window: the shown one, and hidden ones whose send still runs (#5816). */
   children?: React.ReactNode;
 }) {
-  const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
   // The lower edge a thread window keeps once a record arrives in it, relative to its anchor, and
   // the height and arrivals seen by the last placement.
@@ -588,10 +605,10 @@ function SelectionAnnotation({
   return (
     <div
       ref={element}
-      className={children ? 'annotation-popover' : 'selection-control'}
-      data-testid={children ? undefined : 'selection-ask'}
+      className={expanded ? 'annotation-popover' : 'selection-control'}
+      data-testid={expanded || !control ? undefined : 'selection-ask'}
       // The control never takes the pointer from the selection it annotates.
-      onPointerDown={children ? undefined : (event) => event.preventDefault()}
+      onPointerDown={expanded ? undefined : (event) => event.preventDefault()}
       style={
         {
           ...(position
@@ -602,11 +619,11 @@ function SelectionAnnotation({
                 maxHeight: position.maxHeight,
               }
             : {}),
-          visibility: position ? 'visible' : 'hidden',
+          visibility: position && (expanded || control) ? 'visible' : 'hidden',
         } as React.CSSProperties
       }
     >
-      {children ?? (
+      {!expanded && control && (
         <BrowserIconAction
           type="button"
           variant="primary"
@@ -618,6 +635,7 @@ function SelectionAnnotation({
           }}
         />
       )}
+      {children}
     </div>
   );
 }
@@ -684,6 +702,12 @@ function EndedBody({
       )}
     </>
   );
+}
+
+/** A quote short enough to name in one line: whitespace collapsed, at most 40 characters. */
+function quoteExcerpt(quote: string) {
+  const characters = [...quote.replace(/\s+/g, ' ').trim()];
+  return characters.length > 40 ? `${characters.slice(0, 39).join('')}…` : characters.join('');
 }
 
 function EndedLink({ action, primary = false }: { action: EndedAction; primary?: boolean }) {
@@ -1261,8 +1285,8 @@ function OpenPage({
   transport: PageTransport;
   space: string | undefined;
   loaded: PageSnapshot;
-  /** The reading, element or task a link or a shell item opened the page at. */
-  search: { read?: string; anchor?: string; task?: string };
+  /** The reading or element a link or a shell item opened the page at. */
+  search: { read?: string; anchor?: string };
   scope: string | undefined;
   routing: PageRouting;
   /** The page is hosted in a panel of another page: its drawers and menus stay the app's, but the
@@ -1501,6 +1525,10 @@ function OpenPage({
     rectangle,
     currentRectangle,
     annotation,
+    annotations,
+    unsentAnnotations,
+    openUnsent,
+    discardDraft,
     annotationRef,
     popover,
     drafts,
@@ -1508,7 +1536,8 @@ function OpenPage({
     draftsUnsaved,
     keepDraft,
     annotationDraft,
-    annotationBusy,
+    annotationSending,
+    annotationRecorded,
     statusBusy,
     changingStatus,
     setChangingStatus,
@@ -1535,13 +1564,14 @@ function OpenPage({
     setSelectionMode(false);
     closeIf('agents', 'export');
   }, [archived, closeIf, setSelectionMode]);
-  const annotationThread = annotation?.thread
-    ? view.threads?.find(
-        (thread) =>
-          thread.ref.writer === annotation.thread!.writer &&
-          thread.ref.id === annotation.thread!.id,
-      )
-    : undefined;
+  const threadOf = (value: { thread?: DiscussionRef } | undefined) =>
+    value?.thread
+      ? view.threads?.find(
+          (thread) =>
+            thread.ref.writer === value.thread!.writer && thread.ref.id === value.thread!.id,
+        )
+      : undefined;
+  const annotationThread = threadOf(annotation);
   const numbers = useMemo(() => threadNumbers(view.threads ?? []), [view.threads]);
   // The Comments drawer shows one thread's Discussion view while a thread of this page is selected.
   const discussedThread =
@@ -1604,6 +1634,11 @@ function OpenPage({
   const statusCoordinator =
     archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Read once, so the annotation windows below keep its narrowing.
+  const pageBinding = snapshot.binding;
+  // The Annotate control shows for a selection when no window is open.
+  const annotationControl =
+    !annotation && !!snapshot.binding?.ask && !selectionMode && !liveError && state === 'ready';
   // Counts sources the open frame applied in place (#5022): what the page draws over the frame is
   // placed again for each, as it is when a fresh frame becomes ready.
   const [contentRevision, setContentRevision] = useState(0);
@@ -1657,7 +1692,7 @@ function OpenPage({
     if (panel === 'chat') {
       if (!chatBusy.current) closeChat();
     } else if (panel === 'comments') {
-      if (!annotationBusy.current && !statusBusy.current) closeComments();
+      if (!statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
   };
@@ -1708,7 +1743,7 @@ function OpenPage({
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode, annotate, annotationRef, currentSelector, currentRectangle]);
-  const { read: readingHint, anchor, task } = search;
+  const { read: readingHint, anchor } = search;
   const {
     readings,
     inlineSlots,
@@ -1739,7 +1774,7 @@ function OpenPage({
     recoveryRequired,
     connectionPresentation,
     statusCoordinator,
-    otherBusy: () => annotationBusy.current || statusBusy.current,
+    otherBusy: () => statusBusy.current,
     closeAnnotation: () => closeRef.current(false),
     draft: (key) => drafts.current.get(key),
     keepDraft,
@@ -1899,13 +1934,7 @@ function OpenPage({
         ])
       : undefined,
     activate: (event) => {
-      if (
-        panel ||
-        annotationRef.current?.thread ||
-        annotationBusy.current ||
-        statusBusy.current ||
-        chatBusy.current
-      )
+      if (panel || annotationRef.current?.thread || statusBusy.current || chatBusy.current)
         return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
@@ -1949,6 +1978,38 @@ function OpenPage({
         else setActiveThread(null);
       }}
     />
+  );
+  const attentionBinding = snapshot.binding?.discussion;
+  const attentionScope = attentionBinding?.scope;
+  const attentionVersions = useNeedsYouVersions(view.source, [
+    ...proposalLayer.navigation,
+    ...readingLayer.items
+      .filter((item) => inlineSlots.readingIds.has(item.id))
+      .map((item) => ({
+        ...item,
+        kind: 'reading' as const,
+        agents: [readings.find((reading) => reading.id === item.id)?.agent ?? ''].filter(Boolean),
+      })),
+    ...(view.questions === undefined
+      ? questionLayer.navigation
+      : (verifiedQuestionStates(view) ?? [])
+          .filter((question) => question.state === 'open' && questionLayer.attached(question.id))
+          .map((question) => ({
+            kind: 'answer' as const,
+            version: JSON.stringify([question, questionLayer.version(question.id)]),
+            state: 'unanswered' as const,
+            id: question.id,
+            title: question.title ?? question.id,
+            agents: [question.agent?.name ?? view.creator?.agent.name ?? ''].filter(Boolean),
+          }))),
+    ...reviewLayer.navigation,
+  ]);
+  const needsYouItems: NeedsYouCandidate[] = pendingNeedsYou(
+    attentionVersions.items,
+    view.questions !== undefined,
+    attentionScope && attentionBinding
+      ? readNeedsYouAcknowledgements(view.own ?? {}, attentionScope, attentionBinding.deviceId)
+      : new Set(),
   );
   const content = (
     <section
@@ -1996,61 +2057,52 @@ function OpenPage({
         home={routing.home}
         status={
           <div className="page-header-meta">
-            {!discussionPending &&
-              questionLayer.ready &&
-              reviewLayer.ready &&
-              readingLayer.ready && (
-                <NeedsYouHeader
-                  menuFocus={needsYouMenuFocus}
-                  href={(item) =>
-                    routing.pageHref(
-                      snapshot.id,
-                      item.kind === 'reading' ? { read: item.id } : undefined,
-                    )
-                  }
-                  items={pendingNeedsYou(
-                    [
-                      ...proposalLayer.navigation,
-                      ...readingLayer.items
-                        .filter((item) => inlineSlots.readingIds.has(item.id))
-                        .map((item) => ({
-                          ...item,
-                          kind: 'reading' as const,
-                          agents: [
-                            readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                          ].filter(Boolean),
-                        })),
-                      ...(view.questions === undefined
-                        ? questionLayer.navigation
-                        : (verifiedQuestionStates(view) ?? [])
-                            .filter((question) => question.state === 'open')
-                            .map((question) => ({
-                              kind: 'answer' as const,
-                              state: 'unanswered' as const,
-                              id: question.id,
-                              title: question.title ?? question.id,
-                              agents: [
-                                question.agent?.name ?? view.creator?.agent.name ?? '',
-                              ].filter(Boolean),
-                            }))),
-                      ...reviewLayer.navigation,
-                    ],
-                    view.questions !== undefined,
-                  )}
-                  onPick={(item) => {
-                    if (item.kind === 'proposal') {
-                      if (!proposalLayer.jump(item.id)) {
-                        const ref = proposalLayer.reference(item.id);
-                        if (ref) openThread(ref);
+            {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
+            <NeedsYouHeader
+              ready={
+                !discussionPending &&
+                questionLayer.ready &&
+                reviewLayer.ready &&
+                readingLayer.ready &&
+                attentionVersions.ready
+              }
+              menuFocus={needsYouMenuFocus}
+              href={(item) =>
+                routing.pageHref(
+                  snapshot.id,
+                  item.kind === 'reading' ? { read: item.id } : undefined,
+                )
+              }
+              items={needsYouItems}
+              onClear={
+                !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
+                  ? async (items) => {
+                      const heldBinding = attentionBinding;
+                      for (const item of items.filter((item) => item.kind === 'reading')) {
+                        const reading = readings.find((reading) => reading.id === item.id);
+                        if (!reading || !(await readingLayer.actions.mark(reading, false)))
+                          throw new Error(text.needsYouClearFailed);
                       }
-                    } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                    else if (item.kind === 'answer') {
-                      if (!questionLayer.open(item.targetId ?? item.id))
-                        setMetadataDialog('questions');
-                    } else if (item.kind === 'review') reviewLayer.jump(item.id);
-                  }}
-                />
-              )}
+                      if (binding.current?.discussion !== heldBinding)
+                        throw new Error(text.needsYouClearFailed);
+                      await heldBinding.acknowledgeNeedsYou!(
+                        items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
+                      );
+                    }
+                  : undefined
+              }
+              onPick={(item) => {
+                if (item.kind === 'proposal') {
+                  if (!proposalLayer.jump(item.id)) {
+                    const ref = proposalLayer.reference(item.id);
+                    if (ref) openThread(ref);
+                  }
+                } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                else if (item.kind === 'answer') {
+                  if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
+                } else if (item.kind === 'review') reviewLayer.jump(item.id);
+              }}
+            />
             {/* The connection state is not shown (a notice below the header carries trouble); its words
                 stay in the document for assistive technology and as the page's readiness signal. */}
             <span
@@ -2163,19 +2215,39 @@ function OpenPage({
           onSize={setWorkBandSize}
           work={view.work}
           pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-          progress={view.progress}
           binding={snapshot.binding}
           transport={transport}
           space={space}
           pageId={snapshot.id}
-          focusTask={task}
+          title={view.title}
           pageHref={routing.pageHref}
+          openPage={(id) => routing.open(`/pages/${id}`)}
         />
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
               {text.anchorMissing}
             </p>
+          )}
+          {/* A first comment that failed after its window closed is said here, never only on the
+              quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
+          {unsentAnnotations.length > 0 && (
+            <ul className="page-unsent" role="alert">
+              {unsentAnnotations.map((item) => (
+                <li key={item.key}>
+                  <X aria-hidden="true" className="page-unsent-mark" />
+                  <span>{text.annotationUnsent(quoteExcerpt(item.selector?.exact ?? ''))}</span>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.annotationUnsentOpen}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openUnsent(item.key);
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
           <div className="frame-host" ref={host} />
           {editLockLayer.layer}
@@ -2226,7 +2298,7 @@ function OpenPage({
           style={
             {
               '--discussion-right': `${dockPlacement.right}px`,
-              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+              '--discussion-bottom': `calc(${dockPlacement.bottom + dockPlacement.height}px + var(--tmt-ui-space-l))`,
             } as React.CSSProperties
           }
           closeLabel={text.discussionClose}
@@ -2288,7 +2360,7 @@ function OpenPage({
           <SavedDrafts
             archived={archived}
             drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
-            discard={(key) => keepDraft(key, null)}
+            discard={discardDraft}
           />
           {draftsUnsaved && (
             <p role="status" className="annotation-hint saved-drafts-notice">
@@ -2395,34 +2467,37 @@ function OpenPage({
           selectPending={selectPending}
         />
       )}
-      {snapshot.binding?.discussion &&
-        (snapshot.binding?.ask || annotation) &&
-        (annotation || !selectionMode) &&
-        (annotation || (!liveError && state === 'ready')) && (
-          <SelectionAnnotation
-            host={host.current}
-            rectangle={annotation?.rectangle ?? rectangle}
-            inset={toolbar.current?.offsetHeight ?? 0}
-            noticeVisible={state === 'navigation' || state === 'failed'}
-            toggleVisible={canSelect}
-            open={annotate}
-            thread={annotationThread?.threadId}
-            arrivals={
-              annotationThread
-                ? annotationThread.comments.length +
-                  (view.asks ?? []).filter(
-                    (ask) => ask.thread === annotationThread.threadId && ask.reply !== undefined,
-                  ).length
-                : 0
-            }
-          >
-            {annotation && (
+      {pageBinding?.discussion && (annotations.length > 0 || annotationControl) && (
+        <SelectionAnnotation
+          host={host.current}
+          rectangle={annotation?.rectangle ?? rectangle}
+          inset={toolbar.current?.offsetHeight ?? 0}
+          noticeVisible={state === 'navigation' || state === 'failed'}
+          toggleVisible={canSelect}
+          open={annotate}
+          expanded={!!annotation}
+          control={annotationControl}
+          thread={annotationThread?.threadId}
+          arrivals={
+            annotationThread
+              ? annotationThread.comments.length +
+                (view.asks ?? []).filter(
+                  (ask) => ask.thread === annotationThread.threadId && ask.reply !== undefined,
+                ).length
+              : 0
+          }
+        >
+          {annotations.map((item) => {
+            const shown = item.key === annotation?.key;
+            const itemThread = shown ? annotationThread : threadOf(item);
+            return (
               <section
-                key={annotation.key}
+                key={item.key}
                 className="annotation-new"
                 role="dialog"
                 aria-label="Annotate selection"
-                ref={popover}
+                hidden={!shown}
+                ref={shown ? popover : undefined}
                 onKeyDown={(event) => {
                   if (
                     event.key === 'Escape' &&
@@ -2444,89 +2519,82 @@ function OpenPage({
                 <ThreadWindow
                   connectionPresentation={connectionPresentation}
                   archived={archived}
-                  thread={annotationThread}
+                  thread={itemThread}
                   number={
-                    annotationThread
-                      ? numbers.get(`${annotationThread.ref.writer}:${annotationThread.threadId}`)
+                    itemThread
+                      ? numbers.get(`${itemThread.ref.writer}:${itemThread.threadId}`)
                       : undefined
                   }
-                  anchor={annotation.selector ?? undefined}
+                  anchor={item.selector ?? undefined}
                   layout="anchored"
                   attached={resolved.includes(
-                    annotation.thread ? `${annotation.thread.writer}:${annotation.thread.id}` : '',
+                    item.thread ? `${item.thread.writer}:${item.thread.id}` : '',
                   )}
                   anchorsChecked={anchorsChecked}
                   selection={selector}
-                  binding={snapshot.binding.discussion}
-                  ask={snapshot.binding.ask}
+                  binding={pageBinding.discussion}
+                  ask={pageBinding.ask}
                   asks={view.asks ?? []}
                   title={view.title || snapshot.title}
                   close={() => {
-                    if (annotationRef.current?.key === annotation.key) closeAnnotation(true);
+                    if (annotationRef.current?.key === item.key) closeAnnotation(true);
                   }}
                   blocked={discussionBlocked}
                   observationUnavailable={view.askUnavailable}
                   status={
-                    annotationThread
-                      ? presentationOf(view.threadPresentations, annotationThread.ref)?.status
+                    itemThread
+                      ? presentationOf(view.threadPresentations, itemThread.ref)?.status
                       : undefined
                   }
                   onStatusChange={
-                    annotationThread && statusCoordinator
-                      ? (resolved) => statusCoordinator.change(annotationThread, resolved)
+                    itemThread && statusCoordinator
+                      ? (resolved) => statusCoordinator.change(itemThread, resolved)
                       : undefined
                   }
                   onBusy={(busy) => {
-                    if (annotationRef.current?.key !== annotation.key) return;
+                    if (annotationRef.current?.key !== item.key) return;
                     statusBusy.current = busy;
                     setChangingStatus(busy);
                   }}
                   composer={
                     <>
-                      {annotation.restored !== undefined && (
-                        <p className="annotation-hint">Draft kept</p>
-                      )}
+                      {item.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
                       {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
-                      {annotationThread && <p className="annotation-reply-label">Reply</p>}
+                      {itemThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
                         connectionPresentation={connectionPresentation}
                         archived={archived}
-                        creationRecipient={
-                          annotationThread?.proposal?.proposer ?? creatorTarget(view)
-                        }
-                        binding={snapshot.binding.ask}
-                        discussion={snapshot.binding.discussion}
-                        anchor={annotationThread ? annotationThread.anchor : annotation.selector}
-                        thread={annotationThread}
+                        creationRecipient={itemThread?.proposal?.proposer ?? creatorTarget(view)}
+                        binding={pageBinding.ask}
+                        discussion={pageBinding.discussion}
+                        anchor={itemThread ? itemThread.anchor : item.selector}
+                        thread={itemThread}
                         asks={view.asks ?? []}
                         title={view.title || snapshot.title}
-                        blocked={discussionBlocked || changingStatus || !!annotationThread?.deleted}
+                        blocked={discussionBlocked || changingStatus || !!itemThread?.deleted}
                         recoveryRequired={
-                          recoveryRequired && !changingStatus && !annotationThread?.deleted
+                          recoveryRequired && !changingStatus && !itemThread?.deleted
                         }
-                        initialEdit={annotation.restored}
+                        initialEdit={item.restored}
                         onDraft={(_value, edit) => {
-                          if (annotationRef.current?.key !== annotation.key) return;
-                          annotationDraft.current = edit;
-                          keepDraft(annotationKey(annotation), edit);
+                          // A hidden window's composer still owns its draft (a failed row's text).
+                          if (annotationRef.current?.key === item.key)
+                            annotationDraft.current = edit;
+                          keepDraft(annotationKey(item), edit);
                         }}
-                        onBusy={(busy) => {
-                          if (annotationRef.current?.key !== annotation.key) return;
-                          annotationBusy.current = busy;
-                        }}
+                        onBusy={(busy) => annotationSending(item.key, busy)}
+                        onRecorded={() => annotationRecorded(item.key)}
                         cancel={() => closeAnnotation(true)}
-                        committed={(ref) => {
-                          if (annotationRef.current?.key === annotation.key)
-                            continueAnnotation(ref);
-                        }}
+                        committed={(ref) => continueAnnotation(item.key, ref)}
                       />
                     </>
                   }
                 />
               </section>
-            )}
-          </SelectionAnnotation>
-        )}
+            );
+          })}
+        </SelectionAnnotation>
+      )}
       {snapshot.binding?.files && (
         <FilesSurface
           notice={endedNotice}
@@ -2579,7 +2647,7 @@ function OpenPage({
           style={
             {
               '--discussion-right': `${dockPlacement.right}px`,
-              '--discussion-bottom': `${dockPlacement.bottom + dockPlacement.height + 16}px`,
+              '--discussion-bottom': `calc(${dockPlacement.bottom + dockPlacement.height}px + var(--tmt-ui-space-l))`,
             } as React.CSSProperties
           }
           title="Chat"
@@ -2698,7 +2766,7 @@ let linkSpace: string | undefined;
 /**
  * Inside the TMT app Colab's routes are paths under `/colab/`. Links printed or saved before keep
  * working: the preview's `#/pages/<id>` and an owner fragment's `path=` become the same path, with
- * its reading, anchor or task hint as search keys. The module runs it before anything reads the location
+ * its reading or anchor hint as search keys. The module runs it before anything reads the location
  * (the paired bootstrap keeps only a canonical fragment).
  */
 export function shellLocation() {
@@ -2718,7 +2786,7 @@ export function shellLocation() {
   }
   if (!path) return;
   const keys = new URLSearchParams(location.search);
-  for (const key of ['read', 'anchor', 'task', 'open'])
+  for (const key of ['read', 'anchor', 'open'])
     if (fragment.has(key)) keys.set(key, fragment.get(key)!);
   const search = keys.size ? `?${keys}` : '';
   if (/^\/(?:all|settings|pages\/[0-9a-f-]+|short\/[A-Za-z0-9_-]{4,64})?$/.test(path))

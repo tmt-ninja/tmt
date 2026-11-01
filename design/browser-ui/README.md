@@ -11,7 +11,8 @@ release readiness are separate consumer work.
 ## Entries and generation
 
 There is no root entry. `@tmt/browser-ui/static.css` exports checked
-`generated/static.css`; `@tmt/browser-ui/static` exports the frozen
+`generated/static.css`; `@tmt/browser-ui/editorial.css` exports the [editorial layer](#editorial-layer)
+(`generated/editorial.css`), which needs `static.css` for its tokens; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/shell` exports the
 [Shell](../gui-style.md#shell) model (`shellRail`, `describedMenu`, `shellCount`), its reader
 `loadShellAnswer` and the framework-free `mountShell` renderer, with Lucide icon data
@@ -47,9 +48,13 @@ its original declarations and spelling. Only that generated distribution
 is excluded from formatting; authored CSS remains formatted. Source-level policy tests inspect
 the assembled source, byte checks inspect the distribution, and browser comparisons verify
 that compilation preserves computed paint and layout. The check compares expected bytes without writing. `test/byte-budget.test.ts` holds the gzip
-size (level 9) of `generated/static.css` plus `generated/ui.css` to 22,267 bytes. The GUI
-lead approved 21,978 → 22,267 bytes for ListTable and PageSubheader (#5517), with no
-headroom or change to the UI foundation budget. The [Linux measurement](https://github.com/tmt-ninja/tmt/actions/runs/41143551311/job/124363432535) records the approved size.
+size (level 9) of `generated/static.css` plus `generated/ui.css` to the approved figure in that
+test, and `generated/editorial.css` to its own. The current shared cap is 23,006 bytes
+(22,685 + 321 for the shared rail, attention dot, metric roles and grip interaction), measured by
+[Linux CI](https://github.com/tmt-ninja/tmt/actions/runs/41228247407/job/124619513775).
+The test comment records the current owner-approved measurement without headroom;
+the editorial cap and UI foundation budget are unchanged. Overlapping changes rebase
+and re-measure rather than adding allowances.
 Class encapsulation is retained, and further increases return to the lead. Each pull request
 that changes these stylesheets reports their raw sizes. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
@@ -118,7 +123,16 @@ rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or
 external font requests.
 
+The dimension roles `control-size-l` (large list/search controls), `floating-action-size` (dock
+actions), `dock-width` (the Colab floating window) and `rail-group-height` come from the shared
+metric tokens; ordinary controls retain `control-size`.
+
 ### Shared rail
+
+The shared `.tmt-ui-attention-dot` uses the waiting role and `attention-dot-size`.
+It is inline without a ring by default; `data-placement="overlay"` positions it at an
+icon's top-right and adds an `attention-dot-ring-width` ring in `surface-sheet`.
+Its owner supplies the accessible label and tooltip; the dot is decorative.
 
 `mountShell` owns the one rail renderer; `BrowserShell` and `HostedShell` pass it the
 same `ShellMenu` model. Exactly one deepest current row is selected: a soft accent fill,
@@ -127,14 +141,16 @@ icon without a fill. Child rows, labelled group headings and group rows share a 
 indent. The phone drawer shows this same tree, without a separate module tab strip.
 Rows truncate to one line and retain their full labels on hover.
 
-A child can carry `total` and `count`: neutral grey and amber rounded pills, respectively,
-separated by `space-xs` (4px). Both use the body font and identical height, padding and
-minimum width; the neutral total has a visible grey fill and primary ink for contrast.
-Zero is hidden, values above 99 read `99+`, and selection
-never changes the pill colours. Module rows show only nonzero attention counts.
+A child can carry `total` and `count`: one muted, right-aligned tabular total and a waiting-colour
+attention dot before it. The tooltip and accessible name retain the attention count. Zero and
+unknown totals stay hidden; visible values above 99 read `99+`. Selection retains these roles.
+Module rows show nonzero attention as a dot with its count in the accessible name and tooltip.
+Optional `ShellMenuItem.icon` adds a decorative leading icon; rows without one retain their indent.
+Group headings use sentence case, label typography and `rail-group-height`.
 
 Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
-one icon button with `icon`, accessible `label` and host-owned `onActivate`. `add` is a
+one command with accessible `label` and host-owned `onActivate`; optional `icon` makes it an
+icon button, while its absence renders a right-aligned text action. `add` is a
 trailing muted button with a decorative 14px plus and the visible, accessible label (for
 example `New project`) and `onActivate`; it never navigates or becomes selected. Optional `ShellMenu.settings` is a
 navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
@@ -143,8 +159,31 @@ Callbacks update without rebuilding an otherwise unchanged view or losing keyboa
 
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands
-replace the visible pills in their reserved trailing area; their icons are 16px with 1.75
-stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle follows the same hover/focus rule.
+replace the visible total and attention dot in their reserved trailing area; their icons are 16px with 1.75
+stroke and the button targets are at least 28px. Labels and row geometry do not shift. The left reorder handle uses the shared `.tmt-ui-swap` slot: its decorative leading
+icon is the `data-swap="rest"` child and the grip is the `data-swap="reveal"` child.
+The slot owns opacity/visibility transitions on the fast motion token, instant under
+reduced motion. Hosts set `--tmt-ui-swap-progress` (0/1) and
+`--tmt-ui-swap-reveal-visibility` (hidden/visible); ShellMenu drives them from row
+hover, focus or drag. The grip remains outside the navigation link, with its full
+hit target centered on the retained icon slot, so labels do not move. Rows without
+reorder keep their icon. Coarse pointers retain the icon, hide the grip, and use
+Colab's Manage for reorder. Rest children are decorative; accessible labels remain
+on their owners.
+
+A `ShellMenuItem` may carry `children`, one nested level only (for example squad → member
+rows); a child's own `children` are not drawn. Disclosure is host-owned: the item says
+`expanded`, and its trailing chevron button (`aria-expanded`, "Show/Hide <label>") calls
+the item's `toggle()`. The rail never flips the state itself, and toggling keeps the
+phone drawer open. Children hang from a hairline under the parent's label, with the
+shared `rail-sub-indent` (8px). A current child is the selected row while its parent is
+expanded; a collapsed parent of the current child shows as the selected row instead
+(`visibleCurrent`). `emphasis: 'unread'` makes the label bold primary ink and adds
+"unread" to its accessible name. It is never a colour, and the `count` slot is unchanged.
+In the module menu, ArrowUp/Down move between visible rows. ArrowRight opens a parent, or
+enters it when it is open; ArrowLeft closes an open parent or returns from a child to its
+parent. Enter follows a link or activates the focused disclosure. Menus without
+`children` or `emphasis` draw no tree markup.
 
 Optional `ShellMenuGroup.reorder(fromId, toId)` requests moving `fromId` to the position
 currently occupied by `toId` in that same group. Dragging the handle or pressing
@@ -158,6 +197,42 @@ The optional static `page` class (`tmt-ui-page`) applies shared content insets:
 33px/36px block/inline, 24px/18px through 760px. Hosts opt in on their content
 wrapper and retain width limits, layout and scrolling. Page titles are 37px/720
 (29px compact), and card titles are 19px/660; these come from browser metric tokens.
+
+## Editorial layer
+
+Long-form text (Colab author pages, the blog, documents) reads on one type ramp. The `browser.type`
+group of `tokens.json` defines the roles, and `static.css` projects them as
+`--tmt-ui-type-<role>-<part>`.
+
+- **Roles:** `display`, `h1` to `h4`, `body`, `small`, `caption`, `label` and `code`.
+- **Parts:** `size`, `line-height`, `weight` and `tracking`.
+- **Reuse:** a part that names a metric reuses it, so the ramp cannot drift from page titles and
+  card titles.
+- **Compact width:** through 760px, `display` and `body` take their `compact-` sizes.
+- **Caption and label:** `caption` (12px) captions a figure; `label` is the 11px caption metric that
+  components use.
+
+`editorial.css` sets plain HTML inside one `.tmt-ui-prose` container. Every rule nests under a
+single `:where(.tmt-ui-prose)`, so it weighs one element and any component class or author rule wins.
+The layer sets:
+
+- headings on the ramp;
+- block rhythm (`space-l` between blocks, `space-xs` between list items, no outer space);
+- underlined links in `color-link`;
+- quotes and `hr`;
+- figures and `figcaption`;
+- inline `code` and a wrapping `pre` on `surface-code`;
+- the `.tmt-ui-tag` label.
+
+A bare `table` takes the [`tmt-ui-table`](#shared-pieces) rules themselves: the generator copies
+the marked region of `table.css` with the class rewritten. A chart in a figure is the chart piece
+itself. Because the scope appears once, a host can rescope the whole layer.
+
+Colab's page frame does this as `:where([data-colab-design] body)` in the `tmt-starter` layer, so an
+author page's plain elements get the layer with no class. The page starter keeps only the page
+column, section spacing and its two classes. A consumer such as the blog imports `static.css` and
+`editorial.css` through these entries and puts `tmt-ui-prose` on its article. It owns its own layout
+and tone, for example a blog-only accent set on the shared tokens.
 
 ## Controlled input contracts
 

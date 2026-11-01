@@ -61,6 +61,7 @@ export function AnnotationInput({
   onDraft,
   onBusy,
   onFailure,
+  onRecorded,
   blocked,
   recoveryRequired = false,
   connectionPresentation,
@@ -83,8 +84,10 @@ export function AnnotationInput({
   activation?: ComposerActivation;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
-  /** Reports a send in flight, which nothing outside may interrupt. */
+  /** Reports this composer's send in flight; its owner keeps the composer mounted meanwhile. */
   onBusy?(busy: boolean): void;
+  /** The message is recorded; its delivery may still be running (recovery is on the thread). */
+  onRecorded?(): void;
   /** A closing owner retains delivery recovery outside the composer. */
   onFailure?(failure: MessageSendFailure): void;
   blocked: boolean;
@@ -360,6 +363,7 @@ export function AnnotationInput({
             size,
             preview: files.preview(id),
           })),
+          captured.destinations.map((destination) => destination.agentName),
         );
         echoHost.show(echoed);
         setEchoing(true);
@@ -378,16 +382,33 @@ export function AnnotationInput({
         : chat
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
+      onRecorded?.();
       stage = 'dispatch';
       if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
       files.committed();
-      const failures = await sendCommentAsks(binding, origin, captured.destinations, {
-        quote,
-        comment: captured.value,
-        title: captured.title,
-        url: captured.url,
-        conversation: captured.conversation,
-      });
+      const deliveries: MessageEcho['deliveries'][number][] = [];
+      const failures = await sendCommentAsks(
+        binding,
+        origin,
+        captured.destinations,
+        {
+          quote,
+          comment: captured.value,
+          title: captured.title,
+          url: captured.url,
+          conversation: captured.conversation,
+        },
+        undefined,
+        (operationId, outcome) => {
+          if (
+            outcome.adopted === true &&
+            outcome.state !== 'preview' &&
+            outcome.state !== 'preparing'
+          )
+            deliveries.push({ operationId, state: outcome.state });
+        },
+      );
+      if (echoed) echoed = { ...echoed, deliveries };
       failures.forEach(recordFailure);
       if (!echoed) clearDraft();
       setError(undefined);
@@ -410,6 +431,7 @@ export function AnnotationInput({
         setBusy(false);
         setEchoing(false);
       }
+      if (echoed && origin) echoHost?.show({ ...echoed, sending: false });
       if (echoed && !origin) {
         // Not recorded: the echo becomes the failed row, which holds this exact draft.
         const failed: MessageEcho = {

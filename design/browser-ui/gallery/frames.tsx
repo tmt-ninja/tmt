@@ -33,6 +33,7 @@ import {
 } from '../src/shell.js';
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
+import { EditorialSection } from './editorial.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
 import { createIcon } from '../src/glyph.js';
@@ -636,6 +637,12 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       );
     case 'charts':
       return <ChartsSection />;
+    case 'prose':
+      return (
+        <main className="gallery-main">
+          <EditorialSection />
+        </main>
+      );
     case 'rail':
       return <RailFrame params={params} />;
     case 'shell':
@@ -705,6 +712,14 @@ export function ShellSection() {
         height={320}
         width={1080}
         params={{ menu: 'none' }}
+      />
+      <FramePair
+        title="Rail tree · squads with member children"
+        note="One nested level with a host-owned disclosure. The collapsed night squad holds the current member, so it shows as the selected row. Unread is bold, never a colour."
+        frame="rail"
+        height={560}
+        width={1080}
+        params={{ tree: 'true' }}
       />
       <FramePair title="Phone (390 px, ≤900 px layout)" frame="shell" width={390} height={560} />
       <FramePair

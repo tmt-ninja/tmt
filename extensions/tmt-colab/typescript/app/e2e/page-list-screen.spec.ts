@@ -59,6 +59,12 @@ for (const width of [1440, 390])
         return { search, tabs, list };
       };
       const before = await top();
+      // The tabs row (tabs plus the list actions) keeps #5818's space-l above the search row.
+      const tabsRow = (await app(page).locator('.tmt-ui-tabs-header').first().boundingBox())!;
+      expect(before.search.y - tabsRow.y - tabsRow.height).toBe(16);
+      expect(before.list.y - before.search.y - before.search.height).toBe(16);
+      expect(before.search.height).toBe(36);
+
       if (width < 480) {
         const tops = await app(page)
           .getByRole('tab')
@@ -413,12 +419,22 @@ for (const width of [1440, 390])
         };
       });
       expect(Math.abs(geometry.top)).toBeLessThan(1);
-      expect(geometry.height).toBe(58);
+      expect(geometry.height).toBe(53);
       expect(geometry.searchTop).toBeLessThan(geometry.actionBottom);
       expect(geometry.actionTop).toBeLessThan(geometry.searchBottom);
       expect(geometry.overflow).toBe(false);
       await expect(controls.locator('.page-scope-filters')).toHaveCount(0);
-      await expect(controls.locator('.page-list-sort')).toBeVisible({ visible: width <= 650 });
+      await expect(controls.locator('.page-list-sort')).toBeVisible();
+      const heights = await controls.evaluate((node) =>
+        [
+          '.page-list-search-box',
+          '.page-list-filter-menu button',
+          '.page-list-sort button',
+          '.page-list-compact-create button',
+        ].map((selector) => node.querySelector(selector)!.getBoundingClientRect().height),
+      );
+      expect(heights).toEqual([36, 36, 36, 36]);
+      await page.screenshot({ path: await capturePath(`5818-sticky-${width}-${theme}.png`) });
       await search.focus();
       await expect(search).toBeFocused();
       const create = home.getByRole('button', { name: 'New page', exact: true });
@@ -670,8 +686,15 @@ for (const width of [1440, 390])
     page,
   }) => {
     await mount(page, width, 'light');
-    await page.setViewportSize({ width, height: 180 });
     const home = app(page).locator('[data-page-list]');
+    // Shorten the viewport until the boundary sits just below the list's own viewport.
+    const below = await home.evaluate(
+      (node) =>
+        node.querySelector('.page-list-controls-boundary')!.getBoundingClientRect().top -
+        node.getBoundingClientRect().bottom,
+    );
+    const height = width < 480 ? 844 : 900;
+    await page.setViewportSize({ width, height: Math.min(180, Math.floor(height + below) - 8) });
     const outside = await home.evaluate(
       (node) =>
         node.querySelector('.page-list-controls-boundary')!.getBoundingClientRect().top >

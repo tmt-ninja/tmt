@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -18,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
+import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
 import {
   RUST_WORKERS,
   MAIN_FULL_JOBS,
@@ -689,6 +691,70 @@ describe('native dependency notices selection', () => {
       "      - name: Install Linux dependencies for PRs\n        if: github.event_name == 'pull_request'\n        uses: ./.github/actions/install-chromium-deps\n"
     );
   });
+  it('runs the Remote squads emulator qualifier advisory, path-filtered and bounded', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const workflow = read('.github/workflows/remote-squads-emulator.yml');
+    const readme = read(QUALIFIER_README);
+    // The Remote README owns the command; the script reads its two lines at run time.
+    const lines = readme
+      .split('## Native CLI emulator qualifier\n')[1]
+      .split('```sh\n')[1]
+      .split('```')[0]
+      .trim()
+      .split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('--only auth,firestore --project demo-native-pairing');
+    const prefix =
+      'CARGO_BUILD_JOBS=3 cargo test --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --lib --features test-emulator';
+    expect(qualifierCommands(readme)).toEqual({
+      build: [lines[0], `${prefix} --no-run`],
+      qualify: [lines[1]],
+    });
+    expect(lines[1]).toContain(` '${prefix.replace('CARGO_BUILD_JOBS=3 ', '')} cloud_pairing::`);
+    for (const broken of [
+      readme.replace('## Native CLI emulator qualifier', '## Renamed'),
+      readme.replace(lines[1], `${lines[1]}\n${lines[1]}`),
+      readme.replace(' -- --ignored', ''),
+      readme.replace(' firebase emulators:exec ', ' firebase serve '),
+    ])
+      expect(() => qualifierCommands(broken)).toThrow(QUALIFIER_README);
+    // Remote's test_emulator_guard refuses the default-off feature anywhere under .github/.
+    expect(workflow).not.toMatch(/--features|--all-features|test-emulator/);
+    const step = (name: string) =>
+      workflow.split(`      - name: ${name}\n`)[1].split('\n      - ')[0];
+    expect(step('Build the emulator-featured door and qualifier test')).toBe(
+      '        timeout-minutes: 25\n        run: node typescript/scripts/remote-squads-qualifier.mjs build'
+    );
+    expect(step('Run the two-machine squads qualifier against Auth and Firestore emulators')).toBe(
+      '        timeout-minutes: 10\n        run: node typescript/scripts/remote-squads-qualifier.mjs qualify\n'
+    );
+    expect(workflow).toContain('    timeout-minutes: 40\n');
+    // The Firestore emulator shares the Unit tests pins: hosted Temurin 21 and firebase-tools.
+    const ci = read('.github/workflows/ci.yml');
+    const firebaseTools = 'uses: ./.github/actions/setup-firebase-tools';
+    expect(ci).toContain(firebaseTools);
+    expect(workflow).toContain(firebaseTools);
+    expect(workflow).toContain('test -n "$JAVA_HOME_21_X64"');
+    // PRs and main pushes share one Remote path filter; no merge-group trigger keeps it advisory.
+    const filter = (event: string) =>
+      workflow
+        .split(`\n  ${event}:\n`)[1]
+        .split('    paths:\n')[1]
+        .split(/\n {2}[a-z_]+:/)[0];
+    expect(filter('pull_request')).toBe(filter('push'));
+    for (const input of [
+      'extensions/tmt-remote/rust/**',
+      '.github/workflows/remote-squads-emulator.yml',
+      'typescript/scripts/remote-squads-qualifier.mjs',
+      'rust/Cargo.lock',
+    ])
+      expect(`${filter('pull_request')}\n`).toContain(`      - '${input}'\n`);
+    expect(workflow).toContain('  push:\n    branches: [main]\n');
+    expect(workflow).not.toContain('merge_group');
+    expect(ci).not.toContain('remote-squads-emulator');
+    expect(workflow).not.toContain('continue-on-error');
+  });
 });
 
 describe('CI area selection', () => {
@@ -933,6 +999,41 @@ describe('CI area selection', () => {
       expect(selected(file), file).toBe(false);
     expect(workflow).toContain('--fail-if-no-match');
     expect(workflow).toContain('test:browser');
+  });
+
+  it('derives the Remote pairing workflow paths from component ownership', () => {
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/remote-pairing.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toMatch(/^on:\n  pull_request:\n    paths:/m);
+    // The smoke builds the door and drives the remote-client page, so it follows both owners.
+    const owned = ['tmt-remote', 'remote-client'].flatMap(
+      (name) => map.components.find((component) => component.name === name)?.owns ?? []
+    );
+    expect(owned).toHaveLength(2);
+    const shared = [
+      '.github/workflows/remote-pairing.yml',
+      '.github/actions/setup-tooling/**',
+      '.github/actions/install-chromium-deps/**',
+      '.github/actions/apt-install/**',
+      'scripts/retry-command.sh',
+      'typescript/package.json',
+      'typescript/pnpm-workspace.yaml',
+      'typescript/pnpm-lock.yaml',
+      'rust/Cargo.lock',
+    ];
+    const paths = [...workflow.matchAll(/^      - '([^']+)'$/gm)].map((m) => m[1]);
+    expect(paths.sort()).toEqual([...owned.map((root) => `${root}/**`), ...shared].sort());
+    const filters = paths.map((glob) => globToRegExp(glob));
+    const selected = (file: string) => filters.some((filter) => filter.test(file));
+    for (const root of owned) {
+      expect(selected(`${root}/src/lib.rs`), root).toBe(true);
+      expect(selected(`${root}-other/src/lib.rs`), root).toBe(false);
+    }
   });
 
   it('selects native checks for shared design tokens without narrowing look-alikes', () => {
@@ -1258,10 +1359,12 @@ describe('component map', () => {
         'uninstall.test.ts',
       ],
       e2eFiles: ['ops.e2e.test.ts', 'ops-reminder.e2e.test.ts', 'claude-channel.e2e.test.ts'],
+      unitTests: false,
     });
-    expect(scopedChecks('full', map)).toEqual({ nativeTests: [], e2eFiles: [] });
-    expect(scopedChecks('none', map)).toEqual({ nativeTests: [], e2eFiles: [] });
-    expect(scopedChecks('office', map)).toEqual({ nativeTests: [], e2eFiles: [] });
+    const none = { nativeTests: [], e2eFiles: [], unitTests: false };
+    expect(scopedChecks('full', map)).toEqual(none);
+    expect(scopedChecks('none', map)).toEqual(none);
+    expect(scopedChecks('office', map)).toEqual(none);
   });
 
   it('rejects scoped checks that are not plain file names', () => {
@@ -1282,6 +1385,103 @@ describe('component map', () => {
     expect(invalid((value) => (value.components.ops.scopedChecks.e2eFiles = ['']))).toThrow(
       'plain file names'
     );
+    // Skipping Unit tests is never inferred: a missing or non-boolean value rejects the map.
+    expect(invalid((value) => delete value.components.ops.scopedChecks.unitTests)).toThrow(
+      'components.ops.scopedChecks.unitTests must be true or false.'
+    );
+    for (const bad of ['false', 0, null, []])
+      expect(invalid((value) => (value.components.ops.scopedChecks.unitTests = bad))).toThrow(
+        'must be true or false'
+      );
+  });
+
+  it('keeps the runtime builds and Unit tests for a scoped component that declares unitTests', () => {
+    const value = JSON.parse(mapText);
+    value.components.ops.scopedChecks.unitTests = true;
+    const withUnit = parseComponentMap(JSON.stringify(value));
+    const run = {
+      nativeRust: 'success',
+      unitTests: 'success',
+      e2eShard1: 'success',
+      e2eShard2: 'skipped',
+      runtimeBuild: 'success',
+      packedInstall: 'skipped',
+      macosRuntimeBuild: 'skipped',
+      macosPackedInstall: 'skipped',
+    };
+    expect(nativeGatePasses('ops', run, 'true', withUnit)).toBe(true);
+    for (const job of ['unitTests', 'runtimeBuild'])
+      expect(nativeGatePasses('ops', { ...run, [job]: 'skipped' }, 'true', withUnit), job).toBe(
+        false
+      );
+    // Ops declares false, so the same results fail its gate.
+    expect(nativeGatePasses('ops', run, 'true', map)).toBe(false);
+  });
+
+  it('keeps full scope for a path no rule maps, even inside a scoped component', () => {
+    const value = JSON.parse(mapText);
+    value.components['tmt-colab'].scopedChecks = {
+      nativeTests: ['extension-install.test.ts'],
+      e2eFiles: [],
+      unitTests: true,
+    };
+    const colab = parseComponentMap(JSON.stringify(value));
+    const rust = 'extensions/tmt-colab/rust/tmt-colab/src/lib.rs';
+    expect(explainCiSelection([rust], colab)[0].rule).toBe('colab-rust');
+    expect(selectNativeScope([rust], colab)).toBe('tmt-colab');
+    for (const unmapped of [
+      'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+      'extensions/tmt-colab/contracts/vectors/authority-v1.json',
+      'extensions/tmt-colab/firestore/admission.rules',
+      'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs',
+    ]) {
+      expect(explainCiSelection([unmapped], colab)[0], unmapped).toMatchObject({
+        owner: 'tmt-colab',
+        rule: 'unmapped',
+        native: true,
+      });
+      expect(selectNativeScope([unmapped], colab), unmapped).toBe('full');
+      expect(selectNativeScope([rust, unmapped], colab), unmapped).toBe('full');
+    }
+    // Every Ops path is mapped, so Ops keeps its scope.
+    for (const row of explainCiSelection(
+      tracked().filter((file) => ownerOf(file, map) === 'ops'),
+      map
+    ))
+      expect(row.rule, row.path).not.toBe('unmapped');
+  });
+
+  it('rejects skipping Unit tests for a scoped component whose sources tooling tests read', () => {
+    // Code quality runs these on every pull request; Unit tests runs the rest.
+    const qualityCommand = /vp test run ([^\n]+)/.exec(
+      readFileSync(path.join(repository, '.github/workflows/ci.yml'), 'utf8')
+    )![1];
+    const tooling = tracked().filter(
+      (file) =>
+        /^typescript\/test\/tooling\/[^/]+\.ts$/.test(file) &&
+        !qualityCommand.includes(file.replace('typescript/', ''))
+    );
+    const readers = (component: { readonly owns: readonly string[] }) =>
+      tooling.filter((file) => {
+        const text = readFileSync(path.join(repository, file), 'utf8');
+        return component.owns.some((root) => text.includes(`${root}/`));
+      });
+    const skipping = (checked: ReturnType<typeof parseComponentMap>) =>
+      checked.components.filter(
+        (component) => component.scopedChecks && !component.scopedChecks.unitTests
+      );
+    for (const component of skipping(map)) expect(readers(component), component.name).toEqual([]);
+    // A Colab scope that skipped Unit tests would skip the tooling tests that read Colab.
+    const value = JSON.parse(mapText);
+    value.components['tmt-colab'].scopedChecks = {
+      nativeTests: ['extension-install.test.ts'],
+      e2eFiles: [],
+      unitTests: false,
+    };
+    const colab = skipping(parseComponentMap(JSON.stringify(value))).find(
+      (component) => component.name === 'tmt-colab'
+    )!;
+    expect(readers(colab).length).toBeGreaterThan(0);
   });
 
   it('admits a scoped component that names no E2E files, so neither Docker shard runs', () => {
@@ -1645,7 +1845,11 @@ describe('remote Rust retains full CI coverage', () => {
       ]);
       expect(selectCiAreas(files)).toEqual(all);
       expect(selectNativeScope(files)).toBe('full');
-      expect(scopedChecks(selectNativeScope(files))).toEqual({ nativeTests: [], e2eFiles: [] });
+      expect(scopedChecks(selectNativeScope(files))).toEqual({
+        nativeTests: [],
+        e2eFiles: [],
+        unitTests: false,
+      });
     }
   );
 
@@ -2077,6 +2281,7 @@ describe('CI diff and command integration', () => {
         native_sync_emulator: 'false',
         scoped_native_tests:
           'ops.test.ts extension-install.test.ts extension-upgrade-proof.test.ts native-installation.test.ts uninstall.test.ts',
+        scoped_unit_tests: 'false',
         e2e_shard_1: 'ops.e2e.test.ts ops-reminder.e2e.test.ts claude-channel.e2e.test.ts',
         e2e_shard_2: '',
       });
@@ -2402,8 +2607,8 @@ describe('CI diff and command integration', () => {
     expect(steps).toContain('timeout-minutes: 8');
     expect(steps).toContain('test -n "$JAVA_HOME_21_X64"');
     expect(steps).toContain('"$JAVA_HOME_21_X64/bin/java" -version');
-    // No third-party action, retry, cache or relaxed failure in the selected steps.
-    for (const forbidden of ['uses:', 'continue-on-error', 'retry', 'cache', '|| true']) {
+    // Only the shared locked installer; no third-party action, retry, cache or relaxed failure.
+    for (const forbidden of ['continue-on-error', 'retry', 'cache', '|| true']) {
       expect(steps).not.toContain(forbidden);
     }
     // Both retained emulator suites use the same pinned tools.
@@ -2414,7 +2619,7 @@ describe('CI diff and command integration', () => {
     ]) {
       expect(read(file)).toContain(pin);
     }
-    expect(steps).toContain(pin);
+    expect(steps).toContain('uses: ./.github/actions/setup-firebase-tools');
     const javaImage = /eclipse-temurin:21-jre-jammy@sha256:[0-9a-f]{64}/;
     expect(
       read('extensions/tmt-remote/rust/tmt-remote/tests/emulator/Dockerfile').match(javaImage)?.[0]
@@ -2463,14 +2668,14 @@ describe('CI diff and command integration', () => {
       "      colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}"
     );
     expect(job).toContain(
-      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
     );
     expect(job).toContain('timeout-minutes: 15');
     const steps = job.slice(
       job.indexOf('# Firestore Rules emulator suites'),
       job.indexOf('- name: Run retained developer tooling tests')
     );
-    expect(steps.match(/npm install --global firebase-tools@15\.29\.0/g)).toHaveLength(1);
+    expect(steps.match(/uses: \.\/\.github\/actions\/setup-firebase-tools/g)).toHaveLength(1);
     const colab = steps.slice(
       steps.indexOf('- name: Run the Colab Firestore Rules emulator suite')
     );
@@ -3367,6 +3572,63 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
+  // #5743: hosted blob storage failed every internal retry of an artifact download in a
+  // merge group and a release, while other jobs downloaded the same artifact minutes later.
+  it('retries each CI and release-manifest artifact download once, then fails closed', () => {
+    const read = (file: string) =>
+      readFileSync(fileURLToPath(new URL(`../../../${file}`, import.meta.url)), 'utf8');
+    const steps = (body: string, indent: string) =>
+      body
+        .split(`\n${indent}- `)
+        .slice(1)
+        .map((step) => ({ name: /^name: (.*)$/m.exec(step)?.[1] ?? '', body: step }));
+
+    const action = steps(read('.github/actions/download-artifact-retry/action.yml'), '    ');
+    expect(action.map((step) => step.name)).toEqual([
+      'Download artifacts',
+      'Wait before retrying the artifact download',
+      'Retry the artifact download once',
+    ]);
+    const [first, wait, retry] = action.map((step) => step.body);
+    expect(first).toMatch(/\n\s+id: first\n\s+continue-on-error: true\n/);
+    expect(wait).toMatch(/\n\s+if: steps\.first\.outcome == 'failure'\n[\s\S]*\n\s+run: sleep 45/);
+    // The retry keeps the default failure: a second failed download fails the job.
+    expect(retry).toMatch(/\n\s+if: steps\.first\.outcome == 'failure'\n/);
+    expect(retry).not.toContain('continue-on-error');
+    const inputs = (body: string) => body.split(/\n\s+with:\n/)[1].trimEnd();
+    expect(inputs(retry)).toBe(inputs(first));
+    for (const name of ['name', 'artifact-ids', 'pattern', 'path', 'merge-multiple'])
+      expect(inputs(first)).toContain(`${name}: \${{ inputs.${name} }}`);
+
+    for (const file of ['ci.yml', 'workspace-partitions.yml']) {
+      const workflow = read(`.github/workflows/${file}`);
+      expect(workflow, file).not.toMatch(/uses: actions\/download-artifact@/);
+      const callers = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: ./.github/actions/download-artifact-retry')
+      );
+      expect(callers.length, file).toBeGreaterThan(0);
+      // Two failed attempts and the backoff took about 8.5 minutes on 10-30.
+      for (const caller of callers)
+        expect(caller.body, `${file}: ${caller.name}`).toMatch(/\n\s+timeout-minutes: 10\n/);
+    }
+
+    const prepare = read('.github/workflows/native-release-prepare.yml');
+    const assemble = steps(prepare.split('\n  assemble:\n')[1].split('\n  verify:\n')[0], '      ');
+    const download = assemble.findIndex((step) => step.body.includes('id: archives-download'));
+    expect(download).toBeGreaterThan(0);
+    const [manifestFirst, manifestWait, manifestRetry] = assemble
+      .slice(download, download + 3)
+      .map((step) => step.body);
+    expect(manifestFirst).toMatch(/\n\s+continue-on-error: true\n\s+timeout-minutes: 5\n/);
+    expect(manifestWait).toMatch(
+      /\n\s+if: steps\.archives-download\.outcome == 'failure'\n\s+run: sleep 45/
+    );
+    expect(manifestRetry).toMatch(/\n\s+if: steps\.archives-download\.outcome == 'failure'\n/);
+    expect(manifestRetry).not.toContain('continue-on-error');
+    expect(inputs(manifestRetry)).toBe(inputs(manifestFirst));
+    expect(manifestRetry).toContain('uses: actions/download-artifact@v4');
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
@@ -3403,14 +3665,19 @@ describe('required CI gate', () => {
     );
     // Jobs about the CLI runtime and tooling run only for the full scope; the runtime build also
     // runs for the seeding runs, whose scope is full, and the other two only for verification events.
+    // A scoped component that declares unitTests keeps the runtime builds and Unit tests.
     expect(job('native-runtime-build')).toContain(
-      "if: needs.changes.outputs.native_scope == 'full'"
+      "if: needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true'"
     );
-    for (const name of ['unit-tests', 'packed-native-install']) {
-      expect(job(name), name).toContain(
-        "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
-      );
-    }
+    expect(job('unit-tests')).toContain(
+      "if: needs.changes.outputs.verify == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_unit_tests == 'true')"
+    );
+    expect(job('packed-native-install')).toContain(
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    expect(changes).toContain(
+      "scoped_unit_tests: ${{ steps.mainfull.outputs.scoped_unit_tests || steps.scope.outputs.scoped_unit_tests || steps.queue.outputs.scoped_unit_tests || 'false' }}"
+    );
     // The Rust job runs for every native scope, the E2E job for every native scope of a pull request.
     for (const name of ['native-clippy', 'native-workspace-tests', 'native-msrv']) {
       expect(job(name)).toContain("if: needs.changes.outputs.native == 'true'");
@@ -4125,7 +4392,7 @@ describe('native Auth+Firestore emulator selection', () => {
     const job = ci.split('\n  producer:\n')[1].split('\n  consumers:')[0];
     expect(job).toContain('runs-on: ubuntu-latest');
     expect(job).toContain("inputs.scope == 'full' && inputs.native-sync");
-    expect(job).toContain('firebase-tools@15.29.0');
+    expect(job).toContain('uses: ./.github/actions/setup-firebase-tools');
     expect(job).toContain('timeout-minutes: 8');
     expect(job).toContain('test/emulator/native-qualify.mjs');
     const runner = readFileSync(
@@ -4237,6 +4504,118 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(acceptance).toContain('permissions:\n      contents: read');
   });
 
+  it('installs Firebase only through one committed npm lockfile', () => {
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const owner = '.github/actions/setup-firebase-tools';
+    const action = readFileSync(path.join(root, owner, 'action.yml'), 'utf8');
+    const manifest = JSON.parse(readFileSync(path.join(root, owner, 'package.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(path.join(root, owner, 'package-lock.json'), 'utf8'));
+    expect(manifest).toMatchObject({
+      private: true,
+      dependencies: { 'firebase-tools': '15.29.0' },
+    });
+    expect(lock.lockfileVersion).toBe(3);
+    expect(lock.packages[''].dependencies).toEqual(manifest.dependencies);
+    expect(lock.packages['node_modules/firebase-tools'].version).toBe('15.29.0');
+    for (const [name, entry] of Object.entries(lock.packages)) {
+      if (!name) continue;
+      expect(entry, name).toMatchObject({
+        resolved: expect.stringMatching(/^https:\/\/registry\.npmjs\.org\//),
+        integrity: expect.stringMatching(/^sha512-/),
+      });
+    }
+    expect(action).toContain(
+      'npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund'
+    );
+    expect(action).toContain('"$GITHUB_ACTION_PATH/node_modules/.bin" >> "$GITHUB_PATH"');
+    const callers = [
+      '.github/workflows/ci.yml',
+      '.github/workflows/workspace-partitions.yml',
+      '.github/workflows/remote-squads-emulator.yml',
+      '.github/actions/hosted-reader-emulator/action.yml',
+    ];
+    // Installed node_modules contain vendor workflows; only repository-owned inputs count.
+    const tracked = spawnSync('git', ['ls-files', '-z', '--', '.github'], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 5_000,
+    });
+    expect(tracked.status).toBe(0);
+    const files = tracked.stdout.split('\0').filter((file) => /\.ya?ml$/.test(file));
+    const actual = [];
+    for (const file of files) {
+      const source = readFileSync(path.join(root, file), 'utf8');
+      expect(source, file).not.toMatch(/(?:npm|pnpm|npx|yarn)[^\n]*firebase-tools/);
+      if (source.includes(`uses: ./${owner}`)) actual.push(file);
+    }
+    expect(actual.sort()).toEqual(callers.sort());
+    for (const file of ['action.yml', 'package.json', 'package-lock.json']) {
+      const input = `${owner}/${file}`;
+      expect(selectRemoteFirestore([input])).toBe(true);
+      expect(selectNativeSyncEmulator([input])).toBe(true);
+      expect(selectHostedReaderEmulator([input])).toBe(true);
+    }
+  });
+
+  it.each([0, 23])(
+    'publishes only the local Firebase path after npm ci succeeds (exit %s)',
+    (exit) => {
+      const action = readFileSync(
+        new URL('../../../.github/actions/setup-firebase-tools/action.yml', import.meta.url),
+        'utf8'
+      );
+      const script = action
+        .split('      run: |\n')[1]
+        .split('\n')
+        .map((line) => line.replace(/^        /, ''))
+        .join('\n');
+      const root = mkdtempSync(path.join(tmpdir(), 'firebase install path-'));
+      try {
+        const bin = path.join(root, 'bin');
+        const owner = path.join(root, 'action');
+        mkdirSync(bin);
+        mkdirSync(owner);
+        const args = path.join(root, 'npm-args.json');
+        const published = path.join(root, 'github-path');
+        writeFileSync(published, '');
+        writeExecutable(
+          path.join(bin, 'npm'),
+          `#!${process.execPath}\nrequire('node:fs').writeFileSync(process.env.NPM_ARGS, JSON.stringify(process.argv.slice(2))); process.exit(Number(process.env.NPM_EXIT));\n`
+        );
+        const result = spawnSync(
+          'bash',
+          ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+          {
+            encoding: 'utf8',
+            timeout: 5_000,
+            env: {
+              PATH: `${bin}:${process.env.PATH}`,
+              GITHUB_ACTION_PATH: owner,
+              GITHUB_PATH: published,
+              NPM_ARGS: args,
+              NPM_EXIT: String(exit),
+            },
+          }
+        );
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(exit);
+        expect(JSON.parse(readFileSync(args, 'utf8'))).toEqual([
+          'ci',
+          '--prefix',
+          owner,
+          '--ignore-scripts',
+          '--no-audit',
+          '--no-fund',
+        ]);
+        expect(readFileSync(published, 'utf8')).toBe(
+          exit === 0 ? `${owner}/node_modules/.bin\n` : ''
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('reuses the owner wrapper with pinned Java/Firebase and no retry or credentials', () => {
     const action = readFileSync(
       new URL('../../../.github/actions/hosted-reader-emulator/action.yml', import.meta.url),
@@ -4246,7 +4625,7 @@ describe('hosted producer/reader emulator workflow wiring', () => {
     expect(action).toContain('test -n "$JAVA_HOME_21_X64"');
     expect(action).toContain('echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"');
     expect(action).toContain('echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"');
-    expect(action).toContain('npm install --global firebase-tools@15.29.0');
+    expect(action).toContain('uses: ./.github/actions/setup-firebase-tools');
     expect(action).toContain('firebase setup:emulators:firestore');
     expect(action).toContain('node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs');
     const diagnostics = action.split('    - name: Preserve failed hosted reader diagnostics\n')[1];

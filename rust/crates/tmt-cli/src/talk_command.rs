@@ -55,6 +55,8 @@ struct Correlation {
     /// neither confirmed nor safe to resend, and every later failure says so.
     delivery_uncertain: bool,
     digest_until_ms: Option<u64>,
+    /// Held at the pair's talk limit until a person resumes it (#4892): nothing is sent.
+    held_for_person: bool,
     /// A person's own text typed into the pane as is; the report says so.
     passthrough: bool,
 }
@@ -93,6 +95,24 @@ fn settle_delivery(
     })
 }
 
+/// The binding became a plain program after preparation stored the request: nothing was
+/// pasted, the settled wake is unavailable, and the request stays queued under its ID.
+fn not_agent_after_preparation(correlation: &Correlation, program: &str) -> Failure {
+    let name = correlation
+        .identity
+        .as_ref()
+        .map_or(correlation.target.as_str(), |identity| {
+            identity.name.as_str()
+        });
+    let refused = preparation::not_agent(name, program);
+    correlation
+        .error("RECIPIENT_NOT_AGENT", refused.message, 1)
+        .suggestion(format!(
+            "Nothing was pasted; the request stays queued until an AI agent binds there. {}",
+            correlation.inspection()
+        ))
+}
+
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
         let failure = self.correlated(Failure::new(code, message, status));
@@ -125,6 +145,13 @@ impl Correlation {
                 self.request_id, self.target
             )
         }
+    }
+    /// How a held request continues: only a person or a lead may release the pair.
+    fn resume_hint(&self) -> String {
+        format!(
+            "A person or a lead releases it with 'tmt orch talks resume <sender> {}'; 'tmt orch talks' lists held pairs.",
+            self.target
+        )
     }
     fn recipient_recovery(&self) -> String {
         if self.unbound {
@@ -236,7 +263,7 @@ fn deliver(
     interrupt: Option<&Interrupt>,
 ) -> Result<Option<FinalResponse>, Failure> {
     let correlation = &mut prepared.correlation;
-    if correlation.digest_until_ms.is_some() {
+    if correlation.digest_until_ms.is_some() || correlation.held_for_person {
         return Ok(None);
     }
     let wait = prepared.wait;
@@ -412,6 +439,8 @@ fn deliver(
                         "Check the session, then retry later; the request stays queued. {}",
                         correlation.inspection()
                     )));
+            } else if let crate::delivery::Delivery::NotAgent(program) = &outcome {
+                return Err(not_agent_after_preparation(correlation, program));
             } else if matches!(outcome, crate::delivery::Delivery::AwaitingApproval) {
                 // The agent refused the prompt while it waits on its user;
                 // nothing reached the pane and nothing types around it.
@@ -747,6 +776,11 @@ fn warn_unattributed_record(record: &std::path::Path) {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "A person or a lead releases it with 'tmt orch talks resume <sender> {}'; 'tmt orch talks' lists held pairs.",
+        &["';", "' lists"],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "The recipient must pull with tmt inbox --identity {} --json. In the recipient's pane, start a new turn or session, or run tmt resume {} there to repair live delivery.",
         &[". In", " there to repair"],
