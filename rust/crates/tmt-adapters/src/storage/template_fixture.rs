@@ -15,8 +15,10 @@
 //!   `STALE_RUN_SCOPE_AGE` and that no process holds. Collection is
 //!   opportunistic: nothing runs after the last run.
 //! - Liveness of a run scope is a lock, not a timestamp: every lease holds a
-//!   shared `flock` on the scope's lock file, and a collector removes a scope
-//!   only while it holds the exclusive lock on that file.
+//!   shared `flock` on the scope's lock file. A collector that holds the
+//!   exclusive lock first renames the scope to a `retired-*` path in the same
+//!   root, then removes it, so a user never meets a half-removed `run-*` path
+//!   and every user of one `run-*` path locks the same lock file.
 //! - Builders do not elect a winner: concurrent builders each run the real chain
 //!   and publish with a no-replace hard link, so a published template never
 //!   changes and readers only copy it.
@@ -48,6 +50,7 @@ const FORMAT: &str = "tmt-adapters-storage-template-v1";
 const TEMPLATE: &str = "template.db";
 const RUN_SCOPE_PREFIX: &str = "run-";
 const RUN_SCOPE_LOCK: &str = "live.lock";
+const RETIRED_PREFIX: &str = "retired-";
 
 /// A run scope must be at least this old before a later run may collect it.
 /// Age alone never removes a scope: the scope must also be unlocked.
@@ -195,7 +198,7 @@ impl TemplateStore {
                 let name = format!("{RUN_SCOPE_PREFIX}{run}");
                 let directory = self.root.join(&name);
                 self.stale_runs_pruned
-                    .call_once(|| prune_stale_run_scopes(&self.root, &name));
+                    .call_once(|| prune_stale_run_scopes(&self.root, &name, &mut |_| {}));
                 let live = hold_run_scope(&directory);
                 Arc::new(Scope {
                     directory,
@@ -469,15 +472,33 @@ fn is_at_path(file: &fs::File, path: &Path) -> bool {
         .is_ok_and(|current| current.dev() == held.dev() && current.ino() == held.ino())
 }
 
-/// Collects run scopes that earlier nextest runs left in this private root:
-/// only real `run-*` directories owned by this user, older than
-/// `STALE_RUN_SCOPE_AGE`, not `current`, and whose lock file this collector
-/// can lock exclusively without waiting. A held lock means a live lease, so the
-/// scope is kept whatever its age. A scope without a lock file is kept: it is
-/// being created, or it predates the lock. Links are not followed, and
+/// Collects run scopes that earlier nextest runs left in this private root.
+///
+/// A `run-*` scope is collected only if it is a real directory owned by this
+/// user, has a valid run id, is not `current`, is older than
+/// `STALE_RUN_SCOPE_AGE`, and its lock file can be locked exclusively without
+/// waiting. A held lock means a live lease, so the scope is kept whatever its
+/// age. A scope without a lock file is kept: it is being created, or it
+/// predates the lock; such a leftover is never collected and must be removed by
+/// hand.
+///
+/// While it holds the exclusive lock, the collector renames the scope to a
+/// unique `retired-*` path in the same root and only then removes it. A user
+/// that arrives after the rename creates a new `run-*` scope with a new lock
+/// file; a user that waited on the old lock file finds that it is no longer at
+/// its path and tries again. Users never open `retired-*` paths. A `retired-*`
+/// directory left by a collector that stopped before removal is removed later
+/// under the same age and lock rules. Links are not followed, and
 /// `remove_dir_all` does not follow links inside a scope. Another collector may
-/// remove the same scope at the same time; that is not an error.
-fn prune_stale_run_scopes(root: &Path, current: &str) {
+/// remove the same directory at the same time; that is not an error.
+///
+/// `after_retire` is a test seam that runs after the rename, before removal.
+pub(super) fn prune_stale_run_scopes(
+    root: &Path,
+    current: &str,
+    after_retire: &mut dyn FnMut(&Path),
+) {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
     let uid = nix::unistd::geteuid().as_raw();
     let inspect = |error: io::Error| -> ! {
         panic!("inspect storage template root {}: {error}", root.display())
@@ -501,14 +522,23 @@ fn prune_stale_run_scopes(root: &Path, current: &str) {
         let Some(name) = name.to_str() else {
             continue;
         };
-        let is_run_scope = name.strip_prefix(RUN_SCOPE_PREFIX).is_some_and(is_run_id);
+        let run = name
+            .strip_prefix(RUN_SCOPE_PREFIX)
+            .filter(|run| is_run_id(run));
+        let retired = name.starts_with(RETIRED_PREFIX);
         let path = entry.path();
-        if name == current || !is_run_scope || !collectable(&path) {
+        if name == current || !(run.is_some() || retired) || !collectable(&path) {
             continue;
         }
         let lock = path.join(RUN_SCOPE_LOCK);
         let file = match open_lock(&lock, false) {
             Ok(file) => file,
+            // A retired directory may have lost its lock file to a removal that
+            // stopped; it is still collectable.
+            Err(error) if error.kind() == ErrorKind::NotFound && retired => {
+                remove_collected(&path);
+                continue;
+            }
             Err(error) if error.kind() == ErrorKind::NotFound => continue,
             Err(error) => inspect(error),
         };
@@ -517,20 +547,43 @@ fn prune_stale_run_scopes(root: &Path, current: &str) {
             Err((_, Errno::EWOULDBLOCK)) => continue,
             Err((_, error)) => panic!("lock {}: {error}", lock.display()),
         };
-        // Check again under the lock: another collector may have removed the
+        // Check again under the lock: another collector may have retired the
         // scope, and a new run may have created it again.
         if !is_at_path(&held, &lock) || !collectable(&path) {
             continue;
         }
-        match fs::remove_dir_all(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => panic!(
-                "Could not remove stale storage template scope {}: {error}",
-                path.display()
-            ),
-        }
+        let target = match run {
+            Some(run) => {
+                let target = root.join(format!(
+                    "{RETIRED_PREFIX}{run}-{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+                match fs::rename(&path, &target) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                    Err(error) => {
+                        panic!("retire storage template scope {}: {error}", path.display())
+                    }
+                }
+                after_retire(&target);
+                target
+            }
+            None => path,
+        };
+        remove_collected(&target);
         drop(held);
+    }
+}
+
+fn remove_collected(path: &Path) {
+    match fs::remove_dir_all(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => panic!(
+            "Could not remove stale storage template scope {}: {error}",
+            path.display()
+        ),
     }
 }
 

@@ -27,9 +27,12 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
   and seeded or older databases keep their original direct setup and real opens. Templates are
   scoped to one test run under the private temporary directory (`NEXTEST_RUN_ID`, else a process
   scope that its last lease removes). A nextest run leaves its `run-<id>/` directory (about 1 MB).
-  Collection is opportunistic: a later run removes this user's `run-*` directories older than
-  `STALE_RUN_SCOPE_AGE` (6 h) only while it holds the exclusive lock on the scope's `live.lock`;
-  every lease holds a shared lock on it, so a live scope is kept whatever its age.
+  Collection is opportunistic: every lease holds a shared lock on the scope's `live.lock`, and a
+  later run collects this user's `run-*` directories older than `STALE_RUN_SCOPE_AGE` (6 h) only
+  while it holds the exclusive lock. It first renames the scope to a `retired-*` path in the same
+  root, then removes it, so a new user always creates a new scope and lock. A scope without a lock
+  file (from before the lock, or a crash before its lock was created) is never collected; remove it
+  by hand outside active runs.
 - WAL setup retries only classified Busy inside one five-second budget, verifies the returned
   journal mode is `wal` before migrating and preserves the original Busy error on exhaustion.
 - OS-denied writes and SQLite read-only/WAL failures classify as a typed not-writable error (a
