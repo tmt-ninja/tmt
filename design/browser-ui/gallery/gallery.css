@@ -170,8 +170,13 @@
   color: var(--tmt-ui-color-text);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-.gallery-frame-column {
-  overflow-x: auto;
+.scaled-frame {
+  width: 100%;
+  overflow: hidden;
+}
+.scaled-frame > iframe {
+  box-sizing: border-box;
+  transform-origin: 0 0;
 }
 .gallery-theme-label {
   position: absolute;

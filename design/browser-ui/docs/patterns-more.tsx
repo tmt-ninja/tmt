@@ -56,6 +56,7 @@ import {
   TooltipProvider,
   UiTheme,
 } from '../src/ui/index.js';
+import { ScaledFrame } from '../gallery/kit.js';
 import { PageRow } from './patterns.js';
 
 /**
@@ -637,7 +638,7 @@ export function PatternFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
-/** The pattern at the wide width (scaled to fit) and at 390, in light and dark, for each state. */
+/** The pattern at 1440 and at 390 below it, each at its true width scaled to fit, in light and dark. */
 export function PatternViewports({ doc }: { doc: PatternDoc }) {
   return (
     <>
@@ -656,17 +657,12 @@ export function PatternViewports({ doc }: { doc: PatternDoc }) {
                   <figcaption>
                     {width} · {theme}
                   </figcaption>
-                  <div
-                    className="pattern-viewport-box"
-                    style={{ height: doc.height * (width === 1440 ? 0.5 : 1) }}
-                  >
-                    <iframe
-                      title={`${doc.title} ${label} ${width} ${theme}`}
-                      loading="lazy"
-                      src={`/docs?${new URLSearchParams({ frame: 'pattern', slug: doc.slug, state, theme })}`}
-                      style={{ width, height: doc.height }}
-                    />
-                  </div>
+                  <ScaledFrame
+                    title={`${doc.title} ${label} ${width} ${theme}`}
+                    src={`/docs?${new URLSearchParams({ frame: 'pattern', slug: doc.slug, state, theme })}`}
+                    width={width}
+                    height={doc.height}
+                  />
                 </figure>
               )),
             )}

@@ -673,42 +673,21 @@ code {
   white-space: pre-wrap;
 }
 
-/* Pattern viewports (#5821 C): each pattern in an iframe at the wide width, scaled to half, and at
-   390, in light and dark. */
+/* Pattern viewports (#5821 C): each pattern at 1440 with 390 below it, in light and dark; the
+   shared ScaledFrame keeps each width's true layout and scales it to fit the column. */
 .pattern-viewports {
   display: grid;
-  grid-template-columns: minmax(0, 720px) 390px;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--tmt-ui-ref-space-4);
-  overflow-x: auto;
 }
 .pattern-viewport {
+  min-width: 0;
   margin: 0;
 }
 .pattern-viewport figcaption {
   margin-bottom: var(--tmt-ui-ref-space-1);
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-ref-size-1) var(--tmt-ui-font-mono);
-}
-.pattern-viewport-box {
-  overflow: hidden;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-}
-.pattern-viewport iframe {
-  display: block;
-  border: 0;
-}
-.pattern-viewport[data-width='1440'] .pattern-viewport-box {
-  width: 720px;
-}
-.pattern-viewport[data-width='1440'] iframe {
-  transform: scale(0.5);
-  transform-origin: 0 0;
-}
-@media (max-width: 1200px) {
-  .pattern-viewports {
-    grid-template-columns: 390px;
-  }
 }
 
 /* The pattern frame page and the pieces the patterns compose. */
