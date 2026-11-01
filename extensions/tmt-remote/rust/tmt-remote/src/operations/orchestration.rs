@@ -33,7 +33,10 @@ fn admit(permit: &MessagePermit) -> Result<(), RemoteError> {
 pub(super) fn read(permit: &MessagePermit) -> Result<Value, RemoteError> {
     admit(permit)?;
     let input: Value = read_input(permit)?;
-    if !input["view"].as_str().is_some_and(|view| VIEWS.contains(&view)) {
+    if !input["view"]
+        .as_str()
+        .is_some_and(|view| VIEWS.contains(&view))
+    {
         return Err(invalid());
     }
     Ok(json!({"version":1,"operation":"orchestration.read","input":input}))
@@ -73,7 +76,10 @@ pub(super) fn outcome(result: Result<Value, RemoteError>) -> Result<Value, Remot
         Err(error)
             if error.code.starts_with("ORCH_")
                 && error.code.len() <= 64
-                && error.code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') =>
+                && error
+                    .code
+                    .bytes()
+                    .all(|b| b.is_ascii_uppercase() || b == b'_') =>
         {
             let mut refused = json!({"code":error.code});
             if error.message.len() <= 256 && !error.message.chars().any(char::is_control) {

@@ -2534,25 +2534,76 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
     let operations = core.operations();
     let session = owner.open();
     let read = json!({"view":"routes","limit":256,"memberQuery":"night"});
-    let reply = orchestrate(&owner, &operations, &session, 1, "orchestration.read", read.clone());
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        1,
+        "orchestration.read",
+        read.clone(),
+    );
     assert_eq!(reply["echo"], read, "{reply}");
     let write = json!({"phase":"preview","mutation":{"kind":"route.allow","fromId":ORCH_MEMBER,"toId":ORCH_MEMBER,"untilMs":2}});
-    let reply = orchestrate(&owner, &operations, &session, 2, "orchestration.write", write.clone());
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        2,
+        "orchestration.write",
+        write.clone(),
+    );
     assert_eq!(reply["echo"], write, "{reply}");
     // Apply carries Core's own preview fields and the person's consent, unchanged.
     let apply = json!({"phase":"apply","mutation":{"kind":"focus.clear","identityId":ORCH_MEMBER},
         "expectedConfigurationRevision":3,"previewAtMs":4,"previewDigest":"d","consent":true});
-    let reply = orchestrate(&owner, &operations, &session, 3, "orchestration.write", apply.clone());
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        3,
+        "orchestration.write",
+        apply.clone(),
+    );
     assert_eq!(reply["echo"], apply, "{reply}");
     // Core's own refusal is the reply's `refused`; any other failure stays the door's.
-    fs::write(core.root.join("orchestration-error"), "ORCH_CONFLICT|changed").unwrap();
-    let reply = orchestrate(&owner, &operations, &session, 4, "orchestration.write", apply.clone());
-    assert_eq!(reply["refused"], json!({"code":"ORCH_CONFLICT","message":"changed"}), "{reply}");
-    fs::write(core.root.join("orchestration-error"), "API_UNAVAILABLE|no storage").unwrap();
-    let reply = orchestrate(&owner, &operations, &session, 6, "orchestration.write", apply);
+    fs::write(
+        core.root.join("orchestration-error"),
+        "ORCH_CONFLICT|changed",
+    )
+    .unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        4,
+        "orchestration.write",
+        apply.clone(),
+    );
+    assert_eq!(
+        reply["refused"],
+        json!({"code":"ORCH_CONFLICT","message":"changed"}),
+        "{reply}"
+    );
+    fs::write(
+        core.root.join("orchestration-error"),
+        "API_UNAVAILABLE|no storage",
+    )
+    .unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        5,
+        "orchestration.write",
+        apply,
+    );
     assert_eq!(reply["error"]["code"], "API_UNAVAILABLE", "{reply}");
     fs::remove_file(core.root.join("orchestration-error")).unwrap();
-    let capabilities = orchestrate(&owner, &operations, &session, 7, "capabilities", json!({}));
+    let capabilities = append(
+        &owner,
+        Arc::clone(&operations),
+        &owner.wire(&session, "6", "capabilities", b"{}"),
+    );
     let supported = capabilities["operations"].as_array().unwrap();
     for operation in ["orchestration.read", "orchestration.write"] {
         assert!(supported.contains(&json!(operation)), "{operation}");
@@ -2560,7 +2611,9 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
     assert_eq!(
         core.calls()
             .iter()
-            .filter(|call| call["operation"].as_str().is_some_and(|o| o.starts_with("orchestration.")))
+            .filter(|call| call["operation"]
+                .as_str()
+                .is_some_and(|o| o.starts_with("orchestration.")))
             .count(),
         5
     );
@@ -2582,10 +2635,25 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
             .collect();
         let owner = OwnerDoor::with_device(scopes, "direct", agents.clone(), None, kind);
         let operations = core.operations();
+        // A browser paired from another origin never gets a session here at all.
+        if kind == "foreign-browser" {
+            assert!(owner.open_refused(), "{kind}: session refused");
+            continue;
+        }
         let session = owner.open();
-        let reply = orchestrate(&owner, &operations, &session, 1, "orchestration.read", read.clone());
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            1,
+            "orchestration.read",
+            read.clone(),
+        );
         assert!(reply.get("error").is_some(), "{kind} {agents}: {reply}");
-        assert!(core.calls().is_empty(), "{kind} {agents}: Core was not called");
+        assert!(
+            core.calls().is_empty(),
+            "{kind} {agents}: Core was not called"
+        );
     }
     // The owner browser: a mutation the page does not offer, or one naming an actor.
     let core = Core::new();
@@ -2604,7 +2672,14 @@ fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
         let reply = orchestrate(&owner, &operations, &session, sequence + 1, "orchestration.write", write.clone());
         assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{write}: {reply}");
     }
-    let reply = orchestrate(&owner, &operations, &session, 9, "orchestration.read", json!({"view":"jobs"}));
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        5,
+        "orchestration.read",
+        json!({"view":"jobs"}),
+    );
     assert!(reply.get("error").is_some(), "{reply}");
     assert!(core.calls().is_empty(), "Core was not called");
 }

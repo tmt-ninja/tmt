@@ -110,7 +110,7 @@ impl State {
                         .first()
                         .and_then(|plan| plan["id"].as_str().map(str::to_owned));
                 }
-                self.report = Some((read.query, Arc::new(snapshot)));
+                self.report = Some((read.query, Arc::from(snapshot)));
                 self.failure = None;
                 self.unavailable = false;
             }

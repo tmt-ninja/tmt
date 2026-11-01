@@ -125,21 +125,21 @@ fn unpublished_receiving_keeps_proposed_separate_from_available() {
 fn late_query_or_cursor_results_cannot_replace_the_active_observation() {
     let mut state = state();
     let original = state.read();
-    state.apply(original.clone(), Observation::Ready(ready()));
+    state.apply(original.clone(), Observation::Ready(Box::new(ready())));
     state.query.member = "another".into();
     state.apply(original, Observation::Failed("old failure".into()));
     assert!(state.snapshot().is_none());
     assert!(state.failure.is_none());
     let prior = state.read();
     state.observe_cursor(Some(8));
-    state.apply(prior, Observation::Ready(ready()));
+    state.apply(prior, Observation::Ready(Box::new(ready())));
     assert!(state.snapshot().is_none());
 }
 #[test]
 fn failed_refresh_retains_the_same_queries_last_good_data_with_its_error() {
     let mut state = state();
     let read = state.read();
-    state.apply(read.clone(), Observation::Ready(ready()));
+    state.apply(read.clone(), Observation::Ready(Box::new(ready())));
     state.apply(read, Observation::Failed("Core unavailable".into()));
     assert_eq!(state.snapshot().unwrap().document.observed_at_ms, 1000);
     assert_eq!(state.failure.as_deref(), Some("Core unavailable"));
@@ -147,7 +147,7 @@ fn failed_refresh_retains_the_same_queries_last_good_data_with_its_error() {
 #[test]
 fn a_slot_boundary_requests_one_new_read_without_a_cursor_change() {
     let mut state = state();
-    state.apply(state.read(), Observation::Ready(ready()));
+    state.apply(state.read(), Observation::Ready(Box::new(ready())));
     assert!(!state.tick(1999));
     assert!(state.tick(2000));
     assert_eq!(state.query.at_ms, 2000);
@@ -178,8 +178,10 @@ fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
         &mut app.workspace.selected,
     );
     app.orchestration = state();
-    app.orchestration
-        .apply(app.orchestration.read(), Observation::Ready(ready()));
+    app.orchestration.apply(
+        app.orchestration.read(),
+        Observation::Ready(Box::new(ready())),
+    );
     let _commands = crate::runner::forbid_commands();
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
     terminal
@@ -227,7 +229,7 @@ fn observe(
     let Observation::Ready(snapshot) = state().read().read_with(api) else {
         panic!("ready observation")
     };
-    snapshot
+    *snapshot
 }
 fn pair_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
     Ok(match (op, input["view"].as_str()) {
@@ -277,8 +279,10 @@ fn matrix_app() -> super::super::app::App {
     );
     app.orchestration = state();
     let snapshot = observe(pair_api);
-    app.orchestration
-        .apply(app.orchestration.read(), Observation::Ready(snapshot));
+    app.orchestration.apply(
+        app.orchestration.read(),
+        Observation::Ready(Box::new(snapshot)),
+    );
     app
 }
 fn screen(app: &super::super::app::App) -> String {

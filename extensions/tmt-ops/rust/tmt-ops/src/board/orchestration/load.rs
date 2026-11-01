@@ -10,7 +10,8 @@ pub(in crate::board) struct Read {
 }
 #[derive(Debug)]
 pub(in crate::board) enum Observation {
-    Ready(Snapshot),
+    /// Boxed: a snapshot is far larger than the other outcomes.
+    Ready(Box<Snapshot>),
     Unavailable,
     Failed(String),
 }
@@ -105,7 +106,7 @@ impl Read {
                 Snapshot::new(document, sending, supports("orchestration.write"))
             });
         match result {
-            Ok(value) => Observation::Ready(value),
+            Ok(value) => Observation::Ready(Box::new(value)),
             Err(error) => Observation::Failed(error),
         }
     }

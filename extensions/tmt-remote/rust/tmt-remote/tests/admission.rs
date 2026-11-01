@@ -90,7 +90,12 @@ impl OwnerDoor {
             client_id: uuid_v4().unwrap(),
             public_key: key.verifying_key().to_bytes(),
             // A `foreign-browser` is a browser grant paired from another origin than this door.
-            kind: if kind == "foreign-browser" { "browser" } else { kind }.into(),
+            kind: if kind == "foreign-browser" {
+                "browser"
+            } else {
+                kind
+            }
+            .into(),
             origin: match kind {
                 "browser" => "http://127.0.0.1:32100",
                 "foreign-browser" => "http://127.0.0.1:40000",
@@ -161,6 +166,14 @@ impl OwnerDoor {
         self.verify_reply(&reply, &wire);
         assert_eq!(reply["sequence"], "1");
         reply["sessionId"].as_str().unwrap().into()
+    }
+    /// Whether the door refuses this device's session before any operation.
+    fn open_refused(&self) -> bool {
+        let payload = json!({"clientNonce":uuid_v4().unwrap().replace('-',"")}).to_string();
+        let wire = self.wire("new", "0", "session.open", payload.as_bytes());
+        self.sessions
+            .open(self.request_origin(), &serde_json::to_vec(&wire).unwrap())
+            .is_none()
     }
     fn verify_reply(&self, reply: &Value, request: &Value) -> Value {
         let text = |key: &str| reply[key].as_str().unwrap();
