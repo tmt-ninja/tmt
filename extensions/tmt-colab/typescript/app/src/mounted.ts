@@ -254,6 +254,10 @@ export async function mountedTransport(
       const client = managementClient;
       return managed(client, () => client.setKind(pageId, kind));
     },
+    newPage(title, kind) {
+      const client = managementClient;
+      return managed(client, () => client.newPage(title, kind));
+    },
   };
   clearRecovery(mount);
   const owner = {

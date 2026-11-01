@@ -103,6 +103,8 @@ export interface ManagementPort {
   setPinned(pageId: string, pinned: boolean): Promise<void>;
   /** One display-only `page.kind` request (contract: Page kinds); an older serve refuses it. */
   setKind?(pageId: string, kind: 'design-system' | null): Promise<void>;
+  /** One `page.new` request (#5866): a new top-level page; an older serve refuses it. */
+  newPage?(title: string, kind: 'design-system' | null): Promise<string>;
 }
 export class ManagementError extends Error {
   constructor(
@@ -583,12 +585,35 @@ export class ManagementClient implements ManagementPort {
     generatedId(pageId);
     await this.displayOnly(pageId, 'page.kind', { pageId, kind });
   }
+  /** A signed `page.new` request (#5866): the owner makes a top-level page with this title, and
+   * the kind when given; it returns the page's ID, derived from the operation. */
+  async newPage(title: string, kind: 'design-system' | null): Promise<string> {
+    requireValue(title.length > 0);
+    const reply = await this.unrevisioned(SPACE_SCOPE_PAGE, 'page.new', { title, kind }, [
+      'pageId',
+    ]);
+    try {
+      generatedId(reply.pageId as string);
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+    return reply.pageId as string;
+  }
   /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
   private async displayOnly(
     page: string,
     operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.kind',
     payload: object,
   ): Promise<void> {
+    await this.unrevisioned(page, operation, payload);
+  }
+  /** A request with an empty signed revision; `extra` names reply fields beside the head. */
+  private async unrevisioned(
+    page: string,
+    operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.kind' | 'page.new',
+    payload: object,
+    extra: readonly string[] = [],
+  ): Promise<Record<string, unknown>> {
     const bytes = text(JSON.stringify(payload));
     const id = crypto.randomUUID(),
       issuedAt = Date.now(),
@@ -616,12 +641,13 @@ export class ManagementClient implements ManagementPort {
       expiresAt,
     );
     try {
-      exactKeys(v, ['operationId', 'membershipHead']);
+      exactKeys(v, ['operationId', 'membershipHead', ...extra]);
       exactKeys(v.membershipHead, ['revision', 'statementHash']);
       requireValue(v.operationId === id && typeof v.membershipHead.revision === 'string');
     } catch {
       throw new ManagementError('UNKNOWN');
     }
+    return v as Record<string, unknown>;
   }
   async send(pending: Pending): Promise<Acknowledgment> {
     const v = await this.post(pending.body, pending.expiresAt);

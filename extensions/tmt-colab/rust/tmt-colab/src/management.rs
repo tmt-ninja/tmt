@@ -78,6 +78,11 @@ enum Action {
     Pin(bool),
     /// Display-only kind of the request's page, or none (contract: Page kinds).
     Kind(Option<String>),
+    /// A new top-level page from the owner device (contract: New pages from the browser).
+    New {
+        title: String,
+        kind: Option<String>,
+    },
     Archive,
     Unarchive,
     Delete,
@@ -188,6 +193,13 @@ struct PageProjects {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct PageKind {
     page_id: String,
+    kind: Option<String>,
+}
+/// The payload of `page.new`: the new page's title and its kind (`null` for an ordinary page).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PageNew {
+    title: String,
     kind: Option<String>,
 }
 /// The payload of `page.pin`: the page it names is the request's own.
@@ -349,6 +361,31 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                 return Err(tmt_colab_model::Invalid);
             }
             Action::Kind(value.kind)
+        }
+        "page.new" => {
+            if page != auth::SPACE_SCOPE_PAGE {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let raw: serde_json::Value =
+                serde_json::from_slice(bytes).map_err(|_| tmt_colab_model::Invalid)?;
+            if raw.get("kind").is_none() {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let value: PageNew = typed(bytes)?;
+            let title = crate::subpage_create::title(&serde_json::json!(value.title))
+                .map_err(|_| tmt_colab_model::Invalid)?
+                .to_owned();
+            if value
+                .kind
+                .as_deref()
+                .is_some_and(|kind| kind != crate::limits::DESIGN_SYSTEM_KIND)
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::New {
+                title,
+                kind: value.kind,
+            }
         }
         "project.manage" => {
             use crate::projects::{Change, valid};
@@ -623,6 +660,22 @@ fn apply(
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
+    // A new page from the browser: the owner's own create at its current head, named by the
+    // operation, so a replay finds its page and makes none.
+    if let Action::New { title, kind } = &command.action {
+        if !scoped {
+            return Err(Code::Invalid);
+        }
+        let (page, head) = service.new_page(&command.operation_id, title, kind.as_deref(), now)?;
+        let reply = serde_json::json!({"operationId":command.operation_id,"pageId":page,
+            "membershipHead":{"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)}});
+        return Ok(Applied {
+            body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
+            resync_page: None,
+            deleted_page: None,
+            touched: vec![page],
+        });
+    }
     // Projects are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
     if let Some(head) = match &command.action {
         Action::Projects(changes) => Some(service.set_projects(changes)),
@@ -725,7 +778,11 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Projects(_) | Action::Project(_) | Action::Pin(_) | Action::Kind(_) => {
+        Action::Projects(_)
+        | Action::Project(_)
+        | Action::Pin(_)
+        | Action::Kind(_)
+        | Action::New { .. } => {
             return Err(Code::Invalid);
         }
         Action::MemberAdd(v) => {

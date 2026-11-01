@@ -24,7 +24,8 @@ import { subpages } from './work.js';
  * `data-tmt-ds` names the page's kind; the page body is the docs. A release is an ordinary
  * attachment of the root page. Nothing here needs a new record kind or serve route.
  *
- * Each system is its own top-level page tree that the Design tab shows. Its pages carry the owner's
+ * Each system is its own top-level page tree that the Design tab shows; the serve makes its root
+ * with `page.new`, and a serve from before that has it made under another page and detached. Its pages carry the owner's
  * display-only page kind `design-system`, so the Colab list hides them without reading sources. A
  * serve from before page kinds refuses `page.kind`; then the pages hold the reserved, never-shown
  * project `tmt:design-system` instead, which the next serve's schema turns into the kind.
@@ -262,20 +263,20 @@ export function rootPageSource(config: DesignSystemConfig) {
  * Copy the TMT template into the space under the open page: a root page with its own name and
  * prefix, a page per component, then publish the first version so every page draws.
  */
-async function createFromTemplate(
+/**
+ * Fill a new root page from the TMT template: a page per component under it, the root's config
+ * with its own name and prefix, then publish the first version so every page draws.
+ */
+async function fillFromTemplate(
   transport: PageTransport,
-  parent: PageBinding,
+  rootId: string,
   name: string,
   prefix: string,
-): Promise<string> {
+): Promise<void> {
   const { system, components } = template as unknown as {
     system: DesignSystemConfig;
     components: (ComponentDoc & { notes?: string })[];
   };
-  if (!parent.work) throw new Error('Sub-pages cannot be made here.');
-  const created = await parent.work('subpage.create', { title: name });
-  const rootId = created.childPage;
-  if (!rootId) throw new Error('The design system page was not made.');
   const entries: DesignSystemConfig['components'] = [];
   await withPage(transport, rootId, async (root) => {
     if (!root.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
@@ -301,7 +302,31 @@ async function createFromTemplate(
     const config = readBlock<DesignSystemConfig>(root.source, 'design-system')!;
     await publishDesignSystem(transport, rootId, root.binding!, root.source, nextVersion(config));
   });
-  return rootId;
+}
+
+/** The root page of a new system, top level. The serve makes it with `page.new` and its kind; a
+ * serve from before that refuses the request (`INVALID`), and then the root is made under an
+ * existing system (or the first page) and detached from it at once. */
+async function newRoot(transport: PageTransport, name: string): Promise<string> {
+  const management = transport.management;
+  if (management?.newPage) {
+    try {
+      return await management.newPage(name, 'design-system');
+    } catch (error) {
+      if (!(error instanceof ManagementError && error.code === 'INVALID')) throw error;
+    }
+  }
+  const home = await transport.spaceHome();
+  const live = home.pages.filter((page) => !page.archived);
+  const parent = live.find(isDesignSystemPage) ?? live[0];
+  if (!parent) throw new Error('Make a page first: the space has none to start from.');
+  return withPage(transport, parent.id, async (page) => {
+    if (!page.binding?.work) throw new Error('Pages cannot be made here.');
+    const created = await page.binding.work('subpage.create', { title: name });
+    if (!created.childPage) throw new Error('The design system page was not made.');
+    await page.binding.work('subpage.detach', { pageId: created.childPage });
+    return created.childPage;
+  });
 }
 
 /** One page of a system's tree, as the Design tab's left nav lists it. */
@@ -404,25 +429,13 @@ async function markDesignPages(transport: PageTransport, ids: readonly string[])
 }
 const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
 
-/**
- * Make a design system from the TMT template as its own top-level tree. The browser can make a page
- * only as a sub-page, so the root is made under an existing system (or the first page, for the
- * first system) and detached from it at once (#5866 known limit until a native page create).
- */
+/** Make a design system from the TMT template as its own top-level tree, every page marked. */
 export async function createDesignSystem(
   transport: PageTransport,
   { name, prefix }: { name: string; prefix: string },
 ): Promise<string> {
-  const home = await transport.spaceHome();
-  const live = home.pages.filter((page) => !page.archived);
-  const parent = live.find(isDesignSystemPage) ?? live[0];
-  if (!parent) throw new Error('Make a page first: the space has none to start from.');
-  const rootId = await withPage(transport, parent.id, async (page) => {
-    if (!page.binding?.work) throw new Error('Pages cannot be made here.');
-    const id = await createFromTemplate(transport, page.binding, name, prefix);
-    await page.binding.work('subpage.detach', { pageId: id });
-    return id;
-  });
+  const rootId = await newRoot(transport, name);
+  await fillFromTemplate(transport, rootId, name, prefix);
   const tree = await withPage(transport, rootId, (root) => treeOf(transport, root, new Map(), 0));
   await markDesignPages(transport, treeIds(tree));
   return rootId;

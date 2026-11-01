@@ -87,16 +87,20 @@ const OPERATIONS = [
 export function operation(value: string): void {
   requireValue(OPERATIONS.includes(value));
 }
-/** Display-only operations change owner-store state without a log statement; only management requests name them. */
-const DISPLAY_ONLY_OPERATIONS = ['page.projects', 'project.manage'];
-/** The page a space-level request names: the frame binds one page and a project change has none. Only `project.manage` may name it. */
+/** Display-only operations change owner-store state without a log statement; only management
+ * requests name them. `page.new` (#5866) is the owner device's new top-level page: the owner makes
+ * it at its own head, so it names no revision either. */
+const UNREVISIONED_OPERATIONS = ['page.projects', 'project.manage', 'page.kind', 'page.new'];
+/** The page a space-level request names: the frame binds one page and a project change or a new
+ * page has none. Only `project.manage` and `page.new` may name it. */
 export const SPACE_SCOPE_PAGE = '00000000-0000-4000-8000-000000000000';
+const SPACE_SCOPED_OPERATIONS = ['project.manage', 'page.new'];
 export function managementOperation(value: string): void {
-  requireValue(OPERATIONS.includes(value) || DISPLAY_ONLY_OPERATIONS.includes(value));
+  requireValue(OPERATIONS.includes(value) || UNREVISIONED_OPERATIONS.includes(value));
 }
-/** A log operation names the membership head it was prepared against; a display-only one has none, so its signed field is empty. */
+/** A log operation names the membership head it was prepared against; the others have none, so their signed field is empty. */
 function managementRevision(operationName: string, value: string): void {
-  if (DISPLAY_ONLY_OPERATIONS.includes(operationName)) requireValue(value === '');
+  if (UNREVISIONED_OPERATIONS.includes(operationName)) requireValue(value === '');
   else decimal(value);
 }
 export interface Management {
@@ -116,7 +120,7 @@ export async function managementInput(v: Management): Promise<Bytes> {
   for (const id of [v.page, v.operationId, v.senderDevice]) generatedId(id);
   managementOperation(v.operation);
   managementRevision(v.operation, v.expectedRevision);
-  requireValue((v.operation === 'project.manage') === (v.page === SPACE_SCOPE_PAGE));
+  requireValue(SPACE_SCOPED_OPERATIONS.includes(v.operation) === (v.page === SPACE_SCOPE_PAGE));
   time(v.issuedAt);
   time(v.expiresAt);
   requireValue(

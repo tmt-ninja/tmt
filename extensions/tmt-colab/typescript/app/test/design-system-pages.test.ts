@@ -111,6 +111,12 @@ function space({ kinds = false }: { kinds?: boolean } = {}) {
           if (kind) pages.get(pageId)!.kind = kind;
           else delete pages.get(pageId)!.kind;
         },
+        // ... and `page.new`: a top-level page, attached nowhere.
+        newPage: async (title: string, kind: 'design-system' | null) => {
+          const id = make(title);
+          if (kind) pages.get(id)!.kind = kind;
+          return id;
+        },
       }),
     },
   } as unknown as PageTransport;
@@ -142,7 +148,7 @@ describe('data blocks', () => {
 });
 
 describe('template, publish and the renderer source', () => {
-  it('makes a top-level system from the template, publishes, pins every page and serves the bundle', async () => {
+  it('on an older serve makes a top-level system under a borrowed page, publishes, pins every page and serves the bundle', async () => {
     const { pages, make, transport } = space();
     const home = make('Home');
     pages.get(home)!.projects = ['Notes'];
@@ -232,10 +238,13 @@ describe('template, publish and the renderer source', () => {
 });
 
 describe('page kinds', () => {
-  it('marks a new system by the native page kind when the serve has it, with no project', async () => {
+  it('makes a new system with page.new and the native page kind when the serve has them', async () => {
     const { pages, make, transport } = space({ kinds: true });
     const note = make('Notes');
     const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    // No page is borrowed: the ordinary page never lists the root, even for a moment.
+    expect(pages.get(note)!.order).toEqual([]);
+    expect(pages.get(rootId)!.title).toBe('Acme');
     const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
     for (const id of [rootId, config.components[0]!.page!]) {
       expect(pages.get(id)!.kind).toBe('design-system');

@@ -387,4 +387,13 @@ it('signs display-only label requests with an empty revision and log operations 
     expect(() => c.operation(name)).toThrow();
   }
   expect(() => c.managementOperation('page.labels')).toThrow();
+  // #5866: a page kind names its page, a new page the space scope; neither names a head.
+  const kind = { ...projects, operation: 'page.kind' };
+  await expect(c.managementInput(kind)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...kind, page: c.SPACE_SCOPE_PAGE })).rejects.toThrow();
+  const created = { ...manage, operation: 'page.new' };
+  await expect(c.managementInput(created)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...created, page: management.page })).rejects.toThrow();
+  await expect(c.managementInput({ ...created, expectedRevision: '1' })).rejects.toThrow();
+  for (const name of ['page.kind', 'page.new']) expect(() => c.operation(name)).toThrow();
 });
