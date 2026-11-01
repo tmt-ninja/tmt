@@ -59,6 +59,9 @@ type Row = {
   state: PageState;
   parent?: { page: string; index: number };
   archived?: boolean;
+  /** For the Add window's `project:` and `by:` filters (#5868). */
+  projects?: string[];
+  author?: string;
 };
 function rows(): Row[] {
   const p = PAGES;
@@ -87,8 +90,14 @@ function rows(): Row[] {
       state: 'todo',
       parent: under(p.machines, 2),
     },
-    { id: p.dataPlan, title: 'Remote data plan design', state: 'todo' },
-    { id: p.adminPrototype, title: 'Remote admin prototype', state: 'todo' },
+    {
+      id: p.dataPlan,
+      title: 'Remote data plan design',
+      state: 'todo',
+      projects: ['pm'],
+      author: 'Atlas',
+    },
+    { id: p.adminPrototype, title: 'Remote admin prototype', state: 'todo', projects: ['pm'] },
     { id: p.launch, title: 'Remote launch', state: 'in-progress' },
     { id: p.elsewhere, title: 'Remote copy deck', state: 'todo', parent: under(p.launch, 1) },
   ];
@@ -151,8 +160,17 @@ export function mountWorkPage(
     state: row.state,
     sharing: 'private',
     ...(row.archived ? { archived: true } : {}),
-    ...(row.parent
-      ? { summary: { comments: 0, waiting: false, needsYou: 0, parent: row.parent } }
+    ...(row.projects ? { projects: row.projects } : {}),
+    ...(row.parent || row.author
+      ? {
+          summary: {
+            comments: 0,
+            waiting: false,
+            needsYou: 0,
+            ...(row.parent ? { parent: row.parent } : {}),
+            ...(row.author ? { author: row.author } : {}),
+          },
+        }
       : {}),
   });
   const listed = (): PageSummary[] => [

@@ -3290,8 +3290,12 @@ and the commit's fences turn a page that moved meanwhile into `COLAB_STALE_BASE`
 on a refusal.
 
 The owner work panel has one Add window (#5820): a design-system dialog that searches the observed
-page list. Choosing a page sends one `subpage.attach`. When no listed page has exactly the typed
-title, the first row sends one `subpage.create` with the typed title. Pages the list shows cannot be
+page list with the list's own search field and matcher (#5868): `project:` and `by:` suggestions
+become the same removable chips, and the free text and every chip narrow the pages by the list's
+rules. Archived pages and dashboards are not offered. Arrows move through the results while focus
+stays in the field, and Enter picks. Choosing a page sends one `subpage.attach`. When no listed page
+has exactly the typed free text as its title, the first row sends one `subpage.create` with that
+free text, never a chip. Pages the list shows cannot be
 attached stay listed, dimmed, with why (this page, above this page, already under another page);
 the owner's admission still decides. A refusal shows its words and leaves nothing to clean up; a
 create that made its page but could not attach it says so, and the page can be chosen. An unsettled
