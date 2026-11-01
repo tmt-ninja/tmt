@@ -314,10 +314,18 @@ impl App {
                         .find(|m| m.identity_id == id)
                         .map_or_else(|| id.to_owned(), |m| m.name.clone())
                 });
+                // The button names what it does, as every confirm in the board does.
+                let action = match preview["mutation"]["kind"].as_str() {
+                    Some("talks.resume") => "Release",
+                    Some("route.allow") => "Allow once",
+                    Some("focus.set") => "Focus",
+                    Some("focus.clear") => "End focus",
+                    _ => "Apply",
+                };
                 self.confirm(
                     title,
                     lines,
-                    "Save".into(),
+                    action.into(),
                     super::super::app::Choice::OrchestrationApply(Box::new(preview)),
                 )
             }

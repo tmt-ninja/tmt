@@ -63,6 +63,25 @@ impl State {
             .filter(|(query, _)| query == &self.query)
             .map(|(_, report)| report.as_ref())
     }
+    /// What the selected matrix cell offers: (a blocked route to allow once, a held pair to
+    /// release). Both are false without a reported route matrix or in the plans list.
+    pub fn cell_actions(&self) -> (bool, bool) {
+        let Some(snapshot) = self.snapshot().filter(|_| !self.plans) else {
+            return (false, false);
+        };
+        let (Some(from), Some(to)) = (self.selected.as_deref(), self.target.as_deref()) else {
+            return (false, false);
+        };
+        let blocked = snapshot
+            .sending
+            .route(from, to)
+            .is_some_and(|route| route.verdict == model::Verdict::Blocked);
+        let held = snapshot
+            .sending
+            .pair(from, to)
+            .is_some_and(|pair| pair.held);
+        (blocked, held)
+    }
     pub fn apply(&mut self, read: Read, observation: Observation) {
         if read != self.read() {
             return;

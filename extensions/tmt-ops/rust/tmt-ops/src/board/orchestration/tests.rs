@@ -412,6 +412,33 @@ fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
     assert_eq!(bindings["a"].text, "allow-once");
 }
 
+#[test]
+fn a_confirm_too_tall_for_the_terminal_offers_only_cancel_and_asks_for_room() {
+    let app = captures::case("orchestration-preview", crate::look::Look::default());
+    let paint = |width, height| {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| super::super::view::render(frame, &app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>()
+    };
+    let short = paint(60, 8);
+    assert!(short.contains("Enlarge to review"), "{short}");
+    assert!(!short.contains("Release"), "no action it cannot show");
+    let tall = paint(60, 36);
+    assert!(
+        tall.contains("Release") && tall.contains("restarts."),
+        "wrapped body"
+    );
+}
+
 /// HOME oracle scenes of the Orchestration tab (#5890 review): its own states, painted from the
 /// same handwritten public wire facts as the tests above.
 pub(in crate::board) mod captures {

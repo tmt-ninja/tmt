@@ -25,7 +25,8 @@ fn text(frame: &mut Frame, app: &App, area: Rect, value: &str, role: Role) {
         strip::paint_left(
             frame.buffer_mut(),
             area,
-            Line::styled(safe(value), app.look().role(role)),
+            // A cut line ends with an ellipsis, never mid-word without one.
+            Line::styled(cell(value, usize::from(area.width)), app.look().role(role)),
         );
     }
 }
@@ -68,18 +69,20 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             state.hits.borrow_mut().push((rect, control));
         }
     }
-    let routes = state.snapshot().is_some_and(|s| s.sending.routes.is_some());
-    text(
-        frame,
-        app,
-        row(1, 1),
-        if routes {
-            "From ↓ To → · who may message whom at the selected time"
-        } else {
-            "Member policies at selected time · routes are not available on this Core"
-        },
-        Role::Muted,
-    );
+    // What Core reports is said only once Core has answered.
+    if let Some(snapshot) = state.snapshot() {
+        text(
+            frame,
+            app,
+            row(1, 1),
+            if snapshot.sending.routes.is_some() {
+                "From ↓ To → · who may message whom at the selected time"
+            } else {
+                "Member policies at selected time · routes are not available on this Core"
+            },
+            Role::Muted,
+        );
+    }
     if state.unavailable {
         text(
             frame,
@@ -101,13 +104,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 Role::Waiting
             },
-        );
-        text(
-            frame,
-            app,
-            row(4, 1),
-            "Jobs · not available yet",
-            Role::Muted,
         );
         return;
     };
