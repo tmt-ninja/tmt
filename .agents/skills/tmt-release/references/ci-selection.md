@@ -77,6 +77,15 @@ download timeout, only Azure is removed from the verified runner-image mirror li
 for remaining attempts; unexpected layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
+`Native process contracts` gates one `Native process build` and two `Native process
+shard` jobs (#3836). The build compiles every process fixture once, including the
+synthetic alpha, and uploads the executables as one zstd tar; the shards download it
+and never compile. `typescript/scripts/native-shards.mjs` splits the serial suite
+with the `e2e-shards.mjs` algorithm and `typescript/scripts/native-shard-weights.json`;
+a guard rejects a native test file in no shard or two. Full scope requires all three,
+a scoped component that names native tests requires the build and shard 1 with shard 2
+skipped, and anything else fails (`ci-scope.mjs gate-process`).
+
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
 `test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs the pinned
 adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
@@ -92,9 +101,15 @@ mirror builder uses `cleanup: false` and job-VM disposal; fallback/persistent
 runners retain default cleanup.
 
 `Native package matrix` requires every selected native result. Its event-derived
-`macos` flag is false only for merge groups, where both macOS build/smoke results
-must be exactly skipped; full-scope PRs require success. Linux stays required;
-release verification includes macOS. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
+`macos` flag is false for pull requests and merge groups, where both macOS build/smoke
+results must be exactly skipped, so no required check waits on macOS (#2547). Linux
+stays required. macOS coverage moved after merge: the admitted main push and weekly
+schedule run both macOS runtime builds and packed installs; the main push also runs the
+selected release rehearsal, whose prepare stages build, verify and upgrade-prove both
+Darwin targets; `release-version-injection.yml` runs its macOS hosts on main push and
+daily (PRs run Linux only); and every release's `native-release-prepare.yml` assembles and
+proves all four targets before any publish. A macOS-only break is found after merge and
+fixed forward. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
 owns Rosetta wrapping, installed-byte architecture admission and advisory Intel coverage.
 
 `Code quality` verifies the private browser leaf with frozen, lifecycle-script-free
@@ -260,7 +275,7 @@ closure IDs/digests. Schema 2 separates producer from actual execution attempt;
 result names contain both. Cargo-built runtime examples are archive inputs and
 consumers verify restored executable paths before testing.
 
-Recovery admits K=2 or 3; collection selects each partition's latest actual success
+`ci.yml` runs K=3 partitions (#3284). Recovery admits K=2 or 3; collection selects each partition's latest actual success
 within three attempts of one producer generation. Newer failed/cancelled/incomplete executions refuse,
 never falling back. Attempt start time plus exact earlier-success fingerprint
 identifies copied retained jobs with new IDs. Ambiguous/unavailable metadata,
@@ -312,8 +327,8 @@ Required-check policy and estimated reductions remain separate; CI selection is 
 Monday hygiene compares budgets: two consecutive over-budget weeks require an
 issue to the dominating suite's squad for sharding/consumers/trimming. A PR expected
 to add more than about 20 s to a required job must say so in its body and update
-weights or assignment (`typescript/test/e2e/shard-weights.json` or Colab
-`acceptance/shard-weights.json`) there.
+weights or assignment (`typescript/test/e2e/shard-weights.json`,
+`typescript/scripts/native-shard-weights.json` or Colab `acceptance/shard-weights.json`) there.
 
 ## Verification
 
@@ -325,12 +340,19 @@ Infra's `.github/release-parity.json` inventories executable steps in `native-re
 `releaseOnly` requires a concrete live-state reason no PR can reach and cannot
 carry `followUp`; each gap needs a counterpart or that reason, never an open marker.
 
-A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output. Separate
+A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output for a pull
+request or merge group; a `mainPush` counterpart names one that runs on the admitted main
+push, and the guard requires a main push trigger, a path selection and no PR-only `verify`
+condition. An entry may list both, or name a `releaseOnly` reason instead. The release
+rehearsal is mainPush coverage: it rehearses the products the push's `before..sha` diff
+selects. A push superseded while pending, or one whose selection missed an input, is
+rehearsed by the nightly all-products `release-rehearsal.yml`, and no release skips the
+four-target prepare proofs. Separate
 selectors (such as
 `release-rehearsal.mjs`) name `selection.source`, which must emit the output.
 Always-selected verification uses `selection.kind: "always"` and the actual incident
 step; the guard rejects path-dependent conditions or absent steps. The manifest
-maps rehearsed prepare/packaging stages to `release-rehearsal`; each incident names
+maps rehearsed prepare/packaging stages to `release-rehearsal` as mainPush; each incident names
 the release failure step and counterpart/release-only reason. Extend guard incident
 lists/tests when adding an incident.
 
@@ -350,7 +372,7 @@ Code quality runs parity for PR/MG, including prose-only changes; the manifest r
 Selection/workflow changes also run:
 
 ```sh
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/e2e-shards.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/e2e-shards.test.ts test/tooling/native-shards.test.ts
 corepack pnpm check:tooling
 ```
 

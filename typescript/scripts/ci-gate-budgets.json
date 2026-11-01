@@ -1,5 +1,5 @@
 {
-  "baseline": "Workspace child p90s: #3283 weekly report, 2026-10-19 (n=31-35), issuecomment-6257514274. PR gate median retains the #3284 K2 series (n=5); PR gate p90 retains 1095s. Other jobs and MG gate limits retain #3230.",
+  "baseline": "Workspace child p90s: #3283 weekly report, 2026-10-19 (n=31-35), issuecomment-6257514274. PR gate median retains the #3284 K2 series (n=5); PR gate p90 retains 1095s. Other jobs and MG gate limits retain #3230. K=3 (#3284, 2026-11-01): partition 3 provisionally takes partition 2's limits until two weekly reports have K=3 samples.",
   "gate": {
     "pull_request": { "median": 710, "p90": 1095 },
     "merge_group": { "median": 790, "p90": 911 }
@@ -8,6 +8,7 @@
     "Native Rust workspace tests / Compile workspace test closure": { "pull_request": 214, "merge_group": 311 },
     "Native Rust workspace tests / Execute partition 1": { "pull_request": 299, "merge_group": 309 },
     "Native Rust workspace tests / Execute partition 2": { "pull_request": 330, "merge_group": 326 },
+    "Native Rust workspace tests / Execute partition 3": { "pull_request": 330, "merge_group": 326 },
     "Native Rust workspace tests / Verify exact workspace test identities": { "pull_request": 18, "merge_group": 19 },
     "Docker E2E shard 1/2": { "pull_request": 672, "merge_group": 692 },
     "Docker E2E shard 2/2": { "pull_request": 655, "merge_group": 639 },

@@ -170,7 +170,7 @@ describe('signature-limited native install wiring (#1806)', () => {
       ])
     ).toThrow();
   });
-  it('pins runtime and inert pre-merge counterparts, and refuses an absent incident', () => {
+  it('pins inert pre-merge and runtime main-push counterparts, and refuses an absent incident', () => {
     const manifest = JSON.parse(read('.github/release-parity.json'));
     expect(manifest.incidents['1806']).toEqual({
       release: {
@@ -178,7 +178,7 @@ describe('signature-limited native install wiring (#1806)', () => {
         job: 'verify',
         step: 'name:Install verification dependencies',
       },
-      preMerge: [
+      mainPush: [
         {
           workflow: 'ci.yml',
           job: 'release-rehearsal',
@@ -190,6 +190,8 @@ describe('signature-limited native install wiring (#1806)', () => {
           },
           coverage: 'runtime',
         },
+      ],
+      preMerge: [
         {
           workflow: 'ci.yml',
           job: 'unit-tests',
@@ -465,14 +467,15 @@ describe('release version gate workflow boundaries', () => {
     );
   });
   it('builds a gated synthetic debug alpha only for selected installation and upgrade tests', () => {
-    const processTests = job(read('.github/workflows/ci.yml'), 'native-process-tests');
+    // The build job packs the synthetic fixture for the process-test shards after the restore.
+    const processTests = job(read('.github/workflows/ci.yml'), 'native-process-build');
     const injection = processTests.indexOf('name: Inject the synthetic alpha installation fixture');
     const build = processTests.indexOf(
       'name: Build the synthetic alpha installation fixture in debug mode'
     );
     const verify = processTests.indexOf('name: Verify the synthetic alpha fixture source gate');
     const restore = processTests.indexOf('name: Restore the reviewed development source');
-    const tests = processTests.indexOf('name: Verify native process and shared parser contracts');
+    const tests = processTests.indexOf('name: Pack the process-test executables');
     expect(injection).toBeGreaterThan(0);
     expect(build).toBeGreaterThan(injection);
     expect(verify).toBeGreaterThan(build);
@@ -529,7 +532,7 @@ describe('release version gate workflow boundaries', () => {
       }
     }
     expect(callers.sort()).toEqual([
-      'ci.yml:native-process-tests',
+      'ci.yml:native-process-build',
       'native-release-prepare.yml:assemble',
       'native-release-prepare.yml:build',
       'native-release-prepare.yml:verify',
@@ -538,7 +541,7 @@ describe('release version gate workflow boundaries', () => {
     ]);
     expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 26.12.1');
   });
-  it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
+  it('keeps native injection on pinned heads and all four hosts outside PRs, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
     expect(injection).toContain('product: [cli, ops, remote, colab, digest]');
@@ -550,8 +553,30 @@ describe('release version gate workflow boundaries', () => {
     expect(products?.includes('ops')).toBe(
       !!map.components.ops && map.components.ops.release !== false
     );
-    for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
-      expect(injection).toContain(`runner: ${host}`);
+    // A PR runs the Linux hosts only; main pushes and the daily schedule keep both macOS hosts (#2547).
+    // The host list is chosen per event: an `exclude` would leave product-less macOS include rows.
+    const hostLists =
+      /host: \$\{\{ fromJSON\(github\.event_name == 'pull_request' && '(\[[^']+\])' \|\| '(\[[^']+\])'\) \}\}/.exec(
+        injection
+      );
+    expect(hostLists).not.toBeNull();
+    const [pullRequestHosts, otherHosts] = [hostLists![1], hostLists![2]].map(
+      (list) => JSON.parse(list) as { target: string; runner: string }[]
+    );
+    const linux = [
+      { target: 'aarch64-unknown-linux-musl', runner: 'ubuntu-24.04-arm' },
+      { target: 'x86_64-unknown-linux-musl', runner: 'ubuntu-24.04' },
+    ];
+    expect(pullRequestHosts).toEqual(linux);
+    expect(otherHosts).toEqual([
+      { target: 'aarch64-apple-darwin', runner: 'macos-15' },
+      { target: 'x86_64-apple-darwin', runner: 'macos-15-intel' },
+      ...linux,
+    ]);
+    expect(injection).not.toMatch(/^ {8}(include|exclude):/m);
+    expect(injection).not.toMatch(/matrix\.(target|runner)\b/);
+    expect(injection).toMatch(/^ {2}push:\n {4}branches: \[main\]$/m);
+    expect(injection).toMatch(/^ {2}schedule:\n {4}- cron: '29 3 \* \* \*'$/m);
     const action = read('.github/actions/inject-release-version/action.yml');
     expect(injection).toContain('uses: ./.github/actions/inject-release-version');
     expect(action).toContain('update --offline --workspace');
@@ -1130,11 +1155,7 @@ describe('shared prepare pipeline and release rehearsal', () => {
     const ci = read('.github/workflows/ci.yml');
     for (const [name, call, sha] of [
       ['nightly', job(rehearsal, 'prepare'), 'sha: ${{ github.sha }}'],
-      [
-        'pull request',
-        job(ci, 'release-rehearsal'),
-        'sha: ${{ github.event.pull_request.head.sha }}',
-      ],
+      ['main push', job(ci, 'release-rehearsal'), 'sha: ${{ github.sha }}'],
     ]) {
       expect(call, name).toContain('uses: ./.github/workflows/native-release-prepare.yml');
       expect(call, name).toContain(sha);
@@ -1326,19 +1347,26 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
   });
 });
 
-describe('pull-request release rehearsal in ci.yml', () => {
+describe('main-push release rehearsal in ci.yml', () => {
   const ci = read('.github/workflows/ci.yml');
-  it('rehearses selected products on pull requests only, never in the merge group', () => {
+  const rehearsal = read('.github/workflows/release-rehearsal.yml');
+  it('rehearses the products an admitted main push changed, never for a PR or merge group (#2547)', () => {
     const select = ci
       .split('      - name: Select the release rehearsal products\n')[1]
       .split('\n\n')[0];
-    expect(select).toContain("if: github.event_name == 'pull_request'");
+    expect(select).toContain("if: steps.main.outputs.admitted == 'true'");
+    expect(select).toContain('BASE_SHA: ${{ github.event.before }}');
+    expect(select).toContain('HEAD_SHA: ${{ github.sha }}');
     expect(select).toContain('release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA"');
-    expect(select).not.toContain('merge_group');
+    expect(select).not.toMatch(/pull_request|merge_group/);
     const rehearse = job(ci, 'release-rehearsal');
-    expect(rehearse).toContain(
-      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'"
-    );
+    expect(rehearse).toContain("if: needs.changes.outputs.release_rehearsal == 'true'");
+    expect(rehearse).not.toContain('verify');
+    // Complete trusted-main verification requires it whenever the push selected it.
+    expect(job(ci, 'complete-main')).toMatch(/^ {6}- release-rehearsal$/m);
+    // The nightly all-products rehearsal covers a superseded push.
+    expect(rehearsal).toContain("cron: '17 3 * * *'");
+    expect(job(rehearsal, 'plan')).toContain('release-rehearsal.mjs all');
     expect(rehearse).toContain(
       'product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}'
     );

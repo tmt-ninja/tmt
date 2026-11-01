@@ -5,14 +5,13 @@ import {
   decodeHeader,
   Envelope,
   MAX_ENVELOPE_JSON,
-  encodeBinary,
   exactKeys,
   requireValue,
   strictJson,
   text,
 } from '@tmt/colab-client';
 import { type Admission, STATEMENT_ENVELOPE_BYTES, StatementTransfer } from './admission.js';
-import { UPDATE_ENVELOPE_BYTES } from './objects.js';
+import { JoinedEnvelope, UPDATE_ENVELOPE_BYTES } from './objects.js';
 
 /** One bounded transfer, absolute deadline, no partially admitted envelope. */
 export class Frames {
@@ -93,8 +92,10 @@ export class Frames {
       // Valid UTF-8 and JSON are subsequently checked by the envelope model.
       decodeText(joined);
       if (identity.kind === 'object') {
-        requireValue(decodeHeader(Envelope.fromJson(joined).header()).objectId === identity.id);
-        p.target.envelope = encodeBinary(joined);
+        // Parsed once: admission takes this envelope as it is, never a re-encoded copy to decode.
+        const envelope = Envelope.fromJson(joined);
+        requireValue(decodeHeader(envelope.header()).objectId === identity.id);
+        p.target.envelope = new JoinedEnvelope(envelope, joined.length);
       } else {
         p.target.statements = [new StatementTransfer(joined, binary(p.hash, 32, 32))];
       }

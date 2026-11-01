@@ -54,7 +54,7 @@ fn v2_route_delegation_wakes_the_existing_worker_before_publishing_the_exact_rec
         binding: BackendBinding {
             backend: "firestore".into(),
             reference: PROJECT.as_bytes().to_vec(),
-            owner_principal: owner_provider.uid().as_bytes().to_vec(),
+            owner_principal: owner_provider.binding().principal.as_bytes().to_vec(),
         },
         owner: owner.machine.clone(),
         owner_key: owner.key.public(),
@@ -67,7 +67,7 @@ fn v2_route_delegation_wakes_the_existing_worker_before_publishing_the_exact_rec
         owner.store.clone(),
         owner.key.public(),
         config(),
-        owner_provider.uid().into(),
+        owner_provider.binding().principal.into(),
     )
     .unwrap();
     let backend = Firestore::new(
@@ -82,7 +82,7 @@ fn v2_route_delegation_wakes_the_existing_worker_before_publishing_the_exact_rec
         peer.store.clone(),
         context.owner_key,
         config(),
-        owner_provider.uid().into(),
+        owner_provider.binding().principal.into(),
     )
     .unwrap();
     let peer_backend = Firestore::new(
@@ -106,7 +106,7 @@ fn v2_route_delegation_wakes_the_existing_worker_before_publishing_the_exact_rec
     let candidate = Candidate {
         machine: peer.machine.clone(),
         public_key: peer.key.public(),
-        principal: peer_provider.uid().as_bytes().to_vec(),
+        principal: peer_provider.binding().principal.as_bytes().to_vec(),
         name: "Peer".into(),
         nonce: [3; 16],
     };

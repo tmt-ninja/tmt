@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 pub mod v2;
 
-pub(super) fn invalid() -> RemoteError {
+pub(crate) fn invalid() -> RemoteError {
     RemoteError::new(
         "REMOTE_CLOUD_PAIR_INVALID",
         "The invite could not be verified. Check the code with the owner.",

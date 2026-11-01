@@ -32,6 +32,25 @@ export interface Position {
 export interface ObjectEntry extends Position {
   envelope: string;
 }
+/** An object a peer sent in chunks, joined and parsed once by `Frames`: its JSON bytes are never
+ * re-encoded to base64url only to be decoded again here. Only `Frames` makes one; no wire JSON
+ * can, so an inline envelope is always a string. */
+export class JoinedEnvelope {
+  constructor(
+    readonly envelope: Envelope,
+    readonly bytes: number,
+  ) {}
+}
+/** An entry as a frame delivers it: inline, or joined from chunks. */
+export interface ReceivedEntry extends Position {
+  envelope: string | JoinedEnvelope;
+}
+/** The one parse of a received envelope, under the same byte bound either way. */
+export function receivedEnvelope(value: unknown, limit: number): Envelope {
+  if (!(value instanceof JoinedEnvelope)) return Envelope.fromJson(binary(value, limit));
+  requireValue(value.bytes <= limit);
+  return value.envelope;
+}
 export function position(value: unknown): asserts value is Position {
   exactKeys(value, ['streamId', 'seq', 'envelopeHash']);
   requireValue(typeof value.streamId === 'string' && typeof value.seq === 'string');
@@ -218,7 +237,7 @@ export class Objects {
   }
   async admit(
     stream: string,
-    entry: ObjectEntry,
+    entry: ReceivedEntry,
     kind: 'update' | 'checkpoint' = 'update',
     namespace?: Namespace,
   ): Promise<AdmittedUpdate | null> {
@@ -226,8 +245,9 @@ export class Objects {
     generatedId(stream);
     const seq = decimal(entry.seq),
       hash = binary(entry.envelopeHash, 32, 32);
-    const env = Envelope.fromJson(
-      binary(entry.envelope, kind === 'checkpoint' ? MAX_ENVELOPE_JSON : UPDATE_ENVELOPE_BYTES),
+    const env = receivedEnvelope(
+      entry.envelope,
+      kind === 'checkpoint' ? MAX_ENVELOPE_JSON : UPDATE_ENVELOPE_BYTES,
     );
     const { context: c, coveredDevice } = decodeHeader(env.header()),
       a = this.admission;
@@ -340,11 +360,11 @@ export class Objects {
   /** An anchor frame: the covered stream's update envelope at n, which a fold that follows is
    * checked against. It is signed by an owner-member device within what its revoke cut allows,
    * and applies to nothing: it moves no head, cut or cursor. */
-  async #admitAnchor(stream: string, entry: ObjectEntry, namespace: Namespace) {
+  async #admitAnchor(stream: string, entry: ReceivedEntry, namespace: Namespace) {
     exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
     const seq = decimal(entry.seq),
       hash = binary(entry.envelopeHash, 32, 32),
-      env = Envelope.fromJson(binary(entry.envelope, UPDATE_ENVELOPE_BYTES));
+      env = receivedEnvelope(entry.envelope, UPDATE_ENVELOPE_BYTES);
     const { context: c, coveredDevice } = decodeHeader(env.header()),
       a = this.admission;
     requireValue(
@@ -400,7 +420,7 @@ export class Objects {
         requireValue(stream.checkpoint === null && stream.tail.length === 0);
         await this.#admitAnchor(
           stream.streamId,
-          stream.anchor as ObjectEntry,
+          stream.anchor as ReceivedEntry,
           stream.namespace as Namespace,
         );
         continue;
@@ -408,7 +428,7 @@ export class Objects {
       if (stream.checkpoint !== null) {
         const update = await this.admit(
           stream.streamId,
-          stream.checkpoint as ObjectEntry,
+          stream.checkpoint as ReceivedEntry,
           'checkpoint',
           stream.namespace as Namespace,
         );
@@ -417,7 +437,7 @@ export class Objects {
       for (const entry of stream.tail) {
         const update = await this.admit(
           stream.streamId,
-          entry as ObjectEntry,
+          entry as ReceivedEntry,
           'update',
           stream.namespace as Namespace,
         );

@@ -2246,6 +2246,105 @@ fn an_answered_request_is_not_offered_again_at_the_next_stop() {
     f.storage.close().unwrap();
 }
 
+/// A checklist typed while the recipient's announced turn runs reaches the model in that turn:
+/// a driver that folds typed text confirms it at settlement and the Stop offers nothing again
+/// (#5869). A driver that does not fold keeps the #4858 offer.
+#[test]
+fn a_checklist_typed_into_an_announced_running_turn_is_carried_only_where_text_folds() {
+    use super::delivery_state::bind_driver_with_activity;
+    for (driver, carried) in [("claude", true), ("codex", false)] {
+        let (mut f, target, _, sender) = start();
+        bind_driver_with_activity(&f, &target, driver, "working", NOW_MS);
+        held(&mut f, &target, &sender, "req-typed");
+        let typed = type_idle_checklist(&mut f, &target);
+        assert_eq!(
+            checklist_row(&f, &typed.id),
+            ("delivered".into(), carried),
+            "{driver}"
+        );
+        assert_eq!(
+            claim_at_stop(&mut f, &target).is_none(),
+            carried,
+            "{driver}"
+        );
+        f.storage.close().unwrap();
+    }
+}
+
+/// A Stop-hook continuation reads idle until its own Stop, yet it is a running turn: a paste
+/// typed during it is carried, not offered again at that continuation's Stop (#5869).
+#[test]
+fn a_checklist_typed_during_a_stop_continuation_is_carried() {
+    use super::delivery_state::bind_with_activity;
+    let (mut f, target, _, sender) = start();
+    bind_with_activity(&f, &target, "idle", NOW_MS);
+    held(&mut f, &target, &sender, "req-before");
+    service(&mut f).make_digest_due(&target).unwrap();
+    let stop = claim_at_stop(&mut f, &target).expect("the Stop hook hands a checklist");
+    assert!(
+        service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &stop.id,
+                &stop.attempt_token,
+                DigestState::Delivered
+            )
+            .unwrap()
+    );
+    held(&mut f, &target, &sender, "req-during");
+    let typed = type_idle_checklist(&mut f, &target);
+    assert_eq!(checklist_row(&f, &typed.id), ("delivered".into(), true));
+    assert!(claim_at_stop(&mut f, &target).is_none());
+    f.storage.close().unwrap();
+}
+
+/// A result notice its originator acknowledged with `x ack` is not offered again; an
+/// unacknowledged one still is (#5869).
+#[test]
+fn an_acknowledged_result_notice_is_not_offered_again_at_the_next_stop() {
+    for acknowledged in [false, true] {
+        let (mut f, target, owner, sender) = start();
+        service(&mut f)
+            .write_digest(policy(&sender, &owner, 0, NOW_MS + 1000))
+            .unwrap();
+        let p = held(&mut f, &target, &sender, "req-done");
+        service(&mut f)
+            .submit_response(SubmitResponse {
+                request_id: "req-done".into(),
+                proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                    "req-done",
+                    &p.attempt_id,
+                    &RequestRoute::Inbox {
+                        recipient_identity_id: target.clone(),
+                    },
+                )),
+                body: "final".into(),
+            })
+            .unwrap();
+        assert!(service(&mut f).hold_reply_notice("req-done").unwrap());
+        type_idle_checklist(&mut f, &sender);
+        if acknowledged {
+            let revision: i64 = rusqlite::Connection::open(&f.database)
+                .unwrap()
+                .query_row(
+                    "SELECT attention_revision FROM request_attempts WHERE request_id='req-done'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            service(&mut f)
+                .acknowledge_exchange(&sender, "req-done", revision as u64)
+                .unwrap();
+        }
+        assert_eq!(
+            claim_at_stop(&mut f, &sender).is_some(),
+            !acknowledged,
+            "acknowledged={acknowledged}"
+        );
+        f.storage.close().unwrap();
+    }
+}
+
 /// `(state, confirmed)` of the checklist `id`, read from the rows a settlement writes.
 fn checklist_row(f: &Fixture, id: &str) -> (String, bool) {
     rusqlite::Connection::open(&f.database)

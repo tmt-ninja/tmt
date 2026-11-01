@@ -178,7 +178,7 @@ describe('release gate parity inventory', () => {
     }
   });
 
-  it('maps the rehearsed prepare stages and incidents to the selected rehearsal job', () => {
+  it('maps the rehearsed prepare stages and incidents to the main-push rehearsal job', () => {
     const value = manifest();
     const rehearsal = {
       workflow: 'ci.yml',
@@ -198,7 +198,7 @@ describe('release gate parity inventory', () => {
       ['native-release-prepare.yml', 'assemble'],
       ['native-release-prepare.yml', 'verify'],
     ])
-      expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+      expect(value.workflows[file][job].mainPush, `${file}:${job}`).toEqual([rehearsal]);
     // The rehearsal's own upgrade jobs and the shared proof stages are rehearsed, not release-only.
     for (const [file, job] of [
       ['native-release-prepare.yml', 'upgrade-fetch'],
@@ -208,7 +208,7 @@ describe('release gate parity inventory', () => {
       ['native-release-upgrade-prove.yml', 'conclude'],
       ['native-release-upgrade.yml', 'prove'],
     ])
-      expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+      expect(value.workflows[file][job].mainPush, `${file}:${job}`).toEqual([rehearsal]);
     // Only live draft state stays release-only, with a concrete reason and no open follow-up.
     for (const [file, job] of [
       ['native-release-upgrade.yml', 'fetch'],
@@ -220,7 +220,7 @@ describe('release gate parity inventory', () => {
       expect(value.workflows[file][job].followUp, `${file}:${job}`).toBeUndefined();
     }
     for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680', '5311'])
-      expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
+      expect(value.incidents[issue].mainPush, issue).toEqual([rehearsal]);
     expect(value.incidents['5311'].release).toEqual({
       workflow: 'native-release-upgrade-prove.yml',
       job: 'prove',
@@ -231,19 +231,24 @@ describe('release gate parity inventory', () => {
       job: 'verify',
       step: 'name:Execute final archive and bootstrap with the matching target process',
     });
+    // A mixed incident keeps its PR-time counterpart and adds the main-push rehearsal.
     expect(value.incidents['1550'].preMerge.map((c: { job: string }) => c.job)).toEqual([
       'native-notices',
-      'release-rehearsal',
     ]);
+    expect(value.incidents['1550'].mainPush).toEqual([rehearsal]);
     expect(value.incidents['1542'].preMerge[0].coverage).toBe('policy');
+    // No release stage is mapped to the rehearsal as pre-merge coverage any more.
+    expect(JSON.stringify(value)).not.toMatch(/"preMerge":\[[^\]]*"job":"release-rehearsal"/);
   });
 
   it('maps the dry publication gates and the always-run title check, and leaves no follow-up open', () => {
     const value = manifest();
-    const rehearsal = value.incidents['1604'].preMerge[0];
-    for (const gate of ['channel', 'immutability', 'monotonic', 'migration'])
-      expect(value.publicationGates[gate].preMerge, gate).toContainEqual(rehearsal);
-    expect(value.incidents['1542'].preMerge).toContainEqual(rehearsal);
+    const rehearsal = value.incidents['1604'].mainPush[0];
+    for (const gate of ['channel', 'immutability', 'monotonic', 'migration']) {
+      expect(value.publicationGates[gate].mainPush, gate).toEqual([rehearsal]);
+      expect(value.publicationGates[gate].preMerge[0].job, gate).toBe('unit-tests');
+    }
+    expect(value.incidents['1542'].mainPush).toEqual([rehearsal]);
     expect(value.incidents['1643'].preMerge).toEqual([
       {
         workflow: 'ci.yml',
@@ -364,13 +369,14 @@ describe('release gate parity inventory', () => {
     const value = manifest();
     for (const issue of ['1593', '1661', '1745']) {
       expect(value.incidents[issue].preMerge, issue).toBeUndefined();
+      expect(value.incidents[issue].mainPush, issue).toBeUndefined();
       expect(value.incidents[issue].releaseOnly.length, issue).toBeGreaterThan(40);
       expect(value.incidents[issue].followUp, issue).toBeUndefined();
     }
   });
 
   it('rejects a rehearsal counterpart whose selector, source or job is not real', () => {
-    const rehearsalOf = (value: ReturnType<typeof manifest>) => value.incidents['1604'].preMerge[0];
+    const rehearsalOf = (value: ReturnType<typeof manifest>) => value.incidents['1604'].mainPush[0];
     for (const mutate of [
       (value: ReturnType<typeof manifest>) => {
         rehearsalOf(value).selection.output = 'missing';
@@ -408,16 +414,56 @@ describe('release gate parity inventory', () => {
     const source = read('.github/workflows/ci.yml');
     const job = inventoryWorkflow(source, 'ci.yml', 'release-rehearsal')['release-rehearsal'].body;
     const changedJob = job.replace(
-      "    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'",
-      "    if: needs.changes.outputs.verify == 'true'"
+      "    if: needs.changes.outputs.release_rehearsal == 'true'",
+      "    if: github.event_name == 'push'"
     );
     expect(changedJob).not.toBe(job);
     const readChanged = changed('.github/workflows/ci.yml', (text) =>
       text.replace(job, changedJob)
     );
     expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
-      'preMerge job does not use'
+      'mainPush job does not use'
     );
+  });
+
+  it('refuses main-push coverage that a PR-only condition or a missing main trigger would hide', () => {
+    const source = read('.github/workflows/ci.yml');
+    const job = inventoryWorkflow(source, 'ci.yml', 'release-rehearsal')['release-rehearsal'].body;
+    const prOnly = changed('.github/workflows/ci.yml', (text) =>
+      text.replace(
+        job,
+        job.replace(
+          "    if: needs.changes.outputs.release_rehearsal == 'true'",
+          "    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'"
+        )
+      )
+    );
+    expect(() => checkReleaseParity(manifest(), { read: prOnly })).toThrow(
+      'mainPush job must not require a pull-request verification event'
+    );
+    const noMain = changed('.github/workflows/ci.yml', (text) =>
+      text.replace('  push:\n    branches: [main]\n', '')
+    );
+    expect(() => checkReleaseParity(manifest(), { read: noMain })).toThrow(
+      'mainPush counterpart needs a main push trigger'
+    );
+    const always = manifest();
+    always.incidents['1604'].mainPush[0].selection = {
+      kind: 'always',
+      step: 'name:Check conventional PR titles',
+    };
+    expect(() => checkReleaseParity(always, { read })).toThrow(
+      'mainPush counterpart needs a main push trigger and a path selection'
+    );
+    const both = manifest();
+    both.incidents['1604'].releaseOnly =
+      'A concrete live-state reason that no rehearsal can reach.';
+    expect(() => checkReleaseParity(both, { read })).toThrow(
+      'choose preMerge/mainPush or releaseOnly'
+    );
+    const empty = manifest();
+    empty.incidents['1604'].mainPush = [];
+    expect(() => checkReleaseParity(empty, { read })).toThrow('empty mainPush coverage');
   });
 
   it('runs the parity guard even for docs-only PRs and merge groups', () => {

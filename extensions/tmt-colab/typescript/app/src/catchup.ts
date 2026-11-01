@@ -1,6 +1,6 @@
 import { exactKeys, requireValue, strictJson, text } from '@tmt/colab-client';
 import { Admission } from './admission.js';
-import { Objects } from './objects.js';
+import { JoinedEnvelope, Objects } from './objects.js';
 import { openBaseline, type BaselineInput, type BaselineObject } from './baseline.js';
 import { READ_TAIL_UPDATES, STATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
 
@@ -88,7 +88,8 @@ export class Catchup {
         requireValue(typeof value.baseline === 'string' && this.objects !== undefined);
         exactKeys(value.baselineObject, ['envelopeHash', 'envelope']);
         requireValue(
-          typeof value.baselineObject.envelope === 'string' &&
+          (typeof value.baselineObject.envelope === 'string' ||
+            value.baselineObject.envelope instanceof JoinedEnvelope) &&
             typeof value.baselineObject.envelopeHash === 'string',
         );
         this.#reset = {

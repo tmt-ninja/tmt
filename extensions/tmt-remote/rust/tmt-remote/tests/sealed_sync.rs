@@ -399,3 +399,34 @@ fn shared_operation_corpus_pins_exact_refusal_code_and_state() {
         assert_eq!(actual, case["expected"], "{}", case["name"]);
     }
 }
+
+#[test]
+fn selected_production_codec_refuses_unsupported_backend_before_auth() {
+    let original = include_bytes!("fixtures/declarations/colab-firestore.json");
+    let config = serde_json::json!({"apiKey":"public", "appId":"1:123:web:fixture", "projectId":"demo-remote-1", "authDomain":"demo-remote-1.firebaseapp.com"});
+    for backend in ["local", "cloudflare"] {
+        let mut value: Value = serde_json::from_slice(original).unwrap();
+        value["backend"] = serde_json::json!(backend);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        tmt_remote::declaration::parse(&bytes).unwrap();
+        let digest = {
+            use sha2::Digest;
+            sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        assert!(matches!(
+            SyncContext::bind(
+                config.clone(),
+                &bytes,
+                &digest,
+                "fixture-space",
+                Arc::new(Auth {
+                    project: "demo-remote-1".into()
+                })
+            ),
+            Err(SyncError::Invalid)
+        ));
+    }
+}

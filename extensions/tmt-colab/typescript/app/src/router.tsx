@@ -204,6 +204,7 @@ function PageFloatingActions({
   }>({ right: 24, bottom: 24, visibility: 'hidden' });
   useEffect(() => {
     const workspace = host?.closest('.workspace');
+    let measured: { right: number; bottom: number; height: number; visibility: string } | undefined;
     const place = () => {
       const box = host?.getBoundingClientRect();
       if (!box) return;
@@ -278,8 +279,23 @@ function PageFloatingActions({
             ? ('visible' as const)
             : ('hidden' as const),
       };
-      setPlacement(next);
-      onPlacement({ right: next.right, bottom: next.bottom, height: fab?.height ?? 0 });
+      const height = fab?.height ?? 0;
+      if (
+        measured?.right === next.right &&
+        measured.bottom === next.bottom &&
+        measured.visibility === next.visibility &&
+        measured.height === height
+      )
+        return;
+      measured = { ...next, height };
+      setPlacement((previous) =>
+        previous.right === next.right &&
+        previous.bottom === next.bottom &&
+        previous.visibility === next.visibility
+          ? previous
+          : next,
+      );
+      onPlacement({ right: next.right, bottom: next.bottom, height });
     };
     place();
     const observer = new ResizeObserver(place);

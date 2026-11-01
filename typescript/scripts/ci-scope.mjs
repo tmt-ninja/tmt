@@ -828,16 +828,25 @@ const NATIVE_JOBS = [
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 /** Positional result order accepted by the gate-rust CLI. */
 export const RUST_WORKERS = ['clippy', 'tests', 'process', 'msrv'];
+/** Positional result order accepted by the gate-process CLI. */
+export const PROCESS_JOBS = ['build', 'shard1', 'shard2'];
 
-/** Direct obligations of the main-only complete aggregate; rehearsal is PR-only. */
+/**
+ * Direct obligations of the main-only complete aggregate. The release rehearsal runs only
+ * when the push changed a release input, so it must succeed when selected and skip otherwise.
+ */
 export const MAIN_FULL_JOBS = [
   'changes',
+  'release-rehearsal',
   'code-quality',
   'native-notices',
   'colab-chrome',
   'browser-ui',
   'native-clippy',
   'native-workspace-tests',
+  'native-process-build',
+  'native-process-shard-1',
+  'native-process-shard-2',
   'native-process-tests',
   'native-msrv',
   'native-rust',
@@ -873,11 +882,15 @@ export function mainFullGatePasses(context, needs) {
   if (!trustedMain(context) || !record(needs)) return false;
   if (
     Object.keys(needs).length !== MAIN_FULL_JOBS.length ||
-    MAIN_FULL_JOBS.some((job) => !Object.hasOwn(needs, job) || needs[job]?.result !== 'success')
+    MAIN_FULL_JOBS.some((job) => !Object.hasOwn(needs, job))
   )
     return false;
-  const outputs = needs.changes.outputs;
+  const outputs = needs.changes?.outputs;
   if (!record(outputs) || outputs.native_scope !== 'full') return false;
+  if (!['true', 'false'].includes(outputs.release_rehearsal)) return false;
+  const expected = (job) =>
+    job === 'release-rehearsal' && outputs.release_rehearsal === 'false' ? 'skipped' : 'success';
+  if (MAIN_FULL_JOBS.some((job) => needs[job]?.result !== expected(job))) return false;
   if (
     [
       'verify',
@@ -1046,6 +1059,26 @@ export function rustGatePasses(scope, results, map = componentMap()) {
   return RUST_WORKERS.every((worker) => byWorker[worker] === expected[worker]);
 }
 
+/**
+ * `Native process contracts`: one fixture build and two test shards. `full` needs
+ * all three; a scoped component that names native tests needs the build and shard 1
+ * with shard 2 skipped, and one that names none skips all three. Anything else,
+ * including an unknown scope or a cancelled or missing job, fails.
+ */
+export function processGatePasses(scope, results, map = componentMap()) {
+  let expected;
+  if (scope === 'full') expected = ['success', 'success', 'success'];
+  else if (scope === 'none') expected = ['skipped', 'skipped', 'skipped'];
+  else if (map.components.some((component) => component.name === scope && component.scopedChecks)) {
+    const selected = scopedChecks(scope, map).nativeTests.length > 0 ? 'success' : 'skipped';
+    expected = [selected, selected, 'skipped'];
+  } else return false;
+  return (
+    results?.length === PROCESS_JOBS.length &&
+    expected.every((result, index) => results[index] === result)
+  );
+}
+
 export function readChangedCiSelection(base, head, cwd, range = '...') {
   if (!['..', '...'].includes(range)) throw new Error('Unknown diff range.');
   if ([base, head].some((sha) => !/^[a-f0-9]{40}$/.test(sha ?? ''))) {
@@ -1137,6 +1170,15 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
     if (!rustGatePasses(scope, results)) {
       throw new Error(
         'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
+      );
+    }
+    return;
+  }
+  if (args[0] === 'gate-process') {
+    const [, scope, ...results] = args;
+    if (!processGatePasses(scope, results)) {
+      throw new Error(
+        'Selected native process jobs did not complete successfully, or skip evidence is invalid.'
       );
     }
     return;

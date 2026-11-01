@@ -164,6 +164,81 @@ fn response_marker_mismatch_rolls_back_orphan_final_insert() {
     storage.close().unwrap();
 }
 
+/// The oldest held item is read for every held message on a history page, on every Ops refresh.
+/// Its work must not grow with the identity's delivered backlog (#5862): the same VM steps for
+/// 200 and 2,000 delivered items, and no full scan.
+#[test]
+fn oldest_held_cost_does_not_grow_with_the_delivered_backlog() {
+    const ID: &str = "11111111-1111-4111-8111-111111111111";
+    let cost = |backlog: i64| {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("requests.db")).unwrap();
+        let db = storage.connection().unwrap();
+        db.execute("INSERT INTO identities (id,name,canonical_name,created_at,updated_at,lifetime) VALUES (?,'Ada','ada','t','t','saved')", [ID]).unwrap();
+        db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms) VALUES('sent',?1,'token',1,'delivered',1)", [ID]).unwrap();
+        for n in 0..backlog {
+            let request = format!("req_{n:08x}-0000-4000-8000-000000000000");
+            db.execute("INSERT INTO request_attempts(attempt_id,request_id,route_kind,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms,originator_kind,recipient_identity_id)
+                VALUES(?1,?1,'inbox',0,'queued',0,0,?2,9007199254740991,9007199254740991,'unknown',?3)", rusqlite::params![request, 1000 + n, ID]).unwrap();
+            db.execute("INSERT INTO focus_items(identity_id,request_id,kind,source,created_at_ms,checklist_id) VALUES(?1,?2,'fyi','incoming',?3,'sent')", rusqlite::params![ID, request, 1000 + n]).unwrap();
+        }
+        let mut statement = db.prepare(super::digest::OLDEST_HELD).unwrap();
+        let held: Option<i64> = statement
+            .query_row(rusqlite::params![ID, 1_i64], |row| row.get(0))
+            .unwrap();
+        assert_eq!(held, None, "a delivered backlog holds nothing");
+        let steps = (
+            statement.get_status(rusqlite::StatementStatus::VmStep),
+            statement.get_status(rusqlite::StatementStatus::FullscanStep),
+        );
+        drop(statement);
+        storage.close().unwrap();
+        steps
+    };
+    let (small, large) = (cost(200), cost(2_000));
+    assert_eq!(large.1, 0, "no full scan");
+    assert_eq!(small, large, "work is independent of the delivered backlog");
+}
+
+/// Each direction of a two-party conversation is one seek on its own index, merged in order:
+/// no table scan and no sort, however many requests either identity has elsewhere (#5862).
+#[test]
+fn conversation_plan_seeks_each_direction_without_sort() {
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("requests.db")).unwrap();
+    for paged in [false, true] {
+        let plan = format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::history::conversation_sql(paged)
+        );
+        let details = {
+            let mut statement = storage.connection().unwrap().prepare(&plan).unwrap();
+            statement
+                .query_map(
+                    rusqlite::params!["a", "b", 1_i64, "r", 5_i64, 1_i64],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let seeks = details
+            .iter()
+            .filter(|detail| detail.contains("request_history_pair"))
+            .count();
+        assert_eq!(seeks, 2, "{details:?}");
+        assert!(
+            !details.iter().any(|detail| detail.contains("TEMP B-TREE")),
+            "{details:?}"
+        );
+        assert!(
+            !details.iter().any(|detail| detail.starts_with("SCAN a")),
+            "{details:?}"
+        );
+    }
+    storage.close().unwrap();
+}
+
 #[test]
 fn retained_cleanup_plan_uses_horizon_index_without_sort() {
     let directory = TestDirectory::new();

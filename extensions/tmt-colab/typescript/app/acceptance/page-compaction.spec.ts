@@ -82,3 +82,55 @@ test('a 2 MiB page keeps taking changes and reads back exact', async () => {
     expect(readSource() === source).toBe(true);
   });
 });
+
+// #5872: a history-heavy page stays responsive: a short source that agents rewrote many times, so
+// its state carries far more history than text (several checkpoints and a tail of updates, the
+// shape of the page in Ben's trace). While it sits open and takes live writes, the main thread's
+// long tasks are counted; their total is recorded, and only the count is asserted.
+test('a history-heavy page keeps its main thread free while it takes writes', async () => {
+  test.setTimeout(900_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'history-owner');
+    const colab = world.binaries.colab;
+    const body = (n: number) =>
+      `${text(28 * 1024 - 32).replaceAll('Line', `Rev ${n}`)}<p id="n">${n}</p>`;
+    let source = body(0);
+    const created = createPage(world, 'History heavy', source);
+    const change = (i: number) => {
+      const held = source;
+      source = body(i);
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json'], held), source);
+    };
+    for (let i = 1; i <= 120; i++) change(i);
+    const page = await openPage(door, browser, created);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('#n')).toHaveText('120', { timeout: 120_000 });
+    await page.evaluate(() => {
+      const long: number[] = [];
+      Object.defineProperty(window, 'longTasks', { value: long });
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) long.push(entry.duration);
+      }).observe({ type: 'longtask' });
+    });
+    const started = Date.now();
+    for (let i = 121; i <= 150; i++) {
+      change(i);
+      await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
+    }
+    // The rest of a 30 s window open and idle.
+    await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
+    const long = await page.evaluate(
+      () => (window as unknown as { longTasks: number[] }).longTasks,
+    );
+    test.info().annotations.push({
+      type: 'colab-history-busy',
+      description: JSON.stringify({
+        longTasks: long.length,
+        busyMs: Math.round(long.reduce((sum, value) => sum + value, 0)),
+        windowMs: Date.now() - started,
+      }),
+    });
+    expect(long.length).toBeLessThanOrEqual(2);
+  });
+});
