@@ -26,9 +26,8 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
   never falls back to the chain. Cases about migration, cold open or WAL setup, missing storage,
   and seeded or older databases keep their original direct setup and real opens. Templates are
   scoped to one test run under the private temporary directory (`NEXTEST_RUN_ID`, else a process
-  scope that its last lease removes). A local nextest run leaves its `run-<id>/` directory (about
-  1 MB); run suites through `typescript/scripts/private-world.mjs`, or remove it by hand outside
-  active runs.
+  scope that its last lease removes). A nextest run leaves its `run-<id>/` directory (about 1 MB);
+  a later run removes this user's `run-*` directories older than `STALE_RUN_SCOPE_AGE` (6 h).
 - WAL setup retries only classified Busy inside one five-second budget, verifies the returned
   journal mode is `wal` before migrating and preserves the original Busy error on exhaustion.
 - OS-denied writes and SQLite read-only/WAL failures classify as a typed not-writable error (a

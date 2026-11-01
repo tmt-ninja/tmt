@@ -8,9 +8,11 @@
 //!
 //! Lifecycle rules:
 //! - Templates live in a private root under the temporary directory, in a scope
-//!   that one test run owns: `NEXTEST_RUN_ID` under nextest (left for the run
-//!   owner, such as the CI private world), else a process scope that the last
-//!   lease removes on drop. A template is never reused by a later run.
+//!   that one test run owns: `NEXTEST_RUN_ID` under nextest, else a process
+//!   scope that the last lease removes on drop. A template is never reused by a
+//!   later run. A run scope outlives its run, so each process that uses a run
+//!   scope removes this user's run scopes that are older than
+//!   `STALE_RUN_SCOPE_AGE`.
 //! - Builders do not elect a winner: concurrent builders each run the real chain
 //!   and publish with a no-replace hard link, so a published template never
 //!   changes and readers only copy it.
@@ -23,10 +25,10 @@ use std::{
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, OnceLock, Weak,
+        Arc, Mutex, Once, OnceLock, Weak,
         atomic::{AtomicU64, Ordering},
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use rusqlite::{Connection, OpenFlags};
@@ -36,6 +38,12 @@ use crate::private_file::directory_is_private;
 
 const FORMAT: &str = "tmt-adapters-storage-template-v1";
 const TEMPLATE: &str = "template.db";
+const RUN_SCOPE_PREFIX: &str = "run-";
+
+/// A run scope that nothing changed for this long is left from an earlier
+/// nextest run. No local test run takes this long, so a live run keeps its
+/// scope.
+pub(super) const STALE_RUN_SCOPE_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Keeps the scope that holds this case's template alive for the case. A
 /// fixture stores it next to its database path.
@@ -57,8 +65,8 @@ pub(crate) fn place_migrated_database(database: &Path) -> TemplateLease {
 
 struct Scope {
     directory: PathBuf,
-    /// Only a process scope is removed by its last lease; a run scope belongs
-    /// to the run owner.
+    /// Only a process scope is removed by its last lease; a later run removes
+    /// a stale run scope.
     removed_on_drop: bool,
 }
 
@@ -97,6 +105,7 @@ pub(super) struct TemplateStore {
     root: PathBuf,
     kind: ScopeKind,
     process: Mutex<ProcessSlot>,
+    stale_runs_pruned: Once,
     /// Test hook: runs after the builder's real open, before publication.
     after_build_open: fn(&Path),
 }
@@ -140,10 +149,7 @@ impl TemplateStore {
         let root = resolved;
         let kind = match run {
             Some(run) => {
-                assert!(
-                    !run.is_empty() && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
-                    "unexpected NEXTEST_RUN_ID {run:?}"
-                );
+                assert!(is_run_id(&run), "unexpected NEXTEST_RUN_ID {run:?}");
                 ScopeKind::Run(run)
             }
             None => ScopeKind::Process,
@@ -155,6 +161,7 @@ impl TemplateStore {
                 live: Weak::new(),
                 generation: 0,
             }),
+            stale_runs_pruned: Once::new(),
             after_build_open,
         }
     }
@@ -175,8 +182,11 @@ impl TemplateStore {
         private_directory(&self.root);
         match &self.kind {
             ScopeKind::Run(run) => {
-                let directory = self.root.join(format!("run-{run}"));
+                let name = format!("{RUN_SCOPE_PREFIX}{run}");
+                let directory = self.root.join(&name);
                 private_directory(&directory);
+                self.stale_runs_pruned
+                    .call_once(|| prune_stale_run_scopes(&self.root, &name));
                 Arc::new(Scope {
                     directory,
                     removed_on_drop: false,
@@ -402,6 +412,56 @@ fn private_directory(path: &Path) {
         "storage template directory {} must be a real owner-only directory",
         path.display()
     );
+}
+
+fn is_run_id(run: &str) -> bool {
+    !run.is_empty() && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Removes run scopes that earlier nextest runs left in this private root:
+/// only real `run-*` directories owned by this user that are older than
+/// `STALE_RUN_SCOPE_AGE`, never `current`. Links are not followed, and
+/// `remove_dir_all` does not follow links inside a scope. Another process may
+/// remove the same scope at the same time; that is not an error.
+fn prune_stale_run_scopes(root: &Path, current: &str) {
+    let uid = nix::unistd::geteuid().as_raw();
+    let now = SystemTime::now();
+    let inspect = |error: io::Error| -> ! {
+        panic!("inspect storage template root {}: {error}", root.display())
+    };
+    for entry in fs::read_dir(root).unwrap_or_else(|error| inspect(error)) {
+        let entry = entry.unwrap_or_else(|error| inspect(error));
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let is_run_scope = name.strip_prefix(RUN_SCOPE_PREFIX).is_some_and(is_run_id);
+        if name == current || !is_run_scope {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => inspect(error),
+        };
+        let stale = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > STALE_RUN_SCOPE_AGE);
+        if !metadata.file_type().is_dir() || metadata.uid() != uid || !stale {
+            continue;
+        }
+        match fs::remove_dir_all(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => panic!(
+                "Could not remove stale storage template scope {}: {error}",
+                path.display()
+            ),
+        }
+    }
 }
 
 fn forbidden_roots() -> Vec<PathBuf> {
