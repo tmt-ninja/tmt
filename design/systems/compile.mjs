@@ -19,7 +19,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildBundle, propType } from './compiler.mjs';
-import { renderDocs } from './docs-render.mjs';
+import { renderDocs, withDocs } from './docs-render.mjs';
+import { classTable, markupDrift } from './ui-port.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
@@ -72,14 +73,45 @@ async function compile(dir) {
   const { components: docs, ...rest } = readJson(join(dir, 'system.json'));
   const css = [tokensCss(), pageUiCss(), docsCss()].join('\n');
   const config = { ...rest, tokens: { ...rest.tokens, css } };
-  const components = docs.map(({ doc }) => {
+  const read = docs.map(({ doc }) => {
     const path = join(dir, doc);
-    const { source, css, ...component } = readJson(path);
+    const { source, css, ui, ...component } = readJson(path);
     return {
-      ...component,
-      source: readFileSync(join(dirname(path), source), 'utf8'),
-      css: stripComments(readFileSync(join(dirname(path), css), 'utf8')),
+      component: {
+        ...component,
+        source: readFileSync(join(dirname(path), source), 'utf8'),
+        css: stripComments(readFileSync(join(dirname(path), css), 'utf8')),
+      },
+      ui,
     };
+  });
+  // A port of a browser-ui component takes its classes from that component's variants, and must
+  // render every example like it (#5866).
+  const components = await withDocs(async (docsContext) => {
+    const filled = [];
+    for (const { component, ui } of read) {
+      if (!ui) {
+        filled.push(component);
+        continue;
+      }
+      if (!component.source.includes('/* classes */ null'))
+        throw new Error(`${component.tag}: a ported source names its classes /* classes */ null`);
+      const classes = await classTable(docsContext.load, ui);
+      filled.push({
+        ...component,
+        source: component.source.replace('/* classes */ null', JSON.stringify(classes)),
+      });
+    }
+    const drift = await markupDrift(
+      docsContext,
+      filled.flatMap((component, index) =>
+        read[index].ui
+          ? [{ ...component, ui: read[index].ui, code: component.source.replace(/^export default /m, 'return ') }]
+          : [],
+      ),
+    );
+    if (drift.length) throw new Error(`Template ports differ from browser-ui:\n${drift.join('\n')}`);
+    return filled;
   });
   const bundle = await buildBundle(config.id, config, components, sha256Hex);
   const from = relative(repo, dir);

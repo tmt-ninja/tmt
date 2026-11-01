@@ -179,7 +179,7 @@ for (const width of [1440, 390])
       );
       const bundlePaint = await designFrame(page)
         .locator('[data-ds-example="button:primary"]')
-        .getByRole('button', { name: 'Save', exact: true })
+        .getByRole('button', { name: 'Send', exact: true })
         .evaluate((element) => {
           const style = getComputedStyle(element);
           const swatch = document.createElement('span');
@@ -214,25 +214,28 @@ for (const width of [1440, 390])
       expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
       // Each example is a live element of the page, anchored by `<component>:<example id>`.
       const examples = designFrame(page).locator('[data-ds-example]');
-      await expect(examples).toHaveCount(7);
+      await expect(examples).toHaveCount(8);
       expect(
         await examples.evaluateAll((nodes) =>
           nodes.map((node) => node.getAttribute('data-ds-example')),
         ),
       ).toEqual([
         'button:primary',
-        'button:secondary',
         'button:outline',
+        'button:secondary',
         'button:ghost',
+        'button:destructive',
         'button:sizes',
         'button:with-an-icon',
         'button:disabled',
       ]);
-      for (let index = 0; index < 7; index++) {
+      for (let index = 0; index < 8; index++) {
         const button = examples.nth(index).getByRole('button').first();
-        await expect(button).toHaveClass(/tmt-ui-button/);
+        // The port of browser-ui's ui Button (#5866): its slot and the ui utility classes.
+        await expect(button).toHaveAttribute('data-slot', 'button');
+        await expect(button).toHaveClass(/tmt:inline-flex/);
         await expect(button).toHaveCSS('display', /^(inline-)?flex$/);
-        if (index === 6) await expect(button).toBeDisabled();
+        if (index === 7) await expect(button).toBeDisabled();
       }
       await page.locator('.design-workspace').evaluate((element) => element.scrollTo({ top: 0 }));
       await capture(page, `design-user-component-${width}-${theme}.png`);
@@ -404,8 +407,9 @@ test('an agent patch of an example re-renders the open Design page live', async 
     .getByRole('link', { name: /acme-button/ })
     .click();
   const example = designFrame(page).locator('[data-ds-example="button:secondary"]');
-  await expect(example.getByRole('button', { name: 'Draft', exact: true })).not.toHaveClass(
-    /tmt-ui-button-outline/,
+  await expect(example.getByRole('button', { name: 'Draft', exact: true })).not.toHaveAttribute(
+    'data-variant',
+    'outline',
   );
   // The anchored edit the agent makes from the example's quote: its live markup and its snippet.
   const pageId = page.url().split('/').pop()!;
@@ -426,8 +430,9 @@ test('an agent patch of an example re-renders the open Design page live', async 
       '&lt;acme-button variant=&quot;outline&quot;&gt;Draft',
     );
   }, pageId);
-  await expect(example.getByRole('button', { name: 'Draft', exact: true })).toHaveClass(
-    /tmt-ui-button-outline/,
+  await expect(example.getByRole('button', { name: 'Draft', exact: true })).toHaveAttribute(
+    'data-variant',
+    'outline',
   );
   await expect(example.locator('pre')).toContainText(
     '<acme-button variant="outline">Draft</acme-button>',

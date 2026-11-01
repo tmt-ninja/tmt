@@ -36,7 +36,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
     const pageId = page.url().split('/').pop()!;
     const example = frame.locator('[data-ds-example="button:secondary"]');
     const draft = example.getByRole('button', { name: 'Draft', exact: true });
-    await expect(draft).not.toHaveClass(/brio-button-outline|tmt-ui-button-outline/);
+    await expect(draft).not.toHaveAttribute('data-variant', 'outline');
 
     // Selection mode, then a click anywhere in the example quotes the whole example.
     await frame.locator('h1').click();
@@ -86,7 +86,7 @@ test('an @agent comment on a design-system example becomes a live patch of that 
       '&lt;brio-button variant=&quot;outline&quot;&gt;Draft',
       '--json',
     ]);
-    await expect(draft).toHaveClass(/outline/);
+    await expect(draft).toHaveAttribute('data-variant', 'outline');
     await expect(example.locator('pre')).toContainText(
       '<brio-button variant="outline">Draft</brio-button>',
     );

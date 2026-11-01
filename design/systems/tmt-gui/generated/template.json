@@ -49,20 +49,23 @@
    "props": {
     "variant": {
      "enum": [
-      "primary",
-      "secondary",
+      "default",
       "outline",
-      "ghost"
+      "secondary",
+      "ghost",
+      "destructive",
+      "link"
      ],
-     "default": "primary"
+     "default": "default"
     },
     "size": {
      "enum": [
+      "default",
+      "xs",
       "sm",
-      "md",
       "lg"
      ],
-     "default": "md"
+     "default": "default"
     },
     "disabled": {
      "type": "boolean"
@@ -75,7 +78,15 @@
    "examples": [
     {
      "title": "Primary",
-     "markup": "<tmt-ui-button>Save</tmt-ui-button>",
+     "markup": "<tmt-ui-button>Send</tmt-ui-button>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Outline",
+     "markup": "<tmt-ui-button variant=\"outline\">New timer</tmt-ui-button>",
      "widths": [
       1440,
       390
@@ -90,14 +101,6 @@
      ]
     },
     {
-     "title": "Outline",
-     "markup": "<tmt-ui-button variant=\"outline\">Review</tmt-ui-button>",
-     "widths": [
-      1440,
-      390
-     ]
-    },
-    {
      "title": "Ghost",
      "markup": "<tmt-ui-button variant=\"ghost\">Cancel</tmt-ui-button>",
      "widths": [
@@ -106,8 +109,16 @@
      ]
     },
     {
+     "title": "Destructive",
+     "markup": "<tmt-ui-button variant=\"destructive\">Delete</tmt-ui-button>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
      "title": "Sizes",
-     "markup": "<tmt-ui-button size=\"sm\">Small</tmt-ui-button> <tmt-ui-button>Medium</tmt-ui-button> <tmt-ui-button size=\"lg\">Large</tmt-ui-button>",
+     "markup": "<tmt-ui-button variant=\"outline\" size=\"xs\">xs</tmt-ui-button> <tmt-ui-button variant=\"outline\" size=\"sm\">sm</tmt-ui-button> <tmt-ui-button variant=\"outline\">default</tmt-ui-button> <tmt-ui-button variant=\"outline\" size=\"lg\">lg</tmt-ui-button>",
      "widths": [
       1440,
       390
@@ -131,8 +142,8 @@
     }
    ],
    "notes": "<p>One action. Use <b>primary</b> for the one main action on a surface, <b>outline</b> or <b>secondary</b> for the others and <b>ghost</b> inside dense rows. The label says what happens.</p><p>Keyboard: Tab reaches it, Enter and Space press it. A disabled button is skipped and announced as unavailable.</p>",
-   "source": "// The Button component doc's source (schema 1): plain JavaScript and htm, no imports. It receives\n// the fixed skeleton (runtime 2: React, html, cn) and returns the component.\nexport default ({ html, cn }) =>\n  function Button({ variant = 'primary', size = 'md', disabled = false, icon, children }) {\n    return html`<button\n      type=\"button\"\n      class=${cn('tmt-ui-button', `tmt-ui-button-${variant}`, `tmt-ui-button-${size}`)}\n      disabled=${disabled}\n    >\n      ${icon}${children}\n    </button>`;\n  };\n",
-   "css": ".tmt-ui-button {\n  display: inline-flex;\n  flex-shrink: 0;\n  align-items: center;\n  justify-content: center;\n  gap: var(--tmt-ui-space-s);\n  box-sizing: border-box;\n  height: var(--tmt-ui-control-size-l);\n  margin: 0;\n  padding: 0 var(--tmt-ui-space-l);\n  border: var(--tmt-ui-rule-width) solid transparent;\n  border-radius: var(--tmt-ui-radius);\n  background: transparent;\n  color: var(--tmt-ui-color-text);\n  font: var(--tmt-ui-eyebrow-weight) var(--tmt-ui-command-size) / 1 var(--tmt-ui-font-body);\n  white-space: nowrap;\n  cursor: pointer;\n  appearance: none;\n}\n.tmt-ui-button > svg,\n.tmt-ui-button > tmt-icon {\n  flex-shrink: 0;\n  width: var(--tmt-ui-space-l);\n  height: var(--tmt-ui-space-l);\n}\n.tmt-ui-button:focus-visible {\n  border-color: var(--tmt-ui-color-focus);\n  outline: none;\n}\n.tmt-ui-button:disabled {\n  opacity: 0.5;\n  pointer-events: none;\n}\n.tmt-ui-button-primary {\n  background: var(--tmt-ui-color-accent-fill);\n  color: var(--tmt-ui-color-on-accent);\n}\n.tmt-ui-button-primary:focus-visible {\n  border-color: var(--tmt-ui-color-text);\n}\n.tmt-ui-button-secondary {\n  border-color: var(--tmt-ui-surface-rule);\n  background: var(--tmt-ui-surface-command);\n}\n.tmt-ui-button-outline {\n  border-color: var(--tmt-ui-surface-rule);\n  background: var(--tmt-ui-surface-paper);\n}\n.tmt-ui-button-outline:hover,\n.tmt-ui-button-ghost:hover {\n  background: var(--tmt-ui-surface-selection);\n  color: var(--tmt-ui-color-selected-text);\n}\n.tmt-ui-button-sm {\n  height: var(--tmt-ui-control-size);\n  padding: 0 var(--tmt-ui-space-m);\n}\n.tmt-ui-button-lg {\n  height: var(--tmt-ui-row-height);\n  padding: 0 var(--tmt-ui-space-xl);\n}"
+   "source": "// The Button component doc's source (schema 1): plain JavaScript and htm, no imports. It receives\n// the fixed skeleton (runtime 2: React, html, cn) and returns the component. It ports browser-ui's\n// ui Button; the compiler fills `classes` from that component's own variants (#5866).\nexport default ({ html, cn }) => {\n  const classes = {\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)\",\"by\":{\"default|default\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"default|xs\":\"tmt:border-transparent tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"default|sm\":\"tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"default|lg\":\"tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"outline|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"outline|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"outline|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"outline|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"secondary|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"secondary|xs\":\"tmt:focus-visible:border-ring tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"secondary|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"secondary|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"ghost|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"ghost|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"ghost|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"ghost|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"destructive|default\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"destructive|xs\":\"tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"destructive|sm\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"destructive|lg\":\"tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:[&_svg:not([class*='size-'])]:size-4 tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\",\"link|default\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[>svg]:px-3\",\"link|xs\":\"tmt:bg-transparent tmt:border-transparent tmt:focus-visible:border-ring tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-6 tmt:gap-1 tmt:px-2 tmt:text-(length:--tmt-foundation-caption-size) tmt:has-[>svg]:px-1.5 tmt:[&_svg:not([class*='size-'])]:size-3\",\"link|sm\":\"tmt:bg-transparent tmt:border-transparent tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-8 tmt:gap-1.5 tmt:px-3 tmt:has-[>svg]:px-2.5\",\"link|lg\":\"tmt:bg-transparent tmt:border-transparent tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:focus-visible:border-ring tmt:[&_svg:not([class*='size-'])]:size-4 tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline tmt:h-10 tmt:px-6 tmt:has-[>svg]:px-4\"}};\n  return function Button({ variant = 'default', size = 'default', disabled = false, icon, children }) {\n    return html`<button\n      type=\"button\"\n      data-slot=\"button\"\n      data-variant=${variant}\n      data-size=${size}\n      className=${cn(classes.base, classes.by[`${variant}|${size}`])}\n      disabled=${disabled}\n      aria-disabled=${disabled || undefined}\n    >\n      ${icon}${children}\n    </button>`;\n  };\n};\n",
+   "css": ""
   }
  ]
 }

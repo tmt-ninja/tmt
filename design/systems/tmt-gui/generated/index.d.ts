@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 
 /** <tmt-ui-button>: props from its schema, slots as nodes. */
 export interface ButtonProps {
-  variant?: "primary" | "secondary" | "outline" | "ghost";
-  size?: "sm" | "md" | "lg";
+  variant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
+  size?: "default" | "xs" | "sm" | "lg";
   disabled?: boolean;
   children?: ReactNode;
   icon?: ReactNode;
