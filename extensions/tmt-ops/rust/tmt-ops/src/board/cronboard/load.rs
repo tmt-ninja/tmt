@@ -6,7 +6,6 @@ use crate::{
     core::Core,
     cron_service::{self as service, JobKey},
 };
-use tmt_ops::cron::Clock;
 
 /// What the worker needs to read; carries its own config so the read matches
 /// the load that scheduled it.
@@ -26,10 +25,7 @@ pub fn fetch(core: &Core, job: Fetch, now_ms: i64, places: &mut Places) -> Resul
         let key = JobKey::of(&view.job);
         (view.squad.clone(), order(&key.id))
     });
-    let clock = service::root(core)
-        .and_then(|root| Ok(Clock::new(&root)?))
-        .map(|clock| clock.status(now_ms))
-        .unwrap_or(tmt_ops::cron::ClockStatus::Unknown);
+    let clock = crate::cron_clock::status(core);
     let place = match &clock {
         tmt_ops::cron::ClockStatus::Running(holder) => {
             holder.pane.as_deref().and_then(|pane| places.resolve(pane))
@@ -93,12 +89,13 @@ mod tests {
     #[test]
     fn the_holders_pane_resolves_through_places_and_unresolved_keeps_the_pane_id() {
         let f = Fixture::new();
-        let root = service::root(&f.core).unwrap();
-        let lease = Clock::new(&root)
-            .unwrap()
-            .acquire(0, 7, Some("%7".into()), "0.1.0")
-            .unwrap()
-            .expect("lease");
+        f.change_model(|model| {
+            model["clockStatus"] = serde_json::json!({
+                "schemaVersion":1, "state":"running",
+                "holder":{"pid":7,"pane":"%7","startedAtMs":1,
+                    "expiresAtMs":30_001,"build":"0.1.0"}
+            });
+        });
         let read = |places: &mut Places| {
             fetch(
                 &f.core,
@@ -123,7 +120,6 @@ mod tests {
             tmt_ops::cron::ClockStatus::Running(_)
         ));
         assert_eq!(outside.place, None);
-        drop(lease);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

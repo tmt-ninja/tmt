@@ -6,8 +6,10 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tmt_ops::cron::{self, Job, Jobs, Pause, Schedule, ScheduleInput, Store};
+use tmt_ops::cron::{self, Job, Pause, Schedule, ScheduleInput, Store};
 
+mod adoption;
+mod canonical;
 mod notices;
 mod owners;
 mod retirement;
@@ -19,12 +21,6 @@ impl From<cron::Error> for SquadError {
             return Self::hinted(&error.code, &error.message, " ", cron::BUSY_RETRY);
         }
         Self::new(&error.code, error.message)
-    }
-}
-fn stored(error: SquadError) -> cron::Error {
-    cron::Error {
-        code: error.code,
-        message: error.message,
     }
 }
 fn failure(code: &str, message: &str) -> SquadError {
@@ -126,7 +122,7 @@ pub fn root(core: &Core) -> Result<PathBuf, SquadError> {
 fn store(core: &Core) -> Result<(Store, crate::migration::LegacyGuard), SquadError> {
     let guard = crate::migration::state_guard(core)?;
     let store = Store::new(&root(core)?)?;
-    if store.needs_v1_migration()? {
+    if store.frozen_for_core()?.is_none() && store.needs_v1_migration()? {
         store.migrate_v1(&migration_rooms(core)?)?;
     }
     Ok((store, guard))
@@ -157,7 +153,7 @@ pub(crate) fn prepare_rename_repair(
 ) -> Result<(), SquadError> {
     let _guard = crate::migration::state_guard(core)?;
     let store = Store::new(&root(core)?)?;
-    if store.needs_v1_migration()? {
+    if store.frozen_for_core()?.is_none() && store.needs_v1_migration()? {
         let mut rooms = migration_rooms(core)?;
         if !rooms.iter().any(|(name, id)| name == new && id == room_id) {
             return Err(failure(
@@ -171,10 +167,10 @@ pub(crate) fn prepare_rename_repair(
     Ok(())
 }
 
-/// Read jobs through the service so legacy migration also precedes a clock tick.
-pub(crate) fn read_jobs(core: &Core) -> Result<Jobs, SquadError> {
+/// Prepare the exact legacy cutover before any public job operation.
+pub(crate) fn ready(core: &Core) -> Result<(), SquadError> {
     let (store, _migration) = store(core)?;
-    store.read().map_err(Into::into)
+    adoption::ensure(core, &store)
 }
 
 pub fn actor(core: &Core, explicit: Option<&str>) -> Result<CronActor, SquadError> {
@@ -223,28 +219,6 @@ fn owner(core: &Core, roster: &[Member], id: &str) -> Result<(), SquadError> {
     }
     Ok(())
 }
-fn expected<'a>(
-    jobs: &'a mut Jobs,
-    key: &JobKey,
-    revision: u64,
-) -> Result<&'a mut Job, SquadError> {
-    let job = jobs
-        .find_mut(&key.room_id, &key.id)
-        .ok_or_else(|| failure("SQUAD_CRON_NOT_FOUND", "The job no longer exists."))?;
-    if job.room_id != key.room_id {
-        return Err(failure(
-            "SQUAD_CRON_ROOM_CONFLICT",
-            "The job belongs to a different squad room.",
-        ));
-    }
-    if job.revision != revision {
-        return Err(failure(
-            "SQUAD_CRON_REVISION_CONFLICT",
-            "The job changed; reload before trying again.",
-        ));
-    }
-    Ok(job)
-}
 fn increment(job: &mut Job) -> Result<(), SquadError> {
     job.revision = job.revision.checked_add(1).ok_or_else(|| {
         failure(
@@ -266,57 +240,57 @@ pub(crate) fn authorize_write(
     admitted_job(core, key, expected_revision, Some(actor))
 }
 
-/// Scheduled callers do not invent a human actor. Room, revision and active
-/// owner membership are checked through the same locked snapshot as manual send.
-pub fn admit_scheduled(
-    core: &Core,
-    key: &JobKey,
-    expected_revision: u64,
-) -> Result<Job, SquadError> {
-    let (job, _) = admitted_job(core, key, expected_revision, None)?;
-    if job.state() != "on" {
-        return Err(failure(
-            "SQUAD_CRON_NOT_ON",
-            "This job is paused or has no owner.",
-        ));
-    }
-    Ok(job)
-}
 fn admitted_job(
     core: &Core,
     key: &JobKey,
     expected_revision: u64,
     actor: Option<&CronActor>,
 ) -> Result<(Job, String), SquadError> {
-    let (store, _migration) = store(core)?;
-    store
-        .update(|jobs| {
-            let selected = room(core, &key.room_id).map_err(stored)?;
-            let roster = match actor {
-                Some(actor) => admit(core, &selected, actor),
-                None => selected.roster(core),
-            }
-            .map_err(stored)?;
-            let job = expected(jobs, key, expected_revision).map_err(stored)?;
-            let id = job.owner_id.as_deref().ok_or_else(|| {
-                stored(failure(
-                    "SQUAD_CRON_NO_OWNER",
-                    "Reassign this job before sending or resuming it.",
-                ))
-            })?;
-            if owners::observe(core, &roster, id)
-                .map_err(stored)?
-                .is_none()
-            {
-                owners::pause_missing(job, crate::status::now_ms() as i64).map_err(stored)?;
-                return Ok(Err(failure(
-                    "SQUAD_NOT_A_MEMBER",
-                    "The job owner is missing from this squad; the job remains paused.",
-                )));
-            }
-            Ok(Ok((job.clone(), selected.name)))
-        })
-        .map_err(SquadError::from)?
+    ready(core)?;
+    let selected = room(core, &key.room_id)?;
+    let roster = match actor {
+        Some(actor) => admit(core, &selected, actor)?,
+        None => selected.roster(core)?,
+    };
+    let current = canonical::selected(core, key, expected_revision)?;
+    let id = current.job.owner_id.as_deref().ok_or_else(|| {
+        failure(
+            "SQUAD_CRON_NO_OWNER",
+            "Reassign this job before sending or resuming it.",
+        )
+    })?;
+    if owners::observe(core, &roster, id)?.is_none() {
+        owners::pause_current(core, &current, id)?;
+        return Err(failure(
+            "SQUAD_NOT_A_MEMBER",
+            "The job owner is missing from this squad; the job remains paused.",
+        ));
+    }
+    Ok((current.job, selected.name))
+}
+
+/// Manual execution is a canonical Automation job run with an explicitly retained actor.
+pub(crate) fn run_manual(
+    core: &Core,
+    key: &JobKey,
+    actor: &CronActor,
+    revision: u64,
+    operation_id: &str,
+) -> Result<(Job, String, Value), SquadError> {
+    let (job, squad) = authorize_write(core, key, actor, revision)?;
+    let current = canonical::selected(core, key, revision)?;
+    let result = core.api_write("orchestration.job.run", json!({"jobId":current.id,"revision":revision,"slotMs":crate::status::now_ms(),"manualOperationId":operation_id,"consent":true}), Some(&actor.id))?;
+    if result["schemaVersion"] != 1
+        || result["outcome"] != "accepted"
+        || result["jobId"] != current.id
+        || !result["dispatch"].is_object()
+    {
+        return Err(failure(
+            "SQUAD_CRON_DISPATCH_UNAVAILABLE",
+            "Core did not confirm the job run. Inspect the retained operation before another send.",
+        ));
+    }
+    Ok((job, squad, result["dispatch"].clone()))
 }
 
 fn project(
@@ -377,10 +351,24 @@ pub(crate) fn with_departure_pause<T>(
     now_ms: i64,
     leave_or_move: impl FnOnce() -> T,
 ) -> Result<(Vec<String>, T), SquadError> {
-    let (store, _migration) = store(core)?;
-    store
-        .pause_owner_then(room_id, identity_id, now_ms, |_| leave_or_move())
-        .map_err(Into::into)
+    ready(core)?;
+    let pause = || -> Result<Vec<String>, SquadError> {
+        let mut paused = Vec::new();
+        for current in canonical::list(core, Some(room_id))? {
+            if current.job.owner_id.as_deref() == Some(identity_id) && current.job.pause.is_none() {
+                owners::pause_current(core, &current, identity_id)?;
+                paused.push(current.job.id());
+            }
+        }
+        Ok(paused)
+    };
+    let paused = pause()?;
+    let effect = leave_or_move();
+    // Preserve the former second scan: catch a job added during departure,
+    // without turning a confirmed departure into an apparent rollback.
+    let _ = pause();
+    let _ = now_ms; // Core stamps pauses; caller observations are not clock authority.
+    Ok((paused, effect))
 }
 
 fn migration_warning(core: &Core, store: &Store) -> Result<Option<SquadError>, SquadError> {
@@ -405,14 +393,18 @@ pub fn list_jobs(
     scope: Option<&str>,
     now_ms: i64,
 ) -> Result<List, SquadError> {
+    ready(core)?;
     let mut warnings = drain_retired(core, config, now_ms)?;
     let squads = if let Some(name) = scope {
         vec![Squad::resolve(core, Some(name))?]
     } else {
         Squad::list(core)?
     };
+    let mut jobs = Vec::new();
+    for squad in squads {
+        jobs.extend(owners::project_jobs(core, &squad, 1, now_ms)?);
+    }
     let (store, _migration) = store(core)?;
-    let jobs = owners::project_jobs(core, &store, &squads, 1, now_ms)?;
     warnings.extend(migration_warning(core, &store)?);
     Ok(List { jobs, warnings })
 }
@@ -422,12 +414,12 @@ pub fn show_job(
     key: &JobKey,
     now_ms: i64,
 ) -> Result<JobView, SquadError> {
+    ready(core)?;
     let warnings = drain_retired(core, config, now_ms)?;
     let squad = room(core, &key.room_id)?;
-    let (store, _migration) = store(core)?;
-    let mut view = owners::project_jobs(core, &store, &[squad], 3, now_ms)?
+    let mut view = owners::project_jobs(core, &squad, 3, now_ms)?
         .into_iter()
-        .find(|view| view.job.id() == key.id && view.job.room_id == key.room_id)
+        .find(|view| view.job.id() == key.id)
         .ok_or_else(|| {
             failure(
                 "SQUAD_CRON_NOT_FOUND",
@@ -435,10 +427,22 @@ pub fn show_job(
             )
         })?;
     view.warnings.extend(warnings);
+    let (store, _migration) = store(core)?;
     view.warnings.extend(migration_warning(core, &store)?);
     Ok(view)
 }
-
+fn candidate(job: &Job) -> Value {
+    json!({"ownerIdentityId":job.owner_id,"squadRoomId":job.room_id,"title":null,"message":job.message,"schedule":job.schedule.document()})
+}
+fn valid_message(message: &str) -> Result<(), SquadError> {
+    if message.trim().is_empty() || message.len() > 1048576 {
+        return Err(failure(
+            "SQUAD_CRON_MESSAGE_INVALID",
+            "Use a nonempty message of at most 1 MiB.",
+        ));
+    }
+    Ok(())
+}
 pub fn apply(
     core: &Core,
     config: &Config,
@@ -446,158 +450,166 @@ pub fn apply(
     change: Change,
     now_ms: i64,
 ) -> Result<Applied, SquadError> {
+    ready(core)?;
     let mut warnings = drain_retired(core, config, now_ms)?;
-    let (store, _migration) = store(core)?;
-    let (before, after, action, changed, squad_name) = store.update(|jobs| {
-        let room_id = match &change {
-            Change::Add { room_id, .. } => room_id,
-            Change::Existing { key, .. } => &key.room_id,
-        };
-        let selected = room(core, room_id).map_err(stored)?;
-        let roster = admit(core, &selected, actor).map_err(stored)?;
-        match change {
-            Change::Add {
-                squad: _,
-                room_id,
-                owner_id,
-                message,
-                schedule,
-                paused,
-            } => {
-                owner(core, &roster, &owner_id).map_err(stored)?;
-                if message.trim().is_empty() || message.len() > 1048576 {
-                    return Err(stored(failure(
-                        "SQUAD_CRON_MESSAGE_INVALID",
-                        "Use a nonempty message of at most 1 MiB.",
-                    )));
-                }
-                let mut job = Job::new(room_id, owner_id, message, schedule);
-                if paused {
-                    job.pause = Some(Pause {
-                        by: actor.id.clone(),
-                        at_ms: now_ms,
-                    });
-                }
-                let id = jobs.insert(job)?;
-                let job = jobs
-                    .find_mut(&selected.room_id, &id)
-                    .expect("inserted job")
-                    .clone();
-                retirement::register(core, &job).map_err(stored)?;
-                Ok(Ok((None, job, "added", true, selected.name)))
+    let room_id = match &change {
+        Change::Add { room_id, .. } => room_id,
+        Change::Existing { key, .. } => &key.room_id,
+    };
+    let selected = room(core, room_id)?;
+    let roster = admit(core, &selected, actor)?;
+    let (before, mut after, action, mutation) = match change {
+        Change::Add {
+            room_id,
+            owner_id,
+            message,
+            schedule,
+            paused,
+            ..
+        } => {
+            owner(core, &roster, &owner_id)?;
+            valid_message(&message)?;
+            let mut job = Job::new(room_id, owner_id, message, schedule);
+            if paused {
+                job.pause = Some(Pause {
+                    by: actor.id.clone(),
+                    at_ms: now_ms,
+                });
             }
-            Change::Existing {
-                key,
-                expected_revision,
-                mutation,
-            } => {
-                let job = expected(jobs, &key, expected_revision).map_err(stored)?;
-                let before = job.clone();
-                let action = match mutation {
-                    Mutation::Edit { message, schedule } => {
-                        if let Some(message) = message {
-                            if message.trim().is_empty() || message.len() > 1048576 {
-                                return Err(stored(failure(
-                                    "SQUAD_CRON_MESSAGE_INVALID",
-                                    "Use a nonempty message of at most 1 MiB.",
-                                )));
-                            }
-                            job.message = message;
-                        }
-                        if let Some(schedule) = schedule {
-                            job.schedule = schedule;
-                        }
-                        "edited"
-                    }
-                    Mutation::Remove => "removed",
-                    Mutation::Pause => {
-                        if job.pause.is_none() {
-                            job.pause = Some(Pause {
-                                by: actor.id.clone(),
-                                at_ms: now_ms,
-                            });
-                        }
-                        "paused"
-                    }
-                    Mutation::Resume => {
-                        let id = job.owner_id.as_deref().ok_or_else(|| {
-                            stored(failure(
-                                "SQUAD_CRON_NO_OWNER",
-                                "Reassign this job before resuming it.",
-                            ))
-                        })?;
-                        if owners::observe(core, &roster, id)
-                            .map_err(stored)?
-                            .is_none()
-                        {
-                            owners::pause_missing(job, now_ms).map_err(stored)?;
-                            return Ok(Err(failure(
-                                "SQUAD_NOT_A_MEMBER",
-                                "The owner is missing from this squad; the job stays paused.",
-                            )));
-                        }
-                        job.pause = None;
-                        "resumed"
-                    }
-                    Mutation::Reassign { owner_id } => {
-                        owner(core, &roster, &owner_id).map_err(stored)?;
-                        if job.pause.is_none()
-                            && let Some(old) = &job.owner_id
-                            && owners::observe(core, &roster, old)
-                                .map_err(stored)?
-                                .is_none()
-                        {
-                            job.pause = Some(Pause {
-                                by: old.clone(),
-                                at_ms: now_ms,
-                            });
-                        }
-                        job.owner_id = Some(owner_id);
-                        retirement::register(core, job).map_err(stored)?;
-                        // Reassignment keeps an explicit pause; no-owner jobs remain paused.
-                        "reassigned"
-                    }
-                };
-                let changed = before != *job || action == "removed";
-                if changed {
-                    increment(job).map_err(stored)?;
-                }
-                let after = job.clone();
-                if action == "removed" {
-                    jobs.remove(&key.room_id, &key.id);
-                }
-                Ok(Ok((Some(before), after, action, changed, selected.name)))
-            }
+            let mutation = json!({"kind":"job.addSquad","candidate":candidate(&job),"pausedBy":job.pause.as_ref().map(|p|p.by.clone())});
+            (None, job, "added", mutation)
         }
-    })??;
+        Change::Existing {
+            key,
+            expected_revision,
+            mutation,
+        } => {
+            let mut current = canonical::selected(core, &key, expected_revision)?;
+            let before = current.job.clone();
+            let mut job = before.clone();
+            let (action, kind) = match mutation {
+                Mutation::Edit { message, schedule } => {
+                    if let Some(message) = message {
+                        valid_message(&message)?;
+                        job.message = message;
+                    }
+                    if let Some(schedule) = schedule {
+                        job.schedule = schedule;
+                    }
+                    ("edited", "job.set")
+                }
+                Mutation::Remove => ("removed", "job.rm"),
+                Mutation::Pause => ("paused", "job.pause"),
+                Mutation::Resume => {
+                    let id = job.owner_id.as_deref().ok_or_else(|| {
+                        failure(
+                            "SQUAD_CRON_NO_OWNER",
+                            "Reassign this job before resuming it.",
+                        )
+                    })?;
+                    if owners::observe(core, &roster, id)?.is_none() {
+                        owners::pause_current(core, &current, id)?;
+                        return Err(failure(
+                            "SQUAD_NOT_A_MEMBER",
+                            "The owner is missing from this squad; the job stays paused.",
+                        ));
+                    }
+                    ("resumed", "job.resume")
+                }
+                Mutation::Reassign { owner_id } => {
+                    owner(core, &roster, &owner_id)?;
+                    if job.pause.is_none()
+                        && let Some(old) = &job.owner_id
+                        && owners::observe(core, &roster, old)?.is_none()
+                    {
+                        let paused = owners::pause_current(core, &current, old)?;
+                        job.pause = paused.pause.clone();
+                        current.job = paused;
+                    }
+                    job.owner_id = Some(owner_id);
+                    ("reassigned", "job.set")
+                }
+            };
+            let mut update =
+                json!({"kind":kind,"jobId":current.id,"revision":current.job.revision});
+            if kind == "job.set" {
+                update["candidate"] = candidate(&job);
+                update["candidate"]["title"] = current.title;
+            }
+            if kind == "job.pause" {
+                update["by"] = json!(actor.id);
+            }
+            (Some(before), job, action, update)
+        }
+    };
+    let preview = canonical::preview(core, Some(&actor.id), &mutation)?;
+    if matches!(action, "added" | "reassigned") {
+        let key = if action == "added" {
+            let proposed = &preview["proposedLegacy"];
+            let number = proposed["cronId"]
+                .as_u64()
+                .filter(|number| *number > 0)
+                .ok_or_else(|| {
+                    failure(
+                        "SQUAD_CORE_UNAVAILABLE",
+                        "Core did not propose a squad job number.",
+                    )
+                })?;
+            if proposed["roomId"] != selected.room_id {
+                return Err(failure(
+                    "SQUAD_CRON_ROOM_CONFLICT",
+                    "Core proposed a different squad room.",
+                ));
+            }
+            JobKey {
+                room_id: selected.room_id.clone(),
+                id: format!("c{number}"),
+            }
+        } else {
+            JobKey::of(&after)
+        };
+        if let Some(owner) = &after.owner_id {
+            retirement::register_key(core, &key, owner)?;
+        }
+    }
+    let applied = canonical::apply_preview(core, Some(&actor.id), &preview)?;
+    let changed = applied["changed"].as_bool().unwrap();
+    if action == "removed" {
+        if changed {
+            increment(&mut after)?;
+        }
+    } else {
+        after = canonical::written(&applied["job"])?;
+    }
     if changed {
         warnings.extend(notices::changed(
             core,
             actor,
             before.as_ref(),
             &after,
-            &squad_name,
+            &selected.name,
             action,
         ));
     }
-    // A committed mutation must not turn into an apparent rollback if a name lookup fails.
-    let job = match project(core, after.clone(), squad_name.clone(), 3, now_ms) {
+    let job = match project(core, after.clone(), selected.name.clone(), 3, now_ms) {
         Ok(view) => view,
         Err(error) => {
             warnings.push(error);
             JobView {
-                squad: squad_name,
+                squad: selected.name,
                 job: after,
                 owner_name: None,
-                owner_missing: false, // Failed observation is unknown, not absence.
+                owner_missing: false,
                 next_ms: vec![],
                 warnings: vec![],
             }
         }
     };
-    // A committed edit must remain a success even if the follow-up notice fails.
-    match migration_warning(core, &store) {
-        Ok(notice) => warnings.extend(notice),
+    match store(core) {
+        Ok((store, _migration)) => match migration_warning(core, &store) {
+            Ok(warning) => warnings.extend(warning),
+            Err(error) => warnings.push(error),
+        },
         Err(error) => warnings.push(error),
     }
     Ok(Applied {

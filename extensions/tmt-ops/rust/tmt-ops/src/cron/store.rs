@@ -76,7 +76,8 @@ impl Job {
     pub fn document(&self) -> Value {
         json!({"id":self.id(),"roomId":self.room_id,"ownerId":self.owner_id,"message":self.message,"schedule":self.schedule.document(),"revision":self.revision,"state":self.state(),"pause":self.pause.as_ref().map(|p| json!({"by":p.by,"atMs":p.at_ms}))})
     }
-    fn from_document(value: &Value) -> Result<Self, Error> {
+    /// Decode a legacy-shaped projection without opening or mutating a store.
+    pub fn from_document(value: &Value) -> Result<Self, Error> {
         let id = string(value, "id")?
             .strip_prefix('c')
             .and_then(|n| n.parse().ok())
@@ -264,7 +265,8 @@ impl Jobs {
     pub fn document(&self) -> Value {
         json!({"version":2,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
     }
-    fn from_document(value: &Value) -> Result<Self, Error> {
+    /// Decode a legacy-shaped projection without opening or mutating a store.
+    pub fn from_document(value: &Value) -> Result<Self, Error> {
         if value["version"] != 2 {
             if value["version"].as_u64().is_some_and(|version| version > 2) {
                 return Err(Error::new(

@@ -117,7 +117,6 @@ fn rename_after_removing_all_jobs_still_allocates_the_next_id() {
 #[test]
 fn repair_of_an_old_partial_rename_migrates_the_retained_legacy_namespace() {
     let f = Fixture::new();
-    f.add(&f.actor(USER), WORKER).unwrap();
     f.change_model(|model| {
         model["members"][2]["metadata"] = json!({"squad.product.task":"keep"});
         model["applyFailure"] = json!("STORAGE_UNAVAILABLE");
@@ -134,7 +133,7 @@ fn repair_of_an_old_partial_rename_migrates_the_retained_legacy_namespace() {
             "message":"legacy", "revision":1, "state":"on", "pause":null,
             "schedule":{"kind":"every", "zone":"UTC", "seconds":1800, "anchorMs":0, "from":null}}]
     });
-    crate::test_support::replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    f.seed_legacy(legacy.to_string().as_bytes());
     f.change_model(|model| model["applyFailure"] = json!(false));
     assert!(
         rename_squad(&f.core, &mut config, &request(true))

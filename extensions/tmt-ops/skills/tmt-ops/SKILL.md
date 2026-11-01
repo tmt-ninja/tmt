@@ -1332,27 +1332,27 @@ to the user. Add accepts `--paused`; edit accepts the same schedule flags or
 `--message`. Reassignment clears no owner but retains its pause; resume separately.
 
 Messages must be nonempty and are retained exactly, without substitution. Jobs
-live in the Ops state database in the extension's own storage, separate from
-`ops.toml`. IDs are never
-reused. Fixed local times skip daylight-saving gaps and use the first repeated
+live in Core's canonical job store, separate from `ops.toml`. Existing Ops jobs are
+adopted from an exact frozen source before the legacy commands forward to that store.
+An unconfirmed import stays frozen with receipt-readback guidance; never recreate the
+jobs to get past it. IDs are never reused. Fixed local times skip daylight-saving gaps and use the first repeated
 time; intervals keep elapsed duration. Schedule edits retain the stored zone.
 Change notices are best-effort announcements to the owner; reassignment notifies
 old/new owners, and the actor's own notice is suppressed. A committed change can
 report notification warnings. Owner retirement pauses the job as no owner and
 notifies the lead; each management invocation handles at most 16 pending hooks.
-An open board keeps the clock running independently of its refresh setting.
-Outside a board, `tmt ops sq cron run` keeps it in the current pane; `clock` shows
-its pane, PID and how long it has held the lease. Only one clock holds the lease. Stop `run` with
-Ctrl-C; stale leases can be taken over, and a running clock (a board or `run`) replaces
-a live lease held by an older Ops version, or by an Ops that predates the version field,
-whose holder then stops at its next renewal; a one-shot `tick` never displaces a clock.
-Startup and takeover begin at now, so
-slots missed while no clock was running are not caught up. A running clock
-admits slots since its previous tick, capped at five minutes. `tick` makes one
-pass over the last 60 seconds and refuses an active clock. Scheduled messages
-are anonymous requests recorded with origin `automation`, so they are told apart from
-typed messages; the same room/job/slot operation is accepted once.
-The same tick runs the [idle alert](#alert-the-lead-to-an-idle-member) scan.
+An open board offers an owned foreground Core clock independently of refresh.
+Outside a board, `tmt ops sq cron run` forwards to `tmt tick run` in the current pane;
+`clock` reads the shared holder's pane, PID and start age. Core's kernel lock keeps one
+owner until shutdown. Close the owning board or stop its `run` with Ctrl-C to release it.
+A competing board leaves scheduling with that owner and keeps its own idle-alert worker.
+Startup and restart begin at now; a running clock admits slots since its previous
+observation, capped at five minutes. `tick` forwards to one finite `tmt tick` minute,
+observing sub-minute slots until the minute ends, with a 60-second initial window.
+Absent-clock history and clock rollback are never replayed. Scheduled messages are
+anonymous Automation requests; the same room/job/slot operation is accepted once.
+Core also composes Digest and workspace capture. Ops keeps the
+[idle-alert scan](#alert-the-lead-to-an-idle-member) in its independent worker.
 
 `tmt ops sq cron send product c1` sends once now using the user or explicit
 user/lead actor. It can send a paused job with a current owner and changes no
@@ -1407,8 +1407,9 @@ start, so a retry, a restart or a second clock cannot duplicate it. When a retry
 differs, Core refuses it as a changed intent and the clock treats that as already accepted.
 Nothing about delivery is stored; the notice is in the lead's inbox.
 
-The scan is a second duty of the cron clock. A clock must run, with a board open or
-`tmt ops sq cron run` in a pane (`cron clock` shows it); with no clock there is no alert.
+The scan needs an Ops worker: an open board or `tmt ops sq cron run` in a pane.
+It stays active when another Core clock holds scheduling. A Core-only timer runs jobs,
+Digest and capture without Ops idle alerts.
 
 In Agents, the squad row's MODEL / ALERT cell shows `◷ 30m` when enabled or `○ off`
 when disabled; Common pool has no setting. Hover highlights the editable cell. Click it, or

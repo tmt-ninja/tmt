@@ -2,16 +2,14 @@
 use super::*;
 
 const CONSUMER: &str = "squad-cron";
-fn reference(job: &Job) -> String {
-    format!("{}:{}", job.room_id, job.id())
-}
 fn hook(identity: &str, reference: &str) -> Value {
     json!({"consumer": CONSUMER, "identityId": identity, "reference": reference})
 }
-pub(super) fn register(core: &Core, job: &Job) -> Result<(), SquadError> {
-    if let Some(id) = &job.owner_id {
-        core.api("identityHooks.register", hook(id, &reference(job)))?;
-    }
+pub(super) fn register_key(core: &Core, key: &JobKey, owner: &str) -> Result<(), SquadError> {
+    core.api(
+        "identityHooks.register",
+        hook(owner, &format!("{}:{}", key.room_id, key.id)),
+    )?;
     Ok(())
 }
 
@@ -20,8 +18,9 @@ pub(super) fn register(core: &Core, job: &Job) -> Result<(), SquadError> {
 pub fn drain_retired(
     core: &Core,
     _config: &Config,
-    now_ms: i64,
+    _now_ms: i64,
 ) -> Result<Vec<SquadError>, SquadError> {
+    ready(core)?;
     let page = core.api(
         "identityHooks.pending",
         json!({"consumer": CONSUMER, "limit": 16}),
@@ -38,33 +37,33 @@ pub fn drain_retired(
         let reference = text(pending, "reference")?;
         let input = hook(&id, &reference);
         core.api("identityHooks.attempt", input.clone())?;
-        let (store, _migration) = store(core)?;
-        let changed = store.update(|jobs| {
-            let Some(job) = jobs
-                .jobs()
-                .iter()
-                .find(|job| {
-                    let parts: Vec<_> = reference.split(':').collect();
-                    let matches = match parts.as_slice() {
-                        [room, job_id] => *room == job.room_id && *job_id == job.id(),
-                        [room, _legacy_name, job_id] => *room == job.room_id && *job_id == job.id(),
-                        _ => false,
-                    };
-                    matches && job.owner_id.as_deref() == Some(&id)
-                })
-                .cloned()
-            else {
-                return Ok(None);
-            };
-            let job = jobs.find_mut(&job.room_id, &job.id()).expect("matched job");
-            job.owner_id = None;
-            job.pause = Some(Pause {
-                by: id.clone(),
-                at_ms: now_ms,
-            });
-            increment(job).map_err(stored)?;
-            Ok(Some(job.clone()))
-        })?;
+        let parts: Vec<_> = reference.split(':').collect();
+        let key = match parts.as_slice() {
+            [room, id] | [room, _, id] => Some(JobKey {
+                room_id: (*room).into(),
+                id: (*id).into(),
+            }),
+            _ => None,
+        };
+        let mut changed = None;
+        if let Some(key) = key {
+            let current = canonical::list(core, Some(&key.room_id))?
+                .into_iter()
+                .find(|current| {
+                    current.job.id() == key.id && current.job.owner_id.as_deref() == Some(&id)
+                });
+            if let Some(current) = current {
+                let mut definition = candidate(&current.job);
+                definition["title"] = current.title;
+                definition["ownerIdentityId"] = Value::Null;
+                let applied = canonical::mutation(
+                    core,
+                    None,
+                    json!({"kind":"job.set","jobId":current.id,"revision":current.job.revision,"candidate":definition}),
+                )?;
+                changed = Some(canonical::written(&applied["job"])?);
+            }
+        }
         if let Some(job) = changed {
             let notice = (|| {
                 let selected = room(core, &job.room_id)?;

@@ -45,6 +45,7 @@ impl TickReport {
 }
 pub struct TickWindow {
     previous_ms: i64,
+    latest_minute: Option<u64>,
     failed: BTreeSet<String>,
 }
 impl TickWindow {
@@ -55,11 +56,23 @@ impl TickWindow {
             } else {
                 now
             },
+            latest_minute: None,
             failed: BTreeSet::new(),
         }
     }
-    pub fn begin_minute(&mut self) {
+    /// One invocation admits only a later wall minute. The Core clock uses the
+    /// same gate for jobs, Digest and capture, including after a clock rollback.
+    pub fn begin_minute(&mut self, now: u64) -> bool {
+        let minute = now / 60_000;
+        if self
+            .latest_minute
+            .is_some_and(|previous| minute <= previous)
+        {
+            return false;
+        }
+        self.latest_minute = Some(minute);
         self.failed.clear();
+        true
     }
     pub fn pass(&mut self, now: u64, port: &mut impl TickPort) -> Result<TickReport, TickError> {
         if now == 0 || now > tmt_core::limits::MAX_JS_SAFE_INTEGER {

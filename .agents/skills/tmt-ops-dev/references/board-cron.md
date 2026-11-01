@@ -2,7 +2,7 @@
 
 `board::cronboard` owns board-side acquisition, projection, controllers, forms,
 modal list painting and scoped hints. It reaches jobs through `cron_service`, manual
-sends through `cron_clock::send_now`, and clock status through `cron::Clock::status`.
+sends through `cron_clock::send_now`, and clock status through public Core `tick.status` on the same worker.
 [data-and-state.md](data-and-state.md#cron) owns storage, actor/revision admission,
 dispatch and the independent clock lifecycle. The shipped Squad skill owns
 [board job controls](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#cron-on-the-board).
@@ -66,12 +66,12 @@ job rows; the retired squad-tab jobs half owns no focus, geometry or controls.
 
 ## Clock lease
 
-`cron::clock::Clock::acquire` takes the Ops version (`CARGO_PKG_VERSION`) and publishes it as
-`opsVersion` in `clock.json`. `serve` (the board clock and `cron run`) acquires with
-`acquire_current`: a live lease whose holder has no version (written before the field) or an older
-semantic version is taken over (#4107), and its owner finds the lease changed at its next `renew`
-and stops. Equal, newer or non-semver versions never preempt, and the one-shot `tick` uses plain
-`acquire`, which never disturbs a live lease.
+The worker observes Core's public `tick.status` and maps its holder to the existing
+Running/NoClock/Unknown projection. Core owns the shared kernel lock and the foreground
+`tick run` child; Ops never replaces a live owner based on its version or advisory expiry.
+Closing the board cancels and joins only its owned Core child. A competing clock leaves
+scheduling with that owner while the independent Ops idle-alert worker stays active.
+
 `tmt digest status` shows the last admitted tick (`tick.lastAtMs`), so a clock held by a UI that
 does not tick is visible. The Digest tab's summary strip turns it into a `waiting` part
 (`digest_dashboard::model::tick_notice`): `! No tick for N min` (`h`/`d` past an hour) once the
@@ -82,14 +82,14 @@ whole status unavailable (`labels/digest.rs`).
 
 ## Idle alert scan
 
-`idle_alert` is the clock tick's second duty: `Watch::advance` runs after `digest.advance` and the
-cron pass in `cron_clock::serve`, under the same lease, and is rebuilt when the lease is acquired.
+`idle_alert::Watch::advance` runs in `cron_clock::serve` independently of the shared Core
+clock and remains active when another owner wins scheduling.
 `Watch::due` allows one scan a minute. A clock's first look, a look after more than five minutes
 without a tick and a look after the clock moved back only record the time, so members are judged a
 minute after a wake, never at it. A scan re-reads `ops.toml` (settings change while a clock runs),
 lists the squads whose table sets `idle_alert.enabled`, and per enabled squad reads the roster and
 one `ls` through `Squad::members`: nothing for a squad with the alert off, no daemon, model call or
-stored state. `keep` renews the lease and reports cancellation between squads and before each send.
+stored state. `keep` reports worker cancellation between squads and before each send.
 
 `assess` is the one rule, shared with `ls --json` (`Observation::document` overlays `squad.idleAlert`
 and each row's `idleAlert`): the typed `board::activity` projection of Core's `session.activity`

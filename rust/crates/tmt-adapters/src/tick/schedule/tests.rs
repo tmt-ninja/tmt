@@ -130,9 +130,34 @@ fn acceptance_requires_explicit_creation_and_recovery_is_not_a_second_acceptance
     assert_eq!(report.accepted, 0);
     assert_eq!(report.failures[0]["code"], "TICK_PROTOCOL_INVALID");
     p.response = json!({"outcome":"accepted","created":false});
-    w.begin_minute();
+    assert!(w.begin_minute(125_000));
     let report = w.pass(125_000, &mut p).unwrap();
     assert_eq!(report.recovered, 1);
     assert_eq!(report.accepted, 0);
     assert!(report.complete);
+}
+
+#[test]
+fn one_minute_gate_prevents_component_replay_and_preserves_failed_work_on_rollback() {
+    let mut window = TickWindow::new(59_999, false);
+    let mut admitted = Vec::new();
+    for now in [60_000, 60_001, 119_999, 59_999, 1, 119_999] {
+        if window.begin_minute(now) {
+            admitted.push(now);
+        }
+        window.failed.insert("uncertain job".into());
+    }
+    assert_eq!(
+        admitted,
+        vec![60_000],
+        "jobs, Digest and capture share one admission, not a retry after rollback"
+    );
+    assert!(window.failed.contains("uncertain job"));
+    assert!(
+        window.begin_minute(180_000),
+        "a jump admits only the current minute"
+    );
+    assert!(window.failed.is_empty());
+    assert!(!window.begin_minute(120_000));
+    assert!(!window.begin_minute(180_000));
 }

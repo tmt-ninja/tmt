@@ -104,16 +104,25 @@ fn run_owned(
     let digest_installed =
         crate::extension_command::resolve("digest", &std::env::var_os("PATH").unwrap_or_default())?
             .is_some();
+    let mut heartbeat = Instant::now();
     loop {
         if interrupt.is_interrupted() {
             return Ok(true);
         }
-        lease.renew(now())?;
         let entered = now();
+        if !window.begin_minute(entered) {
+            if heartbeat.elapsed() >= Duration::from_secs(10) {
+                lease.renew(entered)?;
+                heartbeat = Instant::now();
+            }
+            interrupt.wait_until(Instant::now() + Duration::from_secs(1))?;
+            continue;
+        }
+        lease.renew(entered)?;
+        heartbeat = Instant::now();
         let remaining = 60_000 - entered % 60_000;
         let boundary_ms = entered.checked_add(remaining).ok_or(TickError::Invalid)?;
         let boundary = Instant::now() + Duration::from_millis(remaining);
-        window.begin_minute();
         let mut report = TickReport {
             complete: true,
             ..Default::default()
@@ -152,7 +161,6 @@ fn run_owned(
                         interrupt,
                     );
                 }
-                let mut heartbeat = Instant::now();
                 while !interrupt.is_interrupted()
                     && Instant::now() < boundary
                     && now() < boundary_ms
