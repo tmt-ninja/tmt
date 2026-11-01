@@ -8,5 +8,8 @@ export default defineConfig({
   retries: 0,
   timeout: 120000,
   reporter: 'list',
+  // Worlds a killed or interrupted worker could not tear down are stopped here (#5892).
+  globalSetup: './acceptance/harness/global-setup.ts',
+  globalTeardown: './acceptance/harness/global-teardown.ts',
   use: { trace: 'retain-on-failure' },
 });

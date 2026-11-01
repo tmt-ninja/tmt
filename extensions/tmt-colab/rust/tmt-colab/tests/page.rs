@@ -3525,8 +3525,8 @@ elif args == ['identity', 'show', '--json']:
 elif args == ['remote', 'status', '--machine', '--json']:
     print({descriptor})
     sys.exit({exit})
-elif args == ['remote', 'devices', '--json']:
-    print('{{"devices":[]}}')
+elif args == ['remote', 'members', '--json', '--limit', '10']:
+    print('{{"members":[],"nextCursor":null}}')
 else:
     sys.exit(97)
 "#,

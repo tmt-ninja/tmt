@@ -7,7 +7,7 @@ import { READMIT_DELAYS_MS } from '../src/readmit.js';
 import { pairBrowser, startRemoteOnly } from './harness/browser.js';
 import {
   patchArgs,
-  clientId,
+  revokeMachine,
   composeChat,
   createPage,
   openChat,
@@ -192,12 +192,7 @@ test('a device revoked while the serve is being upgraded still ends with the acc
 
     upgrade.install();
     await expect(status(page)).toContainText('Reconnecting…', { timeout: 60_000 });
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, 'restart-revoked'),
-      '--json',
-    ]);
+    revokeMachine(world, 'restart-revoked');
 
     const card = page.locator('.tmt-ui-notice');
     await expect(card).toContainText(text.failurePairingRemoved, { timeout: 90_000 });

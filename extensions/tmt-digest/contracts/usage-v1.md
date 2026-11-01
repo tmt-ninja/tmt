@@ -69,6 +69,12 @@ with Core's usual 15 seconds and 1 MiB per call:
   coverage is not complete. The family is a presentation label, not a provider claim.
 - `limits[]`: account windows, deduplicated by `(provider, account key, windowMinutes, resetsAtMs)`
   across seats and buckets; the newest observation wins and windows are never summed.
+  The report first reads Core's account-level `consumption.limits`
+  ([account limits](../../../contracts/extension-api.md#account-limits)). An entry with
+  `rateLimits` replaces every seat-derived window of its `(provider, account key)` whole,
+  never merged per window; `seats` still names the seats that reported that account. A
+  malformed entry is dropped alone. An older Core (`API_INPUT_INVALID`) or a failed read
+  keeps the per-seat derivation below unchanged; a failed read also adds a `limits` warning.
   The report also reads `latest.consumption.rateLimits` from Core's closed-history
   seed: a Claude cache's original fetch may predate the displayed buckets while its
   windows remain current. It preserves that `observedAtMs`, which can be much older
@@ -88,6 +94,11 @@ with Core's usual 15 seconds and 1 MiB per call:
 - `limitsUnavailable[]`: `{line,reason}` for each line whose seats reported no
   limits, with `reason: "not_observed"`. A missing/unusable Claude cache is
   unavailable, never zero; older Core/Digest versions may report `no_source`.
+  An account Core knows without a current window adds `{provider,account,reason}` with
+  Core's `reason` (`none_observed` or `expired`), and its seat-derived windows are dropped.
+- Model share: a seat's share of a model over the window is that `byModel` row's tokens
+  over the seat's `totals`, with `unattributed` as its own remainder; a seat with null
+  `byModel` has no model share. The report adds no separate field for it.
 - `credits`: the Codex credit balance over the window, `{points:[...]}`, or null when no
   seat's series carries a balance (Claude has none). It reads the credits and tier that
   Core's rollup keeps per bucket, at the series resolution (hourly for `24h`, daily for

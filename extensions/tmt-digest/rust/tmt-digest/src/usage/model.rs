@@ -138,6 +138,44 @@ impl LimitAccount {
     }
 }
 
+/// One `consumption.limits` entry: the account's current windows, or why there are none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountLimits {
+    provider: String,
+    account: LimitAccount,
+    limits: Result<Observed, &'static str>,
+}
+
+/// The well-formed entries of a `consumption.limits` answer. A malformed entry is dropped
+/// alone, so it never takes another account with it.
+pub fn accounts(document: &Value) -> Option<Vec<AccountLimits>> {
+    let entries = document["accounts"].as_array()?;
+    Some(
+        entries
+            .iter()
+            .filter_map(|entry| {
+                let provider = entry["driver"].as_str().filter(|id| provider_id(id))?;
+                let account = LimitAccount::read(&entry["account"])?;
+                let limits = match &entry["rateLimits"] {
+                    Value::Null => Err(match entry["reason"].as_str()? {
+                        "none_observed" => "none_observed",
+                        "expired" => "expired",
+                        _ => return None,
+                    }),
+                    value => Ok(observed(value).filter(|found| {
+                        found.provider == provider && found.account.as_ref() == Some(&account)
+                    })?),
+                };
+                Some(AccountLimits {
+                    provider: provider.into(),
+                    account,
+                    limits,
+                })
+            })
+            .collect(),
+    )
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seat {
     label: Label,
@@ -191,6 +229,9 @@ pub struct Usage {
     pub window: Option<Window>,
     pub seats: Vec<Seat>,
     pub unavailable: Vec<Unavailable>,
+    /// Core's account-level limits (`consumption.limits`); None from an older Core or a
+    /// failed read, which keeps the per-seat derivation.
+    pub accounts: Option<Vec<AccountLimits>>,
 }
 
 impl Usage {
@@ -213,6 +254,7 @@ impl Usage {
                     cause: None,
                 })
                 .collect(),
+            accounts: None,
         }
     }
 }
@@ -516,10 +558,50 @@ fn rounded(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
-fn limits(seats: &[Seat], as_of_ms: u64) -> Vec<Value> {
+/// Whether Core's account-level answer covers this seat observation's account.
+fn answered(answers: &[AccountLimits], observed: &Observed) -> bool {
+    answers.iter().any(|answer| {
+        answer.provider == observed.provider && Some(&answer.account) == observed.account.as_ref()
+    })
+}
+
+fn limits(seats: &[Seat], answers: &[AccountLimits], as_of_ms: u64) -> Vec<Value> {
     let mut accounts = BTreeMap::<(&str, Option<&str>, u64, u64), Account<'_>>::new();
+    // Core's account entry replaces every seat-derived window of its account whole, never
+    // merged per window; the seats that reported the account stay its attribution.
+    for answer in answers {
+        let Ok(observed) = &answer.limits else {
+            continue;
+        };
+        let reporting: BTreeSet<String> = seats
+            .iter()
+            .filter(|seat| {
+                seat.limits.as_ref().is_some_and(|held| {
+                    held.provider == answer.provider
+                        && held.account.as_ref() == Some(&answer.account)
+                })
+            })
+            .map(|seat| seat.label.id.clone())
+            .collect();
+        for &(minutes, used, resets) in &observed.windows {
+            accounts.insert(
+                (
+                    answer.provider.as_str(),
+                    Some(answer.account.key.as_str()),
+                    minutes,
+                    resets,
+                ),
+                Account {
+                    account: Some(&answer.account),
+                    observed_at_ms: observed.observed_at_ms,
+                    used_percent: used,
+                    seats: reporting.clone(),
+                },
+            );
+        }
+    }
     for seat in seats {
-        let Some(observed) = &seat.limits else {
+        let Some(observed) = seat.limits.as_ref().filter(|held| !answered(answers, held)) else {
             continue;
         };
         let account = observed.account.as_ref();
@@ -571,7 +653,11 @@ fn limits(seats: &[Seat], as_of_ms: u64) -> Vec<Value> {
         .collect()
 }
 
-fn limits_unavailable(seats: &[Seat], lines: &BTreeMap<&'static str, Line>) -> Vec<Value> {
+fn limits_unavailable(
+    seats: &[Seat],
+    answers: &[AccountLimits],
+    lines: &BTreeMap<&'static str, Line>,
+) -> Vec<Value> {
     let with_limits: BTreeSet<&str> = seats
         .iter()
         .filter(|seat| seat.limits.is_some())
@@ -587,6 +673,12 @@ fn limits_unavailable(seats: &[Seat], lines: &BTreeMap<&'static str, Line>) -> V
                     .any(|seat| with_limits.contains(seat.as_str()))
         })
         .map(|(name, _)| json!({"line": name, "reason": "not_observed"}))
+        // An account Core knows without a current window keeps its line, in its state.
+        .chain(answers.iter().filter_map(|answer| {
+            let reason = answer.limits.as_ref().err()?;
+            Some(json!({"provider": answer.provider, "reason": reason,
+                "account": {"key": answer.account.key, "label": answer.account.label}}))
+        }))
         .collect()
 }
 
@@ -662,6 +754,7 @@ pub fn usage_sections(
     as_of_ms: u64,
 ) -> Result<(Value, Vec<Value>, Vec<Value>), Error> {
     let grouped = lines(&usage.seats)?;
+    let answers = usage.accounts.as_deref().unwrap_or_default();
     let section = json!({
         "seats": usage.seats.iter().map(seat_json).collect::<Vec<_>>(),
         "unavailable": usage.unavailable.iter().map(unavailable_json).collect::<Vec<_>>(),
@@ -673,8 +766,8 @@ pub fn usage_sections(
     });
     Ok((
         section,
-        limits(&usage.seats, as_of_ms),
-        limits_unavailable(&usage.seats, &grouped),
+        limits(&usage.seats, answers, as_of_ms),
+        limits_unavailable(&usage.seats, answers, &grouped),
     ))
 }
 

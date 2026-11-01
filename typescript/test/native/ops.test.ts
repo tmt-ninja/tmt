@@ -5602,12 +5602,29 @@ describe('large board responsiveness', () => {
           tmux(['resize-window', '-t', 'mentions', '-x', '160', '-y', '36']);
           const colour = theme === 'NO_COLOR' ? 'NO_COLOR=1' : 'env -u NO_COLOR';
           const trace = path.join(sandbox.root, `mentions-${theme}.jsonl`);
+          const keys = path.join(sandbox.root, `mentions-${theme}.keys.jsonl`);
+          // The board's key trace is the readiness boundary for key order: a key sent before
+          // the board has handled the previous one can land in the wrong focus under load.
+          const handled = (key: string) =>
+            vi.waitFor(
+              () => {
+                const records = existsSync(keys)
+                  ? readFileSync(keys, 'utf8')
+                      .split('\n')
+                      .filter(Boolean)
+                      .map((line) => JSON.parse(line))
+                      .filter((record) => record.event !== 'key_before')
+                  : [];
+                expect(records.at(-1)?.key).toBe(key);
+              },
+              { timeout: 10_000, interval: 25 }
+            );
           tmux([
             'send-keys',
             '-t',
             pane,
             '-l',
-            `${colour} TMT_OPS_TIMING_TRACE=${quote(trace)} ${quote(sandbox.cli.executable)} ops ui --squad product --view mentions --reset-view`,
+            `${colour} TMT_OPS_TIMING_TRACE=${quote(trace)} TMT_OPS_TEST_KEY_TRACE=${quote(keys)} ${quote(sandbox.cli.executable)} ops ui --squad product --view mentions --reset-view`,
           ]);
           tmux(['send-keys', '-t', pane, 'Enter']);
           await vi.waitFor(
@@ -5662,6 +5679,9 @@ describe('large board responsiveness', () => {
               expect(shown).toContain('Keep worker raw #tmt:unknown');
               expect(shown).toContain('↑↓←→ move');
             });
+            // The Escape that left the composer must be handled first, or Tab reaches the
+            // composer instead of the tree.
+            await handled('Esc');
             // Tab enters read focus, where the mention shows at every width.
             tmux(['send-keys', '-t', pane, 'Tab']);
             await until(`read focus at ${width} columns`, (shown) => {
