@@ -12,12 +12,14 @@ export function DesignFrame({
   title,
   images,
   layout,
+  preview = false,
 }: {
   transport: PageTransport;
   source: string;
   title: string;
   images: DocumentImageInput;
   layout?: PageLayout;
+  preview?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
@@ -41,8 +43,21 @@ export function DesignFrame({
       designSystem,
       images: currentImages.current,
       onState: setState,
-      viewportInset: () =>
-        document.querySelector('.tmt-ui-shell-bar')?.getBoundingClientRect().bottom ?? 0,
+      viewportInset: () => {
+        const canvas = preview ? host.current?.closest('.docs-canvas') : null;
+        if (canvas) {
+          // The docs canvas, not the reader viewport, owns an example's minimum height.
+          const style = getComputedStyle(canvas);
+          const minimum =
+            (parseFloat(style.minHeight) || 0) -
+            parseFloat(style.paddingTop) -
+            parseFloat(style.paddingBottom) -
+            parseFloat(style.borderTopWidth) -
+            parseFloat(style.borderBottomWidth);
+          return window.innerHeight - Math.max(1, minimum);
+        }
+        return document.querySelector('.tmt-ui-shell-bar')?.getBoundingClientRect().bottom ?? 0;
+      },
     })
       .then((renderer) => {
         if (controller.signal.aborted) renderer.destroy();
@@ -61,7 +76,7 @@ export function DesignFrame({
       handle.current = null;
       destroy?.();
     };
-  }, [source, layout, designSystem]);
+  }, [source, layout, designSystem, preview]);
   return (
     <div className="design-live-frame" aria-label={title}>
       {error && <p role="alert">{error}</p>}

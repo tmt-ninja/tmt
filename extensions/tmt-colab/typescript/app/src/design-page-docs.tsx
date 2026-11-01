@@ -87,14 +87,19 @@ export function DesignPageDocs({
   const meta = writePin('', `${pin.system}@${pin.version}#${pin.hash}`);
   const examples = doc.examples ?? [];
   const lead = doc.notes
-    ? new DOMParser().parseFromString(doc.notes, 'text/html').body.textContent
+    ? [...new DOMParser().parseFromString(doc.notes, 'text/html').body.childNodes]
+        .map((node) => node.textContent)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
     : `The ${system.config.prefix}-${doc.tag} component.`;
   const frame = (markup: string, title: string) => (
     <DesignFrame
       transport={transport}
       title={title}
+      preview
       images={images}
-      source={`${meta}<style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:var(--tmt-ui-row-height);padding:var(--tmt-ui-space-l)}</style>${designExample(markup, system.config.prefix)}`}
+      source={`${meta}<div class="flex min-h-screen items-center justify-center p-4">${designExample(markup, system.config.prefix)}</div>`}
     />
   );
   const usage = `${meta}\n${designExample(examples[0]?.markup ?? `<tmt-ui-${doc.tag}></tmt-ui-${doc.tag}>`, system.config.prefix)}`;

@@ -171,6 +171,12 @@ for (const width of [1440, 390])
         page.locator('.docs-article').getByRole('heading', { name: 'Props', exact: true }),
       ).toBeVisible();
       await expect(page.locator('.docs-props')).toContainText('variant');
+      const previewGeometry = await page.locator('.docs-canvas-hero').evaluate((canvas) => ({
+        minimum: parseFloat(getComputedStyle(canvas).minHeight),
+        frameHeight: canvas.querySelector('iframe')!.getBoundingClientRect().height,
+      }));
+      expect(previewGeometry.frameHeight).toBeLessThanOrEqual(previewGeometry.minimum);
+
       await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
         'href',
         /\/colab\/pages\/[0-9a-f-]+$/,
