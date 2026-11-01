@@ -342,6 +342,130 @@ impl Store {
         schema::reclaim(&self.connection);
     }
 
+    /// Every listed object of `page` this machine currently sees as unreferenced, in key order:
+    /// `(object hex, payload bytes, first seen unreferenced at)`.
+    pub(crate) fn unreferenced(&self, page: &str) -> StoreResult<Vec<(String, u64, u64)>> {
+        bounded_id(page)?;
+        let mut query = self.connection.prepare(
+            "SELECT object,payload_bytes,since_ms FROM attachment_unreferenced WHERE page=?1 ORDER BY object",
+        )?;
+        let rows = query
+            .query_map(params![page], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(object, bytes, since)| {
+                Ok((
+                    object,
+                    u64::try_from(bytes).map_err(|_| Fault::Invalid)?,
+                    u64::try_from(since).map_err(|_| Fault::Invalid)?,
+                ))
+            })
+            .collect()
+    }
+    /// Apply one pass's view in one transaction: forget `forget` (referenced again or no longer
+    /// listed), and start the clock at `now_ms` for each of `start` that has none yet. An existing
+    /// clock is never moved later or earlier.
+    pub(crate) fn update_unreferenced(
+        &mut self,
+        page: &str,
+        forget: &[String],
+        start: &[(String, u64)],
+        now_ms: u64,
+    ) -> StoreResult<()> {
+        bounded_id(page)?;
+        let now = i64::try_from(now_ms).map_err(|_| Fault::Invalid)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for object in forget {
+            tx.execute(
+                "DELETE FROM attachment_unreferenced WHERE page=?1 AND object=?2",
+                params![page, object],
+            )?;
+        }
+        for (object, bytes) in start {
+            let bytes = i64::try_from(*bytes).map_err(|_| Fault::Invalid)?;
+            tx.execute(
+                "INSERT INTO attachment_unreferenced(page,object,payload_bytes,since_ms) VALUES(?1,?2,?3,?4)
+                 ON CONFLICT(page,object) DO NOTHING",
+                params![page, object, bytes, now],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Forget every clock of a page that is not eligible now, so its grace starts over.
+    pub(crate) fn clear_unreferenced(&mut self, page: &str) -> StoreResult<()> {
+        bounded_id(page)?;
+        self.connection.execute(
+            "DELETE FROM attachment_unreferenced WHERE page=?1",
+            params![page],
+        )?;
+        Ok(())
+    }
+    /// What any write to the page moves: the membership head, the page epoch and the highest
+    /// sequence of every stream and namespace in its receipts and checkpoints. A removal admitted
+    /// against an older fence is refused, so no write can add a reference between the reference
+    /// computation and the removal.
+    pub(crate) fn page_fence(&self, page: &str) -> StoreResult<[u8; 32]> {
+        bounded_id(page)?;
+        let tx = self.connection.unchecked_transaction()?;
+        let mut text = String::new();
+        let head: Option<(String, Vec<u8>)> = tx
+            .query_row("SELECT revision,hash FROM owner_state", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?;
+        if let Some((revision, hash)) = head {
+            text.push_str(&revision);
+            text.push(':');
+            text.push_str(&hash.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        }
+        let epoch: String = tx.query_row(
+            "SELECT epoch FROM pages WHERE page=?1",
+            params![page],
+            |r| r.get(0),
+        )?;
+        text.push('|');
+        text.push_str(&epoch);
+        for table in ["receipts", "checkpoints"] {
+            let mut query = tx.prepare(&format!(
+                "SELECT epoch,stream,namespace,MAX(CAST(seq AS INTEGER)),COUNT(*) FROM {table} \
+                 WHERE page=?1 GROUP BY epoch,stream,namespace ORDER BY epoch,stream,namespace"
+            ))?;
+            let rows = query.query_map(params![page], |r| {
+                Ok(format!(
+                    "|{table}:{}:{}:{}:{}:{}",
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?
+                ))
+            })?;
+            for row in rows {
+                text.push_str(&row?);
+            }
+        }
+        drop(tx);
+        Ok(tmt_colab_model::crypto::digest(text.as_bytes()))
+    }
+    /// Forget the clock of one object whose removal Remote confirmed.
+    pub(crate) fn forget_unreferenced(&mut self, page: &str, object: &str) -> StoreResult<()> {
+        bounded_id(page)?;
+        self.connection.execute(
+            "DELETE FROM attachment_unreferenced WHERE page=?1 AND object=?2",
+            params![page, object],
+        )?;
+        Ok(())
+    }
+
     /// Record a completed automatic cleanup, not a scan, manual run, or preview.
     pub(crate) fn record_auto_cleaned(&mut self, page: &str, at_ms: u64) -> StoreResult<()> {
         bounded_id(page)?;

@@ -18,7 +18,7 @@ export interface DocumentFiles {
   target(): AttachmentTarget;
   /** Prove, then write, uploaded files into the page; a changed page is a stale error. */
   add(stored: readonly StoredAttachment[]): Promise<void>;
-  /** Remove references; the stored bytes stay unreferenced. */
+  /** Remove references; the stored bytes go 30 days after no page refers to them. */
   remove(attachmentIds: readonly string[]): Promise<void>;
 }
 

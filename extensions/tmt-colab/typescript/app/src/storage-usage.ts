@@ -8,7 +8,10 @@ export interface StorageRow {
   historyBytes: number;
   commentsBytes: number;
   attachmentsBytes: number | null;
+  /** Files no page refers to any more; null when this machine cannot list them. */
   unusedAttachmentBytes: number | null;
+  /** When the earliest of them is removed (Unix ms); null when none waits. */
+  unusedAttachmentsRemoveAtMs: number | null;
   totalBytes: number | null;
   freeable: { history: number; files: number };
   lastCleanedAutomaticallyAtMs: number | null;
@@ -52,6 +55,7 @@ function row(value: unknown, page: string): StorageRow {
     'commentsBytes',
     'attachmentsBytes',
     'unusedAttachmentBytes',
+    'unusedAttachmentsRemoveAtMs',
     'totalBytes',
     'freeable',
     'lastCleanedAutomaticallyAtMs',
@@ -64,6 +68,7 @@ function row(value: unknown, page: string): StorageRow {
   requireValue(
     nullableBytes(value.attachmentsBytes) &&
       nullableBytes(value.unusedAttachmentBytes) &&
+      nullableBytes(value.unusedAttachmentsRemoveAtMs) &&
       nullableBytes(value.totalBytes) &&
       nullableBytes(value.lastCleanedAutomaticallyAtMs),
   );

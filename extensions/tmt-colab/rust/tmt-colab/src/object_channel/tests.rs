@@ -18,6 +18,15 @@ use tmt_extension_objects::{
 const HOST: &str = "127.0.0.1:51234";
 const MOUNT: &str = "/r/fixture/x/colab/";
 pub(crate) const GENERATION: &str = "11111111-1111-4111-8111-111111111111";
+/// A committed listing entry whose key and digest repeat `byte`.
+pub(crate) fn listed_object(byte: [u8; 32], payload_bytes: u64) -> tmt_extension_objects::Listed {
+    tmt_extension_objects::Listed {
+        opaque_key: Bytes32::from_bytes(byte),
+        payload_sha256: tmt_extension_objects::Sha256Hex::from_bytes(byte),
+        payload_bytes,
+        adopted_at_ms: 0,
+    }
+}
 pub(crate) fn limit() -> Instant {
     Instant::now() + Duration::from_secs(3)
 }
@@ -83,6 +92,8 @@ fn admit(
         Call::Read(input) => AdmitInput::Read(input.clone()),
         Call::RemoveNamespace(input) => AdmitInput::RemoveNamespace(input.clone()),
         Call::Usage(input) => AdmitInput::Usage(*input),
+        Call::Remove(input) => AdmitInput::Remove(input.clone()),
+        Call::List(input) => AdmitInput::List(input.clone()),
         _ => panic!("test input"),
     };
     bus.send(&Frame::Admit(Admit {

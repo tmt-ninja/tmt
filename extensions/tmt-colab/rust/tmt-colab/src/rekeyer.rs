@@ -1,6 +1,7 @@
 //! The serve's one object-maintenance worker: re-seal document attachments after epoch
-//! advances, repair their page references with a second Save, and remove namespaces behind
-//! retained committed deletions. Serve start, management
+//! advances, repair their page references with a second Save, remove namespaces behind
+//! retained committed deletions, and remove attachment objects no reference has reached for 30
+//! days (one page per minute, [`crate::attachments::unreferenced`]). Serve start, management
 //! changes, a new channel generation and bounded retries wake it. Work is derived from signed
 //! page state, so reconnects recover unfinished cleanup without delaying an owner transition.
 use crate::{
@@ -136,6 +137,8 @@ fn work(
     let mut deletion_after = None;
     let mut history_after = None;
     let mut history_at = Instant::now();
+    let mut attachments_after = None;
+    let mut attachments_at = Instant::now();
     while !shared.stop.load(Ordering::Acquire) {
         {
             let mut flag = locked(&shared.due);
@@ -155,6 +158,7 @@ fn work(
         if generation != seen {
             seen = generation;
             deletion_after = None;
+            attachments_after = None;
             due = true;
             backoff.reset();
         }
@@ -173,6 +177,22 @@ fn work(
                     &mut history_after,
                     crate::page::compact::Trigger::default(),
                 );
+            }
+            drop(active);
+        }
+        // Unreferenced attachments need a channel that can list and remove (version 4); one page
+        // per minute, rotating like history so a failing page cannot starve the others. An older
+        // channel opens nothing here.
+        if Instant::now() >= attachments_at
+            && objects.lists_objects()
+            && !shared.stop.load(Ordering::Acquire)
+        {
+            attachments_at = Instant::now() + RETRY;
+            shared.active.store(true, Ordering::Release);
+            let active = ActivePass(&shared.active);
+            let source = locked(registration).save_source();
+            if let Some(source) = source {
+                let _ = attachment_pass(objects, slots, &source, sync, &mut attachments_after);
             }
             drop(active);
         }
@@ -250,6 +270,44 @@ fn history_pass(
         let _ = store.close();
     }
     Ok(Some(report))
+}
+/// Visit the next page (every page, so ineligible ones lose their clocks) for unreferenced
+/// attachments.
+fn attachment_pass(
+    objects: &ChannelOwner,
+    slots: &StagingSlots,
+    source: &SourceOpener,
+    sync: &Server<OwnerAdmission>,
+    after: &mut Option<String>,
+) -> Result<Option<crate::attachments::unreferenced::Visit>> {
+    let pages = {
+        let view = source()?;
+        view.store
+            .owner_read(&view.keyring.space_id, &view.keyring.owner_public(), |tx| {
+                tx.pages()
+            })?
+    };
+    let Some(page) = pages
+        .iter()
+        .find(|page| after.as_ref().is_none_or(|last| *page > last))
+        .or_else(|| pages.first())
+        .cloned()
+    else {
+        *after = None;
+        return Ok(None);
+    };
+    *after = Some(page.clone());
+    let now = crate::registration::now_ms()?;
+    crate::attachments::unreferenced::visit(
+        objects,
+        slots,
+        source,
+        sync,
+        &page,
+        now,
+        Instant::now() + PAGE_BUDGET,
+    )
+    .map(Some)
 }
 /// One round over every page whose epoch has advanced; whether anything is still waiting.
 fn pass(

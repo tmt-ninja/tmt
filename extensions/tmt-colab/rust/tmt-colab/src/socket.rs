@@ -585,6 +585,11 @@ fn serve(
                         &source,
                         deadline,
                     ));
+                    let clocks = objects
+                        .lists_objects()
+                        .then(|| source().ok()?.store.unreferenced(&input.page).ok())
+                        .flatten();
+                    row.apply_unreferenced(clocks.as_deref());
                 }
                 Ok((200, serde_json::to_vec(&row)?))
             }
