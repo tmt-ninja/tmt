@@ -128,7 +128,13 @@ impl Plan {
         ] {
             text(path)?;
         }
-        Ok(Self { manifest })
+        let plan = Self { manifest };
+        if plan.files().iter().any(|(_, bytes)| bytes.len() > LIMIT) {
+            return Err(invalid(
+                "Generated timer files exceed the 128 KiB ownership-read bound.",
+            ));
+        }
+        Ok(plan)
     }
     fn label(&self) -> String {
         let digest = Sha256::digest(
@@ -359,17 +365,18 @@ impl Plan {
             }
             File::open(&self.manifest.directory)?.sync_all()?;
             if self.manifest.platform == "launchd" {
-                if !self.query(runner, deadline) {
-                    self.command(
-                        runner,
-                        &[
-                            "bootstrap".into(),
-                            format!("gui/{}", self.manifest.uid),
-                            text(&self.files()[0].0)?.into(),
-                        ],
-                        deadline,
-                    )?;
-                }
+                // A loaded label does not prove its in-memory configuration matches
+                // these files. Make one explicit registration attempt; an already
+                // loaded or uncertain outcome preserves the files for inspection.
+                self.command(
+                    runner,
+                    &[
+                        "bootstrap".into(),
+                        format!("gui/{}", self.manifest.uid),
+                        text(&self.files()[0].0)?.into(),
+                    ],
+                    deadline,
+                )?;
             } else {
                 self.command(runner, &["--user".into(), "daemon-reload".into()], deadline)?;
                 self.command(

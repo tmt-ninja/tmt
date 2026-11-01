@@ -6,6 +6,8 @@ use crate::{
 };
 use serde_json::Value;
 use std::io::{self, Write};
+#[cfg(test)]
+pub(crate) use timer::PRINTED_HINTS as TIMER_HINTS;
 use tmt_adapters::{config::ConfigPaths, tick};
 fn publish<W: Write>(
     out: &mut tmt_cli_style::stream::Stream<W>,

@@ -217,23 +217,32 @@ fn failed_registration_is_uncertain_without_automatic_retry_or_file_rollback() {
 }
 
 #[test]
-fn launchd_bootstrap_is_one_explicit_gui_action_after_an_unconfirmed_query() {
+fn launchd_registration_is_one_gui_attempt_not_a_loaded_label_claim() {
     let temp = TestDirectory::new();
     let p = plan(&temp.path, "launchd");
     let manager = Manager::default();
-    manager.fail_at.set(Some(1));
     p.apply(Action::Install, &manager).unwrap();
-    let calls = manager.calls.borrow();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0][1], "print");
     assert_eq!(
-        calls[1],
-        vec![
+        *manager.calls.borrow(),
+        vec![vec![
             "/bin/launchctl".to_owned(),
             "bootstrap".into(),
             format!("gui/{}", p.manifest.uid),
             p.files()[0].0.to_str().unwrap().into()
-        ]
+        ]]
+    );
+    manager.calls.borrow_mut().clear();
+    manager.fail_at.set(Some(1));
+    assert!(p.apply(Action::Install, &manager).is_err());
+    assert_eq!(
+        manager.calls.borrow().len(),
+        1,
+        "no query-based success or automatic reload/retry"
+    );
+    assert!(
+        p.files()
+            .iter()
+            .all(|(path, bytes)| fs::read(path).unwrap() == *bytes)
     );
 }
 
@@ -251,4 +260,20 @@ fn an_unmanaged_deep_executable_is_not_mistaken_for_verified_installation() {
         Plan::discover(&root, &executable).is_err(),
         "a claimed managed namespace needs its existing owner's proof"
     );
+}
+
+#[test]
+fn generation_never_admits_files_too_large_for_later_ownership_validation() {
+    let long = PathBuf::from(format!("/{}", "x".repeat(16_000)));
+    let result = Plan::new(Manifest {
+        version: 1,
+        platform: "launchd".into(),
+        uid: nix::unistd::geteuid().as_raw(),
+        root: long.clone(),
+        home: long.clone(),
+        directory: long.clone(),
+        executable: long,
+        path: "p".repeat(32_000),
+    });
+    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
 }
