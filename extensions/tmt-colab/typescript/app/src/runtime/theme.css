@@ -24,6 +24,7 @@
   --color-review: var(--tmt-color-review);
   --color-blocked: var(--tmt-color-blocked);
   --color-link: var(--tmt-color-link);
+  --color-text-action: var(--tmt-color-text-action);
   --color-annotation-rule: var(--tmt-color-annotation-rule);
   --color-annotation-rule-selected: var(--tmt-color-annotation-rule-selected);
   --color-series-1: var(--tmt-color-series-1);
@@ -93,6 +94,7 @@
   --tmt-color-review: #7856b8;
   --tmt-color-blocked: #b94952;
   --tmt-color-link: #2d72a6;
+  --tmt-color-text-action: #147f67;
   --tmt-color-annotation-rule: #6dafa0;
   --tmt-color-annotation-rule-selected: #147f67;
   --tmt-color-series-1: #2a78d6;
@@ -145,6 +147,7 @@
   --tmt-color-review: #b19cf7;
   --tmt-color-blocked: #ff7f87;
   --tmt-color-link: #77b9e7;
+  --tmt-color-text-action: #78edc8;
   --tmt-color-annotation-rule: #4e9784;
   --tmt-color-annotation-rule-selected: #78edc8;
   --tmt-color-series-1: #3987e5;

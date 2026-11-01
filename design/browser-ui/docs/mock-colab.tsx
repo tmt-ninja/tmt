@@ -89,6 +89,7 @@ function buildMenu(current: string, withShortcuts: boolean, needs: boolean): She
     current: entry.id === current,
     total: entry.total,
     count: needs && entry.needsYou ? shellCount(entry.needsYou) : undefined,
+    icon: entry.id === 'all' ? 'list' : 'bookmark',
   });
   return {
     title: 'Colab',
@@ -96,13 +97,14 @@ function buildMenu(current: string, withShortcuts: boolean, needs: boolean): She
       { items: [item({ id: 'all', label: 'All pages', href: base, total: 99, needsYou: 16 })] },
       {
         label: 'Shortcuts',
-        action: { label: 'Manage', icon: 'settings', onActivate: () => setQuery({ manage: '1' }) },
+        action: { label: 'Manage', onActivate: () => setQuery({ manage: '1' }) },
         items: withShortcuts ? shortcuts.map(item) : [],
       },
     ],
     settings: {
       id: 'settings',
       label: 'Colab settings',
+      icon: 'settings',
       href: `${base}/settings`,
       current: current === 'settings',
     },
