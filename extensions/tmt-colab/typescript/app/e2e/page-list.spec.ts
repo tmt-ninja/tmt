@@ -114,6 +114,88 @@ test("a writer's project group opens the picker while search retains project fil
   await expect(titles(page)).toHaveText(['Alpha plan']);
 });
 
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`search filter chips keep their own size beside large controls at ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'bulk');
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await filterProject(page, 'old');
+      await search(page).blur();
+      const home = app(page).locator('.home[data-page-list]');
+      for (const mode of ['normal', 'sticky'] as const) {
+        if (mode === 'sticky') {
+          await home.evaluate((node) => {
+            const boundary = node.querySelector('.page-list-controls-boundary')!;
+            node.scrollTop +=
+              boundary.getBoundingClientRect().bottom - node.getBoundingClientRect().top + 1;
+          });
+          await expect(home).toHaveAttribute('data-compact', '');
+        } else await expect(home).not.toHaveAttribute('data-compact');
+        const metrics = await home.evaluate((node) => {
+          const chip = node.querySelector('[data-project-filter] .tmt-ui-chip')!;
+          // The same leaf markup outside the control row is an independent size/style control.
+          const reference = chip.cloneNode(true) as HTMLElement;
+          reference.style.cssText = 'position:fixed;left:-10000px;top:0';
+          node.append(reference);
+          const measure = (target: Element) => {
+            const box = target.getBoundingClientRect();
+            const style = getComputedStyle(target);
+            return {
+              height: box.height,
+              width: box.width,
+              border: style.borderTopColor,
+              radius: style.borderTopLeftRadius,
+            };
+          };
+          const actual = {
+            chip: measure(chip),
+            remove: measure(chip.querySelector('button')!),
+          };
+          const expected = {
+            chip: measure(reference),
+            remove: measure(reference.querySelector('button')!),
+          };
+          reference.remove();
+          const searchBox = node.querySelector('.page-list-search-box')!;
+          const large = Number.parseFloat(
+            getComputedStyle(searchBox).getPropertyValue('--tmt-ui-control-size-l'),
+          );
+          return {
+            actual,
+            expected,
+            large,
+            filter: measure(node.querySelector('.page-list-filter-menu button')!),
+            sort: measure(node.querySelector('.page-list-sort button')!),
+            searchActionSize: getComputedStyle(searchBox)
+              .getPropertyValue('--tmt-ui-host-action-min-height')
+              .trim(),
+            searchIconSize: getComputedStyle(searchBox)
+              .getPropertyValue('--tmt-ui-host-icon-action-size')
+              .trim(),
+          };
+        });
+        expect(metrics.actual).toEqual(metrics.expected);
+        expect(metrics.actual.chip.height).toBeLessThan(metrics.large);
+        expect(metrics.actual.remove.height).toBeLessThan(metrics.large);
+        expect(metrics.filter.height).toBe(metrics.large);
+        expect(metrics.sort.height).toBe(metrics.large);
+        expect(Number.parseFloat(metrics.searchActionSize)).not.toBe(metrics.large);
+        expect(Number.parseFloat(metrics.searchIconSize)).not.toBe(metrics.large);
+        const name = `5857-search-project-${width}-${theme}-${mode}.png`;
+        const image = await page.screenshot({ path: await capturePath(name) });
+        await test.info().attach(name, { body: image, contentType: 'image/png' });
+      }
+      await app(page).getByRole('button', { name: 'Remove project filter old' }).click();
+      await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
+      await expect(search(page)).toBeFocused();
+    });
+
 test('nothing takes focus on load, so the search field idles on its rule border', async ({
   page,
 }) => {
@@ -1856,14 +1938,14 @@ for (const width of [1440, 390, 320])
         await expect(heading).toHaveText(name);
         await expect(heading).toHaveAttribute('title', name);
         const create = app(page)
-          .locator('.page-list-hero-create')
+          .locator('.page-list-create')
           .getByRole('button', { name: 'New page' });
         await expect(create).toBeVisible();
         const bar = await page.evaluate(() => {
           const title = document.querySelector('#list-fixture .tmt-ui-topbar-title-current')!;
           const controls = document.querySelector('#list-fixture .tmt-ui-topbar-controls')!;
           const button = document.querySelector(
-            '#list-fixture .page-list-hero-create button',
+            '#list-fixture .page-list-create button',
           ) as HTMLElement;
           const box = title.getBoundingClientRect();
           const action = button.getBoundingClientRect();
@@ -1880,3 +1962,50 @@ for (const width of [1440, 390, 320])
           path: await capturePath(`5144-heading-${kind}-${width}-${theme}.png`),
         });
       });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`list actions share the stage row without overflow at ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'bulk');
+      await filterProject(page, 'old');
+      await search(page).blur();
+      await expect(app(page).locator('.page-list-hero')).toHaveCount(0);
+      const header = app(page).locator('.page-stage-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header');
+      const tabs = header.getByRole('tablist');
+      const actions = header.locator('.page-list-actions');
+      await expect(
+        actions.getByRole('button', { name: 'Save as shortcut', exact: true }),
+      ).toBeVisible();
+      await expect(actions.getByRole('button', { name: 'New page', exact: true })).toBeVisible();
+      await expect(tabs.getByRole('tab').first()).toContainText('99+');
+      const geometry = await header.evaluate((node) => {
+        const tabs = node.querySelector('[role="tablist"]')!.getBoundingClientRect();
+        const actions = node.querySelector('.page-list-actions')!.getBoundingClientRect();
+        return {
+          tabTop: tabs.top,
+          actionTop: actions.top,
+          tabRight: tabs.right,
+          actionLeft: actions.left,
+          left: node.getBoundingClientRect().left,
+          right: node.getBoundingClientRect().right,
+          viewport: document.documentElement.clientWidth,
+        };
+      });
+      expect(geometry.tabTop).toBe(geometry.actionTop);
+      expect(geometry.tabRight).toBeLessThanOrEqual(geometry.actionLeft);
+      expect(geometry.left).toBeGreaterThanOrEqual(0);
+      expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
+      await insideViewport(page);
+      const name = `5860-list-stage-actions-${width}-${theme}.png`;
+      const image = await page.screenshot({ path: await capturePath(name) });
+      await test.info().attach(name, { body: image, contentType: 'image/png' });
+      // Moving the controls keeps their existing actions and focus return.
+      await actions.getByRole('button', { name: 'New page', exact: true }).click();
+      await expect(app(page).getByRole('dialog', { name: 'New page', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(actions.getByRole('button', { name: 'New page', exact: true })).toBeFocused();
+    });

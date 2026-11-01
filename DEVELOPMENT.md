@@ -86,12 +86,9 @@ and never restart Docker Desktop.
   scripts/dev-worktree-remove.sh <worktree-path> <pr-number>
   ```
 
-  The script requires empty `git status --short` and either non-null REST `merged_at` or
-  an upstream with empty `git log @{u}..`; open, closed-unmerged and failed PR
-  lookups require the upstream proof, which alone is not enough after a
-  server-side rebase. If it refuses, stop and ask the maintainer; never remove by
-  hand, with `--force`, or by deleting the branch. Only after it succeeds, remove
-  that worktree's images (`docker image rm "<purpose>:$worktree"`; skip never-built images).
+  Its usage header explains what it proves. If it refuses, stop and ask the maintainer;
+  never remove by hand, with `--force`, or by deleting the branch. Only after it
+  succeeds, remove that worktree's images (`docker image rm "<purpose>:$worktree"`).
 
 ## Run the workspace CLI
 
@@ -143,8 +140,6 @@ Executable fixture publication and snapshot updates:
 [tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#executable-fixtures-and-snapshots).
 
 CLI style and printed-command guard procedures: [enforcement](design/cli-style.md#enforcement).
-Focused checks: `cargo test --locked -p tmt-cli --bin tmt cli_style` and
-`cargo test --locked -p tmt-ops cli_style`.
 
 ### Architecture guard
 
@@ -158,26 +153,16 @@ cargo +1.95.0 test --offline --locked --manifest-path /absolute/checkout/rust/Ca
 Run it on every Rust push: it enforces workspace-unique names, dependency
 direction and the reviewed dev edges. When changing a guard, exercise a real
 positive and negative source or dependency fixture and restore the checkout
-exactly; a stale lockfile or an unexecuted test is not evidence. Core stays free
-of concrete I/O, adapters own SQLite/files/processes, the CLI owns grammar and
-composition.
-
-The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
-nextest. Driver, runtime, completion and request-ID checks are in
-[tmt-dev's focused checks](.agents/skills/tmt-dev/references/focused-checks.md).
+exactly; a stale lockfile or an unexecuted test is not evidence.
 
 ## Native process and shared tests
 
 JavaScript suites live under `typescript/test/{native,e2e,tooling,support}/`; Rust
 tests stay beside their owner in `rust/crates/*`.
 
-**Isolation.** Fixtures clear the environment. HOME, XDG config/data/state/cache, `CODEX_HOME`,
-temp files and tmux sockets stay under the fixture's root, and state is the canonical XDG `tmt`
-directory. They inherit no caller, provider, recursion or color state. `tmt-cli/tests/support` owns this
-for Rust process tests and `typescript/scripts/private-world.mjs` for any other command. Native `runCli` isolates CLI ancestry through
-`rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`
-([testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)); build it
-before tooling or native tests, as CI does:
+**Isolation** follows [testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries):
+fixtures inherit no caller, provider, recursion or color state. Native `runCli` isolates CLI ancestry through
+`rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`; build it before tooling or native tests, as CI does:
 
 ```bash
 cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example runtime-caller-fixture
@@ -201,16 +186,11 @@ Process-job fixture builds: [installation fixtures](.agents/skills/tmt-release/r
   deleting possibly live state. Lifecycle regressions live in
   `test/tooling/cli-process.test.ts`. On Linux a post-callback cwd guard fails on
   resident processes; it is skipped on macOS.
-- Frozen migration fixtures and provenance under
-  `typescript/test/fixtures/storage-history/` are immutable evidence: never
-  generate expected data with the implementation under test. For schema changes
+- `typescript/test/fixtures/storage-history/` is frozen evidence. For schema changes
   update `typescript/test/native/storage-fixture.ts` and the explicit
   migration/table assertions, then run the complete process suite; Rust storage
   tests do not replace process-level migration and future-version rejection.
 - Tooling tests: `(cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling)`.
-
-Herdr, provider-contract, load and performance checks are in
-[tmt-e2e](.agents/skills/tmt-e2e/SKILL.md).
 
 ## Docker E2E
 
@@ -227,12 +207,8 @@ Replace the example with the affected plain file names, space-separated.
 
 Docker selection knobs and shard balancing: [E2E scenarios](.agents/skills/tmt-e2e/references/e2e-scenarios.md#selection-and-sharding).
 
-The harness builds its pinned image, then runs it with `--network none`, private
-tmux sockets and deterministic mock agents, and must not reach a host tmux server
-or a real agent. The wrapper's `--init` is part of orphan-child cleanup evidence. The image
-places its binary at `rust/target/debug/tmt` and leaves the selector unset, so it
-exercises the developer default path. Scenario ownership and harness rules are in
-[tmt-e2e](.agents/skills/tmt-e2e/SKILL.md).
+The harness must not reach a host tmux server or a real agent; its image and
+[harness rules](.agents/skills/tmt-e2e/references/e2e-scenarios.md#harness-rules) are tmt-e2e's.
 
 Ordinary developer checks:
 
@@ -247,10 +223,8 @@ docs. Neither replaces the Rust commands, the native process suite or Docker run
 
 ## Conventional PR title checks
 
-The single approved type policy is `CONVENTIONAL_PR_TYPES` in
-`typescript/scripts/pr-title-check.mjs`; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
-owns syntax, released-path scope, edit feedback and cumulative merge-group enforcement.
-`--report-only` is explicit observation compatibility, never the required CI gate.
+The type policy is `CONVENTIONAL_PR_TYPES` in `typescript/scripts/pr-title-check.mjs`; the
+[release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles) owns the rest.
 
 ## Installed guidance source ownership
 
@@ -259,15 +233,10 @@ installed guidance, one versioned bundle; core install exposes only these. Edit 
 single canonical file; never add provider-specific copies. Follow the mandatory
 [installed-guidance verification](.agents/skills/tmt-core-runtime/references/install-architecture.md#installed-guidance-verification)
 for byte, publication, isolation and provider-behavior checks.
-Provider and custom-root usage: [Settings chapter](site/src/chapters/settings.mdx)
-and `skills/README.md`. The Ops lead skill
-(`extensions/tmt-ops/skills/tmt-ops/SKILL.md`) and playbooks are embedded by the
-Ops executable and sit outside this bundle (see
-[tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)).
 
 ## Project tracking
 
-Read progress in [pj-tmt project 1](https://github.com/orgs/pj-tmt/projects/1), filtered
+Read progress in [tmt-ninja project 1](https://github.com/orgs/tmt-ninja/projects/1), filtered
 to `label:epic`. Trackers use `Epic: <name>` and label `epic`; only native direct
 sub-issues count. Umbrella/findings-log issues stay outside. Never set, clear
 or wait for the retired Project `Epic` field.
@@ -283,7 +252,10 @@ Project fields:
   product has a published tag containing the closing merge commits; release
   automation sets it and fills `Released in`); `Done` (closed without a delivering
   merged PR, delivery confined to never-shipped leaves, or only parked-product waits;
-  release automation sets it).
+  release automation sets it). Automation skips trackers: their lead sets Status,
+  keeps a parked tracker `Todo`, sets `Released` once it is in use and its gates pass
+  (operating on `main` for CI/tooling/release machinery), and never reopens a
+  delivered milestone for optional future children.
 - `Agents`: comma-separated agents actively building or coordinating it now, lead
   first; reviewers who build nothing are not listed. Removing a member from
   `Agents` is part of its retirement checklist.
@@ -297,36 +269,22 @@ Tracker rules:
 
 - One lead per tracker, recorded in `Squad`. That lead writes its Status
   and body; each child keeps the Status and Agents of the lead doing the work.
-- Keep a three-to-six-line `Now / Next / Blocked` body, outcome first with issue
-  numbers, plus `Try it` when runnable. Update on merge, member start or
-  retirement, or a blocker; keep logs and evidence in child issues/PRs.
-- Tracker Status is `In Progress` while a child is active, `Todo` if nothing has
-  started or it is parked (say so in `Now`), `Merged` when all required delivery
-  is on `main`, and `Released` when it is in use and acceptance/dogfood gates pass:
-  published for products, operating on `main` for CI/tooling/release machinery.
-  Automation skips trackers; their lead sets Status, keeps gates under `Blocked`,
-  and never reopens a delivered milestone for optional future children.
+- The tracker body is a short `Now / Next / Blocked` summary
+  ([tracker body procedure](.agents/skills/tmt-pm/SKILL.md#tracker-body)).
 - New epics require the maintainer's approval; leads propose them through tmt-lead.
   No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
   one outcome, acceptance criteria and normally one PR; split work hiding progress.
 - [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
-  daily reports and event-driven lead updates. Batch edits, never poll; stay near 200 GraphQL calls per lead per day:
-  one account-wide GraphQL limit is shared.
+  daily reports, event-driven lead updates and the GraphQL budget.
 
 ## Review and evidence
 
-Before opening a PR, run the relevant checks for the changed owners and report
-the reviewed revision, commands and results. Required CI is the full gate;
-local focused checks do not replace it. Use the owning references above for
-tooling, Rust, native process (including missing/selected-native controls),
-Docker, host smoke and matching-host archive/bootstrap proofs. Issue-specific
-qualification and admission requirements still apply.
-
+Report the reviewed revision, commands and results per
+[AGENTS' delivery lifecycle](AGENTS.md#delivery-lifecycle); required CI is the full gate.
 Never turn a filtered, skipped, cross-compiled or failed subprocess into a success
-claim. Preserve exact bytes and independent oracles, keep returned errors distinct
-from crash recovery, and retain uncertainty, transaction, retention,
-acknowledgment, lifetime and cleanup evidence when changing those boundaries.
+claim. Keep returned errors distinct from crash recovery, and retain uncertainty, transaction,
+retention, acknowledgment, lifetime and cleanup evidence when changing those boundaries.
 Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects; use structured output or a focused formatter test, not mocked
 `console.log`. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and

@@ -84,6 +84,30 @@ fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
                 None,
             )
         }
+        OrchOperation::Talks {
+            member_query,
+            limit,
+            after,
+        } => (
+            OrchReadQuery::Talks {
+                member_query,
+                limit,
+                after,
+            },
+            None,
+        ),
+        OrchOperation::Routes {
+            member_query,
+            limit,
+            after,
+        } => (
+            OrchReadQuery::Routes {
+                member_query,
+                limit,
+                after,
+            },
+            None,
+        ),
     };
     let (_paths, mut storage) = open_storage()?;
     let result = orchestration::orchestration_read_with_time(
@@ -247,6 +271,44 @@ fn write_overview(
     }
     table.write(out, terminal)
 }
+fn write_talks(
+    out: &mut impl Write,
+    terminal: tmt_cli_style::Terminal,
+    pairs: &[Value],
+) -> io::Result<()> {
+    use tmt_cli_style::table::{Cell, Column, Table};
+    if pairs.is_empty() {
+        return tmt_cli_style::message::hint(
+            out,
+            terminal,
+            "No agent pair talked in the last hour.",
+        );
+    }
+    let mut table = Table::new(&[Column::Name, Column::Fixed, Column::Fixed, Column::Fixed]);
+    for p in pairs {
+        let names: Vec<_> = p["members"]
+            .as_array()
+            .expect("pair members")
+            .iter()
+            .map(|m| text(&m["name"]))
+            .collect();
+        let limit = match p["limit"].as_u64() {
+            Some(limit) => format!("{}/{limit}", text(&p["count"])),
+            None => format!("{}/unlimited", text(&p["count"])),
+        };
+        table.row([
+            Cell::from(names.join(" ↔ ")),
+            Cell::from(limit),
+            Cell::from(stamp(&p["lastAtMs"])),
+            Cell::from(if p["state"] == "held" {
+                format!("◆ Held · needs a person ({})", text(&p["heldCount"]))
+            } else {
+                "✓ Open".to_owned()
+            }),
+        ]);
+    }
+    table.write(out, terminal)
+}
 fn write_human(
     out: &mut impl Write,
     terminal: tmt_cli_style::Terminal,
@@ -255,6 +317,36 @@ fn write_human(
     use tmt_cli_style::table::{Cell, Column, Table};
     if v.get("members").is_some() {
         return write_overview(out, terminal, v);
+    }
+    if let Some(pairs) = v["pairs"].as_array() {
+        return write_talks(out, terminal, pairs);
+    }
+    if let Some(routes) = v["routes"].as_array() {
+        let mut table = Table::new(&[Column::Name, Column::Name, Column::Fixed]);
+        for r in routes {
+            table.row([
+                Cell::from(text(&r["fromName"])),
+                Cell::from(text(&r["toName"])),
+                Cell::from(match r["verdict"].as_str() {
+                    Some("blocked") => "■ Blocked".to_owned(),
+                    Some("needs_person") => "◆ Needs a person".to_owned(),
+                    _ => "✓ Allowed".to_owned(),
+                }),
+            ]);
+        }
+        return table.write(out, terminal);
+    }
+    if let Some(held) = v["held"].as_array() {
+        return tmt_cli_style::detail::write(
+            out,
+            terminal,
+            "Talk resume preview",
+            &[
+                ("held requests", held.len().to_string()),
+                ("released on save", text(&v["releases"])),
+                ("saved", "false".into()),
+            ],
+        );
     }
     if v.get("after").is_some() {
         let changes = v["changes"].as_array().expect("preview changes");

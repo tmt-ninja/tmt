@@ -98,6 +98,18 @@ impl IdentityReader for Storage {
 }
 
 impl Storage {
+    /// `None` for an unknown ID, else whether the identity is retired.
+    pub fn identity_retired(&self, id: &str) -> Result<Option<bool>, StorageError> {
+        self.connection()?
+            .query_row(
+                "SELECT retired_at_ms IS NOT NULL FROM identities WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read identity lifecycle"))
+    }
+
     /// Shared discovery for interactive completion and identity pickers. This
     /// never creates or migrates storage, reconciles bindings, or probes tmux.
     /// Callers may treat unavailable storage as no suggestions, not as absence

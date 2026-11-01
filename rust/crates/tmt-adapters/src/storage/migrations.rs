@@ -426,6 +426,10 @@ const MIGRATIONS: &[Migration] = &[
         "record a binding that runs a plain program, not an agent",
         "schema/086.sql"
     ),
+    migration!(
+        "record leads, route grants and talk-limit holds",
+        "schema/087.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

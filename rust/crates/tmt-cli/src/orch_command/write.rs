@@ -36,7 +36,75 @@ fn mutation(
                 },
             }
         }
+        OrchWriteOperation::SetLeads { members, identity } => OrchMutationDocument::SetLeads {
+            actor_id: actor(storage, identity.as_deref())?,
+            identity_ids: members
+                .into_iter()
+                .map(|name| member(storage, name))
+                .collect::<Result<_, _>>()?,
+        },
+        OrchWriteOperation::AllowRoute {
+            from,
+            to,
+            duration_ms,
+            identity,
+        } => {
+            let actor_id = actor(storage, identity.as_deref())?;
+            let from_id = member(storage, from)?;
+            let to_id = member(storage, to)?;
+            let until_ms = match duration_ms {
+                Some(ms) => now.saturating_add(ms),
+                None => slot_end(storage, &from_id, now)?,
+            };
+            OrchMutationDocument::AllowRoute {
+                from_id,
+                to_id,
+                until_ms,
+                actor_id,
+            }
+        }
+        OrchWriteOperation::ResumeTalks {
+            first,
+            second,
+            identity,
+        } => OrchMutationDocument::ResumeTalks {
+            actor_id: actor(storage, identity.as_deref())?,
+            a_id: member(storage, first)?,
+            b_id: member(storage, second)?,
+        },
     })
+}
+fn member(storage: &mut Storage, name: String) -> Result<String, Failure> {
+    Ok(identity_context::resolve(storage, identity_context::Selector::Explicit(name))?.id)
+}
+/// The verified caller (or `--identity`) is the actor; none means a person at a terminal.
+fn actor(storage: &mut Storage, explicit: Option<&str>) -> Result<Option<String>, Failure> {
+    Ok(identity_context::optional(
+        storage,
+        || crate::caller_context::host(&tmt_adapters::host::CallerEnvironment::current()),
+        explicit,
+    )?
+    .map(|identity| identity.id))
+}
+/// The default grant ends with the sender's current slot, and lasts at most 24 hours.
+fn slot_end(storage: &mut Storage, sender: &str, now: u64) -> Result<u64, Failure> {
+    let read = |e| {
+        Failure::new(
+            "ORCH_STORAGE_UNAVAILABLE",
+            "Could not read orchestration storage.",
+            1,
+        )
+        .caused_by(e)
+    };
+    let state = storage.orchestration_snapshot(None).map_err(read)?;
+    let zone = orchestration::OrchZone::load(state.time_zone.as_deref()).map_err(policy_failure)?;
+    let cap = now.saturating_add(tmt_core::orchestration::sending::ORCH_MAX_GRANT_MS);
+    Ok(
+        tmt_core::orchestration::effective(&state.snapshot, sender, now, &zone)
+            .map_err(policy_failure)?
+            .next_change_at_ms
+            .map_or(cap, |end| end.min(cap)),
+    )
 }
 fn failure(error: OrchReadFailure, paths: &ConfigPaths) -> Failure {
     match error {
@@ -125,10 +193,13 @@ pub(super) fn execute(
                 &mut out,
                 terminal,
                 "Orchestration saved",
-                &[(
-                    "configuration revision",
-                    text(&saved["configurationRevision"]),
-                )],
+                &match saved["released"].as_array() {
+                    Some(released) => vec![("released requests", released.len().to_string())],
+                    None => vec![(
+                        "configuration revision",
+                        text(&saved["configurationRevision"]),
+                    )],
+                },
             )
             .map_err(|e| {
                 Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1)

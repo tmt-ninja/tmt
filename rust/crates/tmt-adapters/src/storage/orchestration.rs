@@ -1,9 +1,13 @@
 //! Configuration snapshots/publication and the transaction-local decision journal.
 mod receiving;
+mod sending;
 mod write;
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::orchestration::wire::{self, OrchPlanDocument, OrchSubjectDocument};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+pub use sending::route_refusal_decision;
+pub use sending::{OrchTalkPair, active_leads};
+pub(super) use sending::{append_route_refusal, held_for_person};
 use serde_json::{Value, json};
 use tmt_core::{
     dispatch::canonical_id,
@@ -23,13 +27,8 @@ pub(super) struct ReceivingCalendar {
     zone: Option<crate::orchestration::OrchZone>,
 }
 impl ReceivingCalendar {
+    /// Sending rules (#4892) need the zone even before Digest publishes receiving.
     pub(super) fn load(db: &Connection) -> Result<Self, StorageError> {
-        if receiving::read(db)?.is_none() {
-            return Ok(Self {
-                configured_zone: None,
-                zone: None,
-            });
-        }
         let configured_zone: Option<String> = db
             .query_row(
                 "SELECT time_zone FROM orchestration_settings WHERE id=1",
@@ -236,6 +235,38 @@ fn read_snapshot(
         }
         snapshot.focus.push(f);
     }
+    drop(q);
+    // Leads and grants are whole-store configuration: never narrowed by a member query.
+    snapshot.leads = text_rows(
+        tx,
+        "SELECT identity_id FROM orchestration_leads WHERE ?1=?1 ORDER BY identity_id LIMIT 257",
+        "",
+    )?;
+    let mut q = tx
+        .prepare("SELECT from_id,to_id,until_ms,granted_by FROM orchestration_route_grants ORDER BY from_id,to_id LIMIT 4097")
+        .map_err(|e| classify(e, "Select route grants"))?;
+    snapshot.route_grants = q
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|e| classify(e, "Read route grants"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| classify(e, "Decode route grants"))?
+        .into_iter()
+        .map(|(from_id, to_id, until_ms, granted_by)| {
+            Ok(tmt_core::orchestration::sending::OrchRouteGrant {
+                from_id,
+                to_id,
+                until_ms: unsigned(until_ms)?,
+                granted_by,
+            })
+        })
+        .collect::<Result<_, StorageError>>()?;
     drop(q);
     if let Some((revision, settings)) = receiving::read(tx)? {
         settings.apply(&mut snapshot, revision);

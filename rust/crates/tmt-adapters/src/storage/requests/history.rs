@@ -80,9 +80,20 @@ fn response_preview(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Response
 }
 
 fn history_select(source: &str, condition: &str, preview: &str, response_preview: &str) -> String {
+    history_select_with(source, condition, preview, response_preview, "")
+}
+
+/// `extra` adds columns after the response preview, each starting with a comma.
+fn history_select_with(
+    source: &str,
+    condition: &str,
+    preview: &str,
+    response_preview: &str,
+    extra: &str,
+) -> String {
     format!("SELECT {}, COALESCE(state.acknowledged_through,0),
         response.submitted_at_ms, response.body_bytes, response.response_expires_at_ms,
-        {preview}, {response_preview}
+        {preview}, {response_preview}{extra}
         FROM {source}
         LEFT JOIN request_recipient_attention_identities AS state ON state.identity_id=a.recipient_identity_id
         LEFT JOIN request_responses AS response ON response.request_id=a.request_id
@@ -185,6 +196,122 @@ pub(super) fn list_request_history(
         .map_err(|error| classify(error, "Read request history"))?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| classify(error, "Decode request history"))
+}
+
+/// The two-party scope of a conversation (#5807): ?1 is the viewer, ?2 the member. A room
+/// message is out of scope, whoever sent it.
+const CONVERSATION_SCOPE: &str = "a.room_id IS NULL AND ((a.originator_identity_id=?1 AND a.recipient_identity_id=?2) \
+     OR (a.originator_identity_id=?2 AND a.recipient_identity_id=?1))";
+
+/// A request's (viewer, member) revisions: the originator's attention revision and the
+/// recipient's, each from that identity's one counter.
+const CONVERSATION_SIDES: &str = "CASE WHEN a.originator_identity_id=?1 THEN a.attention_revision ELSE a.recipient_attention_revision END AS viewer_side, \
+     CASE WHEN a.originator_identity_id=?1 THEN a.recipient_attention_revision ELSE a.attention_revision END AS member_side";
+
+pub(super) fn list_conversation(
+    connection: &Connection,
+    query: &ConversationQuery,
+    limit: u64,
+    now_ms: u64,
+) -> Result<Vec<ConversationRecord>, StorageError> {
+    let cursor = if query.before.is_some() {
+        "(a.prepared_at_ms,a.request_id) < (?3,?4)"
+    } else {
+        "?3 IS NULL AND ?4 IS NULL"
+    };
+    let sql = format!(
+        "{} ORDER BY a.prepared_at_ms DESC,a.request_id DESC LIMIT ?5",
+        history_select_with(
+            "request_attempts AS a",
+            &format!("{CONVERSATION_SCOPE} AND a.retention_expires_at_ms > ?6 AND {cursor}"),
+            &format!(
+                "CASE WHEN a.message_expires_at_ms > ?6 THEN substr(CAST(a.message_text AS BLOB),1,{PREVIEW_BYTES}) ELSE NULL END"
+            ),
+            &format!(
+                "CASE WHEN response.response_expires_at_ms > ?6 THEN substr(CAST(response.body AS BLOB),1,{RESPONSE_PREVIEW_BYTES}) ELSE NULL END"
+            ),
+            &format!(", {CONVERSATION_SIDES}"),
+        )
+    );
+    let before = query
+        .before
+        .as_ref()
+        .map(|cursor| checked_i64(cursor.timestamp(), "Conversation cursor"))
+        .transpose()?;
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| classify(error, "Prepare conversation query"))?;
+    statement
+        .query_map(
+            params![
+                query.viewer_id,
+                query.member_id,
+                before,
+                query.before.as_ref().map(|cursor| cursor.request_id()),
+                checked_limit(limit)?,
+                checked_now(now_ms, "Conversation retention cutoff")?
+            ],
+            |row| {
+                Ok(ConversationRecord {
+                    position: (
+                        rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 6)?,
+                        rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 7)?,
+                    ),
+                    history: HistoryRecord {
+                        attention: rows::recipient_attention_row(row)?,
+                        preview: history_preview(row)?,
+                        response_preview: response_preview(row)?,
+                    },
+                })
+            },
+        )
+        .map_err(|error| classify(error, "Read conversation"))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| classify(error, "Decode conversation"))
+}
+
+/// Retained in-scope requests; those that existed at `since` (by the recipient revision
+/// they got when created, which never changes); and those either side moved past it.
+pub(super) fn conversation_counts(
+    connection: &Connection,
+    viewer_id: &str,
+    member_id: &str,
+    since: Option<&ConversationPosition>,
+    now_ms: u64,
+) -> Result<ConversationCounts, StorageError> {
+    let (viewer, member) = since.map_or((i64::MAX, i64::MAX), |p| {
+        (
+            i64::try_from(p.viewer).unwrap_or(i64::MAX),
+            i64::try_from(p.member).unwrap_or(i64::MAX),
+        )
+    });
+    let sql = format!(
+        "SELECT COUNT(*), \
+           COALESCE(SUM(CASE WHEN a.recipient_attention_revision <= \
+             (CASE WHEN a.originator_identity_id=?1 THEN ?4 ELSE ?3 END) THEN 1 ELSE 0 END),0), \
+           COALESCE(SUM(CASE WHEN viewer_side > ?3 OR member_side > ?4 THEN 1 ELSE 0 END),0) \
+         FROM (SELECT a.*, {CONVERSATION_SIDES} FROM request_attempts AS a \
+           WHERE {CONVERSATION_SCOPE} AND a.retention_expires_at_ms > ?5) AS a"
+    );
+    connection
+        .query_row(
+            &sql,
+            params![
+                viewer_id,
+                member_id,
+                viewer,
+                member,
+                checked_now(now_ms, "Conversation retention cutoff")?
+            ],
+            |row| {
+                Ok(ConversationCounts {
+                    retained: rows::u64_at(row, 0)?,
+                    retained_at_since: rows::u64_at(row, 1)?,
+                    changed: rows::u64_at(row, 2)?,
+                })
+            },
+        )
+        .map_err(|error| classify(error, "Count conversation"))
 }
 
 /// An originator's answered requests: submitted finals and answered passthrough turns, one

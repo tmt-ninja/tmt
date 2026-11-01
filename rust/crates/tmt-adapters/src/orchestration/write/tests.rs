@@ -286,3 +286,54 @@ fn a_base_input_hidden_by_a_plan_still_invalidates_its_preview_fence() {
     assert_eq!(before.value["after"], after.value["after"]);
     assert_ne!(before.digest, after.digest);
 }
+
+#[test]
+fn only_a_person_or_a_current_lead_sets_the_leads() {
+    let (_d, mut s, seat) = fixture();
+    let other = create_or_resolve(&mut s, "seat-2", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    // A verified non-lead agent cannot make itself a lead.
+    let refused = orchestration_write(
+        &mut s,
+        query(
+            json!({"phase":"preview","mutation":{"kind":"leads.set","identityIds":[seat],"actorId":seat}}),
+        ),
+        || NOW,
+    );
+    assert!(matches!(
+        refused,
+        Err(OrchReadFailure::Policy(OrchError::NotPermitted))
+    ));
+    assert!(
+        s.orchestration_snapshot(None)
+            .unwrap()
+            .snapshot
+            .leads
+            .is_empty()
+    );
+    // A person may; then that lead may change the list.
+    let p = preview_for(&mut s, json!({"kind":"leads.set","identityIds":[seat]}));
+    orchestration_write(&mut s, apply_query(&p), || NOW).unwrap();
+    let p = preview_for(
+        &mut s,
+        json!({"kind":"leads.set","identityIds":[seat, other],"actorId":seat}),
+    );
+    orchestration_write(&mut s, apply_query(&p), || NOW).unwrap();
+    assert_eq!(
+        s.orchestration_snapshot(None).unwrap().snapshot.leads.len(),
+        2
+    );
+    let refused = orchestration_write(
+        &mut s,
+        query(
+            json!({"phase":"preview","mutation":{"kind":"leads.set","identityIds":[],"actorId":"99999999-9999-4999-8999-999999999999"}}),
+        ),
+        || NOW,
+    );
+    assert!(matches!(
+        refused,
+        Err(OrchReadFailure::Policy(OrchError::NotPermitted))
+    ));
+}
