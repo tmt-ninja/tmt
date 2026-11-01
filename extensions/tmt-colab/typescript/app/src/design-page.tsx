@@ -1,7 +1,7 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useContext, useRef } from 'react';
 import type { DesignSystemEntry, DesignTreeNode } from './design-system-pages.js';
 import type { PageRouting } from './page-routing.js';
-import { EmbeddedPage } from './router.js';
+import { EmbeddedPageContext } from './embedded-page.js';
 
 const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
 
@@ -46,5 +46,7 @@ export function DesignPage({
     },
     [system, base],
   );
+  const EmbeddedPage = useContext(EmbeddedPageContext);
+  if (!EmbeddedPage) throw new Error('Design pages need the Colab page view.');
   return <EmbeddedPage key={pageId} pageId={pageId} routing={routing} />;
 }

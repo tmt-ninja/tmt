@@ -77,6 +77,7 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageSnapshot, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
+import { EmbeddedPageContext, type EmbeddedPageProps } from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
@@ -1117,16 +1118,21 @@ function ShortPageChoice() {
   );
 }
 
-// The Design pack is lazy: ordinary Colab pages do not load its catalog or styles.
-const design = createRoute({
-  getParentRoute: () => root,
-  path: '/design',
-  component: lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute'),
-});
+// The Design pack is lazy: ordinary Colab pages do not load its catalog or styles. Its pages are
+// Colab pages, so the route hands it the embedded page view.
+const LazyDesign = lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute');
+function Design() {
+  return (
+    <EmbeddedPageContext.Provider value={EmbeddedPage}>
+      <LazyDesign />
+    </EmbeddedPageContext.Provider>
+  );
+}
+const design = createRoute({ getParentRoute: () => root, path: '/design', component: Design });
 const designPage = createRoute({
   getParentRoute: () => root,
   path: '/design/$',
-  component: lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute'),
+  component: Design,
 });
 const colabSettings = createRoute({
   getParentRoute: () => root,
@@ -1246,13 +1252,7 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
  * opens the page through the transport as the route would, and gives its live connection up when the
  * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
  * route the page's own links (Design keeps its tree's pages in Design). */
-export function EmbeddedPage({
-  pageId,
-  routing: hostRouting,
-}: {
-  pageId: string;
-  routing?(base: PageRouting): PageRouting;
-}) {
+function EmbeddedPage({ pageId, routing: hostRouting }: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
