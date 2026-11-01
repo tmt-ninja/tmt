@@ -2,12 +2,18 @@ import { expect, test, type Page } from '@playwright/test';
 
 // #5911: a switch from the Colab side menu draws its header with its own content, frame by frame:
 // one title at a time, and never the next page's title over the previous page's content.
+const fixture = (page: Page, method: string, ...args: unknown[]) =>
+  page.evaluate(
+    async ({ method, args }) => {
+      const path = '/test/page-list-browser.tsx';
+      return (await import(path))[method](...args);
+    },
+    { method, args },
+  );
 async function mount(page: Page) {
   await page.goto('/');
-  await page.evaluate(async () => {
-    const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList('shells', '/');
-  });
+  // Settings first, so the list's first load is one the router waits on.
+  await fixture(page, 'mountPageList', 'shells', '/settings');
   return page.locator('#list-fixture');
 }
 interface Sample {
@@ -28,7 +34,7 @@ for (const width of [1440, 390])
       if (width === 390) await open.click();
       await rail.getByRole('link', { name }).first().click();
     };
-    await expect(app.getByRole('region', { name: 'Reference defaults' })).toHaveCount(0);
+    await expect(app.getByRole('region', { name: 'Reference defaults' })).toBeVisible();
     await page.evaluate(() => {
       const samples: Sample[] = [];
       Object.defineProperty(window, 'samples', { value: samples });
@@ -49,9 +55,13 @@ for (const width of [1440, 390])
       };
       requestAnimationFrame(tick);
     });
-    await go(/^Colab settings/);
-    await expect(app.getByRole('region', { name: 'Reference defaults' })).toBeVisible();
+    // The list loads slowly: the router keeps Settings on screen until it resolves, and the header
+    // must keep naming Settings meanwhile.
+    await fixture(page, 'holdHome');
     await go(/^All pages/);
+    await page.waitForTimeout(400);
+    await expect(app.getByRole('region', { name: 'Reference defaults' })).toBeVisible();
+    await fixture(page, 'releaseHome');
     await expect(app.getByRole('region', { name: 'Reference defaults' })).toHaveCount(0);
     await page.waitForTimeout(300);
     const samples = await page.evaluate(() => (window as unknown as { samples: Sample[] }).samples);
