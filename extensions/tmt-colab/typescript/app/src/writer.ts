@@ -9,7 +9,13 @@ import {
   requireValue,
 } from '@tmt/colab-client';
 import { Connection } from './connection.js';
-import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
+import {
+  type JsonValue,
+  type OwnRoot,
+  type OwnRecord,
+  OWN_RECORDS,
+  UPDATE_BYTES,
+} from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
 import { sealOwnUpdate, sealedKind, sealedRevision } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
@@ -534,7 +540,7 @@ export class Writer {
    * update by throwing, before it is submitted. */
   async submitOwnRecords(records: OwnRecord[], fits?: (update: number) => void) {
     records = structuredClone(records);
-    requireValue(records.length > 0 && records.length <= 32);
+    requireValue(records.length > 0 && records.length <= OWN_RECORDS);
     requireValue(
       records.every((record) =>
         ['threads', 'intents', 'messages', 'replies'].includes(record.root),

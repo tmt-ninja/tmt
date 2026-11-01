@@ -202,6 +202,9 @@ export function mount(
     async setStatus() {
       throw new Error('Not used');
     },
+    async setStatuses() {
+      throw new Error('Not used');
+    },
     async notificationFailed() {
       throw new Error('Not used');
     },
@@ -625,6 +628,7 @@ export function mountWindow(mode = 'ready') {
     edit: async (_ref, _revision, body) => write(body),
     deleteComment: unused,
     setStatus: unused,
+    setStatuses: unused,
     notificationFailed: unused,
     // Status goes through onStatusChange; the thread binding must never see it.
     updateThread: unused,

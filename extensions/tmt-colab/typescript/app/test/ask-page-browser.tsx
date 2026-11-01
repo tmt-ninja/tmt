@@ -8,6 +8,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { MessageAttachments, ThreadBinding } from '../src/thread-store.js';
+import { statusBatch } from './status-batch.js';
 import {
   AttachmentStaleError,
   AttachmentUploadError,
@@ -744,6 +745,12 @@ export async function mount(
           structuredClone([...((await recipients) ?? [])]),
         ),
       };
+    },
+    setStatuses(requests) {
+      actions.push(`statuses:${requests.length}`);
+      return statusBatch((ref, previous, resolved, recipients) =>
+        discussion.setStatus(ref, previous, resolved, recipients),
+      )(requests);
     },
     async decideProposal(ref, decision) {
       await decisionGate.held;

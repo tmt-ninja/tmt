@@ -7,6 +7,7 @@ import {
   CONTENT_CHUNK_BYTES,
   sameContent,
   validateContentUpdates,
+  OWN_RECORDS,
   READ_TAIL_UPDATES,
   STATE_BYTES,
   UPDATE_BYTES,
@@ -293,7 +294,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
         ? new Uint8Array([1])
         : new Uint8Array();
     } else if (command.type === 'prepare-own') {
-      if (command.records.length < 1 || command.records.length > 32)
+      if (command.records.length < 1 || command.records.length > OWN_RECORDS)
         throw new Error('Own batch capacity');
       const doc = writerDoc(command.writer);
       const vector = Y.encodeStateVector(doc);

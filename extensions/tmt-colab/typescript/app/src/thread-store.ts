@@ -12,7 +12,13 @@ import {
   type StoredAttachment,
 } from './attachment-service.js';
 import type { Connection } from './connection.js';
-import type { JsonValue, OwnRecord, OwnState } from './fold-protocol.js';
+import {
+  OWN_RECORDS,
+  UPDATE_BYTES,
+  type JsonValue,
+  type OwnRecord,
+  type OwnState,
+} from './fold-protocol.js';
 import {
   discussionKey,
   nextSequence,
@@ -44,6 +50,13 @@ export interface MessageAttachments {
 }
 
 export type StatusChange = { changed: false } | { changed: true; status: ThreadStatusView };
+export interface StatusRequest {
+  thread: DiscussionRef;
+  previous: DiscussionRef | null;
+  resolved: boolean;
+  recipients?: readonly ThreadRecipient[] | Promise<readonly ThreadRecipient[]>;
+}
+export type StatusOutcome = StatusChange | { error: unknown };
 
 export interface CommentContext {
   thread: DiscussionRef;
@@ -92,6 +105,10 @@ export interface ThreadBinding {
     resolved: boolean,
     recipients?: readonly ThreadRecipient[] | Promise<readonly ThreadRecipient[]>,
   ): Promise<StatusChange>;
+  /** `setStatus` for many threads under one lock and admission, written in the fewest own
+   * updates that fit. A recipient belongs to the first status in the batch that commits. One
+   * outcome per request, in order; a refused request or update never fails the others. */
+  setStatuses(requests: readonly StatusRequest[]): Promise<StatusOutcome[]>;
   decideProposal?(thread: DiscussionRef, decision: 'approved' | 'declined'): Promise<void>;
   notificationFailed(
     status: ThreadStatusView,
@@ -121,6 +138,17 @@ export interface ThreadStoreOptions extends DiscussionScope {
   scope?(): string;
 }
 
+type StatusDraft = {
+  value: Omit<ThreadStatusRecord, 'at'>;
+  depth: number;
+};
+const recipientKey = (value: { machine: string; agent: string }) =>
+  `${value.machine}:${value.agent}`;
+/** An upper bound on a status record's share of a prepared own update: its key and JSON form
+ * (lib0 encodes no larger) plus Yjs item overhead. */
+const statusBytes = (value: Omit<ThreadStatusRecord, 'at'>) =>
+  new TextEncoder().encode(`${value.actionId}:thread-status${JSON.stringify(value)}`).length + 128;
+const STATUS_BATCH_BYTES = UPDATE_BYTES - 4096;
 /** Discussion records never leave Colab. The existing own envelope authenticates
  * each record, while current connection admission gates every publication. */
 export class ThreadStore implements ThreadBinding {
@@ -409,15 +437,23 @@ export class ThreadStore implements ThreadBinding {
       ]);
     });
   }
-  async #status(
+  /** A status needs an anchored or Chat-reply thread, and the exact previous status. */
+  #requirePrevious(view: ThreadView, previous: DiscussionRef | null) {
+    requireValue(!(view.threadId === view.ref.writer && view.anchor === null));
+    const current = view.status?.ref ?? null;
+    requireValue(
+      current === null
+        ? previous === null
+        : previous !== null && discussionRefKey(current) === discussionRefKey(previous),
+    );
+  }
+  #statusDraft(
     previous: ThreadView,
     resolved: boolean,
     recipients: readonly ThreadRecipient[],
-  ): Promise<StatusChange> {
-    requireValue(!(previous.threadId === previous.ref.writer && previous.anchor === null));
-    if (previous.resolved === resolved) return { changed: false };
+  ): StatusDraft {
     const actionId = crypto.randomUUID();
-    const record = {
+    const value = {
       ...this.#scope(),
       kind: 'thread-status' as const,
       actionId,
@@ -430,16 +466,17 @@ export class ThreadStore implements ThreadBinding {
       agentName: null,
       recipients: structuredClone([...recipients]),
     };
-    const [value] = await this.#write([record]);
+    // A refused record stays this request's failure instead of failing its batch.
+    validateDiscussionRecord('messages', `${actionId}:thread-status`, { ...value, at: '0' });
+    return { value, depth: (previous.status?.depth ?? 0) + 1 };
+  }
+  #statusChange(draft: StatusDraft, value: unknown): StatusChange {
+    const { actionId } = draft.value;
     validateDiscussionRecord('messages', `${actionId}:thread-status`, value);
     requireValue(value.kind === 'thread-status');
     return {
       changed: true,
-      status: {
-        ...value,
-        ref: { writer: this.deviceId, id: actionId },
-        depth: (previous.status?.depth ?? 0) + 1,
-      },
+      status: { ...value, ref: { writer: this.deviceId, id: actionId }, depth: draft.depth },
     };
   }
   async setStatus(
@@ -458,18 +495,90 @@ export class ThreadStore implements ThreadBinding {
       this.#exclusive(async (c) => {
         const recipients = await frozen;
         const view = this.#thread(c, captured.thread);
-        const current = view.status?.ref ?? null;
-        requireValue(
-          current === null
-            ? captured.previous === null
-            : captured.previous !== null &&
-                discussionRefKey(current) === discussionRefKey(captured.previous),
-        );
-        result = await this.#status(view, resolved, recipients);
+        this.#requirePrevious(view, captured.previous);
+        if (view.resolved === resolved) return;
+        const draft = this.#statusDraft(view, resolved, recipients);
+        const [value] = await this.#write([draft.value]);
+        result = this.#statusChange(draft, value);
       }),
       frozen,
     ]);
     return result;
+  }
+  async setStatuses(requests: readonly StatusRequest[]): Promise<StatusOutcome[]> {
+    const captured = requests.map(({ thread, previous, resolved }) =>
+      structuredClone({ thread, previous, resolved }),
+    );
+    const frozen = Promise.all(
+      requests.map(async (request) => structuredClone([...((await request.recipients) ?? [])])),
+    );
+    const outcomes: StatusOutcome[] = [];
+    await Promise.all([
+      this.#exclusive(async (c) => {
+        const recipients = await frozen;
+        // One admitted view for the whole batch; each request still checks its exact previous.
+        const views = new Map(this.#views(c).map((view) => [discussionRefKey(view.ref), view]));
+        const seen = new Set<string>();
+        const assigned = new Set<string>();
+        let batch: { index: number; record: StatusDraft; bytes: number }[] = [];
+        const flush = async () => {
+          const written = batch;
+          batch = [];
+          if (!written.length) return;
+          try {
+            const values = await this.#write(written.map((item) => item.record.value));
+            for (const [i, { index, record }] of written.entries()) {
+              outcomes[index] = this.#statusChange(record, values[i]);
+              for (const recipient of record.value.recipients)
+                assigned.add(recipientKey(recipient));
+            }
+          } catch (error) {
+            for (const { index } of written) outcomes[index] = { error };
+          }
+        };
+        for (const [index, request] of captured.entries()) {
+          try {
+            validateRef(request.thread);
+            const key = discussionRefKey(request.thread);
+            const view = views.get(key);
+            requireValue(view !== undefined && !view.deleted && !seen.has(key));
+            seen.add(key);
+            this.#requirePrevious(view, request.previous);
+            if (view.resolved === request.resolved) {
+              outcomes[index] = { changed: false };
+              continue;
+            }
+            if (batch.length === OWN_RECORDS) await flush();
+            // Recipients are chosen against committed and pending statuses only after any flush.
+            const draft = () => {
+              const pending = new Set(
+                batch.flatMap((item) => item.record.value.recipients.map(recipientKey)),
+              );
+              const record = this.#statusDraft(
+                view,
+                request.resolved,
+                recipients[index].filter(
+                  (recipient) =>
+                    !assigned.has(recipientKey(recipient)) && !pending.has(recipientKey(recipient)),
+                ),
+              );
+              return { record, bytes: statusBytes(record.value) };
+            };
+            let { record, bytes } = draft();
+            if (batch.reduce((total, item) => total + item.bytes, bytes) > STATUS_BATCH_BYTES) {
+              await flush();
+              ({ record, bytes } = draft());
+            }
+            batch.push({ index, record, bytes });
+          } catch (error) {
+            outcomes[index] = { error };
+          }
+        }
+        await flush();
+      }),
+      frozen,
+    ]);
+    return outcomes;
   }
   /** Record-only final decision; the trusted parent action owns subsequent Ask. */
   async decideProposal(thread: DiscussionRef, decision: 'approved' | 'declined') {

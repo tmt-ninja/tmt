@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import * as Y from 'yjs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import {
+  OWN_RECORDS,
+  UPDATE_BYTES,
   validateOwn,
   type JsonValue,
   type OwnRecord,
@@ -234,7 +237,8 @@ function storeFixture(options: { admitted?(): void } = {}) {
   let device = a,
     denied = false,
     owner = true,
-    failed = false;
+    failed = false,
+    failures = 0;
   const own: OwnState = {},
     batches: OwnRecord[][] = [];
   let lane = Promise.resolve();
@@ -274,7 +278,7 @@ function storeFixture(options: { admitted?(): void } = {}) {
       return c;
     },
     publish: async (records) => {
-      if (failed) throw new Error('Publication failed');
+      if (failed || (failures > 0 && failures--)) throw new Error('Publication failed');
       batches.push(structuredClone(records));
       for (const r of records) {
         own[device] ??= roots();
@@ -298,6 +302,9 @@ function storeFixture(options: { admitted?(): void } = {}) {
     },
     fail(value: boolean) {
       failed = value;
+    },
+    failNext(count = 1) {
+      failures = count;
     },
   };
 }
@@ -612,6 +619,103 @@ it('status uses current admission and a causal base, keeps content ownership, an
   f.deny();
   await expect(f.store.setStatus(created.thread, changed.status.ref, false)).rejects.toThrow();
   expect(read()[0].resolved).toBe(true);
+});
+function statusRecipient(agentName = 'Mentioned agent') {
+  return {
+    machine: crypto.randomUUID(),
+    agent: crypto.randomUUID(),
+    agentName,
+    operationId: crypto.randomUUID(),
+  };
+}
+const readStatusThreads = (own: OwnState) =>
+  readThreads(
+    own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  );
+it('setStatuses writes a batch in one own update, keeps per-request outcomes and gives each recipient to its first committed status', async () => {
+  const f = storeFixture();
+  const first = await f.store.create('First', fixture.thread.anchor);
+  const second = await f.store.create('Second', fixture.thread.anchor);
+  const done = await f.store.create('Already resolved', fixture.thread.anchor);
+  const stale = await f.store.create('Stale', fixture.thread.anchor);
+  const chat = await f.store.createChat('Chat');
+  const resolved = await f.store.setStatus(done.thread, null, true);
+  if (!resolved.changed) throw new Error('Expected status action');
+  const shared = statusRecipient(),
+    own = statusRecipient('Second agent');
+  const count = f.batches.length;
+  const outcomes = await f.store.setStatuses([
+    { thread: first.thread, previous: null, resolved: true, recipients: [shared] },
+    { thread: done.thread, previous: resolved.status.ref, resolved: true },
+    { thread: stale.thread, previous: resolved.status.ref, resolved: true, recipients: [shared] },
+    { thread: chat.thread, previous: null, resolved: true },
+    { thread: first.thread, previous: null, resolved: true },
+    {
+      thread: second.thread,
+      previous: null,
+      resolved: true,
+      recipients: Promise.resolve([{ ...shared, operationId: crypto.randomUUID() }, own]),
+    },
+  ]);
+  expect(f.batches).toHaveLength(count + 1);
+  expect(f.batches.at(-1)!.map((record) => record.root)).toEqual(['messages', 'messages']);
+  expect(outcomes).toHaveLength(6);
+  expect(outcomes[0]).toMatchObject({ changed: true, status: { recipients: [shared] } });
+  expect(outcomes[1]).toEqual({ changed: false });
+  for (const index of [2, 3, 4]) expect(outcomes[index]).toEqual({ error: expect.any(Error) });
+  expect(outcomes[5]).toMatchObject({ changed: true, status: { recipients: [own] } });
+  const threads = readStatusThreads(f.own);
+  const view = (ref: { id: string }) => threads.find((thread) => thread.ref.id === ref.id)!;
+  expect(view(first.thread)).toMatchObject({ resolved: true, status: { recipients: [shared] } });
+  expect(view(second.thread)).toMatchObject({ resolved: true, status: { recipients: [own] } });
+  expect(view(stale.thread).resolved).toBe(false);
+  f.deny();
+  await expect(
+    f.store.setStatuses([{ thread: stale.thread, previous: null, resolved: true }]),
+  ).rejects.toThrow();
+  expect(f.batches).toHaveLength(count + 1);
+});
+it('setStatuses splits at the record and byte limits, and a refused update returns its recipients to later threads', async () => {
+  const f = storeFixture();
+  const threads = [];
+  for (let i = 0; i < OWN_RECORDS + 2; i++)
+    threads.push((await f.store.create(`Thread ${i}`, fixture.thread.anchor)).thread);
+  const shared = statusRecipient();
+  const count = f.batches.length;
+  f.failNext();
+  const outcomes = await f.store.setStatuses(
+    threads.map((thread) => ({ thread, previous: null, resolved: true, recipients: [shared] })),
+  );
+  // The first update (OWN_RECORDS records) was refused, so the next committed status owns `shared`.
+  expect(f.batches).toHaveLength(count + 1);
+  expect(f.batches.at(-1)).toHaveLength(2);
+  for (const outcome of outcomes.slice(0, OWN_RECORDS))
+    expect(outcome).toEqual({ error: expect.any(Error) });
+  expect(outcomes[OWN_RECORDS]).toMatchObject({ changed: true, status: { recipients: [shared] } });
+  expect(outcomes[OWN_RECORDS + 1]).toMatchObject({ changed: true, status: { recipients: [] } });
+  // Large statuses: the byte budget closes an update before UPDATE_BYTES.
+  const large = threads.slice(0, 5);
+  const before = f.batches.length;
+  const results = await f.store.setStatuses(
+    large.map((thread) => ({
+      thread,
+      previous: null,
+      resolved: true,
+      recipients: Array.from({ length: 400 }, () => statusRecipient('a'.repeat(100))),
+    })),
+  );
+  expect(results.every((outcome) => 'changed' in outcome && outcome.changed)).toBe(true);
+  const written = f.batches.slice(before);
+  expect(written.map((batch) => batch.length)).toEqual([2, 2, 1]);
+  for (const batch of written) {
+    const doc = new Y.Doc();
+    for (const record of batch) doc.getMap(record.root).set(record.key, record.value);
+    expect(Y.encodeStateAsUpdate(doc).length).toBeLessThanOrEqual(UPDATE_BYTES);
+    doc.destroy();
+  }
 });
 it('designated Chat and deleted threads cannot acquire new status actions', async () => {
   const f = storeFixture();

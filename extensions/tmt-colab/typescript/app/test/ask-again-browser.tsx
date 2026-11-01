@@ -147,6 +147,7 @@ export async function mount(
       edit: unused,
       deleteComment: unused,
       setStatus: unused,
+      setStatuses: unused,
       notificationFailed: unused,
       updateThread: unused,
     };

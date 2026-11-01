@@ -251,9 +251,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   marker until Reopen. Comments retains the expanded selected discussion and its
   Not-notified warning even in Open; only explicit navigation changes selection.
   The dock retains the canonical pending count as plain text; its accessible name carries
-  unseen New. Resolve all snapshots the current filter, confirms once and re-admits each
-  status write. The coordinator deduplicates recipients across successful commits and the
-  existing Discussion state line reports partial failures. Marker-opener focus is restored
+  unseen New. Resolve all snapshots the current filter, confirms once and hands every thread to
+  one `ThreadBinding.setStatuses`: one lock and admission, records chunked by `OWN_RECORDS` and
+  an estimated byte budget below `UPDATE_BYTES` (the worker's oversize refusal is not a split
+  signal). The store gives each recipient to its first committed status, so a refused update
+  returns its recipients to later threads; the existing Discussion state line reports partial
+  failures. Marker-opener focus is restored
   through the current renderer request; marker redraw retains focus without taking it from
   another surface.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;

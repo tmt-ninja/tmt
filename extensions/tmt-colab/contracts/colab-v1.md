@@ -3929,10 +3929,11 @@ In Discussion, Resolve and Reopen retain the conversation, quote, messages, comp
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;
 unknown or ambiguous recipients remain visible as Not notified. Resolve all confirms a
-snapshot of the open threads in the current filter, then re-admits each status write;
-partial failure leaves committed changes in place and is reported in the existing state
-line. A mentioned agent is assigned to its first successfully committed status in the
-batch and notified at most once. Reopen can supersede remaining attempts for its status.
+snapshot of the open threads in the current filter, then admits once and publishes their
+statuses in the fewest own updates that fit (at most 32 records each, within the update
+size); a refused thread or update leaves the other commits in place and is reported in the
+existing state line. A mentioned agent is assigned to its first successfully committed status
+in the batch and notified at most once. Reopen can supersede remaining attempts for its status.
 Agent replies join verified Ask records to comment IDs and remain attributed to their
 agent. Overlay geometry does not reflow page content.
 Shared Source, Agents, Files and Export drawers leave an 8 px
