@@ -1,0 +1,62 @@
+/* The Button component doc's styles (schema 1): token-only, on the tmt-ui roles every surface has. */
+.tmt-ui-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tmt-ui-space-s);
+  box-sizing: border-box;
+  height: var(--tmt-ui-control-size-l);
+  margin: 0;
+  padding: 0 var(--tmt-ui-space-l);
+  border: var(--tmt-ui-rule-width) solid transparent;
+  border-radius: var(--tmt-ui-radius);
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-eyebrow-weight) var(--tmt-ui-command-size) / 1 var(--tmt-ui-font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  appearance: none;
+}
+.tmt-ui-button > svg,
+.tmt-ui-button > tmt-icon {
+  flex-shrink: 0;
+  width: var(--tmt-ui-space-l);
+  height: var(--tmt-ui-space-l);
+}
+.tmt-ui-button:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
+}
+.tmt-ui-button:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.tmt-ui-button-primary {
+  background: var(--tmt-ui-color-accent-fill);
+  color: var(--tmt-ui-color-on-accent);
+}
+.tmt-ui-button-primary:focus-visible {
+  border-color: var(--tmt-ui-color-text);
+}
+.tmt-ui-button-secondary {
+  border-color: var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-command);
+}
+.tmt-ui-button-outline {
+  border-color: var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-paper);
+}
+.tmt-ui-button-outline:hover,
+.tmt-ui-button-ghost:hover {
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-selected-text);
+}
+.tmt-ui-button-sm {
+  height: var(--tmt-ui-control-size);
+  padding: 0 var(--tmt-ui-space-m);
+}
+.tmt-ui-button-lg {
+  height: var(--tmt-ui-row-height);
+  padding: 0 var(--tmt-ui-space-xl);
+}

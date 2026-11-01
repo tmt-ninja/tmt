@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "button",
+  "source": "button.js",
+  "props": {
+    "variant": { "enum": ["primary", "secondary", "outline", "ghost"], "default": "primary" },
+    "size": { "enum": ["sm", "md", "lg"], "default": "md" },
+    "disabled": { "type": "boolean" }
+  },
+  "slots": ["default", "icon"],
+  "css": "button.css",
+  "examples": [
+    { "title": "Primary", "markup": "<tmt-ui-button>Save</tmt-ui-button>", "widths": [1440, 390] },
+    {
+      "title": "Secondary",
+      "markup": "<tmt-ui-button variant=\"secondary\">Draft</tmt-ui-button>",
+      "widths": [1440, 390]
+    },
+    {
+      "title": "Outline",
+      "markup": "<tmt-ui-button variant=\"outline\">Review</tmt-ui-button>",
+      "widths": [1440, 390]
+    },
+    {
+      "title": "Ghost",
+      "markup": "<tmt-ui-button variant=\"ghost\">Cancel</tmt-ui-button>",
+      "widths": [1440, 390]
+    },
+    {
+      "title": "Sizes",
+      "markup": "<tmt-ui-button size=\"sm\">Small</tmt-ui-button> <tmt-ui-button>Medium</tmt-ui-button> <tmt-ui-button size=\"lg\">Large</tmt-ui-button>",
+      "widths": [1440, 390]
+    },
+    {
+      "title": "With an icon",
+      "markup": "<tmt-ui-button variant=\"outline\"><tmt-icon slot=\"icon\" name=\"plus\"></tmt-icon>New page</tmt-ui-button>",
+      "widths": [1440, 390]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-button disabled>Send</tmt-ui-button>",
+      "widths": [1440, 390]
+    }
+  ],
+  "notes": "<p>One action. Use <b>primary</b> for the one main action on a surface, <b>outline</b> or <b>secondary</b> for the others and <b>ghost</b> inside dense rows. The label says what happens.</p><p>Keyboard: Tab reaches it, Enter and Space press it. A disabled button is skipped and announced as unavailable.</p>"
+}

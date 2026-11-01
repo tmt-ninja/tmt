@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "kind": "design-system",
+  "id": "tmt-gui",
+  "name": "tmt GUI",
+  "prefix": "tmt-ui",
+  "runtime": "2",
+  "tokens": "design/tokens/tokens.json",
+  "components": [{ "doc": "components/button.json" }],
+  "releases": [{ "version": "0.1.0", "runtime": "2" }]
+}
