@@ -2925,7 +2925,9 @@ exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is
 one hover outline, a completed text selection or a text-bearing click captured through
 the same bounded quote owner opens the existing anchored discussion. A click inside an
 element marked `data-ds-example` (a design-system example, #5866) targets that whole element,
-so its quote is the example's own text; the anchor stays a text quote. Textless clicks
+so its quote is the example's own text; the anchor stays a text quote. Two examples with the
+same text on one page would quote alike, so Design writes each example's `<component>:<id>` as a
+visible label line inside its root. Textless clicks
 show a temporary polite hint and create nothing. Starting a comment exits selection mode,
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.

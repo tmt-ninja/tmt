@@ -390,5 +390,8 @@ test('a click on a design-system example in selection mode quotes the whole exam
     );
   await expect.poll(async () => (await anchors()).length).toBe(1);
   const [{ anchor }] = await anchors();
-  expect(anchor.exact).toBe('Draft<acme-button variant="secondary">Draft</acme-button>');
+  // The label line keeps the quote unique; then the live label and the markup.
+  expect(anchor.exact).toBe(
+    'button:secondaryDraft<acme-button variant="secondary">Draft</acme-button>',
+  );
 });

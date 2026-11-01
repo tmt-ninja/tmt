@@ -249,6 +249,7 @@ const docs = {
   code: 'font-mono text-sm',
   pre: 'font-mono text-sm bg-code p-3 overflow-x-auto',
   link: 'text-link underline',
+  label: 'font-mono text-xs text-secondary px-4 pt-3',
 };
 
 /** A component page: its block, then its docs: notes, the props table and the live examples. */
@@ -263,8 +264,10 @@ export function componentPageSource(doc: ComponentDoc & { notes?: string }, pref
   const examples = exampleIds(doc.examples ?? [])
     .map(({ id, example }) => {
       const markup = example.markup.replaceAll('tmt-ui-', `${prefix}-`);
-      // The example root holds the live elements and their markup: a comment anywhere in it quotes both.
-      return `<section class="tmt-ui-section"><h3 class="${docs.h3}">${escape(example.title)}</h3><div data-ds-example="${escape(`${doc.tag}:${id}`)}" class="rounded border border-rule overflow-hidden"><div class="flex flex-wrap items-center gap-3 p-4">${markup}</div><pre class="${docs.pre}"><code>${escape(markup)}</code></pre></div></section>`;
+      // The example root holds its label, the live elements and their markup: a comment anywhere in
+      // it quotes all three, and the label keeps the quote unique when two examples share markup.
+      const anchor = escape(`${doc.tag}:${id}`);
+      return `<section class="tmt-ui-section"><h3 class="${docs.h3}">${escape(example.title)}</h3><div data-ds-example="${anchor}" class="rounded border border-rule overflow-hidden"><p class="${docs.label}">${anchor}</p><div class="flex flex-wrap items-center gap-3 p-4">${markup}</div><pre class="${docs.pre}"><code>${escape(markup)}</code></pre></div></section>`;
     })
     .join('\n');
   return `${blockHtml('component', doc)}
