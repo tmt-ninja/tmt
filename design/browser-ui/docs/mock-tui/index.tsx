@@ -27,6 +27,7 @@ export function TuiMock({ path }: { path: string }) {
           <h1>Agents</h1>
         </div>
         <Button
+          className="tui-states-toggle"
           variant="outline"
           size="sm"
           aria-expanded={open}
