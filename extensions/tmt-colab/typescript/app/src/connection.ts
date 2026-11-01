@@ -26,7 +26,14 @@ import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
 import { SYNC_DISCONNECTED } from './connection-state.js';
 import { hex } from './export.js';
-import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
+import {
+  JoinedEnvelope,
+  Objects,
+  position,
+  UPDATE_ENVELOPE_BYTES,
+  type ObjectEntry,
+  type ReceivedEntry,
+} from './objects.js';
 import {
   compactReport,
   pageReply,
@@ -363,7 +370,7 @@ export class Connection {
         .map(({ writer, update }) => ({ writer, update })),
     };
   }
-  async #apply(stream: string, entry: ObjectEntry) {
+  async #apply(stream: string, entry: ReceivedEntry) {
     const update = await this.objects.admit(stream, entry);
     if (!update) {
       if (!this.#stopped) this.#emit(this.#projection);
@@ -455,7 +462,10 @@ export class Connection {
       if (Object.hasOwn(frame, 'chains')) await this.admission.chains(frame.chains);
       const pos = { streamId: frame.streamId, seq: frame.seq, envelopeHash: frame.envelopeHash };
       position(pos);
-      requireValue(typeof frame.streamId === 'string' && typeof frame.envelope === 'string');
+      requireValue(
+        typeof frame.streamId === 'string' &&
+          (typeof frame.envelope === 'string' || frame.envelope instanceof JoinedEnvelope),
+      );
       await this.#apply(frame.streamId, {
         seq: pos.seq,
         envelopeHash: pos.envelopeHash,

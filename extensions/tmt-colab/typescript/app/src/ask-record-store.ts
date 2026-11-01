@@ -6,6 +6,7 @@ import { provablyUnsent } from './ask-remote.js';
 import {
   canTransition,
   readAskRecords,
+  VerifiedAsks,
   recordKey,
   sameMessageIds,
   validateRecord,
@@ -47,6 +48,9 @@ export interface AskRecordStoreOptions {
 export class AskRecordStore {
   readonly scope: Readonly<{ space: string; page: string; deviceId: string }>;
   #publicKey: Uint8Array;
+  /** The observation loop reads these views every few seconds while an ask is open: an unchanged
+   * record is verified once, not on every read. */
+  #verified = new VerifiedAsks();
   constructor(private options: AskRecordStoreOptions) {
     spaceId(options.space);
     generatedId(options.page);
@@ -66,8 +70,11 @@ export class AskRecordStore {
     );
   }
   views(): Promise<AskLedgerView[]> {
-    return readAskRecords(this.options.readOwn(), this.scope, (writer) =>
-      writer === this.scope.deviceId ? this.#publicKey : undefined,
+    return readAskRecords(
+      this.options.readOwn(),
+      this.scope,
+      (writer) => (writer === this.scope.deviceId ? this.#publicKey : undefined),
+      this.#verified,
     );
   }
   async view(id: string): Promise<AskLedgerView> {
