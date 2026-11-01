@@ -33,6 +33,7 @@
     "page-compact-own.spec.ts": 11,
     "page-compact.spec.ts": 12,
     "page-compaction.spec.ts": 792,
+    "page-live-writes.spec.ts": 38,
     "page-reentry.spec.ts": 12,
     "page-revision-parity.spec.ts": 20,
     "page-save-large.spec.ts": 114,
