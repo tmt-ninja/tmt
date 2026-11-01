@@ -1,7 +1,7 @@
 import { text } from '../src/strings.js';
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { expectLive, run } from './harness/ask.js';
+import { expectLive, pairedMachines } from './harness/ask.js';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -15,10 +15,7 @@ test('harness: pairing targets its form when shell controls precede it', async (
     await expect(
       browser.page.getByRole('button', { name: 'Open navigation', includeHidden: true }),
     ).toHaveCount(1);
-    const devices = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
-      devices: { name: string }[];
-    };
-    expect(devices.devices.map((device) => device.name)).toContain(browser.name);
+    expect(pairedMachines(world).map((machine) => machine.name)).toContain(browser.name);
   });
 });
 
@@ -522,6 +519,24 @@ async function cleanupChildWorlds(records: WorldLifecycle[]): Promise<void> {
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
+
+test('harness: the run sweep stops a world its killed worker never tore down (#5892)', async () => {
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const { sweepWorlds } = await import('./harness/world-registry.js');
+  const world = new AcceptanceWorld();
+  await world.start();
+  // A killed worker runs no dispose: only the registry still names the world.
+  const leaked = await sweepWorlds(AcceptanceWorld.stopServer);
+  expect(leaked).toContain(world.root);
+  expect(fs.existsSync(world.root)).toBe(false);
+  expect(world.survivors()).toEqual([]);
+  // Forgotten once swept; a disposed world is never named.
+  expect(await sweepWorlds(AcceptanceWorld.stopServer)).toEqual([]);
+  const clean = new AcceptanceWorld();
+  await clean.start();
+  expect(await clean.dispose()).toEqual([]);
+  expect(await sweepWorlds(AcceptanceWorld.stopServer)).toEqual([]);
+});
 
 test('harness: emergency cleanup leaves an unrecorded look-alike process alive', async () => {
   const { spawn } = await import('node:child_process');

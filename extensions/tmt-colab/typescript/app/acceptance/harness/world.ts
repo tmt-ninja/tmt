@@ -13,6 +13,7 @@ import { alive, OwnedProcess, until } from './process.js';
 import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
 import { type SoakDictionary } from './soak-literals.mjs';
 import { appendSoakInvocation } from './soak-diagnostics.js';
+import { recordWorld } from './world-registry.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(harness, '../../../../../..');
@@ -175,6 +176,7 @@ export class AcceptanceWorld {
         ambient: this.ambient,
       });
       this.socketPath = this.server.socket;
+      recordWorld({ root: this.root, socket: this.socketPath });
     } catch (error) {
       fs.rmSync(this.root, { recursive: true, force: true });
       throw error;
@@ -729,10 +731,13 @@ export class AcceptanceWorld {
         await until(() => !alive(pid), 'private Colab serve exit', 5_000);
       });
     }
-    if (this.serverPid) {
+    // A start that failed after tmux began, before its PID was read, still leaves a server: stop
+    // whatever accepts on the world's socket (#5892).
+    if (this.serverPid || (await listening(this.socketPath))) {
       await attempt('tmux server', async () => {
         this.server.stop();
-        await until(() => !alive(this.serverPid), 'private tmux server exit', 5_000);
+        if (this.serverPid)
+          await until(() => !alive(this.serverPid), 'private tmux server exit', 5_000);
         // tmux leaves its socket file behind; what matters is that nothing listens on it.
         if (await listening(this.socketPath)) throw new Error('private tmux socket still accepts');
       });
