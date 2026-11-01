@@ -548,6 +548,15 @@ impl Registration {
         self.engine
             .set_pinned(&mut self.store, &self.keyring, page, pinned)
     }
+    pub fn set_kind(
+        &mut self,
+        page: &str,
+        kind: Option<&str>,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, crate::transitions::TransitionError>
+    {
+        self.engine
+            .set_kind(&mut self.store, &self.keyring, page, kind)
+    }
     pub fn manage_project(
         &mut self,
         change: &crate::projects::Change,

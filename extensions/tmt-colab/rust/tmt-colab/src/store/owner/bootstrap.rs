@@ -489,6 +489,14 @@ impl OwnerTransaction<'_> {
         for (id, page) in pages.iter_mut() {
             page["projects"] = serde_json::json!(projects.remove(id).unwrap_or_default());
         }
+        // Page kinds are display-only too (contract: Page kinds): `kind` only on a page that has one.
+        let mut kinds = self.tx.prepare("SELECT page,kind FROM page_kinds")?;
+        for row in kinds.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (id, kind) = row?;
+            if let Some(page) = pages.get_mut(&id) {
+                page["kind"] = serde_json::json!(kind);
+            }
+        }
         if let Some(space) = space {
             for (id, page) in pages.iter_mut() {
                 let active = activity.get(id).copied().flatten();

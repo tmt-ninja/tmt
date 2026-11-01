@@ -212,6 +212,23 @@ impl Engine {
             tx.set_pinned(page, pinned).map(|_| ())
         })
     }
+    /// Set or clear one page's kind (display-only, contract: Page kinds); a deleted page is refused.
+    pub fn set_kind(
+        &self,
+        store: &mut Store,
+        key: &Keyring,
+        page: &str,
+        kind: Option<&str>,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
+        self.change_projects(store, key, |tx| {
+            let log = tx.log()?;
+            let (states, _) = crate::fold::verify_log(&log, key, page)?;
+            if states.last().ok_or(OwnerFault::Invalid)?.policy.deleted {
+                return Err(OwnerFault::Invalid.into());
+            }
+            tx.set_kind(page, kind).map(|_| ())
+        })
+    }
     /// Create, rename or delete one project.
     pub fn manage_project(
         &self,

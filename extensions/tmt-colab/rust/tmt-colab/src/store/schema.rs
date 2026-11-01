@@ -169,6 +169,22 @@ const MIGRATIONS: &[&str] = &[
         CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
         FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
     "#,
+    // Schema 21: the owner's page kinds (#5866), one row per page that is not an ordinary page;
+    // `design-system` marks a page of a design-system tree, which the Design tab lists and the
+    // Colab list hides. Display-only like pins: never a log statement, never synced, published,
+    // exported or shared. Archive keeps it; delete removes it with the page's data. Pages the
+    // browser marked before this with the reserved project `tmt:design-system` take the kind, and
+    // that project goes.
+    r#"
+    CREATE TABLE page_kinds(page TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(kind IN ('design-system')),
+        FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    INSERT INTO page_kinds(page,kind)
+        SELECT page,'design-system' FROM page_projects WHERE project='tmt:design-system';
+    DELETE FROM page_projects WHERE project='tmt:design-system';
+    DELETE FROM project_pins WHERE name='tmt:design-system';
+    DELETE FROM projects WHERE name='tmt:design-system';
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was

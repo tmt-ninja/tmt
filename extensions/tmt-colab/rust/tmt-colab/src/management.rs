@@ -76,6 +76,8 @@ enum Action {
     Project(crate::projects::Change),
     /// Display-only pin of the request's page (contract: Pins).
     Pin(bool),
+    /// Display-only kind of the request's page, or none (contract: Page kinds).
+    Kind(Option<String>),
     Archive,
     Unarchive,
     Delete,
@@ -180,6 +182,13 @@ fn present_text<'de, D: serde::Deserializer<'de>>(
 struct PageProjects {
     page_id: String,
     projects: Vec<String>,
+}
+/// The payload of `page.kind`: the page it names is the request's own; `null` clears the kind.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PageKind {
+    page_id: String,
+    kind: Option<String>,
 }
 /// The payload of `page.pin`: the page it names is the request's own.
 #[derive(Deserialize)]
@@ -323,6 +332,24 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             }
             Action::Pin(value.pinned)
         }
+        "page.kind" => {
+            // `kind` is required: an absent field is not a cleared kind.
+            let raw: serde_json::Value =
+                serde_json::from_slice(bytes).map_err(|_| tmt_colab_model::Invalid)?;
+            if raw.get("kind").is_none() {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let value: PageKind = typed(bytes)?;
+            if value.page_id != page
+                || value
+                    .kind
+                    .as_deref()
+                    .is_some_and(|kind| kind != crate::limits::DESIGN_SYSTEM_KIND)
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::Kind(value.kind)
+        }
         "project.manage" => {
             use crate::projects::{Change, valid};
             if page != auth::SPACE_SCOPE_PAGE {
@@ -461,7 +488,7 @@ impl Command {
             let creating = value.operation == "page.create";
             let revision = if matches!(
                 value.operation.as_str(),
-                "page.projects" | "project.manage" | "page.pin"
+                "page.projects" | "project.manage" | "page.pin" | "page.kind"
             ) {
                 auth::management_revision(&value.operation, &value.expected_revision)?.unwrap_or(0)
             } else {
@@ -601,6 +628,7 @@ fn apply(
         Action::Projects(changes) => Some(service.set_projects(changes)),
         Action::Project(change) => Some(service.manage_project(change)),
         Action::Pin(pinned) => Some(service.set_pinned(&command.page, *pinned)),
+        Action::Kind(kind) => Some(service.set_kind(&command.page, kind.as_deref())),
         _ => None,
     } {
         let head = head.map_err(|error| error.code)?;
@@ -697,7 +725,9 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Projects(_) | Action::Project(_) | Action::Pin(_) => return Err(Code::Invalid),
+        Action::Projects(_) | Action::Project(_) | Action::Pin(_) | Action::Kind(_) => {
+            return Err(Code::Invalid);
+        }
         Action::MemberAdd(v) => {
             OwnerAction::Member(MemberAction::Add(crate::store::owner::Recipient {
                 kind: "member".into(),
@@ -778,7 +808,10 @@ mod tests {
     const OP: &str = "30000000-0000-4000-8000-000000000001";
     /// Projects carry an empty revision field; every other operation names a membership head.
     fn revision(operation: &str) -> &'static str {
-        if matches!(operation, "page.projects" | "project.manage" | "page.pin") {
+        if matches!(
+            operation,
+            "page.projects" | "project.manage" | "page.pin" | "page.kind"
+        ) {
             ""
         } else {
             "1"
@@ -1011,6 +1044,36 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Command::local(&empty, SPACE).err(), Some(Code::Invalid));
+    }
+    #[test]
+    fn page_kind_names_its_own_page_and_the_one_kind_or_null() {
+        let kind =
+            |payload: Value| Command::local(&local("page.kind", payload), SPACE).map(|c| c.action);
+        assert!(matches!(
+            kind(json!({"pageId":PAGE,"kind":"design-system"})),
+            Ok(Action::Kind(Some(k))) if k == "design-system"
+        ));
+        assert!(matches!(
+            kind(json!({"pageId":PAGE,"kind":null})),
+            Ok(Action::Kind(None))
+        ));
+        let payload = serde_json::to_vec(&json!({"pageId":PAGE,"kind":"design-system"})).unwrap();
+        assert!(matches!(
+            browser(&signed("page.kind", &payload, DEVICE, 100), 100)
+                .unwrap()
+                .action,
+            Action::Kind(Some(_))
+        ));
+        for bad in [
+            json!({"pageId":PAGE}),
+            json!({"pageId":PAGE,"kind":"dashboard"}),
+            json!({"pageId":PAGE,"kind":""}),
+            json!({"pageId":PAGE,"kind":1}),
+            json!({"pageId":"10000000-0000-4000-8000-000000000002","kind":"design-system"}),
+            json!({"pageId":PAGE,"kind":"design-system","extra":true}),
+        ] {
+            assert_eq!(kind(bad.clone()).err(), Some(Code::Invalid), "{bad}");
+        }
     }
     #[test]
     fn project_manage_names_the_space_scope_and_one_valid_change() {

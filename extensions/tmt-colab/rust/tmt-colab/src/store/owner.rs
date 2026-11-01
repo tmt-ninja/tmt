@@ -481,6 +481,33 @@ impl OwnerTransaction<'_> {
         )?;
         Ok(true)
     }
+    /// Set or clear one page's kind (display-only, contract: Page kinds). Archived pages keep and
+    /// take a kind; an unknown or deleted page is refused. Returns whether the stored state changed.
+    pub fn set_kind(&mut self, page: &str, kind: Option<&str>) -> Result<bool> {
+        values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
+        let open: bool = self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM epoch_secrets WHERE page=?)",
+            [page],
+            |r| r.get(0),
+        )?;
+        if !open {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let Some(kind) = kind else {
+            return Ok(self
+                .tx
+                .execute("DELETE FROM page_kinds WHERE page=?", [page])?
+                == 1);
+        };
+        if kind != crate::limits::DESIGN_SYSTEM_KIND {
+            return Err(OwnerFault::Invalid.into());
+        }
+        Ok(self.tx.execute(
+            "INSERT INTO page_kinds(page,kind) VALUES (?,?)
+                ON CONFLICT(page) DO UPDATE SET kind=excluded.kind WHERE kind<>excluded.kind",
+            [page, kind],
+        )? == 1)
+    }
     /// The owner's pinned projects in order, and whether the owner has written the list. Until then
     /// the effective list is the automatic default (`projects::automatic_pins`), computed with the
     /// page list.
