@@ -431,6 +431,8 @@ struct Request {
     body: Vec<u8>,
     event: Option<String>,
     describe: Option<String>,
+    /// `tmt-describe-features`: the optional describe fields Remote admits (`modules`, #5811).
+    describe_features: Option<String>,
     prefetched: Vec<u8>,
     head: Vec<u8>,
     upgrade: bool,
@@ -492,13 +494,18 @@ fn serve(
             {
                 return Err(registration::Code::Invalid);
             }
+            // An older Remote sends no features and gets the exact primary-only answer.
+            let modules = request
+                .describe_features
+                .as_deref()
+                .is_some_and(|features| features.split(',').any(|token| token.trim() == "modules"));
             match registration
                 .ok_or(registration::Code::Unavailable)?
                 .try_lock()
             {
-                Ok(service) => service.describe(),
+                Ok(service) => service.describe(modules),
                 Err(TryLockError::WouldBlock) => {
-                    serde_json::to_vec(&Registration::navigation_description())
+                    serde_json::to_vec(&Registration::navigation_description(modules))
                         .map_err(|_| registration::Code::Unavailable)
                 }
                 Err(TryLockError::Poisoned(_)) => Err(registration::Code::Unavailable),
@@ -1758,6 +1765,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         body: Vec::new(),
         event: None,
         describe: None,
+        describe_features: None,
         prefetched: Vec::new(),
         head: bytes[..end].to_vec(),
         upgrade: false,
@@ -1789,6 +1797,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             }
             "tmt-device-event" => request.event = Some(value.to_owned()),
             "tmt-describe" => request.describe = Some(value.to_owned()),
+            "tmt-describe-features" => request.describe_features = Some(value.to_owned()),
             CONTEXT_HEADER => request.context = Some(value.to_owned()),
             "tmt-origin" => request.origin = Some(value.to_owned()),
             "tmt-mount" => request.mount = Some(value.to_owned()),
