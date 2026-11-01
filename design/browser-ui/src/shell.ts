@@ -494,8 +494,12 @@ export function mountShell(
   tip.popover = 'manual';
   root.append(tip);
   let release = () => {};
+  // The row the tip stands beside, and a row a press is on: a click never pops its tip (#5911).
+  let tipAnchor: HTMLElement | undefined;
+  let pressed: HTMLElement | undefined;
   const hideTip = () => {
     release();
+    tipAnchor = undefined;
     if (tip.matches(':popover-open')) tip.hidePopover();
   };
   const showTip = (anchor: HTMLElement) => {
@@ -503,18 +507,41 @@ export function mountShell(
     if (!text || root.dataset.drawer === 'open') return hideTip();
     release();
     release = claimIconActionTooltip(document, hideTip);
+    tipAnchor = anchor;
     tip.textContent = text;
     if (!tip.matches(':popover-open')) tip.showPopover();
     const box = anchor.getBoundingClientRect();
     tip.style.left = `${box.right}px`;
     tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
   };
+  // Tips are the rail's, by delegation: a row only names its note, so a row kept across updates
+  // keeps working, and the tip follows the pointer or keyboard focus, never a press or a focus
+  // the shell restores.
+  const noted = (target: EventTarget | null) =>
+    target instanceof Element ? target.closest<HTMLElement>('[data-note]') : null;
+  rail.addEventListener('pointerover', (event) => {
+    const anchor = noted(event.target);
+    if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
+  });
+  rail.addEventListener('pointerout', (event) => {
+    const from = noted(event.target);
+    if (from && from === noted(event.relatedTarget)) return;
+    if (from === pressed) pressed = undefined;
+    if (from && from === tipAnchor) hideTip();
+  });
+  rail.addEventListener('pointerdown', (event) => {
+    pressed = noted(event.target) ?? undefined;
+    hideTip();
+  });
+  rail.addEventListener('focusin', (event) => {
+    const anchor = noted(event.target);
+    if (anchor && anchor === event.target && anchor.matches(':focus-visible')) showTip(anchor);
+  });
+  rail.addEventListener('focusout', (event) => {
+    if (noted(event.target) === tipAnchor) hideTip();
+  });
   const tipFor = (anchor: HTMLElement, text: string) => {
     anchor.dataset.note = text;
-    anchor.addEventListener('pointerenter', () => showTip(anchor));
-    anchor.addEventListener('focus', () => showTip(anchor));
-    anchor.addEventListener('pointerleave', hideTip);
-    anchor.addEventListener('blur', hideTip);
   };
   open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
   const close = (event: KeyboardEvent) => {
@@ -540,11 +567,12 @@ export function mountShell(
     if (selected) anchor.setAttribute('aria-current', 'page');
     const disabled = 'disabled' in item && item.disabled;
     if (disabled) anchor.setAttribute('aria-disabled', 'true');
+    // The element's own attributes, not this item: an update may keep the row and patch them.
     anchor.onclick = (event) => {
-      if (disabled) return event.preventDefault();
+      if (anchor.getAttribute('aria-disabled') === 'true') return event.preventDefault();
       if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       setDrawer(false);
-      if (select?.(item.id, item.href)) event.preventDefault();
+      if (select?.(anchor.dataset.id!, anchor.getAttribute('href')!)) event.preventDefault();
     };
     return anchor;
   };
@@ -841,18 +869,32 @@ export function mountShell(
           part: focused?.dataset.railPart,
         }
       : undefined;
-    for (const controls of menuInteractions) controls.dispose();
+    const previous = menuInteractions;
     menuInteractions = [];
-    hideTip();
-    const railTop = rail.scrollTop;
     const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
     const selected = current ? visibleCurrent(next.menu) : undefined;
-    rail.replaceChildren(
-      brand,
-      railSearch,
+    const lists = [
       railList(next.rail.main, current, selected, undefined, next.menu),
       railList(next.rail.bottom, current, selected, 'tmt-ui-rail-bottom', next.menu),
-    );
+    ];
+    const live = [...rail.children].slice(2);
+    // The same rows, links and controls: move the highlight and update the counts and labels in
+    // place (#5911). Rebuilding would drop hover, focus and the open tip on every page change.
+    if (
+      live.length === lists.length &&
+      lists.every((list, index) => sameShape(live[index], list))
+    ) {
+      lists.forEach((list, index) => patchShape(live[index], list));
+      for (const controls of menuInteractions) controls.dispose();
+      menuInteractions = previous;
+      root.dataset.menu = next.menu ? 'shown' : 'none';
+      if (tipAnchor?.isConnected) showTip(tipAnchor);
+      return;
+    }
+    for (const controls of previous) controls.dispose();
+    hideTip();
+    const railTop = rail.scrollTop;
+    rail.replaceChildren(brand, railSearch, ...lists);
     // Keep the same scroll owner across refreshes; shrinking content clamps its position.
     rail.scrollTop = railTop;
     syncRailScroll();
@@ -906,4 +948,45 @@ export function mountShell(
       menu.remove();
     },
   };
+}
+
+/** What an update may change on a kept rail node; anything else is a different rail. */
+const PATCHED = new Set([
+  'aria-current',
+  'aria-label',
+  'aria-disabled',
+  'data-module-current',
+  'data-note',
+  'data-emphasis',
+  'href',
+  'title',
+]);
+/** Build-local names: a kept node keeps its own, which its partner already points at. */
+const LOCAL = new Set(['id', 'aria-controls']);
+const ownAttributes = (element: Element) =>
+  element
+    .getAttributeNames()
+    .filter((name) => !PATCHED.has(name) && !LOCAL.has(name))
+    .map((name) => `${name}=${element.getAttribute(name)}`)
+    .join('\n');
+/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
+function sameShape(live: Node, next: Node): boolean {
+  if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length)
+    return false;
+  if (live instanceof Element && next instanceof Element) {
+    if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next))
+      return false;
+  }
+  return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]!));
+}
+/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
+function patchShape(live: Node, next: Node) {
+  if (live instanceof Element && next instanceof Element) {
+    for (const name of PATCHED) {
+      const value = next.getAttribute(name);
+      if (value === null) live.removeAttribute(name);
+      else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+    }
+  } else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
+  live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]!));
 }

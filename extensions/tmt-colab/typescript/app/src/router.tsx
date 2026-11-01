@@ -50,6 +50,7 @@ import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
+  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -971,8 +972,15 @@ function markOpen(name: string, from?: string) {
  * renderer, frame or page action and fetches nothing. The open has no deadline: the spinner stays
  * while the open progresses and gives way only to the router's error state when it really fails.
  */
+/** Set while the opening frame is drawn: the shell then names the page being opened (#5911). */
+const OpeningFrame = createContext<(shown: boolean) => void>(() => {});
 function PageFrame() {
   const { transport, space } = root.useRouteContext();
+  const opening = useContext(OpeningFrame);
+  useLayoutEffect(() => {
+    opening(true);
+    return () => opening(false);
+  }, [opening]);
   const pageId = useParams({ strict: false }).pageId;
   // The list the space home last loaded, which the quick switcher also shows at once.
   const listed = new SwitcherSourceStore(transport, space).initial();
@@ -1130,7 +1138,14 @@ const blocked = createRoute({
 function Shell() {
   const { transport, space } = root.useRouteContext();
   const router = useRouter();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // The header, main and footer follow the screen that is drawn, not the location the router is
+  // loading: they switch with the new content, never over the old one (#5911). While a slow page
+  // draws its opening frame, that frame is the screen.
+  const [opening, setOpening] = useState(false);
+  const pathname = useRouterState({
+    select: (state) =>
+      opening ? state.location.pathname : (state.resolvedLocation ?? state.location).pathname,
+  });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
@@ -1167,7 +1182,9 @@ function Shell() {
             />
           )}
           <main className={isPage ? 'page-main' : undefined}>
-            <Outlet />
+            <OpeningFrame.Provider value={setOpening}>
+              <Outlet />
+            </OpeningFrame.Provider>
           </main>
           {!isPage && (
             <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
