@@ -675,6 +675,7 @@ export const text = {
   anchorMissing: 'That passage is not on this page.',
   annotationUnsent: (quote: string) => `Your comment on “${quote}” was not sent.`,
   annotationUnsentOpen: 'Open',
+  chatUnsent: 'Your Chat message was not sent.',
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',

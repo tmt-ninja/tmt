@@ -1546,6 +1546,8 @@ function OpenPage({
   const toggleSelectionMode = useRef<() => void>(() => {});
   const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
+  // Chat's composer holds a send that failed before it was recorded (#5870).
+  const [chatUnsent, setChatUnsent] = useState(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1723,9 +1725,10 @@ function OpenPage({
     return true;
   };
   escapeAnnotation.current = () => {
-    if (panel === 'chat') {
-      if (!chatBusy.current) closeChat();
-    } else if (panel === 'comments') {
+    // Chat closes during a send like an anchored window: its composer stays mounted and keeps the
+    // send (#5870).
+    if (panel === 'chat') closeChat();
+    else if (panel === 'comments') {
       if (!statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
@@ -1977,8 +1980,7 @@ function OpenPage({
         ])
       : undefined,
     activate: (event) => {
-      if (panel || annotationRef.current?.thread || statusBusy.current || chatBusy.current)
-        return false;
+      if (panel || annotationRef.current?.thread || statusBusy.current) return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
         openChat();
@@ -2274,8 +2276,23 @@ function OpenPage({
           )}
           {/* A first comment that failed after its window closed is said here, never only on the
               quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
-          {unsentAnnotations.length > 0 && (
+          {(unsentAnnotations.length > 0 || (chatUnsent && panel !== 'chat')) && (
             <ul className="page-unsent" role="alert">
+              {/* A Chat message that failed after Chat closed is said the same way (#5870). */}
+              {chatUnsent && panel !== 'chat' && (
+                <li key="chat">
+                  <X aria-hidden="true" className="page-unsent-mark" />
+                  <span>{text.chatUnsent}</span>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.annotationUnsentOpen}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openChat();
+                    }}
+                  />
+                </li>
+              )}
               {unsentAnnotations.map((item) => (
                 <li key={item.key}>
                   <X aria-hidden="true" className="page-unsent-mark" />
@@ -2728,6 +2745,7 @@ function OpenPage({
               onBusy={(busy) => {
                 chatBusy.current = busy;
               }}
+              onUnsent={setChatUnsent}
               onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
               unsaved={draftsUnsaved}
               observationUnavailable={view.askUnavailable}

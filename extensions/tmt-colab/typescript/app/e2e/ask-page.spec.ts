@@ -1064,7 +1064,7 @@ for (const [width, height, theme] of [
 }
 
 for (const width of [1440, 390]) {
-  test(`Escape closes Chat after suggestions, keeps its draft and fences a busy send ${width}`, async ({
+  test(`Escape closes Chat after suggestions, keeps its draft and keeps a busy send running ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -1095,11 +1095,14 @@ for (const width of [1440, 390]) {
       chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
     ).toBeDisabled();
     await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+    // #5870: Escape closes Chat during the send, which keeps running in its hidden composer.
     await page.keyboard.press('Escape');
-    await expect(chat).toBeVisible();
+    await expect(chat).toBeHidden();
     expect((await run(page, 'proof')).sends).toEqual([]);
     await run(page, 'resumePrepare');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    await (await pageAction(page, 'Chat')).click();
+    await expect(chat).toBeVisible();
   });
 }
 

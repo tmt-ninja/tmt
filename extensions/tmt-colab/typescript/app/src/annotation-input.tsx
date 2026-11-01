@@ -62,6 +62,7 @@ export function AnnotationInput({
   onBusy,
   onFailure,
   onRecorded,
+  onUnsent,
   blocked,
   recoveryRequired = false,
   connectionPresentation,
@@ -88,6 +89,8 @@ export function AnnotationInput({
   onBusy?(busy: boolean): void;
   /** The message is recorded; its delivery may still be running (recovery is on the thread). */
   onRecorded?(): void;
+  /** Whether this composer holds a failed row: a send that failed before it was recorded. */
+  onUnsent?(unsent: boolean): void;
   /** A closing owner retains delivery recovery outside the composer. */
   onFailure?(failure: MessageSendFailure): void;
   blocked: boolean;
@@ -164,6 +167,9 @@ export function AnnotationInput({
   const [unsent, setUnsent] = useState<{ edit: ComposerEdit; echo: MessageEcho }>();
   const unsentRef = useRef(unsent);
   unsentRef.current = unsent;
+  const reportUnsent = useRef(onUnsent);
+  reportUnsent.current = onUnsent;
+  useEffect(() => reportUnsent.current?.(!!unsent), [unsent]);
   const focusAfterEdit = useRef(false);
   const sending = useRef(false);
   const [error, setError] = useState<{
@@ -667,7 +673,8 @@ export function AnnotationInput({
             !event.ctrlKey &&
             !event.metaKey &&
             !event.shiftKey &&
-            !sending.current
+            // Chat's Escape closes Chat, which keeps the send (#5870); elsewhere it cancels.
+            (!sending.current || chat)
           )
             cancel();
         }}

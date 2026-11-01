@@ -248,6 +248,10 @@ releases its window. For any retained failure, Edit followed by deliberately cle
 and Close releases that window and alert; Send's automatically cleared field does not. The same owner
 projects unrecorded first-comment selectors and sending/failed paint state to the renderer;
 send and record transitions trigger a render, and unchanged projections retain their identity.
+Chat follows the same model with its one composer: the panel stays mounted while closed, so Chat
+closes during a send (×, Escape or another panel) and the send keeps running. The composer
+reports whether it holds a failed row (`onUnsent`), and the page lists a closed Chat's failed
+send in the same alert row, whose Open reopens Chat on that row.
 The 64-entry paint cap prioritizes failed then oldest windows without dropping any composer or
 notice. Recording removes temporary paint before delivery settles. No comment text, send handle
 or annotation key crosses the frame port. Only a status change fences opening,
