@@ -9409,8 +9409,12 @@ function orchestrationView(connect, now = () => Date.now()) {
 		button.dataset.days = String(days);
 		return button;
 	});
-	const earlier = el("button", browserUiClasses.action, "◀ Earlier");
-	const later = el("button", browserUiClasses.action, "Later ▶");
+	const earlier = el("button", browserUiClasses.action);
+	const back = createIcon("chevron-right");
+	back.classList.add("ops-orchestration-back");
+	earlier.append(back, el("span", browserUiClasses.actionLabel, "Earlier"));
+	const later = el("button", browserUiClasses.action);
+	later.append(el("span", browserUiClasses.actionLabel, "Later"), createIcon("chevron-right"));
 	const nowButton = el("button", browserUiClasses.action, "Now");
 	for (const button of [
 		earlier,
@@ -9452,11 +9456,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 	const say = (text) => {
 		status.textContent = text;
 	};
-	const time = (ms) => new Intl.DateTimeFormat(void 0, {
+	/** The viewer's local time; `zone` names another zone, such as UTC for a hover title. */
+	const time = (ms, zone) => new Intl.DateTimeFormat(void 0, {
 		weekday: days > 1 ? "short" : void 0,
 		hour: "2-digit",
 		minute: "2-digit",
-		timeZone: overview?.timeZone
+		timeZone: zone,
+		timeZoneName: zone ? "short" : void 0
 	}).format(ms);
 	const member = (id) => overview?.members.find((m) => m.identityId === id);
 	const name = (id) => member(id)?.name ?? id;
@@ -9505,7 +9511,9 @@ function orchestrationView(connect, now = () => Date.now()) {
 			slot.style.flexGrow = String(Math.max(1, interval.endMs - interval.startMs) / span);
 			const count = interval.planIds.length;
 			slot.textContent = count ? String(count) : "·";
-			slot.title = `${time(interval.startMs)} · ${count} plan${count === 1 ? "" : "s"}`;
+			const plans = `${count} plan${count === 1 ? "" : "s"} in effect`;
+			slot.title = `${time(interval.startMs)}–${time(interval.endMs)} · ${plans}`;
+			slot.setAttribute("aria-label", `From ${time(interval.startMs)}: ${plans}`);
 			if (view.atMs >= interval.startMs && view.atMs < interval.endMs) slot.ariaCurrent = "time";
 			slot.addEventListener("click", () => {
 				atMs = Math.max(interval.startMs, view.range.startMs);
@@ -9514,7 +9522,12 @@ function orchestrationView(connect, now = () => Date.now()) {
 			row.append(slot);
 		}
 		const names = view.timeline.find((i) => view.atMs >= i.startMs && view.atMs < i.endMs)?.planIds.map((id) => planName(id)) ?? [];
-		timeline.replaceChildren(row, el("p", "ops-note", `${time(view.atMs)} ${view.timeZone} · ${names.length ? names.join(", ") : "Base only"}`));
+		const at = el("time", void 0, time(view.atMs));
+		at.dateTime = new Date(view.atMs).toISOString();
+		at.title = time(view.atMs, "UTC");
+		const caption = el("p", "ops-orchestration-caption");
+		caption.append("Showing ", at, ` · ${names.length ? names.join(", ") : "Base only"}`);
+		timeline.replaceChildren(el("p", "ops-orchestration-caption", "Time slots: each number is how many plans are in effect; choose one to see that time."), row, caption);
 	}
 	function cellText(row, column) {
 		if (row.identityId === column.identityId) return {
@@ -9584,13 +9597,13 @@ function orchestrationView(connect, now = () => Date.now()) {
 		}
 		table.append(thead, body);
 		scroll.append(table);
-		const notes = [el("p", "ops-note", "B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person")];
-		if (sending.truncated) notes.push(el("p", "ops-note", "Core stopped at its page limit; filter members to see the rest."));
+		const notes = [el("p", "ops-orchestration-caption", "B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person")];
+		if (sending.truncated) notes.push(el("p", "ops-orchestration-caption", "Core stopped at its page limit; filter members to see the rest."));
 		matrixBody.replaceChildren(scroll, ...notes);
 	}
 	function drawTalks() {
 		if (!sending?.talks) return talks.replaceChildren();
-		if (!sending.talks.length) return talks.replaceChildren(el("p", "ops-note", "Talks this hour: none counted."));
+		if (!sending.talks.length) return talks.replaceChildren(el("p", "ops-orchestration-caption", "Talks this hour: none counted."));
 		const list = el("ul", browserUiClasses.list);
 		list.setAttribute("aria-label", "Talks this hour");
 		for (const pair of sending.talks) {
@@ -9601,8 +9614,11 @@ function orchestrationView(connect, now = () => Date.now()) {
 		}
 		talks.replaceChildren(el("h4", browserUiClasses.sectionHeading, "Talks this hour"), list);
 	}
+	/** One action: its label stays on one line, cut with the full text as its title when long. */
 	const action = (label, run) => {
-		const button = el("button", browserUiClasses.action, label);
+		const button = el("button", browserUiClasses.action);
+		button.append(el("span", browserUiClasses.actionLabel, label));
+		button.title = label;
 		button.type = "button";
 		button.addEventListener("click", run);
 		return button;
@@ -9662,7 +9678,7 @@ function orchestrationView(connect, now = () => Date.now()) {
 				for (const line of why.lines) list.append(el("li", browserUiClasses.listRow, line));
 				parts.push(list);
 			}
-			parts.push(el("p", "ops-note", "Jobs · not available yet"));
+			parts.push(el("p", "ops-orchestration-caption", "Jobs · not available yet"));
 		}
 		if (!parts.length) parts.push(sentence("No members match."));
 		inspector.replaceChildren(...parts);

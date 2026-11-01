@@ -16,13 +16,13 @@ async function open(page: Page, width: number, theme: string) {
   await page.goto(`${origin}/ops/#orchestration`);
   await expect(page.getByRole('heading', { name: 'Who may message whom' })).toBeVisible();
 }
-async function shot(page: Page, name: string) {
+async function shot(page: Page, name: string, fullPage = true) {
   const root =
     process.env.TMT_OPS_ORCHESTRATION_CAPTURE_DIR ??
     join('test-results', 'ops-orchestration-captures');
   await mkdir(root, { recursive: true });
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: join(root, name + '.png'), fullPage: true });
+  await page.screenshot({ path: join(root, name + '.png'), fullPage });
 }
 const calls = (page: Page) => page.evaluate(() => structuredClone(window.orchCalls));
 
@@ -45,8 +45,42 @@ for (const width of [1440, 390])
       await expect(inspector).toContainText('Receiving');
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveCount(1);
       await expect(page.locator('html')).toHaveJSProperty('scrollWidth', width);
+      // Every action row: one-line labels and one shared height; the row wraps, not the text.
+      const rows = await page.evaluate(() =>
+        [...document.querySelectorAll('.ops-orchestration-page .tmt-ui-actions')].map((row) =>
+          [...row.querySelectorAll<HTMLElement>(':scope > .tmt-ui-action')].map((button) => {
+            // The label's text boxes all sit on one line.
+            const tops = new Set<number>();
+            const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const text = document.createRange();
+              text.selectNodeContents(node);
+              for (const rect of text.getClientRects())
+                if (rect.width > 0) tops.add(Math.round(rect.top));
+            }
+            return {
+              height: Math.round(button.getBoundingClientRect().height),
+              oneLine: tops.size <= 1,
+            };
+          }),
+        ),
+      );
+      for (const row of rows) {
+        expect(row.every((button) => button.oneLine)).toBe(true);
+        expect(new Set(row.map((button) => button.height)).size).toBeLessThanOrEqual(1);
+      }
       await shot(page, `orchestration-${width}-${theme}`);
       expect((await calls(page)).filter((call) => call.kind === 'write')).toEqual([]);
+      // The preview dialog, captured once it has settled.
+      await inspector.getByRole('button', { name: 'Focus now 1h', exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toContainText('Running work is never interrupted.');
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector('dialog[open]')!).opacity === '1',
+      );
+      // The modal covers the viewport; a full-page capture would stitch its backdrop.
+      await shot(page, `orchestration-preview-${width}-${theme}`, false);
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(errors).toEqual([]);
     });
 
@@ -57,7 +91,6 @@ test('a change shows Core’s preview and saves only that preview after Save', a
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('sample-1 · state, receiving');
   await expect(dialog).toContainText('Running work is never interrupted.');
-  await shot(page, 'orchestration-preview');
   // Cancel sends nothing beyond the preview.
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   let writes = (await calls(page)).filter((call) => call.kind === 'write');
