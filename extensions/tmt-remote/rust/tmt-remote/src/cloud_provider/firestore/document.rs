@@ -9,33 +9,12 @@ use serde_json::{Value, json};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Cursor {
+pub(crate) struct LegacyCursor {
     pub(crate) created_at: String,
     pub(crate) id: String,
 }
-pub(crate) struct Document {
-    peer: String,
-    id: String,
-    created_ms: u64,
-    bytes: Vec<u8>,
-    cursor: Cursor,
-}
+pub(crate) use crate::cloud_provider::CarrierDocument as Document;
 impl Document {
-    pub(crate) fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
-    pub(crate) fn peer(&self) -> &str {
-        &self.peer
-    }
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
-    pub(crate) fn created_ms(&self) -> u64 {
-        self.created_ms
-    }
-    pub(crate) fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
     pub(crate) fn read(
         value: &Value,
         root: &str,
@@ -108,10 +87,7 @@ impl Document {
             id: suffix.into(),
             created_ms,
             bytes,
-            cursor: Cursor {
-                created_at: indexed_at.into(),
-                id: suffix.into(),
-            },
+            cursor: crate::cloud_provider::Cursor(json!({"created_at":indexed_at,"id":suffix})),
         })
     }
 }
@@ -181,4 +157,33 @@ pub(crate) fn timestamp(s: &str) -> Result<u64, RemoteError> {
         num(20, 23)?
     };
     Ok((((days * 24 + h) * 60 + min) * 60 + sec) as u64 * 1000 + fraction as u64)
+}
+
+impl From<LegacyCursor> for crate::cloud_provider::Cursor {
+    fn from(cursor: LegacyCursor) -> Self {
+        Self(serde_json::to_value(cursor).expect("bounded legacy cursor"))
+    }
+}
+pub(crate) fn legacy_cursor(
+    cursor: &crate::cloud_provider::Cursor,
+) -> Result<LegacyCursor, RemoteError> {
+    serde_json::from_value(cursor.0.clone()).map_err(|_| invalid(Reason::QueryShape))
+}
+/// Legacy persistence interpretation belongs to the adapter, independently of HTTP.
+pub(crate) struct ContinuationCodec;
+impl crate::cloud_provider::ContinuationCodec for ContinuationCodec {
+    fn validate_continuation(
+        &self,
+        progress: &crate::cloud_provider::Continuation,
+    ) -> Result<(), RemoteError> {
+        crate::cloud_inbox::Checkpoint::new(progress.from_ms)?;
+        crate::cloud_inbox::Checkpoint::new(progress.read_ms)?;
+        let cursor = legacy_cursor(&progress.cursor)?;
+        let indexed = timestamp(&cursor.created_at)?;
+        canonical::uuid(&cursor.id).map_err(|_| invalid(Reason::QueryShape))?;
+        if progress.from_ms > indexed || progress.from_ms > progress.read_ms {
+            return Err(invalid(Reason::QueryShape));
+        }
+        Ok(())
+    }
 }

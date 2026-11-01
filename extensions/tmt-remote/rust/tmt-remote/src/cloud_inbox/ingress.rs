@@ -68,7 +68,7 @@ impl Receiver {
     }
     fn reply(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         bytes: Vec<u8>,
         grant: Option<crate::store::Grant>,
     ) -> Reply {
@@ -92,7 +92,7 @@ impl Receiver {
     }
     fn refuse(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         code: &str,
         response: Option<Vec<u8>>,
         now: u64,
@@ -110,7 +110,7 @@ impl Receiver {
     }
     pub(crate) fn receive(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         now: u64,
     ) -> Result<Option<Reply>, RemoteError> {
         // This is transport evidence only, not adoption. Refusals and frozen replies deduplicate
@@ -264,7 +264,7 @@ impl Receiver {
     }
     fn signed_refusal(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         message: &SignedMessage,
         sealer: cloud_hpke::ResponseSealer,
         code: &str,

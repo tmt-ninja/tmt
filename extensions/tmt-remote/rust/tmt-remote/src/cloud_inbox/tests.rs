@@ -15,20 +15,27 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     let mut store = Store::open(&lease).unwrap();
     let machine = store.machine().unwrap().id;
     store
-        .cloud_progress(&Continuation {
-            from_ms: 0,
-            read_ms: 1_800_000_000_000,
-            cursor: Cursor {
-                created_at: "2027-01-15T08:00:00Z".into(),
-                id: ID.into(),
+        .cloud_progress(
+            &Continuation {
+                from_ms: 0,
+                read_ms: 1_800_000_000_000,
+                cursor: Cursor {
+                    created_at: "2027-01-15T08:00:00Z".into(),
+                    id: ID.into(),
+                }
+                .into(),
             },
-        })
+            &super::document::ContinuationCodec,
+        )
         .unwrap();
     // Enrollment uses the legacy peer-keyed API with the machine UUID.
     store
         .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_100)
         .unwrap();
-    let inbox = store.cloud_query_checkpoint().unwrap().unwrap();
+    let inbox = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert!(
         inbox.continuation.is_some(),
         "enrollment must never clear inbox progress"
@@ -45,7 +52,7 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     store.cloud_finish_query(1_800_000_000_000).unwrap();
     assert!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .continuation
@@ -63,7 +70,7 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     let store = Store::open(&lease).unwrap();
     assert_eq!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .completed
@@ -92,7 +99,12 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
         "INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',x'',1000)",
         [PEER],
     ).unwrap();
-    assert!(store.cloud_query_checkpoint().unwrap().is_none());
+    assert!(
+        store
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
     let mut progress = Continuation {
         from_ms: 880,
@@ -100,40 +112,58 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
         cursor: Cursor {
             created_at: "2027-01-15T08:00:00.000123456Z".into(),
             id: ID.into(),
-        },
+        }
+        .into(),
     };
-    store.cloud_progress(&progress).unwrap();
+    store
+        .cloud_progress(&progress, &super::document::ContinuationCodec)
+        .unwrap();
     progress.from_ms = progress.read_ms + 1;
     assert!(
-        store.cloud_progress(&progress).is_err(),
+        store
+            .cloud_progress(&progress, &super::document::ContinuationCodec)
+            .is_err(),
         "invalid progress never replaces the saved cursor"
     );
     drop(store);
     let mut store = Store::open(&lease).unwrap();
-    let checkpoint = store.cloud_query_checkpoint().unwrap().unwrap();
+    let checkpoint = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert_eq!(checkpoint.completed.created_at_ms(), 0);
     let continuation = checkpoint.continuation.unwrap();
     assert_eq!(continuation.from_ms, 880);
     assert_eq!(continuation.read_ms, 1_800_000_000_001);
     assert_eq!(
-        continuation.cursor.created_at,
+        super::document::legacy_cursor(&continuation.cursor)
+            .unwrap()
+            .created_at,
         "2027-01-15T08:00:00.000123456Z"
     );
-    assert_eq!(continuation.cursor.id, ID);
+    assert_eq!(
+        super::document::legacy_cursor(&continuation.cursor)
+            .unwrap()
+            .id,
+        ID
+    );
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
 
     // Each provider page has its own snapshot: a later arrival can be newer
     // than the earliest snapshot retained for the eventual overlap query.
     store
-        .cloud_progress(&Continuation {
-            from_ms: continuation.from_ms,
-            read_ms: 1_799_999_999_999,
-            cursor: continuation.cursor.clone(),
-        })
+        .cloud_progress(
+            &Continuation {
+                from_ms: continuation.from_ms,
+                read_ms: 1_799_999_999_999,
+                cursor: continuation.cursor.clone(),
+            },
+            &super::document::ContinuationCodec,
+        )
         .unwrap();
     assert_eq!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .continuation
@@ -157,7 +187,9 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
             )
             .unwrap();
         assert!(
-            store.cloud_query_checkpoint().is_err(),
+            store
+                .cloud_query_checkpoint(&super::document::ContinuationCodec)
+                .is_err(),
             "malformed local continuation must refuse: {bad}"
         );
     }
@@ -171,7 +203,10 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
     store.cloud_finish_query(1_800_000_000_001).unwrap();
     store.cloud_finish_query(1000).unwrap();
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
-    let completed = store.cloud_query_checkpoint().unwrap().unwrap();
+    let completed = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert!(completed.continuation.is_none());
     assert_eq!(completed.completed.created_at_ms(), 1_800_000_000_001);
     drop(store);

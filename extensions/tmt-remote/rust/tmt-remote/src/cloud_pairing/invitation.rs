@@ -5,7 +5,7 @@ use super::{
     wire,
 };
 use crate::{
-    cloud_inbox::Provider,
+    cloud_provider::Connection as Provider,
     error::RemoteError,
     invitations::{BackendBinding, Context, port::*},
     native_sync::complete,
@@ -45,7 +45,7 @@ impl Firestore {
     ) -> Result<Self, RemoteError> {
         wire::v2::validate_context(&context)?;
         if context.owner != provider.machine()
-            || context.binding.reference != provider.identity().project.as_bytes()
+            || context.binding.reference != provider.binding().deployment.as_bytes()
         {
             return Err(wire::invalid());
         }
@@ -64,7 +64,7 @@ impl Firestore {
         Ok(())
     }
     fn owner(&self) -> Result<(), BackendFailure> {
-        if self.provider.uid().as_bytes() != self.context.binding.owner_principal {
+        if self.provider.binding().principal.as_bytes() != self.context.binding.owner_principal {
             return Err(BackendFailure::Refused);
         }
         Ok(())
@@ -109,7 +109,7 @@ impl Backend for Firestore {
                 )?;
             }
             (Part::Candidate, Payload::Candidate(submitted)) => {
-                if submitted.candidate.principal != self.provider.uid().as_bytes() {
+                if submitted.candidate.principal != self.provider.binding().principal.as_bytes() {
                     return Err(BackendFailure::Refused);
                 }
                 let body = wire::v2::submission(&self.context, submitted)
@@ -117,7 +117,7 @@ impl Backend for Firestore {
                 run(
                     self.provider.enrollment_create(
                         &self.context.offer,
-                        self.provider.uid(),
+                        self.provider.binding().principal,
                         "join",
                         &body,
                         Some(super::EnrollmentProof::Invite(&submitted.gate)),
@@ -220,9 +220,9 @@ impl Backend for Firestore {
                 }
                 let token = doc.token.ok_or(BackendFailure::InvalidEvidence)?;
                 let submitted =
-                    wire::v2::read_submission(&doc.body, &self.context, &doc.uid, token)
+                    wire::v2::read_submission(&doc.body, &self.context, &doc.principal, token)
                         .map_err(BackendFailure::Provider)?;
-                (doc.uid.into_bytes(), Payload::Candidate(submitted))
+                (doc.principal.into_bytes(), Payload::Candidate(submitted))
             }
             Part::Routes => {
                 self.owner()?;
@@ -255,8 +255,9 @@ impl Backend for Firestore {
                     return Ok(None);
                 };
                 if doc.kind != "receipt"
-                    || (self.provider.uid().as_bytes() != self.context.binding.owner_principal
-                        && doc.uid != self.provider.uid())
+                    || (self.provider.binding().principal.as_bytes()
+                        != self.context.binding.owner_principal
+                        && doc.principal != self.provider.binding().principal)
                     || doc.created_ms >= self.context.expires_at_ms
                 {
                     return Err(BackendFailure::InvalidEvidence);

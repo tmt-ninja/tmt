@@ -4,4 +4,6 @@ pub(crate) mod document;
 mod pairing;
 pub use carrier::Provider;
 pub(crate) use carrier::stamp;
-pub use pairing::{EnrollmentDocument, EnrollmentProof, InviteGate};
+pub use pairing::{EnrollmentDocument, EnrollmentProof};
+
+mod port;

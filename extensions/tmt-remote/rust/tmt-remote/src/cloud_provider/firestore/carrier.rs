@@ -223,14 +223,15 @@ impl Provider {
         &self,
         from_ms: u64,
         limit: usize,
-        after: Option<&super::document::Cursor>,
+        after: Option<&crate::cloud_provider::Cursor>,
         io: &IoBudget<'_>,
     ) -> Result<Page, RemoteError> {
         if limit == 0 || limit > crate::limits::CLOUD_INBOX_PAGE_DOCUMENTS {
             return Err(document::invalid(CloudDocumentReason::QueryShape));
         }
         let mut value = json!({"structuredQuery":{"from":[{"collectionId":"inbox","allDescendants":false}],"where":{"fieldFilter":{"field":{"fieldPath":"createdAt"},"op":"GREATER_THAN_OR_EQUAL","value":{"timestampValue":stamp(from_ms)}}},"orderBy":[{"field":{"fieldPath":"createdAt"},"direction":"ASCENDING"},{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],"limit":limit}});
-        if let Some(after) = after {
+        let after = after.map(document::legacy_cursor).transpose()?;
+        if let Some(after) = after.as_ref() {
             value["structuredQuery"]["startAt"] = json!({"values":[
                 {"timestampValue":after.created_at},
                 {"referenceValue":self.name(&self.machine, "inbox", &after.id)?}
@@ -677,5 +678,122 @@ mod tests {
             assert_eq!(value["error"]["reason"], "query-shape");
             assert!(!value.to_string().contains("SECRET_MARKER"));
         }
+    }
+    #[test]
+    fn legacy_checkpoint_resumes_through_the_port_and_writes_identical_bytes() {
+        const LEGACY: &[u8] =
+            include_bytes!("../../../tests/fixtures/cloud-provider-continuation.json");
+        struct ResumeHttp(std::sync::atomic::AtomicUsize);
+        impl Http for ResumeHttp {
+            fn send(
+                &self,
+                request: &Request,
+                _: u64,
+                _: &dyn Cancellation,
+            ) -> Result<Response, AuthError> {
+                assert_eq!(request.operation(), Operation::Query);
+                let value: Value = serde_json::from_slice(request.body()).unwrap();
+                assert_eq!(
+                    value["structuredQuery"]["where"]["fieldFilter"]["value"]["timestampValue"],
+                    stamp(880)
+                );
+                assert_eq!(
+                    value["structuredQuery"]["startAt"],
+                    json!({"values":[
+                    {"timestampValue":"2027-01-15T08:00:00.000123456Z"},
+                    {"referenceValue":"projects/demo-cloud/databases/(default)/documents/m/11111111-1111-4111-8111-111111111111/inbox/44444444-4444-4444-8444-444444444444"}
+                ],"before":false})
+                );
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Response {
+                    status: 200,
+                    retry_after_ms: None,
+                    body: serde_json::to_vec(&json!([
+                        {"readTime":"2027-01-15T08:00:00.000000001Z"}
+                    ]))
+                    .unwrap(),
+                })
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "provider-continuation-{}",
+            crate::store::uuid_v4().unwrap()
+        ));
+        let layout = crate::state::Layout::open(&root).unwrap();
+        let lease = layout.serve_lock().unwrap();
+        let store = crate::store::Store::open(&lease).unwrap();
+        store.connection.execute("INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES ('inbox-query','checkpoint','',?1,1000)",[LEGACY]).unwrap();
+        drop(store);
+        let mut store = crate::store::Store::open(&lease).unwrap();
+        let http = Arc::new(ResumeHttp(std::sync::atomic::AtomicUsize::new(0)));
+        let runtime = Arc::new(NativeRuntime::new(
+            http.clone(),
+            Arc::new(Ports),
+            Arc::new(Ports),
+            Arc::new(Budget {
+                refuse: false,
+                charged: Mutex::new(vec![]),
+            }),
+        ));
+        let provider = Provider::new(
+            Arc::new(Auth),
+            runtime,
+            Model::new(4, 4).unwrap(),
+            "11111111-1111-4111-8111-111111111111",
+        )
+        .unwrap();
+        let checkpoint = store.cloud_query_checkpoint(&provider).unwrap().unwrap();
+        assert_eq!(checkpoint.completed.created_at_ms(), 1000);
+        let progress = checkpoint.continuation.unwrap();
+        let cancel = AtomicBool::new(false);
+        let io = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(1),
+            cancelled: &cancel,
+        };
+        let page = crate::native_sync::complete(
+            crate::cloud_provider::Provider::inbox(
+                &provider,
+                progress.from_ms,
+                1,
+                Some(&progress.cursor),
+                &io,
+            ),
+            &io,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(page.documents.is_empty());
+        assert!(!page.full);
+        assert_eq!(http.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+        store.cloud_progress(&progress, &provider).unwrap();
+        let written:Vec<u8>=store.connection.query_row("SELECT carrier FROM cloud_transport WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",[],|row|row.get(0)).unwrap();
+        assert_eq!(
+            written, LEGACY,
+            "moving the adapter never rewrites the persisted continuation format"
+        );
+        drop(store);
+        let store = crate::store::Store::open(&lease).unwrap();
+        assert_eq!(
+            store
+                .cloud_query_checkpoint(&provider)
+                .unwrap()
+                .unwrap()
+                .completed
+                .created_at_ms(),
+            1000
+        );
+        let duplicate = std::str::from_utf8(LEGACY).unwrap().replace(
+            "\"created_at\":",
+            "\"created_at\":\"2027-01-15T08:00:00Z\",\"created_at\":",
+        );
+        store.connection.execute("UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",[duplicate.as_bytes()]).unwrap();
+        assert!(
+            store.cloud_query_checkpoint(&provider).is_err(),
+            "opaque storage must retain duplicate-field refusal before HTTP"
+        );
+        assert_eq!(http.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(store);
+        drop(lease);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,5 +1,5 @@
 //! A live HPKE context is never persisted. Restart recovery asks the existing journal by ID.
-use super::provider::Provider;
+use crate::cloud_provider::{Connection as Provider, Stream};
 use crate::{
     canonical::{self, Envelope},
     cloud_hpke::{ResponseOpener, Sender as Peer, VerifiedDescriptor},
@@ -28,14 +28,14 @@ pub struct Sender {
 }
 impl Sender {
     pub fn new(
-        provider: Provider,
+        provider: impl Into<Provider>,
         store: Arc<Mutex<Store>>,
         peer: &str,
         key: MachineKey,
     ) -> Result<Self, RemoteError> {
         canonical::uuid(peer).map_err(|_| invalid())?;
         Ok(Self {
-            provider,
+            provider: provider.into(),
             store,
             peer: peer.into(),
             key,
@@ -200,7 +200,7 @@ impl Sender {
             }
             let observed = if old.attempted {
                 self.provider
-                    .get(&self.peer, "inbox", e.id, io)
+                    .get(&self.peer, Stream::Inbox, e.id, io)
                     .await
                     .map_err(|_| unconfirmed())?
             } else {
@@ -209,7 +209,7 @@ impl Sender {
                 self.provider
                     .create(
                         &self.peer,
-                        "inbox",
+                        Stream::Inbox,
                         e.id,
                         &old.carrier,
                         self.claim(e.id),
@@ -322,7 +322,11 @@ impl Sender {
                 .cloud_prepare_one_way(&self.peer, &id, &payload, &carrier, now)?
         };
         if stored.attempted {
-            return match self.provider.get(&self.peer, "inbox", &id, io).await? {
+            return match self
+                .provider
+                .get(&self.peer, Stream::Inbox, &id, io)
+                .await?
+            {
                 Some(doc) if doc.bytes() == stored.carrier => Ok(()),
                 Some(_) => Err(conflict()),
                 None => Err(unconfirmed()),
@@ -351,7 +355,7 @@ impl Sender {
         });
         match self
             .provider
-            .create(&self.peer, "inbox", &id, &stored.carrier, claim, io)
+            .create(&self.peer, Stream::Inbox, &id, &stored.carrier, claim, io)
             .await?
         {
             Some(doc) if doc.bytes() == stored.carrier => Ok(()),
@@ -396,7 +400,7 @@ impl Sender {
             // A previous HTTP attempt can only be observed at the original ID.
             return match self
                 .provider
-                .observe(&self.peer, "inbox", &pending.id, io)
+                .observe(&self.peer, Stream::Inbox, &pending.id, io)
                 .await?
             {
                 Some(doc) if doc.bytes() == old.carrier => Ok(Publication::Stored),
@@ -458,7 +462,14 @@ impl Sender {
         });
         match self
             .provider
-            .create(&self.peer, "inbox", &pending.id, &stored.carrier, claim, io)
+            .create(
+                &self.peer,
+                Stream::Inbox,
+                &pending.id,
+                &stored.carrier,
+                claim,
+                io,
+            )
             .await?
         {
             Some(doc) if doc.bytes() == stored.carrier => Ok(Publication::Stored),
@@ -483,7 +494,10 @@ impl Sender {
             return Ok(DeliveryEvidence::Unknown);
         };
         super::check_request_age(old.created_ms, now)?;
-        let observed = self.provider.get(&self.peer, "inbox", original, io).await?;
+        let observed = self
+            .provider
+            .get(&self.peer, Stream::Inbox, original, io)
+            .await?;
         match observed {
             Some(doc) if doc.bytes() == old.carrier => {}
             Some(_) => return Err(conflict()),
@@ -493,7 +507,7 @@ impl Sender {
         // A failed read or timeout never supplies this evidence.
         if self
             .provider
-            .get(&self.peer, "responses", original, io)
+            .get(&self.peer, Stream::Responses, original, io)
             .await?
             .is_none()
         {
@@ -551,7 +565,7 @@ impl Sender {
     ) -> Result<Vec<u8>, RemoteError> {
         match self
             .provider
-            .create(&self.peer, "inbox", id, carrier, self.claim(id), io)
+            .create(&self.peer, Stream::Inbox, id, carrier, self.claim(id), io)
             .await?
         {
             Some(doc) if doc.bytes() == carrier => {}
@@ -561,7 +575,7 @@ impl Sender {
         loop {
             if let Some(response) = self
                 .provider
-                .get(&self.peer, "responses", id, io)
+                .get(&self.peer, Stream::Responses, id, io)
                 .await
                 .map_err(|_| unconfirmed())?
             {

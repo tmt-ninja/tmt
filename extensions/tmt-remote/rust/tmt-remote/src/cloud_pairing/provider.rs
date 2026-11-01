@@ -1,2 +1,2 @@
-//! Existing enrollment data entry; the Firestore implementation has one adapter owner.
-pub use crate::cloud_provider::firestore::{EnrollmentDocument, EnrollmentProof, InviteGate};
+//! Typed enrollment data shared with the cloud provider port.
+pub use crate::cloud_provider::{EnrollmentDocument, EnrollmentProof, InviteGate};

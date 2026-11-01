@@ -1,6 +1,6 @@
 //! Enrollment metadata uses the carrier driver's ordinary-user HTTP/Auth/budget
 //! owner. No Admin credential, operation admission or second request runner.
-use crate::cloud_inbox::stamp;
+use super::stamp;
 use crate::cloud_pairing::wire::invalid;
 use crate::{
     canonical,
@@ -113,12 +113,11 @@ fn read(value: &Value, root: &str, machine: &str) -> Result<EnrollmentDocument, 
     {
         return Err(invalid());
     }
-    let created_ms =
-        crate::cloud_inbox::document::timestamp(value["createTime"].as_str().ok_or_else(invalid)?)?;
+    let created_ms = super::document::timestamp(value["createTime"].as_str().ok_or_else(invalid)?)?;
     let indexed = value["fields"]["createdAt"]["timestampValue"]
         .as_str()
         .ok_or_else(invalid)?;
-    let indexed_ms = crate::cloud_inbox::document::timestamp(indexed)?;
+    let indexed_ms = super::document::timestamp(indexed)?;
     if created_ms.abs_diff(indexed_ms) > crate::session::CLOCK_SKEW.as_millis() as u64 {
         return Err(invalid());
     }
@@ -212,7 +211,7 @@ impl Provider {
             .and_then(|v| v.get("timestampValue"))
             .and_then(Value::as_str)
             .ok_or_else(invalid)?;
-        let expires_at_ms = crate::cloud_inbox::document::timestamp(expires)?;
+        let expires_at_ms = super::document::timestamp(expires)?;
         if expires_at_ms == 0 || expires_at_ms >= 1 << 53 {
             return Err(invalid());
         }
@@ -299,7 +298,7 @@ impl Provider {
             .and_then(|v| v.get("timestampValue"))
             .and_then(Value::as_str)
             .ok_or_else(invalid)?;
-        let expiry = crate::cloud_inbox::document::timestamp(expiry)?;
+        let expiry = super::document::timestamp(expiry)?;
         let hash = fields
             .get("tokenHash")
             .and_then(Value::as_object)

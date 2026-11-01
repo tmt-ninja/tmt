@@ -1,5 +1,6 @@
 //! One finite machine reconciliation. The serving lifecycle owns scheduling/cancel-and-join.
-use super::{Receiver, provider::Provider};
+use super::Receiver;
+use crate::cloud_provider::{Connection as Provider, Stream};
 use crate::{error::RemoteError, objects::IoBudget, session::DoorSessions};
 use std::sync::Arc;
 pub struct InboxDriver {
@@ -8,11 +9,15 @@ pub struct InboxDriver {
     provider: Provider,
 }
 impl InboxDriver {
-    pub fn new(receiver: Receiver, sessions: Arc<DoorSessions>, provider: Provider) -> Self {
+    pub fn new(
+        receiver: Receiver,
+        sessions: Arc<DoorSessions>,
+        provider: impl Into<Provider>,
+    ) -> Self {
         Self {
             receiver,
             sessions,
-            provider,
+            provider: provider.into(),
         }
     }
     /// Run only on the serving owner's joined worker. Transient failures back off without
@@ -54,20 +59,20 @@ impl InboxDriver {
             .with_operation_store(|s| s.cloud_expired(now))?;
         for cleanup in expired {
             self.provider
-                .delete(&cleanup.peer, "inbox", &cleanup.id, io)
+                .delete(&cleanup.peer, Stream::Inbox, &cleanup.id, io)
                 .await?;
             // Validated summaries never publish a provider response. Avoid an
             // unused second delete/write; generic messages/finals are unchanged.
             if !cleanup.summary {
                 self.provider
-                    .delete(&cleanup.peer, "responses", &cleanup.id, io)
+                    .delete(&cleanup.peer, Stream::Responses, &cleanup.id, io)
                     .await?;
             }
             self.sessions
                 .with_operation_store(|s| s.cloud_forget(&cleanup.peer, &cleanup.id, now))?;
         }
         let (from, mut cursor, mut snapshot) = self.sessions.with_operation_store(|store| {
-            if let Some(checkpoint) = store.cloud_query_checkpoint()? {
+            if let Some(checkpoint) = store.cloud_query_checkpoint(&*self.provider)? {
                 return Ok(match checkpoint.continuation {
                     Some(progress) => (
                         progress.from_ms,
@@ -120,10 +125,10 @@ impl InboxDriver {
                         let observed = if frozen.publication_attempted()? {
                             // Keep the current grant fence even though no second write can occur.
                             frozen.claim_publication()?;
-                            self.provider.observe(document.peer(), "responses", document.id(), io).await
+                            self.provider.observe(document.peer(), Stream::Responses, document.id(), io).await
                         } else {
                             self.provider.create(
-                                document.peer(), "responses", document.id(), &frozen.bytes,
+                                document.peer(), Stream::Responses, document.id(), &frozen.bytes,
                                 Box::new(move || publication.claim_publication().map_err(|error| {
                                     if super::ingress::permanent(&error.code) {
                                         crate::sealed_sync::SyncError::Denied
@@ -173,11 +178,14 @@ impl InboxDriver {
                 // A later transient failure or finite cap must not erase this durable
                 // prefix. Preserve the exact server timestamp and ID tie-breaker.
                 self.sessions.with_operation_store(|store| {
-                    store.cloud_progress(&super::store::Continuation {
-                        from_ms: from,
-                        read_ms: snapshot.unwrap_or(page.read_ms),
-                        cursor: document.cursor().clone(),
-                    })
+                    store.cloud_progress(
+                        &super::store::Continuation {
+                            from_ms: from,
+                            read_ms: snapshot.unwrap_or(page.read_ms),
+                            cursor: document.cursor().clone(),
+                        },
+                        &*self.provider,
+                    )
                 })?;
                 cursor = Some(document.cursor().clone());
             }
