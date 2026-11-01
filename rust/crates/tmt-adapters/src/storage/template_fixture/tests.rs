@@ -481,7 +481,10 @@ const CHILD_READY: &str = "TMT_TEMPLATE_TEST_READY";
 const CHILD_START: &str = "TMT_TEMPLATE_TEST_START";
 const CHILD_FAIL: &str = "TMT_TEMPLATE_TEST_FAIL";
 const CHILD_TEST: &str = "storage::template_fixture::tests::template_child_process";
-const CHILD_READY_TIMEOUT: Duration = Duration::from_secs(30);
+/// One readiness budget for a whole batch. The parent stops waiting for ready
+/// files when it runs out; a ready child waits the same budget for the start
+/// file, so it cannot give up while the parent still waits for its siblings.
+const CHILD_READY_BUDGET: Duration = Duration::from_secs(30);
 const CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Child role for the cross-process tests; a no-op in a normal run.
@@ -496,7 +499,7 @@ fn template_child_process() {
     );
     fs::write(std::env::var_os(CHILD_READY).unwrap(), "ready").unwrap();
     let start = PathBuf::from(std::env::var_os(CHILD_START).unwrap());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + CHILD_READY_BUDGET;
     while !start.exists() {
         assert!(
             Instant::now() < deadline,
@@ -550,8 +553,10 @@ fn run_children(
         pids.push(child.child.id());
         children.push((child, case));
     }
+    let ready_deadline = Instant::now() + CHILD_READY_BUDGET;
     for (child, case) in &mut children {
-        child.wait_for_content(&case.join("ready"), "ready", CHILD_READY_TIMEOUT);
+        let remaining = ready_deadline.saturating_duration_since(Instant::now());
+        child.wait_for_content(&case.join("ready"), "ready", remaining);
     }
     fs::write(&start, b"go").unwrap();
     children
