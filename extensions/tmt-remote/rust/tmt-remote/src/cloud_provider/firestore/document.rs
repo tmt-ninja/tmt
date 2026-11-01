@@ -176,12 +176,12 @@ impl crate::cloud_provider::ContinuationCodec for ContinuationCodec {
         &self,
         progress: &crate::cloud_provider::Continuation,
     ) -> Result<(), RemoteError> {
-        crate::cloud_inbox::Checkpoint::new(progress.from_ms)?;
-        crate::cloud_inbox::Checkpoint::new(progress.read_ms)?;
         let cursor = legacy_cursor(&progress.cursor)?;
         let indexed = timestamp(&cursor.created_at)?;
         canonical::uuid(&cursor.id).map_err(|_| invalid(Reason::QueryShape))?;
-        if progress.from_ms > indexed || progress.from_ms > progress.read_ms {
+        // Later pages can see documents newer than the earliest snapshot. Keep that
+        // conservative snapshot for overlap without rejecting those arrivals.
+        if progress.from_ms > indexed {
             return Err(invalid(Reason::QueryShape));
         }
         Ok(())

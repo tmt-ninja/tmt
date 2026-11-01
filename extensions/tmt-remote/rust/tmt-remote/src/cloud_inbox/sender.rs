@@ -218,7 +218,7 @@ impl Sender {
                     .await?
             };
             match observed {
-                Some(doc) if doc.bytes() == old.carrier => {
+                Some(doc) if doc.bytes.as_slice() == old.carrier => {
                     // A failed recovery control says nothing about the original dispatch's effect.
                     return self
                         .recover(e.id, descriptor, now, io)
@@ -327,7 +327,7 @@ impl Sender {
                 .get(&self.peer, Stream::Inbox, &id, io)
                 .await?
             {
-                Some(doc) if doc.bytes() == stored.carrier => Ok(()),
+                Some(doc) if doc.bytes.as_slice() == stored.carrier => Ok(()),
                 Some(_) => Err(conflict()),
                 None => Err(unconfirmed()),
             };
@@ -358,7 +358,7 @@ impl Sender {
             .create(&self.peer, Stream::Inbox, &id, &stored.carrier, claim, io)
             .await?
         {
-            Some(doc) if doc.bytes() == stored.carrier => Ok(()),
+            Some(doc) if doc.bytes.as_slice() == stored.carrier => Ok(()),
             Some(_) => Err(conflict()),
             None => Err(unconfirmed()),
         }
@@ -403,7 +403,7 @@ impl Sender {
                 .observe(&self.peer, Stream::Inbox, &pending.id, io)
                 .await?
             {
-                Some(doc) if doc.bytes() == old.carrier => Ok(Publication::Stored),
+                Some(doc) if doc.bytes.as_slice() == old.carrier => Ok(Publication::Stored),
                 Some(_) => Err(conflict()),
                 None => Ok(Publication::Unobserved),
             };
@@ -472,7 +472,7 @@ impl Sender {
             )
             .await?
         {
-            Some(doc) if doc.bytes() == stored.carrier => Ok(Publication::Stored),
+            Some(doc) if doc.bytes.as_slice() == stored.carrier => Ok(Publication::Stored),
             Some(_) => Err(conflict()),
             None => Err(unconfirmed()),
         }
@@ -499,7 +499,7 @@ impl Sender {
             .get(&self.peer, Stream::Inbox, original, io)
             .await?;
         match observed {
-            Some(doc) if doc.bytes() == old.carrier => {}
+            Some(doc) if doc.bytes.as_slice() == old.carrier => {}
             Some(_) => return Err(conflict()),
             None => return Err(unconfirmed()),
         }
@@ -568,7 +568,7 @@ impl Sender {
             .create(&self.peer, Stream::Inbox, id, carrier, self.claim(id), io)
             .await?
         {
-            Some(doc) if doc.bytes() == carrier => {}
+            Some(doc) if doc.bytes.as_slice() == carrier => {}
             Some(_) => return Err(conflict()),
             None => return Err(unconfirmed()),
         }
@@ -580,7 +580,10 @@ impl Sender {
                 .map_err(|_| unconfirmed())?
             {
                 return opener
-                    .open(response.bytes(), crate::limits::CLOUD_ENVELOPE_BYTES)
+                    .open(
+                        response.bytes.as_slice(),
+                        crate::limits::CLOUD_ENVELOPE_BYTES,
+                    )
                     .map_err(|e| RemoteError::new(e.code(), &e.to_string()));
             }
             self.provider.wait(io, crate::limits::CLOUD_POLL_MIN_MS)?;

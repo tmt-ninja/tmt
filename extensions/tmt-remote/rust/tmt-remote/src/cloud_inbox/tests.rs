@@ -171,6 +171,35 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
             .read_ms,
         1_799_999_999_999
     );
+    for (from_ms, read_ms) in [
+        (crate::cloud_hpke::INTEGER_MAX + 1, continuation.read_ms),
+        (continuation.from_ms, crate::cloud_hpke::INTEGER_MAX + 1),
+    ] {
+        let invalid = Continuation {
+            from_ms,
+            read_ms,
+            cursor: continuation.cursor.clone(),
+        };
+        assert_eq!(
+            store
+                .cloud_progress(&invalid, &super::document::ContinuationCodec)
+                .unwrap_err()
+                .code,
+            "REMOTE_CLOUD_CHECKPOINT_INVALID"
+        );
+        store.connection.execute(
+            "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
+            [serde_json::to_vec(&invalid).unwrap()],
+        ).unwrap();
+        assert_eq!(
+            store
+                .cloud_query_checkpoint(&super::document::ContinuationCodec)
+                .err()
+                .unwrap()
+                .code,
+            "REMOTE_CLOUD_CHECKPOINT_INVALID"
+        );
+    }
     let valid = serde_json::to_value(&continuation).unwrap();
     for bad in [
         serde_json::json!({"from_ms":0,"read_ms":1,"cursor":{"created_at":"bad","id":ID}}),
@@ -367,9 +396,9 @@ fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
     let machine = "11111111-1111-4111-8111-111111111111";
     let row = json!({"name":format!("{root}/m/{machine}/inbox/{ID}"),"createTime":"2026-10-23T04:00:00.123456789Z","fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(b"ciphertext")},"createdAt":{"timestampValue":"2026-10-23T04:00:00.123Z"}}});
     let document = super::document::Document::read(&row, root, machine, "inbox").unwrap();
-    assert_eq!(document.created_ms(), 1_792_728_000_123);
-    assert_eq!(document.bytes(), b"ciphertext");
-    assert_eq!(document.peer(), PEER);
+    assert_eq!(document.created_ms, 1_792_728_000_123);
+    assert_eq!(document.bytes.as_slice(), b"ciphertext");
+    assert_eq!(document.peer.as_str(), PEER);
     for name in [
         format!("{root}/m/{machine}/peers/{PEER}/inbox/{ID}"),
         format!("{root}/m/{PEER}/inbox/{ID}"),
@@ -402,8 +431,7 @@ fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
         bad["fields"]["createdAt"]["timestampValue"] = json!(indexed);
         let admitted = super::document::Document::read(&bad, root, machine, "inbox").unwrap();
         assert_eq!(
-            admitted.created_ms(),
-            document.created_ms(),
+            admitted.created_ms, document.created_ms,
             "routing time never replaces freshness authority"
         );
     }

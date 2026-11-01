@@ -193,7 +193,7 @@ fn verified_cache_restart_order_unknown_fields_and_revoke() {
             assert!(!outcome.response_required());
             receiver.receive(&newest, world.now).unwrap();
             let valid = world.document(&keys, &world.payload(3, "Tampered"));
-            let mut carrier: serde_json::Value = serde_json::from_slice(valid.bytes()).unwrap();
+            let mut carrier: serde_json::Value = serde_json::from_slice(&valid.bytes).unwrap();
             let mut ciphertext =
                 crate::canonical::base64url_decode(carrier["ciphertext"].as_str().unwrap())
                     .unwrap();
@@ -201,7 +201,7 @@ fn verified_cache_restart_order_unknown_fields_and_revoke() {
             carrier["ciphertext"] = json!(crate::canonical::base64url(&ciphertext));
             let root = "projects/demo-summary/databases/(default)/documents";
             let stamp = crate::cloud_inbox::stamp(world.now);
-            let row = json!({"name":format!("{root}/m/{}/inbox/{}",world.machine,valid.id()),"createTime":stamp,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(serde_json::to_vec(&carrier).unwrap())},"createdAt":{"timestampValue":stamp}}});
+            let row = json!({"name":format!("{root}/m/{}/inbox/{}",world.machine,valid.id),"createTime":stamp,"fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(serde_json::to_vec(&carrier).unwrap())},"createdAt":{"timestampValue":stamp}}});
             let tampered =
                 crate::cloud_inbox::document::Document::read(&row, root, &world.machine, "inbox")
                     .unwrap();

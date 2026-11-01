@@ -212,6 +212,15 @@ impl Store {
     }
 }
 
+fn validate_watermarks(progress: &Continuation) -> Result<(), RemoteError> {
+    Checkpoint::new(progress.from_ms)?;
+    Checkpoint::new(progress.read_ms)?;
+    if progress.from_ms > progress.read_ms {
+        return Err(database("invalid cloud query continuation"));
+    }
+    Ok(())
+}
+
 impl Store {
     pub(crate) fn cloud_query_checkpoint(
         &self,
@@ -230,6 +239,7 @@ impl Store {
                 None
             } else {
                 let value: Continuation = serde_json::from_slice(&bytes).map_err(database)?;
+                validate_watermarks(&value)?;
                 provider.validate_continuation(&value).map_err(database)?;
                 Some(value)
             };
@@ -245,6 +255,7 @@ impl Store {
         progress: &Continuation,
         provider: &dyn crate::cloud_provider::ContinuationCodec,
     ) -> Result<(), RemoteError> {
+        validate_watermarks(progress)?;
         provider.validate_continuation(progress).map_err(database)?;
         let bytes = serde_json::to_vec(progress).map_err(database)?;
         self.connection.execute(

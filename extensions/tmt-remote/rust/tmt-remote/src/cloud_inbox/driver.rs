@@ -125,10 +125,10 @@ impl InboxDriver {
                         let observed = if frozen.publication_attempted()? {
                             // Keep the current grant fence even though no second write can occur.
                             frozen.claim_publication()?;
-                            self.provider.observe(document.peer(), Stream::Responses, document.id(), io).await
+                            self.provider.observe(document.peer.as_str(), Stream::Responses, document.id.as_str(), io).await
                         } else {
                             self.provider.create(
-                                document.peer(), Stream::Responses, document.id(), &frozen.bytes,
+                                document.peer.as_str(), Stream::Responses, document.id.as_str(), &frozen.bytes,
                                 Box::new(move || publication.claim_publication().map_err(|error| {
                                     if super::ingress::permanent(&error.code) {
                                         crate::sealed_sync::SyncError::Denied
@@ -139,7 +139,7 @@ impl InboxDriver {
                             ).await
                         };
                         match observed {
-                            Ok(Some(response)) if response.bytes() == frozen.bytes => {},
+                            Ok(Some(response)) if response.bytes.as_slice() == frozen.bytes => {},
                             Ok(Some(_)) => return Err(RemoteError::new(
                                 "REMOTE_CLOUD_CONFLICT",
                                 "The response ID belongs to different ciphertext.",
@@ -165,8 +165,8 @@ impl InboxDriver {
                     Err(error) if super::ingress::permanent(&error.code) => {
                         self.sessions.with_operation_store(|store| {
                             store.cloud_refuse(
-                                document.peer(),
-                                document.id(),
+                                document.peer.as_str(),
+                                document.id.as_str(),
                                 &error.code,
                                 None,
                                 now,
@@ -182,12 +182,12 @@ impl InboxDriver {
                         &super::store::Continuation {
                             from_ms: from,
                             read_ms: snapshot.unwrap_or(page.read_ms),
-                            cursor: document.cursor().clone(),
+                            cursor: document.cursor.clone(),
                         },
                         &*self.provider,
                     )
                 })?;
-                cursor = Some(document.cursor().clone());
+                cursor = Some(document.cursor.clone());
             }
             if !page.full {
                 break;

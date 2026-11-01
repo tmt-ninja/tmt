@@ -20,10 +20,10 @@ grant expiry and serve windows.
 Remote owns its listeners, provider transports and private state. Native inbox, pairing and message
 callers share one typed provider port; its adapter alone decodes provider documents and continuations.
 Exact carrier bytes, operation admission, replay and authority remain with their existing common owners.
-Core owns its public dispatch,
-request and input-safety semantics independently of Remote authentication. Remote uses only the
-fixed public Core APIs/JSON commands: Core has no dependency on Remote device keys, pairing or
-trust grants, and no Remote base-trust check is added to Core. Its existing safety checks remain.
+Core owns its public dispatch, request and input-safety semantics independently of Remote
+authentication. Remote uses only the fixed public Core APIs/JSON commands: Core has no dependency
+on Remote device keys, pairing or trust grants, and no Remote base-trust check is added to Core.
+Its existing safety checks remain.
 Colab owns page/epoch/role/writer admission and content cryptography through the
 [extension channel API](#extension-channel-api); content verification grants no machine access.
 

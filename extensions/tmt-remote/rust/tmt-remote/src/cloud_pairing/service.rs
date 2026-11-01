@@ -127,7 +127,8 @@ impl Service {
     fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, RemoteError> {
         self.store.lock().map_err(crate::store::database)
     }
-    pub fn with_provider_factory(mut self, factory: Arc<dyn Factory>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_provider_factory(mut self, factory: Arc<dyn Factory>) -> Self {
         self.provider_factory = factory;
         self
     }

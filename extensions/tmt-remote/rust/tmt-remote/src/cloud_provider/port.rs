@@ -229,24 +229,6 @@ impl std::ops::Deref for Connection {
         self.0.as_ref()
     }
 }
-impl CarrierDocument {
-    pub fn peer(&self) -> &str {
-        &self.peer
-    }
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn created_ms(&self) -> u64 {
-        self.created_ms
-    }
-    pub fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
-}
-
 pub trait ContinuationCodec: Send + Sync {
     /// Validate provider-specific opaque data before any token acquisition or HTTP.
     fn validate_continuation(&self, progress: &Continuation) -> Result<(), RemoteError>;

@@ -165,7 +165,7 @@ impl Provider {
         let value = crate::wire::strict_json(&response.body)
             .ok_or_else(|| document::invalid(CloudDocumentReason::QueryShape))?;
         let document = Document::read(&value, &self.root, &self.machine, stream)?;
-        if document.peer() != peer {
+        if document.peer.as_str() != peer {
             return Err(document::invalid(CloudDocumentReason::PeerShape));
         }
         Ok(Some(document))
