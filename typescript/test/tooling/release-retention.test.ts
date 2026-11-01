@@ -316,11 +316,39 @@ describe('protections', () => {
   });
 });
 
+describe('retired products', () => {
+  it('keeps every release of the reviewed retired Office prefix and never deletes it', () => {
+    const releases = [
+      ...catalogue(),
+      release('tmt-office-v0.1.0-alpha.1', 1, { age: 300 }),
+      release('tmt-office-v0.1.0-alpha.2', 2, { age: 290 }),
+      release('tmt-office-v0.1.0-alpha.3', 3, { age: 280 }),
+    ];
+    const result = plan(releases);
+    expect(result.deletions.some((row) => row.tag.startsWith('tmt-office-'))).toBe(false);
+    for (const n of [1, 2, 3])
+      expect(reasonsOf(result, `tmt-office-v0.1.0-alpha.${n}`)).toEqual(['retired-product']);
+    expect(result.protected.find((row) => row.tag === 'tmt-office-v0.1.0-alpha.1')?.product).toBe(
+      'office'
+    );
+    expect(result.counts.candidates).toBe(plan(catalogue()).counts.candidates);
+  });
+});
+
+describe('unlisted prefixes', () => {
+  it('still refuses a prefix that neither the policy nor the retired list names', () => {
+    for (const tag of ['tmt-studio-v0.1.0-alpha.1', 'tmt-office-x0.1.0-alpha.1'])
+      expect(() => plan([...catalogue(), release(tag, 1)])).toThrow(
+        `Unknown release product for ${tag}.`
+      );
+  });
+});
+
 describe('fail-closed refusal', () => {
   it.each([
     [
-      'an unknown product',
-      (rows: RetentionRelease[]) => rows.push(release('tmt-office-v0.1.0-alpha.1', 1)),
+      'an unlisted unknown prefix',
+      (rows: RetentionRelease[]) => rows.push(release('tmt-studio-v0.1.0-alpha.1', 1)),
     ],
     ['a duplicate tag', (rows: RetentionRelease[]) => rows.push({ ...rows[0], id: 999 })],
     [
@@ -396,7 +424,7 @@ describe('fail-closed refusal', () => {
       cut: CUT,
       cutoff: CUTOFF,
       draftVisibility: 'trusted',
-      reason: 'Unknown release product for tmt-office-v0.1.0-alpha.1.',
+      reason: 'Unknown release product for tmt-studio-v0.1.0-alpha.1.',
     });
     expect(refused).toMatchObject({ status: 'refused', deletions: [], counts: { deletions: 0 } });
     expect(renderRetentionSummary(refused)).toContain('Refused: Unknown release product');

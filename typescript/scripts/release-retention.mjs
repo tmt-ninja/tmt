@@ -37,6 +37,18 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 export const RETENTION_DAYS = 7;
 const DAY_MS = 86_400_000;
 const VISIBILITY = new Set(['trusted', 'public']);
+// Reviewed tag prefixes of products removed from the policy registry. Their releases are kept
+// and never candidates; any other unknown prefix still refuses the whole plan.
+const RETIRED_TAG_PREFIXES = {
+  // Office was retired in #3003 (40452a2be8); Infra keeps its three published alphas.
+  'tmt-office-v': 'office',
+};
+const retiredProductOfTag = (tag) => {
+  const prefix = Object.keys(RETIRED_TAG_PREFIXES).find(
+    (candidate) => tag.startsWith(candidate) && /^\d/.test(tag.slice(candidate.length))
+  );
+  return prefix && { product: RETIRED_TAG_PREFIXES[prefix], version: tag.slice(prefix.length) };
+};
 
 const draftState = (release) => {
   const names = new Set(release.assets.map(({ name }) => name));
@@ -76,9 +88,12 @@ function catalogueRows(releases) {
       throw new Error(`Invalid release metadata for ${release.tag_name}.`);
     ids.add(release.id);
     tags.add(release.tag_name);
-    const product = productOfTag(release.tag_name);
-    if (!product) throw new Error(`Unknown release product for ${release.tag_name}.`);
-    const version = versionOfTag(release.tag_name, product);
+    const registered = productOfTag(release.tag_name);
+    const retired = !registered && retiredProductOfTag(release.tag_name);
+    if (!registered && !retired)
+      throw new Error(`Unknown release product for ${release.tag_name}.`);
+    const product = registered ?? retired.product;
+    const version = registered ? versionOfTag(release.tag_name, product) : retired.version;
     if (!isMinimumReleaseVersion(version))
       throw new Error(`Ambiguous release version ${release.tag_name}.`);
     const publishedAt = release.draft ? null : Date.parse(release.published_at ?? '');
@@ -88,7 +103,7 @@ function catalogueRows(releases) {
     const marker = readDeclarationMarker(release.body ?? '');
     if (marker && marker.product !== product)
       throw new Error(`Frozen declaration product differs from ${release.tag_name}.`);
-    return { release, product, version, publishedAt, marker };
+    return { release, product, version, publishedAt, marker, retired: Boolean(retired) };
   });
 }
 
@@ -117,13 +132,14 @@ export function planRetention({ releases, map, cut, git, cutoff, draftVisibility
     return reasons.get(row.release.id).size !== before;
   };
   const candidate = (row) =>
-    !row.release.draft && isAlphaVersion(row.version) && row.publishedAt < cutoffMs;
+    !row.retired && !row.release.draft && isAlphaVersion(row.version) && row.publishedAt < cutoffMs;
 
   for (const row of rows) {
-    if (row.release.draft) protect(row.release.tag_name, `${draftState(row.release)}-draft`);
+    if (row.retired) protect(row.release.tag_name, 'retired-product');
+    else if (row.release.draft) protect(row.release.tag_name, `${draftState(row.release)}-draft`);
     else if (!isAlphaVersion(row.version)) protect(row.release.tag_name, 'not-alpha');
   }
-  for (const product of new Set(rows.map((row) => row.product))) {
+  for (const product of new Set(rows.filter((row) => !row.retired).map((row) => row.product))) {
     const [newest] = publishedReleases(releases, product);
     if (newest) protect(newest.tag_name, 'newest-published');
     const floor = upgradeSupportFloor(product);

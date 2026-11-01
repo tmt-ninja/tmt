@@ -267,6 +267,7 @@ frozen `tmt-release-cli` markers, component `uses` and the drafts' `selectPrevio
 main and for each draft's captured commit. Every selector must return the same result after the
 deletions, with all tags kept. An unknown product, duplicate row, malformed marker, missing tag,
 unresolved reference or incomplete catalogue refuses the whole plan with zero deletions.
+The one reviewed exception is a retired prefix in the module's list (only `tmt-office-v`, retired in #3003): those releases are kept as `retired-product` and are never candidates.
 
 Only the dry run exists: `release-retention.yml` (daily, main only, `contents: read`) uploads
 the `release-retention-plan` artifact. That token cannot list drafts, so its plan is
