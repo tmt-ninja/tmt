@@ -25,6 +25,10 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   a terminal prompt and red mask), padded to square on black and resized to
   192×192. It is the blog's tab and touch icon; the header keeps `mark.svg`.
   SHA-256: `ee71f53e5e4c98fd4307a4224aaccdedeafc82bca83259799f78b3004ed5914c`.
+- `site/src/blog/og.png` is the 1200×630 link-preview card for every blog page:
+  the same team icon beside the journal title, description and `tmt.ninja/blog`,
+  in the black-only palette with a red top rule, rendered once in headless Chromium.
+  SHA-256: `2ae614b15dd9f28246226093116795330bd19dcdf1457d701ce6486e1948b07a`.
 
 The landing loads canonical design tokens but uses its own layout CSS. The blog
 retains its editorial structure with an independent black-only treatment.

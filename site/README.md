@@ -60,6 +60,9 @@ redirects to the blog with a meta refresh and visible link; `404.html` links to
 the blog and repository. Blog header/footer outbound links use the repository. The working title is
 TMT Journal. Its shared layout uses a black-only ninja palette in both color
 preferences, rice-paper text, a red accent and a file-backed hooded mark.
+Every page carries Open Graph and X card metadata with absolute `SITE_ORIGIN`
+URLs: the canonical URL, the article title and summary, and one shared 1200×630
+card (`src/blog/og.png`).
 Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
 
 Marketing owns and reviews the blog end to end: code in `src/blog/` and approved
@@ -108,14 +111,15 @@ pnpm exec vp preview --outDir dist-pages --port 4176 --strictPort
 
 `SITE_BASE` defaults to `/tmt/`. A production build requires `SITE_ORIGIN`, the
 HTTPS origin the site is served from, without a trailing slash or path; it has no
-default, because it is the host in the blog's canonical links, RSS and sitemap.
-`.github/workflows/site.yml` derives it from the repository owner
-(`https://<owner>.github.io`), so a custom domain is the one value there.
+default, because it is the host in the blog's canonical links, link previews, RSS
+and sitemap. `.github/workflows/site.yml` sets `https://tmt.ninja` with `SITE_BASE=/`,
+matching the custom domain in the repository's Pages settings and the `tmt.ninja`
+DNS records; the former `<owner>.github.io/tmt/` URLs redirect there.
 `SITE_REPOSITORY` is `owner/repository`; it overrides `GITHUB_REPOSITORY`, which
 Actions supplies. Production builds require one of them and derive the GitHub
 URL without hard-coding an owner. Local dev/demo runs use a neutral example
-repository when neither is set. No DNS or install-script serving changes are
-made by this pipeline: `install.tmt.ninja` serves the installer from Releases.
+repository when neither is set. This pipeline makes no DNS or install-script
+serving changes: `install.tmt.ninja` serves the installer from Releases.
 `verify-dist` takes the same `SITE_ORIGIN` and fails a production artifact whose
 canonical links, RSS or sitemap name another origin. The dev server, `pnpm blog:demo`
 and the unit tests need none and use a neutral local origin.

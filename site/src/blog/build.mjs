@@ -42,6 +42,8 @@ export async function generate({
   const entries = [];
   const pages = [];
   const english = posts.filter(({ meta }) => meta.language === "en");
+  // The language switcher only links somewhere once an article has a translation.
+  const translated = posts.some(({ meta }) => meta.language !== "en");
   const render = async ({ path, language, canonicalPath = path, ...options }) => {
     entries.push(join(output, path, "index.html"));
     pages.push({
@@ -56,6 +58,7 @@ export async function generate({
         location,
         demo,
         development,
+        translated,
         path,
         language,
         canonicalPath,
@@ -97,6 +100,7 @@ export async function generate({
         slug: meta.slug,
         fallback: meta.language !== language.id,
         title: `${meta.title} · ${site.title}`,
+        shareTitle: meta.title,
         description: meta.summary,
         alternates: variants.map(({ meta }) => ({
           language: meta.language,
@@ -158,6 +162,7 @@ export async function generate({
   for (const [path, bytes] of Object.entries(publicFiles)) await write(path, bytes);
   await copyFile(join(root, "src/blog/mark.svg"), join(output, "mark.svg"));
   await copyFile(join(root, "src/blog/favicon.png"), join(output, "favicon.png"));
+  await copyFile(join(root, "src/blog/og.png"), join(output, "og.png"));
   return { output, entries, publicFiles };
 }
 
@@ -173,6 +178,7 @@ export async function blogBuild({
   const generated = await generate({ root, base, origin, development, demo, repository });
   const readFileMark = await readFile(join(root, "src/blog/mark.svg"));
   const readFileFavicon = await readFile(join(root, "src/blog/favicon.png"));
+  const readFileShareCard = await readFile(join(root, "src/blog/og.png"));
   return {
     entries: generated.entries,
     plugin: {
@@ -201,6 +207,7 @@ export async function blogBuild({
         // and build; this plugin owns the file instead of Vite inlining or rebasing it.
         this.emitFile({ type: "asset", fileName: "blog/mark.svg", source: readFileMark });
         this.emitFile({ type: "asset", fileName: "blog/favicon.png", source: readFileFavicon });
+        this.emitFile({ type: "asset", fileName: "blog/og.png", source: readFileShareCard });
       },
     },
   };
