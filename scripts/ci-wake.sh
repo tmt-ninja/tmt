@@ -24,12 +24,13 @@
 # delivered wake and kept when the send fails.
 # Exit codes: 0 started (or, in the waiting process, woke the seat); 2 usage;
 # 3 the seat's identity cannot be resolved or the wake could not be sent.
-# GH, TMT and CI_WAKE_SLEEP override the executables, for isolated tests.
+# GH, TMT, CI_WAKE_SLEEP and CI_WAKE_CLOCK override the executables, for isolated tests.
 set -eu
 
 GH=${GH:-gh}
 TMT=${TMT:-tmt}
 SLEEP=${CI_WAKE_SLEEP:-sleep}
+CLOCK=${CI_WAKE_CLOCK:-date}
 MIN_INTERVAL=180
 MAX_CAP=7200
 
@@ -138,7 +139,7 @@ EOF
   exit 3
 }
 start_head=$head
-started=$(date +%s)
+started=$("$CLOCK" +%s)
 while :; do
   read -r state merged now_head <<EOF
 $(pull || echo "unknown unknown $head")
@@ -187,7 +188,7 @@ EOF
   else
     note "waiting for merge"
   fi
-  elapsed=$(($(date +%s) - started))
+  elapsed=$(($("$CLOCK" +%s) - started))
   if [ "$elapsed" -ge "$cap" ]; then
     wake "no final state after $((cap / 60)) min; this wait ended"
   fi
