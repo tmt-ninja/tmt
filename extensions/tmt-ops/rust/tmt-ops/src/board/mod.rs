@@ -460,10 +460,27 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         Request::WorkspaceOperation(change) => {
             return Ok(match change {
                 workspace::manage::Change::Membership(operation) => {
+                    let publishes = matches!(
+                        &operation,
+                        crate::membership::workspace::Operation::Lead { .. }
+                            | crate::membership::workspace::Operation::Create { lead: Some(_), .. }
+                    );
                     ActionOutcome::Workspace(Box::new(Config::load(core).and_then(|mut config| {
-                        crate::membership::workspace::apply(core, &mut config, operation)
+                        let outcome =
+                            crate::membership::workspace::apply(core, &mut config, operation)?;
+                        Ok(if publishes {
+                            crate::membership::publish::offer(core, outcome)
+                        } else {
+                            outcome
+                        })
                     })))
                 }
+                workspace::manage::Change::PublishLeads(preview) => ActionOutcome::Workspace(
+                    Box::new(Ok(crate::membership::publish::apply(core, &preview))),
+                ),
+                workspace::manage::Change::PreviewLeads(preview) => ActionOutcome::Workspace(
+                    Box::new(Ok(crate::membership::publish::refresh(core, &preview))),
+                ),
                 workspace::manage::Change::CloseMember(request) => {
                     ActionOutcome::CloseMember(Box::new(request.apply(core)))
                 }

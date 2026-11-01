@@ -223,10 +223,10 @@ identity bound to your pane, and the board's talk, answer and annotate act as th
 
 pub const LEAD: &CommandSpec = spec!(
     "lead",
-    "Choose a saved lead or clear leadership; former leads stay members",
+    "Choose or clear a lead, then preview publishing all Ops leads to Core",
     [
         "Make sol the lead" => "tmt ops squad lead sol",
-        "Choose the squad when several exist" => "tmt ops squad lead sol --squad product",
+        "Choose the squad and approve publishing all Ops leads to Core" => "tmt ops squad lead sol --squad product --yes",
         "Clear leadership without removing the former lead" => "tmt ops squad lead --none",
     ]
 );

@@ -30,6 +30,16 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   markers without selecting or joining anyone; former leads stay members until
   `squad rm`. A marker that would exceed the identity metadata limit returns the
   existing core error before role pairs or the join.
+- After a successful `squad lead` or board Create with a lead, `membership::publish`
+  offers the deduplicated lead union of all active squads (up to 256 UUIDs) through
+  [Core orchestration preview/consent/CAS](../../../../contracts/orchestration-v1.md#configuration-writes).
+  Core-only leads are explicit removals, not preserved or merged. The helper uses
+  public roster reads and the talks view's lead list at the preview's configuration
+  revision; apply relies only on Core's CAS, without another Ops candidate check.
+  Caller attribution uses public `whoami`, never the board's display user. An
+  ambiguous caller or incomplete inventory fails publication instead of guessing.
+  CLI and the existing board lane share this owner; no background write or retry
+  runs. A declined or failed publication keeps the already-applied squad change.
 - Membership commands are sequences of idempotent core commands, not a transaction:
   each reports what it applied and a re-run converges. A metadata write that lands
   after preflight can still split a sequence. `add` reports `added: false` for an

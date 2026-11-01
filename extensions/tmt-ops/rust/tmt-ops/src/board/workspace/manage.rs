@@ -47,12 +47,16 @@ pub enum Stage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Change {
     Membership(Operation),
+    PublishLeads(crate::membership::publish::Preview),
+    PreviewLeads(crate::membership::publish::Preview),
     RenameMember(super::rename_member::Request),
     CloseMember(super::close_member::Request),
 }
 impl Change {
     pub(super) fn confirm_label(&self) -> &'static str {
         match self {
+            Self::PublishLeads(_) => "Publish leads",
+            Self::PreviewLeads(_) => "Preview again",
             Self::RenameMember(_) => "Rename",
             Self::CloseMember(_) => "Close and delete",
             Self::Membership(operation) => match operation {
@@ -262,6 +266,12 @@ impl Draft {
         }))
     }
     pub fn title(&self) -> String {
+        if matches!(
+            self.operation,
+            Some(Change::PublishLeads(_) | Change::PreviewLeads(_))
+        ) {
+            return "Publish squad leads to Core".into();
+        }
         let name = self
             .room
             .as_ref()
@@ -305,6 +315,10 @@ impl Draft {
         Some(command_line(&words))
     }
     pub fn review(&self) -> String {
+        if let Some(Change::PublishLeads(preview) | Change::PreviewLeads(preview)) = &self.operation
+        {
+            return preview.text();
+        }
         let identity = |id: &str| {
             self.identities.get(id).map_or_else(
                 || id.to_owned(),
@@ -323,7 +337,10 @@ impl Draft {
         let mut lines = vec![];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
-            Change::RenameMember(_) | Change::CloseMember(_) => None,
+            Change::RenameMember(_)
+            | Change::CloseMember(_)
+            | Change::PublishLeads(_)
+            | Change::PreviewLeads(_) => None,
         });
         match operation {
             Some(Operation::Create {
@@ -623,7 +640,11 @@ impl App {
                 self.update_mentions();
                 Some(effect)
             }
-            Event::Key(key) if draft.stage == Stage::Review => {
+            Event::Key(key)
+                if draft.stage == Stage::Review
+                    || (matches!(draft.stage, Stage::Result(_))
+                        && matches!(draft.operation, Some(Change::PreviewLeads(_)))) =>
+            {
                 use tmt_tui::components::{Button, DialogInput, DialogKind};
                 let controls = draft.controls.get();
                 let order = review_buttons(draft.reopened);
@@ -711,6 +732,15 @@ impl App {
         let Some(draft) = &mut self.workspace_form else {
             return;
         };
+        if draft.stage == Stage::Review && matches!(draft.operation, Some(Change::PublishLeads(_)))
+        {
+            let message = "Squad changed. Core leads not updated; publication declined.";
+            draft.stage = Stage::Result(message.into());
+            draft.shown = false;
+            draft.invalidate();
+            self.set_notice(Some(message.into()), false);
+            return;
+        }
         if matches!(draft.stage, Stage::Result(_)) {
             self.workspace_form = None;
             return;
@@ -774,10 +804,15 @@ impl App {
             if kind == draft.kind && !(kind == Kind::RemoveMember && draft.stage != Stage::Pending)
             {
                 draft.shown = true;
-                draft.reopened = matches!(draft.stage, Stage::Fields | Stage::Review);
+                let publication = matches!(draft.operation, Some(Change::PublishLeads(_)));
+                draft.reopened =
+                    matches!(draft.stage, Stage::Fields | Stage::Review) && !publication;
                 draft.fields_button = None;
                 if draft.stage == Stage::Review {
                     draft.review = review_start(draft.kind, draft.reopened);
+                    if publication {
+                        draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                    }
                 }
                 draft.invalidate();
                 if draft.stage == Stage::Fields {
@@ -1063,11 +1098,11 @@ impl App {
         {
             return self.close_member_submit(false);
         }
-        let Some(draft) = self
-            .workspace_form
-            .as_mut()
-            .filter(|draft| draft.stage == Stage::Review)
-        else {
+        let Some(draft) = self.workspace_form.as_mut().filter(|draft| {
+            draft.stage == Stage::Review
+                || (matches!(draft.stage, Stage::Result(_))
+                    && matches!(draft.operation, Some(Change::PreviewLeads(_))))
+        }) else {
             return self.say("This operation is already pending or finished; close and refresh.");
         };
         if draft.controls.get()[1].is_none() {

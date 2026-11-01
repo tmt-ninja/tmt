@@ -1376,6 +1376,16 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         }
     };
     let probe = areas_for(26);
+    let publication = matches!(
+        draft.operation,
+        Some(super::manage::Change::PublishLeads(_) | super::manage::Change::PreviewLeads(_))
+    );
+    let review = draft.stage == Stage::Review
+        || (matches!(draft.stage, Stage::Result(_))
+            && matches!(
+                draft.operation,
+                Some(super::manage::Change::PreviewLeads(_))
+            ));
     let text = match &draft.stage {
         Stage::Fields => app
             .input
@@ -1383,6 +1393,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             .map(|input| input.prompt.clone())
             .unwrap_or_default(),
         Stage::Review => draft.review(),
+        Stage::Pending if publication => format!(
+            "Pending: checking the frozen leads intent.\n{}",
+            draft.review()
+        ),
         Stage::Pending => format!(
             "Pending: checking and applying the frozen operation.\n{}\nNo automatic retry.",
             draft.review()
@@ -1421,6 +1435,28 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .saturating_add(4)
         .min(26) as u16;
     let areas = areas_for(demand_height);
+    // Same admission rule as board::confirm: no action while its full question is hidden.
+    if publication && review && lines.len() > usize::from(areas.content.height) {
+        Modal {
+            title: "Enlarge to review · Esc close".into(),
+            placement: modal.placement,
+        }
+        .paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+        let buttons = [crate::board::buttons::Button::secondary("Cancel").focused(true)];
+        let painted = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            areas.footer,
+            &buttons,
+            tmt_cli_style::grid::Align::Left,
+            Some(crate::board::app::Overlay::Workspace),
+        );
+        draft.controls.set([painted[0], None, None]);
+        app.input_band.set(Some(areas.outer));
+        app.peek_areas
+            .set(crate::board::app::Overlay::Workspace, Some(areas.outer));
+        return;
+    }
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     app.input_band.set(Some(areas.outer));
     app.peek_areas
@@ -1488,7 +1524,7 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             _ => None,
         },
     };
-    if draft.stage == Stage::Review {
+    if review {
         let apply_label = draft
             .operation
             .as_ref()

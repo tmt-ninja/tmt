@@ -112,6 +112,8 @@ fn grammar() -> Command {
                 .arg(Arg::new("name").help("Saved identity to lead").required_unless_present("none"))
                 .arg(Arg::new("none").long("none").action(ArgAction::SetTrue)
                     .conflicts_with("name").help("Clear leadership; former leads remain members"))
+                .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)
+                    .help("Approve the displayed replacement of Core's global leads"))
                 .arg(squad_option()),
         )
         .subcommand(
@@ -502,6 +504,19 @@ fn done(terminal: Terminal, text: &str) -> String {
 }
 
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
+    if command == "lead" && !document["coreLeads"].is_null() {
+        let mut squad = document.clone();
+        squad.as_object_mut().unwrap().remove("coreLeads");
+        let mut output = human(command, &squad, terminal);
+        if let Ok(preview) = membership::publish::Preview::from_document(&document["coreLeads"]) {
+            output.push_str(&format!("{}\n", preview.text()));
+        } else if document["coreLeads"]["status"] != "failed"
+            && let Some(message) = membership::publish::message(&document["coreLeads"])
+        {
+            output.push_str(&format!("{message}\n"));
+        }
+        return output;
+    }
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
         "ls" | "ui" => status::text(document, terminal),
@@ -660,6 +675,10 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
 fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String>)> {
     let text = |value: &Value| value["message"].as_str().unwrap_or_default().to_owned();
     match command {
+        "lead" if document["coreLeads"]["status"] == "failed" => vec![(
+            membership::publish::message(&document["coreLeads"]).unwrap(),
+            None,
+        )],
         "checklist" => checklist_command::failure(document),
         "add" => document["results"]
             .as_array()
@@ -944,7 +963,11 @@ fn run(
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
-        "lead" => membership::lead(&core, &squad, text("name")),
+        "lead" => Ok(membership::publish::command(
+            &core,
+            membership::lead(&core, &squad, text("name"))?,
+            Consent::new(matches.get_flag("yes"), interaction.prompt()),
+        )),
         "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
         "rm" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
         "jump" => member_actions::jump(&core, &squad, &config, text("member").unwrap_or_default()),
@@ -1746,11 +1769,31 @@ mod tests {
     }
 
     #[test]
+    fn human_lead_preview_is_readable_without_core_json() {
+        let document = json!({"squad":"product","lead":null,"replaced":[],"coreLeads":{
+            "status":"preview","before":[],"after":[],"preview":{
+                "schemaVersion":1,"requiresConsent":true,"mutation":{"kind":"leads.set","identityIds":[]},
+                "configurationRevision":7,"previewAtMs":1,"previewDigest":"digest"
+            }
+        }});
+        let shown = human("lead", &document, Terminal::PLAIN);
+        assert!(shown.contains("0 removed · 0 added"), "{shown}");
+        assert!(
+            shown.contains("Core's leads list will be empty."),
+            "{shown}"
+        );
+        assert!(!shown.contains("previewDigest"));
+        assert!(!shown.contains("Core preview:"));
+    }
+
+    #[test]
     fn lead_requires_exactly_one_name_or_none() {
         for accepted in [
             "squad lead sol",
             "squad lead --none",
             "squad lead --none --squad product",
+            "squad lead sol --yes",
+            "squad lead --none --yes --json",
         ] {
             assert!(
                 matches!(request(&argv(accepted)), Ok(Request::Run(_))),
