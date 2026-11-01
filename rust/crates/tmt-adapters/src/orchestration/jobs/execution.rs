@@ -29,7 +29,7 @@ impl JobRunDocument {
         let d: Self = serde_json::from_slice(bytes).map_err(|_| JobError::Invalid)?;
         if !canonical_id(&d.job_id)
             || d.revision == 0
-            || d.revision >= MAX_JS_SAFE_INTEGER
+            || d.revision > MAX_JS_SAFE_INTEGER
             || d.slot_ms.unsigned_abs() > MAX_JS_SAFE_INTEGER
             || d.manual_operation_id
                 .as_ref()
@@ -99,8 +99,33 @@ pub fn execute_job(
             let encoded = dispatch::encode_receipt_with_wake(&receipt, wake);
             let receipt: Value =
                 serde_json::from_slice(&encoded).expect("canonical dispatch receipt JSON");
-            json!({"schemaVersion":1,"jobId":job.id,"outcome":"accepted","runId":run_id,"dispatch":receipt})
+            json!({"schemaVersion":1,"jobId":job.id,"outcome":"accepted","created":created,"runId":run_id,"dispatch":receipt})
         }
     };
     serde_json::to_vec(&value).map_err(|_| JobError::Invalid.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn last_representable_revision_can_run_but_larger_values_refuse() {
+        let document = |revision| {
+            serde_json::to_vec(&json!({
+                "jobId":"11111111-1111-4111-8111-111111111111",
+                "revision":revision,"slotMs":1000
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            JobRunDocument::decode(&document(MAX_JS_SAFE_INTEGER))
+                .unwrap()
+                .revision,
+            MAX_JS_SAFE_INTEGER
+        );
+        assert_eq!(
+            JobRunDocument::decode(&document(MAX_JS_SAFE_INTEGER + 1)).unwrap_err(),
+            JobError::Invalid
+        );
+    }
 }

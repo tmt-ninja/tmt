@@ -21,6 +21,7 @@ pub enum ChannelMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Invocation {
+    Tick(TickOperation),
     Extension {
         name: String,
         args: Vec<std::ffi::OsString>,
@@ -684,4 +685,11 @@ pub enum OrchWriteOperation {
         second: String,
         identity: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickOperation {
+    Once,
+    Run,
+    Status,
 }

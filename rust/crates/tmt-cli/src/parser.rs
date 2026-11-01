@@ -220,6 +220,9 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
+        ["tick"] => Invocation::Tick(TickOperation::Once),
+        ["tick", "run"] => Invocation::Tick(TickOperation::Run),
+        ["tick", "status"] => Invocation::Tick(TickOperation::Status),
         ["api"] => if flag(m, "session") { Invocation::ApiSession } else { Invocation::Api },
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),

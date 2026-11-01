@@ -29,6 +29,7 @@ serde_json.workspace = true
 rusqlite.workspace = true
 toml_edit.workspace = true
 nix.workspace = true
+signal-hook.workspace = true
 ureq.workspace = true
 
 [lints]

@@ -5,6 +5,10 @@ use std::{
     cell::RefCell,
     ffi::OsString,
     path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tmt_invoke::{LineChannel, LineChannelOptions};
@@ -33,6 +37,7 @@ impl From<std::io::Error> for Error {
 pub struct Core {
     program: PathBuf,
     deadline: Option<Instant>,
+    stop: Option<Arc<AtomicBool>>,
     /// Set by [`Core::persistent`]; every other caller keeps one process per request.
     persistent: Option<RefCell<Persistent>>,
 }
@@ -52,6 +57,7 @@ impl Core {
         Self {
             program,
             deadline: None,
+            stop: None,
             persistent: None,
         }
     }
@@ -78,8 +84,19 @@ impl Core {
         Ok(Self {
             program: path,
             deadline: None,
+            stop: None,
             persistent: None,
         })
+    }
+    /// Keep bounded API child cleanup inside the component cancellation owner.
+    pub fn with_cancellation(mut self, stop: Arc<AtomicBool>) -> Self {
+        self.stop = Some(stop);
+        self
+    }
+    fn stopped(&self) -> bool {
+        self.stop
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
     }
     /// Send this handle's API requests through one `tmt api --session` child, when the invoking
     /// CLI advertises it, instead of one process per request. The child ends with the handle.
@@ -157,7 +174,7 @@ impl Core {
                         max_frame_bytes: FRAME_BYTES,
                         launch: Default::default(),
                     },
-                    || false,
+                    || self.stopped(),
                 )
                 .map_err(unavailable)?,
             );
@@ -166,7 +183,7 @@ impl Core {
             .channel
             .as_mut()
             .expect("started")
-            .exchange(request, deadline, || false);
+            .exchange(request, deadline, || self.stopped());
         let reply = reply.map_err(|error| {
             // A failed exchange has already ended the child; whether Core acted is unknown.
             state.channel = None;
@@ -207,7 +224,7 @@ impl Core {
                 max_stream_bytes: 1024 * 1024,
                 launch: Default::default(),
             },
-            None,
+            self.stop.as_deref(),
         )
         .map_err(|error| Error::new("CORE_UNAVAILABLE", error.to_string()))?;
         let document: Value = serde_json::from_slice(&output.stdout).map_err(|_| {

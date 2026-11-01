@@ -174,7 +174,7 @@ fn advance_configuration(db: &Connection) -> Result<(), JobStoreError> {
 }
 
 /// Bounded metadata only. Message bodies are loaded only by show/admission.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JobListRow {
     pub id: String,
     pub number: u64,
@@ -204,6 +204,9 @@ pub struct JobListPage {
     pub next_after: Option<u64>,
 }
 impl Storage {
+    pub(crate) fn orchestration_wake_admission_ms(&self) -> Result<u64, StorageError> {
+        Ok(crate::storage::requests::digest_wake::clock(self.connection()?)?.next_admission_ms)
+    }
     /// CLI display selectors resolve only an exact live UUID or non-reused j-id.
     pub fn resolve_orchestration_job(&self, selector: &str) -> Result<OrchJob, JobStoreError> {
         let id = if canonical_id(selector) {

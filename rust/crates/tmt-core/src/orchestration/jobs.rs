@@ -203,9 +203,13 @@ pub fn admit_job(job: &OrchJob, input: &JobAdmission) -> Result<JobDecision, Job
 /// Canonical slot identity. Imported jobs retain their shipped room/c-id domain;
 /// revisions are intentionally absent so changed intent cannot replay a slot.
 pub fn job_operation_id(job: &OrchJob, slot_ms: i64) -> String {
+    job_slot_operation_id(&job.id, job.legacy.as_ref(), slot_ms)
+}
+
+pub fn job_slot_operation_id(id: &str, legacy: Option<&LegacyJob>, slot_ms: i64) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    if let Some(legacy) = &job.legacy {
+    if let Some(legacy) = legacy {
         digest.update(b"tmt-squad-cron-slot-v1\0");
         for value in [&legacy.room_id, &format!("c{}", legacy.cron_id)] {
             digest.update((value.len() as u64).to_be_bytes());
@@ -213,8 +217,8 @@ pub fn job_operation_id(job: &OrchJob, slot_ms: i64) -> String {
         }
     } else {
         digest.update(b"tmt-agent-job-slot-v1\0");
-        digest.update((job.id.len() as u64).to_be_bytes());
-        digest.update(job.id.as_bytes());
+        digest.update((id.len() as u64).to_be_bytes());
+        digest.update(id.as_bytes());
     }
     digest.update(slot_ms.to_be_bytes());
     let mut bytes: [u8; 16] = digest.finalize()[..16].try_into().expect("SHA-256 prefix");
