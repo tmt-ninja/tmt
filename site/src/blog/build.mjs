@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rm, copyFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, rm, copyFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { extractArticle, articleFromSource, metadata, stableJson } from "./content.mjs";
 import {
@@ -42,6 +42,11 @@ export async function generate({
   const entries = [];
   const pages = [];
   const english = posts.filter(({ meta }) => meta.language === "en");
+  // Optional per-article link-preview cards, published under blog/share/.
+  const shareCards = {};
+  for (const name of await readdir(join(root, "src/blog/share")).catch(() => []))
+    if (name.endsWith(".png"))
+      shareCards[name.slice(0, -4)] = await readFile(join(root, "src/blog/share", name));
   // The language switcher only links somewhere once an article has a translation.
   const translated = posts.some(({ meta }) => meta.language !== "en");
   const render = async ({ path, language, canonicalPath = path, ...options }) => {
@@ -101,6 +106,7 @@ export async function generate({
         fallback: meta.language !== language.id,
         title: `${meta.title} · ${site.title}`,
         shareTitle: meta.title,
+        shareImage: shareCards[meta.slug] ? `share/${meta.slug}.png` : undefined,
         description: meta.summary,
         alternates: variants.map(({ meta }) => ({
           language: meta.language,
@@ -145,6 +151,11 @@ export async function generate({
   }
   const publicFiles = {
     ...publicFeeds,
+    ...Object.fromEntries(
+      posts
+        .filter(({ meta }) => shareCards[meta.slug])
+        .map(({ meta }) => [`share/${meta.slug}.png`, shareCards[meta.slug]]),
+    ),
     "robots.txt": demo
       ? "User-agent: *\nDisallow: /\n"
       : `User-agent: *\nAllow: ${location.base}\nSitemap: ${location.url}sitemap.xml\n`,

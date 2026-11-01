@@ -29,6 +29,11 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   the same team icon beside the journal title, description and `tmt.ninja/blog`,
   in the black-only palette with a red top rule, rendered once in headless Chromium.
   SHA-256: `2ae614b15dd9f28246226093116795330bd19dcdf1457d701ce6486e1948b07a`.
+- `site/src/blog/share/<slug>.png` is an optional 1200×630 card for one article,
+  used instead of `og.png` on that article's pages. `what-one-percent-buys.png`
+  charts that article's published dollars per 1% (Max 20x $26–35, Max 5x ~$17,
+  Codex ~$10) in the same palette.
+  SHA-256: `449d620d3009bd3b78ada8feec0d2a19009e5800122225586b14a3cd6ecd5cc6`.
 
 The landing loads canonical design tokens but uses its own layout CSS. The blog
 retains its editorial structure with an independent black-only treatment.

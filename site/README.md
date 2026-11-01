@@ -61,8 +61,8 @@ the blog and repository. Blog header/footer outbound links use the repository. T
 TMT Journal. Its shared layout uses a black-only ninja palette in both color
 preferences, rice-paper text, a red accent and a file-backed hooded mark.
 Every page carries Open Graph and X card metadata with absolute `SITE_ORIGIN`
-URLs: the canonical URL, the article title and summary, and one shared 1200×630
-card (`src/blog/og.png`).
+URLs: the canonical URL, the article title and summary, and a 1200×630 card:
+`src/blog/share/<slug>.png` when an article has one, else `src/blog/og.png`.
 Provenance is recorded in [the blog style source note](src/blog/PROVENANCE.md).
 
 Marketing owns and reviews the blog end to end: code in `src/blog/` and approved

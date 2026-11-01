@@ -112,6 +112,7 @@ export function layout({
   location,
   title,
   shareTitle = title,
+  shareImage,
   description,
   path = "",
   language = "en",
@@ -138,17 +139,18 @@ export function layout({
     )
     .join("");
   const canonical = `<link rel="canonical" href="${e(location.url + canonicalPath)}">`;
-  // Link previews (Open Graph, X) need absolute URLs; one site card serves every page.
+  // Link previews (Open Graph, X) need absolute URLs. An article may have its own card in
+  // src/blog/share/<slug>.png; every other page uses the site card.
   const share = [
     ["og:type", slug ? "article" : "website"],
     ["og:site_name", site.title],
     ["og:title", shareTitle],
     ["og:description", description],
     ["og:url", location.url + canonicalPath],
-    ["og:image", location.url + "og.png"],
+    ["og:image", location.url + (shareImage ?? "og.png")],
     ["og:image:width", "1200"],
     ["og:image:height", "630"],
-    ["og:image:alt", `${site.title}: ${site.description}`],
+    ["og:image:alt", shareImage ? shareTitle : `${site.title}: ${site.description}`],
   ]
     .map(([property, content]) => `<meta property="${property}" content="${e(content)}">`)
     .join("");
