@@ -91,7 +91,8 @@ export function pairedMachines(world: AcceptanceWorld): PairedMachine[] {
         run(world, world.binaries.remote, [
           ...args,
           '--json',
-          ...(cursor ? ['--cursor', cursor] : []),
+          // One word: a cursor may start with '-' (#5934).
+          ...(cursor ? [`--cursor=${cursor}`] : []),
         ]),
       ) as Record<string, unknown> & { nextCursor: string | null };
       all.push(...(view[key] as T[]));

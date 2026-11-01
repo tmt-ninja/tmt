@@ -6748,6 +6748,45 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
 }
 
 #[test]
+fn an_agent_patch_labels_its_publication_with_the_caller_it_already_observed() {
+    // #5882: the automatic lock's acquisition and its release check each observe the caller
+    // (a lost observation keeps the lock); the display-only publisher label reuses the last one
+    // instead of a third Core lookup.
+    let pilot = Pilot::new(None);
+    fs::write(
+        pilot.root.join("publisher"),
+        json!({"identity":{"name":"patching-agent","id":"50000000-0000-1000-8000-000000000001"}})
+            .to_string(),
+    )
+    .unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Once", "--layout", "column", "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let file = pilot.root.join("page.html");
+    fs::write(&file, "<p>Patched by an agent</p>").unwrap();
+    let calls = || {
+        fs::read_to_string(pilot.root.join("publisher-calls"))
+            .unwrap()
+            .lines()
+            .filter(|line| *line == "identity show --json")
+            .count()
+    };
+    let before = calls();
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .args(pilot.patch_args(page, &["--file", file.to_str().unwrap(), "--json"]))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(calls() - before, 2);
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Patched by an agent</p>");
+    assert_eq!(read["publisherAgent"], "patching-agent");
+}
+
+#[test]
 fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
     let pilot = Pilot::new(None);
     pilot.opener(0);

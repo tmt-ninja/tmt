@@ -3,6 +3,7 @@
 mod bootstrap;
 pub(crate) mod epoch;
 pub(crate) use bootstrap::display_title;
+pub(crate) use epoch::ReadCache;
 pub use epoch::{Cut, StoredBaseline};
 
 use super::{Store, hash_at, sequence};
@@ -201,6 +202,8 @@ pub struct OwnerTransaction<'a> {
     root: &'a [u8; 32],
     head: Option<statement::Head>,
     clock: &'a super::Clock,
+    /// Read transactions only: a write may append statements it later rolls back.
+    cache: Option<&'a ReadCache>,
 }
 impl Store {
     /// Local retained head, not proof of a globally current membership view.
@@ -240,6 +243,7 @@ impl Store {
             root,
             head,
             clock: self.clock.as_ref(),
+            cache: None,
         };
         let outcome = apply(&mut owner)?;
         if owner
@@ -280,6 +284,7 @@ impl Store {
             root,
             head: Some(head),
             clock: self.clock.as_ref(),
+            cache: None,
         })?;
         tx.commit()?;
         Ok(outcome)
@@ -305,6 +310,7 @@ impl Store {
             root,
             head,
             clock: self.clock.as_ref(),
+            cache: None,
         })?;
         tx.commit()?;
         Ok(outcome)

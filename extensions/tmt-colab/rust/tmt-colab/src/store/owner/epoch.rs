@@ -1,5 +1,6 @@
 //! Transaction-local reads, cut capture/pinning and immutable baseline storage.
 use super::*;
+use std::collections::HashMap;
 use tmt_colab_model::{object, stream_cut};
 
 /// The most fold hashes one `device.revoke` lists (colab-v1, "Owner fold").
@@ -21,6 +22,61 @@ fn decoded_payload(envelope: &[u8]) -> Result<payload::Payload> {
         return Err(OwnerFault::Invalid.into());
     }
     Ok(payload::decode(header.operation, &bytes)?)
+}
+/// Page policies folded by read transactions, kept while the membership head stays the same
+/// (#5882). The log is append-only and its head hash names every statement up to it, so a
+/// policy at or below that head is the same fold; any new head starts the cache again. Each
+/// admission recheck then costs a lookup, not a decode of the whole log.
+/// What a read cache entry was filled at: the membership head hash, and SQLite's
+/// `data_version`, which changes whenever another connection commits. This connection's own
+/// membership writes move the head; any other write to the store refolds and reverifies.
+pub(crate) type CacheKey = ([u8; 32], i64);
+/// What read transactions reuse while the membership head stays the same (#5882).
+#[derive(Default)]
+pub(crate) struct ReadCache {
+    pub(super) policies: PolicyCache,
+    pub(super) log: VerifiedLog,
+}
+/// The payloads of the whole membership log, each verified against the chain once, for the head
+/// they end at: the page catalog then reuses them instead of checking every signature again.
+#[derive(Default)]
+pub(crate) struct VerifiedLog(std::sync::Mutex<Option<(CacheKey, Payloads)>>);
+type Payloads = std::sync::Arc<Vec<payload::Payload>>;
+impl VerifiedLog {
+    pub(super) fn get(&self, key: &CacheKey) -> Option<std::sync::Arc<Vec<payload::Payload>>> {
+        let cache = self.0.lock().ok()?;
+        let (at, log) = cache.as_ref()?;
+        (at == key).then(|| log.clone())
+    }
+    pub(super) fn put(&self, key: &CacheKey, log: std::sync::Arc<Vec<payload::Payload>>) {
+        if let Ok(mut cache) = self.0.lock() {
+            *cache = Some((*key, log));
+        }
+    }
+}
+type Policies = HashMap<(String, u64), crate::fold::PagePolicy>;
+#[derive(Default)]
+pub(crate) struct PolicyCache(std::sync::Mutex<Option<(CacheKey, Policies)>>);
+impl PolicyCache {
+    const PAGES: usize = 4096;
+    fn get(&self, key: &CacheKey, page: &str, revision: u64) -> Option<crate::fold::PagePolicy> {
+        let cache = self.0.lock().ok()?;
+        let (at, policies) = cache.as_ref()?;
+        (at == key)
+            .then(|| policies.get(&(page.to_owned(), revision)).cloned())
+            .flatten()
+    }
+    fn put(&self, key: &CacheKey, page: &str, revision: u64, policy: &crate::fold::PagePolicy) {
+        let Ok(mut cache) = self.0.lock() else {
+            return;
+        };
+        let (at, policies) = cache.get_or_insert_with(|| (*key, HashMap::new()));
+        if at != key || policies.len() >= Self::PAGES {
+            *at = *key;
+            policies.clear();
+        }
+        policies.insert((page.to_owned(), revision), policy.clone());
+    }
 }
 pub struct StoredBaseline {
     pub descriptor: Vec<u8>,
@@ -75,6 +131,7 @@ impl Store {
             root,
             head,
             clock: self.clock.as_ref(),
+            cache: Some(&self.read_cache),
         })
     }
     /// Caller must admit page/history access before returning these bytes remotely.
@@ -91,6 +148,29 @@ impl OwnerTransaction<'_> {
         page: &str,
         revision: u64,
     ) -> Result<crate::fold::PagePolicy> {
+        let cache = match (self.cache, self.head.as_ref()) {
+            (Some(cache), Some(head)) if revision <= head.revision => {
+                Some((&cache.policies, self.cache_key(head)?))
+            }
+            _ => None,
+        };
+        if let Some(policy) = cache.and_then(|(cache, key)| cache.get(&key, page, revision)) {
+            return Ok(policy);
+        }
+        let policy = self.read_page_policy(page, revision)?;
+        if let Some((cache, key)) = cache {
+            cache.put(&key, page, revision, &policy);
+        }
+        Ok(policy)
+    }
+    pub(super) fn cache_key(&self, head: &statement::Head) -> Result<CacheKey> {
+        Ok((
+            head.hash,
+            self.tx
+                .query_row("PRAGMA data_version", [], |row| row.get(0))?,
+        ))
+    }
+    fn read_page_policy(&self, page: &str, revision: u64) -> Result<crate::fold::PagePolicy> {
         let mut policy = crate::fold::PagePolicy::default();
         let mut query = self
             .tx
@@ -643,4 +723,59 @@ fn read_baseline(c: &Connection, page: &str, epoch: u64) -> Result<Option<Stored
         },
     )
     .optional()?)
+}
+
+#[cfg(test)]
+mod policy_cache_tests {
+    use super::PolicyCache;
+    use crate::fold::PagePolicy;
+
+    #[test]
+    fn a_policy_is_reused_only_at_the_head_it_was_folded_at() {
+        let cache = PolicyCache::default();
+        let archived = PagePolicy {
+            archived: true,
+            ..PagePolicy::default()
+        };
+        assert!(cache.get(&([1; 32], 0), "page", 7).is_none());
+        cache.put(&([1; 32], 0), "page", 7, &archived);
+        assert!(cache.get(&([1; 32], 0), "page", 7).unwrap().archived);
+        // Another revision or page is its own fold.
+        assert!(cache.get(&([1; 32], 0), "page", 6).is_none());
+        assert!(cache.get(&([1; 32], 0), "other", 7).is_none());
+        // Another connection committed (a new data_version): the fold is read again.
+        assert!(cache.get(&([1; 32], 1), "page", 7).is_none());
+        // A new head (a statement was appended) forgets every earlier fold.
+        assert!(cache.get(&([2; 32], 0), "page", 7).is_none());
+        cache.put(&([2; 32], 0), "other", 8, &PagePolicy::default());
+        assert!(cache.get(&([1; 32], 0), "page", 7).is_none());
+        assert!(cache.get(&([2; 32], 0), "page", 7).is_none());
+        assert!(!cache.get(&([2; 32], 0), "other", 8).unwrap().archived);
+    }
+
+    #[test]
+    fn a_verified_log_is_reused_only_at_its_head() {
+        let log = super::VerifiedLog::default();
+        assert!(log.get(&([1; 32], 0)).is_none());
+        log.put(&([1; 32], 0), std::sync::Arc::new(Vec::new()));
+        assert!(log.get(&([1; 32], 0)).is_some());
+        assert!(log.get(&([2; 32], 0)).is_none());
+        log.put(&([2; 32], 0), std::sync::Arc::new(Vec::new()));
+        assert!(log.get(&([1; 32], 0)).is_none());
+    }
+
+    #[test]
+    fn the_cache_stays_bounded() {
+        let cache = PolicyCache::default();
+        for revision in 0..PolicyCache::PAGES as u64 + 10 {
+            cache.put(&([3; 32], 0), "page", revision, &PagePolicy::default());
+        }
+        let held = cache.0.lock().unwrap().as_ref().unwrap().1.len();
+        assert!(held <= PolicyCache::PAGES, "{held}");
+        assert!(
+            cache
+                .get(&([3; 32], 0), "page", PolicyCache::PAGES as u64 + 9)
+                .is_some()
+        );
+    }
 }
