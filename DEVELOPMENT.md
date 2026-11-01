@@ -287,6 +287,12 @@ scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s
 Start it, end the turn and let its one message wake you; the script's header owns
 its final states, bounds, log and exit codes.
 
+For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](scripts/hooks/codex-wait-guard.mjs) is an
+optional `PreToolUse` hook that denies wait- and poll-shaped calls inside this repository;
+its header owns the checks, key, log and switch. It sees a wait only when it starts: Codex
+gives hooks no event for a `write_stdin` re-poll of a running session or for code-mode
+`functions.wait`, so this rule and the waker remain the fix.
+
 ## Review and evidence
 
 Report the reviewed revision, commands and results per
