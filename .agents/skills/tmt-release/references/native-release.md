@@ -694,7 +694,7 @@ never silently truncate. The daily sweep recovers missed dispatches and genuine 
 failures without authorizing publication or a publishing-workflow replay.
 
 `project-release.yml` sweeps closed issue items (except `epic`) of
-[tmt-ninja project 1](https://github.com/orgs/tmt-ninja/projects/1) and owns `Status` and
+[pj-tmt project 1](https://github.com/orgs/pj-tmt/projects/1) and owns `Status` and
 `Released in` for them; it needs **Organization projects: read and write** on the release App
 token (main-only `release` Environment) and no PAT. The daily cron is 04:23 UTC, and
 `native-release-bundle.yml` dispatches a full sweep after publication read-back and

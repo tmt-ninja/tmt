@@ -267,7 +267,7 @@ Ops executable and sit outside this bundle (see
 
 ## Project tracking
 
-Read progress in [tmt-ninja project 1](https://github.com/orgs/tmt-ninja/projects/1), filtered
+Read progress in [pj-tmt project 1](https://github.com/orgs/pj-tmt/projects/1), filtered
 to `label:epic`. Trackers use `Epic: <name>` and label `epic`; only native direct
 sub-issues count. Umbrella/findings-log issues stay outside. Never set, clear
 or wait for the retired Project `Epic` field.
