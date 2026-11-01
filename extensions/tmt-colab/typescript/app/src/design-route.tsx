@@ -6,7 +6,7 @@ import { shellRail, type ShellModule } from '@tmt/browser-ui/shell';
 import { ShellHostSlot } from './colab-shell.js';
 import { DesignLibrary } from './design-library.js';
 import './design-route.css';
-const DESIGN_BASE = '/colab/design';
+import { designBase } from './entry.js';
 
 export function DesignRoute() {
   const slot = useContext(ShellHostSlot);
@@ -15,7 +15,8 @@ export function DesignRoute() {
   const route = useRouterState({
     select: (state) => `${state.location.pathname}${state.location.searchStr}`,
   });
-  const path = `${DESIGN_BASE}${route.slice('/design'.length)}`;
+  const base = designBase();
+  const path = `${base}${route.slice('/design'.length)}`;
   const navigate = (href: string) => {
     void router.navigate({ href });
   };
@@ -45,7 +46,7 @@ export function DesignRoute() {
       view={{
         rail: shellRail(
           undefined,
-          { origin: location.origin, href: `${location.origin}${DESIGN_BASE}/` },
+          { origin: location.origin, href: `${location.origin}${base}/` },
           host,
         ),
       }}

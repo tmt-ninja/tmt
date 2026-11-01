@@ -137,7 +137,7 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
     );
     request.page = page;
     request.expected_revision = "1";
-    for display_only in ["page.projects", "project.manage", "page.pin"] {
+    for display_only in ["page.projects", "project.manage", "page.pin", "page.kind"] {
         assert!(auth::operation(display_only).is_err());
         assert!(auth::management_operation(display_only).is_ok());
         assert!(tmt_colab_model::payload::decode(display_only, b"{}").is_err());

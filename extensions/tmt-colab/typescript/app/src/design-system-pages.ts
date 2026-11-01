@@ -14,6 +14,7 @@ import type {
   PageTransport,
   SpaceHome,
 } from './transport.js';
+import { ManagementError } from './management.js';
 import { DESIGN_SYSTEM_PROJECT } from './projects.js';
 import { subpages } from './work.js';
 
@@ -23,17 +24,17 @@ import { subpages } from './work.js';
  * `data-tmt-ds` names the page's kind; the page body is the docs. A release is an ordinary
  * attachment of the root page. Nothing here needs a new record kind or serve route.
  *
- * Each system is its own top-level page tree that the Design tab shows. Its pages also hold the
- * reserved display-only project `tmt:design-system`, so the Colab list hides them without reading
- * sources; Colab never shows that project or lets a person name one so. Local-test marking only:
- * the PR replaces it with a native page kind (#5866).
+ * Each system is its own top-level page tree that the Design tab shows. Its pages carry the owner's
+ * display-only page kind `design-system`, so the Colab list hides them without reading sources. A
+ * serve from before page kinds refuses `page.kind`; then the pages hold the reserved, never-shown
+ * project `tmt:design-system` instead, which the next serve's schema turns into the kind.
  */
 
 export type BlockKind = 'design-system' | 'component';
 /** The reserved owner-store project every design-system page holds (contract: Projects). */
 export const DESIGN_PROJECT = DESIGN_SYSTEM_PROJECT;
-export const isDesignSystemPage = (page: Pick<PageSummary, 'projects'>) =>
-  !!page.projects?.includes(DESIGN_PROJECT);
+export const isDesignSystemPage = (page: Pick<PageSummary, 'projects' | 'kind'>) =>
+  page.kind === 'design-system' || !!page.projects?.includes(DESIGN_PROJECT);
 /** The space as Colab lists it: design-system pages and their project belong to the Design tab. */
 export function withoutDesignSystems(home: SpaceHome): SpaceHome {
   if (!home.pages.some(isDesignSystemPage) && !home.projects?.includes(DESIGN_PROJECT)) return home;
@@ -378,12 +379,23 @@ export async function listDesignSystems(
   return found.filter((entry): entry is DesignSystemEntry => !!entry);
 }
 
-/** Mark a system's pages as design-system pages, keeping each page's other projects. */
+/** Mark a system's pages as design-system pages: the page kind, or on a serve from before page kinds
+ * the reserved project, keeping each page's other projects. */
 async function markDesignPages(transport: PageTransport, ids: readonly string[]) {
-  if (!transport.management) throw new Error('Only the owner can make a design system.');
+  const management = transport.management;
+  if (!management) throw new Error('Only the owner can make a design system.');
+  if (management.setKind) {
+    try {
+      for (const id of ids) await management.setKind(id, 'design-system');
+      return;
+    } catch (error) {
+      // An older serve refuses the operation as INVALID; anything else is a real failure.
+      if (!(error instanceof ManagementError && error.code === 'INVALID')) throw error;
+    }
+  }
   const home = await transport.spaceHome();
   const projects = new Map(home.pages.map((page) => [page.id, page.projects ?? []]));
-  await transport.management.setProjects(
+  await management.setProjects(
     ids.map((pageId) => ({
       pageId,
       projects: [...new Set([...(projects.get(pageId) ?? []), DESIGN_PROJECT])],

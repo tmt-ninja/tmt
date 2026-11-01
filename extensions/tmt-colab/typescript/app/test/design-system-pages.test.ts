@@ -19,7 +19,7 @@ import type { PageBinding, PageTransport } from '../src/transport.js';
 
 /** #5821 / epic #5866: design systems as ordinary pages, over an in-memory space whose pages
  * hold source, sub-pages and attachments the way the live bindings do. */
-function space() {
+function space({ kinds = false }: { kinds?: boolean } = {}) {
   const pages = new Map<
     string,
     {
@@ -27,6 +27,7 @@ function space() {
       source: string;
       order: string[];
       projects: string[];
+      kind?: 'design-system';
       attachments: { id: string; bytes: Uint8Array }[];
     }
   >();
@@ -97,12 +98,20 @@ function space() {
         title: page.title,
         sharing: 'private',
         projects: [...page.projects],
+        ...(page.kind && { kind: page.kind }),
       })),
     }),
     management: {
       setProjects: async (changes: { pageId: string; projects: string[] }[]) => {
         for (const change of changes) pages.get(change.pageId)!.projects = [...change.projects];
       },
+      // A serve with page kinds (#5866) takes `page.kind`; an older one has no such request.
+      ...(kinds && {
+        setKind: async (pageId: string, kind: 'design-system' | null) => {
+          if (kind) pages.get(pageId)!.kind = kind;
+          else delete pages.get(pageId)!.kind;
+        },
+      }),
     },
   } as unknown as PageTransport;
   return { pages, make, binding, transport };
@@ -219,5 +228,21 @@ describe('template, publish and the renderer source', () => {
     await expect(
       publishDesignSystem(transport, rootId, binding(rootId), root.source, '0.1.1'),
     ).rejects.toThrow('has no component block');
+  });
+});
+
+describe('page kinds', () => {
+  it('marks a new system by the native page kind when the serve has it, with no project', async () => {
+    const { pages, make, transport } = space({ kinds: true });
+    const note = make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    for (const id of [rootId, config.components[0]!.page!]) {
+      expect(pages.get(id)!.kind).toBe('design-system');
+      expect(pages.get(id)!.projects).toEqual([]);
+    }
+    expect((await listDesignSystems(transport)).map((system) => system.id)).toEqual([rootId]);
+    const listed = withoutDesignSystems(await transport.spaceHome());
+    expect(listed.pages.map((page) => page.id)).toEqual([note]);
   });
 });

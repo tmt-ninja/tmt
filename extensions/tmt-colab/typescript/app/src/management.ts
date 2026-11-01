@@ -101,6 +101,8 @@ export interface ManagementPort {
   manageProject(change: ProjectManage): Promise<void>;
   /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
   setPinned(pageId: string, pinned: boolean): Promise<void>;
+  /** One display-only `page.kind` request (contract: Page kinds); an older serve refuses it. */
+  setKind?(pageId: string, kind: 'design-system' | null): Promise<void>;
 }
 export class ManagementError extends Error {
   constructor(
@@ -576,10 +578,15 @@ export class ManagementClient implements ManagementPort {
     generatedId(pageId);
     await this.displayOnly(pageId, 'page.pin', { pageId, pinned });
   }
+  /** A signed `page.kind` request: the owner sets or clears the page's kind (contract: Page kinds). */
+  async setKind(pageId: string, kind: 'design-system' | null): Promise<void> {
+    generatedId(pageId);
+    await this.displayOnly(pageId, 'page.kind', { pageId, kind });
+  }
   /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
   private async displayOnly(
     page: string,
-    operation: 'page.projects' | 'project.manage' | 'page.pin',
+    operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.kind',
     payload: object,
   ): Promise<void> {
     const bytes = text(JSON.stringify(payload));

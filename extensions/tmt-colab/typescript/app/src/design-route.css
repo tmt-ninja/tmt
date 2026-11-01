@@ -66,6 +66,7 @@
 @media (max-width: 900px) {
   .design-user-system {
     grid-template-columns: minmax(0, 1fr);
+    align-content: start;
   }
   .design-nav-toggle {
     display: block;
@@ -82,6 +83,8 @@
 
 .design-header-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
   gap: var(--tmt-ui-space-s);
 }
 .design-page-renderer iframe {
@@ -116,4 +119,9 @@
     min-width: 0;
     width: 100%;
   }
+}
+
+.design-live-frame {
+  width: 100%;
+  min-width: 0;
 }
