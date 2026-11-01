@@ -465,6 +465,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             plan: text(m, "plan"),
             member_query: text(m, "member"),
         }),
+        ["orch","job","import"]=>Invocation::Orch(OrchOperation::ImportJobs { file:required(m,"file").into(),source_id:required(m,"source-id"),digest:required(m,"digest"),yes:flag(m,"yes") }),
+        ["orch","job","import-receipt"]=>Invocation::Orch(OrchOperation::ImportReceipt { source_id:required(m,"source-id") }),
         ["orch","job","send"]=>Invocation::Orch(OrchOperation::SendJob {job:required(m,"job"),identity:text(m,"identity"),operation_id:text(m,"operation-id"),yes:flag(m,"yes")}),
         ["orch","job","ls"]=>Invocation::Orch(OrchOperation::Jobs {owner:text(m,"owner"),room:text(m,"squad-room"),limit:*m.get_one::<u16>("limit").expect("default limit"),cursor:text(m,"cursor")}),
         ["orch","job","show"]=>Invocation::Orch(OrchOperation::ShowJob {job:required(m,"job")}),

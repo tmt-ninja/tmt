@@ -28,7 +28,10 @@ fn policy_failure(e: OrchError) -> Failure {
 fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
     let (query, at) = match operation {
         op @ (OrchOperation::Jobs { .. } | OrchOperation::ShowJob { .. }) => return jobs::read(op),
-        OrchOperation::Write { .. } | OrchOperation::SendJob { .. } => {
+        OrchOperation::Write { .. }
+        | OrchOperation::SendJob { .. }
+        | OrchOperation::ImportJobs { .. }
+        | OrchOperation::ImportReceipt { .. } => {
             return Err(policy_failure(OrchError::Invalid));
         }
         OrchOperation::Overview {
@@ -427,6 +430,9 @@ fn write_human(
 }
 pub fn execute(operation: OrchOperation, mode: OutputMode) -> io::Result<u8> {
     let operation = match operation {
+        import @ (OrchOperation::ImportJobs { .. } | OrchOperation::ImportReceipt { .. }) => {
+            return jobs::adopt(import, mode);
+        }
         send @ OrchOperation::SendJob { .. } => return jobs::send(send, mode),
         OrchOperation::Write { operation, yes } => return write::execute(operation, yes, mode),
         read => read,

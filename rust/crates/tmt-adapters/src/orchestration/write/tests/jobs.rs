@@ -185,3 +185,76 @@ fn explicit_no_owner_stays_paused_and_reassignment_does_not_implicitly_resume() 
     assert_eq!(removed["removed"], true);
     assert!(s.orchestration_job(id).unwrap().is_none());
 }
+
+#[test]
+fn squad_jobs_preserve_imported_numbers_pause_and_atomic_counter_fences() {
+    let (d, mut storage, owner) = fixture();
+    let room = "44444444-4444-4444-8444-444444444444";
+    let source = "55555555-5555-4555-8555-555555555555";
+    let bytes = serde_json::to_vec(&json!({"version":2,"jobs":[],"counters":{(room):7}})).unwrap();
+    let (digest, _) = crate::storage::preview_job_import(&bytes).unwrap();
+    storage
+        .import_orchestration_jobs(source, &digest, &bytes, NOW as i64)
+        .unwrap();
+    add(&mut storage, &owner);
+    let mut definition = candidate(&owner, "exact squad message");
+    definition["squadRoomId"] = json!(room);
+    let mutation = json!({"kind":"job.addSquad","candidate":definition,"pausedBy":"person"});
+    let before = cursor(&d);
+    let p = preview_for(&mut storage, mutation.clone());
+    assert_eq!(cursor(&d), before, "preview reserves no c-ID");
+    let mut other = Storage::open(d.path.join("state.db")).unwrap();
+    let competing = preview_for(&mut other, mutation.clone());
+    let created: Value = serde_json::from_slice(
+        &orchestration_write(&mut other, apply_query(&competing), || NOW).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(created["job"]["legacy"]["cronId"], 8);
+    assert_eq!(created["job"]["manualPause"]["by"], "person");
+    assert_eq!(
+        orchestration_write(&mut storage, apply_query(&p), || NOW)
+            .unwrap_err()
+            .code(),
+        "ORCH_CONFLICT"
+    );
+    let id = created["job"]["id"].as_str().unwrap();
+    action(&mut storage, "job.rm", id, 1);
+    let p = preview_for(&mut storage, mutation.clone());
+    let next: Value = serde_json::from_slice(
+        &orchestration_write(&mut storage, apply_query(&p), || NOW).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        next["job"]["legacy"]["cronId"], 9,
+        "removal never reuses a room number"
+    );
+    let db = rusqlite::Connection::open(d.path.join("state.db")).unwrap();
+    let before = cursor(&d);
+    let p = preview_for(&mut storage, mutation.clone());
+    db.execute_batch("CREATE TRIGGER fail_squad_mapping BEFORE INSERT ON orchestration_job_legacy BEGIN SELECT RAISE(ABORT,'controlled mapping failure'); END;").unwrap();
+    assert!(orchestration_write(&mut storage, apply_query(&p), || NOW).is_err());
+    assert_eq!(
+        cursor(&d),
+        before,
+        "a failed mapping rolls back job, counter and configuration"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT last_id FROM orchestration_job_legacy_counters WHERE room_id=?",
+            [room],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        9
+    );
+    db.execute_batch("DROP TRIGGER fail_squad_mapping").unwrap();
+    let p = preview_for(&mut storage, mutation);
+    let next: Value = serde_json::from_slice(
+        &orchestration_write(&mut storage, apply_query(&p), || NOW).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(next["job"]["legacy"]["cronId"], 10);
+    assert!(decode_orch_write(&serde_json::to_vec(&json!({"phase":"preview","mutation":{"kind":"job.addSquad","candidate":candidate(&owner,"no room")}})).unwrap()).is_err());
+    other.close().unwrap();
+    storage.close().unwrap();
+}
