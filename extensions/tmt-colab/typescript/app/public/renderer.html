@@ -124,8 +124,8 @@
         const RCDATA = new Set(['style', 'textarea', 'title']);
         const REFUSED = new Set(
           (
-            'html head body frameset frame select ' +
-            'option optgroup template svg math script noscript iframe noembed noframes xmp ' +
+            'frameset frame ' +
+            'option optgroup template script noscript iframe noembed noframes xmp ' +
             'plaintext image isindex keygen rb rp rt rtc'
           ).split(' '),
         );
@@ -137,6 +137,13 @@
           ).split(' '),
         );
         const HEADING = /^h[1-6]$/;
+        // Tags the body parser leaves without a node: the doctype, and the document's own
+        // html, head and body tags (an html or body tag only adds attributes to the root or body).
+        const DOCUMENT = new Set(['html', 'head', 'body']);
+        // Inside svg or math, these start tags break back out into HTML, and these elements hold
+        // HTML; a subtree with either cannot be placed by its end tag alone.
+        const BREAKOUT =
+          /<\/?(?:b|big|blockquote|body|br|center|code|dd|div|dl|dt|em|embed|h[1-6]|head|hr|i|img|li|listing|menu|meta|nobr|ol|p|pre|ruby|s|small|span|strong|strike|sub|sup|table|tt|u|ul|var|font|foreignobject|desc|title|annotation-xml|mi|mo|mn|ms|mtext)[\s/>]/i;
         // What a block's end tag closes on its way, as the parser's implied end tags.
         const IMPLIED = new Set(['li', 'dd', 'dt', 'p']);
         // A table is placed only when nothing in it would be moved out (foster-parented) or dropped:
@@ -165,14 +172,22 @@
           const stack = [];
           let at = 0;
           let start = 0;
-          // A run of text at the top level is one node, ended by the next top-level tag or comment.
+          // Document tags give no node, and after the body's end tag only whitespace may follow.
+          const quiet = [];
+          let ended = false;
+          // A run of text at the top level is one node, ended by the next top-level tag or comment;
+          // document tags inside it are not text.
           const text = (end) => {
-            if (end > start && !stack.length) spans.push([start, end, 'text']);
+            const hidden = quiet
+              .filter(([a]) => a >= start && a < end)
+              .reduce((sum, [a, b]) => sum + b - a, 0);
+            if (end - start > hidden && !stack.length) spans.push([start, end, 'text']);
           };
           while (at < source.length) {
             const open = source.indexOf('<', at);
             if (open < 0) break;
             const next = source[open + 1] ?? '';
+            if (ended && next === '!') return null;
             if (source.startsWith('<!--', open)) {
               const close = source.indexOf('-->', open + 4);
               const body = close < 0 ? '' : source.slice(open + 4, close);
@@ -190,6 +205,13 @@
                 start = close + 3;
               }
               at = close + 3;
+              continue;
+            }
+            if (/^<!doctype[\s>]/i.test(source.slice(open, open + 10)) && !stack.length) {
+              const close = source.indexOf('>', open);
+              if (close < 0) return null;
+              quiet.push([open, close + 1]);
+              at = close + 1;
               continue;
             }
             if (next === '!' || next === '?') return null;
@@ -215,7 +237,14 @@
             if (end >= source.length) return null;
             const name = /^[A-Za-z][^\s/>]*/.exec(source.slice(nameAt, end))[0].toLowerCase();
             const tagEnd = end + 1;
-            if (REFUSED.has(name)) return null;
+            if (REFUSED.has(name) || (ended && !DOCUMENT.has(name))) return null;
+            if (DOCUMENT.has(name)) {
+              if (stack.length) return null;
+              if (closing && name !== 'head') ended = true;
+              quiet.push([open, tagEnd]);
+              at = tagEnd;
+              continue;
+            }
             const inTable = TABLE_CHILDREN[stack.at(-1)];
             if (inTable && /\S/.test(source.slice(at, open))) return null;
             if (!closing && (inTable ? !inTable.includes(name) : TABLE_PARTS.has(name)))
@@ -274,6 +303,46 @@
               at = tagEnd;
               continue;
             }
+            if (name === 'select' && !closing) {
+              // A list of options is one element up to its end tag; anything else in it is not.
+              const closeAt = source.slice(tagEnd).search(/<\/select[\s/>]/i);
+              if (closeAt < 0) return null;
+              const inner = source.slice(tagEnd, tagEnd + closeAt);
+              if (/<(?!\/?(?:option|optgroup)[\s/>])/i.test(inner)) return null;
+              const closeEnd = source.indexOf('>', tagEnd + closeAt) + 1;
+              if (!stack.length) {
+                spans.push([open, closeEnd]);
+                start = closeEnd;
+              }
+              at = closeEnd;
+              continue;
+            }
+            if (name === 'svg' || name === 'math') {
+              // A foreign subtree is one element up to its matching end tag, unless it breaks out.
+              let closeEnd = tagEnd;
+              if (source[end - 1] !== '/') {
+                const tags = new RegExp(`<(/?)${name}[\\s/>]`, 'gi');
+                tags.lastIndex = tagEnd;
+                let depth = 1;
+                let match;
+                while (depth && (match = tags.exec(source)))
+                  if (match[1]) depth--;
+                  else if (source[source.indexOf('>', match.index) - 1] !== '/') depth++;
+                if (depth) return null;
+                closeEnd = source.indexOf('>', match.index) + 1;
+                // A title or description holding only text stays text, as in the parser.
+                const inner = source
+                  .slice(tagEnd, match.index)
+                  .replace(/<(title|desc)(?:\s[^>]*)?>[^<]*<\/\1\s*>/gi, '');
+                if (!closeEnd || BREAKOUT.test(inner)) return null;
+              }
+              if (!stack.length) {
+                spans.push([open, closeEnd]);
+                start = closeEnd;
+              }
+              at = closeEnd;
+              continue;
+            }
             if (RCDATA.has(name)) {
               const closeAt = source.slice(tagEnd).search(new RegExp(`</${name}[\\s/>]`, 'i'));
               if (closeAt < 0) return null;
@@ -308,8 +377,9 @@
         // bound body, the new text and its spans; null when the page must be parsed whole. A run
         // that touches a style, a script, a document-level tag, a question, review or reading block,
         // an inline handler or the design-system markers is always parsed whole.
+        const DOCUMENT_TAG = /<!doctype[^>]*>|<\/?(?:html|head|body)(?:[\s/][^>]*)?>/gi;
         const WHOLE =
-          /<\/?(?:style|script|link|meta|base|title|head|body|html|table|caption|colgroup|col|thead|tbody|tfoot|tr|td|th|tmt-questions?|tmt-review|tmt-read|tmt-icon|tmt-starter)\b|data-(?:question|choice)|[\s/]on[a-z-]*\s*=|tmt-colab-runtime|tmt-ui-/i;
+          /<\/?(?:style|script|link|meta|base|title|table|caption|colgroup|col|thead|tbody|tfoot|tr|td|th|svg|math|select|tmt-questions?|tmt-review|tmt-read|tmt-icon|tmt-starter)\b|data-(?:question|choice)|[\s/]on[a-z-]*\s*=|tmt-colab-runtime|tmt-ui-/i;
         function planFragment(before, spans, after) {
           if (!spans) return null;
           const most = Math.min(before.length, after.length);
@@ -347,10 +417,15 @@
           while (to < spans.length && (textAt(to) || from === to)) to++;
           const start = from < spans.length ? spans[from][0] : before.length;
           const end = to > 0 && to > from ? spans[to - 1][1] : start;
+          // The run must hold the whole change, including document tags between nodes.
+          if (start > head || end < before.length - tail) return null;
           const delta = after.length - before.length;
           const old = before.slice(start, end);
           const text = after.slice(start, end + delta);
           if (WHOLE.test(old) || WHOLE.test(text)) return null;
+          // The document's own tags give no node; a run may hold them only as they were.
+          const documentTags = (value) => value.match(DOCUMENT_TAG)?.join('') ?? '';
+          if (documentTags(old) !== documentTags(text)) return null;
           const placed = topLevelSpans(text);
           if (!placed) return null;
           // A paragraph the run leaves open is closed in the full parse only if the next node
