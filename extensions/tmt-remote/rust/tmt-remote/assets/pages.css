@@ -762,10 +762,11 @@ body:not(:has(.tmt-ui-shell)) {
   background: var(--tmt-ui-surface-rule-soft);
   border-color: var(--tmt-ui-color-text);
 }
+/* A bordered control shows focus on its own border, never a second frame outside it. */
 .ops-orchestration-slot:focus-visible,
 .ops-orchestration-cell:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--tmt-ui-color-focus);
 }
 .ops-detail {
   display: flex;
