@@ -271,6 +271,7 @@ test('only exact current-render theme messages on the bound port update author p
       threadCount: 0,
       draft: null,
       quiet: null,
+      unsent: [],
     });
     await finished;
   }, renderId);

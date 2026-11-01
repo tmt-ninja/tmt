@@ -568,7 +568,7 @@ test('chat: a failed message survives closing and reopening Chat', async ({ page
   await expect(echo(page)).toHaveCount(0);
 });
 
-test('anchored dialog: a failed reply survives closing the thread as the composer draft', async ({
+test('anchored dialog: a failed reply keeps its row while Comments restores its text draft', async ({
   page,
 }) => {
   const { dialog, input, page_ } = await openAnchoredThread(page);
@@ -581,12 +581,24 @@ test('anchored dialog: a failed reply survives closing the thread as the compose
   await expect(dialog).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
 
-  // The thread's composer remounts, so the row's draft comes back in it.
+  // #5850: Comments restores the text draft, while the original keyed composer retains the
+  // failed row (and any files). The row is hidden here, not destroyed or copied into Comments.
   const reopened = commentsRegion(page);
   const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
   await expect(composer).toHaveText('Keep this unsent reply.', { useInnerText: true });
-  await expect(echo(page)).toHaveCount(0);
+  await expect(reopened.getByTestId('comment-echo')).toHaveCount(0);
   await expect(reopened.getByTestId('comment-entry')).toHaveCount(1);
+  await expect(echo(page)).toHaveCount(1);
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(echo(page)).toBeHidden();
+  const notice = page.locator('.page-unsent').getByRole('listitem');
+  await expect(notice).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(echo(page)).toBeVisible();
+  await expect(echo(page)).toContainText('Keep this unsent reply.');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
 });
 
 test('comments: a reply that fails after Comments closed mid-send still holds its draft', async ({
