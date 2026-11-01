@@ -33,6 +33,60 @@ impl Completion {
     /// with the caller's `trigger` (such as `@`). Addresses in ordinary words and
     /// references inside folded source do not open a picker.
     pub fn update(&mut self, editor: &Editor, candidates: &[Candidate], trigger: &str) {
+        self.update_ranked(editor, trigger, |query| {
+            candidates
+                .iter()
+                .filter_map(|candidate| {
+                    match_label(&candidate.label, query)
+                        .map(|(rank, ranges)| ((0, rank), candidate.clone(), ranges))
+                })
+                .collect()
+        });
+    }
+
+    /// Like [`update`](Self::update) for an inventory in groups: each candidate's group is
+    /// its `kind`, in the order the inventory first names it, and matches stay in those
+    /// groups. A candidate whose label does not match but whose `detail` contains the query
+    /// still matches, after every label match of its group, with no emphasis.
+    pub fn update_grouped(
+        &mut self,
+        editor: &Editor,
+        candidates: &[(Candidate, String)],
+        trigger: &str,
+    ) {
+        let mut groups: Vec<&str> = Vec::new();
+        for (candidate, _) in candidates {
+            if !groups.contains(&candidate.kind.as_str()) {
+                groups.push(&candidate.kind);
+            }
+        }
+        self.update_ranked(editor, trigger, |query| {
+            let needle: String = query.iter().collect();
+            candidates
+                .iter()
+                .filter_map(|(candidate, detail)| {
+                    let group = groups.iter().position(|kind| *kind == candidate.kind)?;
+                    match match_label(&candidate.label, query) {
+                        Some((rank, ranges)) => Some(((group, rank), candidate.clone(), ranges)),
+                        None => normalized(detail)
+                            .chars
+                            .iter()
+                            .collect::<String>()
+                            .contains(&needle)
+                            .then(|| ((group, 5), candidate.clone(), Vec::new())),
+                    }
+                })
+                .collect()
+        });
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn update_ranked(
+        &mut self,
+        editor: &Editor,
+        trigger: &str,
+        rank: impl FnOnce(&[char]) -> Vec<((usize, u8), Candidate, Vec<Range<usize>>)>,
+    ) {
         let cursor = editor.cursor();
         let prefix = &editor.as_str()[..cursor];
         let start = prefix
@@ -63,13 +117,7 @@ impl Completion {
             .get(self.selected)
             .map(|candidate| candidate.id.clone());
         let query = normalized(query.unwrap()).chars;
-        let mut matches: Vec<_> = candidates
-            .iter()
-            .filter_map(|candidate| {
-                match_label(&candidate.label, &query)
-                    .map(|(rank, ranges)| (rank, candidate.clone(), ranges))
-            })
-            .collect();
+        let mut matches = rank(&query);
         // Stable sort preserves the application's inventory order within a rank.
         matches.sort_by_key(|(rank, _, _)| *rank);
         (self.matches, self.matched_ranges) = matches

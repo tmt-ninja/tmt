@@ -162,7 +162,7 @@ remain independent of storage access.
 | `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                                                                               | `acknowledged`                                                                                                                                                                                                                          |
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                                                                | `owner`, `published` targets                                                                                                                                                                                                            |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                                                                 | `owner`, `removed` and `kept` targets                                                                                                                                                                                                   |
-| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                   | The skills that member's agent can invoke: `syntax`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                            |
+| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                   | The skills that member's agent can invoke: `syntax`, `driver`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                      |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                                                                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                 | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
@@ -1019,6 +1019,7 @@ The result is:
 ```json
 {
   "syntax": { "kind": "prefix", "sigil": "/" },
+  "driver": "claude",
   "skills": [
     { "name": "tmt", "description": "…", "source": { "group": "tmt" } },
     { "name": "kit:deploy", "description": "…", "source": { "group": "plugin", "plugin": "kit" } }
@@ -1031,6 +1032,10 @@ The result is:
 
 - `syntax` is how the composer inserts a skill: `{kind:"prefix", sigil}` (Claude Code `/`,
   Codex `$`) or `{kind:"unsupported"}`.
+- `driver` is the member's remembered harness id (for example `claude` or `codex`), or `null`
+  for an unknown identity or one with no remembered driver. It comes only from Core's
+  remembered harness, never from a path or a pane. The field was added within v1, so a reader
+  that ignores unknown fields is unaffected.
 - `name` is the exact token after the sigil. A name that is not one token (lowercase ASCII
   letters, digits and `-`, 1–64 bytes; a plugin skill is `plugin:name` with both parts so)
   is dropped.
@@ -1043,7 +1048,10 @@ All skill text is untrusted display data: a reader renders it and never runs it.
 
 **Which member and which directories.** The member's remembered driver answers. An
 identity that is unknown or has no remembered driver, and a driver without skill invocation,
-answer `unsupported` with no skills; neither is an error.
+answer `unsupported` and list only TMT's own skills (#5924); neither is an error. Those come
+from this tmt's published skill set: its bundle directory under `skill-assets` and each
+extension-owned skill's recorded source. They are read through the same bounded walk as the
+other groups, with no provider directory and no link followed.
 
 - The driver's provider roots come from the ambient environment of the process answering,
   the same rule as [account limits](#account-limits). A member launched under a different

@@ -889,6 +889,7 @@ pub struct App {
     pub input: Option<Input>,
     pub(super) composer: super::composer::State,
     pub(super) mentions: super::mentions::State,
+    pub(super) skills: super::skills::State,
     pub(super) member_links: RefCell<super::member_links::State>,
     pub(super) references: super::inventory::Inventory,
     /// Lane jobs submitted whose events have not arrived.
@@ -2874,6 +2875,7 @@ impl App {
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.remember_draft();
         self.mentions = Default::default();
+        self.skills.reset();
         self.input = Some(Input {
             draft_key: None,
 
@@ -3595,7 +3597,9 @@ impl App {
             .any(|fold| fold.source.start == 0 && input.inline_quotes.contains_key(&fold.id));
         let text = crate::requests::message::inline_body(
             row.map(|row| (squad, row)),
-            &input.quoted_message_named(&|id| self.mention_name(id)),
+            &input.quoted_message_with(&|id| self.mention_name(id), &|name| {
+                self.skill_sent(&input, name)
+            }),
             starts_quote,
         );
         if input
@@ -3649,7 +3653,9 @@ impl App {
             });
         let fallback = text;
         let text = if chat.is_some() {
-            input.quoted_message_named(&|id| self.mention_name(id))
+            input.quoted_message_with(&|id| self.mention_name(id), &|name| {
+                self.skill_sent(&input, name)
+            })
         } else {
             fallback.clone()
         };
@@ -4325,6 +4331,7 @@ impl App {
         self.conversation.borrow_mut().invalidate_source_geometry();
         self.scrolls.begin_frame();
         self.mentions.invalidate();
+        self.skills.invalidate();
         if let Some(reader) = &self.row_details.reader {
             reader.source_area.set(None);
         }
@@ -4719,6 +4726,7 @@ impl App {
                 self.remember_draft();
                 self.input = None;
                 self.mentions = Default::default();
+                self.skills.reset();
                 self.focus = 0;
             }
         }

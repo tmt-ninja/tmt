@@ -77,6 +77,7 @@ mod search_field;
 mod section_rule;
 mod selected_conversation;
 mod settings;
+mod skills;
 mod spark_row;
 mod stat_tiles;
 mod state_cell;
@@ -289,6 +290,8 @@ pub(in crate::board) enum BoardEvent {
     AnswersAcknowledged(Result<unread::publish::Completed, String>),
     /// A conversation's checklist summary was read; it owns no user action or progress notice.
     NotesRead(conversation_checklist::Completed),
+    /// The open composer's recipient skills were read; quiet, with no progress notice.
+    SkillsRead(skills::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
     /// Inside tmux, the root `WheelUpPane` binding sends wheel-up to copy-mode (read once at start).
@@ -338,6 +341,7 @@ impl BoardEvent {
             Self::LocalUnreadPublished { .. } => "LocalUnreadPublished",
             Self::AnswersAcknowledged(_) => "AnswersAcknowledged",
             Self::NotesRead(_) => "NotesRead",
+            Self::SkillsRead(_) => "SkillsRead",
             Self::VersionsRead(_) => "VersionsRead",
             Self::WheelUpEscapes => "WheelUpEscapes",
             Self::Input(Event::Key(_)) => "Input::Key",
@@ -811,6 +815,10 @@ fn session(
             .or_else(|| app.notes.offer_background(shown.as_ref(), now))
         {
             io(lane::Job::Notes(task));
+        }
+        let recipient = app.skill_recipient().map(|(id, _)| id);
+        if let Some(task) = app.skills.offer(recipient.as_deref(), now) {
+            io(lane::Job::Skills(task));
         }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
@@ -1400,6 +1408,12 @@ fn session(
                     }
                     Ok(BoardEvent::NotesRead(completed)) => {
                         app.finished_notes(completed, Instant::now());
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::SkillsRead(completed)) => {
+                        app.skills.finished(completed, Instant::now());
+                        app.update_skills();
                         dirty = true;
                         Effect::None
                     }

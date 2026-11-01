@@ -1465,7 +1465,7 @@ impl App {
             Some(_) => false,
             None => self.menu.is_none() && self.input.is_some(),
         };
-        if editing && self.mentions.completion.open() {
+        if editing && (self.mentions.completion.open() || self.skills.completion.open()) {
             OpsInputOwner::Completion
         } else if editing {
             OpsInputOwner::Composer

@@ -286,6 +286,7 @@ pub(in crate::board) fn render_frame(
     super::workspace::render::dialog(frame, app, body);
     waiting::prompt(frame, app, body);
     super::mentions::render(frame, app);
+    super::skills::render(frame, app);
     if app.modal_open() {
         look.selected_words(frame.buffer_mut(), &[], app.conversation_tinted.get());
     } else {

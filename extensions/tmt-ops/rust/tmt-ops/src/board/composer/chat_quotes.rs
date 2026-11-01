@@ -195,9 +195,25 @@ impl Input {
         &self,
         name: &dyn Fn(&str) -> Option<String>,
     ) -> String {
+        self.quoted_message_with(name, &|_| None)
+    }
+
+    /// The sent body, with each chosen skill written as `skill` says for the recipient
+    /// (#5924). Only a fold chosen from the skills menu converts; typed text never does.
+    pub(in crate::board) fn quoted_message_with(
+        &self,
+        name: &dyn Fn(&str) -> Option<String>,
+        skill: &dyn Fn(&str) -> Option<String>,
+    ) -> String {
         let mut body = String::new();
         let mut end = 0;
         for fold in self.text.folds() {
+            if let Some(sent) = super::super::skills::chosen(fold).and_then(skill) {
+                body.push_str(&self.text.as_str()[end..fold.source.start]);
+                body.push_str(&sent);
+                end = fold.source.end;
+                continue;
+            }
             if let Some(current) = super::super::mentions::mentioned(fold).and_then(name) {
                 body.push_str(&self.text.as_str()[end..fold.source.start]);
                 body.push_str(super::super::mentions::TRIGGER);

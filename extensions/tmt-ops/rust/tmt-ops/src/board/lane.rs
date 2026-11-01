@@ -47,6 +47,8 @@ pub(super) enum Job {
     AcknowledgeAnswers(super::unread::publish::Writer),
     /// Read the checklist summary of the conversation on screen.
     Notes(super::conversation_checklist::Task),
+    /// Read the skills the open composer's recipient can invoke.
+    Skills(super::skills::Task),
     /// Read the running versions once, at start.
     Versions,
 }
@@ -63,6 +65,7 @@ impl Job {
                 | Self::LocalUnread(_)
                 | Self::AcknowledgeAnswers(_)
                 | Self::Notes(_)
+                | Self::Skills(_)
                 | Self::Versions
         )
     }
@@ -107,6 +110,7 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Notes(task) => {
             BoardEvent::NotesRead(super::conversation_checklist::complete(core, task))
         }
+        Job::Skills(task) => BoardEvent::SkillsRead(super::skills::complete(core, task)),
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
         Job::Jump { member } => BoardEvent::Acted {
             jump: true,

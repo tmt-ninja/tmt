@@ -140,11 +140,12 @@ fn walk(roots: &SkillRoots, assets: &Path, mut visit: impl FnMut(&Candidate)) ->
     clipped
 }
 
-/// An opaque digest of the walked directories and their skill files' stat
-/// data: names, kinds, sizes and modification times. It reads no file.
-pub fn stamp(roots: &SkillRoots, assets: &Path) -> String {
+/// An opaque digest of the answering driver, the walked directories and their skill
+/// files' stat data: names, kinds, sizes and modification times. It reads no file.
+pub fn stamp(roots: &SkillRoots, assets: &Path, driver: Option<&str>) -> String {
     let mut hash = Sha256::new();
     hash.update(format!("{:?}", roots.syntax));
+    hash.update(format!("{driver:?}"));
     for root in &roots.roots {
         hash.update(root.path.as_os_str().as_encoded_bytes());
         hash.update([0]);
@@ -173,12 +174,6 @@ fn stat_line(path: &Path) -> String {
 /// [`SKILL_LIMIT`]. A skill whose file is missing, unreadable, without closed
 /// front matter, or whose name is not one composer token is dropped.
 pub fn list(roots: &SkillRoots, assets: &Path) -> SkillList {
-    if roots.syntax == InvocationSyntax::Unsupported {
-        return SkillList {
-            skills: Vec::new(),
-            truncated: false,
-        };
-    }
     let mut skills = Vec::new();
     let clipped = walk(roots, assets, |candidate| {
         if let Some(skill) = read(candidate) {

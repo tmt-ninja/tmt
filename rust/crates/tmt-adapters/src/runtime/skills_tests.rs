@@ -134,7 +134,7 @@ fn untrusted_or_unreadable_skills_are_dropped() {
 }
 
 #[test]
-fn a_linked_root_is_not_walked_and_unsupported_lists_nothing() {
+fn a_linked_root_is_not_walked() {
     let world = World::new();
     skill(&world.outside, "far", "name: far");
     let linked = world.project.join("linked-root");
@@ -147,10 +147,6 @@ fn a_linked_root_is_not_walked_and_unsupported_lists_nothing() {
         }],
     };
     assert!(list(&roots, &world.assets).skills.is_empty());
-    skill(&world.user, "good", "name: good");
-    let mut unsupported = world.roots();
-    unsupported.syntax = InvocationSyntax::Unsupported;
-    assert!(list(&unsupported, &world.assets).skills.is_empty());
 }
 
 #[test]
@@ -169,29 +165,32 @@ fn more_skills_than_the_limit_are_truncated() {
 fn the_stamp_follows_the_walked_directories_without_reading_files() {
     let world = World::new();
     let roots = world.roots();
-    let empty = stamp(&roots, &world.assets);
+    let empty = stamp(&roots, &world.assets, None);
     let review = skill(&world.user, "review", "name: review");
-    let added = stamp(&roots, &world.assets);
+    let added = stamp(&roots, &world.assets, None);
     assert_ne!(added, empty);
     // Stable while nothing changes.
-    assert_eq!(stamp(&roots, &world.assets), added);
+    assert_eq!(stamp(&roots, &world.assets, None), added);
     // An unreadable skill file changes nothing the stamp sees: it never reads it.
     let file = review.join(SKILL_FILE);
     fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
-    assert_eq!(stamp(&roots, &world.assets), added);
+    assert_eq!(stamp(&roots, &world.assets, None), added);
     assert!(list(&roots, &world.assets).skills.is_empty());
     fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
     // An edit, a new plugin skill and a removal each change it.
     fs::write(&file, "---\nname: review\ndescription: longer now\n---\n").unwrap();
-    let edited = stamp(&roots, &world.assets);
+    let edited = stamp(&roots, &world.assets, None);
     assert_ne!(edited, added);
     skill(&world.plugin, "deploy", "");
-    let plugin = stamp(&roots, &world.assets);
+    let plugin = stamp(&roots, &world.assets, None);
     assert_ne!(plugin, edited);
     fs::remove_dir_all(&review).unwrap();
-    assert_ne!(stamp(&roots, &world.assets), plugin);
+    assert_ne!(stamp(&roots, &world.assets, None), plugin);
     // A different project directory is a different set of roots.
     let mut moved = world.roots();
     moved.roots[2].path = world.outside.clone();
-    assert_ne!(stamp(&moved, &world.assets), stamp(&roots, &world.assets));
+    assert_ne!(
+        stamp(&moved, &world.assets, None),
+        stamp(&roots, &world.assets, None)
+    );
 }
