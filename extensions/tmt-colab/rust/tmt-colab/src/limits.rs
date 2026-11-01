@@ -161,8 +161,6 @@ pub const SPACE_PROJECT_PAGES: usize = 1000;
 /// Pinned pages (contract: Pins): at most this many in the space, so the owner list stays short and
 /// the `/api/pages` reply stays under its cap.
 pub const SPACE_PINS: usize = 20;
-/// The one page kind (contract: Page kinds): a page of a design-system tree (#5866).
-pub const DESIGN_SYSTEM_KIND: &str = "design-system";
 /// Pinned projects (contract: Projects): at most this many names in the owner's sidebar list.
 /// `AUTOMATIC_PROJECT_PINS` is how many recently used projects the sidebar shows until the owner
 /// first writes the list.

@@ -548,15 +548,6 @@ impl Registration {
         self.engine
             .set_pinned(&mut self.store, &self.keyring, page, pinned)
     }
-    pub fn set_kind(
-        &mut self,
-        page: &str,
-        kind: Option<&str>,
-    ) -> std::result::Result<tmt_colab_model::statement::Head, crate::transitions::TransitionError>
-    {
-        self.engine
-            .set_kind(&mut self.store, &self.keyring, page, kind)
-    }
     pub fn manage_project(
         &mut self,
         change: &crate::projects::Change,
@@ -760,42 +751,6 @@ impl Registration {
                     "The page for this task could not be made.",
                 )
             })
-    }
-    /// The owner device's new top-level page (`page.new`, #5866): the same create as a browser
-    /// `subpage.create` makes (`create_child`), attached nowhere, with the page kind when asked.
-    /// The page ID is derived from the operation, so a replay finds the page it made and makes
-    /// none. The caller holds the registration and has admitted the owner device.
-    pub(crate) fn new_page(
-        &mut self,
-        operation_id: &str,
-        title: &str,
-        kind: Option<&str>,
-        now: u64,
-    ) -> std::result::Result<(String, tmt_colab_model::statement::Head), crate::management::Code>
-    {
-        use crate::management::Code;
-        let page = crate::subpage_create::child_page_id(&self.keyring.space_id, operation_id);
-        if self.page_epoch(&page).is_none() {
-            self.create_child(
-                &page,
-                operation_id,
-                title,
-                &crate::subpage_create::child_source(title),
-                now,
-            )
-            .map_err(|_| Code::Unavailable)?;
-        }
-        let head = match kind {
-            Some(kind) => self
-                .set_kind(&page, Some(kind))
-                .map_err(|error| error.code)?,
-            None => self
-                .store
-                .owner_head(&self.keyring.space_id, &self.keyring.owner_public())
-                .map_err(|_| Code::Unavailable)?
-                .ok_or(Code::Unavailable)?,
-        };
-        Ok((page, head))
     }
     /// Where a browser Save gets a snapshot of its own to prepare from, outside every lock.
     pub(crate) fn save_source(&self) -> Option<crate::page::save::SourceOpener> {

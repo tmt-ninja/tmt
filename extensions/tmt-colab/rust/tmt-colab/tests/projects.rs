@@ -95,23 +95,6 @@ impl Fixture {
                 tx.set_pinned(page, pinned)
             })
     }
-    fn kind(&mut self, page: &str, kind: Option<&str>) -> tmt_colab::Result<bool> {
-        let key = &self.key;
-        self.store
-            .project_transaction(&key.space_id, &key.owner_public(), |tx| {
-                tx.set_kind(page, kind)
-            })
-    }
-    /// Each page's `kind` as the page list reports it.
-    fn reported_kinds(&self) -> Vec<(String, serde_json::Value)> {
-        let catalog = tmt_colab::inspection::catalog(&self.store, &self.key).unwrap();
-        catalog["pages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| (p["pageId"].as_str().unwrap().to_owned(), p["kind"].clone()))
-            .collect()
-    }
     fn pins(&mut self) -> Vec<String> {
         let key = &self.key;
         self.store
@@ -145,7 +128,7 @@ impl Fixture {
     fn as_schema_12(&mut self, labels: &[(&str, &str)]) {
         let db = self.oracle();
         db.execute_batch(
-            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE page_kinds; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
              CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
              PRAGMA user_version=12;",
@@ -190,7 +173,7 @@ fn the_schema_adds_projects_and_keeps_what_was_there() {
     // A store from before labels (schema 6) gains the tables on the next open; nothing else moves.
     f.oracle()
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_kinds; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
         )
         .unwrap();
     f.reopen();
@@ -560,7 +543,7 @@ fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_u
     assert_eq!(f.project_pins(), (true, vec!["a".to_owned()]));
     f.oracle()
         .execute_batch(
-            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE page_kinds; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17;",
+            "ALTER TABLE edit_decisions DROP COLUMN result; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17;",
         )
         .unwrap();
     f.reopen();
@@ -570,7 +553,7 @@ fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_u
         .unwrap();
     // Reopening applies migration 18 and all later migrations. Keep the
     // current version pinned, updating it deliberately when another migration is added.
-    assert_eq!(version, 21);
+    assert_eq!(version, 20);
     assert_eq!(f.project_pins(), (false, vec![]));
     assert_eq!(f.names(), ["a"]);
 }
@@ -690,69 +673,4 @@ fn the_page_list_reports_the_written_list_or_the_five_most_recently_used_project
         f.reported_pins(),
         serde_json::json!({"names":[],"automatic":false})
     );
-}
-
-#[test]
-fn a_page_kind_is_set_cleared_and_listed_only_on_its_page() {
-    let mut f = Fixture::new();
-    for n in 1..=2 {
-        f.open_page(&page(n));
-    }
-    assert!(f.kind(&page(1), Some("design-system")).unwrap());
-    assert!(
-        !f.kind(&page(1), Some("design-system")).unwrap(),
-        "the same kind again changes nothing"
-    );
-    assert!(!f.kind(&page(2), None).unwrap(), "clearing no kind");
-    let kinds = f.reported_kinds();
-    assert!(
-        kinds.contains(&(page(1), serde_json::json!("design-system"))),
-        "{kinds:?}"
-    );
-    assert!(
-        kinds.contains(&(page(2), serde_json::Value::Null)),
-        "no kind field: {kinds:?}"
-    );
-    // An unknown kind, an unknown page and a malformed ID are refused, and nothing changes.
-    let error = f.kind(&page(2), Some("dashboard")).unwrap_err();
-    assert_eq!(fault(error).as_deref(), Some("Invalid"));
-    for refused in [page(9), "not-a-page".to_owned()] {
-        let error = f.kind(&refused, Some("design-system")).unwrap_err();
-        assert_eq!(fault(error).as_deref(), Some("Invalid"), "{refused}");
-    }
-    assert!(f.kind(&page(1), None).unwrap());
-    assert!(f.reported_kinds().iter().all(|(_, kind)| kind.is_null()));
-}
-
-#[test]
-fn schema_21_turns_the_reserved_design_system_project_into_the_page_kind() {
-    let mut f = Fixture::new();
-    for n in 1..=3 {
-        f.open_page(&page(n));
-    }
-    // Before schema 21 the browser marked design-system pages with a reserved project.
-    f.set(&[
-        (&page(1), &["tmt:design-system"]),
-        (&page(2), &["Notes", "tmt:design-system"]),
-        (&page(3), &["Notes"]),
-    ])
-    .unwrap();
-    f.pin_projects(&["Notes", "tmt:design-system"]).unwrap();
-    f.oracle()
-        .execute_batch("DROP TABLE page_kinds; PRAGMA user_version=20;")
-        .unwrap();
-    f.reopen();
-    let version: u32 = f
-        .oracle()
-        .pragma_query_value(None, "user_version", |r| r.get(0))
-        .unwrap();
-    assert_eq!(version, 21);
-    let kinds = f.reported_kinds();
-    assert!(kinds.contains(&(page(1), serde_json::json!("design-system"))));
-    assert!(kinds.contains(&(page(2), serde_json::json!("design-system"))));
-    assert!(kinds.contains(&(page(3), serde_json::Value::Null)));
-    assert!(f.projects(&page(1)).is_empty());
-    assert_eq!(f.projects(&page(2)), ["Notes"], "other projects stay");
-    assert_eq!(f.names(), ["Notes"], "the reserved project goes");
-    assert_eq!(f.project_pins(), (true, vec!["Notes".to_owned()]));
 }

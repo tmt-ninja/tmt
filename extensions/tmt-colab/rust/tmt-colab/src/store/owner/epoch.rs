@@ -143,7 +143,6 @@ impl OwnerTransaction<'_> {
             "DELETE FROM page_projects WHERE page=?",
             "DELETE FROM page_titles WHERE page=?",
             "DELETE FROM page_pins WHERE page=?",
-            "DELETE FROM page_kinds WHERE page=?",
         ] {
             self.tx.execute(sql, [page])?;
         }
