@@ -3,8 +3,10 @@ mod import;
 mod read;
 pub use read::{JobReadPage, JobRunEvidence};
 mod run;
+mod write;
 pub use import::{JobImportReceipt, JobImportReference, preview_job_import};
 pub use run::{JobRunInput, JobRunResult};
+pub(crate) use write::JobWriteFence;
 
 use super::{Storage, StorageError, StorageErrorCode, classify, unsigned};
 use crate::orchestration::jobs::JobScheduleDocument as ScheduleDocument;
@@ -202,6 +204,29 @@ pub struct JobListPage {
     pub next_after: Option<u64>,
 }
 impl Storage {
+    /// CLI display selectors resolve only an exact live UUID or non-reused j-id.
+    pub fn resolve_orchestration_job(&self, selector: &str) -> Result<OrchJob, JobStoreError> {
+        let id = if canonical_id(selector) {
+            selector.to_owned()
+        } else {
+            let number = selector
+                .strip_prefix('j')
+                .and_then(|n| n.parse::<u64>().ok())
+                .filter(|n| *n > 0 && *n <= MAX_JS_SAFE_INTEGER)
+                .ok_or(JobError::Invalid)?;
+            self.connection()?
+                .query_row(
+                    "SELECT id FROM orchestration_jobs WHERE number=? AND removed=0",
+                    [number as i64],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|error| classify(error, "Resolve job display ID"))?
+                .ok_or(JobError::NotFound)?
+        };
+        self.orchestration_job(&id)?
+            .ok_or(JobError::NotFound.into())
+    }
     pub fn orchestration_job(&self, id: &str) -> Result<Option<OrchJob>, JobStoreError> {
         if !canonical_id(id) {
             return Err(JobError::Invalid.into());
@@ -213,20 +238,23 @@ impl Storage {
         definition: JobDefinition,
     ) -> Result<OrchJob, JobStoreError> {
         let job = definition.with_identity(uuid::Uuid::new_v4().to_string(), 1);
+        self.create_job_fenced(job, None)
+    }
+    pub(crate) fn create_job_fenced(
+        &mut self,
+        job: OrchJob,
+        fence: Option<&JobWriteFence>,
+    ) -> Result<OrchJob, JobStoreError> {
         job.validate()?;
         crate::orchestration::jobs::calendar(&job.schedule)?;
-        let tx = self
-            .connection_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| classify(error, "Begin job creation"))?;
-        if !owner_exists(&tx, job.owner_id.as_deref())? {
-            return Err(JobError::NoOwner.into());
-        }
-        let job = insert_job(&tx, job)?;
-        advance_configuration(&tx)?;
-        tx.commit()
-            .map_err(|error| classify(error, "Commit job creation"))?;
-        Ok(job)
+        self.write_job(None, fence, |tx, _| {
+            if !owner_exists(tx, job.owner_id.as_deref())? {
+                return Err(JobError::NoOwner.into());
+            }
+            let job = insert_job(tx, job)?;
+            advance_configuration(tx)?;
+            Ok(job)
+        })
     }
     /// Resolve/validate the candidate calendar before entering the writer.
     /// The exact-row owner below still fences the current definition and owner.
@@ -258,17 +286,21 @@ impl Storage {
         revision: u64,
         change: impl FnOnce(&mut OrchJob) -> Result<(), JobStoreError>,
     ) -> Result<OrchJob, JobStoreError> {
+        self.change_job_fenced(id, revision, None, change)
+    }
+    pub(crate) fn change_job_fenced(
+        &mut self,
+        id: &str,
+        revision: u64,
+        fence: Option<&JobWriteFence>,
+        change: impl FnOnce(&mut OrchJob) -> Result<(), JobStoreError>,
+    ) -> Result<OrchJob, JobStoreError> {
         if !canonical_id(id) || revision == 0 || revision >= MAX_JS_SAFE_INTEGER {
             return Err(JobError::Invalid.into());
         }
-        let tx = self
-            .connection_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| classify(error, "Begin job change"))?;
-        let mut job = read_job(&tx, id)?.ok_or(JobError::NotFound)?;
-        if job.revision != revision {
-            return Err(JobError::Conflict.into());
-        }
+        self.write_job(Some(id), fence, |tx, current| {
+        let mut job = current.ok_or(JobError::NotFound)?;
+        if job.revision != revision { return Err(JobError::Conflict.into()); }
         let before = job.clone();
         change(&mut job)?;
         if job.id != before.id
@@ -285,38 +317,39 @@ impl Storage {
         job.revision = revision + 1;
         job.pending = None; // A changed intent never inherits an older held slot.
         job.validate()?;
-        if !owner_exists(&tx, job.owner_id.as_deref())? {
+        if !owner_exists(tx, job.owner_id.as_deref())? {
             return Err(JobError::NoOwner.into());
         }
         tx.execute("UPDATE orchestration_jobs SET revision=?2,owner_id=?3,room_id=?4,title=?5,message=?6,schedule=?7,pause_by=?8,pause_ms=?9,pending_revision=NULL,pending_ms=NULL WHERE id=?1",
             params![id,job.revision as i64,job.owner_id,job.room_id,job.title,job.message,encode_schedule(&job.schedule)?,job.pause.as_ref().map(|p|&p.by),job.pause.as_ref().map(|p|p.at_ms)])
             .map_err(|error| classify(error, "Change job definition"))?;
-        advance_configuration(&tx)?;
-        tx.commit()
-            .map_err(|error| classify(error, "Commit job change"))?;
+        advance_configuration(tx)?;
         Ok(job)
+        })
     }
     pub fn remove_orchestration_job(
         &mut self,
         id: &str,
         revision: u64,
     ) -> Result<(), JobStoreError> {
+        self.remove_job_fenced(id, revision, None)
+    }
+    pub(crate) fn remove_job_fenced(
+        &mut self,
+        id: &str,
+        revision: u64,
+        fence: Option<&JobWriteFence>,
+    ) -> Result<(), JobStoreError> {
         if !canonical_id(id) || revision == 0 || revision >= MAX_JS_SAFE_INTEGER {
             return Err(JobError::Invalid.into());
         }
-        let tx = self
-            .connection_mut()?
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| classify(error, "Begin job removal"))?;
-        let changed = tx.execute("UPDATE orchestration_jobs SET removed=1,revision=revision+1,pending_revision=NULL,pending_ms=NULL WHERE id=? AND revision=? AND removed=0",params![id,revision as i64])
-            .map_err(|error| classify(error,"Remove job definition"))?;
-        if changed != 1 {
-            return Err(JobError::Conflict.into());
-        }
-        advance_configuration(&tx)?;
-        tx.commit()
-            .map_err(|error| classify(error, "Commit job removal"))?;
-        Ok(())
+        self.write_job(Some(id), fence, |tx, _| {
+            let changed = tx.execute("UPDATE orchestration_jobs SET removed=1,revision=revision+1,pending_revision=NULL,pending_ms=NULL WHERE id=? AND revision=? AND removed=0", params![id,revision as i64])
+                .map_err(|error| classify(error,"Remove job definition"))?;
+            if changed != 1 { return Err(JobError::Conflict.into()); }
+            advance_configuration(tx)?;
+            Ok(())
+        })
     }
     pub fn list_orchestration_jobs(
         &self,

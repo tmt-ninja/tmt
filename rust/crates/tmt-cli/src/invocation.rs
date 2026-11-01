@@ -574,6 +574,21 @@ pub struct DetectedScope {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
+    SendJob {
+        job: String,
+        identity: Option<String>,
+        operation_id: Option<String>,
+        yes: bool,
+    },
+    Jobs {
+        owner: Option<String>,
+        room: Option<String>,
+        limit: u16,
+        cursor: Option<String>,
+    },
+    ShowJob {
+        job: String,
+    },
     Write {
         operation: OrchWriteOperation,
         yes: bool,
@@ -619,6 +634,26 @@ pub enum LearnReference {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchWriteOperation {
+    AddJob {
+        file: std::path::PathBuf,
+    },
+    EditJob {
+        job: String,
+        file: std::path::PathBuf,
+    },
+    PauseJob {
+        job: String,
+    },
+    ResumeJob {
+        job: String,
+    },
+    RemoveJob {
+        job: String,
+    },
+    ReassignJob {
+        job: String,
+        member: String,
+    },
     AddPlan {
         file: std::path::PathBuf,
     },

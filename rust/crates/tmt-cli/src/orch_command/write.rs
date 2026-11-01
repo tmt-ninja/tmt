@@ -8,6 +8,12 @@ fn mutation(
     now: u64,
 ) -> Result<OrchMutationDocument, Failure> {
     Ok(match operation {
+        op @ (OrchWriteOperation::AddJob { .. }
+        | OrchWriteOperation::EditJob { .. }
+        | OrchWriteOperation::PauseJob { .. }
+        | OrchWriteOperation::ResumeJob { .. }
+        | OrchWriteOperation::RemoveJob { .. }
+        | OrchWriteOperation::ReassignJob { .. }) => super::jobs::mutation(op, storage)?,
         OrchWriteOperation::AddPlan { file } => OrchMutationDocument::AddPlan {
             candidate: Box::new(orchestration::orch_candidate_file(&file).map_err(policy_failure)?),
         },
@@ -201,22 +207,16 @@ pub(super) fn execute(
         if !mode.json {
             let saved: Value = serde_json::from_slice(&result).expect("shared write result JSON");
             let terminal = out.terminal();
-            tmt_cli_style::detail::write(
-                &mut out,
-                terminal,
-                "Orchestration saved",
-                &match saved["released"].as_array() {
-                    Some(released) => vec![("released requests", released.len().to_string())],
-                    None => vec![(
-                        "configuration revision",
-                        text(&saved["configurationRevision"]),
-                    )],
-                },
-            )
-            .map_err(|e| {
-                Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1)
-                    .caused_by(e)
-            })?;
+            let mut fields = match saved["released"].as_array() {
+                Some(released) => vec![("released requests", released.len().to_string())],
+                None => vec![("configuration revision",text(&saved["configurationRevision"]))],
+            };
+            if let Some(job) = saved.get("job").filter(|job| !job.is_null()) {
+                fields.push(("job", text(&job["displayId"])));
+                fields.push(("revision", text(&job["revision"])));
+            }
+            tmt_cli_style::detail::write(&mut out, terminal, "Orchestration saved", &fields)
+                .map_err(|e| Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1).caused_by(e))?;
         }
         Ok(result)
     })();
