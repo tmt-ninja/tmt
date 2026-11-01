@@ -1049,14 +1049,25 @@ mod tests {
     fn page_kind_names_its_own_page_and_the_one_kind_or_null() {
         let kind =
             |payload: Value| Command::local(&local("page.kind", payload), SPACE).map(|c| c.action);
-        assert!(matches!(
-            kind(json!({"pageId":PAGE,"kind":"design-system"})),
-            Ok(Action::Kind(Some(k))) if k == "design-system"
-        ));
-        assert!(matches!(
-            kind(json!({"pageId":PAGE,"kind":null})),
-            Ok(Action::Kind(None))
-        ));
+        // The shared cases (contract: Page kinds) name the same page as these tests.
+        let cases: Value =
+            serde_json::from_str(include_str!("../../../contracts/vectors/page-kind-v1.json"))
+                .unwrap();
+        assert_eq!(cases["page"], PAGE);
+        for case in cases["accepted"].as_array().unwrap() {
+            let expected = case["kind"].as_str().map(str::to_owned);
+            assert!(
+                matches!(kind(case["payload"].clone()), Ok(Action::Kind(k)) if k == expected),
+                "{case}"
+            );
+        }
+        for case in cases["refused"].as_array().unwrap() {
+            assert_eq!(
+                kind(case["payload"].clone()).err(),
+                Some(Code::Invalid),
+                "{case}"
+            );
+        }
         let payload = serde_json::to_vec(&json!({"pageId":PAGE,"kind":"design-system"})).unwrap();
         assert!(matches!(
             browser(&signed("page.kind", &payload, DEVICE, 100), 100)
@@ -1064,16 +1075,6 @@ mod tests {
                 .action,
             Action::Kind(Some(_))
         ));
-        for bad in [
-            json!({"pageId":PAGE}),
-            json!({"pageId":PAGE,"kind":"dashboard"}),
-            json!({"pageId":PAGE,"kind":""}),
-            json!({"pageId":PAGE,"kind":1}),
-            json!({"pageId":"10000000-0000-4000-8000-000000000002","kind":"design-system"}),
-            json!({"pageId":PAGE,"kind":"design-system","extra":true}),
-        ] {
-            assert_eq!(kind(bad.clone()).err(), Some(Code::Invalid), "{bad}");
-        }
     }
     #[test]
     fn project_manage_names_the_space_scope_and_one_valid_change() {

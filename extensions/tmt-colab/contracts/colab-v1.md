@@ -5417,7 +5417,7 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text (the empty string for `page.projects`, `project.manage` and `page.pin`, see [Projects](#projects-3747) and [Pins](#pins-4356))
+positive decimal text (the empty string for `page.projects`, `project.manage`, `page.pin` and `page.kind`, see [Projects](#projects-3747), [Pins](#pins-4356) and [Page kinds](#page-kinds-5866))
 and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional `template` name (a compiled template's, or a user template's with `templatePage`, the page that carries that name) and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
@@ -5879,6 +5879,33 @@ the page's data; unarchiving does not restore it.
 
 The CLI has `pin PAGE` and `unpin PAGE` (`--json` prints `{spaceId, pageId, pinned, changed}`;
 `changed:false` means nothing was written), and `ls --json` carries `pinned` on each pinned page.
+
+### Page kinds (#5866)
+
+A page kind says what an owner page is for, where an ordinary page has none. The one kind is
+`design-system`: a page of a design-system tree, which the Design tab lists and the Colab page
+list, side menu and quick switcher hide (pages that only pin a `tmt-ds` bundle stay ordinary).
+Like a pin it is display-only owner-store state: **not signed**, never an owner-log statement,
+never in a page's content or any stream, and never synced, published, exported or shared. It
+lives in the owner store (`page_kinds`, one row per page with a kind, schema 21). The owner-served
+`GET /api/pages` reply and the CLI catalog carry `kind: "design-system"` on such a page, archived
+or not; an ordinary page has no `kind` field. A client treats it as untrusted display state, and a
+reader link or member never sees it. Archiving keeps the kind; deleting removes it with the page's
+data.
+
+`page.kind` is a management request with the same admission as `page.pin`: a device-signed browser
+request from an admitted owner device, or the local CLI path. It appends no statement, changes no
+membership head, records no operation receipt and signs the empty `expectedRevision`. It names its
+own page in `page`; its payload is exactly `{pageId, kind}`, `pageId` equal to that page and `kind`
+`"design-system"` or `null`, which clears it. An absent `kind`, any other value, another page or an
+unknown or deleted page is `INVALID`. Setting the kind a page has, or clearing none, changes
+nothing. `vectors/page-kind-v1.json` pins the accepted and refused payloads.
+
+Before page kinds the browser marked these pages with a reserved display-only project,
+`tmt:design-system`, which Colab never shows and a person cannot name. Schema 21 gives every page
+in that project the kind, then removes the project, its assignments and its pin. A browser on a
+serve that refuses `page.kind` (`INVALID`) keeps marking with that project until the serve
+upgrades.
 
 ### Page summary (#2588)
 
