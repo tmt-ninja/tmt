@@ -219,6 +219,24 @@ it.each(['claude', 'codex'] as const)(
         expect(setupCode, setupText).toBe('0');
         const name = `real-${provider}`;
         const status = path.join(fixture.root, 'provider.status');
+        // Core asked for the public binding/launch-row view at each startup step (#5619),
+        // through public reads only, so a failure names its ordering.
+        const identitySnapshots: Array<{
+          step: string;
+          code: number;
+          identity: unknown;
+          stderr: string;
+        }> = [];
+        report.identitySnapshots = identitySnapshots;
+        const snapshotIdentity = async (step: string) => {
+          const shown = await fixture.runJsonCli(['identity', 'show', name]);
+          identitySnapshots.push({
+            step,
+            code: shown.code,
+            identity: shown.json ?? null,
+            stderr: shown.stderr.slice(0, 2048),
+          });
+        };
         const args =
           provider === 'claude'
             ? ['--permission-mode', 'default', '--model', model]
@@ -280,11 +298,14 @@ it.each(['claude', 'codex'] as const)(
                 }
                 const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
                 identity = result.json?.identities.find((row) => row.name === name);
+                if (identity && !identitySnapshots.some(({ step }) => step === 'first-listed'))
+                  await snapshotIdentity('first-listed');
                 return identity?.resume?.session;
               },
               { timeout: 45_000, interval: 500 }
             )
             .toBeTruthy();
+          await snapshotIdentity('after-session-start');
           await expect
             .poll(
               async () => {
@@ -297,6 +318,7 @@ it.each(['claude', 'codex'] as const)(
               { timeout: 60_000, interval: 500 }
             )
             .toBe(true);
+          await snapshotIdentity('after-prompt');
           const result = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
           identity = result.json?.identities.find((row) => row.name === name);
           report.publicIdentity = identity;
@@ -324,6 +346,7 @@ it.each(['claude', 'codex'] as const)(
           await waitForFileContent(status, { timeoutMs: 10_000 });
         } catch (error) {
           // Public JSON and our own exit marker only: no hook files or transcripts.
+          await snapshotIdentity('on-failure').catch(() => {});
           const listed = await fixture.runJsonCli<{ identities: ListedIdentity[] }>(['ls']);
           report.publicStartup = {
             code: listed.code,
