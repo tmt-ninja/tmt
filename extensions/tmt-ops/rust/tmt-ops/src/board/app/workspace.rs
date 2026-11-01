@@ -1749,7 +1749,37 @@ impl App {
             self.set_notice(Some(message), false);
             return;
         }
+        if let Ok(outcome) = &outcome {
+            let publication = &outcome.document["coreLeads"];
+            if publication["status"] == "preview"
+                && let Ok(preview) = crate::membership::publish::Preview::from_document(publication)
+                && let Some(draft) = self
+                    .workspace_form
+                    .as_mut()
+                    .filter(|draft| draft.stage == crate::board::workspace::manage::Stage::Pending)
+            {
+                draft.operation = Some(crate::board::workspace::manage::Change::PublishLeads(
+                    preview,
+                ));
+                draft.stage = crate::board::workspace::manage::Stage::Review;
+                draft.reopened = false;
+                draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                draft.invalidate();
+                *draft.scroll.borrow_mut() = Default::default();
+                self.set_notice(
+                    Some("Squad changed. Review the separate Core leads publication.".into()),
+                    false,
+                );
+                return;
+            }
+        }
         let message = match outcome {
+            Ok(outcome)
+                if crate::membership::publish::message(&outcome.document["coreLeads"])
+                    .is_some() =>
+            {
+                crate::membership::publish::message(&outcome.document["coreLeads"]).unwrap()
+            }
             Ok(outcome) if outcome.complete => format!(
                 "Applied. The workspace will refresh.\n{}",
                 serde_json::to_string_pretty(&outcome.document).unwrap_or_default()

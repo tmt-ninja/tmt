@@ -138,6 +138,12 @@ Cancel-first keys, geometry and currently painted controls. Pending hide/reopen
 never repeats a write. Other management CLI previews retain literal quoting;
 Ops never executes a shell.
 
+Successful lead changes and Create with a lead offer a separate Cancel-first
+Core leads publication in the same workspace draft/review and ordered lane.
+The follow-up shows all Ops leads and Core-only removals. Hiding pending work
+never replays it; a conflict requires reopening. The membership publisher owns
+preview/apply and partial-result wording ([lead data](data-and-state.md#membership-and-leadership)).
+
 ## Shell, geometry and input
 
 `board::shell` owns Agents and Digest selection, with one inactive destination

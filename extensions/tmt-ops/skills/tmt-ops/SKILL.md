@@ -1179,9 +1179,9 @@ No command accepts an actor override or uses a member filter as assignment.
 
 | Action                                                 | Explicit inputs besides `--room`                                                                                                                                |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
-| `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                                  |
-| `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                          |
+| `ls`                                                   | Without `--room`, the caller's own list. Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                  |
+| `show`                                                 | `--checklist UUID --item UUID\|PREFIX`                                                                                                                          |
+| `add TITLE`                                            | Agent verb, no `--room` needed: optional `--body TEXT --reference HTTP(S)`; adds to the caller's own list and prints `#Title (3f2a)`                            |
 | `done ITEM`                                            | Agent verb, no `--room` needed: short id, UUID prefix or UUID; completes at the item's current revision                                                         |
 | `events`                                               | Optional `--member`, `--after CURSOR` (default 0), `--limit COUNT` (1 to 500, default 100); reads create nothing                                                |
 | `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |
@@ -1748,6 +1748,21 @@ tmt ops squad rm <name>                           # leaves the squad; the agent 
   and selecting a new lead preserves every member's role text and membership.
   `tmt ops squad lead --none` clears leadership. Former leads remain members; use
   `tmt ops squad rm <name>` separately when they should leave.
+  After a successful change, Ops offers to replace Core's global orchestration leads
+  with every active Ops squad lead (at most 256 distinct UUIDs). Core-only leads are
+  shown as removals; nothing is merged or preserved automatically. Interactive CLI
+  use prints Core's preview and asks; `--yes` approves it. JSON/noninteractive use
+  without `--yes` returns the unapplied preview in `coreLeads` (`status: "preview"`,
+  `preview`, `before` and `after`); the squad change is already applied. A confirmed
+  update reports `status: "applied"` with Core's `result`; a declined offer reports
+  `status: "declined"`, and a failure reports `status: "failed"` with `error`
+  (preserving Core's code and message when Core refuses).
+  On the board, Set/clear lead and Create with a lead open a separate Cancel-first
+  confirmation. Declining keeps the squad change. A refusal or conflict says
+  "Squad changed. Core leads not updated" plus Core's message; reopen to try again.
+  Pending work is never retried automatically. Core decides who may publish; an Ops
+  lead marker alone does not grant Core lead authority. Retired identities need no
+  cleanup: Core excludes them from its effective leads.
 - Repeating `tmt ops squad add <name>` reports that the member is already in the
   squad and preserves its state and task. A missing state receives the configured
   initial value.

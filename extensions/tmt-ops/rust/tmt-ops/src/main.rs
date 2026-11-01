@@ -112,6 +112,8 @@ fn grammar() -> Command {
                 .arg(Arg::new("name").help("Saved identity to lead").required_unless_present("none"))
                 .arg(Arg::new("none").long("none").action(ArgAction::SetTrue)
                     .conflicts_with("name").help("Clear leadership; former leads remain members"))
+                .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)
+                    .help("Approve the displayed replacement of Core's global leads"))
                 .arg(squad_option()),
         )
         .subcommand(
@@ -502,6 +504,29 @@ fn done(terminal: Terminal, text: &str) -> String {
 }
 
 fn human(command: &str, document: &Value, terminal: Terminal) -> String {
+    if command == "lead" && !document["coreLeads"].is_null() {
+        let mut squad = document.clone();
+        squad.as_object_mut().unwrap().remove("coreLeads");
+        let mut output = human(command, &squad, terminal);
+        if let Ok(preview) = membership::publish::Preview::from_document(&document["coreLeads"]) {
+            output.push_str(&format!(
+                "{}\n\nCore preview:\n{}\n",
+                preview.text(),
+                serde_json::to_string_pretty(&document["coreLeads"]["preview"]).unwrap()
+            ));
+        } else if document["coreLeads"]["status"] != "failed"
+            && let Some(message) = membership::publish::message(&document["coreLeads"])
+        {
+            if let Some(preview) = document["coreLeads"].get("preview") {
+                output.push_str(&format!(
+                    "Core preview:\n{}\n",
+                    serde_json::to_string_pretty(preview).unwrap()
+                ));
+            }
+            output.push_str(&format!("{message}\n"));
+        }
+        return output;
+    }
     let text = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     match command {
         "ls" | "ui" => status::text(document, terminal),
@@ -660,6 +685,10 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
 fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String>)> {
     let text = |value: &Value| value["message"].as_str().unwrap_or_default().to_owned();
     match command {
+        "lead" if document["coreLeads"]["status"] == "failed" => vec![(
+            membership::publish::message(&document["coreLeads"]).unwrap(),
+            None,
+        )],
         "checklist" => checklist_command::failure(document),
         "add" => document["results"]
             .as_array()
@@ -942,7 +971,11 @@ fn run(
     }
     let squad = Squad::resolve(&core, text("squad"))?;
     match command {
-        "lead" => membership::lead(&core, &squad, text("name")),
+        "lead" => Ok(membership::publish::command(
+            &core,
+            membership::lead(&core, &squad, text("name"))?,
+            Consent::new(matches.get_flag("yes"), interaction.prompt()),
+        )),
         "add" => membership::add(&core, &squad, config.layout(&squad.name)?, &many("names")),
         "rm" => membership::remove(&core, &squad, text("name").unwrap_or_default()),
         "jump" => member_actions::jump(&core, &squad, &config, text("member").unwrap_or_default()),
@@ -1749,6 +1782,8 @@ mod tests {
             "squad lead sol",
             "squad lead --none",
             "squad lead --none --squad product",
+            "squad lead sol --yes",
+            "squad lead --none --yes --json",
         ] {
             assert!(
                 matches!(request(&argv(accepted)), Ok(Request::Run(_))),

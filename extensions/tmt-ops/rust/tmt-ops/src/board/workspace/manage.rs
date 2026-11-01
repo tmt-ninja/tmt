@@ -47,12 +47,14 @@ pub enum Stage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Change {
     Membership(Operation),
+    PublishLeads(crate::membership::publish::Preview),
     RenameMember(super::rename_member::Request),
     CloseMember(super::close_member::Request),
 }
 impl Change {
     pub(super) fn confirm_label(&self) -> &'static str {
         match self {
+            Self::PublishLeads(_) => "Publish leads",
             Self::RenameMember(_) => "Rename",
             Self::CloseMember(_) => "Close and delete",
             Self::Membership(operation) => match operation {
@@ -262,6 +264,9 @@ impl Draft {
         }))
     }
     pub fn title(&self) -> String {
+        if matches!(self.operation, Some(Change::PublishLeads(_))) {
+            return "Publish squad leads to Core".into();
+        }
         let name = self
             .room
             .as_ref()
@@ -305,6 +310,9 @@ impl Draft {
         Some(command_line(&words))
     }
     pub fn review(&self) -> String {
+        if let Some(Change::PublishLeads(preview)) = &self.operation {
+            return preview.text();
+        }
         let identity = |id: &str| {
             self.identities.get(id).map_or_else(
                 || id.to_owned(),
@@ -323,7 +331,7 @@ impl Draft {
         let mut lines = vec![];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
-            Change::RenameMember(_) | Change::CloseMember(_) => None,
+            Change::RenameMember(_) | Change::CloseMember(_) | Change::PublishLeads(_) => None,
         });
         match operation {
             Some(Operation::Create {
@@ -711,6 +719,15 @@ impl App {
         let Some(draft) = &mut self.workspace_form else {
             return;
         };
+        if draft.stage == Stage::Review && matches!(draft.operation, Some(Change::PublishLeads(_)))
+        {
+            let message = "Squad changed. Core leads not updated; publication declined.";
+            draft.stage = Stage::Result(message.into());
+            draft.shown = false;
+            draft.invalidate();
+            self.set_notice(Some(message.into()), false);
+            return;
+        }
         if matches!(draft.stage, Stage::Result(_)) {
             self.workspace_form = None;
             return;
@@ -774,10 +791,15 @@ impl App {
             if kind == draft.kind && !(kind == Kind::RemoveMember && draft.stage != Stage::Pending)
             {
                 draft.shown = true;
-                draft.reopened = matches!(draft.stage, Stage::Fields | Stage::Review);
+                let publication = matches!(draft.operation, Some(Change::PublishLeads(_)));
+                draft.reopened =
+                    matches!(draft.stage, Stage::Fields | Stage::Review) && !publication;
                 draft.fields_button = None;
                 if draft.stage == Stage::Review {
                     draft.review = review_start(draft.kind, draft.reopened);
+                    if publication {
+                        draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+                    }
                 }
                 draft.invalidate();
                 if draft.stage == Stage::Fields {
