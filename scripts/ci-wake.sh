@@ -9,9 +9,17 @@
 # usage: ci-wake.sh <pr> --identity <self> [--until checks|merged]
 #                   [--interval <seconds>] [--cap <seconds>]
 #
-# Final states: every check run completed and no commit status pending, with at
-# least one check (`checks`, the default) or the PR merged (`merged`); in
-# either mode the PR closing or merging, its head changing, or the cap.
+# Final states, the first one wins:
+# - `--until checks` (the default): at least one workflow run exists for the
+#   head and every one has completed, so early checks or a matrix that adds jobs
+#   late cannot read as done; every check run is completed and no commit status
+#   is pending. The outcome is `green (N checks)`, or `failed: <names>` for a
+#   check concluded failure, cancelled, timed_out or action_required, or a
+#   status failure or error.
+# - `--until merged`: the PR merged.
+# - Either mode: the PR merged or closed, its head changed, or the cap.
+# The log (under ${TMPDIR:-/tmp}/ci-wake, owner-only) is removed after a
+# delivered wake and kept when the send fails.
 # Exit codes: 0 started (or, in the waiting process, woke the seat); 2 usage;
 # 3 the seat's identity cannot be resolved or the wake could not be sent.
 # GH, TMT and CI_WAKE_SLEEP override the executables, for isolated tests.
@@ -147,14 +155,18 @@ EOF
       --jq '.check_runs[] | [.status, (.conclusion // ""), .name] | @tsv' || true)
     statuses=$("$GH" api "repos/{owner}/{repo}/commits/$head/status" \
       --jq '.statuses[] | [.state, .context] | @tsv' || true)
+    workflows=$("$GH" api --paginate "repos/{owner}/{repo}/actions/runs?head_sha=$head&per_page=100" \
+      --jq '.workflow_runs[] | .status' || true)
     total=$(printf '%s\n%s\n' "$runs" "$statuses" | grep -c . || true)
     pending=$(
       {
+        printf '%s\n' "$workflows" | awk 'NF && $1 != "completed"'
         printf '%s\n' "$runs" | awk -F '\t' 'NF && $1 != "completed"'
         printf '%s\n' "$statuses" | awk -F '\t' 'NF && $1 == "pending"'
       } | grep -c . || true
     )
-    if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+    started_runs=$(printf '%s\n' "$workflows" | grep -c . || true)
+    if [ "$started_runs" -gt 0 ] && [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
       failed=$(
         {
           printf '%s\n' "$runs" | awk -F '\t' '$2 ~ /^(failure|cancelled|timed_out|action_required)$/ { print $3 }'
@@ -166,7 +178,7 @@ EOF
       fi
       wake "green ($total checks)"
     fi
-    note "pending $pending of $total"
+    note "pending $pending; $started_runs workflow runs, $total checks"
   else
     note "waiting for merge"
   fi

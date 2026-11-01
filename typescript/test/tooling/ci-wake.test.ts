@@ -32,7 +32,8 @@ beforeAll(() => {
     writeExecutable(path.join(bin, name), `#!/bin/sh\n${body}\n`, 0o755);
   };
   // The PR read answers line N of $HOME/pulls on its Nth call, then repeats the
-  // last line; check runs and statuses answer $HOME/runs and $HOME/statuses.
+  // last line; workflow runs, check runs and statuses answer $HOME/workflows,
+  // $HOME/runs and $HOME/statuses.
   tool(
     'gh',
     `echo "$*" >> "$HOME/gh.log"
@@ -43,6 +44,7 @@ case $* in
     total=$(wc -l < "$HOME/pulls" | tr -d ' ')
     [ "$n" -le "$total" ] || n=$total
     sed -n "\${n}p" "$HOME/pulls" ;;
+  */actions/runs*) cat "$HOME/workflows" 2>/dev/null ;;
   */check-runs*) cat "$HOME/runs" 2>/dev/null ;;
   */status*) cat "$HOME/statuses" 2>/dev/null ;;
 esac`
@@ -65,6 +67,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 function newCase(pulls: string[], files: Record<string, string> = {}) {
   const home = mkdtempSync(path.join(root, 'case-'));
   writeFileSync(path.join(home, 'pulls'), `${pulls.join('\n')}\n`);
+  // One completed workflow run unless a case says otherwise.
+  writeFileSync(path.join(home, 'workflows'), 'completed\n');
   for (const [name, text] of Object.entries(files)) writeFileSync(path.join(home, name), text);
   const lines = (name: string) => {
     const file = path.join(home, name);
@@ -151,6 +155,24 @@ describe('scripts/ci-wake.sh', () => {
     }
     expect(c.lines('talk.log')).toHaveLength(1);
     expect(c.lines('talk.log')[0]).toContain(': no final state after 0 min; this wait ended');
+  });
+
+  it('waits while a workflow run is still going, though every check so far is green', () => {
+    const c = newCase([open], {
+      runs: tsv(['completed', 'success', 'early']),
+      workflows: 'completed\nin_progress\n',
+    });
+    const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
+    expect(result.status).toBe(0);
+    expect(c.lines('talk.log')).toEqual([expect.stringContaining(': no final state after 0 min')]);
+    expect(c.lines('gh.log').join('\n')).toContain(`actions/runs?head_sha=${HEAD}&per_page=100`);
+  });
+
+  it('does not report green before any workflow run exists for the head', () => {
+    const c = newCase([open], { runs: tsv(['completed', 'success', 'early']), workflows: '' });
+    const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
+    expect(result.status).toBe(0);
+    expect(c.lines('talk.log')[0]).toContain('no final state');
   });
 
   it('does not report green before any check has started', () => {

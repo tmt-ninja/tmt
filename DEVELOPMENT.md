@@ -280,23 +280,12 @@ Tracker rules:
 
 ## Waiting on CI and the merge queue
 
-Start one detached waker for the pull request, then end the turn; its single
-message wakes you ([AGENTS](AGENTS.md#delivery-lifecycle)):
-
 ```sh
 scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
 ```
 
-It prints the waiting process's PID and log path and returns at once. That process
-polls GitHub's REST API every `--interval` seconds (at least and by default 180)
-plus up to 30 s of jitter, for at most `--cap` seconds (at most and by default
-7200). The first final state ends it: every check completed (`green`, or `failed`
-with the failing names; no checks yet is never green), the PR merged (the only
-success for `--until merged`) or closed, its head changed, or the cap. It then
-sends one anonymous `--urgent` `tmt talk <self>`, so neither Digest nor a route
-rule holds it, and never retries. The log is private to you and removed after a
-delivered wake; a failed send keeps it. Exit 2 is a usage error; exit 3 means
-`<self>` cannot be resolved (nothing starts) or the wake could not be sent.
+Start it, end the turn and let its one message wake you; the script's header owns
+its final states, bounds, log and exit codes.
 
 ## Review and evidence
 
