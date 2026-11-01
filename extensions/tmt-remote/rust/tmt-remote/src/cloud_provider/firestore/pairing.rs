@@ -221,7 +221,7 @@ impl Provider {
             expires_at_ms,
         }))
     }
-    pub(super) async fn delete_invite(
+    pub(crate) async fn delete_invite(
         &self,
         offer: &str,
         io: &IoBudget<'_>,
@@ -246,7 +246,7 @@ impl Provider {
         }
     }
     /// Maintenance reads one expired gate at a time under the same ordinary-user budget.
-    pub(super) async fn expired_invite(
+    pub(crate) async fn expired_invite(
         &self,
         now: u64,
         io: &IoBudget<'_>,
