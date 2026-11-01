@@ -768,13 +768,27 @@ fn pair_json_lifecycle(explicit_policy: bool) {
         );
         assert_eq!(bad["error"]["code"], "REMOTE_INPUT_INVALID");
     }
-    // Removed inventory control is refused instead of retaining a private list alias.
-    let mut control = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
-    control.write_all(b"{\"op\":\"devices\"}\n").unwrap();
-    let mut reply = String::new();
-    BufReader::new(control).read_line(&mut reply).unwrap();
-    let reply: Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(reply["error"]["code"], "REMOTE_CONTROL_UNSUPPORTED");
+    // Removed inventory and legacy effect grammar have no private control aliases.
+    for request in [
+        serde_json::json!({"op":"devices"}),
+        serde_json::json!({"op":"designate","clientId":client_id}),
+        serde_json::json!({"op":"undesignate"}),
+        serde_json::json!({"op":"remove-others","keep":client_id}),
+        serde_json::json!({"op":"revoke","clientId":client_id}),
+        serde_json::json!({"op":"talk","clientId":client_id,"enabled":true}),
+        serde_json::json!({"op":"rename","clientId":client_id,"name":"Legacy alias"}),
+    ] {
+        let mut control =
+            UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+        writeln!(control, "{request}").unwrap();
+        let mut reply = String::new();
+        BufReader::new(control).read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_CONTROL_UNSUPPORTED",
+            "{request}"
+        );
+    }
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
     member_reads::assert_public_member_reads(&pilot, client_id, false);

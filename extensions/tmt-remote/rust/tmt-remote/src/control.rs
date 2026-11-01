@@ -566,19 +566,6 @@ fn session(
             "machineId":pairing.machine_id(),
         }))),
         Some("pair") => None,
-        Some("designate") if request.as_object().is_some_and(|o| o.len() == 2) => {
-            Some(match request["clientId"].as_str() {
-                Some(client) => devices
-                    .designate(client, &door.door.origin)
-                    .map(|grant| json!({"designatedClientId":grant.client_id})),
-                None => Err(crate::operations::invalid()),
-            })
-        }
-        Some("undesignate") if request == json!({"op":"undesignate"}) => Some(
-            devices
-                .undesignate()
-                .map(|()| json!({"designatedClientId":null})),
-        ),
         Some("cloud.status") if request == json!({"op":"cloud.status"}) => Some(
             door.views
                 .cloud
@@ -667,56 +654,6 @@ fn session(
                 Ok(answer)
             })())
         }
-        Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
-            request
-                .get("keep")
-                .and_then(Value::as_str)
-                .ok_or_else(crate::operations::invalid)
-                .and_then(|keep| devices.remove_others(keep))
-                .map(|count| json!({"removed":count})),
-        ),
-        Some("revoke") => Some(match request.get("clientId").and_then(Value::as_str) {
-            Some(client_id) => devices
-                .revoke(client_id)
-                .and_then(|grant| {
-                    if let Some(cloud) = &door.views.cloud {
-                        cloud.request_reconcile();
-                    }
-                    devices.describe(&grant)
-                })
-                .map(|row| json!({"device":row})),
-            None => Err(RemoteError::new(
-                "REMOTE_INPUT_INVALID",
-                "Revoke needs a clientId.",
-            )),
-        }),
-        Some("talk") if request.as_object().is_some_and(|row| row.len() == 3) => Some(
-            match (
-                request.get("clientId").and_then(Value::as_str),
-                request.get("enabled").and_then(Value::as_bool),
-            ) {
-                (Some(client), Some(enabled)) => devices
-                    .talk(client, enabled)
-                    .and_then(|grant| devices.describe(&grant))
-                    .map(|row| json!({"device":row})),
-                _ => Err(crate::operations::invalid()),
-            },
-        ),
-        Some("rename") => Some(
-            match (
-                request.get("clientId").and_then(Value::as_str),
-                request.get("name").and_then(Value::as_str),
-            ) {
-                (Some(client_id), Some(name)) => devices
-                    .rename(client_id, name)
-                    .and_then(|grant| devices.describe(&grant))
-                    .map(|row| json!({"device":row})),
-                _ => Err(RemoteError::new(
-                    "REMOTE_INPUT_INVALID",
-                    "Rename needs a clientId and name.",
-                )),
-            },
-        ),
         _ => Some(Err(RemoteError::new(
             UNSUPPORTED,
             "Unknown control operation.",

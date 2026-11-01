@@ -68,7 +68,7 @@ Rules that are easy to get wrong:
   untrusted origin metadata; signed refusals and effect uncertainty stay in the common
   owner. A finite subscribe does not acknowledge; only the explicit signed ack does.
 - **One opener.** `store::Store` opens only with the `state::Serving` proof of the
-  serve lock. Pairing and device commands reach state through serve's control
+  serve lock. Pairing and members commands reach state through serve's control
   socket; local `members` takes the serve lock when stopped.
 - **Authority lives in the transaction.** An effect runs in `Store::effect`: it
   rereads the persisted grant (revision, liveness, scope, recipients, expiry)
@@ -247,7 +247,7 @@ serve-lease adapter. Each terminal effect rechecks captured member/grant revisio
 IMMEDIATE writer transaction and uses shared policy/grant/designation SQL, with no journal or
 migration. Same-state effects do not widen narrower machine scope. Session cleanup and existing
 route-worker wakes follow Store release; an uncertain answer never causes resend or fallback.
-The legacy `devices` CLI and its private inventory query are removed; browser device APIs
+The legacy `devices` CLI and its inventory/effect control aliases are removed; browser device APIs
 retain their shared grant/session owner and wire shapes.
 `members::observations` captures the existing invitation coordinator before acquiring
 live/Store locks, and aggregates existing desired-route/ACK rows under the same Store.

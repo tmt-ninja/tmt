@@ -40,23 +40,6 @@ impl Devices {
     pub fn list(&self) -> Result<Vec<Grant>, RemoteError> {
         self.store().and_then(|store| store.grants())
     }
-    pub fn describe(&self, grant: &Grant) -> Result<Value, RemoteError> {
-        let store = self.store()?;
-        observed_device(&store, grant)
-    }
-    pub fn visible(&self) -> Result<Vec<Value>, RemoteError> {
-        let store = self.store()?;
-        store
-            .active_grants()?
-            .iter()
-            .map(|grant| observed_device(&store, grant))
-            .collect()
-    }
-    pub fn remove_others(&self, keep: &str) -> Result<usize, RemoteError> {
-        let removed = self.store()?.remove_others(keep)?;
-        self.committed_removals(&removed);
-        Ok(removed.len())
-    }
     pub(crate) fn committed_removals(&self, clients: &[String]) {
         if let Some(sessions) = &self.sessions {
             for client in clients {
@@ -64,66 +47,6 @@ impl Devices {
             }
         }
         self.wake();
-    }
-    /// Disable the grant before acknowledging, then end the device's session
-    /// and tunnels. Revoking twice reports the same revoked grant.
-    pub fn revoke(&self, client_id: &str) -> Result<Grant, RemoteError> {
-        let mut store = self.store()?;
-        let client_id = resolve_person(&store, client_id)?;
-        let grant = store.revoke(&client_id)?.ok_or_else(|| {
-            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
-        })?;
-        drop(store);
-        if let Some(sessions) = &self.sessions {
-            sessions.end_device(&client_id);
-        }
-        self.wake();
-        Ok(grant)
-    }
-    pub fn rename(&self, client_id: &str, name: &str) -> Result<Grant, RemoteError> {
-        let mut store = self.store()?;
-        let before = store.grant(client_id)?;
-        let grant = store.rename(client_id, name)?.ok_or_else(|| {
-            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
-        })?;
-        drop(store);
-        if before.is_some_and(|g| g.name != grant.name) {
-            self.wake();
-        }
-        Ok(grant)
-    }
-    pub fn talk(&self, client_id: &str, enabled: bool) -> Result<Grant, RemoteError> {
-        let mut store = self.store()?;
-        let client_id = resolve_person(&store, client_id)?;
-        let member = store.member_for_client(&client_id)?.ok_or_else(|| {
-            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired member has that ID.")
-        })?;
-        let clients = store.member_clients(&member.member_id)?;
-        let before: Vec<_> = clients
-            .iter()
-            .map(|id| store.grant(id).map(|g| (id.clone(), g.map(|g| g.revision))))
-            .collect::<Result<_, _>>()?;
-        let grant = store.talk(&client_id, enabled)?.ok_or_else(|| {
-            RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
-        })?;
-        let mut changed = Vec::new();
-        for (id, revision) in before {
-            if store.grant(&id)?.map(|g| g.revision) != revision {
-                changed.push(id);
-            }
-        }
-        drop(store);
-        for client in changed {
-            self.committed_change(&client);
-        }
-        Ok(grant)
-    }
-    pub fn designate(&self, client_id: &str, origin: &str) -> Result<Grant, RemoteError> {
-        self.store()?
-            .designate(client_id, origin, crate::pairing::now_ms()?)
-    }
-    pub fn undesignate(&self) -> Result<(), RemoteError> {
-        self.store()?.undesignate()
     }
     /// Effects and receipts are already committed; release Store/live locks first.
     pub(crate) fn committed_change(&self, client_id: &str) {
@@ -205,8 +128,7 @@ impl Devices {
             .map(|sessions| sessions.management_activity(grants, now))
             .transpose()
     }
-    /// New terminal authority calls wait within their existing admission bound.
-    /// Legacy device paths retain their original behavior.
+    /// Terminal authority calls wait within their existing admission bound.
     pub(crate) fn terminal_store(
         &self,
         deadline: std::time::Instant,
@@ -222,45 +144,6 @@ impl Devices {
     }
 }
 
-/// Resolve once while holding the Store lock. An exact client ID takes priority;
-/// display names select only a single active grant and never pick the first match.
-fn resolve_person(store: &Store, reference: &str) -> Result<String, RemoteError> {
-    if let Some(grant) = store.grant(reference)? {
-        return Ok(grant.client_id);
-    }
-    let members: Vec<_> = store
-        .members()?
-        .into_iter()
-        .filter(|m| m.revoked_at_ms.is_none() && m.display_name == reference)
-        .collect();
-    let mut matches = Vec::new();
-    for member in members {
-        for id in store.member_clients(&member.member_id)? {
-            if let Some(grant) = store.grant(&id)?.filter(|g| !g.disabled) {
-                matches.push(grant);
-                break;
-            }
-        }
-    }
-    match matches.as_slice() {
-        [grant] => Ok(grant.client_id.clone()),
-        [] => Err(RemoteError::new(
-            "REMOTE_DEVICE_NOT_FOUND",
-            "No paired device has that name or client ID.",
-        )),
-        _ => Err(RemoteError::new(
-            "REMOTE_DEVICE_AMBIGUOUS",
-            &format!(
-                "More than one device is named {reference:?}. Use a client ID: {}.",
-                matches
-                    .iter()
-                    .map(|g| format!("{:?}", g.client_id))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
-    }
-}
 /// Shutdown wakes the backoff wait and joins the bounded socket attempt before
 /// releasing remote state. Dropping during failed startup has the same cleanup.
 pub struct DeviceEvents {
@@ -290,47 +173,26 @@ pub fn event_json(grant: &Grant) -> Value {
     }
     event
 }
-fn observed_device(store: &Store, grant: &Grant) -> Result<Value, RemoteError> {
-    let mut row = device_json(grant);
-    row["lastUsedAtMs"] = json!(store.last_used(&grant.client_id)?);
-    let pending = store
-        .cloud_route_changes()?
-        .iter()
-        .any(|r| r.peer == grant.client_id);
-    if pending {
-        row["cloudCleanupPending"] = json!(true);
-    }
-    Ok(row)
-}
-
-/// An owner-local device row. The public key is
-/// identified by its four fingerprint words, never printed raw.
-pub fn device_json(grant: &Grant) -> Value {
-    let words = crate::canonical::fingerprint_words(&grant.public_key)
-        .map(|w| w.join(" "))
-        .unwrap_or_default();
-    json!({
-        "clientId": grant.client_id,
-        "name": grant.name,
-        "kind": grant.kind,
-        "origin": grant.origin,
-        "words": words,
-        "agents": grant.agents,
-        "scopes": grant.scopes,
-        "mode": grant.mode,
-        "issuedAtMs": grant.issued_at_ms,
-        "expiresAtMs": grant.expires_at_ms,
-        "revision": grant.revision,
-        "revoked": grant.disabled,
-    })
-}
-
 #[cfg(test)]
 mod person_tests {
     use super::*;
+    fn sending(devices: &Devices, reference: &str, enabled: bool) -> Result<Value, RemoteError> {
+        let read = crate::members::terminal::read(
+            devices,
+            &crate::members::observations::NoMemberObservations,
+            &crate::members::terminal::MemberTerminalRead::Resolve {
+                reference: reference.into(),
+            },
+        )?;
+        let target = serde_json::from_value(read["target"].clone()).unwrap();
+        crate::members::terminal::mutate(
+            devices,
+            &crate::members::terminal::MemberTerminalMutation::Sending { target, enabled },
+        )
+    }
 
     #[test]
-    fn one_member_name_selects_multiple_machines_and_sending_fans_out() {
+    fn one_member_sending_fans_out_to_associated_machines() {
         let root = std::env::temp_dir().join(format!(
             "tmt-member-devices-{}",
             crate::store::uuid_v4().unwrap()
@@ -381,7 +243,14 @@ mod person_tests {
             .unwrap();
         let store = Arc::new(Mutex::new(store));
         let devices = Devices::new(Arc::clone(&store), None);
-        devices.talk("Person", true).unwrap();
+        let member_id = devices
+            .store()
+            .unwrap()
+            .member_for_client(&grants[0].client_id)
+            .unwrap()
+            .unwrap()
+            .member_id;
+        sending(&devices, &member_id, true).unwrap();
         for grant in &grants {
             let current = store
                 .lock()
@@ -392,7 +261,7 @@ mod person_tests {
             assert!(current.permits_scope("talk"));
             assert_eq!(current.mode, "hold");
         }
-        devices.talk("Person", false).unwrap();
+        sending(&devices, &member_id, false).unwrap();
         assert!(
             store
                 .lock()
@@ -409,7 +278,7 @@ mod person_tests {
     }
 
     #[test]
-    fn unique_person_names_mutate_only_that_grant_and_duplicates_list_ids() {
+    fn member_names_refuse_ambiguity_and_machine_effects_require_exact_ids() {
         let root =
             std::env::temp_dir().join(format!("tmt-person-{}", crate::store::uuid_v4().unwrap()));
         let serving = crate::state::Layout::open(&root)
@@ -439,33 +308,79 @@ mod person_tests {
             grants.push(grant);
         }
         let devices = Devices::new(Arc::new(Mutex::new(store)), None);
-        let enabled = devices.talk("Alex", true).unwrap();
-        assert_eq!(enabled.client_id, grants[0].client_id);
+        sending(&devices, "Alex", true).unwrap();
+        let enabled = devices
+            .list()
+            .unwrap()
+            .into_iter()
+            .find(|g| g.client_id == grants[0].client_id)
+            .unwrap();
         assert!(enabled.permits_scope("talk"));
         assert_eq!(enabled.mode, "hold");
         let before = devices.list().unwrap();
-        for error in [
-            devices.talk("Sam", true).unwrap_err(),
-            devices.revoke("Sam").unwrap_err(),
-        ] {
-            assert_eq!(error.code, "REMOTE_DEVICE_AMBIGUOUS");
-            assert!(error.message.contains(&grants[1].client_id));
-            assert!(error.message.contains(&grants[2].client_id));
-        }
+        assert_eq!(
+            sending(&devices, "Sam", true).unwrap_err().code,
+            "REMOTE_MEMBER_AMBIGUOUS"
+        );
+        assert_eq!(
+            crate::members::terminal_machines::resolve(&devices.store().unwrap(), "Sam")
+                .unwrap_err()
+                .code,
+            "REMOTE_MACHINE_NOT_FOUND"
+        );
         assert_eq!(devices.list().unwrap(), before);
+        for grant in &grants[..2] {
+            let target = crate::members::terminal_machines::resolve(
+                &devices.store().unwrap(),
+                &grant.client_id,
+            )
+            .unwrap();
+            let removed = crate::members::terminal_machines::mutate(
+                &devices,
+                &crate::members::terminal_machines::MemberMachineMutation::Remove { target },
+                None,
+            )
+            .unwrap();
+            assert_eq!(removed["machine"]["clientId"], grant.client_id);
+            assert_eq!(removed["machine"]["revoked"], true);
+        }
+        let target = crate::members::terminal_machines::resolve(
+            &devices.store().unwrap(),
+            &grants[0].client_id,
+        )
+        .unwrap();
+        let again = crate::members::terminal_machines::mutate(
+            &devices,
+            &crate::members::terminal_machines::MemberMachineMutation::Remove { target },
+            None,
+        )
+        .unwrap();
+        assert_eq!(again["changed"], false);
+        assert_eq!(again["machine"]["revoked"], true);
+        // Name ambiguity remains a person property even when a machine is removed.
         assert_eq!(
-            devices.revoke("Alex").unwrap().client_id,
-            grants[0].client_id
+            sending(&devices, "Sam", true).unwrap_err().code,
+            "REMOTE_MEMBER_AMBIGUOUS"
         );
-        assert!(devices.revoke(&grants[0].client_id).unwrap().disabled);
-        devices.revoke(&grants[1].client_id).unwrap();
-        assert_eq!(
-            devices.talk("Sam", true).unwrap().client_id,
-            grants[2].client_id
+        let member = devices
+            .store()
+            .unwrap()
+            .member_for_client(&grants[2].client_id)
+            .unwrap()
+            .unwrap();
+        sending(&devices, &member.member_id, true).unwrap();
+        assert!(
+            devices
+                .list()
+                .unwrap()
+                .iter()
+                .find(|g| g.client_id == grants[2].client_id)
+                .unwrap()
+                .permits_scope("talk")
         );
         assert_eq!(
-            devices.talk("missing", true).unwrap_err().code,
-            "REMOTE_DEVICE_NOT_FOUND"
+            sending(&devices, "missing", true).unwrap_err().code,
+            "REMOTE_MEMBER_NOT_FOUND"
         );
         drop(devices);
         drop(serving);
