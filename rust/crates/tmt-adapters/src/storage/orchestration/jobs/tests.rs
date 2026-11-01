@@ -170,7 +170,8 @@ fn missing_owner_is_never_rebound_by_name_and_unowned_requires_pause() {
     assert_eq!(f.page(None, 0, 128).items.len(), 1);
 }
 
-const NOW: u64 = 1_700_000_000_000;
+// Keep the observed 10/20/30-second fixture slots inside the admission window.
+const NOW: u64 = 40_000;
 fn run_input(job: &OrchJob, slot_ms: i64) -> JobRunInput {
     JobRunInput {
         job_id: job.id.clone(),
@@ -738,13 +739,13 @@ fn held_jobs_share_incoming_wake_spacing_but_manual_send_consumes_neither_hold_n
     };
     assert!(matches!(
         f.storage
-            .run_orchestration_job(input(&first, 2000, false), 3, || 2000)
+            .run_orchestration_job(input(&first, 1000, false), 3, || 2000)
             .unwrap(),
         JobRunResult::Accepted { created: true, .. }
     ));
     assert!(matches!(
         f.storage
-            .run_orchestration_job(input(&second, 2000, false), 3, || 2000)
+            .run_orchestration_job(input(&second, 1000, false), 3, || 2000)
             .unwrap(),
         JobRunResult::Waiting {
             next_admission_ms: 3000
@@ -771,7 +772,7 @@ fn held_jobs_share_incoming_wake_spacing_but_manual_send_consumes_neither_hold_n
     assert_eq!(clock.next_admission_ms, 3000);
     assert!(matches!(
         f.storage
-            .run_orchestration_job(input(&second, 3000, false), 3, || 3000)
+            .run_orchestration_job(input(&second, 1000, false), 3, || 3000)
             .unwrap(),
         JobRunResult::Accepted { created: true, .. }
     ));
@@ -810,7 +811,7 @@ fn a_failed_catchup_commit_rolls_back_shared_spacing_and_canonical_acceptance() 
     let input = JobRunInput {
         job_id: job.id.clone(),
         expected_revision: 1,
-        slot_ms: 2000,
+        slot_ms: 1000,
         manual_operation_id: None,
         originator: tmt_core::request::Originator::Unknown,
     };
@@ -840,4 +841,73 @@ fn a_failed_catchup_commit_rolls_back_shared_spacing_and_canonical_acceptance() 
             .at_ms,
         1000
     );
+}
+
+#[test]
+fn scheduled_slots_require_the_calendar_and_recent_observation_or_exact_held_slot() {
+    let mut f = Fixture::new();
+    let job = f
+        .storage
+        .create_orchestration_job(f.definition(None, "bounded slots"))
+        .unwrap();
+    let at = 1_700_000_000_000u64;
+    for slot in [at as i64 - 1, at as i64 - 300_000, at as i64 + 10_000] {
+        let error = f
+            .storage
+            .run_orchestration_job(run_input(&job, slot), 7, || at)
+            .unwrap_err();
+        assert!(matches!(error, JobStoreError::Job(JobError::Invalid)));
+        assert_eq!(
+            crate::orchestration::jobs::error_code(&error),
+            "ORCH_INPUT_INVALID"
+        );
+    }
+    assert_eq!(count(&f, "request_attempts"), 0);
+    assert_eq!(count(&f, "orchestration_job_runs"), 0);
+    let slot = at as i64 - 10_000;
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(run_input(&job, slot), 7, || at)
+            .unwrap(),
+        JobRunResult::Accepted { created: true, .. }
+    ));
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(run_input(&job, slot), 7, || at + 600_000)
+            .unwrap(),
+        JobRunResult::Accepted { created: false, .. }
+    ));
+    let held = 10_000;
+    f.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE orchestration_jobs SET pending_revision=revision,pending_ms=?",
+            [held],
+        )
+        .unwrap();
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(run_input(&job, held), 7, || at)
+            .unwrap(),
+        JobRunResult::Accepted { created: true, .. }
+    ));
+    // A second scheduler retaining the old held projection recovers that run,
+    // even after the first scheduler cleared the hold and the slot is too old.
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(run_input(&job, held), 7, || at + 1_000)
+            .unwrap(),
+        JobRunResult::Accepted { created: false, .. }
+    ));
+    assert!(
+        f.storage
+            .orchestration_job(&job.id)
+            .unwrap()
+            .unwrap()
+            .pending
+            .is_none()
+    );
+    assert_eq!(count(&f, "request_attempts"), 2);
+    assert_eq!(count(&f, "orchestration_job_runs"), 2);
 }

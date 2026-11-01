@@ -2,6 +2,7 @@
 use super::*;
 use std::fs;
 use tmt_ops::cron::Clock;
+#[track_caller]
 fn wait_for<T>(mut read: impl FnMut() -> Option<T>) -> T {
     let until = Instant::now() + Duration::from_secs(10);
     loop {
@@ -35,7 +36,7 @@ fn legacy(f: &Fixture) -> (Core, Config, tmt_ops::cron::Lease, Vec<u8>) {
     (core, config, lease, held)
 }
 #[test]
-fn competing_core_clock_does_not_stop_idle_alerts_or_restart_scheduling() {
+fn competing_core_clock_keeps_idle_alerts_and_reacquires_after_holder_exits() {
     let f = Fixture::new();
     let at = 1_800_000_000_000i64;
     fs::write(
@@ -47,22 +48,55 @@ fn competing_core_clock_does_not_stop_idle_alerts_or_restart_scheduling() {
     .unwrap();
     let holder = json!({"schemaVersion":1,"state":"running","holder":{"pid":42,"pane":"%7","startedAtMs":100,"expiresAtMs":30100,"build":"other"}});
     f.change_model(|m|{m["clockStatus"]=holder.clone();m["ls"]=json!([{"id":WORKER,"presence":"active","pane":"%1","session":{"activity":{"state":"idle","sinceMs":at-3_600_000,"lastActivityMs":at-3_600_000}}}]);});
+    f.change_model(|m| m["clockLeaseFixture"] = json!(true));
+    let lease = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(f.directory.join("fixture-clock.lock"))
+        .unwrap();
+    let holder_lease =
+        nix::fcntl::Flock::lock(lease, nix::fcntl::FlockArg::LockExclusiveNonblock).unwrap();
     let scans = Arc::new(AtomicUsize::new(0));
+    let minute = Arc::new(std::sync::atomic::AtomicI64::new(at));
+    let observed_minute = minute.clone();
     let observed = scans.clone();
     let mut worker =
         ClockWorker::spawn_clock(f.core.clone(), f.config.clone(), false, true, move || {
-            at + 60_000 * observed.fetch_add(1, Ordering::Relaxed) as i64
+            observed.fetch_add(1, Ordering::Relaxed);
+            observed_minute.load(Ordering::Relaxed)
         });
     wait_for(|| {
-        (scans.load(Ordering::Relaxed) >= 3 && f.model()["notices"].as_array().unwrap().len() == 1)
-            .then_some(())
+        (scans.load(Ordering::Relaxed) >= 3 && f.model()["clockStarts"] == 1).then_some(())
     });
-    let result = worker.stop().unwrap();
+    assert_eq!(
+        f.model()["clockStarts"],
+        1,
+        "no retry within the same minute"
+    );
+    drop(holder_lease);
+    minute.store(at + 60_000, Ordering::Relaxed);
+    let acquired: i32 = wait_for(|| {
+        fs::read_to_string(f.directory.join("clock-acquired.pid"))
+            .ok()?
+            .parse()
+            .ok()
+    });
+    assert_eq!(
+        f.model()["clockStarts"],
+        2,
+        "the waiting UI acquired on the next minute"
+    );
+    wait_for(|| (f.model()["notices"].as_array().unwrap().len() == 1).then_some(()));
+    worker.stop().unwrap();
     let model = f.model();
     assert_eq!(
-        model["clockStarts"], 1,
-        "an uncertain/competing clock is never restarted"
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(acquired), None),
+        Err(nix::errno::Errno::ESRCH)
     );
+    assert_eq!(model["clockStarts"], 2);
+    let lease = fs::File::open(f.directory.join("fixture-clock.lock")).unwrap();
+    let _released =
+        nix::fcntl::Flock::lock(lease, nix::fcntl::FlockArg::LockExclusiveNonblock).unwrap();
     assert_eq!(
         model["clockStatus"], holder,
         "Ops must not mutate another owner's holder"
@@ -74,13 +108,6 @@ fn competing_core_clock_does_not_stop_idle_alerts_or_restart_scheduling() {
     );
     assert_eq!(model["notices"][0]["input"]["recipientIds"], json!([LEAD]));
     assert_eq!(model["notices"][0]["input"]["origin"], "automation");
-    assert!(
-        result["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| w["error"]["code"] == "TICK_CLOCK_RUNNING")
-    );
     assert!(!f.directory.join("ops/cron/clock.json").exists());
 }
 #[test]
@@ -188,4 +215,30 @@ fn deferred_workers_migrate_without_preempting_legacy_then_offer_only_core_clock
     assert!(!f.directory.join("ops/cron/clock.json").exists());
     first.stop().unwrap();
     second.stop().unwrap();
+}
+
+#[test]
+fn continuous_ui_reoffers_after_clean_and_errored_ends_and_joins_every_child() {
+    for end in ["clean", "error"] {
+        let f = Fixture::new();
+        f.change_model(|m| m["clockEndFixture"] = json!(end));
+        let scans = Arc::new(AtomicUsize::new(0));
+        let observed = scans.clone();
+        let mut worker =
+            ClockWorker::spawn_clock(f.core.clone(), f.config.clone(), false, true, move || {
+                1_800_000_000_000 + 60_000 * observed.fetch_add(1, Ordering::Relaxed) as i64
+            });
+        wait_for(|| (f.model()["clockStarts"].as_u64().unwrap_or(0) >= 2).then_some(()));
+        worker.stop().unwrap();
+        let model = f.model();
+        for pid in model["clockPids"].as_array().unwrap() {
+            assert_eq!(
+                nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid.as_i64().unwrap() as i32),
+                    None
+                ),
+                Err(nix::errno::Errno::ESRCH)
+            );
+        }
+    }
 }

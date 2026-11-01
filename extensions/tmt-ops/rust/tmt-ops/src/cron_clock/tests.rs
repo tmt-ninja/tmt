@@ -139,3 +139,17 @@ fn ui_clock_refusal_is_visible_but_unconfirmed_cleanup_never_becomes_success() {
     );
     assert_eq!(report, before);
 }
+
+#[test]
+fn continuous_clock_restart_is_minute_aligned_and_failure_backoff_is_bounded() {
+    let mut restart = Restart::default();
+    let mut at = 60_123;
+    for minutes in [1, 2, 4, 5, 5] {
+        restart.ended(at);
+        assert_eq!(restart.after_ms, (at / 60_000 + minutes) * 60_000);
+        at = restart.after_ms + 123;
+    }
+    restart.failures = 0; // A report from the new owner resets consecutive failures.
+    restart.ended(at);
+    assert_eq!(restart.after_ms, (at / 60_000 + 1) * 60_000);
+}

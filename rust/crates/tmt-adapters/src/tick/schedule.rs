@@ -82,7 +82,8 @@ impl TickWindow {
         let after = if now < self.previous_ms {
             now
         } else {
-            self.previous_ms.max(now.saturating_sub(300_000))
+            self.previous_ms
+                .max(now.saturating_sub(crate::orchestration::jobs::OBSERVATION_MS))
         };
         self.previous_ms = now;
         let mut report = TickReport {
@@ -101,11 +102,11 @@ impl TickWindow {
                 if job.pause.is_some() || !job.owner_available || self.failed.contains(&job.id) {
                     continue;
                 }
-                if job.pending.is_some() {
+                if let Some(pending) = job.pending {
                     if entry.routine_hold || (now as u64) < port.next_wake_admission()? {
                         continue;
                     }
-                    self.run(&job, now, port, &mut report);
+                    self.run(&job, pending.at_ms, port, &mut report);
                     continue;
                 }
                 let calendar = crate::orchestration::jobs::calendar(&job.schedule)

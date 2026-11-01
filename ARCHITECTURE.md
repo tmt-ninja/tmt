@@ -410,7 +410,7 @@ own module/drawing boundaries and verification.
   `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
   Ops uses CAS; checklists and frozen legacy job sources/redirects live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  Current jobs/runs belong to Core's public owner; Ops imports an exact frozen source once.
+  Current jobs/runs belong to Core's public owner; Ops imports one immutable source with receipt-fenced recovery.
   `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
   Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
   its store tracks one CLI and one board warning, and the board worker forwards the latter.

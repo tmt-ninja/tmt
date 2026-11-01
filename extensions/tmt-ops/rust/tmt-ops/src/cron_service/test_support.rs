@@ -209,7 +209,20 @@ elif a[0]=='send-now':
  save(m); print(json.dumps({'status':m.get('sendNowStatus','sent'),'requestId':a[1],'state':'delivered'}))
 elif a[0]=='tick':
  assert a in [['tick','run','--json'],['tick','--json']]
- m['clockStarts']=m.get('clockStarts',0)+1; save(m)
+ m['clockStarts']=m.get('clockStarts',0)+1; m.setdefault('clockPids',[]).append(os.getpid()); save(m)
+ fcntl.flock(guard,fcntl.LOCK_UN)
+ if m.get('clockEndFixture')=='clean':
+  print(json.dumps({'schemaVersion':1,'complete':True,'jobs':{'accepted':0,'failures':[]},'stopped':True}));sys.exit(0)
+ if m.get('clockEndFixture')=='error':print('invalid clock frame');sys.exit(1)
+ if m.get('clockLeaseFixture'):
+  import fcntl,signal
+  lease=open(p/'fixture-clock.lock','a+')
+  try:fcntl.flock(lease,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError:pass
+  else:
+   (p/'clock-acquired.pid').write_text(str(os.getpid()))
+   print(json.dumps({'schemaVersion':1,'complete':True,'jobs':{'accepted':0,'failures':[]},'stopped':False}),flush=True)
+   while True:signal.pause()
  print(json.dumps({'error':{'code':'TICK_CLOCK_RUNNING','message':'Another clock owns scheduling.'}}));sys.exit(5)
 elif a[0]=='whoami':
  if m['caller']=='ambiguous': fail('CALLER_IDENTITY_AMBIGUOUS')

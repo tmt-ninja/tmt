@@ -159,7 +159,7 @@ impl Plan {
         let exe = text(&m.executable).unwrap();
         if m.platform == "launchd" {
             let body = format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- {TAG}{encoded} -->\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{label}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>tick</string><string>--json</string></array>\n<key>EnvironmentVariables</key><dict><key>TMT_HOME</key><string>{}</string><key>HOME</key><string>{}</string><key>PATH</key><string>{}</string></dict>\n<key>WorkingDirectory</key><string>{}</string>\n<key>StartInterval</key><integer>60</integer>\n<key>RunAtLoad</key><false/>\n<key>ExitTimeOut</key><integer>15</integer>\n</dict></plist>\n",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- {TAG}{encoded} -->\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>{label}</string>\n<key>ProgramArguments</key><array><string>{}</string><string>tick</string><string>--json</string></array>\n<key>EnvironmentVariables</key><dict><key>TMT_HOME</key><string>{}</string><key>HOME</key><string>{}</string><key>PATH</key><string>{}</string></dict>\n<key>WorkingDirectory</key><string>{}</string>\n<key>StartCalendarInterval</key><dict/>\n<key>RunAtLoad</key><false/>\n<key>ExitTimeOut</key><integer>15</integer>\n</dict></plist>\n",
                 xml(exe),
                 xml(root),
                 xml(home),

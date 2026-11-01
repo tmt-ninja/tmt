@@ -1334,8 +1334,9 @@ to the user. Add accepts `--paused`; edit accepts the same schedule flags or
 Messages must be nonempty and are retained exactly, without substitution. Jobs
 live in Core's canonical job store, separate from `ops.toml`. Existing Ops jobs are
 adopted from an exact frozen source before the legacy commands forward to that store.
-An unconfirmed import stays frozen with receipt-readback guidance; never recreate the
-jobs to get past it. IDs are never reused. Fixed local times skip daylight-saving gaps and use the first repeated
+An unconfirmed import stays frozen. A later invocation reads the exact receipt;
+confirmed absence resumes the same source ID, digest and retained bytes. An uncertain
+read never proves absence. Never recreate jobs to get past an unconfirmed import. IDs are never reused. Fixed local times skip daylight-saving gaps and use the first repeated
 time; intervals keep elapsed duration. Schedule edits retain the stored zone.
 Change notices are best-effort announcements to the owner; reassignment notifies
 old/new owners, and the actor's own notice is suppressed. A committed change can
@@ -1345,7 +1346,9 @@ An open board offers an owned foreground Core clock independently of refresh.
 Outside a board, `tmt ops sq cron run` forwards to `tmt tick run` in the current pane;
 `clock` reads the shared holder's pane, PID and start age. Core's kernel lock keeps one
 owner until shutdown. Close the owning board or stop its `run` with Ctrl-C to release it.
-A competing board leaves scheduling with that owner and keeps its own idle-alert worker.
+A competing board keeps its idle-alert worker and reoffers clock ownership on the
+next minute after a refusal or joined child exit. Repeated failures back off to at
+most one attempt per five minutes; unconfirmed cleanup stops the worker.
 Startup and restart begin at now; a running clock admits slots since its previous
 observation, capped at five minutes. `tick` forwards to one finite `tmt tick` minute,
 observing sub-minute slots until the minute ends, with a 60-second initial window.

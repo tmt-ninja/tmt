@@ -815,3 +815,51 @@ fn deferred_legacy_reads_keep_jobs_and_holder_without_core_adoption() {
         lease.release().unwrap();
     }
 }
+
+#[test]
+fn a_frozen_import_recovers_after_publication_or_readback_failure_without_new_jobs() {
+    for fault in ["importFailure", "importReadbackFailure"] {
+        let f = Fixture::new();
+        let source = json!({"version":2,"counters":{ROOM:1},"jobs":[{
+            "id":"c1","roomId":ROOM,"ownerId":WORKER,"message":"retained source",
+            "revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}
+        }]});
+        f.seed_legacy(source.to_string().as_bytes());
+        f.change_model(|m| m[fault] = json!(true));
+        assert!(matches!(list_jobs(&f.core, &f.config, None, 100),
+            Err(error) if error.code == "SQUAD_CRON_CUTOVER_UNCONFIRMED"));
+        let store = Store::new(&f.directory.join("ops")).unwrap();
+        let frozen = store.frozen_for_core().unwrap().unwrap();
+        assert!(store.core_redirect().unwrap().is_none());
+        let accepted = f.model()["jobs"].as_object().map_or(0, |jobs| jobs.len());
+        assert_eq!(accepted, usize::from(fault == "importReadbackFailure"));
+        // An uncertain read is not absence and cannot trigger another apply.
+        if fault == "importReadbackFailure" {
+            assert!(list_jobs(&f.core, &f.config, None, 100).is_err());
+        }
+        f.change_model(|m| m[fault] = json!(false));
+        let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+        assert_eq!(listed.jobs.len(), 1);
+        assert_eq!(listed.jobs[0].job.message, "retained source");
+        assert_eq!(store.frozen_for_core().unwrap().unwrap(), frozen);
+        assert!(store.core_redirect().unwrap().is_some());
+        let model = f.model();
+        assert_eq!(model["jobImports"].as_object().unwrap().len(), 1);
+        assert_eq!(model["jobs"].as_object().unwrap().len(), 1);
+        let applies = model["importCommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|args| args.as_array().unwrap().iter().any(|arg| arg == "--yes"))
+            .collect::<Vec<_>>();
+        assert_eq!(applies.len(), if fault == "importFailure" { 2 } else { 1 });
+        for args in applies {
+            let args = args.as_array().unwrap();
+            let source_id = args.iter().position(|arg| arg == "--source-id").unwrap();
+            let digest = args.iter().position(|arg| arg == "--digest").unwrap();
+            assert_eq!(args[source_id + 1], frozen.source_id);
+            assert_eq!(args[digest + 1], frozen.source_digest);
+        }
+    }
+}

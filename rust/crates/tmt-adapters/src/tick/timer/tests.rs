@@ -64,7 +64,7 @@ fn plans_are_finite_literal_and_preview_has_no_file_or_manager_effect() {
         let files = p.files();
         let body = String::from_utf8(files[0].1.clone()).unwrap();
         if platform == "launchd" {
-            assert!(body.contains("<key>StartInterval</key><integer>60</integer>"));
+            assert!(body.contains("<key>StartCalendarInterval</key><dict/>"));
             assert!(body.contains("%$&amp;&quot;"));
             assert!(!body.contains("KeepAlive"));
         } else {

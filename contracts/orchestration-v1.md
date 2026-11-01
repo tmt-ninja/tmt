@@ -425,6 +425,10 @@ retirement consumers still compare the current owner before acting on a referenc
 observed `slotMs`, each within the safe integer bounds. It loads the stored exact
 message and owner; callers cannot substitute them. The envelope names an
 originator identity or `originator:"anonymous"`; the scheduler uses anonymous.
+A scheduled slot must be produced by the stored calendar within the preceding
+five-minute observation window, or equal the job's recorded held slot. Other
+slots return `ORCH_INPUT_INVALID`. Held catch-ups submit that recorded slot,
+so another scheduler recovers the same receipt after the hold is cleared.
 An explicit manual call supplies a frozen `manualOperationId` and `consent:true`.
 Manual sending does not resume a paused job or consume its held slot. Both modes
 create automated traffic, preserving the caller attribution for manual work.
@@ -461,7 +465,10 @@ reconstructs an absent-clock backlog. One admission gate covers jobs, Digest and
 capture in each increasing wall minute; same-minute retry and a backwards clock
 do not admit another component pass. Automatic failures remain inspectable by
 operation ID; they never authorize a second uncertain send. Ops forwards its
-cron clock to this owner and retains its independent idle-alert worker.
+cron clock to this owner and retains its independent idle-alert worker. A continuous
+UI reoffers clock ownership on the next minute after a competing owner or a joined
+child exit; consecutive failures back off to at most one attempt per five minutes.
+Unconfirmed child cleanup remains fatal and cannot start a replacement.
 
 The optional commands are:
 

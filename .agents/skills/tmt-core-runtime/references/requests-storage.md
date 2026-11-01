@@ -66,7 +66,10 @@ registration uses the proposed selector before apply; a stale preview allocates
 nothing. Request acceptance, held-slot settlement and wake spacing share the
 existing request transaction; no transaction spans an external wake. Exact import
 readback proves the source digest, counters and complete mapping before Ops
-publishes its redirect. Frozen source state is not a second live job store.
+publishes its redirect. A confirmed missing receipt resumes the same immutable
+source import; an uncertain read does not. Scheduled runs validate the stored
+calendar and five-minute observation bound, except for the exact held slot.
+Frozen source state is not a second live job store.
 
 Adapter `tick` owns the explicit finite/foreground process lifetime and kernel
 lease. All component children are joined before release, and one increasing

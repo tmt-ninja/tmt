@@ -129,6 +129,27 @@ impl Storage {
         if let Some(result) = existing_run(&tx, &input, &job)? {
             return Ok(result);
         }
+        let now = clock();
+        if now == 0 || now > MAX_JS_SAFE_INTEGER || i128::from(input.slot_ms) > i128::from(now) {
+            return Err(JobError::Invalid.into());
+        }
+        if input.manual_operation_id.is_none() {
+            let held = job
+                .pending
+                .is_some_and(|slot| slot.revision == job.revision && slot.at_ms == input.slot_ms);
+            if !held {
+                let calendar = crate::orchestration::jobs::calendar(&job.schedule)?;
+                if input.slot_ms
+                    <= (now as i64).saturating_sub(crate::orchestration::jobs::OBSERVATION_MS)
+                    || calendar
+                        .next_after(input.slot_ms.saturating_sub(1))
+                        .map_err(|_| JobError::Invalid)?
+                        != Some(input.slot_ms)
+                {
+                    return Err(JobError::Invalid.into());
+                }
+            }
+        }
         let Some(owner) = job.owner_id.as_deref() else {
             return Ok(JobRunResult::NoOwner);
         };
@@ -140,10 +161,6 @@ impl Storage {
             if room.is_none_or(|room| !room.member_ids.iter().any(|id| id == owner)) {
                 return Ok(JobRunResult::NoOwner);
             }
-        }
-        let now = clock();
-        if now == 0 || now > MAX_JS_SAFE_INTEGER || i128::from(input.slot_ms) > i128::from(now) {
-            return Err(JobError::Invalid.into());
         }
         let state = super::super::read_snapshot(&tx, None, Some(owner))?;
         if state.time_zone != configured_zone {
