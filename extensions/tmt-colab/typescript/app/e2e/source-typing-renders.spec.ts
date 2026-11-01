@@ -205,3 +205,58 @@ test('dock geometry still updates without rebuilding Chat turns, and new message
   const updated = await quiet(page);
   expect(updated.CommentExchange - after.CommentExchange).toBeGreaterThan(0);
 });
+
+test('cached Chat history follows read-only and connection changes while theme stays in CSS', async ({
+  page,
+}) => {
+  await countRenders(page);
+  await page.addInitScript(() => {
+    document.documentElement.dataset.theme = 'light';
+  });
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'chatPolish', 'messages');
+  await (await pageAction(page, 'Chat')).click();
+  const chat = page.getByTestId('chat-panel');
+  const actions = chat.getByRole('button', { name: 'Message actions', exact: true });
+  await expect(actions).toHaveCount(1);
+  const body = chat.locator('.conversation-body').first();
+  const light = await body.evaluate((node) => getComputedStyle(node).color);
+  const before = await quiet(page);
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'dark';
+  });
+  await expect.poll(() => body.evaluate((node) => getComputedStyle(node).color)).not.toBe(light);
+  const themed = await quiet(page);
+  expect(themed.CommentExchange - before.CommentExchange).toBe(0);
+  await run(page, 'archive');
+  await expect(actions).toHaveCount(0);
+  await expect(chat.locator('.conversation-body')).toHaveCount(3);
+  await run(page, 'restore');
+  await expect(actions).toHaveCount(1);
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await run(page, 'block');
+  await expect(actions).toBeDisabled();
+  await expect(chat.locator('.conversation-body')).toHaveCount(3);
+});
+
+test('a placement render after midnight refreshes Today without new Chat records', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date(2026, 10, 1, 12));
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'chatPolish', 'messages');
+  await (await pageAction(page, 'Chat')).click();
+  const days = page.getByTestId('chat-panel').locator('.chat-day');
+  await expect(days.last()).toHaveText('Today');
+  await page.clock.setFixedTime(new Date(2026, 10, 2, 12));
+  await page.locator('#ask-page-fixture .frame-host').evaluate((host: HTMLElement) => {
+    host.style.width = '70%';
+    window.dispatchEvent(new Event('scroll'));
+  });
+  await expect(days.last()).not.toHaveText('Today');
+  await expect(days).toHaveCount(2);
+});

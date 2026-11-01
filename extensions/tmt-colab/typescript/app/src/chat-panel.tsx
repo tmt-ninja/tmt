@@ -62,6 +62,7 @@ export function ChatPanel({
   const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? [], asks);
   // A stable binding can advance disclosure: attachment readers must dispose and reread then.
   const attachmentScope = discussion?.attachments?.scope?.();
+  const today = new Date().toDateString();
   const { history, legacyDays, messageIds } = useMemo(() => {
     // Descendant attachment readers consult the binding themselves; invalidate their cached JSX.
     void attachmentScope;
@@ -101,7 +102,7 @@ export function ChatPanel({
       return (
         <p className="chat-day">
           <time dateTime={date.toISOString()}>
-            {day === new Date().toDateString()
+            {day === today
               ? text.chatToday
               : date.toLocaleDateString(undefined, {
                   month: 'short',
@@ -164,6 +165,7 @@ export function ChatPanel({
     archived,
     title,
     attachmentScope,
+    today,
   ]);
   return (
     <ConversationPresentation value="chat">

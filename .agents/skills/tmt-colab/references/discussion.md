@@ -265,7 +265,7 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   UI capture/default labels grant no routing authority. `ask-panel.tsx` shares the
   accepted-turn observation deadline and Clock + `No reply yet from <agent>` copy between annotation
   threads and Chat; it retains read-only recheck without changing ledger state.
-- `chat-panel.tsx` memoizes history by admitted threads, asks, echo state, attachment disclosure scope and presentation inputs,
+- `chat-panel.tsx` memoizes history by admitted threads, asks, echo state, attachment disclosure scope, local calendar day and presentation inputs,
   so dock placement renders do not rebuild unchanged turns; composer state remains independent.
   It reads designated device threads from the same admitted projection,
   shows their page-visible history and inline outcomes, and continues only its device's thread with the shared input. Chat threads are excluded from Comments. No new store
