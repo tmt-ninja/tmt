@@ -20,7 +20,8 @@
     "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
     "./test-fixtures/*": "./test/fixtures/*",
-    "./list-table": "./src/list-table-host.ts"
+    "./list-table": "./src/list-table-host.ts",
+    "./rich-input": "./src/rich-input/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",
@@ -63,6 +64,10 @@
     "cmdk": "1.1.1",
     "radix-ui": "1.8.1",
     "tailwind-merge": "3.7.0",
-    "class-variance-authority": "0.7.1"
+    "class-variance-authority": "0.7.1",
+    "@lexical/history": "0.52.0",
+    "@lexical/plain-text": "0.52.0",
+    "@lexical/react": "0.52.0",
+    "lexical": "0.52.0"
   }
 }

@@ -83,7 +83,15 @@ it('maps every colour and surface role, so nothing under B falls back to the old
 });
 
 it('keeps the docs and the Colab mock free of literal colours', () => {
-  for (const file of ['docs.css', 'mock-colab.css', 'mock-reader.css', 'mock-list.css']) {
+  for (const file of [
+    'docs.css',
+    'mock-colab.css',
+    'mock-reader.css',
+    'mock-list.css',
+    // #5835: the TUI docs and mock (gui-3).
+    'tui/tui.css',
+    'mock-tui/mock-tui.css',
+  ]) {
     const css = readFileSync(new URL(`../docs/${file}`, import.meta.url), 'utf8').replace(
       /\/\*[\s\S]*?\*\//g,
       '',
