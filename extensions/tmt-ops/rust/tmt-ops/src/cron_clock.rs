@@ -225,12 +225,30 @@ fn clock_result(
         }
         Err(error) => {
             last["complete"] = json!(false);
-            last["warnings"]
-                .as_array_mut()
-                .unwrap()
-                .push(error.to_json());
+            let warnings = last["warnings"].as_array_mut().unwrap();
+            if warnings.len() < 32 {
+                warnings.push(error.to_json());
+            }
             Ok(())
         }
+    }
+}
+
+/// Continuous UIs compete again at a minute boundary after joined cleanup.
+/// Repeated failures back off to at most one attempt per five minutes.
+#[derive(Default)]
+struct Restart {
+    failures: u32,
+    after_ms: i64,
+}
+impl Restart {
+    fn ended(&mut self, now: i64) {
+        let minutes = [1, 2, 4, 5][self.failures.min(3) as usize];
+        self.failures = self.failures.saturating_add(1);
+        self.after_ms = now
+            .div_euclid(60_000)
+            .saturating_add(minutes)
+            .saturating_mul(60_000);
     }
 }
 
@@ -268,16 +286,31 @@ fn serve(
         config
     };
     service::ready(core)?;
-    let mut feed = Some(core_clock::Feed::spawn(core, continuous)?);
+    let mut feed = None;
+    let mut restart = Restart::default();
     let mut idle = idle_alert::Watch::new();
     let zone = jiff::tz::TimeZone::system();
     let mut last = json!({"action":"tick","accepted":0,"warnings":[],"complete":true});
     let result: Result<(), SquadError> = (|| {
         while !cancellation.cancelled() {
+            let now = clock();
+            if feed.is_none() && now >= restart.after_ms {
+                match core_clock::Feed::spawn(core, continuous) {
+                    Ok(started) => feed = Some(started),
+                    Err(error) => {
+                        clock_result(&mut last, Err(error), foreground)?;
+                        if !continuous {
+                            break;
+                        }
+                        restart.ended(now);
+                    }
+                }
+            }
             if let Some(current) = &feed {
                 let (report, ended) = current.take();
                 if let Some(report) = report {
                     last = report;
+                    restart.failures = 0;
                 }
                 if let Some(ended) = ended {
                     let cleaned = feed.take().unwrap().stop();
@@ -285,12 +318,13 @@ fn serve(
                     if foreground || !continuous {
                         break;
                     }
-                    // Another Core owner or a stopped child never suppresses idle alerts.
-                    // No uncertain tick is automatically restarted.
+                    // Slot receipts fence any uncertain work from this lifetime.
+                    // Cleanup must be confirmed before offering another owner.
+                    restart.ended(now);
                 }
             }
             if continuous {
-                let warnings = idle.advance(core, config.path(), clock(), &zone, &mut || {
+                let warnings = idle.advance(core, config.path(), now, &zone, &mut || {
                     !cancellation.cancelled()
                 });
                 if !warnings.is_empty() {

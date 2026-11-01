@@ -220,8 +220,8 @@ impl Store {
             Ok(())
         }).map_err(failed)
     }
-    /// Recovery is read-only. An uncertain import is never thawed or resubmitted
-    /// with a new source ID; the caller reads back this exact Core receipt.
+    /// Read the immutable recovery source. The caller confirms its Core receipt
+    /// or resumes the same source import after confirmed absence; never thaw it.
     pub fn frozen_for_core(&self) -> Result<Option<FrozenJobs>, Error> {
         let slot = self.slot();
         let Some(mut database) =

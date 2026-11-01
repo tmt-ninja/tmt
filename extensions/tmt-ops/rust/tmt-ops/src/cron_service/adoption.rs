@@ -6,7 +6,7 @@ use tmt_ops::cron::{Clock, FrozenJobs};
 fn invalid_receipt() -> SquadError {
     failure(
         "SQUAD_CRON_CUTOVER_UNCONFIRMED",
-        "Core did not confirm the exact frozen jobs source and mapping. The source remains frozen; no import was repeated.",
+        "Core did not confirm the exact frozen jobs source and mapping. The source remains frozen until its exact receipt is confirmed.",
     )
 }
 fn matches_receipt(frozen: &FrozenJobs, receipt: &Value) -> bool {
@@ -70,16 +70,20 @@ fn matches_receipt(frozen: &FrozenJobs, receipt: &Value) -> bool {
     }
     actual == expected
 }
-fn confirm(core: &Core, store: &Store, frozen: &FrozenJobs) -> Result<(), SquadError> {
-    let readback = core.json(&["orch", "job", "import-receipt", &frozen.source_id])?;
+fn confirm(core: &Core, store: &Store, frozen: &FrozenJobs) -> Result<bool, SquadError> {
+    let readback = match core.json(&["orch", "job", "import-receipt", &frozen.source_id]) {
+        Ok(value) => value,
+        Err(error) if error.code == "ORCH_JOB_IMPORT_NOT_FOUND" => return Ok(false),
+        Err(error) => return Err(error),
+    };
     if readback["schemaVersion"] != 1 || !matches_receipt(frozen, &readback["receipt"]) {
         return Err(invalid_receipt());
     }
     store.confirm_core_adoption(frozen)?;
-    Ok(())
+    Ok(true)
 }
 /// Called in the service's migration guard, never inside its SQLite transaction.
-/// Once frozen, subsequent invocations only read back the exact receipt.
+/// A missing receipt resumes the same idempotent frozen-source import.
 pub(super) fn ensure(core: &Core, store: &Store) -> Result<(), SquadError> {
     if store.core_redirect()?.is_some() {
         return Ok(());
@@ -88,7 +92,11 @@ pub(super) fn ensure(core: &Core, store: &Store) -> Result<(), SquadError> {
     let clock = Clock::new(&root)?;
     let quiescent = clock.quiescent_for_cutover()?;
     if let Some(frozen) = store.frozen_for_core()? {
-        return confirm(core, store, &frozen).map_err(|error| recovery(&frozen, error));
+        return match confirm(core, store, &frozen) {
+            Ok(true) => Ok(()),
+            Ok(false) => publish(core, store, &frozen),
+            Err(error) => Err(recovery(&frozen, error)),
+        };
     }
     let (source_digest, bytes) = store.cutover_source()?;
     let source_id = crate::send::new_operation()?;
@@ -124,15 +132,35 @@ pub(super) fn ensure(core: &Core, store: &Store) -> Result<(), SquadError> {
     if frozen != source {
         return Err(invalid_receipt());
     }
-    let mut apply = args.to_vec();
-    apply.push("--yes");
-    // Even an error can follow accepted work. Never infer rollback or resubmit.
-    let publication = core.json(&apply);
-    match confirm(core, store, &frozen) {
-        Ok(()) => Ok(()),
-        Err(error) => Err(recovery(&frozen, publication.err().unwrap_or(error))),
+    publish(core, store, &frozen)
+}
+fn publish(core: &Core, store: &Store, frozen: &FrozenJobs) -> Result<(), SquadError> {
+    // The retained bytes, source ID and digest are immutable. Core's import
+    // receipt fences repeats, including an accepted import with a lost response.
+    let path = store.export_core_source(frozen)?;
+    let path = path.to_str().ok_or_else(invalid_receipt)?;
+    let publication = core.json(&[
+        "orch",
+        "job",
+        "import",
+        "--file",
+        path,
+        "--source-id",
+        &frozen.source_id,
+        "--digest",
+        &frozen.source_digest,
+        "--yes",
+    ]);
+    match confirm(core, store, frozen) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(recovery(
+            frozen,
+            publication.err().unwrap_or_else(invalid_receipt),
+        )),
+        Err(error) => Err(recovery(frozen, publication.err().unwrap_or(error))),
     }
 }
+
 fn recovery(frozen: &FrozenJobs, error: SquadError) -> SquadError {
     SquadError::hinted(
         "SQUAD_CRON_CUTOVER_UNCONFIRMED",
@@ -142,7 +170,7 @@ fn recovery(frozen: &FrozenJobs, error: SquadError) -> SquadError {
         ),
         " ",
         &format!(
-            "Inspect `tmt orch job import-receipt {} --json` and the retained cron/core-source-{}.json before any manual recovery; no automatic import is retried.",
+            "Inspect `tmt orch job import-receipt {} --json` and the retained cron/core-source-{}.json before recovery. The next invocation resumes only this exact source when Core confirms its receipt is absent; never recreate the jobs.",
             frozen.source_id, frozen.source_digest
         ),
     )

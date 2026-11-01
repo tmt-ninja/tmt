@@ -387,8 +387,9 @@ owns current definitions, admission, run evidence and the shared clock; Ops is a
   commit together in `ops.db`; old readers/writers refuse this newer document.
   One public file import is followed by exact-source receipt readback, validating counters
   and the complete room/c-ID-to-Core-ID mapping before an adopted redirect is committed.
-  Interrupted or unconfirmed publication stays frozen: later calls only read that receipt,
-  never thaw, resubmit or invent another source ID. Core never opens the Ops database.
+  Interrupted publication stays frozen. Later calls confirm the receipt or, on confirmed
+  absence, resume the same immutable source ID/digest/bytes import. An uncertain read never
+  proves absence; no source is thawed or replaced. Core never opens the Ops database.
 - **Service.** CLI, clock and board share `cron_service`. Existing `JobKey` selectors keep
   the room UUID and non-reused c-ID; public paged metadata plus full selected definitions
   supply the legacy projection. A message preview is never used as the editable message.
@@ -418,7 +419,10 @@ owns current definitions, admission, run evidence and the shared clock; Ops is a
   `SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED`, never a successful UI stop. Core
   owns the stable kernel lock, advisory holder, sub-minute slots, one-minute Digest/capture
   composition and rollback gate. Ops neither renews that lock nor preempts another owner.
-  Public `tick.status` supplies the unchanged Running/NoClock/Unknown board projection.
+  Continuous UIs reoffer ownership on the next minute after a refusal or joined end,
+  backing off consecutive failures to at most one attempt per five minutes. Slot receipts
+  fence repeated work; unconfirmed cleanup remains fatal. Public `tick.status` supplies
+  the unchanged Running/NoClock/Unknown board projection.
   During deferred path migration, list/show project the unfrozen legacy source without
   conversion, owner-pause writes or Core import; frozen/adopted sources never fall back.
 - **Idle alerts.** The cancellable Ops worker runs `idle_alert::Watch` independently of

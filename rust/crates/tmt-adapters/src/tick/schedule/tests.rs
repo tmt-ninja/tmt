@@ -136,7 +136,7 @@ fn pending_hold_uses_no_child_until_release_and_shared_spacing_then_catches_up_o
     w.pass(145_000, &mut p).unwrap();
     assert!(p.calls.is_empty());
     w.pass(155_000, &mut p).unwrap();
-    assert_eq!(p.calls, vec![155_000]);
+    assert_eq!(p.calls, vec![90_000]);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 //! Job wire/calendar conversion and public projection.
+pub(crate) const OBSERVATION_MS: i64 = 300_000;
 mod execution;
 mod read;
 pub use execution::{JobRunDocument, execute_job};
