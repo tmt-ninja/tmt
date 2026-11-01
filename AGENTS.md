@@ -121,12 +121,13 @@ ask when resolution would require an undecided product or authorization choice.
   handles larger PRs than human-only review does. Issues may stay small so each is
   easy to verify. One PR carries a whole feature, or the related fixes in one area
   and owning squad, with one `Fixes #N` line per issue it finishes (`Part of #N`
-  otherwise). Aim for about 1,000 to 3,000 changed lines of hand-written code;
-  a whole feature may go beyond that. Generated fixtures, snapshots and lockfiles
-  do not count toward the size. The reviewing lead decides the bundle and records
-  the mapping on each issue. Split only when the PR is too large to review well, or
-  when it crosses squad paths without a recorded owner mandate; under such a mandate
-  it stays one PR and each owning lead reviews its own paths on the same head.
+  otherwise). Aim for up to about 2,000 changed lines of hand-written code; only
+  a whole feature that cannot be cut cleanly goes beyond that. Generated fixtures,
+  snapshots and lockfiles do not count toward the size. The reviewing lead decides
+  the bundle and records the mapping on each issue. Split only when the PR is too
+  large to review well, or when it crosses squad paths without a recorded owner
+  mandate; under such a mandate it stays one PR and each owning lead reviews its own
+  paths on the same head.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
