@@ -482,11 +482,15 @@ impl Operations {
         }
         if operation == "orchestration.write" {
             let request = orchestration::write(permit)?;
-            permit.revalidate()?;
-            return permit.response(&orchestration::outcome(self.api_with_limit(
-                request.to_string().as_bytes(),
-                crate::limits::ORCHESTRATION_RESPONSE_BYTES,
-            ))?);
+            // Core is called under the store lock, as Send now is: a grant revoked after admission
+            // cannot still apply a change (#5890 review).
+            let answer = permit.with_store(|_| {
+                orchestration::outcome(self.api_with_limit(
+                    request.to_string().as_bytes(),
+                    crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+                ))
+            })?;
+            return permit.response(&answer);
         }
         let (id, notice) = match operation {
             "dispatch.create" => {

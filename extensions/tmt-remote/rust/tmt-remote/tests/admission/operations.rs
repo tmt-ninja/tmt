@@ -2584,6 +2584,23 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
         json!({"code":"ORCH_CONFLICT","message":"changed"}),
         "{reply}"
     );
+    // A sentence that is not one plain bounded line is dropped; Core's code still travels.
+    for (sequence, message) in [(5, "bell\u{7}line".to_owned()), (6, "x".repeat(257))] {
+        fs::write(
+            core.root.join("orchestration-error"),
+            format!("ORCH_LIMIT|{message}"),
+        )
+        .unwrap();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            apply.clone(),
+        );
+        assert_eq!(reply["refused"], json!({"code":"ORCH_LIMIT"}), "{reply}");
+    }
     fs::write(
         core.root.join("orchestration-error"),
         "API_UNAVAILABLE|no storage",
@@ -2593,7 +2610,7 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
         &owner,
         &operations,
         &session,
-        5,
+        7,
         "orchestration.write",
         apply,
     );
@@ -2602,7 +2619,7 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
     let capabilities = append(
         &owner,
         Arc::clone(&operations),
-        &owner.wire(&session, "6", "capabilities", b"{}"),
+        &owner.wire(&session, "8", "capabilities", b"{}"),
     );
     let supported = capabilities["operations"].as_array().unwrap();
     for operation in ["orchestration.read", "orchestration.write"] {
@@ -2615,7 +2632,7 @@ fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
                 .as_str()
                 .is_some_and(|o| o.starts_with("orchestration.")))
             .count(),
-        5
+        7
     );
 }
 #[test]
