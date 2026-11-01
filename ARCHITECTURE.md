@@ -536,7 +536,7 @@ Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped em
 with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
 Finals: receipt-bound Core `reply`.
 
-[Spec](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
+[Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
 [internals](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door](.agents/skills/tmt-remote/references/door-and-discovery.md);
 [object backends](.agents/skills/tmt-remote/references/object-backends.md);

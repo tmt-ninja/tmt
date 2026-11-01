@@ -124,8 +124,8 @@ loaded only from the composed shell's `entry` (below), never without an owner se
 Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
 TMT settings last, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
-its reason. Design follows Colab's availability and sits between Colab and Remote;
-its root route imports only the explicitly described, mount-confined extra entry.
+its reason. Design follows Colab's availability; the composed rail order places it
+between Colab and Remote. Its root route imports only the explicitly described, mount-confined extra entry.
 A missing entry stays link-only via the paired Colab alias. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
