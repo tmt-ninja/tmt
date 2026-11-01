@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
@@ -90,7 +90,7 @@ export function usePageRenderer({
   // The frame is mounted again only when its key changes (#5022): the page, its layout and type,
   // and the part the source decides (whether it may hold scripts, whether it uses the design
   // system). `remounts` counts the in-place updates that fell back to a fresh frame.
-  const frameKey = sourceFrameKey(view.source);
+  const frameKey = useMemo(() => sourceFrameKey(view.source), [view.source]);
   const [remounts, setRemounts] = useState(0);
   const latestSource = useRef(view.source);
   latestSource.current = view.source;
