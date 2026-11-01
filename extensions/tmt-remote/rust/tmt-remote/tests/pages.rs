@@ -1141,3 +1141,60 @@ fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects(
         );
     }
 }
+
+#[test]
+fn design_routes_use_the_owner_app_and_the_existing_colab_mount() {
+    let h = Harness::new(FAST);
+    for path in [
+        "/design",
+        "/design/",
+        "/design/pages/abcd",
+        "/design/tokens/a-1_b?open=one",
+    ] {
+        app_page(&h, path, include_str!("../assets/shell.html"));
+        let reply = mount(&h, &json!({"path":path}).to_string(), Some(&h.origin));
+        assert_eq!(reply.status, 200, "{path}");
+        let value: Value = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(value["extension"], "colab", "{path}");
+        assert_eq!(value["mount"], format!("{}/x/colab/", h.prefix), "{path}");
+        assert_eq!(
+            get(&h, path, "Origin: https://foreign.example\r\n").status,
+            403
+        );
+        let reply = exchange(
+            &h,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Length: 0\r\n\r\n",
+                h.addr
+            ),
+        );
+        assert_eq!(reply.status, 404);
+    }
+    for path in [
+        "/designer",
+        "/design//pages",
+        "/design/a/",
+        "/design/../remote",
+        "/design/a.b",
+        "/design/a%2Fb",
+        "/design/%2e%2e",
+        "/design/\\other",
+    ] {
+        assert_ne!(get(&h, path, "").status, 200, "{path}");
+    }
+    let long = format!("/design/{}", "a".repeat(161));
+    assert_ne!(get(&h, &long, "").status, 200);
+    for path in [
+        format!("{}/x/colab/design/", h.prefix),
+        format!("{}/x/design/", h.prefix),
+        "/x/colab/design/".into(),
+    ] {
+        assert_ne!(get(&h, &path, "").status, 200, "unpaired content: {path}");
+    }
+    assert_eq!(
+        h.grants(),
+        0,
+        "app bootstrap must not create an owner grant"
+    );
+    assert!(h.pairing.descriptor(&h.origin).is_none());
+}
