@@ -171,6 +171,7 @@ export const moduleIcons: readonly ShellIcon[] = [
   'search',
   'settings',
   'box',
+  'palette',
 ];
 export const moduleIcon = (name: string): ShellIcon =>
   (moduleIcons as readonly string[]).includes(name) ? (name as ShellIcon) : 'box';

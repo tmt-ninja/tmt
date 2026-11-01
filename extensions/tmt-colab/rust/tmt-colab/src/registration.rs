@@ -430,17 +430,28 @@ impl Registration {
             .map_err(map_error)
     }
     /// Static display-only navigation remains available while catalog work holds the service lock.
-    pub(crate) fn navigation_description() -> serde_json::Value {
-        serde_json::json!({
+    /// With `modules` (the caller admits extra modules, #5811), Design rides along as Colab's
+    /// one extra rail module (#5819, #5866): link-only, inside Colab's own mount.
+    pub(crate) fn navigation_description(modules: bool) -> serde_json::Value {
+        let mut answer = serde_json::json!({
             "version":1,
             "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
             "menu":[{"id":"pages","label":"Pages","path":"/"}],
             "settings":[],
             "entry":"/assets/colab-module.js"
-        })
+        });
+        if modules {
+            answer["modules"] = serde_json::json!([{
+                "id":"design",
+                "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
+                "menu":[],
+                "settings":[]
+            }]);
+        }
+        answer
     }
     /// Display-only owner-socket callback. Unlike pages(), this never schedules a refresh.
-    pub(crate) fn describe(&self) -> std::result::Result<Vec<u8>, Code> {
+    pub(crate) fn describe(&self, modules: bool) -> std::result::Result<Vec<u8>, Code> {
         let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
         let pages: Vec<_> = catalog["pages"]
             .as_array()
@@ -459,7 +470,7 @@ impl Registration {
             let summary = self.summaries.get(id, fingerprint)?;
             Some(count + usize::from(summary.waiting))
         });
-        let mut answer = Self::navigation_description();
+        let mut answer = Self::navigation_description(modules);
         answer["menu"][0]["count"] = serde_json::json!({"value":pages.len(),"kind":"plain"});
         if let Some(needs_you) = needs_you {
             answer["needsYou"] = serde_json::json!(needs_you);
@@ -1820,7 +1831,7 @@ mod describe_tests {
             .unwrap();
         let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
         let home = |service: &Registration| -> serde_json::Value {
-            serde_json::from_slice::<serde_json::Value>(&service.describe().unwrap())
+            serde_json::from_slice::<serde_json::Value>(&service.describe(false).unwrap())
                 .unwrap()
                 .get("home")
                 .cloned()
@@ -1932,7 +1943,7 @@ mod describe_tests {
         put(archived, "stale fingerprint", 2);
         let answer: serde_json::Value = serde_json::from_slice(
             &service
-                .describe()
+                .describe(false)
                 .expect("archived stale summaries are irrelevant"),
         )
         .unwrap();
@@ -1943,7 +1954,7 @@ mod describe_tests {
         );
         put(archived, &fingerprints[archived], 2);
         let answer: serde_json::Value =
-            serde_json::from_slice(&service.describe().unwrap()).unwrap();
+            serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
         assert_eq!(answer["menu"][0]["count"]["value"], 1);
         assert_eq!(
             answer["needsYou"], 1,
@@ -1952,7 +1963,7 @@ mod describe_tests {
         for fingerprint in [fingerprints[active].as_str(), "old fingerprint"] {
             service.summaries.put(active, fingerprint, None);
             let answer: serde_json::Value =
-                serde_json::from_slice(&service.describe().unwrap()).unwrap();
+                serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
             assert_eq!(answer["rail"]["label"], "Colab");
             assert!(answer.get("needsYou").is_none());
             assert_eq!(
@@ -1969,14 +1980,14 @@ mod describe_tests {
         }
         put(active, &fingerprints[active], 0);
         let answer: serde_json::Value =
-            serde_json::from_slice(&service.describe().unwrap()).unwrap();
+            serde_json::from_slice(&service.describe(false).unwrap()).unwrap();
         assert_eq!(answer["needsYou"], 0, "known zero remains a number");
         let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
         oracle
             .execute("UPDATE membership_log SET envelope=x'00'", [])
             .unwrap();
         assert_eq!(
-            service.describe(),
+            service.describe(false),
             Err(Code::Unavailable),
             "a broken catalog still refuses"
         );
