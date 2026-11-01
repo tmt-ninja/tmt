@@ -1,4 +1,4 @@
-import frozen from './data/oracle.json';
+import frozen from './data/oracle.json' with { type: 'json' };
 export type Frame = {
   state: string;
   look: string;
