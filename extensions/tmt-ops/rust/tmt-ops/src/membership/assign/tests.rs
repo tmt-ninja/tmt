@@ -50,10 +50,7 @@ fn move_pauses_source_jobs_before_leave_and_keeps_uuid_counter_and_pause_on_read
             .contains(&json!(WORKER))
     );
     assert_eq!(model["jobsAtLeave"]["jobs"][0]["state"], "paused");
-    let stored = tmt_ops::cron::Store::new(&f.directory.join("ops"))
-        .unwrap()
-        .read()
-        .unwrap();
+    let stored = f.current_jobs();
     let paused = &stored.jobs()[0];
     assert_eq!(paused.room_id, job.room_id);
     assert_eq!(paused.id(), job.id());
@@ -102,15 +99,7 @@ fn failed_destination_keeps_source_membership_and_the_published_pause() {
             .iter()
             .any(|call| call["command"][1] == "leave")
     );
-    assert!(
-        tmt_ops::cron::Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0]
-            .pause
-            .is_some()
-    );
+    assert!(f.current_jobs().jobs()[0].pause.is_some());
 }
 
 #[test]
@@ -130,14 +119,7 @@ fn add_to_another_squad_preserves_source_membership_and_running_jobs() {
         .unwrap()
         .complete
     );
-    assert_eq!(
-        tmt_ops::cron::Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0],
-        job
-    );
+    assert_eq!(f.current_jobs().jobs()[0], job);
     assert!(
         source
             .roster(&f.core)
@@ -174,12 +156,5 @@ fn reused_destination_name_and_virtual_source_fail_before_pausing_or_joining() {
         .code,
         "ROOM_REVISION_CONFLICT"
     );
-    assert_eq!(
-        tmt_ops::cron::Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0],
-        job
-    );
+    assert_eq!(f.current_jobs().jobs()[0], job);
 }

@@ -54,6 +54,10 @@ pub use footprint::{
     ColabFootprint, DatabaseFootprint, Footprint, NotesFootprint, StoreFile, footprint,
 };
 pub use host_servers::{HostServerIncarnation, RecordedHostServers};
+pub use orchestration::jobs::{
+    JobImportReceipt, JobImportReference, JobListPage, JobListQuery, JobListRow, JobReadPage,
+    JobRunEvidence, JobRunInput, JobRunResult, JobStoreError, preview_job_import,
+};
 pub use orchestration::{
     ORCH_JOURNAL_RETENTION_MS, OrchJournalPage, OrchStoredState, OrchTalkPair,
     active_leads as orchestration_active_leads, route_refusal_decision,

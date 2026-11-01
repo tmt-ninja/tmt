@@ -911,7 +911,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           db.close();
         }
       };
+      // Empty-job adoption owns the shared configuration revision. Complete it
+      // before freezing the exact no-lead-publication baseline; no squad exists yet.
+      const initialCoreLeads = coreLeadState().leads;
+      expectJsonResult(await squadCli(fixture, ['cron', 'ls']));
       const beforeCoreLeads = coreLeadState();
+      expect(beforeCoreLeads.leads).toEqual(initialCoreLeads);
       const beforeRequests = requestAttempts(fixture);
       const beforeIdentities = durableState(fixture);
       await fixture.attachSessionClient('e2e');
@@ -1222,8 +1227,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           5_000,
           'UI-owned migration completion'
         );
-        const nextLease = path.join(ops, 'cron', 'clock.json');
-        await fixture.waitFor(() => fs.existsSync(nextLease), 5_000, 'Ops UI clock publication');
+        const nextLease = path.join(fixture.globalDir, 'tick', 'clock.json');
+        await fixture.waitFor(
+          () => fs.existsSync(nextLease),
+          5_000,
+          'public Core clock publication after UI migration'
+        );
         expect(JSON.parse(fs.readFileSync(nextLease, 'utf8')).pid).not.toBe(123);
         await fixture.waitForCapture(
           (screen) =>
@@ -1292,14 +1301,19 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         const owner = durableIdentity(fixture, 'worker').id;
         expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
         expectJsonResult(await squadCli(fixture, ['add', 'worker']));
-        const leasePath = path.join(fixture.globalDir, 'ops', 'cron', 'clock.json');
+        const leasePath = path.join(fixture.globalDir, 'tick', 'clock.json');
         const clock = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
           name: 'primary-clock',
           json: false,
         });
         fs.writeFileSync(clock.releasePath, 'run');
         await fixture.waitFor(() => fs.existsSync(leasePath), 5_000, 'clock lease publication');
-        const holder = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
+        const observed = expectJsonResult<{
+          state: string;
+          holder: { pid: number; pane: string; token: string };
+        }>(await fixture.runJsonCli(['tick', 'status']));
+        expect(observed.state).toBe('running');
+        const holder = observed.holder;
         expect(holder.pane).toBe(clock.pane);
         const second = await spawnRealTmuxCli(fixture, ['ops', 'squad', 'cron', 'run', '--json'], {
           name: 'second-clock',
@@ -1308,7 +1322,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         await releaseRealTmuxCli(fixture, second);
         expect(readRealTmuxCli<{ error: { code: string } }>(second)).toMatchObject({
           code: 1,
-          stdout: { error: { code: 'SQUAD_CRON_CLOCK_RUNNING' } },
+          stdout: { error: { code: 'TICK_CLOCK_RUNNING' } },
         });
         const message = 'literal {time}\nclock reminder';
         const added = expectJsonResult<{ job: { roomId: string } }>(
@@ -1353,14 +1367,64 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         const busy = await squadCli(fixture, ['cron', 'tick']);
         expect(busy.code).toBe(1);
-        expect(errorCode(busy)).toBe('SQUAD_CRON_CLOCK_RUNNING');
+        expect(errorCode(busy)).toBe('TICK_CLOCK_RUNNING');
         process.kill(holder.pid, 'SIGTERM');
         await fixture.waitFor(() => fs.existsSync(clock.exitPath), 5_000, 'clock signal cleanup');
         expect(readRealTmuxCli(clock).code).toBe(0);
         expect(fs.existsSync(leasePath)).toBe(false);
         expect(fixture.mockProcessIsRunning(holder.pid)).toBe(false);
+        // A finite tick now observes the rest of its minute. Recover the exact
+        // canonical slot twice instead of waiting through two unrelated minutes.
+        const listed = expectJsonResult<{
+          jobs: {
+            jobId: string;
+            revision: number;
+            lastRun: { id: number; slotMs: number; operationId: string; requestId: string };
+          }[];
+        }>(await fixture.runJsonCli(['orch', 'job', 'ls']));
+        expect(listed.jobs).toHaveLength(1);
+        const job = listed.jobs[0]!;
+        expect(job.lastRun.requestId).toBe(request.request_id);
+        const replayEnv: NodeJS.ProcessEnv = {
+          ...process.env,
+          HOME: home,
+          TMT_HOME: fixture.globalDir,
+          TMUX_TMPDIR: fixture.socketRoot,
+          PATH: `${fixture.wrapperDir}:${process.env.PATH ?? ''}`,
+          XDG_CACHE_HOME: path.join(home, 'cache'),
+          TMT_DIGEST_PRICING_URL: 'off',
+          TMT_AGENT: '1',
+          BROWSER: 'true',
+        };
+        delete replayEnv.TMUX;
+        delete replayEnv.TMUX_PANE;
         for (let attempt = 0; attempt < 2; attempt++) {
-          expectJsonResult(await squadCli(fixture, ['cron', 'tick']));
+          const recovered = JSON.parse(
+            execFileSync(
+              fixture.executables.cli.executable,
+              [...fixture.executables.cli.args, 'api'],
+              {
+                cwd: fixture.workspace,
+                env: replayEnv,
+                encoding: 'utf8',
+                timeout: 5_000,
+                input: JSON.stringify({
+                  version: 1,
+                  operation: 'orchestration.job.run',
+                  originator: 'anonymous',
+                  input: { jobId: job.jobId, revision: job.revision, slotMs: job.lastRun.slotMs },
+                }),
+              }
+            )
+          );
+          expect(recovered).toMatchObject({
+            created: false,
+            runId: job.lastRun.id,
+            dispatch: {
+              operationId: job.lastRun.operationId,
+              items: [{ requestId: request.request_id }],
+            },
+          });
         }
         expect(scheduled()).toHaveLength(1);
         expect(fixture.events().filter(isScheduledWake)).toHaveLength(1);
@@ -1561,6 +1625,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-board');
+      const keyTrace = path.join(fixture.root, 'checklist-navigation.jsonl');
       fixture.tmux(['select-window', '-t', shell.pane]);
       // ops.toml may not exist: the user lives in Core, not in this file.
       const configPath = path.join(fixture.globalDir, 'ops.toml');
@@ -1573,7 +1638,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           'send-keys',
           '-t',
           shell.pane,
-          'tmt ops ui --squad product; echo CHECKLIST_BOARD_EXIT=$?',
+          `TMT_OPS_TEST_KEY_TRACE=${quote(keyTrace)} tmt ops ui --squad product; echo CHECKLIST_BOARD_EXIT=$?`,
           'Enter',
         ]);
         await fixture.waitForCapture(
@@ -1601,7 +1666,16 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down')]);
         await fixture.waitForCapture((screen) => /›\s*Checklist\b/.test(screen), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-        await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
+        try {
+          await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
+        } catch (error) {
+          const navigation = fs.existsSync(keyTrace)
+            ? fs.readFileSync(keyTrace, 'utf8').split('\n').slice(-24).join('\n')
+            : '<no key trace>';
+          throw new Error(`${String(error)}\nChecklist activation key trace:\n${navigation}`, {
+            cause: error,
+          });
+        }
         // ↓ on the empty list reaches the Filter chip; → moves to Actions.
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Right', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);

@@ -3,8 +3,8 @@
 Core owns one resolver for plans and personal focus. Plan/focus writes share an
 effect preview and explicit consent. Receiving uses existing Digest admission,
 claims and transport; sending rules and talk limits use existing request
-admission; jobs remain a separate slice.
-No timer is installed or resident process added. Existing readiness, approval,
+admission. Canonical jobs use the same request acceptance and current policy.
+No timer is installed automatically and no resident process is added. Existing readiness, approval,
 person and delivery owners retain authority.
 
 ## Commands and API
@@ -358,6 +358,147 @@ or `needs_person` and its `source` (`base`, `plan`, `member` or `grant` with
 older Core refuses an unknown view as `ORCH_INPUT_INVALID`; a client reads that as
 "not available", so it degrades cleanly. CLI: `tmt orch talks`, `tmt orch routes`
 (`--member`, `--limit`, `--after`).
+
+## Jobs read projection
+
+`orchestration.read` with `view:"jobs"` accepts optional canonical `squadRoomId`,
+`ownerIdentityId` and exact `jobId`, a limit of 1–128, and an opaque `cursor`.
+The storage query applies selectors before paging in stable job-number order.
+A squad filter matches only the job's explicit room UUID and excludes null-room
+rows. An unfiltered read includes those rows so the All view is complete. No
+room is inferred from the owner's current memberships.
+
+Each row contains `jobId`, stable non-reused `displayId` (`jN`), nullable legacy
+`{roomId,cronId}`, and `target:{squadRoomId,identityId,identityName}`. A non-squad
+job has a null room. An explicitly unowned job, or a job whose owner retired,
+has null recipient/name and a no-owner disposition; reusing a name never adopts
+its jobs. Clients render these as “no squad” and “no owner”. Optional `title`
+and a UTF-8 `messagePreview` of at most 256 bytes are display metadata. The
+bounded exact-job show read returns the original body; dispatch never uses a
+preview as its message.
+
+`revision` is the exact job-definition CAS revision used by pause/resume.
+Manual pause attribution is separate from the effective routine-policy hold and
+its source. Each row exposes its schedule, held slot when present, effective
+reason and nullable `nextRunAtMs`. That instant is the next scheduled due time,
+not a promise of transport. It is null for a manual pause, missing owner or a
+schedule with no next slot. Readiness and future policy changes are not guessed.
+
+`lastRun` is null when there is no recorded run evidence. Otherwise it identifies
+the committed run/journal entry, canonical dispatch operation and request when
+present, immutable acceptance, and the actual recorded delivery/result outcome
+and reference separately. Acceptance never means completion. Missed/skipped
+dispositions appear only when recorded. Page-level
+`historyCoverage:"recorded_only"` disclaims stopped-clock and pre-migration
+history; no client reconstructs those runs.
+
+Job pause/resume uses `orchestration.write` preview/apply with the canonical job
+UUID and this revision. Ops reads and actions use its existing background lanes;
+paint/input never calls Core. Legacy room/c-id selectors are a compatibility
+projection of these same definitions, not a second mutable store.
+
+Job mutations are `job.add` with `candidate`, `job.set` with `jobId`, `revision`
+and `candidate`, `job.pause` with `jobId`, `revision` and the display attribution
+`by`, and `job.resume` / `job.rm` with `jobId` and `revision`. A candidate contains
+`ownerIdentityId`, nullable `squadRoomId` and `title`, exact `message`, and `schedule`.
+The message retains the canonical 1 MiB text bound; JSON escaping fits the API's
+existing input bound. Plan mutations keep their smaller document bound.
+A null owner creates a paused definition; reassignment does not clear a manual
+pause. `by` is attribution, not authentication or a permission grant.
+
+Preview reads one configuration/job snapshot and allocates no durable ID. Apply
+requires the existing consent, preview instant/digest and configuration revision,
+plus the job revision. The writer rechecks the complete observed job (including
+its held slot) and configuration in one transaction before publication. A race
+returns `ORCH_CONFLICT`; no-op pause changes neither revision nor attribution.
+Configuration mutations create no run outcomes. Removal never reuses a j-id.
+`job.addSquad` uses the same candidate with a required room and optional `pausedBy`.
+Its preview reports `proposedLegacy:{roomId,cronId}` without reserving a number;
+that proposal is covered by the snapshot, digest and writer fence. Ops registers
+the exact retirement-hook reference before applying this preview, so a refused
+registration publishes no job. A concurrent allocation refuses the stale preview;
+retirement consumers still compare the current owner before acting on a reference.
+
+### Job execution
+
+`orchestration.job.run` takes `jobId`, exact definition `revision`, and the
+observed `slotMs`, each within the safe integer bounds. It loads the stored exact
+message and owner; callers cannot substitute them. The envelope names an
+originator identity or `originator:"anonymous"`; the scheduler uses anonymous.
+A scheduled slot must be produced by the stored calendar within the preceding
+five-minute observation window, or equal the job's recorded held slot. Other
+slots return `ORCH_INPUT_INVALID`. Held catch-ups submit that recorded slot,
+so another scheduler recovers the same receipt after the hold is cleared.
+An explicit manual call supplies a frozen `manualOperationId` and `consent:true`.
+Manual sending does not resume a paused job or consume its held slot. Both modes
+create automated traffic, preserving the caller attribution for manual work.
+
+Admission rechecks current ownership, membership, revision and policy in the
+canonical request transaction. An ordinary due slot under routine hold coalesces
+one observed pending slot; absence creates no historical backlog. Released held
+jobs and Incoming summaries reserve the same persistent one-second wake clock.
+A busy clock returns `outcome:"waiting"` and `nextAdmissionAtMs`, retaining the
+held slot; a manual send does not reserve this automatic-release clock.
+The reservation, run evidence and request acceptance commit or roll back together.
+A pending catch-up remains visibly held until accepted even after policy releases it.
+
+Results distinguish `paused`, `held`, `waiting` and `accepted`. An accepted result
+contains `runId` and the immutable canonical `dispatch` receipt with its advisory
+wake result. Acceptance is not final delivery or an agent answer. Exact run replay
+recovers the existing receipt and never performs a second wake. Interrupted or
+uncertain work is inspected by its canonical operation ID, not blindly resent.
+
+## Unified clock and optional user timer
+
+`tmt tick [--json]` observes jobs, Digest and workspace capture until the current
+minute ends. `tmt tick run [--json]` keeps that clock in the foreground until
+interrupted. `tmt tick status --json`, also exposed as the read-only `tick.status`
+API operation, reads bounded holder evidence without opening the Core store.
+A stable kernel lock under the selected data root owns the clock lifetime;
+expired advisory JSON cannot preempt it. The status distinguishes a proven live
+holder, stopped, stale metadata and unconfirmed ownership. Bounded component
+children are cancelled and joined before the clock releases its lock.
+
+A foreground clock starts its slot baseline at now. A finite tick starts with a
+60-second window; subsequent observations are capped at five minutes. Neither
+reconstructs an absent-clock backlog. One admission gate covers jobs, Digest and
+capture in each increasing wall minute; same-minute retry and a backwards clock
+do not admit another component pass. Automatic failures remain inspectable by
+operation ID; they never authorize a second uncertain send. Ops forwards its
+cron clock to this owner and retains its independent idle-alert worker. A continuous
+UI reoffers clock ownership on the next minute after a competing owner or a joined
+child exit; consecutive failures back off to at most one attempt per five minutes.
+Unconfirmed child cleanup remains fatal and cannot start a replacement.
+
+The optional commands are:
+
+```text
+tmt tick timer preview [--json]
+tmt tick timer status [--json]
+tmt tick timer install [--yes] [--json]
+tmt tick timer remove [--yes] [--json]
+```
+
+`timer` alone means preview. Preview creates no files and contacts no manager.
+Install and remove use the existing CLI whole-plan consent; noninteractive or
+JSON mutations require explicit `--yes`. Installation writes only derived user
+LaunchAgents files on macOS, or user systemd service/timer files on Linux. The
+unit invokes finite `tmt tick --json` once per minute with the selected data root,
+HOME, executable and PATH; it does not start a resident worker, enable linger,
+install a system timer or run Ops idle alerts. Managed installations use their
+stable launcher. The systemd timer has no absent-time replay, and stopping it
+also stops its currently active oneshot service.
+
+A typed manifest is embedded in each generated unit. Ownership requires bounded,
+regular, user-owned files whose complete bytes match regeneration from that
+manifest. Edited, mixed or unknown files are preserved. An older generated plan
+can be reviewed and removed after an executable or PATH change; changing a plan
+requires explicit removal before installation. Mutations serialize under the
+selected root's timer lock and revalidate before removing files. A manager error
+can follow a partial effect: files remain for inspection and no automatic retry
+or rollback is attempted. Status reports manager registration only after a
+positive manager response; failure to query remains unconfirmed. Removal does
+not claim completion if stopping the user manager cannot be confirmed.
 
 ## Calendar
 

@@ -30,6 +30,7 @@ import {
   type Sandbox,
 } from '../support/cli-process.js';
 import { install } from '../support/native-installation.js';
+import { legacyCronSource, retainedCronSource } from '../support/ops-state.js';
 import { locateTmux, privateTmux } from '../support/private-tmux.js';
 
 // Scenario-local selector: the built squad extension, never an installed copy.
@@ -92,6 +93,25 @@ function replaceStoredDocument(
   } finally {
     db.close();
   }
+}
+
+type CanonicalJob = {
+  jobId: string;
+  revision: number;
+  manualPause: unknown;
+  definition: { message: string; [key: string]: unknown };
+};
+async function canonicalJobs(
+  sandbox: Sandbox
+): Promise<Pick<CanonicalJob, 'jobId' | 'revision' | 'manualPause'>[]> {
+  return parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'ls', '--json'])).jobs as Pick<
+    CanonicalJob,
+    'jobId' | 'revision' | 'manualPause'
+  >[];
+}
+async function canonicalJob(sandbox: Sandbox, jobId: string): Promise<CanonicalJob> {
+  return parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'show', jobId, '--json']))
+    .job as CanonicalJob;
 }
 
 async function squad(sandbox: Sandbox, args: string[]) {
@@ -3420,19 +3440,28 @@ sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=b
     });
   });
 
-  it('lets eight processes add cron jobs and edit checklist items at once, every one landing', async () => {
+  it('retains every accepted concurrent job write, refuses stale previews, and lands independent checklist edits', async () => {
     await withSandbox(async (sandbox) => {
       await squadWithWorker(sandbox);
+      // Complete adoption before racing independent configuration CAS operations.
+      expect((await squad(sandbox, ['cron', 'ls', '--squad', 'product'])).status).toBe(0);
       const adds = await Promise.all(
         Array.from({ length: 8 }, (_, n) =>
           squad(sandbox, ['cron', 'add', 'product', 'worker', '--every', '1h', `reminder ${n}`])
         )
       );
-      for (const added of adds) expect(added.status, JSON.stringify(added.body)).toBe(0);
-      const ids = adds.map((added) => added.body.job.id as string).sort();
-      expect(ids).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']);
+      const accepted = adds.filter((added) => added.status === 0);
+      expect(accepted.length).toBeGreaterThan(0);
+      for (const refused of adds.filter((added) => added.status !== 0)) {
+        expect(refused.body.error.code, JSON.stringify(refused.body)).toBe('ORCH_CONFLICT');
+      }
+      const ids = accepted.map((added) => added.body.job.id as string).sort();
+      expect(new Set(ids).size).toBe(ids.length);
       const listed = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
       expect(listed.body.jobs.map((job: { id: string }) => job.id).sort()).toEqual(ids);
+      expect(listed.body.jobs.map((job: { message: string }) => job.message).sort()).toEqual(
+        accepted.map((added) => added.body.job.message as string).sort()
+      );
 
       const room = parseWholeStdout(
         await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
@@ -3495,19 +3524,6 @@ sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=b
       expect(
         (
           await squad(sandbox, [
-            'cron',
-            'add',
-            'product',
-            'worker',
-            '--every',
-            '1h',
-            'kept reminder',
-          ])
-        ).status
-      ).toBe(0);
-      expect(
-        (
-          await squad(sandbox, [
             'checklist',
             'create',
             'Kept item',
@@ -3522,7 +3538,11 @@ sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=b
           ])
         ).status
       ).toBe(0);
-      const jobBytes = storedDocument(database, 'cron');
+      const worker = (
+        parseWholeStdout(await runCli(sandbox, ['identity', 'show', 'worker', '--json']))
+          .identity as { id: string }
+      ).id;
+      const jobBytes = legacyCronSource(room.id, worker, 'kept reminder');
       const checklistBytes = storedDocument(database, 'checklist', room.id);
 
       // Rewind to the previous release: both documents are files and no database exists.
@@ -3544,7 +3564,7 @@ sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=b
       expect(retained.status, JSON.stringify(retained.body)).toBe(0);
       expect(retained.body.current.items).toMatchObject([{ id: item, title: 'Kept item' }]);
 
-      expect(storedDocument(database, 'cron')).toEqual(jobBytes);
+      expect(retainedCronSource(database)).toEqual(jobBytes);
       expect(storedDocument(database, 'checklist', room.id)).toEqual(checklistBytes);
       expect(existsSync(path.join(cron, 'jobs.json'))).toBe(false);
       expect(existsSync(path.join(room_, 'items.json'))).toBe(false);
@@ -3628,7 +3648,9 @@ describe('Squad cron clock', () => {
         message,
       ]);
       expect(added.status, JSON.stringify(added.body)).toBe(0);
-      const before = storedDocument(opsDatabase(root), 'cron');
+      const publicJobs = await canonicalJobs(sandbox);
+      expect(publicJobs).toHaveLength(1);
+      const before = await canonicalJob(sandbox, publicJobs[0].jobId);
       const denied = await squad(sandbox, [
         'cron',
         'send',
@@ -3646,7 +3668,10 @@ describe('Squad cron clock', () => {
       expect(first.status, JSON.stringify(first.body)).toBe(0);
       expect(second.status, JSON.stringify(second.body)).toBe(0);
       expect(first.body.dispatch.operationId).not.toBe(second.body.dispatch.operationId);
-      expect(storedDocument(opsDatabase(root), 'cron')).toEqual(before);
+      const after = await canonicalJob(sandbox, publicJobs[0].jobId);
+      expect(after.definition).toEqual(before.definition);
+      expect(after.revision).toBe(before.revision);
+      expect(after.manualPause).toEqual(before.manualPause);
       const db = new Database(sandbox.database, { readonly: true });
       try {
         expect(
@@ -3673,29 +3698,11 @@ describe('Squad cron clock', () => {
       } finally {
         db.close();
       }
-      const tick = await squad(sandbox, ['cron', 'tick']);
-      expect(tick).toMatchObject({ status: 0, body: { accepted: 0, complete: true } });
-      const lease = path.join(directory, 'clock.json');
-      expect(existsSync(lease)).toBe(false);
-      const sinceMs = Date.now() - 180_000;
-      const evidence = JSON.stringify({
-        version: 1,
-        pane: '%41',
-        pid: 123,
-        sinceMs,
-        expiresMs: sinceMs + 300_000,
-      });
-      writeFileSync(lease, evidence);
-      const runningText = await runCli(sandbox, ['ops', 'squad', 'cron', 'clock']);
-      expect(runningText.status).toBe(0);
-      expect(runningText.stdout).toContain('3m ago');
-      const running = await squad(sandbox, ['cron', 'clock']);
-      expect(running).toMatchObject({ status: 0, body: { clock: { state: 'running', sinceMs } } });
-      expect(readFileSync(lease, 'utf8')).toBe(evidence);
-      writeFileSync(lease, 'corrupt clock evidence');
-      const unknown = await squad(sandbox, ['cron', 'clock']);
-      expect(unknown).toMatchObject({ status: 1, body: { clock: { state: 'unknown' } } });
-      expect(readFileSync(lease, 'utf8')).toBe('corrupt clock evidence');
+      const current = await squad(sandbox, ['cron', 'clock']);
+      expect(current).toMatchObject({ status: 0, body: { clock: { state: 'no clock' } } });
+      expect(existsSync(path.join(root, 'tick', 'clock.json'))).toBe(false);
+      // Exact running-holder age/status and shutdown are exercised against a real
+      // Core clock in orchestration/tick.rs and the private-tmux clock scenario.
     });
   }, 20_000);
 });
@@ -3799,14 +3806,7 @@ describe('WP2 squad workspace services', () => {
         ownerMissing: true,
         stateLabel: 'paused · owner missing',
       });
-      const root = parseWholeStdout(
-        await runCli(sandbox, ['api'], {
-          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
-        })
-      ).dataRoot as string;
-      expect(
-        JSON.parse(storedDocument(opsDatabase(root), 'cron').toString('utf8')).jobs[0].pause
-      ).toEqual(missing.pause);
+      expect((await canonicalJobs(sandbox))[0].manualPause).toEqual(missing.pause);
       expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
       expect((await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job).toMatchObject({
         state: 'paused',
@@ -3887,7 +3887,7 @@ describe('Squad cron management', () => {
         })
       ).dataRoot as string;
       expect(
-        JSON.parse(storedDocument(opsDatabase(root), 'cron').toString('utf8')).jobs[0].message
+        (await canonicalJob(sandbox, (await canonicalJobs(sandbox))[0].jobId)).definition.message
       ).toBe(message);
       expect(statSync(opsDatabase(root)).mode & 0o777).toBe(0o600);
       const config = path.join(sandbox.globalDir, 'ops.toml');
@@ -4994,17 +4994,10 @@ describe('Ops path migration with unchanged Squad commands', () => {
       const owner = await identity(sandbox, 'worker');
       expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
       expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
-      const added = await squad(sandbox, [
-        'cron',
-        'add',
-        'product',
-        'worker',
-        '--every',
-        '1m',
-        'legacy tmt sq / tmt-squad job',
-      ]);
-      expect(added.status).toBe(0);
-      const room = added.body.job.roomId as string;
+      const room = (
+        parseWholeStdout(await runCli(sandbox, ['room', 'show', 'squad-product', '--json']))
+          .room as { id: string }
+      ).id;
       const checklist = '55555555-5555-4555-8555-555555555555';
       const item = '66666666-6666-4666-8666-666666666666';
       expect(
@@ -5037,12 +5030,22 @@ describe('Ops path migration with unchanged Squad commands', () => {
       writeFileSync(config, configBytes);
       const opsRoot = path.join(root, 'ops');
       const database = opsDatabase(root);
-      // This fixture retains the shipped v1 schema and independently chooses a
+      // This fixture retains the shipped v2 schema and independently chooses a
       // due anchor; no expected migration output is generated by migration.
-      const stored = JSON.parse(storedDocument(database, 'cron').toString('utf8'));
-      stored.jobs[0].schedule.anchorMs = Date.now() - 10_000;
-      replaceStoredDocument(database, 'cron', '', JSON.stringify(stored));
-      const jobBytes = storedDocument(database, 'cron');
+      const jobBytes = legacyCronSource(
+        room,
+        owner,
+        'legacy tmt sq / tmt-squad job',
+        Date.now() - 10_000
+      );
+      const stored = JSON.parse(jobBytes.toString('utf8'));
+      const legacyDb = new Database(database);
+      legacyDb
+        .prepare(
+          "INSERT INTO documents(kind,key,body) VALUES('cron','',?) ON CONFLICT(kind,key) DO UPDATE SET body=excluded.body"
+        )
+        .run(jobBytes);
+      legacyDb.close();
       const checklistBytes = storedDocument(database, 'checklist', room);
       renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
       renameSync(opsRoot, path.join(root, 'squad'));
@@ -5063,8 +5066,9 @@ describe('Ops path migration with unchanged Squad commands', () => {
           expiresMs: Date.now() + 120_000,
         })
       );
+      const heldLease = readFileSync(lease);
       const pending = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
-      expect(pending.status).toBe(0);
+      expect(pending.status, JSON.stringify(pending.body)).toBe(0);
       expect(pending.body.jobs).toHaveLength(1);
       expect(pending.body.jobs[0]).toMatchObject({
         id: 'c1',
@@ -5084,7 +5088,11 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(board.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
       const competitor = await squad(sandbox, ['cron', 'tick']);
       expect(competitor.status).toBe(1);
-      expect(competitor.body.error.code).toBe('SQUAD_CRON_CLOCK_RUNNING');
+      expect(competitor.body.error.code).toBe('SQUAD_CRON_CUTOVER_CLOCK_PRESENT');
+      expect(competitor.body.error.message).toContain('Close the existing Ops clock');
+      expect(readFileSync(lease)).toEqual(heldLease);
+      expect(await canonicalJobs(sandbox)).toEqual([]);
+      expect(existsSync(path.join(root, 'tick', 'clock.json'))).toBe(false);
       expect(existsSync(config)).toBe(false);
       expect(existsSync(opsRoot)).toBe(false);
       expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'))).toEqual(configBytes);
@@ -5098,7 +5106,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
         schedule: stored.jobs[0].schedule,
       });
       expect(readFileSync(config)).toEqual(configBytes);
-      expect(storedDocument(database, 'cron')).toEqual(jobBytes);
+      expect(retainedCronSource(database)).toEqual(jobBytes);
       expect(storedDocument(database, 'checklist', room)).toEqual(checklistBytes);
       expect(readFileSync(backup, 'utf8')).toBe('user backup');
       expect(existsSync(path.join(root, 'squad'))).toBe(false);
@@ -5111,8 +5119,33 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(retained.body.current.items).toMatchObject([
         { id: item, title: 'Retained checklist', revision: 1 },
       ]);
-      const tick = await squad(sandbox, ['cron', 'tick']);
-      expect(tick).toMatchObject({ status: 0, body: { accepted: 1, complete: true } });
+      const jobs = await canonicalJobs(sandbox);
+      expect(jobs).toHaveLength(1);
+      // The retained anchor is a due calendar slot; wall-clock now is usually not.
+      const dueSlot = stored.jobs[0].schedule.anchorMs;
+      const offCalendar = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'orchestration.job.run',
+          originator: 'anonymous',
+          input: { jobId: jobs[0].jobId, revision: jobs[0].revision, slotMs: dueSlot + 1 },
+        }),
+      });
+      expect(offCalendar.status).toBe(1);
+      expect(parseWholeStdout(offCalendar)).toMatchObject({
+        error: { code: 'ORCH_INPUT_INVALID' },
+      });
+      const run = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'orchestration.job.run',
+            originator: 'anonymous',
+            input: { jobId: jobs[0].jobId, revision: jobs[0].revision, slotMs: dueSlot },
+          }),
+        })
+      );
+      expect(run).toMatchObject({ outcome: 'accepted', created: true });
       const db = new Database(sandbox.database, { readonly: true });
       try {
         expect(

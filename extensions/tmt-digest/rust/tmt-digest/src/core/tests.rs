@@ -212,3 +212,63 @@ fn a_silent_child_is_bounded_by_the_deadline_and_ended() {
     assert!(started.elapsed() < Duration::from_secs(10));
     assert!(!alive(&fixture.launched(" api --session").remove(0)));
 }
+
+#[test]
+fn component_cancellation_reaps_a_started_api_session_without_replaying_the_request() {
+    let fixture = Fixture::new();
+    let stopped = Arc::new(AtomicBool::new(false));
+    let core = fixture
+        .core()
+        .with_cancellation(stopped.clone())
+        .until(Instant::now() + Duration::from_secs(2));
+    let (result, observed) = std::thread::scope(|scope| {
+        let request_path = fixture.0.join("requests");
+        let watcher = scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if fs::read_to_string(&request_path)
+                    .unwrap_or_default()
+                    .contains("\"operation\":\"hang\"")
+                {
+                    stopped.store(true, Ordering::SeqCst);
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    stopped.store(true, Ordering::SeqCst);
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let result = core.api("hang", json!({}));
+        (result, watcher.join().unwrap())
+    });
+    assert!(
+        observed,
+        "the request must have reached the owned child before cancellation"
+    );
+    assert_eq!(result.unwrap_err().code, "CORE_UNAVAILABLE");
+    let sessions = fixture.launched(" api --session");
+    assert_eq!(sessions.len(), 1);
+    assert!(!alive(&sessions[0]), "the cancelled session must be reaped");
+    assert_eq!(
+        fixture
+            .lines("requests")
+            .iter()
+            .filter(|r| r.contains("\"hang\""))
+            .count(),
+        1
+    );
+}
+#[test]
+fn component_cancellation_before_start_spawns_nothing() {
+    let fixture = Fixture::new();
+    let core = fixture
+        .core()
+        .with_cancellation(Arc::new(AtomicBool::new(true)));
+    assert_eq!(
+        core.api("read", json!({})).unwrap_err().code,
+        "CORE_UNAVAILABLE"
+    );
+    assert!(fixture.lines("launches").is_empty());
+}

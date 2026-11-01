@@ -34,6 +34,8 @@ mod local_block_tests;
 #[cfg(test)]
 mod notification_tests;
 #[cfg(test)]
+mod orchestration_job_tests;
+#[cfg(test)]
 mod orchestration_receiving_tests;
 #[cfg(test)]
 mod orchestration_wake_tests;
@@ -433,6 +435,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "index each direction of a two-party conversation",
         "schema/088.sql"
+    ),
+    migration!(
+        "create canonical agent jobs and legacy import receipts",
+        "schema/089.sql"
     ),
 ];
 

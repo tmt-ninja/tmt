@@ -6,7 +6,7 @@ fn consent(c: Command) -> Command {
         Arg::new("yes")
             .long("yes")
             .action(ArgAction::SetTrue)
-            .help("Save after the effect preview without asking"),
+            .help("Apply the previewed operation without asking"),
     )
 }
 fn file(c: Command) -> Command {
@@ -14,7 +14,7 @@ fn file(c: Command) -> Command {
         Arg::new("file")
             .long("file")
             .required(true)
-            .help("Read a bounded regular plan JSON document without following a symlink"),
+            .help("Read a bounded regular JSON definition without following a symlink"),
     )
 }
 
@@ -43,6 +43,27 @@ fn selection(c: Command) -> Command {
     )
 }
 pub(in crate::grammar) fn orch() -> Command {
+    let jobs=storage(spec!("job","Read and manage agent-owned scheduled messages",["List jobs"=>"tmt orch job ls","Read one job"=>"tmt orch job show j1"]))
+        .subcommand_required(true)
+        .subcommand(storage(spec!("ls","List jobs, their next slots and recorded outcomes",["List all jobs as JSON"=>"tmt orch job ls --json"])).alias("list")
+            .arg(Arg::new("owner").long("owner").help("Filter by an exact current owner name or UUID"))
+            .arg(Arg::new("squad-room").long("squad-room").help("Filter by the explicit squad room UUID"))
+            .arg(Arg::new("cursor").long("cursor").help("Continue the same filtered page"))
+            .arg(Arg::new("limit").long("limit").help("Read 1 through 128 jobs").default_value("50").value_parser(clap::value_parser!(u16).range(1..=128))))
+        .subcommand(consent(file(storage(spec!("import","Preview adoption of an exact frozen legacy jobs file",["Preview a frozen source"=>"tmt orch job import --file jobs.json --source-id 11111111-1111-4111-8111-111111111111 --digest aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]))))
+            .arg(Arg::new("source-id").long("source-id").required(true).help("Fence this adoption by its exact source UUID"))
+            .arg(Arg::new("digest").long("digest").required(true).help("Require the frozen source's exact SHA-256 digest")))
+        .subcommand(storage(spec!("import-receipt","Read an accepted adoption without repeating the write",["Recover an exact adoption"=>"tmt orch job import-receipt 11111111-1111-4111-8111-111111111111 --json"])).arg(operand("source-id",true)))
+        .subcommand(storage(spec!("show","Read a job and its exact message",["Read a job"=>"tmt orch job show j1 --json"])).arg(operand("job",true)))
+        .subcommand(consent(file(storage(spec!("add","Preview and add a job from a definition file",["Preview a new job"=>"tmt orch job add --file job.json"])))))
+        .subcommand(consent(file(storage(spec!("edit","Preview replacement of a job definition",["Edit a job"=>"tmt orch job edit j1 --file job.json --yes"])).arg(operand("job",true)))))
+        .subcommand(consent(storage(spec!("pause","Manually pause a job until explicitly resumed",["Pause a job"=>"tmt orch job pause j1 --yes"])).arg(operand("job",true))))
+        .subcommand(consent(storage(spec!("resume","Explicitly clear a job's manual pause",["Resume a job"=>"tmt orch job resume j1 --yes"])).arg(operand("job",true))))
+        .subcommand(consent(storage(spec!("rm","Preview removal without reusing the job ID",["Remove a job"=>"tmt orch job rm j1 --yes"])).arg(operand("job",true))))
+        .subcommand(consent(storage(spec!("send","Send a job once without resuming or consuming its held slot",["Send a paused job once"=>"tmt orch job send j1 --yes"]))
+            .arg(operand("job",true)).arg(Arg::new("identity").long("identity").help("Attribute the manual send to an existing identity"))
+            .arg(Arg::new("operation-id").long("operation-id").help("Reuse only this exact send's operation UUID for receipt recovery"))))
+        .subcommand(consent(storage(spec!("reassign","Change the stored owner without implicitly resuming",["Reassign a job"=>"tmt orch job reassign j1 worker-1 --yes"])).arg(operand("job",true)).arg(operand("member-name",true))));
     let add = consent(file(storage(
         spec!("add","Preview a new plan and save only with consent",["Preview a new plan"=>"tmt orch plan add --file plan.json"]),
     )));
@@ -166,6 +187,7 @@ pub(in crate::grammar) fn orch() -> Command {
         "orch", "Read orchestration slots and effective member policies",
         ["Read the current local day" => "tmt orch", "Inspect a week as JSON" => "tmt orch --range 7d --json"]
     )))
+    .subcommand(jobs)
     .subcommand(plans)
     .subcommand(preview)
     .subcommand(why)

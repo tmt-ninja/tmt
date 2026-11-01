@@ -6,7 +6,6 @@ use std::fs;
 #[test]
 fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
     let f = Fixture::new();
-    f.add(&f.actor(USER), WORKER).unwrap();
     let legacy = json!({
         "version": 1,
         "counters": {"product": 7, "retired": 4},
@@ -16,12 +15,20 @@ fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
             "schedule": {"kind": "every", "seconds": 1800, "anchorMs": 0, "from": null, "zone": "UTC"}
         }]
     });
-    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    f.seed_legacy(legacy.to_string().as_bytes());
     let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
     assert_eq!(listed.jobs.len(), 1);
     assert_eq!(listed.jobs[0].job.message, "legacy exact text");
-    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
-    assert_eq!(migrated["version"], 2, "migration publishes v2");
+    let migrated: Value = serde_json::from_slice(
+        &Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .frozen_for_core()
+            .unwrap()
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    assert_eq!(migrated["version"], 2, "the retained import source is v2");
     assert_eq!(migrated["counters"][ROOM], 7);
     assert_eq!(migrated["counters"].as_object().unwrap().len(), 1);
     assert!(migrated["jobs"][0].get("squad").is_none());
@@ -30,20 +37,27 @@ fn legacy_cron_migration_drops_only_a_missing_counter_and_retains_live_jobs() {
 #[test]
 fn legacy_jobs_keep_their_room_after_a_name_is_reused() {
     let f = Fixture::new();
-    f.add(&f.actor(USER), WORKER).unwrap();
     let retired = "55555555-5555-4555-8555-555555555555";
     let legacy = json!({"version": 1, "counters": {"product": 7}, "jobs": [{
         "id":"c1", "squad":"product", "roomId":retired, "ownerId":WORKER,
         "message":"original room", "revision":1, "state":"on", "pause":null,
         "schedule":{"kind":"every", "seconds":1800, "anchorMs":0, "from":null, "zone":"UTC"}
     }]});
-    replace_stored_jobs(&f.directory, legacy.to_string().as_bytes());
+    f.seed_legacy(legacy.to_string().as_bytes());
     let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
     assert!(
         listed.jobs.is_empty(),
         "replacement room must not inherit the old job"
     );
-    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    let migrated: Value = serde_json::from_slice(
+        &Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .frozen_for_core()
+            .unwrap()
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
     assert_eq!(migrated["jobs"][0]["roomId"], retired);
     assert_eq!(migrated["counters"][retired], 7);
 }
@@ -51,7 +65,6 @@ fn legacy_jobs_keep_their_room_after_a_name_is_reused() {
 #[test]
 fn conflict_export_warns_once_per_cli_and_board_channel() {
     let f = Fixture::new();
-    f.add(&f.actor(USER), WORKER).unwrap();
     let make = |id: &str, squad: &str| {
         json!({
             "id":id,"squad":squad,"roomId":ROOM,"ownerId":WORKER,
@@ -62,9 +75,9 @@ fn conflict_export_warns_once_per_cli_and_board_channel() {
     let legacy = json!({"version":1,"counters":{"product":7,"old-name":12},
         "jobs":[make("c1","product"),make("c1","old-name"),make("c2","product")]});
     let bytes = serde_json::to_vec(&legacy).unwrap();
-    replace_stored_jobs(&f.directory, &bytes);
-    let _ = read_jobs(&f.core).unwrap();
-    let _ = read_jobs(&f.core).unwrap();
+    f.seed_legacy(&bytes);
+    ready(&f.core).unwrap();
+    ready(&f.core).unwrap();
     let first = list_jobs(&f.core, &f.config, None, 100).unwrap();
     assert_eq!(first.jobs.len(), 1);
     assert_eq!(first.jobs[0].job.id(), "c2");
@@ -83,7 +96,15 @@ fn conflict_export_warns_once_per_cli_and_board_channel() {
     assert_eq!(exports.len(), 1);
     assert!(message.contains(exports[0].to_str().unwrap()));
     assert_eq!(fs::read(&exports[0]).unwrap(), bytes);
-    let migrated: Value = serde_json::from_slice(&stored_jobs(&f.directory)).unwrap();
+    let migrated: Value = serde_json::from_slice(
+        &Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .frozen_for_core()
+            .unwrap()
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
     assert_eq!(migrated["counters"][ROOM], 12);
     assert!(
         list_jobs(&f.core, &f.config, None, 100)
@@ -134,12 +155,7 @@ fn missing_squad_owner_is_listed_paused_and_readding_it_does_not_resume() {
     assert!(!restored.owner_missing);
     assert_eq!(restored.job.pause, missing.job.pause);
     assert_eq!(restored.job.revision, missing.job.revision);
-    assert_eq!(
-        admit_scheduled(&f.core, &JobKey::of(&job), restored.job.revision)
-            .unwrap_err()
-            .code,
-        "SQUAD_CRON_NOT_ON"
-    );
+    assert_eq!(f.current_jobs().jobs()[0].state(), "paused");
     assert!(
         f.mutate(&user, &restored.job, Mutation::Resume)
             .unwrap()
@@ -151,7 +167,7 @@ fn missing_squad_owner_is_listed_paused_and_readding_it_does_not_resume() {
 }
 
 #[test]
-fn scheduled_admission_and_explicit_resume_persist_missing_owner_pause_before_refusing() {
+fn manual_admission_and_explicit_resume_persist_missing_owner_pause_before_refusing() {
     for resume in [false, true] {
         let f = Fixture::new();
         let user = f.actor(USER);
@@ -160,13 +176,10 @@ fn scheduled_admission_and_explicit_resume_persist_missing_owner_pause_before_re
         let error = if resume {
             f.mutate(&user, &job, Mutation::Resume).err().unwrap()
         } else {
-            admit_scheduled(&f.core, &JobKey::of(&job), job.revision).unwrap_err()
+            authorize_write(&f.core, &JobKey::of(&job), &f.actor(USER), job.revision).unwrap_err()
         };
         assert_eq!(error.code, "SQUAD_NOT_A_MEMBER");
-        let stored = Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap();
+        let stored = f.current_jobs();
         let paused = &stored.jobs()[0];
         assert!(paused.pause.is_some());
         assert_eq!(paused.revision, job.revision + 1);
@@ -204,7 +217,9 @@ fn direct_reassignment_of_a_missing_owner_keeps_a_pause_until_explicit_resume() 
         .job
         .job;
     assert!(reassigned.pause.is_some());
-    assert_eq!(reassigned.revision, job.revision + 1);
+    // A missing-owner pause may be durably published before reassignment.
+    // The new revision must advance; neither operation may clear that pause.
+    assert!(reassigned.revision > job.revision);
     assert!(
         f.mutate(&user, &reassigned, Mutation::Resume)
             .unwrap()
@@ -221,6 +236,7 @@ fn failed_or_incomplete_owner_observation_never_claims_missing_or_changes_jobs()
         let f = Fixture::new();
         let job = f.add(&f.actor(USER), WORKER).unwrap().job.job;
         let before = stored_jobs(&f.directory);
+        let before_jobs = f.current_jobs();
         f.change_model(|model| {
             if malformed {
                 model["malformedReferences"] = json!(true);
@@ -229,8 +245,9 @@ fn failed_or_incomplete_owner_observation_never_claims_missing_or_changes_jobs()
             }
         });
         assert!(list_jobs(&f.core, &f.config, Some("product"), 100).is_err());
-        assert!(admit_scheduled(&f.core, &JobKey::of(&job), job.revision).is_err());
+        assert!(authorize_write(&f.core, &JobKey::of(&job), &f.actor(USER), job.revision).is_err());
         assert_eq!(stored_jobs(&f.directory), before);
+        assert_eq!(f.current_jobs(), before_jobs);
     }
 }
 
@@ -243,7 +260,11 @@ fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
             .jobs
             .is_empty()
     );
-    assert!(!f.directory.join("ops").exists());
+    assert!(f.current_jobs().jobs().is_empty());
+    assert!(
+        f.model()["jobCounters"].as_object().unwrap().is_empty(),
+        "empty-source adoption allocates no job selector"
+    );
     let bytes = fs::read(f.config.path()).unwrap();
     f.change_model(|m| m["caller"] = json!(WORKER));
     let member = actor(&f.core, None).unwrap();
@@ -275,6 +296,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
     let job = f.add(&user, WORKER).unwrap().job.job;
     let paused = f.mutate(&user, &job, Mutation::Pause).unwrap().job.job;
     let before = stored_jobs(&f.directory);
+    let before_jobs = f.current_jobs();
     assert_eq!(
         f.mutate(&user, &job, Mutation::Resume).err().unwrap().code,
         "SQUAD_CRON_REVISION_CONFLICT"
@@ -285,12 +307,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
             .code,
         "SQUAD_CRON_REVISION_CONFLICT"
     );
-    assert_eq!(
-        admit_scheduled(&f.core, &JobKey::of(&paused), paused.revision)
-            .unwrap_err()
-            .code,
-        "SQUAD_CRON_NOT_ON"
-    );
+    assert_eq!(f.current_jobs().jobs()[0].state(), "paused");
     f.change_model(|m| m["room"] = json!("55555555-5555-4555-8555-555555555555"));
     assert_eq!(
         f.mutate(&user, &paused, Mutation::Resume)
@@ -301,12 +318,16 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
     );
     assert_eq!(f.add(&user, WORKER).err().unwrap().code, "ROOM_NOT_FOUND");
     assert_eq!(stored_jobs(&f.directory), before);
+    assert_eq!(f.current_jobs(), before_jobs);
     let calls = f.model()["calls"].as_array().unwrap().clone();
+    // Final admission is Core's writer fence. Ops must never hold its private
+    // writer across a public Core observation or effect.
     assert!(
         calls
             .iter()
-            .any(|call| call["locked"] == true && call["request"]["operation"] == "rooms.roster")
+            .any(|call| call["request"]["operation"] == "rooms.roster")
     );
+    assert!(calls.iter().all(|call| call["locked"] != true));
 }
 
 #[test]
@@ -359,14 +380,7 @@ fn notices_target_owners_suppress_actor_and_never_undo_a_committed_change() {
     let applied = f.mutate(&user, &paused, Mutation::Resume).unwrap();
     assert_eq!(applied.job.job.state(), "on");
     assert_eq!(applied.warnings[0].code, "DISPATCH_FAILURE");
-    assert_eq!(
-        Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0],
-        applied.job.job
-    );
+    assert_eq!(f.current_jobs().jobs()[0], applied.job.job);
 }
 
 #[test]
@@ -418,10 +432,7 @@ fn legacy_and_current_retirement_hooks_follow_room_after_rename_only_once() {
         model["retired"] = json!([WORKER]);
     });
     drain_retired(&f.core, &f.config, 200).unwrap();
-    let stored = Store::new(&f.directory.join("ops"))
-        .unwrap()
-        .read()
-        .unwrap();
+    let stored = f.current_jobs();
     let job = &stored.jobs()[0];
     assert_eq!(job.owner_id, None);
     assert_eq!(
@@ -450,18 +461,12 @@ fn retirement_is_durable_before_ack_and_obsolete_hooks_cannot_clear_a_new_owner(
         .job;
     f.change_model(|m| m["retired"] = json!([WORKER]));
     assert!(drain_retired(&f.core, &f.config, 200).unwrap().is_empty());
-    assert_eq!(
-        Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0],
-        new
-    );
+    assert_eq!(f.current_jobs().jobs()[0], new);
     let f = Fixture::new();
     let user = f.actor(USER);
     let owned = f.add(&user, WORKER).unwrap().job.job;
     f.change_model(|m| m["retired"] = json!([WORKER]));
+    f.change_model(|m| m["nowMs"] = json!(300));
     let view = show_job(&f.core, &f.config, &JobKey::of(&owned), 300).unwrap();
     assert_eq!(view.job.state(), "no owner");
     assert_eq!(view.job.revision, owned.revision + 1);
@@ -493,30 +498,18 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
     let user = f.actor(USER);
     f.change_model(|m| m["hookFailure"] = json!(true));
     assert_eq!(f.add(&user, WORKER).err().unwrap().code, "HOOK_FAILURE");
-    assert!(
-        Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()
-            .is_empty()
-    );
+    assert!(f.current_jobs().jobs().is_empty());
     f.change_model(|m| m["hookFailure"] = json!(false));
     let job = f.add(&user, WORKER).unwrap().job.job;
     assert_eq!(job.id(), "c1");
     f.change_model(|m| m["rosterWithout"] = json!([WORKER]));
     assert_eq!(
-        admit_scheduled(&f.core, &JobKey::of(&job), job.revision)
+        authorize_write(&f.core, &JobKey::of(&job), &f.actor(USER), job.revision)
             .unwrap_err()
             .code,
         "SQUAD_NOT_A_MEMBER"
     );
-    let paused = Store::new(&f.directory.join("ops"))
-        .unwrap()
-        .read()
-        .unwrap()
-        .jobs()[0]
-        .clone();
+    let paused = f.current_jobs().jobs()[0].clone();
     assert_eq!(paused.revision, job.revision + 1);
     assert!(paused.pause.is_some());
     let empty = f.mutate(
@@ -528,16 +521,7 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
         },
     );
     assert_eq!(empty.err().unwrap().code, "SQUAD_CRON_MESSAGE_INVALID");
-    assert_eq!(
-        Store::new(&f.directory.join("ops"))
-            .unwrap()
-            .read()
-            .unwrap()
-            .jobs()[0]
-            .owner_id
-            .as_deref(),
-        Some(WORKER)
-    );
+    assert_eq!(f.current_jobs().jobs()[0].owner_id.as_deref(), Some(WORKER));
 }
 
 #[test]
@@ -590,7 +574,7 @@ fn departure_pause_survives_readd_and_reassign_until_explicit_resume() {
         [job.id()]
     );
     f.change_model(|model| model["rosterWithout"] = json!([WORKER]));
-    let stored = store(&f.core).unwrap().0.read().unwrap().jobs()[0].clone();
+    let stored = f.current_jobs().jobs()[0].clone();
     assert_eq!(stored.state(), "paused");
     f.change_model(|model| model["rosterWithout"] = json!([]));
     let seen = show_job(&f.core, &f.config, &JobKey::of(&stored), 600).unwrap();
@@ -631,10 +615,7 @@ fn membership_service_pauses_before_leave_and_keeps_other_metadata() {
     assert_eq!(result.document["pausedTimers"], json!(["c1"]));
     assert_eq!(f.model()["jobsAtLeave"]["jobs"][0]["state"], "paused");
     assert_eq!(result.document["cleared"], json!(["state"]));
-    assert_eq!(
-        store(&f.core).unwrap().0.read().unwrap().jobs()[0].state(),
-        "paused"
-    );
+    assert_eq!(f.current_jobs().jobs()[0].state(), "paused");
     assert_eq!(
         f.model()["members"][2]["metadata"],
         json!({"squad.other.task":"kept", "task":"identity field"})
@@ -701,10 +682,7 @@ fn lost_leave_response_keeps_pause_and_reports_unknown_without_replaying() {
             .count(),
         1
     );
-    assert_eq!(
-        store(&f.core).unwrap().0.read().unwrap().jobs()[0].state(),
-        "paused"
-    );
+    assert_eq!(f.current_jobs().jobs()[0].state(), "paused");
 }
 
 #[test]
@@ -734,6 +712,7 @@ fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
     let user = f.actor(USER);
     let job = f.add(&user, WORKER).unwrap().job.job;
     let before = stored_jobs(&f.directory);
+    let before_jobs = f.current_jobs();
     f.change_model(|model| {
         let member = model["members"]
             .as_array_mut()
@@ -750,8 +729,137 @@ fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
     assert_eq!(current.job, job);
     assert!(!current.owner_missing);
     assert_eq!(stored_jobs(&f.directory), before);
+    assert_eq!(f.current_jobs(), before_jobs);
     let next = f.add(&user, WORKER).unwrap().job.job;
     assert_eq!(next.id(), "c2");
     assert_eq!(next.owner_id.as_deref(), Some(WORKER));
     assert_eq!(next.room_id, job.room_id);
+}
+
+#[test]
+fn deferred_legacy_reads_keep_jobs_and_holder_without_core_adoption() {
+    for version in [1, 2] {
+        let f = Fixture::new();
+        let mut document = json!({"version":2,"counters":{ROOM:1},"jobs":[{
+            "id":"c1","roomId":ROOM,"ownerId":WORKER,"message":"legacy exact text",
+            "revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":60,"anchorMs":0,"from":null,"zone":"UTC"}
+        }]});
+        if version == 1 {
+            document["version"] = json!(1);
+            document["counters"] = json!({"product":1});
+            document["jobs"][0]["squad"] = json!("product");
+        }
+        let source = document.to_string().into_bytes();
+        crate::migration::paths(&f.core, None).unwrap();
+        f.seed_legacy(&source);
+        fs::rename(f.directory.join("ops"), f.directory.join("squad")).unwrap();
+        fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+        for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
+            fs::remove_file(f.directory.join(name)).unwrap();
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let lease = tmt_ops::cron::Clock::new(&f.directory.join("squad"))
+            .unwrap()
+            .acquire(now, 123, Some("%41".into()), "0.1.0")
+            .unwrap()
+            .unwrap();
+        let held = fs::read(f.directory.join("squad/cron/clock.json")).unwrap();
+        let core = Core::at(f.core.executable().into());
+        let config = Config::load(&core).unwrap();
+        let listed = list_jobs(&core, &config, Some("product"), now + 1)
+            .expect("a deferred legacy list remains readable without adoption");
+        assert_eq!(listed.jobs.len(), 1);
+        assert_eq!(listed.jobs[0].job.message, "legacy exact text");
+        let shown = show_job(
+            &core,
+            &config,
+            &JobKey {
+                room_id: ROOM.into(),
+                id: "c1".into(),
+            },
+            now + 1,
+        )
+        .unwrap();
+        assert_eq!(shown.job, listed.jobs[0].job);
+        assert_eq!(
+            fs::read(f.directory.join("squad/cron/clock.json")).unwrap(),
+            held
+        );
+        assert!(!f.directory.join("ops").exists());
+        assert!(
+            f.current_jobs().jobs().is_empty(),
+            "read-only legacy projection cannot import a job"
+        );
+        let old = Store::new(&f.directory.join("squad")).unwrap();
+        assert!(old.frozen_for_core().unwrap().is_none());
+        let db = rusqlite::Connection::open_with_flags(
+            f.directory.join("squad/ops.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let retained: Vec<u8> = db
+            .query_row(
+                "SELECT body FROM documents WHERE kind='cron' AND key=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            retained, source,
+            "deferred projection must preserve the exact source bytes"
+        );
+        lease.release().unwrap();
+    }
+}
+
+#[test]
+fn a_frozen_import_recovers_after_publication_or_readback_failure_without_new_jobs() {
+    for fault in ["importFailure", "importReadbackFailure"] {
+        let f = Fixture::new();
+        let source = json!({"version":2,"counters":{ROOM:1},"jobs":[{
+            "id":"c1","roomId":ROOM,"ownerId":WORKER,"message":"retained source",
+            "revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":1800,"anchorMs":0,"from":null,"zone":"UTC"}
+        }]});
+        f.seed_legacy(source.to_string().as_bytes());
+        f.change_model(|m| m[fault] = json!(true));
+        assert!(matches!(list_jobs(&f.core, &f.config, None, 100),
+            Err(error) if error.code == "SQUAD_CRON_CUTOVER_UNCONFIRMED"));
+        let store = Store::new(&f.directory.join("ops")).unwrap();
+        let frozen = store.frozen_for_core().unwrap().unwrap();
+        assert!(store.core_redirect().unwrap().is_none());
+        let accepted = f.model()["jobs"].as_object().map_or(0, |jobs| jobs.len());
+        assert_eq!(accepted, usize::from(fault == "importReadbackFailure"));
+        // An uncertain read is not absence and cannot trigger another apply.
+        if fault == "importReadbackFailure" {
+            assert!(list_jobs(&f.core, &f.config, None, 100).is_err());
+        }
+        f.change_model(|m| m[fault] = json!(false));
+        let listed = list_jobs(&f.core, &f.config, None, 100).unwrap();
+        assert_eq!(listed.jobs.len(), 1);
+        assert_eq!(listed.jobs[0].job.message, "retained source");
+        assert_eq!(store.frozen_for_core().unwrap().unwrap(), frozen);
+        assert!(store.core_redirect().unwrap().is_some());
+        let model = f.model();
+        assert_eq!(model["jobImports"].as_object().unwrap().len(), 1);
+        assert_eq!(model["jobs"].as_object().unwrap().len(), 1);
+        let applies = model["importCommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|args| args.as_array().unwrap().iter().any(|arg| arg == "--yes"))
+            .collect::<Vec<_>>();
+        assert_eq!(applies.len(), if fault == "importFailure" { 2 } else { 1 });
+        for args in applies {
+            let args = args.as_array().unwrap();
+            let source_id = args.iter().position(|arg| arg == "--source-id").unwrap();
+            let digest = args.iter().position(|arg| arg == "--digest").unwrap();
+            assert_eq!(args[source_id + 1], frozen.source_id);
+            assert_eq!(args[digest + 1], frozen.source_digest);
+        }
+    }
 }

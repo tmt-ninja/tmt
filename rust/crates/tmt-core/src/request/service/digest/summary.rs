@@ -290,10 +290,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             )?;
             marker.checklist_id = Some(batch.id.clone());
             records.write_digest_pending_wake(identity, Some(&marker))?;
-            admission.next_admission_ms = now
-                .checked_add(1000)
-                .filter(|n| *n <= MAX_JS_SAFE_INTEGER)
-                .ok_or(RequestError::RevisionExhausted)?;
+            admission.next_admission_ms =
+                crate::orchestration::next_wake_admission(admission.next_admission_ms, now)
+                    .map_err(|_| RequestError::RevisionExhausted)?
+                    .ok_or(RequestError::RevisionExhausted)?;
             admission.scan_after_identity_id = None;
             records.write_digest_wake_clock(&admission)?;
             Ok(Some(batch))

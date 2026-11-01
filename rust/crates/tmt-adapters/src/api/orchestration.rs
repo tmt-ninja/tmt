@@ -17,7 +17,25 @@ pub(super) fn write(
 }
 pub(super) fn write_error(e: crate::orchestration::OrchReadFailure) -> Fault {
     match e {
+        crate::orchestration::OrchReadFailure::Job(crate::storage::JobStoreError::Storage(error))=>Fault::new("ORCH_STORAGE_UNAVAILABLE","Job write could not be confirmed; inspect its definition and canonical receipt before retrying.").with_storage_access(error,"The job write could not be confirmed. Inspect its current revision before retrying."),
+        error @ crate::orchestration::OrchReadFailure::Job(_)=>Fault::new(error.code(),error.message()),
         crate::orchestration::OrchReadFailure::Policy(e)=>Fault::new(crate::orchestration::orch_error_code(e),crate::orchestration::orch_error_message(e)),
         crate::orchestration::OrchReadFailure::Storage(e)=>Fault::new("ORCH_STORAGE_UNAVAILABLE","Orchestration write could not be confirmed; inspect its configuration revision before retrying.").with_storage_access(e, "The write could not be confirmed. Inspect its current configuration revision before retrying."),
     }
+}
+
+pub(super) fn run_job(
+    storage: &mut Storage,
+    selector: Option<super::DispatchIdentity>,
+    input: crate::orchestration::JobRunDocument,
+    settings: tmt_core::settings::Settings,
+) -> Result<Vec<u8>, Fault> {
+    let (originator, _) = super::dispatch::originator(storage, selector)?;
+    crate::orchestration::execute_job(
+        storage,
+        input.into_input(originator),
+        &settings,
+        wall_time_ms,
+    )
+    .map_err(write_error)
 }

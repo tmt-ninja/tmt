@@ -227,7 +227,7 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 ## Ops state database
 
 `state` (library module `tmt_ops::state`) owns `<dataRoot>/ops/ops.db`, a private SQLite file
-(directory 0700, file 0600) with the table `documents(kind, key, body)`: the `cron` document
+(directory 0700, file 0600) with the table `documents(kind, key, body)`: the legacy `cron` source/redirect
 (key empty) and one `checklist` document per canonical room UUID, plus the checklist mutation
 log (`checklist_events`, `checklist_event_floor`, below). Admission, the five-second
 write queue, crash-atomic commits and the refusal of a database written by a newer Ops belong
@@ -252,8 +252,8 @@ codecs; the database stores bytes. Constructing or reading an absent store creat
   upgrade hint (`tmt extension upgrade ops` or `tmt upgrade`) and changes nothing.
 - **Other owners.** `ops.toml` edits go through the leaf's `Document` (one lock around the
   compare-and-replace; the same `SQUAD_CONFIG_CHANGED` refusal when the file moved on). The
-  cron clock stays a lease in `cron/clock.json` (expiry and takeover are its contract); the
-  leaf has no lease primitive.
+  old cron clock is checked only for quiescence during job adoption. The shared Core
+  clock is observed through its public API; the leaf has no lease primitive.
 
 ## Checklist storage and service
 
@@ -372,110 +372,60 @@ projects its typed results/errors. The board consumes the same typed service dir
 
 ## Cron
 
-The user-facing command reference is the lead skill's "Manage recurring jobs". Maintainers
-own these layers:
+The shipped lead skill owns commands. Core's [jobs contract](../../../../contracts/orchestration-v1.md#jobs-read-projection)
+owns current definitions, admission, run evidence and the shared clock; Ops is a public-port adapter.
 
-- `cron::schedule` owns positive elapsed intervals, fixed local times and five-field cron
-  parsing with next-slot math. Named time zones use Jiff's system/zoneinfo database with no
-  bundled database. Fixed local times skip DST gaps and take the first occurrence in a fold;
-  elapsed intervals keep their stored anchor and duration. Day-of-month and day-of-week use
-  the standard alternative rule unless either field starts with `*`.
-- `cron::store` keeps the versioned jobs document as the `cron` document of the
-  [Ops state database](#ops-state-database): per-room UUID counters that survive removal, exact
-  message bytes, owner references, schedules, revisions and pause attribution. The service
-  uses each v1 job's stored room UUID and public room observations for counter-only names.
-  Unresolved counter-only names are dropped. Conflicting jobs are retained in a private
-  full-document export before the conversion commits; affected room counters keep the highest
-  legacy counter. A one-time CLI warning and board notice identify the export. The
-  caller supplies the absolute Ops root under `storage.root` and admits core UUID references;
-  the store resolves no identities, decides no permissions, dispatches nothing and tracks no
-  runs. Reads of an absent store create nothing. A mutation queues for the database's write
-  lock for at most five seconds, then reads the current document under it, applies its change
-  and commits, so concurrent adds, removals, pauses and edits all land; a reader queues behind
-  a writer the same way. A spent budget returns `SQUAD_CRON_STORE_BUSY` saying another Ops
-  process holds the database, with the one retry (`Run the same command again.`) and with
-  nothing saved. A failed change commits nothing. Invalid existing state fails explicitly
-  rather than resetting counters or overwriting it. `pause_owner_then` is membership's
-  barrier: it commits the departing owner's pause, runs the leave or move with no lock held
-  (it runs a core command), then pauses once more so a job its owner added meanwhile is
-  paused too; the second pause is best effort because the departure is done.
-- `cron_command` composes the management grammar and output; one `cron_service` is shared
-  with clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
-  explicit user-or-verified `CronActor` admission and room/owner/revision revalidation.
-  Existing mutations carry a `JobKey` (room UUID, c-id) and an expected revision;
-  `add` carries its selected room UUID. Admission and stored comparisons run inside the
-  stable jobs lock. The user or the squad's current lead may write; an identified
-  ordinary member never falls back to the user; reads need no permission. Manual and
-  scheduled send callers obtain admitted immutable jobs through the same locked path, and
-  anonymous scheduled admission requires an enabled job and active owner membership. No
-  dispatch runs under the jobs lock; core roster/identity state can still change after that
-  snapshot and core owns final dispatch admission. `Core::api_write` reuses the bounded
-  process owner with an explicit identity or anonymous envelope. Scheduled sends, `cron send`
-  and the change announcements go through `Core::dispatch_automated`, which declares
-  `origin: "automation"` and repeats the same operation once without it when an older Core
-  refuses the field with `API_INPUT_INVALID` (nothing is stored on a refusal).
-- Owner hooks: `identityHooks` registration (consumer `squad-cron`) precedes job publication;
-  a failed publication can leave a harmless unused reference. List, show and apply process
-  one pending retirement page of at most 16 hooks, and clock ticks call the same drain.
-  A still-matching room/job/owner reference becomes paused with no owner and a new revision
-  before hook acknowledgment. Both current UUID/c-id and historical UUID/name/c-id hooks
-  match by UUID, c-id and owner; obsolete hooks are acknowledged without editing a reassigned or
-  removed job. Projections exclude jobs of retired or replaced rooms while keeping their
-  records and counters.
-- Notices: add/edit/pause/resume/remove notify the owner; reassign notifies old and new
-  owners (the message goes to the new one); the actor's own notice is suppressed; retirement
-  notifies the current lead anonymously. These post-commit announcements use deterministic
-  room/job/revision/action/recipient operation UUIDs, report failures as warnings, and have no
-  rollback, outbox or recovery journal, so an interruption can lose a notice. Reassignment
-  keeps a pause; resume requires a current owner.
-- `cron::clock` owns the bounded, read-only Running/NoClock/Unknown lease projection
-  and atomic `clock.json` publication under the Ops `cron` directory. A stable,
-  nonblocking `clock.lock` serializes acquisition, renewal and ownership-checked
-  release. Contention is `SQUAD_CRON_CLOCK_BUSY`; acquisition and renewal retry on the
-  next tick, while release, which runs once at shutdown, waits up to 500 ms for a
-  brief holder such as a status read. Pane, PID, start and expiry are evidence, not
-  process probes; an expired lease can be taken over, and a clock refused because another
-  holds the lease names that holder's PID and pane. `cron::tick` owns slot selection and deterministic
-  operation UUIDs from room UUID, non-reused c-id and UTC slot milliseconds. A
-  running clock admits every slot since its own previous tick, capped at five
-  minutes; startup, takeover, restart and clock rollback baseline at now. A
-  standalone tick admits the last 60 seconds. No absent-clock history is replayed.
-
-- `cron_clock` adapts `run/tick/clock/send` to public core commands/API and the shared
-  admission service. Clock text shows the relative start age; JSON retains exact
-  millisecond evidence. Each scheduled send revalidates revision, room and owner,
-  renews its lease, then dispatches the exact message anonymously outside the jobs
-  lock. An uncertain create recovers the same operation with `dispatch.show`; it
-  never invents a replacement or re-wakes a replay. Manual send retains an explicit
-  CronActor and viewed revision, with a new operation ID per action; paused jobs
-  with a current owner may be sent without changing their schedule. Acceptance is
-  reported separately from delivery and results are not tracked. `board/mod.rs`
-  starts and stops an independent cancellable, joined clock worker; refresh-off,
-  repaint, tabs and usage generations do not own its lifetime. Foreground run
-  handles interrupt/termination/hangup through that same shutdown owner, cancelling
-  owned core children before releasing the lease. Its own local process cancellation
-  is a clean stop; completed real failures remain errors. A second foreground run or tick
-  refuses an unexpired holder; a board waits and can take over after expiry.
-
-- The lease-owning clock starts `tmt digest tick` through its resolved `TMT_EXECUTABLE`
-  once on acquisition/current minute and once per later observed minute, without
-  catch-up or rollback replay. Each child runs independently of cron passes and
-  painting through the cancellable runner, with a 90-second process ceiling and
-  64 KiB per-stream capture. Digest owns its single-instance lock, in-minute
-  deadlines and delivery; Ops adds no scheduling policy or overlap suppression.
-  Missing/nonzero/failed ticks are skipped without a same-minute retry: one plain
-  stderr line in foreground run, only an in-memory skip count/last reason in the
-  board. Shutdown cancels and joins tick children before lease release. This
-  preserves the existing board-owned or explicit foreground clock lifetime;
-  closing the board starts no replacement clock or service.
-  The same tick runs the [idle alert](board-cron.md#idle-alert-scan) scan.
-- The same minute admission independently invokes public `workspace.capture`
-  through Core after discovering the operation in `capabilities`. Successful
-  discovery is cached for the worker session, including an answer without the
-  operation; errors and timeouts retry at the next admitted minute, never within
-  the same minute. Discovery and capture share five seconds; an unfinished
-  workspace child suppresses another capture, without delaying Digest or cron.
-  Discovery and capture failures stay silent, including foreground run: no notice,
-  warning, stdout or stderr. Cancellation joins and reaps the child
-  before lease release. No new timer, setting, tmux access or paint/input I/O is
-  introduced; Core owns [capture and coalescing](../../../../contracts/workspace-v1.md#capture-triggers-and-public-backstop).
+- **Calendar.** `cron::schedule` projects through the neutral `tmt-job-calendar` leaf.
+  Jiff zones, interval anchors, gap/fold rules and five-field cron semantics have one owner.
+  Board schedule reviews remain local previews. A job row's first next slot comes from the
+  Core read, including an explicit absence; additional dates are schedule previews.
+- **Cutover.** `cron_service::ready` holds the existing migration guard and requires the
+  old Ops clock to be quiescent, including absence of its advisory JSON. It converts v1
+  names using recorded room UUIDs before taking an exact v2 source. Conflicts retain the
+  existing full export and one CLI/board notice. Core preflights a bounded immutable file
+  before Ops freezes the source by digest CAS. The freeze marker and literal source BLOB
+  commit together in `ops.db`; old readers/writers refuse this newer document.
+  One public file import is followed by exact-source receipt readback, validating counters
+  and the complete room/c-ID-to-Core-ID mapping before an adopted redirect is committed.
+  Interrupted publication stays frozen. Later calls confirm the receipt or, on confirmed
+  absence, resume the same immutable source ID/digest/bytes import. An uncertain read never
+  proves absence; no source is thawed or replaced. Core never opens the Ops database.
+- **Service.** CLI, clock and board share `cron_service`. Existing `JobKey` selectors keep
+  the room UUID and non-reused c-ID; public paged metadata plus full selected definitions
+  supply the legacy projection. A message preview is never used as the editable message.
+  The user/current-lead actor rule, exact viewed revision and current room/owner checks
+  remain. Core preview/apply owns the configuration/row CAS and consent fence. All Core I/O
+  occurs outside an Ops SQLite writer; no second live job document or run ledger exists.
+- **Ownership.** Retirement hooks (`squad-cron`) register before job publication. The
+  `job.addSquad` preview proposes a c-ID without reserving it; its writer fence rejects a
+  concurrent counter change. A failed registration publishes no job. An unused reference
+  after a refused apply is harmless because retirement matches room, c-ID and current owner.
+  Reads/actions drain at most 16 retirement hooks, updating the still-matching job before
+  acknowledgment. Removed/reassigned jobs are untouched by obsolete hooks. Positive roster
+  loss pauses durably; unavailable evidence stays unknown. Reassignment preserves a pause.
+  Membership pauses before leave/move and scans again afterward without holding a store
+  lock across the effect; the second scan is best effort after a confirmed departure.
+- **Effects.** Manual send uses `orchestration.job.run`, the viewed revision, one action ID
+  and the explicit actor. Core records Automation origin and current-policy admission in the
+  same request/run transaction as scheduled work. Paused manual sends keep the pause.
+  Acceptance and actual outcome stay distinct; uncertain effects are never automatically
+  resubmitted. Change/retirement announcements retain their existing targets, deterministic
+  IDs and post-commit warning behavior; a notice failure cannot undo a job mutation.
+- **Clock.** Ops `tick` and `run` invoke finite `tmt tick` or one foreground `tick run`
+  child through `TMT_EXECUTABLE`. `cron_clock::core_clock` reads bounded unsolicited frames
+  through `tmt-invoke::LineChannel`, with the existing 90-second read ceiling. Shutdown
+  signals the owned supervisor, allows its existing 15-second component cleanup, drains and
+  joins it before confirming a successful stop; unconfirmed cleanup returns
+  `SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED`, never a successful UI stop. Core
+  owns the stable kernel lock, advisory holder, sub-minute slots, one-minute Digest/capture
+  composition and rollback gate. Ops neither renews that lock nor preempts another owner.
+  Continuous UIs reoffer ownership on the next minute after a refusal or joined end,
+  backing off consecutive failures to at most one attempt per five minutes. Slot receipts
+  fence repeated work; unconfirmed cleanup remains fatal. Public `tick.status` supplies
+  the unchanged Running/NoClock/Unknown board projection.
+  During deferred path migration, list/show project the unfrozen legacy source without
+  conversion, owner-pause writes or Core import; frozen/adopted sources never fall back.
+- **Idle alerts.** The cancellable Ops worker runs `idle_alert::Watch` independently of
+  Core clock competition and without lease-renew callbacks. Its config, readiness rule and
+  deterministic episode IDs are unchanged. A timer-only Core clock runs no Ops idle alerts.
+  Board refresh, painting, tab selection and usage generations own no process lifetime or I/O.

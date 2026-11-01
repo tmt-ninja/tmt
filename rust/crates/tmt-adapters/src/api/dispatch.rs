@@ -24,13 +24,11 @@ pub(super) fn show_receipt(storage: &Storage, id: String) -> Result<Vec<u8>, Fau
         .ok_or_else(|| Fault::new("DISPATCH_NOT_FOUND", "Operation receipt was not found."))
 }
 
-pub(super) fn create_dispatch(
+pub(super) fn originator(
     storage: &mut Storage,
     selector: Option<DispatchIdentity>,
-    mut input: DispatchInput,
-    settings: Option<Settings>,
-) -> Result<Vec<u8>, Fault> {
-    let (originator, sender) = match selector {
+) -> Result<(Originator, String), Fault> {
+    Ok(match selector {
         Some(DispatchIdentity::Explicit(selector)) => {
             let selected = identity_entry(storage, &selector)?;
             (Originator::Explicit(selected.id), selected.name)
@@ -51,7 +49,16 @@ pub(super) fn create_dispatch(
             (Originator::Explicit(selected.id), selected.name)
         }
         None => (Originator::Unknown, "anonymous".into()),
-    };
+    })
+}
+
+pub(super) fn create_dispatch(
+    storage: &mut Storage,
+    selector: Option<DispatchIdentity>,
+    mut input: DispatchInput,
+    settings: Option<Settings>,
+) -> Result<Vec<u8>, Fault> {
+    let (originator, sender) = originator(storage, selector)?;
     input.originator = originator;
     let settings = settings.expect("dispatch settings");
     let direct = input.kind == tmt_core::request::RequestKind::Request
@@ -78,44 +85,19 @@ pub(super) fn create_dispatch(
                 "Dispatch could not be confirmed; retain the operation ID and recover its receipt.",
             )
         })?;
-    let wake = if direct
-        && created
-        && receipt
-            .items
-            .first()
-            .is_some_and(|item| item.acceptance == tmt_core::dispatch::Acceptance::Queued)
-    {
-        let item = &receipt.items[0];
-        let delay =
-            std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
-        let text = preview.as_deref().expect("a direct request keeps its text");
-        Some(if passthrough {
-            // The text is the delivery, typed as written: there is no wake line.
-            crate::delivery::deliver_request(
-                storage,
-                &item.request_id,
-                &item.recipient_id,
+    let wake = preview.as_deref().and_then(|text| {
+        dispatch::wake_direct(
+            storage,
+            &receipt,
+            created,
+            &settings,
+            dispatch::DispatchWake {
+                sender: &sender,
                 text,
-                delay,
-            )
-        } else {
-            let message = crate::delivery::queued_wake(
-                &sender,
-                Some(text),
-                &item.request_id,
-                &item.recipient_id,
-            );
-            crate::delivery::wake_request(
-                storage,
-                &item.request_id,
-                &item.recipient_id,
-                &message,
-                delay,
-            )
-        })
-    } else {
-        None
-    };
+                passthrough,
+            },
+        )
+    });
     Ok(dispatch::encode_receipt_with_wake(&receipt, wake))
 }
 

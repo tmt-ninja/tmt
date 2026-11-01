@@ -18,6 +18,42 @@ use tmt_core::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum OrchMutationDocument {
+    #[serde(rename = "job.add")]
+    AddJob {
+        candidate: Box<super::JobDefinitionDocument>,
+    },
+    #[serde(rename = "job.addSquad")]
+    AddSquadJob {
+        candidate: Box<super::JobDefinitionDocument>,
+        #[serde(rename = "pausedBy")]
+        paused_by: Option<String>,
+    },
+    #[serde(rename = "job.set")]
+    SetJob {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        revision: u64,
+        candidate: Box<super::JobDefinitionDocument>,
+    },
+    #[serde(rename = "job.pause")]
+    PauseJob {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        revision: u64,
+        by: String,
+    },
+    #[serde(rename = "job.resume")]
+    ResumeJob {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        revision: u64,
+    },
+    #[serde(rename = "job.rm")]
+    RemoveJob {
+        #[serde(rename = "jobId")]
+        job_id: String,
+        revision: u64,
+    },
     #[serde(rename = "plan.add")]
     AddPlan { candidate: Box<OrchPlanDocument> },
     #[serde(rename = "plan.set")]
@@ -92,7 +128,7 @@ pub enum OrchWriteQuery {
     },
 }
 pub fn decode_orch_write(bytes: &[u8]) -> Result<OrchWriteQuery, OrchError> {
-    if bytes.len() > wire::ORCH_DOCUMENT_BYTES + 8192 {
+    if bytes.len() > crate::api::INPUT_LIMIT {
         return Err(OrchError::Limit);
     }
     let query: OrchWriteQuery = serde_json::from_slice(bytes).map_err(|_| OrchError::Invalid)?;
@@ -115,10 +151,22 @@ pub fn decode_orch_write(bytes: &[u8]) -> Result<OrchWriteQuery, OrchError> {
             mutation
         }
     };
+    if !super::jobs::write::is_job(mutation) && bytes.len() > wire::ORCH_DOCUMENT_BYTES + 8192 {
+        return Err(OrchError::Limit);
+    }
     validate_mutation(mutation)?;
     Ok(query)
 }
 fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
+    if super::jobs::write::is_job(mutation) {
+        return super::jobs::write::validate(mutation).map_err(|e| {
+            if e == tmt_core::orchestration::jobs::JobError::Limit {
+                OrchError::Limit
+            } else {
+                OrchError::Invalid
+            }
+        });
+    }
     let plan_selector = |plan: &str| -> Result<(), OrchError> {
         if plan.trim().is_empty() || plan.len() > 80 || plan.chars().any(char::is_control) {
             Err(OrchError::Invalid)
@@ -195,6 +243,7 @@ fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
             }
             None
         }
+        _ => return Err(OrchError::Invalid),
     };
     if let Some(candidate) = candidate {
         candidate.to_core()?;
@@ -319,6 +368,7 @@ fn normalized(
         }
         // Not a configuration change: `orchestration_write` routes it to `resume`.
         OrchMutationDocument::ResumeTalks { .. } => return Err(OrchError::Invalid),
+        _ => return Err(OrchError::Invalid),
     })
 }
 
@@ -506,6 +556,10 @@ pub fn orchestration_write(
             )
         }
         OrchWriteQuery::Preview { mutation } => {
+            if super::jobs::write::is_job(&mutation) {
+                return super::jobs::write::preview(storage, &mutation, clock())
+                    .and_then(|p| encode(&p));
+            }
             let state = storage.orchestration_snapshot(None)?;
             let zone = OrchZone::load(state.time_zone.as_deref())?;
             encode(&preview(&state, &zone, &mutation, clock())?.value)
@@ -522,6 +576,17 @@ pub fn orchestration_write(
                 || !wire::valid_ms(preview_at_ms)
             {
                 return Err(OrchError::Invalid.into());
+            }
+            if super::jobs::write::is_job(&mutation) {
+                return super::jobs::write::apply(
+                    storage,
+                    &mutation,
+                    expected_configuration_revision,
+                    preview_at_ms,
+                    &preview_digest,
+                    clock(),
+                )
+                .and_then(|p| encode(&p));
             }
             let observed = storage.orchestration_snapshot(None)?;
             let zone = OrchZone::load(observed.time_zone.as_deref())?;

@@ -21,6 +21,7 @@ const LEGACY_RECEIVING_DIAGNOSTIC: &str =
 
 pub struct TickProcess {
     core: Core,
+    clock_lease: Option<String>,
     history: Option<crate::history::Store>,
     settings_path: PathBuf,
     synchronized: BTreeMap<String, Receiving>,
@@ -45,6 +46,7 @@ impl TickProcess {
     pub fn new(core: Core, settings_path: PathBuf, boundary_ms: u64, boundary: Instant) -> Self {
         Self {
             core,
+            clock_lease: None,
             history: None,
             settings_path,
             synchronized: BTreeMap::new(),
@@ -60,6 +62,16 @@ impl TickProcess {
             boundary_ms,
             boundary,
         }
+    }
+    pub fn with_clock_lease(mut self, token: String) -> Self {
+        self.clock_lease = Some(token);
+        self
+    }
+    fn verify_clock(&self) -> Result<(), Error> {
+        if let Some(token) = &self.clock_lease {
+            super::component::verify(&self.core, token)?;
+        }
+        Ok(())
     }
     /// The sorted member UUIDs. In a session the roster is listed again only when the durable
     /// `changes.cursor` has moved: identity create, rename and retire advance it, and the listing
@@ -464,6 +476,7 @@ impl TickPort for TickProcess {
         self.record(row, Rule::NotDue, None);
     }
     fn observe(&mut self) -> Result<Vec<TickObservation>, Error> {
+        self.verify_clock()?;
         if !self.within_minute()? {
             return Ok(vec![]);
         }
@@ -565,6 +578,7 @@ impl TickPort for TickProcess {
         if self.failed.contains(id) || !self.within_minute()? {
             return Ok(());
         }
+        self.verify_clock()?;
         let settings = DigestConfig::load(&self.settings_path)?;
         let ids = [id.to_owned()];
         let Some(receiving) = self.publish_receiving(&settings, &ids)? else {

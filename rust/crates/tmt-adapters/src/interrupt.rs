@@ -1,22 +1,28 @@
-//! Invocation-owned SIGINT notification without a worker thread or busy polling.
+//! Invocation-owned cancellation shared by bounded child owners.
 
 use nix::{
     errno::Errno,
     poll::{PollFd, PollFlags, PollTimeout, poll},
 };
-use signal_hook::{SigId, consts::SIGINT, flag, low_level};
+use signal_hook::{
+    SigId,
+    consts::{SIGINT, SIGTERM},
+    flag, low_level,
+};
 use std::{
-    io::{self, Read},
+    io::{self, Read, Write},
     os::{fd::AsFd, unix::net::UnixStream},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
 };
 
 pub struct Interrupt {
     reader: UnixStream,
+    notifier: UnixStream,
+    notifications: AtomicUsize,
     interrupted: Arc<AtomicBool>,
     registrations: Vec<SigId>,
     emergency: Option<SigId>,
@@ -24,11 +30,22 @@ pub struct Interrupt {
 
 impl Interrupt {
     pub fn install() -> io::Result<Self> {
+        Self::install_for(&[SIGINT])
+    }
+
+    /// Foreground clocks also own graceful termination from their timer manager.
+    pub fn install_termination() -> io::Result<Self> {
+        Self::install_for(&[SIGINT, SIGTERM])
+    }
+
+    fn install_for(signals: &[i32]) -> io::Result<Self> {
         let (reader, writer) = UnixStream::pair()?;
         reader.set_nonblocking(true)?;
         writer.set_nonblocking(true)?;
         let mut guard = Self {
             reader,
+            notifier: writer,
+            notifications: AtomicUsize::new(0),
             interrupted: Arc::new(AtomicBool::new(false)),
             registrations: Vec::new(),
             emergency: None,
@@ -39,12 +56,15 @@ impl Interrupt {
             SIGINT,
             guard.interrupted.clone(),
         )?);
-        guard
-            .registrations
-            .push(flag::register(SIGINT, guard.interrupted.clone())?);
-        guard
-            .registrations
-            .push(low_level::pipe::register(SIGINT, writer)?);
+        for &signal in signals {
+            guard
+                .registrations
+                .push(flag::register(signal, guard.interrupted.clone())?);
+            guard.registrations.push(low_level::pipe::register(
+                signal,
+                guard.notifier.try_clone()?,
+            )?);
+        }
         Ok(guard)
     }
 
@@ -60,19 +80,40 @@ impl Interrupt {
         }
     }
 
+    /// Publish invocation cancellation without consuming another child's signal.
+    pub fn cancel(&self) -> io::Result<()> {
+        if !self.interrupted.swap(true, Ordering::SeqCst) {
+            let mut notifier = &self.notifier;
+            match notifier.write_all(&[1]) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    /// Notifications belong to the invocation, not to the first reader. Every
+    /// child sees the cumulative count; a repeated read is not a repeat signal.
     pub(crate) fn take_notifications(&self) -> io::Result<usize> {
-        let mut count = 0;
         let mut reader = &self.reader;
         loop {
+            let count = self.notifications.load(Ordering::SeqCst);
+            if count >= 2 {
+                return Ok(count);
+            }
             match reader.read(&mut [0; 64]) {
                 Ok(0) => return Err(io::Error::other("Interrupt notification closed")),
                 Ok(read) => {
-                    count += read;
-                    if count >= 2 {
-                        return Ok(count);
-                    }
+                    self.notifications
+                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                            Some(count.saturating_add(read))
+                        })
+                        .expect("notification update always succeeds");
                 }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(count),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(self.notifications.load(Ordering::SeqCst));
+                }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error),
             }

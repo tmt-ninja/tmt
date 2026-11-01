@@ -1,14 +1,15 @@
-//! Time-based Squad jobs, independent of core storage and execution results.
+//! Legacy cron formats, cutover guards and local schedule previews.
+//! Current job and scheduling authority belongs to the public Core ports.
 mod clock;
 mod schedule;
 mod store;
 mod tick;
 
-pub use clock::{Clock, ClockStatus, Holder, Lease};
+pub use clock::{Clock, ClockStatus, Holder, Lease, QuiescentClock};
 pub use schedule::{Schedule, ScheduleInput};
 pub use store::{BUSY_RETRY, STORE_BUSY};
-pub use store::{Job, Jobs, Pause, Store};
-pub use tick::{Dispatch, Tick, TickReport, operation_id};
+pub use store::{FrozenJobs, Job, Jobs, Pause, Store};
+pub use tick::operation_id;
 
 /// Expected input/persistence failures, mapped to CLI output by the caller.
 #[derive(Debug)]

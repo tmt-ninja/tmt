@@ -47,13 +47,13 @@ const GLOBAL: CommandSpec = CommandSpec {
 
 const TICK: CommandSpec = CommandSpec {
     name: "tick",
-    summary: "Apply digest settings and deliver due digests during this minute",
+    summary: "Run the unified finite clock, including Digest delivery",
     examples: &[Example {
         command: "tmt digest tick",
-        note: "Run once a minute from an Ops squad cron, cron or launchd",
+        note: "Run jobs and Digest for this minute through Core",
     }],
     outputs: OutputModes::Human,
-    details: "If another tick is already running, this one exits at once. Each run stays up to one minute to deliver digests as they fall due, then exits. With an interval, held messages are delivered once the oldest has waited that long, or sooner when the flush count is reached. With auto, messages are held while the member is busy and delivered as one digest when it is idle or its turn ends, and at the latest once five are held or the oldest has waited five minutes; the tick keeps the hold alive, so without it auto falls back to normal delivery within two minutes. off delivers messages normally.",
+    details: "This entry forwards to the unified tmt tick owner. A competing clock refuses with its current holder. Each finite run observes jobs and Digest delivery until this minute ends. With an interval, held messages are delivered once the oldest has waited that long, or sooner when the flush count is reached. With auto, messages are held while the member is busy and delivered as one digest when it is idle or its turn ends, and at the latest once five are held or the oldest has waited five minutes; the tick keeps the hold alive, so without it auto falls back to normal delivery within two minutes. off delivers messages normally.",
 };
 
 const SKILL: CommandSpec = CommandSpec {
@@ -180,7 +180,12 @@ pub fn command() -> Command {
                     }),
             ),
         )
-        .subcommand(tmt_cli_style::command(&TICK))
+        .subcommand(tmt_cli_style::command(&TICK)
+            .arg(clap::Arg::new("component-lease").long("component-lease").hide(true)
+                .requires("component-until-ms").help("Run only under the exact unified clock parent lease"))
+            .arg(clap::Arg::new("component-until-ms").long("component-until-ms").hide(true)
+                .requires("component-lease").value_parser(clap::value_parser!(u64).range(1..=9_007_199_254_740_991))
+                .help("Stop before the parent clock minute ends")))
         .subcommand(tmt_cli_style::command(&SKILL))
         .subcommand(
             tmt_cli_style::command(&USAGE)

@@ -17,7 +17,9 @@ configuration publication append nothing. Actual restricted Incoming holds creat
 only admission spacing/pass progress. Claims freeze eligible membership and counts
 in the existing summary-tagged checklist; settlement is terminal without captured
 input, prompt confirmation or reoffer. No range history or member copy exists. [Orchestration v1](../../../../contracts/orchestration-v1.md)
-owns shapes, recurrence rules, state defaults and slice boundaries.
+owns shapes, recurrence rules, state defaults and slice boundaries. Stateless job calendars live in
+`tmt-job-calendar`, shared only by adapters and Ops; the Core domain does not import it.
+The leaf owns no store, identity, policy, dispatch or clock lifecycle.
 
 - Raw connections stay private; core sees narrow ports. Frozen fixtures keep their provenance in
   `typescript/test/fixtures/storage-history`.
@@ -54,6 +56,29 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
   nothing. Status is one atomic record per active UUID.
 - Hook subscriptions queue retirement notifications in the retiring transaction; a delivered
   subscription cannot be resurrected; no transaction spans remote work.
+
+## Canonical jobs and explicit clock
+
+`storage::orchestration::jobs` owns job definitions, stable legacy selectors and
+run receipts. Its writer revalidates current configuration, ownership, revision
+and proposed squad-ID allocation before canonical dispatch acceptance. Hook
+registration uses the proposed selector before apply; a stale preview allocates
+nothing. Request acceptance, held-slot settlement and wake spacing share the
+existing request transaction; no transaction spans an external wake. Exact import
+readback proves the source digest, counters and complete mapping before Ops
+publishes its redirect. A confirmed missing receipt resumes the same immutable
+source import; an uncertain read does not. Scheduled runs validate the stored
+calendar and five-minute observation bound, except for the exact held slot.
+Frozen source state is not a second live job store.
+
+Adapter `tick` owns the explicit finite/foreground process lifetime and kernel
+lease. All component children are joined before release, and one increasing
+minute gate covers jobs, Digest and capture. Optional user-unit file validation
+belongs to `tick::timer`; the CLI owns consent, while the user manager invokes
+finite ticks. A loaded manager label is not proof of matching unit configuration.
+Ops keeps idle alerts in its independent worker. The
+[orchestration contract](../../../../contracts/orchestration-v1.md#unified-clock-and-optional-user-timer)
+owns commands, limits, status and recovery behavior.
 
 ## Request service
 
@@ -505,8 +530,9 @@ admit Digest before granting new external input. Owner UUID and urgent bypass on
 this gate. A request already stored as queue-only remains pull-only. A provider owns
 turn/launch admission; talk/check and the UUID-pinned `digest.checklist.flush` API
 use fresh matching live idle evidence and the ordinary channel-first delivery owner.
-There is no Core Digest timer, detached worker,
-cadence or scheduler. Definite unsent settlement releases only the sealed members;
+Digest has no independent Core cadence or detached worker. The explicit unified
+clock offers opportunities through the existing Digest component; it does not
+replace checklist admission or settlement. Definite unsent settlement releases only the sealed members;
 claimed/uncertain effects never become replay leases. Canonical contracts:
 [Digest delivery](../../../../contracts/request-response-v1.md#digest-delivery-windows),
 [local API](../../../../contracts/extension-api.md#digest-policy-and-checklist).

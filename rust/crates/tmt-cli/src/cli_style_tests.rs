@@ -275,6 +275,7 @@ pub(crate) use hints::HintSpec;
 
 fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
     vec![
+        ("tick_command/timer.rs", crate::tick_command::TIMER_HINTS),
         (
             "native_upgrade_command/complete.rs",
             crate::native_upgrade_command::COMPLETE_HINTS,

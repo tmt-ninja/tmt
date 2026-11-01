@@ -148,7 +148,16 @@ fn main() -> ExitCode {
                 };
             }
             if matches.subcommand_name() == Some("tick") {
-                return match tick::execute() {
+                return match tick::execute(
+                    matches
+                        .subcommand_matches("tick")
+                        .and_then(|m| m.get_one::<String>("component-lease"))
+                        .map(String::as_str),
+                    matches
+                        .subcommand_matches("tick")
+                        .and_then(|m| m.get_one::<u64>("component-until-ms"))
+                        .copied(),
+                ) {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(error) => report_error(error),
                 };
