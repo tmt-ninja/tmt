@@ -544,6 +544,31 @@ impl Store {
             .map_err(failed)
     }
 
+    /// A pending path cutover may project old versions without publishing a
+    /// conversion, freezing the source, or entering the current Core authority.
+    pub fn read_before_cutover(&self, rooms: &[(String, String)]) -> Result<Jobs, Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(Jobs::default());
+        };
+        database
+            .inspect(&slot, |bytes| {
+                let Some(bytes) = bytes else {
+                    return Ok(Jobs::default());
+                };
+                let value: Value =
+                    serde_json::from_slice(bytes).map_err(|e| corrupt(e.to_string()))?;
+                if value["version"] == 1 {
+                    Jobs::from_document(&Jobs::migrate_v1(&value, rooms)?)
+                } else {
+                    decode(Some(bytes))
+                }
+            })
+            .map_err(failed)
+    }
+
     pub fn read(&self) -> Result<Jobs, Error> {
         let slot = self.slot();
         let Some(mut database) =

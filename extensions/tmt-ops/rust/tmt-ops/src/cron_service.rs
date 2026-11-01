@@ -387,12 +387,68 @@ fn migration_warning(core: &Core, store: &Store) -> Result<Option<SquadError>, S
     }
 }
 
+/// Deferred path migration keeps the old authority readable, without retirement
+/// writes, ownership pauses or Core import. Frozen/adopted sources never fall back.
+fn deferred_jobs(
+    core: &Core,
+    scope: Option<&str>,
+    count: usize,
+    now_ms: i64,
+) -> Result<Option<Vec<JobView>>, SquadError> {
+    if !crate::migration::paths(core, None)?.legacy {
+        return Ok(None);
+    }
+    let _guard = crate::migration::state_guard(core)?;
+    let store = Store::new(&root(core)?)?;
+    if store.frozen_for_core()?.is_some() {
+        return Ok(None);
+    }
+    let squads = if let Some(name) = scope {
+        vec![Squad::resolve(core, Some(name))?]
+    } else {
+        Squad::list(core)?
+    };
+    let source = store.read_before_cutover(&migration_rooms(core)?)?;
+    let mut views = Vec::new();
+    for squad in squads {
+        let roster = squad.roster(core)?;
+        for job in source
+            .jobs()
+            .iter()
+            .filter(|job| job.room_id == squad.room_id)
+        {
+            let name = job
+                .owner_id
+                .as_deref()
+                .map(|id| owners::observe(core, &roster, id))
+                .transpose()?
+                .flatten();
+            let missing = name.is_none();
+            views.push(project_with_owner(
+                job.clone(),
+                squad.name.clone(),
+                name,
+                missing,
+                if missing { 0 } else { count },
+                now_ms,
+            )?);
+        }
+    }
+    Ok(Some(views))
+}
+
 pub fn list_jobs(
     core: &Core,
     config: &Config,
     scope: Option<&str>,
     now_ms: i64,
 ) -> Result<List, SquadError> {
+    if let Some(jobs) = deferred_jobs(core, scope, 1, now_ms)? {
+        return Ok(List {
+            jobs,
+            warnings: vec![],
+        });
+    }
     ready(core)?;
     let mut warnings = drain_retired(core, config, now_ms)?;
     let squads = if let Some(name) = scope {
@@ -414,6 +470,17 @@ pub fn show_job(
     key: &JobKey,
     now_ms: i64,
 ) -> Result<JobView, SquadError> {
+    if let Some(jobs) = deferred_jobs(core, None, 3, now_ms)? {
+        return jobs
+            .into_iter()
+            .find(|view| view.job.room_id == key.room_id && view.job.id() == key.id)
+            .ok_or_else(|| {
+                failure(
+                    "SQUAD_CRON_NOT_FOUND",
+                    "The job does not exist in this squad room.",
+                )
+            });
+    }
     ready(core)?;
     let warnings = drain_retired(core, config, now_ms)?;
     let squad = room(core, &key.room_id)?;

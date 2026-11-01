@@ -419,6 +419,8 @@ owns current definitions, admission, run evidence and the shared clock; Ops is a
   owns the stable kernel lock, advisory holder, sub-minute slots, one-minute Digest/capture
   composition and rollback gate. Ops neither renews that lock nor preempts another owner.
   Public `tick.status` supplies the unchanged Running/NoClock/Unknown board projection.
+  During deferred path migration, list/show project the unfrozen legacy source without
+  conversion, owner-pause writes or Core import; frozen/adopted sources never fall back.
 - **Idle alerts.** The cancellable Ops worker runs `idle_alert::Watch` independently of
   Core clock competition and without lease-renew callbacks. Its config, readiness rule and
   deterministic episode IDs are unchanged. A timer-only Core clock runs no Ops idle alerts.

@@ -95,6 +95,25 @@ function replaceStoredDocument(
   }
 }
 
+type CanonicalJob = {
+  jobId: string;
+  revision: number;
+  manualPause: unknown;
+  definition: { message: string; [key: string]: unknown };
+};
+async function canonicalJobs(
+  sandbox: Sandbox
+): Promise<Pick<CanonicalJob, 'jobId' | 'revision' | 'manualPause'>[]> {
+  return parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'ls', '--json'])).jobs as Pick<
+    CanonicalJob,
+    'jobId' | 'revision' | 'manualPause'
+  >[];
+}
+async function canonicalJob(sandbox: Sandbox, jobId: string): Promise<CanonicalJob> {
+  return parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'show', jobId, '--json']))
+    .job as CanonicalJob;
+}
+
 async function squad(sandbox: Sandbox, args: string[]) {
   const result = await runCli(sandbox, ['ops', 'squad', ...args, '--json']);
   return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
@@ -3519,9 +3538,10 @@ sys.exit(subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=b
           ])
         ).status
       ).toBe(0);
-      const worker = parseWholeStdout(
-        await runCli(sandbox, ['identity', 'show', 'worker', '--json'])
-      ).identity.id as string;
+      const worker = (
+        parseWholeStdout(await runCli(sandbox, ['identity', 'show', 'worker', '--json']))
+          .identity as { id: string }
+      ).id;
       const jobBytes = legacyCronSource(room.id, worker, 'kept reminder');
       const checklistBytes = storedDocument(database, 'checklist', room.id);
 
@@ -3628,12 +3648,9 @@ describe('Squad cron clock', () => {
         message,
       ]);
       expect(added.status, JSON.stringify(added.body)).toBe(0);
-      const publicJobs = parseWholeStdout(
-        await runCli(sandbox, ['orch', 'job', 'ls', '--json'])
-      ).jobs;
+      const publicJobs = await canonicalJobs(sandbox);
       expect(publicJobs).toHaveLength(1);
-      const jobArgs = ['orch', 'job', 'show', publicJobs[0].jobId as string, '--json'];
-      const before = parseWholeStdout(await runCli(sandbox, jobArgs)).job;
+      const before = await canonicalJob(sandbox, publicJobs[0].jobId);
       const denied = await squad(sandbox, [
         'cron',
         'send',
@@ -3651,7 +3668,7 @@ describe('Squad cron clock', () => {
       expect(first.status, JSON.stringify(first.body)).toBe(0);
       expect(second.status, JSON.stringify(second.body)).toBe(0);
       expect(first.body.dispatch.operationId).not.toBe(second.body.dispatch.operationId);
-      const after = parseWholeStdout(await runCli(sandbox, jobArgs)).job;
+      const after = await canonicalJob(sandbox, publicJobs[0].jobId);
       expect(after.definition).toEqual(before.definition);
       expect(after.revision).toBe(before.revision);
       expect(after.manualPause).toEqual(before.manualPause);
@@ -3789,9 +3806,7 @@ describe('WP2 squad workspace services', () => {
         ownerMissing: true,
         stateLabel: 'paused · owner missing',
       });
-      expect(
-        parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'ls', '--json'])).jobs[0].manualPause
-      ).toEqual(missing.pause);
+      expect((await canonicalJobs(sandbox))[0].manualPause).toEqual(missing.pause);
       expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
       expect((await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job).toMatchObject({
         state: 'paused',
@@ -3872,16 +3887,7 @@ describe('Squad cron management', () => {
         })
       ).dataRoot as string;
       expect(
-        parseWholeStdout(
-          await runCli(sandbox, [
-            'orch',
-            'job',
-            'show',
-            parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'ls', '--json'])).jobs[0]
-              .jobId as string,
-            '--json',
-          ])
-        ).job.definition.message
+        (await canonicalJob(sandbox, (await canonicalJobs(sandbox))[0].jobId)).definition.message
       ).toBe(message);
       expect(statSync(opsDatabase(root)).mode & 0o777).toBe(0o600);
       const config = path.join(sandbox.globalDir, 'ops.toml');
@@ -5061,7 +5067,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
         })
       );
       const pending = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
-      expect(pending.status).toBe(0);
+      expect(pending.status, JSON.stringify(pending.body)).toBe(0);
       expect(pending.body.jobs).toHaveLength(1);
       expect(pending.body.jobs[0]).toMatchObject({
         id: 'c1',
@@ -5108,7 +5114,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(retained.body.current.items).toMatchObject([
         { id: item, title: 'Retained checklist', revision: 1 },
       ]);
-      const jobs = parseWholeStdout(await runCli(sandbox, ['orch', 'job', 'ls', '--json'])).jobs;
+      const jobs = await canonicalJobs(sandbox);
       expect(jobs).toHaveLength(1);
       const run = parseWholeStdout(
         await runCli(sandbox, ['api'], {
