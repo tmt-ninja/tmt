@@ -200,12 +200,13 @@ const RAIL: readonly { id: string; label: string; icon: ShellIcon; path: string 
   { id: 'remote', label: 'Remote', icon: 'monitor-smartphone', path: '/remote/' },
   { id: 'ops', label: 'Ops', icon: 'users', path: '/ops/' },
   { id: 'digest', label: 'Digest', icon: 'chart-column', path: '/digest/' },
+  { id: 'design', label: 'Design', icon: 'palette', path: '/colab/design/' },
 ];
 /** Served by the TMT host itself, so always reachable from the rail. */
 const HOST_SERVED = new Set(['remote', 'ops', 'digest']);
 
 /**
- * Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+ * Home, the fixed modules (Colab, Remote, Ops, Digest, Design), any other described module in Remote's
  * order, then TMT settings at the bottom. Colab is available
  * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
  * The current item is the host's module, else the longest matching path.
@@ -226,6 +227,16 @@ export function shellRail(
     : 'Pair this browser with Remote to open it';
   const modules = [
     ...RAIL.map((fixed) => {
+      // Design is hosted by Colab, with its own destination and no duplicate attention count.
+      if (fixed.id === 'design')
+        return {
+          id: fixed.id,
+          label: fixed.label,
+          icon: fixed.icon,
+          href: `${place.origin}${fixed.path}`,
+          needsYou: undefined,
+          available: described.has('colab') || hosted('colab'),
+        };
       const module = described.get(fixed.id);
       return {
         id: fixed.id,
@@ -250,11 +261,11 @@ export function shellRail(
         available: true,
       })),
   ];
-  const matched =
-    active ??
-    modules
-      .filter((module) => module.available && place.href.startsWith(module.href))
-      .sort((a, b) => b.href.length - a.href.length)[0]?.id;
+  const longest = modules
+    .filter((module) => module.available && place.href.startsWith(module.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.id;
+  // The Colab host also owns Design; its more specific destination wins within that host.
+  const matched = longest === 'design' ? longest : (active ?? longest);
   const counts = [...described.values()].map((module) => module.needsYou);
   const total =
     answer && counts.every((count) => count !== undefined)

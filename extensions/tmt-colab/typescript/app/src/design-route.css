@@ -1,0 +1,22 @@
+.design-header-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-3);
+}
+.design-header-title select {
+  max-width: 45vw;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-2);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+}
+.design-header-title select:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.design-workspace {
+  height: calc(100dvh - var(--tmt-ui-header-height) - var(--tmt-ui-shell-lead, 0px));
+  min-width: 0;
+}
