@@ -302,8 +302,8 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     }
     Ok(())
 }
-/// Origin-form target: only the transport session query, a discarded legacy `/pair` query or the
-/// plain query of an owner's short page link (`/p/<id>?key=value`). Paths have no fragments,
+/// Origin-form target: transport handoff, discarded legacy `/pair` query or opaque app/short-link
+/// query values. Paths have no fragments,
 /// escapes, dot segments or empty inner segments; only the last segment may be empty (a directory
 /// such as `<prefix>/x/colab/`). Isolation between the operation routes and the mount
 /// space relies on it.
@@ -312,23 +312,13 @@ fn target(path: &str) -> bool {
     if let Some(query) = path.strip_prefix("/pair?") {
         return query.bytes().all(|b| b.is_ascii_graphic() && b != b'#');
     }
-    // A short page link keeps its query in the redirect to the app, and the app writes its own
-    // keys (`?open=`, `?read=`, `?anchor=`) onto its routes, so either query is plain name=value
-    // text: no escapes, separators of other grammars or anything but unreserved bytes.
+    // Route only on the path; values remain opaque bytes for the app or 308 Location.
     let path = match path.split_once('?') {
-        Some((short, query))
-            if (short.starts_with("/p/") || crate::pages::app_route(short))
-                && !query.is_empty()
-                // A session hand-off has its own grammar below; it never rides on an app query.
-                && !query
-                    .split('&')
-                    .any(|pair| pair.split('=').next() == Some("tmt-session"))
-                && query.bytes().all(|b| {
-                    b.is_ascii_alphanumeric()
-                        || matches!(b, b'-' | b'_' | b'.' | b'~' | b'=' | b'&')
-                }) =>
-        {
-            short
+        Some((route, query)) if route.starts_with("/p/") || crate::pages::app_route(route) => {
+            if !app_query(query) {
+                return false;
+            }
+            route
         }
         _ => path,
     };
@@ -353,6 +343,34 @@ fn target(path: &str) -> bool {
             .enumerate()
             .all(|(i, s)| (!s.is_empty() || i + 1 == segments.len()) && *s != "." && *s != "..")
 }
+/// Pair separators and keys stay literal; percent escapes are admitted only as value bytes.
+fn app_query(query: &str) -> bool {
+    let unreserved =
+        |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~');
+    !query.is_empty()
+        && query.split('&').all(|pair| {
+            let Some((key, value)) = pair.split_once('=') else {
+                return false;
+            };
+            if key.is_empty() || key == "tmt-session" || !key.bytes().all(unreserved) {
+                return false;
+            }
+            let mut bytes = value.bytes();
+            while let Some(byte) = bytes.next() {
+                if byte == b'%' {
+                    if !bytes.next().is_some_and(|b| b.is_ascii_hexdigit())
+                        || !bytes.next().is_some_and(|b| b.is_ascii_hexdigit())
+                    {
+                        return false;
+                    }
+                } else if !unreserved(byte) {
+                    return false;
+                }
+            }
+            true
+        })
+}
+
 /// One request only; no pipelining, forwarded authority or HTTP transfer encoding.
 fn acquire(
     socket: &mut TcpStream,

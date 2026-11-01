@@ -34,7 +34,7 @@ fn target_grammar_isolates_prefixes() {
         "/p/abcd1234",
         "/p/abcd1234?open=1",
         "/p/abcd1234?a=b&c=d-e_f.g~h",
-        // The app's routes carry the same plain query (the app's own keys, a redirected short link).
+        // App routes carry opaque query values from the app or a redirected short link.
         "/colab/p/abcd1234?a=b",
         "/colab/pages/abcd?read=x&anchor=a-1",
         "/settings?a=b",
@@ -54,9 +54,8 @@ fn target_grammar_isolates_prefixes() {
         "/x/colab//a",
         "/x/colab/a#b",
         "/x\\colab",
-        // The short link's and app routes' query is plain text; every other route stays query-free.
+        // App/short-link queries have a bounded byte grammar; other routes stay query-free.
         "/p/abcd1234?",
-        "/p/abcd1234?a=%2e",
         "/p/abcd1234?a=b#c",
         "/p/abcd1234?a=b c",
         "/p/abcd1234?a=/../x",
@@ -64,13 +63,70 @@ fn target_grammar_isolates_prefixes() {
         "/p/abcd1234?tmt-session=x",
         "/p/../r/ab/append?a=b",
         "/p//abcd?a=b",
-        "/colab/pages/abcd?read=%2e",
         "/colab/pages/abcd?read=x&tmt-session=y",
         "/home?a=b",
         "/x/colab/?read=a",
         "/r/ab/x/colab/pages/abcd?open=a",
     ] {
         assert!(!target(invalid), "{invalid}");
+    }
+}
+
+#[test]
+fn app_query_values_are_opaque_escapes_and_keys_stay_plain() {
+    for route in [
+        "/",
+        "/settings",
+        "/remote/",
+        "/colab/",
+        "/colab/p/abcd",
+        "/p/abcd",
+    ] {
+        for query in [
+            "project=%5B%22blog%22%5D",
+            "project=%E6%96%87&shortcut=a-1",
+            "read=%2f%2F%23%25%3D%26",
+            "a=%2e",
+            "a=%20",
+            "a=%26tmt-session%3Dopaque",
+            "a=",
+        ] {
+            let path = format!("{route}?{query}");
+            assert!(target(&path), "{path}");
+        }
+        for query in [
+            "a=%G1",
+            "a=%4",
+            "a=%",
+            "a=x%",
+            "a=%1G",
+            "tmt%2Dsession=x",
+            "%61=b",
+            "tmt-session=x",
+            "tmt-session=11111111-1111-4111-8111-111111111111",
+            "a=b&tmt-session=x",
+            "a=b=c",
+            "a",
+            "a=b&",
+            "a=b&&c=d",
+            "a=/x",
+            "a=b#c",
+        ] {
+            let path = format!("{route}?{query}");
+            assert!(!target(&path), "{path}");
+        }
+    }
+    // Transport handoff keeps its own exact UUID grammar, outside app queries.
+    assert!(target(
+        "/r/ab/append?tmt-session=11111111-1111-4111-8111-111111111111"
+    ));
+    for path in [
+        "/colab/a%2Fb",
+        "/p/a%2Fb?x=y",
+        "/r/ab/append?a=%20",
+        "/x/colab/?a=%20",
+    ] {
+        assert!(!target(path), "{path}");
     }
 }
 
