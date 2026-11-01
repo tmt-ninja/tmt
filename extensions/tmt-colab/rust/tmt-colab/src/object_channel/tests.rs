@@ -26,7 +26,7 @@ fn pair() -> (ObjectChannel, Bus) {
 }
 pub(crate) fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
     let mut accepted = None;
-    let mut connect = || {
+    let connect = || {
         let (remote, extension) = UnixStream::pair().unwrap();
         let interrupt = extension.try_clone().unwrap();
         assert!(
@@ -56,8 +56,7 @@ pub(crate) fn pair_version(sync: bool) -> (ObjectChannel, Bus) {
         ))
     };
     let link = if sync {
-        let (stream, offer) = connect().unwrap();
-        tmt_extension_objects::negotiate_sync(stream, &offer, limit()).unwrap()
+        tmt_extension_objects::negotiate_sync(limit(), connect).unwrap()
     } else {
         negotiate(limit(), connect).unwrap()
     };

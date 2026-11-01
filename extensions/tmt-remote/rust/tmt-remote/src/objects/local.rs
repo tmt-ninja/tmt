@@ -11,8 +11,9 @@
 //! never held together, and neither is held across file I/O.
 use super::{
     BackendCaps, BackendError, BackendResult, BeginResult, BeginSpec, BlobKey, Clock, Digest,
-    ExtensionId, IntentId, IoBudget, NamespaceId, ObjectBackend, OriginalIntent, Progress, Quotas,
-    ReadPart, Receipt, Transfer, TransferState, Usage, UsageScope,
+    ExtensionId, IntentId, IoBudget, ListedObject, NamespaceId, ObjectBackend, OpaqueKey,
+    OriginalIntent, Progress, Quotas, ReadPart, Receipt, Transfer, TransferState, Usage,
+    UsageScope,
     ledger::{Adoption, Gate, Ledger, Phase, Row},
     tree::{self, Dir, TreeError, hex},
 };
@@ -50,6 +51,10 @@ pub(crate) enum Milestone {
     Fenced,
     RemovalMarked,
     RemovalUnlinked,
+    /// One committed original is durably `removing`; its files are next.
+    ObjectMarked,
+    /// Its payload names are gone and synced; the release is next.
+    ObjectUnlinked,
     ReadBytes,
     /// Every successful return, just before its final budget check.
     Return,
@@ -246,6 +251,15 @@ impl LocalObjectReader {
     ) -> BackendResult<ReadPart> {
         self.handle().read(key, offset, count, io)
     }
+    pub(crate) fn list(
+        &self,
+        namespace: NamespaceId,
+        after: Option<OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<ListedObject>> {
+        self.handle().list(namespace, after, limit, io)
+    }
 }
 
 /// Mutating worker view of the one coordinator. Its owning ObjectService must
@@ -290,6 +304,16 @@ impl LocalObjectWriter {
         io: &IoBudget<'_>,
     ) -> BackendResult<()> {
         self.handle().remove_namespace(namespace, io)
+    }
+    pub(crate) fn remove_object(
+        &self,
+        key: BlobKey,
+        payload_sha256: Digest,
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.handle()
+            .remove_object(key, payload_sha256, payload_bytes, io)
     }
 }
 
@@ -1050,6 +1074,80 @@ impl Inner {
         self.ledger.removal_confirmed(extension, namespace, io)
     }
 
+    /// Remove one committed original's payload: mark it `removing`, unlink its names,
+    /// then release. The namespace hold makes a namespace removal wait for this one,
+    /// and the intent hold excludes every other operation on the same original.
+    fn remove_object(
+        &self,
+        extension: &str,
+        key: BlobKey,
+        payload_sha256: Digest,
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        io.check()?;
+        let Some(live) = self.ledger.live_at(extension, &key, io)? else {
+            return Ok(());
+        };
+        let _hold = self
+            .flight
+            .hold(extension, &key.namespace, Some(&live.spec.intent), io)?;
+        io.check()?;
+        let Some(row) =
+            self.ledger
+                .object_remove_adopt(extension, &key, &payload_sha256, payload_bytes, io)?
+        else {
+            return Ok(());
+        };
+        self.milestone(Milestone::ObjectMarked)?;
+        self.finish_object_removal(extension, &row, io)
+    }
+    /// Unlink exactly the names a `removing` original may still have, sync, then
+    /// release its charge. Repeating it after a crash finds the names already gone.
+    fn finish_object_removal(
+        &self,
+        extension: &str,
+        row: &Row,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        if let Some(tree) = self.tree(extension, false)? {
+            if let Some(staging) = tree.staging(false)? {
+                staging.unlink(&hex(&row.spec.intent.0)).map_err(fs)?;
+                staging.sync().map_err(fs)?;
+            }
+            if let Some(directory) = tree.namespace(&row.spec.key.namespace, false)? {
+                directory.unlink(&hex(&row.spec.key.object.0)).map_err(fs)?;
+                directory.sync().map_err(fs)?;
+            }
+        }
+        self.milestone(Milestone::ObjectUnlinked)?;
+        io.check()?;
+        self.ledger.object_removed(extension, &row.spec.intent, io)
+    }
+    fn list(
+        &self,
+        extension: &str,
+        namespace: NamespaceId,
+        after: Option<OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<ListedObject>> {
+        io.check()?;
+        let rows = self
+            .ledger
+            .committed_after(extension, &namespace, after.as_ref(), limit, io)?;
+        io.check()?;
+        Ok(rows
+            .iter()
+            .map(|row| ListedObject {
+                key: row.spec.key.object,
+                payload_sha256: row.spec.payload_sha256,
+                payload_bytes: row.spec.payload_bytes,
+                adopted_at_ms: row.adopted_ms,
+            })
+            .collect())
+    }
+
     /// One interrupted original, settled by its original ID.
     fn settle(&self, listed: &Row, io: &IoBudget<'_>) -> BackendResult<()> {
         let extension = listed.extension.as_str();
@@ -1089,7 +1187,15 @@ impl Inner {
                 self.ledger.unstage(extension, &intent, io)
             }
             Phase::Discarding | Phase::Expiring => self.close(extension, &row, io),
-            // A fenced namespace's removal owns these.
+            // An interrupted per-object removal in an open namespace finishes here; a
+            // fenced namespace's removal owns its own rows.
+            Phase::Removing
+                if self
+                    .ledger
+                    .namespace_open(extension, &row.spec.key.namespace, io)? =>
+            {
+                self.finish_object_removal(extension, &row, io)
+            }
             _ => Ok(()),
         }
     }
@@ -1205,6 +1311,34 @@ impl ObjectBackend for LocalHandle<'_> {
         let result = self
             .inner
             .remove_namespace(self.extension.as_str(), namespace, io);
+        self.inner.finish(io, result)
+    }
+    fn remove_object(
+        &self,
+        key: BlobKey,
+        payload_sha256: Digest,
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        let result = self.inner.remove_object(
+            self.extension.as_str(),
+            key,
+            payload_sha256,
+            payload_bytes,
+            io,
+        );
+        self.inner.finish(io, result)
+    }
+    fn list(
+        &self,
+        namespace: NamespaceId,
+        after: Option<OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<ListedObject>> {
+        let result = self
+            .inner
+            .list(self.extension.as_str(), namespace, after, limit, io);
         self.inner.finish(io, result)
     }
 }

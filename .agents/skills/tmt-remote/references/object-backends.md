@@ -60,8 +60,9 @@ late candidates and wakes queued demands. Serve joins the setup worker before ex
 ObjectService shutdown and before releasing the lease; early paths retain Drop cleanup.
 
 The [native sealed-document carrier](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier)
-adds explicit internal activation to this setup owner and v3 bus; ordinary Local negotiation
-is unchanged. `register_native` injects `sync::Registration`; [serve's native owner](door-and-discovery.md#native-firestore-sign-in-and-transport)
+adds explicit internal activation to this setup owner and v3 bus (v4 when the extension accepts
+it, adding object removal and listing; one fresh v3 offer after its typed refusal); ordinary
+Local negotiation is unchanged. `register_native` injects `sync::Registration`; [serve's native owner](door-and-discovery.md#native-firestore-sign-in-and-transport)
 supplies the production factory and project lifecycle. A failed native candidate preserves the
 previous bus, and LocalFs still opens fail-closed. Missing factory/input is typed unavailable.
 
@@ -103,7 +104,9 @@ then effect admission immediately before invoking the mutation, then disclose ad
 `namespace.rs` owns local-extension-only namespace removal and namespace/extension usage; mounted callers are denied
 before callbacks. Removal reuses the committed ledger fence and drain, with acquire/effect/disclose admission and
 post-invocation uncertainty. Usage returns the existing conservative ledger projection after acquire/disclose admission;
-cleanup-pending bytes remain charged, and deleted originals remain retained. `original.rs` derives the shared original identity. Later upload callbacks carry only the scoped original's frozen
+cleanup-pending bytes remain charged, and deleted originals remain retained. On a version-4 link it also owns per-object
+removal (acquire/effect/disclose, `unknown` after invocation) and listing (acquire/disclose; one extra row is read to
+know whether `next` is set). `original.rs` derives the shared original identity. Later upload callbacks carry only the scoped original's frozen
 namespace, key, policy, digest and length (parts add index/length, never bytes). Staging work clips its budget to that
 original's stored expiry, without renewal. Invalid, conflict and capacity errors retain their wire class; no error
 proves unchanged storage. Invoked missing, unavailable, cancellation or deadline maps to unknown, without retry,
@@ -162,7 +165,10 @@ admits it is #1852's.
 - **Incomplete objects are never readable**; `stat` and `read` match committed originals
   in an open namespace only.
 - **Terminal originals** (expired, discarded, deleted) can never become executable
-  again. A key is reusable by a different original only after confirmed cleanup, with no
+  again. `remove_object` deletes one committed original of an open namespace, pinned by its
+  raw digest and length; staging, committing, unknown or a different body conflict, and an
+  absent, terminal or fenced key is a no-op success. `list` observes committed originals of
+  an open namespace only, in ascending key order. A key is reusable by a different original only after confirmed cleanup, with no
   uncertain publication and in an unfenced namespace.
 
 ## Order of effects (LocalFs)
@@ -184,7 +190,13 @@ admits it is #1852's.
 5. `remove_namespace`: commit the fence, drain in-flight holders, mark rows `removing`,
    unlink exactly the files the ledger names, remove the directory, sync, then release
    charges in small batches. A foreign entry keeps the namespace charged and unsettled.
-6. `LocalFs::open` settles every interrupted original by its original ID before
+6. `remove_object`: hold the original's intent (and its namespace, so a namespace removal
+   drains it), mark the row `removing` in one transaction (still charged), unlink its staging
+   and final names, sync both directories, then release payload and entry in one transaction
+   (`deleted`). An open namespace may therefore hold `removing` and `deleted` rows; readiness
+   finishes an interrupted one by its original ID. A reader that raced it re-checks the row
+   and discloses nothing.
+7. `LocalFs::open` settles every interrupted original by its original ID before
    readiness. A timeout or cancellation after a durable effect leaves effect, charge and
    state and suppresses the acknowledgment; there is no retry, detached job or timer.
 
@@ -197,7 +209,8 @@ reader re-checks it after reading and before returning bytes.
 Usage is conservative allocation charge, not “bytes stored”; consumers must preserve that distinction.
 Recomputed from rows, never cached. Per scope: payload (rounded up to 4 KiB until its
 removal is confirmed) + `OBJECT_RECORD_BYTES` per retained original + `OBJECT_FENCE_BYTES`
-per namespace (its directory block, entry and fence row). Extension and installation scopes
+per namespace (its directory block, entry and fence row). A removed object keeps its record
+charge: only its payload and entry are released. Extension and installation scopes
 also count `OBJECT_TREE_BASE_BYTES` once per extension that has any namespace (its fixed
 directories), and the installation adds `OBJECT_LEDGER_BASE_BYTES`, which covers the empty
 ledger and the largest rollback journal. The two staging/final hard links share one payload

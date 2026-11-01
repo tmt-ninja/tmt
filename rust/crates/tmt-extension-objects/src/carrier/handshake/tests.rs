@@ -93,7 +93,7 @@ fn the_acceptor_replies_exactly_once_to_the_canonical_request() {
 #[test]
 fn a_version_three_offer_selects_three_once_and_legacy_replies_stay_identical() {
     for entry in ENTRIES {
-        for version in [1, 2, 3] {
+        for version in [1, 2, 3, 4] {
             let offered = mutate(
                 &request(),
                 "tmt-object-channel: 1\r\n",
@@ -105,11 +105,11 @@ fn a_version_three_offer_selects_three_once_and_legacy_replies_stay_identical() 
             });
             assert_eq!(link.generation(), generation(GEN), "{entry:?}");
             assert_eq!(link.version, version, "{entry:?}");
-            let expected = if version == 3 {
+            let expected = if version >= 3 {
                 mutate(
                     &reply(),
                     "tmt-object-generation:",
-                    "tmt-object-channel: 3\r\ntmt-object-generation:",
+                    &format!("tmt-object-channel: {version}\r\ntmt-object-generation:"),
                 )
             } else {
                 reply()
@@ -614,7 +614,7 @@ fn a_valid_unsupported_version_gets_a_typed_refusal_not_a_legacy_retry() {
         let offered = mutate(
             &request(),
             "tmt-object-channel: 1\r\n",
-            "tmt-object-channel: 4\r\n",
+            "tmt-object-channel: 5\r\n",
         );
         let (result, bytes) = offered_by(entry, offered.as_bytes());
         assert_eq!(
@@ -628,4 +628,134 @@ fn a_valid_unsupported_version_gets_a_typed_refusal_not_a_legacy_retry() {
             )
         );
     }
+}
+
+/// One scripted extension per attempt: read the offer, record its version, then answer
+/// with `reply(version, generation)`.
+type Offered = std::sync::Arc<std::sync::Mutex<Vec<u8>>>;
+/// One scripted extension per attempt: read the offer, record its version, then answer
+/// with `answer(version, generation)`. The streams are handed out in order.
+struct Attempts {
+    ends: Vec<UnixStream>,
+    offered: Offered,
+    peers: Vec<thread::JoinHandle<()>>,
+}
+fn scripted_attempts(replies: Vec<fn(u8, &str) -> String>) -> Attempts {
+    let offered = Offered::default();
+    let mut peers = Vec::new();
+    let mut ends = Vec::new();
+    for answer in replies {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let seen = std::sync::Arc::clone(&offered);
+        peers.push(thread::spawn(move || {
+            let mut head = Vec::new();
+            let mut byte = [0];
+            while !head.ends_with(b"\r\n\r\n") && server.read_exact(&mut byte).is_ok() {
+                head.push(byte[0]);
+            }
+            let head = String::from_utf8(head).unwrap();
+            // An attempt that is never opened sees no head and answers nothing.
+            let Some(version) = head
+                .lines()
+                .find_map(|line| line.strip_prefix("tmt-object-channel: "))
+                .and_then(|text| text.parse().ok())
+            else {
+                return;
+            };
+            seen.lock().unwrap().push(version);
+            let _ = server.write_all(answer(version, GEN).as_bytes());
+        }));
+        ends.push(client);
+    }
+    ends.reverse();
+    Attempts {
+        ends,
+        offered,
+        peers,
+    }
+}
+impl Attempts {
+    fn negotiate(&mut self) -> Result<Link, Fault> {
+        let ends = &mut self.ends;
+        let result = negotiate_sync(setup(), || Ok((ends.pop().ok_or(Fault::Closed)?, offer())));
+        // Unopened attempts end, so every scripted peer finishes.
+        self.ends.clear();
+        result
+    }
+    fn finish(self) -> Vec<u8> {
+        self.peers.into_iter().for_each(|peer| peer.join().unwrap());
+        self.offered.lock().unwrap().clone()
+    }
+}
+fn refuse_new_versions(_: u8, generation: &str) -> String {
+    format!(
+        "HTTP/1.1 426 Upgrade Required\r\ntmt-object-channel-error: unsupported-version\r\ntmt-object-generation: {generation}\r\nContent-Length: 0\r\n\r\n"
+    )
+}
+fn select_offered(version: u8, generation: &str) -> String {
+    format!(
+        "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: tmt-object-channel-v1\r\ntmt-object-channel: {version}\r\ntmt-object-generation: {generation}\r\n\r\n"
+    )
+}
+fn select_three(_: u8, generation: &str) -> String {
+    select_offered(3, generation)
+}
+fn select_four(_: u8, generation: &str) -> String {
+    select_offered(4, generation)
+}
+fn bad_status(_: u8, _: &str) -> String {
+    "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".into()
+}
+
+#[test]
+fn native_negotiation_offers_four_and_selects_it_once() {
+    let mut attempts = scripted_attempts(vec![select_offered]);
+    let link = attempts.negotiate().unwrap();
+    assert_eq!(link.version(), 4);
+    assert!(link.supports(crate::Method::Remove) && link.supports(crate::Method::List));
+    assert_eq!(attempts.finish(), vec![4]);
+}
+
+#[test]
+fn an_extension_before_version_four_gets_one_fresh_version_three_offer() {
+    let mut attempts = scripted_attempts(vec![refuse_new_versions, select_offered]);
+    let link = attempts.negotiate().unwrap();
+    assert_eq!(link.version(), 3);
+    assert!(!link.supports(crate::Method::Remove) && !link.supports(crate::Method::List));
+    assert!(link.supports(crate::Method::Usage));
+    assert_eq!(attempts.finish(), vec![4, 3]);
+}
+
+#[test]
+fn an_extension_may_select_three_for_a_four_offer_but_never_more_than_offered() {
+    let mut attempts = scripted_attempts(vec![select_three]);
+    assert_eq!(attempts.negotiate().unwrap().version(), 3);
+    assert_eq!(attempts.finish(), vec![4]);
+    // A version-3 offer answered with 4 is refused, not upgraded.
+    let (client, mut server) = UnixStream::pair().unwrap();
+    let peer = thread::spawn(move || {
+        let mut head = Vec::new();
+        let mut byte = [0];
+        while !head.ends_with(b"\r\n\r\n") && server.read_exact(&mut byte).is_ok() {
+            head.push(byte[0]);
+        }
+        let _ = server.write_all(select_four(3, GEN).as_bytes());
+    });
+    let result = initiate_version(client, &offer(), setup(), 3).map_err(|(fault, _)| fault);
+    assert_eq!(
+        result.err(),
+        Some(refused(Refusal::BadValue("tmt-object-channel")))
+    );
+    peer.join().unwrap();
+}
+
+#[test]
+fn any_other_refusal_of_a_four_offer_never_re_offers() {
+    let mut attempts = scripted_attempts(vec![bad_status, select_offered]);
+    let fault = attempts.negotiate().err().unwrap();
+    assert!(
+        matches!(fault, Fault::Handshake(refusal) if refusal != Refusal::UnsupportedVersion),
+        "{fault:?}"
+    );
+    assert_eq!(attempts.finish(), vec![4]);
 }

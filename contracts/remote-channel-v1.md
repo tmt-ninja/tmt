@@ -2460,18 +2460,35 @@ Version 1 supports exactly the seven calls above, with unchanged bytes. Version 
 | `objects.remove-namespace` | `namespace`                                           |
 | `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace` |
 
-Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
-Callers check the negotiated link's support before either call; an unsupported call is never written on version 1. A version-1
+Version 4 (native activation only, below) also supports:
+
+| Method           | Input members                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `objects.remove` | `namespace`, `opaqueKey`, `payloadSha256`, `payloadBytes`                                 |
+| `objects.list`   | `namespace`, optional `after` (an `opaqueKey`), `limit` (1 to 256)                        |
+
+These four calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
+Callers check the negotiated link's support before any of them; an unsupported call is never written on an older version. A link without the call
 link reports: "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still
 fails, upgrade Remote." Support comes only from the negotiated link, never an installed receipt or CLI.
 Removal is idempotent for unknown or already removed namespaces. It commits the existing namespace fence, drains
 in-flight work and retains deleted original identities; a loss after invocation is `unknown`, without replay or rollback.
 Usage is the existing ledger projection for the selected namespace or this extension, never the installation; its charge is rounded payload plus retained records and fences, plus the fixed tree base once if any namespace exists
 for extension scope, not “bytes stored”; cleanup-pending bytes stay charged until removal is confirmed.
+`objects.remove` removes the payload of the one committed original at that key whose raw digest and length are exactly
+these; a key alone never names another body. It marks the original removing, unlinks its names, then releases its
+payload and entry charge before `removed` is disclosed; the original stays as a retained tombstone (its record charge
+remains) and its identity is never executable again. It is idempotent: an absent, already removed or terminal key, and a
+namespace that is fenced or removed (whose own removal owns its rows), answer `removed`. A staging, committing or
+unknown original, or a different digest or length, is `conflict` and changes nothing. A loss after invocation is
+`unknown`; an interrupted removal is finished by its original ID before readiness, never replayed by the caller.
+`objects.list` observes at most `limit` committed originals of an open namespace in ascending key order, strictly after
+`after`; staging, unknown and terminal originals are never listed, and a fenced or unknown namespace lists nothing. It
+grants no read: a listed key is the extension's own to interpret, and reads still need their own admitted request.
 
 **Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
 has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
-`part`, `commit`, `status` and `discard`, and is absent for `config`, `read`, `remove-namespace` and `usage`. `ok` carries a `result` tag:
+`part`, `commit`, `status` and `discard`, and is absent for `config`, `read`, `remove-namespace`, `usage`, `remove` and `list`. `ok` carries a `result` tag:
 
 | `result`    | Further members                                                                                               | Answers                      |
 | ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
@@ -2481,8 +2498,9 @@ has exactly one of `ok` and `error`. `transferId` repeats the original transfer 
 | `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                                  | `begin`, `commit`, `status`  |
 | `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
 | `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
-| `removed`   | none                                                                                                          | `remove-namespace`           |
+| `removed`   | none                                                                                                          | `remove-namespace`, `remove` |
 | `usage`     | `chargedBytes` (0 to 2^53-1), `entries`, `activeUploads`, `retainedIdentities` (each a `u32`)                 | `usage`                      |
+| `listed`    | `entries` (at most 256 of `{opaqueKey, payloadSha256, payloadBytes, adoptedAtMs}`, keys strictly ascending), optional `next` | `list`         |
 
 A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
 `config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
@@ -2494,13 +2512,14 @@ consumer's own envelope or authority.
 `error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
 and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
 `namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
-`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit`, `discard` and
-`remove-namespace`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit`, `discard`,
+`remove-namespace` and `remove`, where an effect may have happened. `next` is present exactly when more committed originals
+follow, and then equals the last listed key. No error carries message text, and none proves that a possibly published
 effect did not happen.
 
 **Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
 asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
-`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit`, `discard` and `remove-namespace` have one)
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit`, `discard`, `remove-namespace` and `remove` have one)
 or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
 and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
 (`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
@@ -2509,8 +2528,9 @@ and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"
 For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
 `{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
 `{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
-For `remove-namespace` and `usage`, admit input repeats the request input. Their disclose classes are `removed`
-(with no further fields) and `usage` (the same four projection fields as the result).
+For `remove-namespace`, `usage`, `remove` and `list`, admit input repeats the request input. Their disclose classes are
+`removed` (with no further fields; also for `remove`), `usage` (the same four projection fields as the result) and
+`listed` (`count`, 0 to 256, for `list`).
 No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
 
 A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`
@@ -3753,11 +3773,13 @@ use `REMOTE_INPUT_INVALID`, message `Unknown control operation.`); ordinary Loca
 remain available. The door needs a restart to gain this activation surface. Refusal is not
 permission to retry in a loop or invent a second socket.
 
-The explicitly requested native connection offers its highest version, 3, exactly once
-using the same seven request headers and endpoint as the legacy handshake. A successful
-reply has the existing 101 headers plus `tmt-object-channel: <1, 2 or 3>` naming the
-accepted version. Native activation requires 3; a selected older version returns typed
-unsupported and leaves the previous channel intact. A supported strict refusal is exactly:
+The explicitly requested native connection offers its highest version, 4, using the same
+seven request headers and endpoint as the legacy handshake. A successful reply has the
+existing 101 headers plus `tmt-object-channel: <1, 2, 3 or 4>` naming the accepted
+version, which is never higher than the offer. Native activation requires 3 or later; a
+selected older version returns typed unsupported and leaves the previous channel intact.
+Version 4 is version 3 plus `objects.remove` and `objects.list`, with the same bounds.
+A supported strict refusal is exactly:
 
 ```http
 HTTP/1.1 426 Upgrade Required
@@ -3766,9 +3788,11 @@ tmt-object-generation: <the offered generation>
 Content-Length: 0
 ```
 
-There is no second connection, repeated offer or fallback after a v3 EOF, timeout,
-malformed reply or typed refusal. The new acceptor answers 3 to a v3 offer, and typed
-unsupported to a syntactically valid higher version. A current v1/v2-only Colab silently
+An extension built before version 4 answers a v4 offer with this typed refusal; Remote then
+offers 3 once, on a fresh connection within the same setup budget. There is no other second
+connection, repeated offer or fallback: not after an EOF, timeout or malformed reply, and not
+after any refusal of a v3 offer. The acceptor answers the offered version to a v3 or v4 offer,
+and typed unsupported to a syntactically valid higher version. A current v1/v2-only Colab silently
 closes a v3 offer; it cannot supply the new selected-version reply. Such a peer continues
 to connect through ordinary Local activation, which offers 2 and retains exactly the
 existing single fresh v1 attempt after failure before a complete reply head. V1/v2 heads,

@@ -882,3 +882,173 @@ fn read_requests_may_start_only_where_bytes_exist() {
         );
     }
 }
+
+fn listed(byte: u8, adopted_at_ms: u64) -> Listed {
+    Listed {
+        opaque_key: Bytes32::from_bytes([byte; 32]),
+        payload_sha256: digest(),
+        payload_bytes: 3,
+        adopted_at_ms,
+    }
+}
+
+#[test]
+fn object_removal_and_listing_have_canonical_bytes_and_their_own_answers() {
+    let remove = format!(
+        r#"{{"namespace":"{ONES}","opaqueKey":"{TWOS}","payloadSha256":"{DIGEST}","payloadBytes":3}}"#
+    );
+    let first_page = format!(r#"{{"namespace":"{ONES}","limit":2}}"#);
+    let next_page = format!(r#"{{"namespace":"{ONES}","after":"{TWOS}","limit":256}}"#);
+    for (method, input) in [
+        ("remove", &remove),
+        ("list", &first_page),
+        ("list", &next_page),
+    ] {
+        let body = request_json(LOCAL, method, input);
+        let frame = decode(body.as_bytes()).unwrap();
+        assert_eq!(encode(&frame).unwrap(), with_prefix(&body), "{method}");
+        assert!(!body.contains("transferId"));
+    }
+    let listing = Listing {
+        entries: vec![listed(1, 5), listed(2, 0)],
+        next: Some(key()),
+    };
+    for (method, word, value, body) in [
+        (
+            Method::Remove,
+            "remove",
+            Success::Removed,
+            r#""ok":{"result":"removed"}"#.to_owned(),
+        ),
+        (
+            Method::List,
+            "list",
+            Success::Listed(listing),
+            format!(
+                r#""ok":{{"result":"listed","entries":[{{"opaqueKey":"{ONES}","payloadSha256":"{DIGEST}","payloadBytes":3,"adoptedAtMs":5}},{{"opaqueKey":"{TWOS}","payloadSha256":"{DIGEST}","payloadBytes":3,"adoptedAtMs":0}}],"next":"{TWOS}"}}"#
+            ),
+        ),
+        (
+            Method::List,
+            "list",
+            Success::Listed(Listing {
+                entries: Vec::new(),
+                next: None,
+            }),
+            r#""ok":{"result":"listed","entries":[]}"#.to_owned(),
+        ),
+    ] {
+        let json = result_json(word, false, &body);
+        let frame = success(method, value);
+        assert_eq!(encode(&frame).unwrap(), with_prefix(&json), "{word}");
+        assert_eq!(decode(json.as_bytes()).unwrap(), frame, "{word}");
+    }
+    // Only these methods answer them, and only `remove` may be uncertain.
+    assert!(
+        encode(&success(
+            Method::RemoveNamespace,
+            Success::Listed(Listing {
+                entries: vec![],
+                next: None
+            })
+        ))
+        .is_err()
+    );
+    assert!(encode(&success(Method::List, Success::Removed)).is_err());
+    assert!(encode(&failure(Method::Remove, ErrorCode::Unknown)).is_ok());
+    assert!(encode(&failure(Method::List, ErrorCode::Unknown)).is_err());
+    assert!(encode(&failure(Method::Remove, ErrorCode::NotFound)).is_err());
+    assert!(encode(&failure(Method::List, ErrorCode::NotFound)).is_err());
+}
+
+#[test]
+fn a_listing_is_bounded_ascending_and_names_its_last_key_as_next() {
+    let base = request_json(
+        LOCAL,
+        "list",
+        &format!(r#"{{"namespace":"{ONES}","limit":2}}"#),
+    );
+    for limit in ["0", "257"] {
+        assert_eq!(
+            decode(mutate(&base, r#""limit":2"#, &format!(r#""limit":{limit}"#)).as_bytes()),
+            Err(ErrorClass::Value),
+            "limit {limit}"
+        );
+    }
+    let refused = [
+        // Keys must strictly ascend.
+        Listing {
+            entries: vec![listed(2, 0), listed(1, 0)],
+            next: None,
+        },
+        Listing {
+            entries: vec![listed(1, 0), listed(1, 0)],
+            next: None,
+        },
+        // `next` is exactly the last listed key, and never without entries.
+        Listing {
+            entries: vec![listed(1, 0)],
+            next: Some(key()),
+        },
+        Listing {
+            entries: vec![],
+            next: Some(key()),
+        },
+        // More than the page bound.
+        Listing {
+            entries: (0..=LIST_ENTRIES)
+                .map(|n| {
+                    let mut key = [0; 32];
+                    key[..4].copy_from_slice(&n.to_be_bytes());
+                    Listed {
+                        opaque_key: Bytes32::from_bytes(key),
+                        ..listed(0, 0)
+                    }
+                })
+                .collect(),
+            next: None,
+        },
+        // An entry over the payload or safe-integer bounds.
+        Listing {
+            entries: vec![Listed {
+                payload_bytes: PAYLOAD_BYTES + 1,
+                ..listed(1, 0)
+            }],
+            next: None,
+        },
+        Listing {
+            entries: vec![Listed {
+                adopted_at_ms: MAX_SAFE_INTEGER + 1,
+                ..listed(1, 0)
+            }],
+            next: None,
+        },
+    ];
+    for listing in refused {
+        assert!(
+            encode(&success(Method::List, Success::Listed(listing.clone()))).is_err(),
+            "{listing:?}"
+        );
+    }
+}
+
+#[test]
+fn a_full_listing_of_maximal_entries_fits_one_frame() {
+    let entries: Vec<Listed> = (0..LIST_ENTRIES)
+        .map(|n| {
+            let mut key = [0xff; 32];
+            key[..4].copy_from_slice(&n.to_be_bytes());
+            Listed {
+                opaque_key: Bytes32::from_bytes(key),
+                payload_sha256: digest(),
+                payload_bytes: PAYLOAD_BYTES,
+                adopted_at_ms: MAX_SAFE_INTEGER,
+            }
+        })
+        .collect();
+    let next = entries.last().map(|entry| entry.opaque_key);
+    let frame = success(Method::List, Success::Listed(Listing { entries, next }));
+    let bytes = encode(&frame).unwrap();
+    assert!(bytes.len() - PREFIX_BYTES <= FRAME_BYTES, "{}", bytes.len());
+    assert_eq!(decode(&bytes[PREFIX_BYTES..]).unwrap(), frame);
+}

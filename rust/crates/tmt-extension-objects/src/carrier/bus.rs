@@ -133,7 +133,7 @@ impl Bus {
     }
 
     pub fn supports_sync(&self) -> bool {
-        self.shared.version == 3
+        super::syncs(self.shared.version)
     }
     pub fn send_channel(&self, frame: &ChannelFrame) -> Result<(), Fault> {
         self.send_channel_until(frame, Instant::now() + self.shared.budgets.write)

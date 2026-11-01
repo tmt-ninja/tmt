@@ -99,6 +99,8 @@ fn method(value: &Value) -> Result<Method, ErrorClass> {
         "objects.discard" => Method::Discard,
         "objects.remove-namespace" => Method::RemoveNamespace,
         "objects.usage" => Method::Usage,
+        "objects.remove" => Method::Remove,
+        "objects.list" => Method::List,
         _ => return Err(ErrorClass::Shape),
     })
 }
@@ -109,6 +111,8 @@ fn call(method: Method, input: &Value) -> Result<Call, ErrorClass> {
         Method::Config => Call::Config(config_input(&mut object)?),
         Method::RemoveNamespace => Call::RemoveNamespace(namespace_input(&mut object)?),
         Method::Usage => Call::Usage(usage_scope(&mut object)?),
+        Method::Remove => Call::Remove(remove_input(&mut object)?),
+        Method::List => Call::List(list_input(&mut object)?),
         Method::Begin => Call::Begin(begin_input(&mut object)?),
         Method::Part => Call::Part(PartInput {
             transfer_id: uuid(object.take("transferId")?)?,
@@ -127,6 +131,48 @@ fn namespace_input(object: &mut Object) -> Result<NamespaceInput, ErrorClass> {
     Ok(NamespaceInput {
         namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
     })
+}
+fn remove_input(object: &mut Object) -> Result<RemoveInput, ErrorClass> {
+    Ok(RemoveInput {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
+        payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
+        payload_bytes: number(object.take("payloadBytes")?)?,
+    })
+}
+fn list_input(object: &mut Object) -> Result<ListInput, ErrorClass> {
+    Ok(ListInput {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        after: object
+            .optional("after")
+            .map(|value| Bytes32::parse(text(value)?))
+            .transpose()?,
+        limit: index(object.take("limit")?)?,
+    })
+}
+fn listing(object: &mut Object) -> Result<Listing, ErrorClass> {
+    let entries = object
+        .take("entries")?
+        .as_array()
+        .ok_or(ErrorClass::Shape)?
+        .iter()
+        .map(|value| {
+            let mut entry = Object::new(value)?;
+            let listed = Listed {
+                opaque_key: Bytes32::parse(text(entry.take("opaqueKey")?)?)?,
+                payload_sha256: Sha256Hex::parse(text(entry.take("payloadSha256")?)?)?,
+                payload_bytes: number(entry.take("payloadBytes")?)?,
+                adopted_at_ms: number(entry.take("adoptedAtMs")?)?,
+            };
+            entry.finish()?;
+            Ok(listed)
+        })
+        .collect::<Result<_, ErrorClass>>()?;
+    let next = object
+        .optional("next")
+        .map(|value| Bytes32::parse(text(value)?))
+        .transpose()?;
+    Ok(Listing { entries, next })
 }
 fn usage_scope(object: &mut Object) -> Result<UsageScope, ErrorClass> {
     match text(object.take("scope")?)? {
@@ -211,6 +257,7 @@ fn success(value: &Value) -> Result<Success, ErrorClass> {
         "config" => Success::Config(config(&mut object)?),
         "removed" => Success::Removed,
         "usage" => Success::Usage(usage(&mut object)?),
+        "listed" => Success::Listed(listing(&mut object)?),
         "pending" => Success::Pending {
             next_index: index(object.take("nextIndex")?)?,
             received: number(object.take("received")?)?,
@@ -359,6 +406,8 @@ fn admit_input(method: Method, value: &Value) -> Result<AdmitInput, ErrorClass> 
         Method::Config => AdmitInput::Config(config_input(&mut object)?),
         Method::RemoveNamespace => AdmitInput::RemoveNamespace(namespace_input(&mut object)?),
         Method::Usage => AdmitInput::Usage(usage_scope(&mut object)?),
+        Method::Remove => AdmitInput::Remove(remove_input(&mut object)?),
+        Method::List => AdmitInput::List(list_input(&mut object)?),
         Method::Begin => AdmitInput::Begin(begin_input(&mut object)?),
         Method::Status => AdmitInput::Status(status_input(&mut object)?),
         Method::Read => AdmitInput::Read(read_input(&mut object)?),
@@ -422,6 +471,9 @@ fn disclosure(value: &Value) -> Result<Disclosure, ErrorClass> {
         },
         "removed" => Disclosure::Removed,
         "usage" => Disclosure::Usage(usage(&mut object)?),
+        "listed" => Disclosure::Listed {
+            count: index(object.take("count")?)?,
+        },
         "bytes" => Disclosure::Bytes {
             offset: number(object.take("offset")?)?,
             length: index(object.take("length")?)?,

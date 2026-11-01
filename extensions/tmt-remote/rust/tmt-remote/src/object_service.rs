@@ -409,15 +409,15 @@ impl<'s> ObjectService<'s> {
             ))
         };
         let link = if native.is_some() {
-            connect()
-                .and_then(|(stream, offer)| negotiate_sync(stream, &offer, setup))
-                .and_then(|link| {
-                    if link.version() == 3 {
-                        Ok(link)
-                    } else {
-                        Err(Fault::UnsupportedSync)
-                    }
-                })
+            // Version 4 adds object removal and listing; an extension built before it
+            // refuses the offer and gets one fresh version-3 offer.
+            negotiate_sync(setup, connect).and_then(|link| {
+                if link.version() >= 3 {
+                    Ok(link)
+                } else {
+                    Err(Fault::UnsupportedSync)
+                }
+            })
         } else {
             negotiate(setup, connect)
         }

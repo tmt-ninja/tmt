@@ -66,6 +66,8 @@ pub enum AdmitInput {
     Discard(TransferAdmit),
     RemoveNamespace(NamespaceInput),
     Usage(UsageScope),
+    Remove(RemoveInput),
+    List(ListInput),
 }
 impl AdmitInput {
     pub fn method(&self) -> Method {
@@ -79,6 +81,8 @@ impl AdmitInput {
             Self::Discard(_) => Method::Discard,
             Self::RemoveNamespace(_) => Method::RemoveNamespace,
             Self::Usage(_) => Method::Usage,
+            Self::Remove(_) => Method::Remove,
+            Self::List(_) => Method::List,
         }
     }
 }
@@ -112,6 +116,10 @@ pub struct Retained {
 pub enum Disclosure {
     Removed,
     Usage(Usage),
+    /// A listing of `count` entries; keys and digests are the extension's own to read.
+    Listed {
+        count: u32,
+    },
     Config {
         projection: Projection,
     },
@@ -150,6 +158,7 @@ impl Disclosure {
             Self::Config { .. } => Answer::Config,
             Self::Removed => Answer::Removed,
             Self::Usage(_) => Answer::Usage,
+            Self::Listed { .. } => Answer::Listed,
             Self::Status { .. } => Answer::Pending,
             Self::Progress { .. } => Answer::Progress,
             Self::Receipt { .. } => Answer::Committed,
@@ -177,6 +186,7 @@ impl Disclosure {
                 require(offset <= PAYLOAD_BYTES && length as usize <= CHUNK_BYTES)
             }
             Self::Usage(usage) => require(usage.charged_bytes <= MAX_SAFE_INTEGER),
+            Self::Listed { count } => require(count <= LIST_ENTRIES),
             Self::Removed | Self::Config { .. } | Self::Terminal { .. } => Ok(()),
         }
     }
@@ -208,6 +218,8 @@ impl AdmitInput {
                 require((1..=CHUNK_BYTES as u32).contains(&input.length))
             }
             Self::Commit(input) | Self::Discard(input) => input.retained.check(),
+            Self::Remove(input) => input.check(),
+            Self::List(input) => input.check(),
             Self::Config(_) | Self::Status(_) | Self::RemoveNamespace(_) | Self::Usage(_) => Ok(()),
         }
     }
