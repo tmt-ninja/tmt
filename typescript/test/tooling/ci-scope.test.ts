@@ -3868,7 +3868,11 @@ describe('required CI gate', () => {
     );
     expect(shardSteps).toContain('uses: ./.github/actions/download-artifact-retry');
     expect(shardSteps).toContain('node scripts/native-shards.mjs "$NATIVE_SHARD"');
-    expect(shardSteps).not.toMatch(/cargo |install-ci-rust|rust-cache/);
+    // Shards fetch locked crate sources for `cargo metadata` but never compile.
+    expect(shardSteps).toContain('run: cargo fetch --locked');
+    expect(shardSteps.replace('cargo fetch --locked', '')).not.toMatch(
+      /cargo |install-ci-rust|rust-cache/
+    );
     expect(job('native-process-shard-2')).toContain('steps: *native-process-shard-steps');
     const processGate = job('native-process-tests');
     expect(processGate).toContain(

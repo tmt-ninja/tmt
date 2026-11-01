@@ -535,7 +535,7 @@ jobs:
           # Top-level executables and examples, without Cargo's hash-suffixed copies.
           {
             find debug release -maxdepth 1 -type f -perm -u+x
-            find debug/examples -maxdepth 1 -type f -perm -u+x ! -regex '.*-[0-9a-f]\{16\}$'
+            find debug/examples -maxdepth 1 -type f -perm -u+x -regextype posix-extended ! -regex '.*-[0-9a-f]{16}'
             if [ -d debug/native-release-fixture ]; then find debug/native-release-fixture -type f; fi
           } | sort > "$list"
           started=$SECONDS
@@ -577,6 +577,10 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: zsh tmux
+      # Native tests read Cargo metadata, which needs the locked crate sources; nothing compiles.
+      - name: Prepare locked Cargo metadata inputs
+        working-directory: rust
+        run: cargo fetch --locked
       - name: Download the process-test executables
         uses: ./.github/actions/download-artifact-retry
         timeout-minutes: 10
