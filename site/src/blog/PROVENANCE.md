@@ -31,9 +31,10 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   SHA-256: `2ae614b15dd9f28246226093116795330bd19dcdf1457d701ce6486e1948b07a`.
 - `site/src/blog/share/<slug>.png` is an optional 1200×630 card for one article,
   used instead of `og.png` on that article's pages. `what-one-percent-buys.png`
-  charts that article's published dollars per 1% (Max 20x $26–35, Max 5x ~$17,
-  Codex ~$10) in the same palette.
-  SHA-256: `449d620d3009bd3b78ada8feec0d2a19009e5800122225586b14a3cd6ecd5cc6`.
+  charts that article's published dollars per 1% for 27 September to 30 October 2026
+  (Ultra, formerly Max 20x, $26–35; Max 5x ~$17; Codex Pro 200 $9.7; Pro 100 $9.5)
+  in the same palette.
+  SHA-256: `356b46f2f0749757269e8c6fb83cf0c159f8685f76c69a1161cec38c05956658`.
 
 The landing loads canonical design tokens but uses its own layout CSS. The blog
 retains its editorial structure with an independent black-only treatment.
