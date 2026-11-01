@@ -272,12 +272,19 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   resolution, highlights and creation-order numbered markers before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant
   no source truth or application capability. Known-thread marker messages open
-  only parent views. Highlight messages contain only IDs, quote selectors and paint-only ordinals, never
+  only parent views. Highlight messages contain only IDs, quote selectors, paint-only ordinals and
+  unsent paint states, never
   comment bodies or display labels; marker tooltips use quoted text and comment
   first-line labels stay in parent chrome. Selection rectangles, final-text anchor rectangles and navigation offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Highlight hover geometry uses the latest
   trusted pointer position once per animation frame; gesture movement stays synchronous.
   Clearing a target cancels pending hover work. Ports/observers clear on teardown.
+
+  The annotation owner retains a pre-record failure for replies as well as first comments: its
+  failed row, draft and files remain in the same composer, and the page alert's Open restores it.
+  Editing that failed row, deliberately clearing its text and closing releases it; the automatic
+  empty field after Send does not discard a failure. This recovery never puts a threaded reply
+  into the first-comment paint projection.
 
   Annotation numbers are derived from each admitted revision-1 author clock, with
   writer/thread UUID ties, over all non-deleted threads before presentation filters.

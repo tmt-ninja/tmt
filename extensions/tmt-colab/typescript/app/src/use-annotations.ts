@@ -188,6 +188,16 @@ export function useAnnotations({
    * its composer keeps the send, the failed row and the files. */
   function closeAnnotation(focusPage: boolean) {
     if (!annotation || statusBusy.current) return;
+    // Only a deliberate empty edit discards a failure. Send's automatically cleared field is not
+    // that action: its retained composer still owns the failed row, draft and files.
+    if (
+      unsent.current.has(annotation.key) &&
+      annotationDraft.current.edited === true &&
+      annotationDraft.current.value.trim() === ''
+    ) {
+      unsent.current.delete(annotation.key);
+      setSendVersion((n) => n + 1);
+    }
     if (!retained(annotation.key)) {
       const key = annotationKey(annotation);
       keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
@@ -210,13 +220,10 @@ export function useAnnotations({
     }
     if (!sending.current.delete(key)) return;
     setSendVersion((n) => n + 1);
-    // A new annotation whose send failed before a record keeps its failed row here; a reply's
-    // draft goes back to its thread's composer as before.
+    // Every pre-record failure stays with its composer, including a reply: its failed row and
+    // files cannot be reconstructed from the saved text draft alone.
     const value = annotationsRef.current.find((item) => item.key === key);
-    if (!recorded.current.has(key) && value && !value.thread) {
-      unsent.current.add(key);
-      setSendVersion((n) => n + 1);
-    }
+    if (!recorded.current.has(key) && value) unsent.current.add(key);
     if (key !== annotationRef.current?.key && !unsent.current.has(key))
       setAnnotations((all) => all.filter((item) => item.key !== key));
   }
@@ -322,7 +329,7 @@ export function useAnnotations({
     currentRectangle,
     annotation,
     annotations,
-    // The closed windows whose first comment was not sent; the page names each with an Open action.
+    // Closed windows whose current send failed before its record; each has an alert and Open.
     unsentAnnotations: annotations.filter(
       (value) => value.key !== visibleKey && unsent.current.has(value.key),
     ),

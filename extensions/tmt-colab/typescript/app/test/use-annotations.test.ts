@@ -33,9 +33,9 @@ test('only unrecorded first-comment sends project, and retry changes the failed 
   const idle = annotation('idle');
   const all = [first, reply, blank, recorded, idle];
   const sending = new Set(['first', 'reply', 'blank', 'recorded']);
-  expect(projectUnsentHighlights(all, sending, new Set(['first']), new Set(['recorded']))).toEqual([
-    { selector: first.selector, state: 'failed' },
-  ]);
+  expect(
+    projectUnsentHighlights(all, sending, new Set(['first', 'reply']), new Set(['recorded'])),
+  ).toEqual([{ selector: first.selector, state: 'failed' }]);
   expect(projectUnsentHighlights(all, sending, new Set(), new Set(['recorded']))).toEqual([
     { selector: first.selector, state: 'sending' },
   ]);
