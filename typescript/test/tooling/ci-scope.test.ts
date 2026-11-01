@@ -21,6 +21,7 @@ import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
 import {
+  PROCESS_JOBS,
   RUST_WORKERS,
   MAIN_FULL_JOBS,
   admitMainFull,
@@ -28,6 +29,7 @@ import {
   notifyMainFullFailure,
   ciGatePasses,
   e2eGatePasses,
+  processGatePasses,
   explainCiSelection,
   globToRegExp,
   isReleased,
@@ -3240,6 +3242,46 @@ describe('required CI gate', () => {
       expect(e2eGatePasses('none', undefined as never)).toBe(false);
     });
 
+    it('gates Native process contracts on its build and selected shards, failing closed', () => {
+      expect(processGatePasses('full', ['success', 'success', 'success'])).toBe(true);
+      expect(processGatePasses('ops', ['success', 'success', 'skipped'])).toBe(true);
+      expect(processGatePasses('none', ['skipped', 'skipped', 'skipped'])).toBe(true);
+      for (const [scope, results] of [
+        ['full', ['success', 'success', 'skipped']],
+        ['full', ['skipped', 'skipped', 'skipped']],
+        ['full', ['failure', 'skipped', 'skipped']],
+        ['full', ['success', 'cancelled', 'success']],
+        ['full', ['success', 'success']],
+        ['full', ['success', 'success', 'success', 'success']],
+        ['ops', ['success', 'success', 'success']],
+        ['ops', ['success', 'skipped', 'skipped']],
+        ['ops', ['success', 'failure', 'skipped']],
+        ['none', ['success', 'skipped', 'skipped']],
+        ['', ['skipped', 'skipped', 'skipped']],
+        ['unknown', ['success', 'success', 'skipped']],
+      ] as const) {
+        expect(processGatePasses(scope, results), `${scope} ${results.join(' ')}`).toBe(false);
+      }
+      // A scoped component that names no native tests skips all three jobs.
+      const map = {
+        components: [
+          { name: 'quiet', scopedChecks: { nativeTests: [], e2eFiles: [], unitTests: false } },
+        ],
+      } as never;
+      expect(processGatePasses('quiet', ['skipped', 'skipped', 'skipped'], map)).toBe(true);
+      expect(processGatePasses('quiet', ['success', 'success', 'skipped'], map)).toBe(false);
+      const io = () => ({
+        cwd: fileURLToPath(new URL('../../../', import.meta.url)),
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+      });
+      runCiScope(['gate-process', 'full', 'success', 'success', 'success'], io());
+      expect(() =>
+        runCiScope(['gate-process', 'full', 'success', 'success', 'skipped'], io())
+      ).toThrow('native process jobs');
+      expect(PROCESS_JOBS).toHaveLength(3);
+    });
+
     it('fails the command with the same rules, and needs exactly two shard results', () => {
       const io = () => ({
         cwd: fileURLToPath(new URL('../../../', import.meta.url)),
@@ -3523,7 +3565,7 @@ describe('required CI gate', () => {
       'native-notices',
       'colab-chrome',
       'native-clippy',
-      'native-process-tests',
+      'native-process-build',
       'native-msrv',
       'native-runtime-build',
     ];
@@ -3804,14 +3846,43 @@ describe('required CI gate', () => {
     expect(job('unit-tests')).toContain(
       'name: runtime-x86_64-unknown-linux-musl\n          path: rust/target/debug'
     );
-    expect(job('native-process-tests')).toContain('needs: changes');
-    expect(job('native-process-tests')).toContain('timeout-minutes: 20');
-    expect(job('native-process-tests')).toContain(
+    // Native process contracts is one fixture build, two test shards that reuse its
+    // executables without compiling, and the aggregate that keeps the required name.
+    const processSelected =
+      "needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_native_tests != '')";
+    expect(job('native-process-build')).toContain('needs: changes');
+    expect(job('native-process-build')).toContain(`if: \${{ ${processSelected} }}`);
+    expect(job('native-process-build')).toContain('timeout-minutes: 20');
+    expect(job('native-process-build')).toContain('name: native-process-fixtures');
+    expect(job('native-process-shard-1')).toContain(`if: \${{ ${processSelected} }}`);
+    expect(job('native-process-shard-2')).toContain(
+      "if: needs.changes.outputs.native == 'true' && needs.changes.outputs.native_scope == 'full'"
+    );
+    for (const shard of ['native-process-shard-1', 'native-process-shard-2']) {
+      expect(job(shard)).toContain('needs: [changes, native-process-build]');
+      expect(job(shard)).toContain('timeout-minutes: 20');
+    }
+    const shardSteps = job('native-process-shard-1');
+    expect(shardSteps).toContain(
       'uses: ./.github/actions/apt-install\n        with:\n          packages: zsh'
     );
-    expect(job('native-process-tests')).toContain(
-      "always() && needs.changes.outputs.native == 'true'"
+    expect(shardSteps).toContain('uses: ./.github/actions/download-artifact-retry');
+    expect(shardSteps).toContain('node scripts/native-shards.mjs "$NATIVE_SHARD"');
+    // Shards fetch locked crate sources for `cargo metadata` but never compile.
+    expect(shardSteps).toContain('run: cargo fetch --locked');
+    expect(shardSteps.replace('cargo fetch --locked', '')).not.toMatch(
+      /cargo |install-ci-rust|rust-cache/
     );
+    expect(job('native-process-shard-2')).toContain('steps: *native-process-shard-steps');
+    const processGate = job('native-process-tests');
+    expect(processGate).toContain(
+      'needs: [changes, native-process-build, native-process-shard-1, native-process-shard-2]'
+    );
+    expect(processGate).toContain("always() && needs.changes.outputs.native == 'true'");
+    expect(processGate).toContain(
+      'ci-scope.mjs gate-process "$NATIVE_SCOPE" "$BUILD_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT"'
+    );
+    expect(PROCESS_JOBS).toEqual(['build', 'shard1', 'shard2']);
     expect(job('native-clippy')).toContain('Reject an unknown native scope');
     const scoped = (worker: string, scope: string) =>
       steps(job(worker))
@@ -3825,17 +3896,13 @@ describe('required CI gate', () => {
     expect(job('native-workspace-tests')).toContain(
       'scope: ${{ needs.changes.outputs.native_scope }}'
     );
-    expect(scoped('native-process-tests', 'full')).toEqual([
+    expect(scoped('native-process-build', 'full')).toEqual([
       'Build independent native process fixtures',
-      'Verify native process and shared parser contracts',
     ]);
-    expect(scoped('native-process-tests', 'ops')).toEqual([
-      'Build Ops process fixtures',
-      'Verify Ops native contracts',
-    ]);
+    expect(scoped('native-process-build', 'ops')).toEqual(['Build Ops process fixtures']);
     // Both scopes run extension-install, whose archives use these debug executables.
     for (const scope of ['full', 'ops']) {
-      const fixtures = steps(job('native-process-tests')).find(
+      const fixtures = steps(job('native-process-build')).find(
         (step) =>
           step.scope === `needs.changes.outputs.native_scope == '${scope}'` &&
           step.name.startsWith('Build ')
@@ -3876,7 +3943,7 @@ describe('required CI gate', () => {
       "save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}"
     );
     // The process job seeds its existing dev/release builds in an isolated main-only cache.
-    const processCache = job('native-process-tests');
+    const processCache = job('native-process-build');
     expect(processCache).toContain('shared-key: native-process-rust');
     expect(processCache).not.toContain('shared-key: native-rust');
     expect(processCache).not.toMatch(/cache-workspace-crates:|cache-on-failure:/);

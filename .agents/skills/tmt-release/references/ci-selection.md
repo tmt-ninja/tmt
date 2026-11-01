@@ -77,6 +77,15 @@ download timeout, only Azure is removed from the verified runner-image mirror li
 for remaining attempts; unexpected layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
+`Native process contracts` gates one `Native process build` and two `Native process
+shard` jobs (#3836). The build compiles every process fixture once, including the
+synthetic alpha, and uploads the executables as one zstd tar; the shards download it
+and never compile. `typescript/scripts/native-shards.mjs` splits the serial suite
+with the `e2e-shards.mjs` algorithm and `typescript/scripts/native-shard-weights.json`;
+a guard rejects a native test file in no shard or two. Full scope requires all three,
+a scoped component that names native tests requires the build and shard 1 with shard 2
+skipped, and anything else fails (`ci-scope.mjs gate-process`).
+
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
 `test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs the pinned
 adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
@@ -311,8 +320,8 @@ Required-check policy and estimated reductions remain separate; CI selection is 
 Monday hygiene compares budgets: two consecutive over-budget weeks require an
 issue to the dominating suite's squad for sharding/consumers/trimming. A PR expected
 to add more than about 20 s to a required job must say so in its body and update
-weights or assignment (`typescript/test/e2e/shard-weights.json` or Colab
-`acceptance/shard-weights.json`) there.
+weights or assignment (`typescript/test/e2e/shard-weights.json`,
+`typescript/scripts/native-shard-weights.json` or Colab `acceptance/shard-weights.json`) there.
 
 ## Verification
 
@@ -349,7 +358,7 @@ Code quality runs parity for PR/MG, including prose-only changes; the manifest r
 Selection/workflow changes also run:
 
 ```sh
-corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/e2e-shards.test.ts
+corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/e2e-shards.test.ts test/tooling/native-shards.test.ts
 corepack pnpm check:tooling
 ```
 

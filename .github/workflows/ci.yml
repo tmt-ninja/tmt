@@ -445,10 +445,14 @@ jobs:
       save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
       partitions: 2
 
-  native-process-tests:
-    name: Native process contracts
+  # Native process contracts runs as one fixture build and two test shards, so the
+  # serial process suite is about half as long on the merge-group path. The shards
+  # reuse the build's executables and never compile. `native-process-tests` below is
+  # the required check named `Native process contracts`.
+  native-process-build:
+    name: Native process build
     needs: changes
-    if: ${{ always() && needs.changes.outputs.native == 'true' }}
+    if: ${{ needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_native_tests != '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -470,10 +474,6 @@ jobs:
       - name: Install test dependencies
         working-directory: typescript
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Install shell test dependency
-        uses: ./.github/actions/apt-install
-        with:
-          packages: zsh tmux
       - name: Build independent native process fixtures
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
@@ -527,26 +527,126 @@ jobs:
           # The source gate has proved these are the only edits, implied by the CLI version.
           git restore --source=HEAD -- rust/Cargo.toml rust/Cargo.lock
           git diff --exit-code HEAD --
-      - name: Verify native process and shared parser contracts
-        if: needs.changes.outputs.native_scope == 'full'
-        working-directory: typescript
-        env:
-          TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
-          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
+      - name: Pack the process-test executables
         run: |
-          pnpm test:native --reporter=verbose
-      - name: Verify Ops native contracts
-        if: needs.changes.outputs.native_scope == 'ops'
+          set -euo pipefail
+          cd rust/target
+          list="$RUNNER_TEMP/native-process-fixtures.txt"
+          # Top-level executables and examples, without Cargo's hash-suffixed copies.
+          {
+            find debug release -maxdepth 1 -type f -perm -u+x
+            find debug/examples -maxdepth 1 -type f -perm -u+x -regextype posix-extended ! -regex '.*-[0-9a-f]{16}'
+            if [ -d debug/native-release-fixture ]; then find debug/native-release-fixture -type f; fi
+          } | sort > "$list"
+          started=$SECONDS
+          tar --zstd -cf "$RUNNER_TEMP/native-process-fixtures.tar.zst" -T "$list"
+          raw=$(tr '\n' '\0' < "$list" | du -cb --files0-from=- | tail -n1 | cut -f1)
+          packed=$(stat -c %s "$RUNNER_TEMP/native-process-fixtures.tar.zst")
+          {
+            echo "Packed $(wc -l < "$list") executables, $((raw / 1048576)) MiB raw, $((packed / 1048576)) MiB zstd, in $((SECONDS - started)) s:"
+            sed 's/^/- /' "$list"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Share the process-test executables with the shards
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-process-fixtures
+          path: ${{ runner.temp }}/native-process-fixtures.tar.zst
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  native-process-shard-1:
+    name: Native process shard 1/2
+    needs: [changes, native-process-build]
+    if: ${{ needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'full' || needs.changes.outputs.scoped_native_tests != '') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NATIVE_SHARD: '1'
+    steps: &native-process-shard-steps
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js and pnpm test tooling
+        uses: ./.github/actions/setup-tooling
+      - name: Install test dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install shell test dependency
+        uses: ./.github/actions/apt-install
+        with:
+          packages: zsh tmux
+      # Native tests read Cargo metadata, which needs the locked crate sources; nothing compiles.
+      - name: Prepare locked Cargo metadata inputs
+        working-directory: rust
+        run: cargo fetch --locked
+      - name: Download the process-test executables
+        uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
+        with:
+          name: native-process-fixtures
+          path: ${{ runner.temp }}
+      - name: Unpack the process-test executables
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          mkdir -p rust/target
+          tar --zstd -xf "$RUNNER_TEMP/native-process-fixtures.tar.zst" -C rust/target
+          echo "Unpacked the process-test executables in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify this shard's native process contracts
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
+          TMT_TEST_STORAGE_PROBE: ${{ needs.changes.outputs.native_scope == 'full' && format('{{"executable":"{0}/rust/target/debug/examples/storage-probe","args":[]}}', github.workspace) || '' }}
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
           # Plain file names from the component map, validated when it is parsed.
           SCOPED_NATIVE_TESTS: ${{ needs.changes.outputs.scoped_native_tests }}
         run: |
+          # A full run splits every file by typescript/scripts/native-shard-weights.json;
+          # a scoped component runs its own files in shard 1 only.
+          # Assign first so a selection failure stops the step: an empty list would run every file.
+          read -ra scoped <<< "$SCOPED_NATIVE_TESTS"
+          selected=$(node scripts/native-shards.mjs "$NATIVE_SHARD" "$NATIVE_SCOPE" "${scoped[@]}")
+          read -ra names <<< "$selected"
+          test "${#names[@]}" -gt 0
+          echo "Native process shard $NATIVE_SHARD runs ${#names[@]} files: ${names[*]}" | tee -a "$GITHUB_STEP_SUMMARY"
           # Vitest filters match path substrings, so each name gets its directory:
           files=()
-          for name in $SCOPED_NATIVE_TESTS; do files+=("test/native/$name"); done
+          for name in "${names[@]}"; do files+=("test/native/$name"); done
           pnpm test:native --reporter=verbose "${files[@]}"
+
+  native-process-shard-2:
+    name: Native process shard 2/2
+    needs: [changes, native-process-build]
+    if: needs.changes.outputs.native == 'true' && needs.changes.outputs.native_scope == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NATIVE_SHARD: '2'
+    steps: *native-process-shard-steps
+
+  native-process-tests:
+    name: Native process contracts
+    needs: [changes, native-process-build, native-process-shard-1, native-process-shard-2]
+    if: ${{ always() && needs.changes.outputs.native == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+      - name: Require the process build and every selected shard
+        env:
+          NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
+          BUILD_RESULT: ${{ needs.native-process-build.result }}
+          SHARD_1_RESULT: ${{ needs.native-process-shard-1.result }}
+          SHARD_2_RESULT: ${{ needs.native-process-shard-2.result }}
+        run: |
+          node typescript/scripts/ci-scope.mjs gate-process "$NATIVE_SCOPE" "$BUILD_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT"
 
   native-msrv:
     name: Native Rust MSRV
@@ -1069,6 +1169,9 @@ jobs:
       - browser-ui
       - native-clippy
       - native-workspace-tests
+      - native-process-build
+      - native-process-shard-1
+      - native-process-shard-2
       - native-process-tests
       - native-msrv
       - native-rust
