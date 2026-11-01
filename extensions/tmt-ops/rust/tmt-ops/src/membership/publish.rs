@@ -314,21 +314,33 @@ pub(crate) fn apply(core: &Core, preview: &Preview) -> Outcome {
 }
 
 pub(crate) fn command(core: &Core, outcome: Outcome, consent: Consent) -> Outcome {
+    let squad_complete = outcome.complete;
     let mut outcome = offer(core, outcome);
-    let Ok(preview) = Preview::from_document(&outcome.document["coreLeads"]) else {
-        return outcome;
-    };
-    if consent == Consent::Unavailable {
+    if !squad_complete {
         return outcome;
     }
-    let plan = preview.text();
-    if consent::ask(consent, &plan, "Publish squad leads to Core?").is_err() {
-        outcome.document["coreLeads"] = json!({"status":"declined"});
-        return outcome;
+    if let Ok(preview) = Preview::from_document(&outcome.document["coreLeads"])
+        && consent != Consent::Unavailable
+    {
+        if consent::ask(consent, &preview.text(), "Publish squad leads to Core?").is_err() {
+            outcome.document["coreLeads"] = json!({"status":"declined"});
+        } else {
+            let applied = apply(core, &preview);
+            outcome.document["coreLeads"] = applied.document["coreLeads"].clone();
+            outcome.complete = applied.complete;
+        }
     }
-    let applied = apply(core, &preview);
-    outcome.document["coreLeads"] = applied.document["coreLeads"].clone();
-    outcome.complete = applied.complete;
+    // Without --yes this command reports the completed squad mutation; publication
+    // remains a separate offer/result, never a failure of the successful squad change.
+    if consent != Consent::Given {
+        outcome.complete = true;
+    }
+    let publication = &mut outcome.document["coreLeads"];
+    if let Some(message) = message(publication) {
+        publication["message"] = json!(message);
+    } else if publication["status"] == "preview" {
+        publication["message"] = json!("Squad changed. Core leads not updated yet.");
+    }
     outcome
 }
 
@@ -726,5 +738,34 @@ esac
             &json!({"kind":"leads.set","identityIds":[1]}),
             &json!({"kind":"leads.set","identityIds":[1]})
         ));
+    }
+    #[test]
+    fn publication_offer_failure_keeps_the_successful_command_exit_without_yes() {
+        for consent in [Consent::Unavailable, Consent::Given] {
+            let f = Fixture::new();
+            f.put("caller",json!({"error":{"code":"ORCH_NOT_PERMITTED","message":"Only current leads may publish."}}));
+            let outcome = command(&f.core, f.outcome(), consent);
+            assert_eq!(outcome.complete, consent != Consent::Given);
+            assert_eq!(outcome.document["lead"]["id"], ONE);
+            assert_eq!(outcome.document["coreLeads"]["status"], "failed");
+            assert!(
+                outcome.document["coreLeads"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Squad changed. Core leads not updated")
+            );
+            assert!(
+                f.calls()
+                    .iter()
+                    .all(|call| call["input"]["phase"] != "apply")
+            );
+        }
+        let f = Fixture::new();
+        let original = Outcome {
+            document: json!({"failed":{"stage":"lead"}}),
+            complete: false,
+        };
+        assert!(!command(&f.core, original, Consent::Unavailable).complete);
+        assert!(f.calls().is_empty());
     }
 }

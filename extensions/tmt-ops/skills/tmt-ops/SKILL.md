@@ -1783,7 +1783,10 @@ tmt ops squad rm <name>                           # leaves the squad; the agent 
   `preview`, `before` and `after`); the squad change is already applied. A confirmed
   update reports `status: "applied"` with Core's `result`; a declined offer reports
   `status: "declined"`, and a failure reports `status: "failed"` with `error`
-  (preserving Core's code and message when Core refuses).
+  (preserving Core's code and message when Core refuses). After a successful squad
+  change, an offered, declined or unavailable publication without `--yes` exits 0;
+  `coreLeads.message` still explains that Core leads were not updated. A failed
+  publication with `--yes` exits nonzero.
   On the board, Set/clear lead and Create with a lead open a separate Cancel-first
   confirmation. Declining keeps the squad change. A refusal or conflict says
   "Squad changed. Core leads not updated" plus Core's message. After an apply refusal,
