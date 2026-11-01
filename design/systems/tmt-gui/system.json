@@ -27,6 +27,12 @@
     },
     {
       "doc": "components/textarea.json"
+    },
+    {
+      "doc": "components/switch.json"
+    },
+    {
+      "doc": "components/checkbox.json"
     }
   ],
   "principles": {

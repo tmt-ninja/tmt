@@ -31,6 +31,8 @@ describe('buildBundle', () => {
       'tmt-ui-skeleton',
       'tmt-ui-input',
       'tmt-ui-textarea',
+      'tmt-ui-switch',
+      'tmt-ui-checkbox',
     ]);
   });
 

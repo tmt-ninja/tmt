@@ -182,9 +182,11 @@ describe('template, publish and the renderer source', () => {
     expect(bundle!.components.map((component) => component.tag).sort()).toEqual([
       'acme-badge',
       'acme-button',
+      'acme-checkbox',
       'acme-input',
       'acme-separator',
       'acme-skeleton',
+      'acme-switch',
       'acme-textarea',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);

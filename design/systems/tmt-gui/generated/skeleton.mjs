@@ -2,7 +2,7 @@
 // Ports browser-ui's ui Skeleton (#5866): plain JavaScript and htm on the skeleton (React, html, cn).
 // The compiler fills `classes` from the ui component; every example must draw like it.
 export default ({ html }) => {
-  const classes = {"base":"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm","by":{"":""},"parts":{}};
+  const classes = {"slots":{"skeleton":"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm"},"base":"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm","by":{"":""},"parts":{}};
   return function Skeleton({ width = '8rem', height = '1rem' }) {
     return html`<div data-slot="skeleton" aria-hidden="true" className=${classes.base} style=${{ width, height }}></div>`;
   };

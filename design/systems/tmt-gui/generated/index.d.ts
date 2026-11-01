@@ -43,3 +43,20 @@ export interface TextareaProps {
   disabled?: boolean;
   children?: ReactNode;
 }
+
+/** <tmt-ui-switch>: props from its schema, slots as nodes. */
+export interface SwitchProps {
+  checked?: boolean;
+  size?: "default" | "sm";
+  disabled?: boolean;
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-checkbox>: props from its schema, slots as nodes. */
+export interface CheckboxProps {
+  checked?: boolean;
+  disabled?: boolean;
+  label?: string;
+  children?: ReactNode;
+}

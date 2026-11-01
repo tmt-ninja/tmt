@@ -40,7 +40,20 @@ export async function classTable({ load, React, renderToStaticMarkup }, ui) {
     return drawn(exports[component], props).split(' ').filter(Boolean);
   });
   const base = lists.reduce((shared, list) => shared.filter((name) => list.includes(name)));
+  // The classes of every inner element (a switch's thumb, say), by data-slot, as drawn by default.
+  const inner = {};
+  if (!variants) {
+    const html = renderToStaticMarkup(
+      React.createElement(UiTheme, { theme: 'light' }, React.createElement(exports[component])),
+    );
+    for (const [, attrs] of html.matchAll(/<[a-z][a-z0-9-]*((?:\s+[^\s=>]+(?:="[^"]*")?)*)\s*\/?>/g)) {
+      const slot = /\sdata-slot="([^"]*)"/.exec(attrs)?.[1];
+      const classes = /\sclass="([^"]*)"/.exec(attrs)?.[1];
+      if (slot && classes) inner[slot] = rootClass(` class="${classes}"`);
+    }
+  }
   return {
+    slots: inner,
     base: base.join(' '),
     by: Object.fromEntries(
       combos.map((combo, index) => [
@@ -150,10 +163,21 @@ export async function markupDrift({ load, React, renderToStaticMarkup }, ported)
       const nodes = parseMarkup(example.markup);
       const ours = structure(render(nodes, template));
       const theirs = structure(render(nodes, ui));
-      if (ours.join('\n') !== theirs.join('\n'))
-        drift.push(
-          `${component.tag} "${example.title}":\n  template ${ours.join(' ')}\n  browser-ui ${theirs.join(' ')}`,
-        );
+      if (ours.join('\n') === theirs.join('\n')) continue;
+      // Name the first element that differs and only what differs in it.
+      const at = ours.findIndex((element, index) => element !== theirs[index]);
+      const parts = (element = '') => {
+        const [, head = '', classes = ''] = /^([^{]*)\{(.*)\}$/.exec(element) ?? [];
+        return { head, classes: new Set(classes.split(' ').filter(Boolean)) };
+      };
+      const a = parts(ours[at]);
+      const b = parts(theirs[at]);
+      const only = (x, y) => [...x.classes].filter((name) => !y.classes.has(name)).join(' ');
+      drift.push(
+        `${component.tag} "${example.title}", element ${at + 1}: template ${a.head} vs browser-ui ${b.head}` +
+          `; only in template: ${only(a, b) || '-'}; only in browser-ui: ${only(b, a) || '-'}` +
+          ` (${ours.length} vs ${theirs.length} elements)`,
+      );
     }
   return drift;
 }

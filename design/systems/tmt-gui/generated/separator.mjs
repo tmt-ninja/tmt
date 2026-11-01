@@ -2,7 +2,7 @@
 // Ports browser-ui's ui Separator (#5866): plain JavaScript and htm on the skeleton (React, html, cn).
 // The compiler fills `classes` from the ui component; every example must draw like it.
 export default ({ html, cn }) => {
-  const classes = {"base":"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)","by":{"horizontal":"","vertical":""},"parts":{}};
+  const classes = {"slots":{"separator":"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)"},"base":"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)","by":{"horizontal":"","vertical":""},"parts":{}};
   return function Separator({ orientation = 'horizontal' }) {
     return html`<div data-slot="separator" data-orientation=${orientation} role="none" className=${cn(classes.base, classes.by[orientation])}></div>`;
   };
