@@ -109,5 +109,10 @@ export function designModuleLoad(answer: ShellAnswer | undefined, here: string):
   const load = moduleLoad(primary.rail.path, (extra as { entry?: string }).entry, here);
   if (!load.link) return {};
   const route = new URL(extra.rail.path, page);
-  return { link: route.pathname, ...(load.entry ? { entry: load.entry } : {}) };
+  // If the script is absent or cannot load, the paired alias can open the standalone
+  // Colab view; the root navigation link would only reopen this same fallback.
+  return {
+    link: `${load.link}${route.pathname.slice(1)}`,
+    ...(load.entry ? { entry: load.entry } : {}),
+  };
 }

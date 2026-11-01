@@ -103,10 +103,10 @@ const described = (entry: string | undefined = ENTRY, extension = 'colab', path 
 });
 
 it('loads a described Design extra from the primary Colab mount, with no primary-script fallback', () => {
-  expect(designModuleLoad(described(), HERE)).toEqual({ link: '/design/', entry: ENTRY });
+  expect(designModuleLoad(described(), HERE)).toEqual({ link: `${MOUNT}design/`, entry: ENTRY });
   const missing = described();
   delete (missing.modules[1] as { entry?: string }).entry;
-  expect(designModuleLoad(missing, HERE)).toEqual({ link: '/design/' });
+  expect(designModuleLoad(missing, HERE)).toEqual({ link: `${MOUNT}design/` });
   expect(designModuleLoad({ version: 1, modules: described().modules.slice(0, 1) }, HERE)).toEqual(
     {},
   );
@@ -121,7 +121,7 @@ it('confines Design script entries and refuses navigation outside its owned fami
     ENTRY + '?x=1',
     'https://evil.example/x.js',
   ])
-    expect(designModuleLoad(described(entry), HERE)).toEqual({ link: '/design/' });
+    expect(designModuleLoad(described(entry), HERE)).toEqual({ link: `${MOUNT}design/` });
   for (const path of [
     '/remote/',
     '/designer/',

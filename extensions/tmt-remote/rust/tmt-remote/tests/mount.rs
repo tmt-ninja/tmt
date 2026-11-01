@@ -1529,6 +1529,21 @@ fn design_mount_retains_colab_owner_context_and_policy() {
     assert!(seen[0].contains(&format!("tmt-mount: {}/x/colab/\r\n", door.prefix)));
     assert!(seen[0].contains("tmt-device-context: "));
     assert!(!seen[1].contains("tmt-device-context:"));
+    for path in [
+        door.at("/x/design/library"),
+        "/x/colab/design/library".into(),
+        "/r/abcdefghijklmnop/x/colab/design/library".into(),
+    ] {
+        assert_eq!(
+            door.status(&door.get(&path, &format!("Cookie: {OWNER}\r\n"))),
+            404
+        );
+        assert_eq!(
+            extension.seen.all().len(),
+            2,
+            "unmapped Design alias must never reach Colab"
+        );
+    }
     let foreign = door.get(
         &path,
         &format!("Cookie: {OWNER}\r\nOrigin: https://foreign.example\r\n"),
