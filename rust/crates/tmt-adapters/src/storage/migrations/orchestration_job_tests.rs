@@ -1,4 +1,4 @@
-//! Forward from the actual 087 predecessor; never edit a frozen archive.
+//! Forward from the actual 088 predecessor; never edit a frozen archive.
 use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
 #[test]
@@ -12,7 +12,7 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
     }
     let path = d.path.join("predecessor.db");
     let mut old = Connection::open(&path).unwrap();
-    apply_through(&mut old, 87).unwrap();
+    apply_through(&mut old, 88).unwrap();
     old.execute_batch("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES('11111111-1111-4111-8111-111111111111','Member','member','t','t','saved');
         INSERT INTO orchestration_settings VALUES(1,3,'UTC');
         INSERT INTO orchestration_decisions(recorded_ms,expires_ms,subject_kind,subject_id,actor_id,recipient_id,action,outcome,reason,configuration_revision,time_zone,sources)
@@ -24,6 +24,15 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
         INSERT INTO request_attempts(attempt_id,request_id,route_kind,identity_id,recipient_identity_id,wait_active,status,inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms)
         VALUES('attempt-existing','request-existing','inbox','22222222-2222-4222-8222-222222222222','22222222-2222-4222-8222-222222222222',0,'queued',0,0,1000,9007199254740991);
         INSERT INTO orchestration_talk_holds VALUES('request-existing','11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',7000);").unwrap();
+    assert_eq!(
+        old.query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name='request_history_pair'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
     let sending = sending_records(&old);
     let bindings: String = old
         .query_row(
@@ -40,7 +49,7 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
         .unwrap();
     old.close().unwrap();
     let mut migrated = Storage::open(&path).unwrap();
-    assert_eq!(migrated.health().unwrap().schema_version, 88);
+    assert_eq!(migrated.health().unwrap().schema_version, 89);
     migrated.close().unwrap();
     let db = Connection::open(&path).unwrap();
     assert_eq!(
@@ -104,7 +113,7 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
         );
     }
     assert_eq!(
-        db.query_row("SELECT name FROM _migrations WHERE version=88", [], |row| {
+        db.query_row("SELECT name FROM _migrations WHERE version=89", [], |row| {
             row.get::<_, String>(0)
         })
         .unwrap(),
@@ -127,6 +136,7 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
 fn sending_records(db: &Connection) -> Vec<Vec<rusqlite::types::Value>> {
     let mut records = Vec::new();
     for sql in [
+        "SELECT name,sql FROM sqlite_schema WHERE name='request_history_pair'",
         "SELECT * FROM orchestration_leads ORDER BY identity_id",
         "SELECT * FROM orchestration_route_grants ORDER BY from_id,to_id",
         "SELECT * FROM orchestration_talk_resumes ORDER BY first_id,second_id",
