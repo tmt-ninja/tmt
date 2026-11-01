@@ -709,3 +709,135 @@ fn calendar_replacement_validates_before_changing_the_definition() {
         1
     );
 }
+
+#[test]
+fn held_jobs_share_incoming_wake_spacing_but_manual_send_consumes_neither_hold_nor_spacing() {
+    let mut f = Fixture::new();
+    let first = f
+        .storage
+        .create_orchestration_job(f.definition(None, "first"))
+        .unwrap();
+    let second = f
+        .storage
+        .create_orchestration_job(f.definition(None, "second"))
+        .unwrap();
+    f.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE orchestration_jobs SET pending_revision=revision,pending_ms=1000",
+            [],
+        )
+        .unwrap();
+    let input = |job: &OrchJob, at: i64, manual: bool| JobRunInput {
+        job_id: job.id.clone(),
+        expected_revision: job.revision,
+        slot_ms: at,
+        manual_operation_id: manual.then(|| "55555555-5555-4555-8555-555555555555".into()),
+        originator: tmt_core::request::Originator::Unknown,
+    };
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(input(&first, 2000, false), 3, || 2000)
+            .unwrap(),
+        JobRunResult::Accepted { created: true, .. }
+    ));
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(input(&second, 2000, false), 3, || 2000)
+            .unwrap(),
+        JobRunResult::Waiting {
+            next_admission_ms: 3000
+        }
+    ));
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(input(&second, 2000, true), 3, || 2000)
+            .unwrap(),
+        JobRunResult::Accepted { created: true, .. }
+    ));
+    assert_eq!(
+        f.storage
+            .orchestration_job(&second.id)
+            .unwrap()
+            .unwrap()
+            .pending
+            .unwrap()
+            .at_ms,
+        1000
+    );
+    let clock =
+        crate::storage::requests::digest_wake::clock(f.storage.connection().unwrap()).unwrap();
+    assert_eq!(clock.next_admission_ms, 3000);
+    assert!(matches!(
+        f.storage
+            .run_orchestration_job(input(&second, 3000, false), 3, || 3000)
+            .unwrap(),
+        JobRunResult::Accepted { created: true, .. }
+    ));
+    assert!(
+        f.storage
+            .orchestration_job(&second.id)
+            .unwrap()
+            .unwrap()
+            .pending
+            .is_none()
+    );
+    assert_eq!(
+        crate::storage::requests::digest_wake::clock(f.storage.connection().unwrap())
+            .unwrap()
+            .next_admission_ms,
+        4000
+    );
+}
+
+#[test]
+fn a_failed_catchup_commit_rolls_back_shared_spacing_and_canonical_acceptance() {
+    let mut f = Fixture::new();
+    let job = f
+        .storage
+        .create_orchestration_job(f.definition(None, "rollback"))
+        .unwrap();
+    f.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE orchestration_jobs SET pending_revision=revision,pending_ms=1000",
+            [],
+        )
+        .unwrap();
+    f.storage.connection().unwrap().execute_batch("CREATE TRIGGER fail_job_run BEFORE INSERT ON orchestration_job_runs BEGIN SELECT RAISE(ABORT,'injected run commit failure'); END;").unwrap();
+    let input = JobRunInput {
+        job_id: job.id.clone(),
+        expected_revision: 1,
+        slot_ms: 2000,
+        manual_operation_id: None,
+        originator: tmt_core::request::Originator::Unknown,
+    };
+    assert!(f.storage.run_orchestration_job(input, 3, || 2000).is_err());
+    assert_eq!(
+        crate::storage::requests::digest_wake::clock(f.storage.connection().unwrap())
+            .unwrap()
+            .next_admission_ms,
+        0
+    );
+    assert_eq!(
+        f.storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM request_attempts", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        f.storage
+            .orchestration_job(&job.id)
+            .unwrap()
+            .unwrap()
+            .pending
+            .unwrap()
+            .at_ms,
+        1000
+    );
+}

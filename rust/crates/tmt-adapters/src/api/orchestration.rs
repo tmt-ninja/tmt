@@ -23,3 +23,19 @@ pub(super) fn write_error(e: crate::orchestration::OrchReadFailure) -> Fault {
         crate::orchestration::OrchReadFailure::Storage(e)=>Fault::new("ORCH_STORAGE_UNAVAILABLE","Orchestration write could not be confirmed; inspect its configuration revision before retrying.").with_storage_access(e, "The write could not be confirmed. Inspect its current configuration revision before retrying."),
     }
 }
+
+pub(super) fn run_job(
+    storage: &mut Storage,
+    selector: Option<super::DispatchIdentity>,
+    input: crate::orchestration::JobRunDocument,
+    settings: tmt_core::settings::Settings,
+) -> Result<Vec<u8>, Fault> {
+    let (originator, _) = super::dispatch::originator(storage, selector)?;
+    crate::orchestration::execute_job(
+        storage,
+        input.into_input(originator),
+        &settings,
+        wall_time_ms,
+    )
+    .map_err(write_error)
+}

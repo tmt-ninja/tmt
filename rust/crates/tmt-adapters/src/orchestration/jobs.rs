@@ -1,7 +1,7 @@
 //! Job wire/calendar conversion and public projection.
 mod execution;
 mod read;
-pub use execution::execute_job;
+pub use execution::{JobRunDocument, execute_job};
 pub(crate) mod write;
 pub(crate) use read::read;
 

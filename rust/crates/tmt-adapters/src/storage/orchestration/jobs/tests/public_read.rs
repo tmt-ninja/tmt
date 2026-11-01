@@ -201,3 +201,29 @@ fn strict_jobs_queries_and_missing_job_keep_bounded_error_codes() {
     assert_eq!(error.exit(), 3);
     assert_eq!(count(&f, "orchestration_jobs"), 0);
 }
+
+#[test]
+fn a_released_but_unadmitted_catchup_stays_visible_as_held() {
+    let mut f = Fixture::new();
+    let job = f
+        .storage
+        .create_orchestration_job(f.definition(None, "held"))
+        .unwrap();
+    f.storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE orchestration_jobs SET pending_revision=revision,pending_ms=1000 WHERE id=?",
+            [&job.id],
+        )
+        .unwrap();
+    let bytes = crate::orchestration::orchestration_read(
+        &f.storage,
+        crate::orchestration::OrchReadQuery::Job { job_id: job.id },
+        1_790_000_000_000,
+    )
+    .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["job"]["state"], "held");
+    assert_eq!(v["job"]["heldSlot"]["atMs"], 1000);
+}
