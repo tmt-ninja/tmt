@@ -17,6 +17,7 @@ import { HistoryExtension } from '@lexical/history';
 import {
   CLEAR_HISTORY_COMMAND,
   defineExtension,
+  $setSelection,
   HISTORY_PUSH_TAG,
   SKIP_DOM_SELECTION_TAG,
   type LexicalEditor,
@@ -217,13 +218,16 @@ function Editor(props: RichInputProps) {
     reset.current = props.resetKey;
     const shown = editor.getEditorState().read($read);
     if (!explicit && same(shown, props.value)) return;
-    editor.update(() => $write(props.value), {
+    const inside = editor.getRootElement()?.contains(document.activeElement) ?? false;
+    editor.update(
+      () => {
+        $write(props.value);
+        // An editor the user is not in keeps no selection, so attaching its root never takes focus.
+        if (!inside) $setSelection(null);
+      },
       // A background replacement must not move the caret of an editor the user is not in.
-      tag: editor.getRootElement()?.contains(document.activeElement)
-        ? RESET_TAG
-        : [RESET_TAG, SKIP_DOM_SELECTION_TAG],
-      discrete: true,
-    });
+      { tag: inside ? RESET_TAG : [RESET_TAG, SKIP_DOM_SELECTION_TAG], discrete: true },
+    );
     editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
   }, [editor, props.value, props.resetKey]);
   // Lexical creates its decorator hosts while ContentEditable attaches; read them again before paint.

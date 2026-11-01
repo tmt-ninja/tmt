@@ -10,8 +10,7 @@ import {
   Pin,
   Plus,
   Search,
-  SlidersHorizontal,
-  X,
+  ArrowUpDown,
 } from 'lucide-react';
 import { BrowserTopBar, useTopBarReady } from '../src/react.js';
 import {
@@ -32,6 +31,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Empty,
@@ -39,18 +40,15 @@ import {
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Skeleton,
   Surface,
   Tabs,
+  TabsBar,
   TabsList,
   TabsTrigger,
   TooltipProvider,
 } from '../src/ui/index.js';
+import { RichInput, emptyRichInputValue, type RichInputValue } from '../src/rich-input/index.js';
 import { StatePanel, type StateControl } from './mock-reader.js';
 import { follow, setQuery, useQuery } from './router.js';
 
@@ -261,31 +259,45 @@ function ListBar({ needs }: { needs: boolean }) {
   ) : null;
 }
 
+const designChip = { kind: 'project', text: 'project:design', range: { start: 0, end: 14 } };
+
+/** The search row (#5821 C2): the chip search takes the row, then Filter and Sort, bordered at
+ * control-size-l; under 760px both turn square. */
 function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
+  const [search, setSearch] = useState<RichInputValue>(
+    filtered ? { value: 'project:design ', chips: [designChip] } : emptyRichInputValue,
+  );
+  const [sort, setSort] = useState('updated');
   return (
     <div className="list-controls" data-stuck={stuck || undefined}>
-      <label className="list-search">
-        <Search aria-hidden="true" />
-        {filtered && (
-          <Badge variant="secondary" className="list-condition">
-            project: design
-            <button
-              type="button"
-              aria-label="Remove project: design"
-              onClick={() => setQuery({ filter: null })}
-            >
-              <X aria-hidden="true" />
-            </button>
-          </Badge>
-        )}
-        <input placeholder="Search pages…" aria-label="Search pages" />
-      </label>
+      <RichInput
+        shape="single"
+        label="Search pages"
+        placeholder="Search pages, or type project:"
+        value={search}
+        resetKey={filtered ? 'filtered' : 'all'}
+        onChange={(next) => {
+          setSearch(next);
+          const has = next.chips.some((chip) => chip.text === 'project:design');
+          if (has !== filtered) setQuery({ filter: has ? '1' : null });
+        }}
+        leading={<Search aria-hidden="true" />}
+        removeLabel={(_, text) => `Remove ${text}`}
+        suggestions={[
+          {
+            kind: 'project',
+            trigger: 'project:',
+            options: (text) =>
+              ['design', 'spec', 'release-0.9', 'night-shift']
+                .filter((name) => name.startsWith(text))
+                .map((name) => ({ text: `project:${name}` })),
+          },
+        ]}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" className="list-control" aria-label="Filter">
+          <Button type="button" variant="outline" collapseLabel="Filter">
             <ListFilter aria-hidden="true" />
-            <span className="list-wide">Filter</span>
-            <ChevronDown className="list-wide" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -304,32 +316,19 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
           <DropdownMenuCheckboxItem>Include archived</DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <span className="list-wide">
-        <Select defaultValue="updated">
-          <SelectTrigger aria-label="Sort" className="list-control">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="updated">Recently updated</SelectItem>
-            <SelectItem value="title">Title</SelectItem>
-          </SelectContent>
-        </Select>
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="list-control list-phone"
-        aria-label="Sort"
-      >
-        <SlidersHorizontal aria-hidden="true" />
-      </Button>
-      {stuck && (
-        <Button type="button" className="list-control">
-          <Plus aria-hidden="true" />
-          <span className="list-wide">New page</span>
-        </Button>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" collapseLabel="Sort">
+            <ArrowUpDown aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuRadioGroup value={sort} onValueChange={setSort}>
+            <DropdownMenuRadioItem value="updated">Recently updated</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="title">Title</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -518,7 +517,6 @@ export const listControls: StateControl[] = [
 
 const listMissing = [
   'Tabs count slot: a muted count after the label (here a span in the trigger).',
-  'Search field with leading icon and condition chips inside (here a label around an input).',
   'Stage chip: dot and word in the stage hue (here a styled span).',
   'Project chip with its hue dot: an outline Badge plus a dot.',
   'Data table: header, selection column, row hover actions, column hiding at the compact width (here a table with classes).',
@@ -550,14 +548,6 @@ export function ListScreen({
     <TooltipProvider>
       <ListBar needs={needs} />
       <div className="list-page">
-        <header className="list-hero">
-          <Button type="button" variant="outline">
-            <Bookmark aria-hidden="true" /> Save as shortcut
-          </Button>
-          <Button type="button">
-            <Plus aria-hidden="true" /> New page
-          </Button>
-        </header>
         {data !== 'empty' && (
           <ul className="list-pins" aria-label="Pinned pages">
             {rows
@@ -584,13 +574,27 @@ export function ListScreen({
           </ul>
         )}
         <Tabs value={view} onValueChange={setView}>
-          <TabsList variant="line" className="list-tabs" aria-label="Page views">
-            {views.map(([id, label, count]) => (
-              <TabsTrigger key={id} value={id}>
-                {label} <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <TabsBar
+            className="list-tabs-row"
+            actions={
+              <>
+                <Button type="button" variant="outline" collapseLabel="Save as shortcut">
+                  <Bookmark aria-hidden="true" />
+                </Button>
+                <Button type="button" collapseLabel="New page">
+                  <Plus aria-hidden="true" />
+                </Button>
+              </>
+            }
+          >
+            <TabsList variant="line" className="list-tabs" aria-label="Page views">
+              {views.map(([id, label, count]) => (
+                <TabsTrigger key={id} value={id}>
+                  {label} <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </TabsBar>
         </Tabs>
         <Controls
           stuck={query.get('sticky') === '1'}

@@ -8,11 +8,6 @@
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-ref-size-3);
 }
-.list-hero {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--tmt-ui-ref-space-2);
-}
 .list-pins {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -74,15 +69,13 @@
   font-weight: 400;
 }
 .list-tabs {
-  width: 100%;
   justify-content: flex-start;
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: 0;
 }
 .list-tabs [data-slot='tabs-trigger'] {
   flex: none;
 }
-/* #5818: one row, one height: search, Filter, sort (and New page when stuck), 8px apart. */
+/* #5818, #5821 C2: one row, one height: the chip search, then Filter and Sort, 8px apart. */
 .list-controls {
   position: sticky;
   top: var(--tmt-ui-header-height);
@@ -101,60 +94,6 @@
   padding-block: 10px;
   border-bottom-color: var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-paper);
-}
-.list-search {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--tmt-ui-ref-space-2);
-  height: 36px;
-  padding: 0 var(--tmt-ui-ref-space-3);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  background: var(--tmt-ui-surface-field);
-  cursor: text;
-}
-.list-search:focus-within {
-  border-color: var(--tmt-ui-color-focus);
-}
-.list-search > svg {
-  flex: none;
-  width: 16px;
-  color: var(--tmt-ui-color-secondary);
-}
-.list-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: none;
-  color: var(--tmt-ui-color-text);
-  font: var(--tmt-ui-ref-size-4) var(--tmt-ui-font-body);
-}
-.list-condition {
-  flex: none;
-  gap: var(--tmt-ui-ref-space-1);
-  font-family: var(--tmt-ui-font-mono);
-}
-.list-condition button {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-.list-condition svg {
-  width: 12px;
-  height: 12px;
-}
-.list-control,
-.list-controls [data-slot='select-trigger'] {
-  height: 36px;
-}
-.list-phone {
-  display: none;
 }
 .list-status {
   margin: 0;
@@ -313,21 +252,8 @@ tr[data-unread] .list-title a {
   .list-pins {
     grid-template-columns: minmax(0, 1fr);
   }
-  .list-hero > :first-child {
-    display: none;
-  }
   .list-tabs {
     overflow-x: auto;
-  }
-  .list-wide {
-    display: none;
-  }
-  .list-phone {
-    display: inline-flex;
-  }
-  .list-control {
-    width: 36px;
-    padding: 0;
   }
   .list-col-project,
   .list-col-author,
@@ -354,14 +280,6 @@ tr[data-unread] .list-title a {
   .list-needs-label {
     display: none;
   }
-}
-.list-search {
-  min-width: 0;
-}
-.list-condition {
-  overflow: hidden;
-  max-width: 50%;
-  text-overflow: ellipsis;
 }
 
 /* Menu screens (#5821 note 8): Manage shortcuts and Colab settings. */
@@ -447,4 +365,12 @@ tr[data-unread] .list-title a {
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-code);
   font: var(--tmt-ui-ref-size-3) var(--tmt-ui-font-mono);
+}
+
+.list-controls > .tmt-rich-input {
+  flex: 1;
+  min-width: 0;
+}
+.list-tabs-row {
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }

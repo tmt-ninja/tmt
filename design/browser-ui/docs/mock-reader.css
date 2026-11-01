@@ -434,120 +434,11 @@
 }
 
 /* The floating actions capsule, bottom right. */
-.reader-fab {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 20;
-  display: flex;
-  overflow: hidden;
-  border-radius: var(--tmt-ui-radius-pill);
-}
-.reader-fab > * + * {
-  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.reader-fab .reader-fab-button {
-  position: relative;
-  min-width: 40px;
-  height: 40px;
-  padding: 0 var(--tmt-ui-ref-space-3);
-  border: 0;
-  border-radius: 0;
-}
-.reader-fab .reader-fab-button[aria-expanded='true'] {
-  background: var(--tmt-ui-surface-selection);
-}
-.reader-fab-count {
-  font: var(--tmt-ui-ref-size-2) var(--tmt-ui-font-mono);
-}
 /* The Chat unread dot (#5813): 8px in the waiting hue with a 2px ring in the sheet colour. */
-.reader-dot {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--tmt-ui-radius-pill);
-  background: var(--tmt-ui-color-waiting);
-  box-shadow: 0 0 0 2px var(--tmt-ui-surface-sheet);
-}
 
 /* The discussion window opens out of the dock: 12px under the nav to above the dock (#5817). */
-.reader-window {
-  position: fixed;
-  top: calc(var(--tmt-ui-header-height) + 12px);
-  right: 24px;
-  bottom: calc(24px + 40px + 12px);
-  z-index: 19;
-  display: flex;
-  flex-direction: column;
-  width: 360px;
-  overflow: hidden;
-  font: var(--tmt-ui-ref-size-4) / 1.5 var(--tmt-ui-font-body);
-  animation: reader-window var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
-  transform-origin: bottom right;
-}
-@keyframes reader-window {
-  from {
-    opacity: 0;
-    scale: var(--tmt-ui-motion-scale);
-  }
-}
-.reader-window-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--tmt-ui-ref-space-2);
-  padding: var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-2)
-    var(--tmt-ui-ref-space-4);
-  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-}
-.reader-window-bar > * {
-  flex: none;
-  white-space: nowrap;
-}
-.reader-window-bar > .reader-grow {
-  flex: 1;
-}
-.reader-window-bar:has(.reader-position) {
-  gap: 2px;
-}
-.reader-position {
-  margin-inline: var(--tmt-ui-ref-space-1);
-  font-variant-numeric: tabular-nums;
-}
+
 /* Main's header icon actions are text actions a step smaller than a toolbar button. */
-.reader-bar-icon {
-  width: 28px;
-  height: 28px;
-}
-.reader-bar-rule {
-  height: 16px;
-  margin-inline: var(--tmt-ui-ref-space-1);
-}
-.reader-thread-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-2);
-  padding: var(--tmt-ui-ref-space-2);
-  border: 0;
-  border-radius: var(--tmt-ui-radius);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.reader-thread-row > .reader-quiet {
-  grid-column: 2;
-}
-.reader-thread-row:hover,
-.reader-thread-row[data-selected] {
-  background: var(--tmt-ui-surface-hover);
-}
-.reader-thread-row:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-}
 .reader-show-resolved {
   justify-self: start;
 }
@@ -568,21 +459,6 @@
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-ref-space-2);
-}
-.reader-window-body {
-  display: grid;
-  align-content: start;
-  gap: var(--tmt-ui-ref-space-4);
-  flex: 1;
-  overflow: auto;
-  padding: var(--tmt-ui-ref-space-4);
-}
-.reader-window-foot {
-  display: grid;
-  justify-items: end;
-  gap: var(--tmt-ui-ref-space-2);
-  padding: var(--tmt-ui-ref-space-3) var(--tmt-ui-ref-space-4);
-  border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
 .reader-thread {
   display: grid;
@@ -705,16 +581,6 @@
   .reader-row-more {
     opacity: 1;
   }
-  .reader-window {
-    top: calc(var(--tmt-ui-header-height) + 12px);
-    right: 12px;
-    left: 12px;
-    width: auto;
-  }
-  .reader-fab {
-    right: 16px;
-    bottom: 16px;
-  }
   .reader-states {
     left: 8px;
     right: auto;
@@ -734,4 +600,23 @@
 }
 .reader-composer-anchor > .reader-composer {
   top: calc(var(--tmt-ui-ref-space-2) * -1);
+}
+
+/* The discussion window's counter and the resolve report, inside the design-system FloatingWindow. */
+.reader-counter {
+  padding: 0 var(--tmt-ui-ref-space-1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.reader-report {
+  margin-bottom: var(--tmt-ui-ref-space-3);
+}
+
+.reader-composer-stack {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-1);
+}
+.reader-hint {
+  margin: 0;
+  font-size: var(--tmt-ui-ref-size-1);
 }
