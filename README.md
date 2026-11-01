@@ -6,8 +6,12 @@
 
 ## The story
 
-tmt began as a question: how far can you get building a product from documents
-and specs alone? We put a team of agents on it. Leads, implementers, reviewers
+tmt began as a question: 
+
+> How far can you get building a product **from documents
+and specs alone**? 
+
+We put a team of agents on it. Leads, implementers, reviewers
 and a night shift work around the clock from those documents, and the product
 they build and iterate on is tmt itself.
 
@@ -16,7 +20,9 @@ and yours to host and scale.
 
 What exists today is the core: a layer that abstracts the agent harness and the
 terminal, so agents in Claude Code, Codex and others can reach each other
-wherever they run. On top of it we are trying out new ways for agents to work
+wherever they run. 
+
+On top of it we are trying out new ways for agents to work
 together: squads on a live board, message digests, and shared pages that people
 and agents edit side by side. Expect those parts to change.
 
