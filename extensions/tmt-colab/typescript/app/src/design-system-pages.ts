@@ -355,14 +355,13 @@ async function fillFromTemplate(
       await withPage(transport, sectionId, async (sectionPage) => {
         for (const doc of section.pages) {
           const component = section.title === 'Components' ? live.get(doc.slug) : undefined;
-          const title = component ? `${prefix}-${component.tag}` : doc.title;
           const id = await make(
             sectionPage,
-            title,
+            doc.title,
             component ? componentPageSource(component, prefix) : doc.html,
           );
           if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
-          made.push({ id, title });
+          made.push({ id, title: doc.title });
         }
       });
       await withPage(transport, sectionId, async (sectionPage) => {
@@ -416,6 +415,8 @@ export interface DesignTreeNode {
   title: string;
   /** The page's data-block kind; `page` for a docs page with no block. */
   kind: BlockKind | 'page';
+  /** A component page's tag without the system prefix, shown beside its title. */
+  tag?: string;
   children: DesignTreeNode[];
 }
 /** A design system as the Design tab's switcher and header show it. */
@@ -438,9 +439,10 @@ async function treeOf(
   titles: ReadonlyMap<string, string>,
   depth: number,
 ): Promise<DesignTreeNode> {
+  const component = readBlock<ComponentDoc>(page.source, 'component');
   const kind: DesignTreeNode['kind'] = readBlock(page.source, 'design-system')
     ? 'design-system'
-    : readBlock(page.source, 'component')
+    : component
       ? 'component'
       : 'page';
   const children =
@@ -451,7 +453,13 @@ async function treeOf(
             withPage(transport, child, (sub) => treeOf(transport, sub, titles, depth + 1)),
           ),
         );
-  return { id: page.id, title: titles.get(page.id) ?? page.title, kind, children };
+  return {
+    id: page.id,
+    title: titles.get(page.id) ?? page.title,
+    kind,
+    ...(component?.tag && { tag: component.tag }),
+    children,
+  };
 }
 function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): DesignSystemEntry {
   return {

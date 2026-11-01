@@ -164,7 +164,8 @@ for (const width of [1440, 390])
       if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
       await page
         .getByRole('navigation', { name: 'Brio pages', exact: true })
-        .getByRole('link', { name: 'brio-button', exact: true })
+        // The tree shows each page's title, and a component page's tag under it.
+        .getByRole('link', { name: /^Button\s*brio-button$/ })
         .click();
       await expect(
         designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),

@@ -36,6 +36,12 @@
   text-decoration: none;
   border-radius: var(--tmt-ui-radius);
 }
+.design-page-tree-tag {
+  display: block;
+  font-family: var(--tmt-ui-font-mono);
+  font-size: var(--tmt-ui-type-caption-size);
+  color: var(--tmt-ui-color-secondary);
+}
 .design-page-tree a[aria-current] {
   background: var(--tmt-ui-surface-hover);
 }

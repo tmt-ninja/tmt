@@ -27,12 +27,14 @@ function Tree({
   node,
   current,
   rootId,
+  prefix,
   base,
   navigate,
 }: {
   node: DesignTreeNode;
   current: string;
   rootId: string;
+  prefix: string;
   base: string;
   navigate(href: string): void;
 }) {
@@ -56,6 +58,7 @@ function Tree({
         }}
       >
         {node.title}
+        {node.tag && <span className="design-page-tree-tag">{`${prefix}-${node.tag}`}</span>}
       </a>
       {node.children.length > 0 && (
         <ul>
@@ -65,6 +68,7 @@ function Tree({
               node={child}
               current={current}
               rootId={rootId}
+              prefix={prefix}
               base={base}
               navigate={navigate}
             />
@@ -271,6 +275,7 @@ export function DesignLibrary({
                       node={selected.tree}
                       current={page?.id ?? ''}
                       rootId={selected.id}
+                      prefix={selected.prefix}
                       base={base}
                       navigate={go}
                     />

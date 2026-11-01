@@ -226,9 +226,11 @@ describe('template, publish and the renderer source', () => {
     });
     const [foundations, components, patterns] = systems[0]!.tree.children;
     expect(foundations!.children.map((page) => page.title)).toContain('Colour');
-    expect(components!.children.find((page) => page.kind === 'component')?.title).toBe(
-      'acme-button',
-    );
+    // Every page shows its title; a component page also names its tag.
+    expect(components!.children.find((page) => page.kind === 'component')).toMatchObject({
+      title: 'Button',
+      tag: 'button',
+    });
     expect(components!.children.length).toBeGreaterThan(20);
     expect(patterns!.children.length).toBeGreaterThan(10);
     const listed = withoutDesignSystems(await transport.spaceHome());
