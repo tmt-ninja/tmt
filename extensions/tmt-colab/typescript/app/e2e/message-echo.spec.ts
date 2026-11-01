@@ -327,9 +327,16 @@ for (const surface of ['reply', 'chat']) {
     const empty = await place();
     await input.press('Enter');
     await expect(page.locator('.annotation-send-notice')).toContainText('(ref S13)');
-    // A one-line notice fills the composer's reserved slot: the field neither moves nor grows
-    // (#5911). Chat's narrow composer wraps this notice and its next step onto a second line.
-    if (surface === 'reply') expect(await place()).toEqual(empty);
+    // The notice fills the composer's reserved slot: the field neither moves nor grows (#5911).
+    // In Chat's narrow composer this long notice and its next step stay on one line, the notice
+    // ending in an ellipsis, its whole text in its name and its tip.
+    expect(await place()).toEqual(empty);
+    const notice = page.locator('.annotation-send-notice');
+    await expect(notice).toHaveCSS('text-overflow', 'ellipsis');
+    await notice.focus();
+    await expect(page.locator('.notice-line-tip').first()).toContainText(
+      (await notice.textContent())!.trim(),
+    );
     // Recorded: no Retry and no restored draft, which would send it twice.
     await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
     await expect(echo(page).getByRole('button', { name: 'Retry' })).toHaveCount(0);

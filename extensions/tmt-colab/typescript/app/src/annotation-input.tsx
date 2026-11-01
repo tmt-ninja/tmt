@@ -34,6 +34,8 @@ import {
 } from './message-send-refusal.js';
 import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
+import { NoticeLine } from './components/notice-line.js';
+import { rememberEchoMessage } from './message-attachments.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
@@ -391,7 +393,10 @@ export function AnnotationInput({
           : await discussion!.create(captured.value, captured.anchor, attach);
       onRecorded?.();
       stage = 'dispatch';
-      if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
+      if (echoed) {
+        rememberEchoMessage(echoed.local, origin.message);
+        echoHost?.show((echoed = { ...echoed, message: origin.message }));
+      }
       files.committed();
       const deliveries: MessageEcho['deliveries'][number][] = [];
       const failures = await sendCommentAsks(
@@ -499,7 +504,7 @@ export function AnnotationInput({
     </div>
   );
   const sendFailureNotice = error && (
-    <p
+    <NoticeLine
       key={error.occurrence}
       ref={failureNotice}
       role="alert"
@@ -513,7 +518,7 @@ export function AnnotationInput({
       )}
       {messageSendCopy(error.reference, decision.agents[0]?.agentName)}{' '}
       {text.messageSendReference(error.reference)}
-    </p>
+    </NoticeLine>
   );
   if (archived)
     return (

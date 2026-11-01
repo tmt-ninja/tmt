@@ -490,12 +490,13 @@ test('an epoch or admission change disposes and rereads the visible thumbnail', 
   await send(page).click();
   const png = panel.getByTestId('message-attachment');
   await expect(png.locator('img')).toBeVisible();
+  const opens = async () =>
+    (await actions(page)).filter((a) => a.startsWith('attach:open:shot.png')).length;
+  // The record's own read lands first: the echo's drawn image is visible before it.
+  await expect.poll(opens).toBe(1);
   await page.evaluate(async (path) => (await import(path)).advanceDisclosure(), fixture);
-  await expect
-    .poll(
-      async () => (await actions(page)).filter((a) => a.startsWith('attach:open:shot.png')).length,
-    )
-    .toBe(2);
+
+  await expect.poll(opens).toBe(2);
   await expect(png.locator('img')).toBeVisible();
 });
 
@@ -538,4 +539,29 @@ test('stacked downloads stay clickable through a tooltip and dismiss it on activ
   await page.keyboard.press('Escape');
   await expect(tooltip).toHaveCount(0);
   await expect(panel).toBeHidden();
+});
+
+test('a sent image keeps its drawn element and height when its echo becomes the record (#5911)', async ({
+  page,
+}) => {
+  await mount(page);
+  const { panel, input } = await openChat(page);
+  await input.fill('Look');
+  await attach(page, [{ name: 'shot.png', mimeType: 'image/png', buffer: PNG }]);
+  await page.evaluate(async (fixture) => (await import(fixture)).holdReply(), fixture);
+  await send(page).click();
+  const echoed = panel.getByTestId('comment-echo').locator('.attachment-thumbnail img');
+  await expect(echoed).toHaveJSProperty('complete', true);
+  await echoed.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+  const height = (await echoed.boundingBox())!.height;
+  await page.evaluate(async (fixture) => (await import(fixture)).releaseReply(), fixture);
+  const recorded = panel.getByTestId('comment-entry').locator('.attachment-thumbnail img');
+  await expect(recorded).toHaveCount(1);
+  await expect(panel.getByTestId('comment-echo')).toHaveCount(0);
+  // The same image element, still drawn: the row neither blanks nor reloads its thumbnail.
+  expect(await recorded.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(
+    true,
+  );
+  expect((await recorded.boundingBox())!.height).toBe(height);
+  await expect(recorded).toHaveJSProperty('complete', true);
 });
