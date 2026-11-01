@@ -87,13 +87,14 @@ test('one knob sets every radius in the scope, and pills stay round only where t
   expect(await radius('2px', 'radius-pill')).toBe('999px');
 });
 
-test('the shadcn set follows the scope: its primary reads the accent primitive', async ({
+test('the shadcn set follows the scope: its primary fill reads the accent-fill primitive', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/?frame=theme-b&theme=dark&radius=2');
   const send = page.getByRole('button', { name: 'Send', exact: true }).first();
-  await expect(send).toHaveCSS('background-color', rgb(tokens.browser.ref['red-500']));
+  // red-600, not the brand red-500: white text on a filled control keeps 4.5:1.
+  await expect(send).toHaveCSS('background-color', rgb(tokens.browser.ref['red-600']));
   await expect(send).toHaveCSS('border-top-left-radius', '2px');
   await page.getByRole('button', { name: '4 / 6' }).click();
   await expect(send).toHaveCSS('border-top-left-radius', '4px');

@@ -148,7 +148,7 @@
   --tmt-foundation-card-foreground: var(--tmt-ui-color-text);
   --tmt-foundation-popover: var(--tmt-ui-surface-sheet);
   --tmt-foundation-popover-foreground: var(--tmt-ui-color-text);
-  --tmt-foundation-primary: var(--tmt-ui-color-accent);
+  --tmt-foundation-primary: var(--tmt-ui-color-accent-fill);
   --tmt-foundation-primary-foreground: var(--tmt-ui-color-on-accent);
   --tmt-foundation-secondary: var(--tmt-ui-surface-command);
   --tmt-foundation-secondary-foreground: var(--tmt-ui-color-text);

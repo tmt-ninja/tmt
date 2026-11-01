@@ -15,11 +15,12 @@ const buttonVariants = cva(
           'tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground',
         destructive:
           'tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring',
+        // A <button> does not inherit colour (the UA sets buttontext), so every variant names its ink.
         outline:
-          'tmt:border-input tmt:bg-background tmt:hover:bg-accent tmt:hover:text-accent-foreground',
+          'tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground',
         secondary:
           'tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary',
-        ghost: 'tmt:hover:bg-accent tmt:hover:text-accent-foreground',
+        ghost: 'tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground',
         link: 'tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline',
       },
       size: {

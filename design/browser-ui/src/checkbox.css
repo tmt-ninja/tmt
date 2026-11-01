@@ -58,8 +58,8 @@
 .tmt-ui-checkbox[data-state='checked'],
 .tmt-ui-checkbox[data-state='indeterminate'] {
   color: var(--tmt-ui-color-on-accent);
-  background: var(--tmt-ui-color-accent);
-  border-color: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-color-accent-fill);
+  border-color: var(--tmt-ui-color-accent-fill);
 }
 .tmt-ui-checkbox:not(:disabled):hover {
   background: var(--tmt-ui-surface-hover);

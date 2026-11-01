@@ -282,7 +282,7 @@
 }
 .reader-marker[data-resolved] {
   background-color: var(--tmt-ui-surface-rule);
-  color: var(--tmt-ui-color-secondary);
+  color: var(--tmt-ui-color-text);
 }
 .reader-marker[data-selected] {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);

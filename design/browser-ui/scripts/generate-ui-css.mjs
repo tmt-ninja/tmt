@@ -19,7 +19,7 @@ const roles = {
   'card-foreground': ['color', 'text'],
   popover: ['surface', 'sheet'],
   'popover-foreground': ['color', 'text'],
-  primary: ['color', 'accent'],
+  primary: ['color', 'accent-fill'],
   'primary-foreground': ['color', 'on-accent'],
   secondary: ['surface', 'command'],
   'secondary-foreground': ['color', 'text'],

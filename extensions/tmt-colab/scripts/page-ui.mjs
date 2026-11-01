@@ -12,10 +12,10 @@ import { readFile } from 'node:fs/promises';
 // to what an author page can use and lowers this to its new exact figure.
 // #5815 PR B over #5839: 125,199 -> 127,214 (+2,015), exact Linux measurement.
 // https://github.com/tmt-ninja/tmt/actions/runs/41228247377/job/124616827384.
-// #5821 palette B over #5840: its scope, ref tier, elevation scale, brand mark and the text-action role,
-// 127,214 -> 143,641, temporary until B becomes the default and deletes the current blocks; pending GUI
-// approval with the Linux CI measurement on its PR.
-export const PAGE_UI_LIMIT = 143_641;
+// #5821 palette B over #5840: its scope, ref tier, elevation scale, brand mark, and the text-action and
+// accent-fill roles, 127,214 -> 144,011, temporary until B becomes the default and deletes the current
+// blocks; pending GUI approval with the Linux CI measurement on its PR.
+export const PAGE_UI_LIMIT = 144_011;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
