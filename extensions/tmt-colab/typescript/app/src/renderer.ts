@@ -1,6 +1,12 @@
 import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
 import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
+import {
+  loadDesignSystem,
+  namesDesignSystem,
+  noticeFrame,
+  type DesignSystemSource,
+} from './design-system.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
@@ -156,7 +162,7 @@ export const SOURCE_UPDATE_MS = 2000;
  * fresh frame; any other page only by whether it uses the design system, which bind fixes. The text
  * test over-approximates the frame's parsed check: a false match only costs a remount. */
 export function sourceFrameKey(source: string): string {
-  if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime/i.test(source)) return `scripted:${source}`;
+  if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime|tmt-ds/i.test(source)) return `scripted:${source}`;
   return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
 }
 /** What an in-place update came to: the frame applied it, the page needs a fresh frame, or a newer
@@ -206,6 +212,8 @@ export async function mountRenderer(
     images?: DocumentImageInput;
     /** How Colab frames the page; absent is `freeform`, which leaves the author's layout alone. */
     layout?: PageLayout;
+    /** Reads the bundle a page pins with `<meta name="tmt-ds">` (#5821); absent draws the notice. */
+    designSystem?: DesignSystemSource;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -1254,7 +1262,12 @@ export async function mountRenderer(
   options.signal.addEventListener('abort', destroy, { once: true });
   // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
   const base = rendererBase();
-  const runtime = wantsRuntime(source) ? loadRuntime(base) : undefined;
+  // A page that pins a design system runs its components on the page runtime, so it loads both.
+  const designSystem = loadDesignSystem(source, options.designSystem).catch(() =>
+    noticeFrame('unknown-release'),
+  );
+  const runtime =
+    wantsRuntime(source) || namesDesignSystem(source) ? loadRuntime(base) : undefined;
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
@@ -1269,6 +1282,8 @@ export async function mountRenderer(
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
     let bundle: PageRuntime | undefined;
+    const ds = await designSystem;
+    if (stopped) return;
     if (runtime) {
       try {
         bundle = await runtime;
@@ -1285,6 +1300,7 @@ export async function mountRenderer(
         theme: getTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(bundle ? { runtime: bundle } : {}),
+        ...(bundle && ds ? { ds } : {}),
       },
       '*',
       [channel.port2],

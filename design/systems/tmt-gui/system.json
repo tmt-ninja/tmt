@@ -4,8 +4,37 @@
   "id": "tmt-gui",
   "name": "tmt GUI",
   "prefix": "tmt-ui",
+  "version": "0.1.0",
   "runtime": "2",
-  "tokens": "design/tokens/tokens.json",
-  "components": [{ "doc": "components/button.json" }],
-  "releases": [{ "version": "0.1.0", "runtime": "2" }]
+  "tokens": {
+    "source": "design/tokens/tokens.json"
+  },
+  "components": [
+    {
+      "doc": "components/button.json"
+    }
+  ],
+  "principles": {
+    "summary": "Red is rare, status is never the accent, corners are small, real components only, one family.",
+    "rules": []
+  },
+  "patterns": [],
+  "site": {
+    "nav": [
+      "Getting started",
+      "Foundations",
+      "Components",
+      "Patterns",
+      "Mocks"
+    ],
+    "controls": [
+      "theme",
+      "radius"
+    ],
+    "previewWidths": [
+      1440,
+      390
+    ]
+  },
+  "releases": []
 }
