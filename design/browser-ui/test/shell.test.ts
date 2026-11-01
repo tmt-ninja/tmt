@@ -38,15 +38,15 @@ const remote: ShellModule = {
 };
 const answer: ShellAnswer = { version: 1, modules: [colab, remote] };
 
-it('orders Home, the described modules, Ops, Digest, then TMT settings at the bottom', () => {
+it('orders Home, Colab, Design, Remote, Ops, Digest, then TMT settings at the bottom', () => {
   const rail = shellRail(answer, { origin, href: `${origin}/` });
   expect(rail.main.map((item) => [item.id, item.href, item.current])).toEqual([
     ['home', `${origin}/`, true],
     ['colab', `${origin}/r/abc/x/colab/`, false],
+    ['design', `${origin}/colab/design/`, false],
     ['remote', `${origin}/remote/`, false],
     ['ops', `${origin}/ops/`, false],
     ['digest', `${origin}/digest/`, false],
-    ['design', `${origin}/colab/design/`, false],
   ]);
   expect(
     shellRail(answer, { origin, href: `${origin}/ops/` })
@@ -89,10 +89,10 @@ it('shows the same rail items on every route, with or without an answer, whateve
   const expected = [
     ['home', 'Home', 'house'],
     ['colab', 'Colab', 'file-text'],
+    ['design', 'Design', 'palette'],
     ['remote', 'Remote', 'monitor-smartphone'],
     ['ops', 'Ops', 'users'],
     ['digest', 'Digest', 'chart-column'],
-    ['design', 'Design', 'palette'],
     ['settings', 'TMT settings', 'settings'],
   ];
   for (const known of [answer, undefined])
@@ -142,10 +142,10 @@ it("keeps an extension's extra module beside its primary, by the longest path (#
   expect(rail.main.map((item) => [item.id, item.href])).toEqual([
     ['home', `${origin}/`],
     ['colab', `${origin}/r/abc/x/colab/`],
+    ['design', `${origin}/r/abc/design/`],
     ['remote', `${origin}/remote/`],
     ['ops', `${origin}/ops/`],
     ['digest', `${origin}/digest/`],
-    ['design', `${origin}/r/abc/design/`],
     ['remote:lab', `${origin}/remote/lab/`],
   ]);
   // Attention comes from the primaries only: Colab 2 + Remote 1.
