@@ -92,9 +92,9 @@
    until a refusal fills it. */
 .annotation-compose .annotation-notice-slot {
   /* Whole pixels: a fractional slot would round the history's pinned end differently each frame. */
-  min-height: round(up, calc(var(--tmt-ui-caption-size) * 1.5), 1px);
+  height: round(up, calc(var(--tmt-ui-caption-size) * 1.5), 1px);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   column-gap: 8px;
   margin-bottom: 6px;
@@ -104,8 +104,32 @@
 .annotation-compose .annotation-notice-slot > * {
   min-width: 0;
 }
+/* Every notice is one line: a longer one ends in an ellipsis, its whole text in its tip. */
+.annotation-compose .annotation-notice-slot > [data-testid='recipient-failure'] {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.annotation-compose .annotation-notice-slot .ask-again-action {
+  flex: none;
+}
+.annotation-compose .notice-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.annotation-compose .notice-line:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
 /* A next step follows the notice on its line; its taller hit box does not open the line up. */
-.annotation-compose .annotation-notice-slot > .tmt-ui-action {
+.annotation-compose .annotation-notice-slot .tmt-ui-action {
+  flex: none;
   margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
   padding-inline: 0;
 }

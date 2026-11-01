@@ -4,6 +4,7 @@ import { ConversationPresentation } from './components/conversation-presentation
 import { AskAgainAction } from './ask-again.js';
 import type { AskBinding } from './ask-panel.js';
 import type { MessageSendFailure } from './comment-send.js';
+import { NoticeLine } from './components/notice-line.js';
 import { text } from './strings.js';
 
 /** Retained pre-adoption/uncertain outcomes use the same explicit retry as annotations. */
@@ -29,22 +30,22 @@ export function CommentSendFailures({
           // One row per recipient of a message: a settled row leaves without renaming the rest.
           key={`${failure.message}:${failure.recipient.machine}:${failure.recipient.agent}`}
         >
-          <p>
+          <NoticeLine more={failure.uncertain ? text.askUncertain : undefined}>
             {chat && !failure.uncertain && <span aria-hidden="true">✗ </span>}
             <AgentChip name={failure.agent} /> ·{' '}
-            {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
-            {!failure.uncertain && (
-              <AskAgainAction
-                binding={binding}
-                blocked={blocked}
-                input={failure.input}
-                recipient={failure.recipient}
-                retryOf={null}
-                settled={(outcome) => settled(failure, outcome)}
-              />
-            )}
-          </p>
-          {failure.uncertain && <p className="ask-supporting">{text.askUncertain}</p>}
+            {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
+          </NoticeLine>
+          {/* Beside the words, so a long agent name ends in an ellipsis and Ask again stays. */}
+          {!failure.uncertain && (
+            <AskAgainAction
+              binding={binding}
+              blocked={blocked}
+              input={failure.input}
+              recipient={failure.recipient}
+              retryOf={null}
+              settled={(outcome) => settled(failure, outcome)}
+            />
+          )}
         </div>
       ))}
     </>

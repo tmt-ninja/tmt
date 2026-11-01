@@ -1,9 +1,10 @@
 import { visibleElement } from './visible-element.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { Download } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { RASTER_TYPES } from './attachment-file.js';
 import type { EchoAttachment } from './message-echo.js';
+import type { DiscussionRef } from './thread-records.js';
 import { isRaster, useAttachmentOpener } from './attachment-opener.js';
 import { AttachmentPreview } from './attachment-preview.js';
 import type { AttachmentBinding } from './attachment-service.js';
@@ -11,6 +12,100 @@ import { text } from './strings.js';
 import { AttachmentLabel } from './attachment-tray.js';
 import type { CommentView } from './thread-records.js';
 import './attachment-tray.css';
+
+/** Image elements a leaving tile hands to the tile that takes its place: a sent message's echo to
+ * its recorded turn, or a tile to its own remount in the same read lifetime. The image stays drawn, so the row neither
+ * blanks nor reloads (#5911). A hand-off nobody takes is dropped. */
+const handed = new Map<string, HTMLImageElement>();
+/** Tiles still waiting for an image: a record can mount before its echo leaves. */
+const waiting = new Set<() => void>();
+/** Which sent message an echo became, recorded when its write returns. */
+const echoOf = new Map<string, string>();
+const messageKey = (message: DiscussionRef) => JSON.stringify([message.writer, message.id]);
+export function rememberEchoMessage(local: string, message: DiscussionRef) {
+  echoOf.set(messageKey(message), local);
+  setTimeout(() => echoOf.delete(messageKey(message)), 60_000);
+}
+const handoffKey = (owner: string, index: number, filename: string) =>
+  JSON.stringify([owner, index, filename]);
+
+function TileImage({
+  url,
+  failed,
+  alt,
+  handoff,
+  fallback,
+}: {
+  url?: string;
+  /** The tile's own read failed: an image it took is dropped, never shown in its place. */
+  failed: boolean;
+  alt: string;
+  /** Where this tile's image is taken from when it mounts (the first key holding one) and
+   * handed when it leaves (the first key). */
+  handoff?: () => readonly string[];
+  fallback: ReactNode;
+}) {
+  const host = useRef<HTMLSpanElement>(null);
+  const image = useRef<HTMLImageElement>(null);
+  const key = useRef(handoff);
+  key.current = handoff;
+  const [drawn, setDrawn] = useState(false);
+  useLayoutEffect(() => {
+    const take = () => {
+      const at = key.current?.().find((value) => handed.has(value));
+      if (at === undefined) return undefined;
+      const taken = handed.get(at)!;
+      handed.delete(at);
+      return taken;
+    };
+    let img = take() ?? document.createElement('img');
+    const adopt = () => {
+      const taken = img.getAttribute('src') ? undefined : take();
+      if (!taken && !img.getAttribute('src')) return;
+      waiting.delete(adopt);
+      if (!taken) return;
+      taken.alt = img.alt;
+      img = image.current = taken;
+      host.current!.append(img);
+      setDrawn(true);
+    };
+    image.current = img;
+    // An image enters the page only once it has a source: a tile still reading shows none.
+    if (img.getAttribute('src')) host.current!.append(img);
+    setDrawn(!!img.getAttribute('src'));
+    if (!img.getAttribute('src')) waiting.add(adopt);
+    return () => {
+      waiting.delete(adopt);
+      img.remove();
+      const to = key.current?.()[0];
+      if (to === undefined || !img.getAttribute('src')) return;
+      handed.set(to, img);
+      for (const wake of waiting) wake();
+      setTimeout(() => {
+        if (handed.get(to) === img) handed.delete(to);
+      }, 30_000);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const img = image.current!;
+    img.alt = alt;
+    if (failed) {
+      img.remove();
+      img.removeAttribute('src');
+      setDrawn(false);
+    } else if (url && img.getAttribute('src') !== url) {
+      img.src = url;
+      host.current!.append(img);
+      setDrawn(true);
+    }
+  }, [url, failed, alt]);
+  return (
+    <>
+      <span ref={host} className="attachment-image" hidden={!drawn} />
+      {!drawn && fallback}
+    </>
+  );
+}
 
 /** Visibility admits only the displayed tile, never a hidden overflow image. The read
  * owner retains the verified display copy when a tile scrolls away and returns. */
@@ -21,6 +116,7 @@ function ImageTile({
   load,
   open,
   single,
+  handoff,
 }: {
   item: { filename: string; mediaType: string; size: number };
   url?: string;
@@ -28,6 +124,7 @@ function ImageTile({
   load?(visible: () => boolean): void;
   open?(trigger: HTMLElement): void;
   single: boolean;
+  handoff?: () => readonly string[];
 }) {
   const tile = useRef<HTMLButtonElement>(null);
   const visible = useRef(false);
@@ -56,11 +153,13 @@ function ImageTile({
           if (event.isTrusted) open?.(event.currentTarget);
         }}
       >
-        {url ? (
-          <img src={url} alt={item.filename} />
-        ) : (
-          <span>{error ?? text.attachmentOpening}</span>
-        )}
+        <TileImage
+          url={url}
+          failed={!!error}
+          alt={item.filename}
+          handoff={handoff}
+          fallback={<span>{error ?? text.attachmentOpening}</span>}
+        />
       </button>
       {error && (
         <span className="attachment-state" role="alert">
@@ -153,7 +252,15 @@ function FileTile({
   );
 }
 
-function EchoImage({ item, single }: { item: EchoAttachment; single: boolean }) {
+function EchoImage({
+  item,
+  single,
+  handoff,
+}: {
+  item: EchoAttachment;
+  single: boolean;
+  handoff: () => readonly string[];
+}) {
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     let current = true;
@@ -164,18 +271,30 @@ function EchoImage({ item, single }: { item: EchoAttachment; single: boolean }) 
       current = false;
     };
   }, [item]);
-  return <ImageTile item={item} single={single} url={url} />;
+  return <ImageTile item={item} single={single} url={url} handoff={handoff} />;
 }
 
 /** Local display only, with no remote read or attachment actions. The failed row keeps
  * these captured tiles while its composer owns the retryable draft. */
-export function EchoAttachments({ attachments }: { attachments: readonly EchoAttachment[] }) {
+export function EchoAttachments({
+  attachments,
+  local,
+}: {
+  attachments: readonly EchoAttachment[];
+  /** The echo's own ID: its recorded turn takes these images under it when the echo leaves. */
+  local: string;
+}) {
   const images = attachments.filter((item) => RASTER_TYPES.some((type) => type === item.mediaType));
   const files = attachments.filter((item) => !RASTER_TYPES.some((type) => type === item.mediaType));
   return (
     <AttachmentTiles
-      images={images.map((item) => (
-        <EchoImage key={item.id} item={item} single={images.length === 1} />
+      images={images.map((item, index) => (
+        <EchoImage
+          key={item.id}
+          item={item}
+          single={images.length === 1}
+          handoff={() => [handoffKey(local, index, item.filename)]}
+        />
       ))}
       files={files.map((item) => (
         <FileTile key={item.id} item={item} />
@@ -229,6 +348,15 @@ export function MessageAttachments({
             void opener.thumbnail(d, visible);
           }}
           open={(trigger) => show(index, trigger)}
+          handoff={() => {
+            const message = messageKey({ writer: comment.ref.writer, id: comment.messageId });
+            const echo = echoOf.get(message);
+            // A new read lifetime never takes the old one's image: it is disposed and read again.
+            return [
+              handoffKey(`${message}:${opener.lifetime.generation}`, index, d.filename),
+              ...(echo ? [handoffKey(echo, index, d.filename)] : []),
+            ];
+          }}
         />
       ))}
       files={files.map((d) => (

@@ -162,7 +162,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
       delivery={!echo.failure && echo.recipients.length ? <div /> : undefined}
     >
       <MarkdownText className="comment-body" value={echo.body} names={echo.recipients} />
-      <EchoAttachments attachments={echo.attachments} />
+      <EchoAttachments attachments={echo.attachments} local={echo.local} />
     </ConversationTurn>
   );
 }
