@@ -97,12 +97,17 @@
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-paper);
 }
+/* Bands sit on the page column, like a framed page's bands in Colab (style.css --band-side). */
+.reader-band-bar,
+.reader-tree {
+  --reader-band-side: max(16px, (100% - 28px - 1280px) / 2);
+}
 .reader-band-bar {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-ref-space-3);
   height: 44px;
-  padding: 0 var(--tmt-ui-ref-space-5);
+  padding: 0 calc(var(--reader-band-side) + 28px) 0 var(--reader-band-side);
   cursor: pointer;
   transition: background-color var(--tmt-ui-motion-fast) var(--tmt-ui-motion-ease-out);
 }
@@ -143,7 +148,8 @@
 .reader-tree {
   max-height: 50vh;
   overflow: auto;
-  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-5) var(--tmt-ui-ref-space-4);
+  padding: var(--tmt-ui-ref-space-1) calc(var(--reader-band-side) + 28px) var(--tmt-ui-ref-space-4)
+    var(--reader-band-side);
   animation: reader-open var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
 }
 @keyframes reader-open {
@@ -225,12 +231,19 @@
 }
 
 /* The page: the author's body in the editorial layer, then the reader's blocks. */
+/* Colab's page column (page-frame.css): 1280px with 16px gutters, and the 28px lane at the end where
+   the markers and the dock sit. Prose keeps a readable measure; question cards, tables and the notes
+   use the whole column. */
 .reader-page {
   display: grid;
   gap: var(--tmt-ui-ref-space-5);
-  max-width: 720px;
+  box-sizing: border-box;
+  max-width: calc(1280px + 2 * 16px + 28px);
   margin: 0 auto;
-  padding: var(--tmt-ui-ref-space-6) var(--tmt-ui-ref-space-5) 160px;
+  padding: var(--tmt-ui-ref-space-6) calc(16px + 28px) 160px 16px;
+}
+.reader-body > :is(h1, h2, h3, p, ul, ol, blockquote) {
+  max-width: 72ch;
 }
 .reader-range {
   padding: 0.05em 0;
@@ -487,6 +500,58 @@
   padding: var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-2)
     var(--tmt-ui-ref-space-4);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.reader-position {
+  font-variant-numeric: tabular-nums;
+}
+.reader-bar-rule {
+  align-self: stretch;
+  margin-block: var(--tmt-ui-ref-space-2);
+}
+.reader-thread-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-2);
+  padding: var(--tmt-ui-ref-space-2);
+  border: 0;
+  border-radius: var(--tmt-ui-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.reader-thread-row > .reader-quiet {
+  grid-column: 2;
+}
+.reader-thread-row:hover,
+.reader-thread-row[data-selected] {
+  background: var(--tmt-ui-surface-hover);
+}
+.reader-thread-row:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.reader-show-resolved {
+  justify-self: start;
+}
+.reader-draft {
+  display: grid;
+  justify-items: start;
+  gap: var(--tmt-ui-ref-space-1);
+  padding: var(--tmt-ui-ref-space-3);
+}
+.reader-confirm-list {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reader-confirm-list > li {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-2);
 }
 .reader-window-body {
   display: grid;

@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import {
   Check,
+  CheckCheck,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   FileText,
   GripVertical,
@@ -13,10 +15,13 @@ import {
   MoreHorizontal,
   Pin,
   Plus,
+  RotateCcw,
   X,
 } from 'lucide-react';
 import { BrowserTopBar, useTopBarReady } from '../src/react.js';
 import {
+  Alert,
+  AlertDescription,
   Badge,
   Button,
   Card,
@@ -38,6 +43,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
@@ -387,11 +394,20 @@ function Marker({
   n,
   selected,
   resolved,
+  inert,
 }: {
   n: number | string;
   selected?: boolean;
   resolved?: boolean;
+  /** Inside another control (a list row, a dialog list) the marker only shows its number. */
+  inert?: boolean;
 }) {
+  if (inert)
+    return (
+      <span className="reader-marker" data-resolved={resolved || undefined} aria-hidden="true">
+        {n}
+      </span>
+    );
   return (
     <button
       type="button"
@@ -612,7 +628,125 @@ function Turn({ who, time, text }: { who: string; time: string; text: string }) 
   );
 }
 
-/** The floating discussion window that opens out of the dock (#4919; height per #5817). */
+type Thread = (typeof threads)[number];
+type Filter = 'open' | 'needs' | 'all';
+const filterLabels: Record<Filter, string> = { open: 'Open', needs: 'Needs you', all: 'All' };
+const listedThreads = (filter: Filter) =>
+  threads.filter(
+    (thread) => filter === 'all' || (!thread.resolved && (filter === 'open' || thread.n === 2)),
+  );
+
+/** One thread: its marker and quote, then the turns and a reply; a resolved one collapses. */
+function ThreadView({
+  thread,
+  selected,
+  shown,
+}: {
+  thread: Thread;
+  selected: boolean;
+  shown: boolean;
+}) {
+  const collapsed = thread.resolved && !shown;
+  return (
+    <section
+      className="reader-thread"
+      data-selected={selected || undefined}
+      data-resolved={thread.resolved || undefined}
+    >
+      <div className="reader-thread-head">
+        <Marker n={thread.n} resolved={thread.resolved} selected={selected} />
+        <q className="reader-thread-quote">{thread.quote}</q>
+        {thread.resolved && <Badge variant="secondary">Resolved</Badge>}
+      </div>
+      {collapsed ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          aria-pressed={false}
+          className="reader-show-resolved"
+          onClick={() => setQuery({ shown: '1' })}
+        >
+          Show resolved
+        </Button>
+      ) : (
+        thread.turns.map(([who, time, text]) => (
+          <Turn key={text} who={who!} time={time!} text={text!} />
+        ))
+      )}
+      {!thread.resolved && (
+        <Input placeholder="Reply" aria-label={`Reply to comment ${thread.n}`} />
+      )}
+    </section>
+  );
+}
+
+/** A header icon action with its tooltip (main's BrowserIconAction, variant text). */
+function HeaderAction({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Resolve all's confirmation (resolve-all-threads.tsx), listing the threads it will resolve. */
+function ResolveAllDialog({ open }: { open: Thread[] }) {
+  return (
+    <Dialog open onOpenChange={(next) => !next && setQuery({ confirm: null })}>
+      <DialogContent className="reader-confirm">
+        <DialogHeader>
+          <DialogTitle>Resolve {open.length} open comments?</DialogTitle>
+          <DialogDescription>Each thread closes for everyone on this page.</DialogDescription>
+        </DialogHeader>
+        <ul className="reader-confirm-list">
+          {open.map((thread) => (
+            <li key={thread.n}>
+              <Marker n={thread.n} inert />
+              <q className="reader-thread-quote">{thread.quote}</q>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setQuery({ confirm: null })}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => setQuery({ confirm: null, report: '1' })}>
+            Resolve all
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The floating discussion window that opens out of the dock (#4919; height per #5817). Comments
+ * follows main's header (router.tsx): the list shows the title, its count and the thread filter; one
+ * thread adds its position, Previous and Next, then Resolve or Reopen and Resolve all, then Close.
+ */
 function DockWindow({
   kind,
   selected,
@@ -622,53 +756,149 @@ function DockWindow({
   selected: boolean;
   unread: boolean;
 }) {
+  const query = useQuery();
+  const filter = (query.get('filter') ?? 'open') as Filter;
+  const listed = listedThreads(filter);
+  const open = threads.filter((thread) => !thread.resolved);
+  const active = listed.find((thread) => String(thread.n) === query.get('thread'));
+  const position = active ? listed.indexOf(active) : -1;
+  const drafts = query.get('drafts');
+  const loading = query.get('loading') === '1';
+  const step = (by: number) => setQuery({ thread: String(listed[position + by]!.n), shown: null });
   return (
     <Surface
       level="overlay"
       className="reader-window"
       role="dialog"
-      aria-label={kind === 'chat' ? 'Chat' : 'Comments'}
+      aria-label={kind === 'chat' ? 'Chat' : 'Discussion'}
     >
       <header className="reader-window-bar">
-        <b>{kind === 'chat' ? 'Chat' : 'Comments · 2 open'}</b>
+        {kind === 'chat' ? (
+          <b>Chat</b>
+        ) : (
+          <>
+            <b>Discussion</b>
+            {active ? (
+              <span className="reader-quiet reader-position">
+                {position + 1} / {listed.length}
+              </span>
+            ) : (
+              <span className="reader-quiet">{listed.length}</span>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="xs" aria-label="Thread filter">
+                  {filterLabels[filter]} <ChevronDown aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuRadioGroup
+                  value={filter}
+                  onValueChange={(value) =>
+                    setQuery({ filter: value === 'open' ? null : value, thread: null, shown: null })
+                  }
+                >
+                  {(['open', 'needs', 'all'] as const).map((key) => (
+                    <DropdownMenuRadioItem key={key} value={key}>
+                      {filterLabels[key]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
         <span className="reader-grow" />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Close"
-          onClick={() => setQuery({ dock: null })}
-        >
-          <X aria-hidden="true" />
-        </Button>
+        {active && (
+          <>
+            <HeaderAction
+              label="Previous"
+              icon={<ChevronLeft aria-hidden="true" />}
+              disabled={position === 0}
+              onClick={() => step(-1)}
+            />
+            <HeaderAction
+              label="Next"
+              icon={<ChevronRight aria-hidden="true" />}
+              disabled={position === listed.length - 1}
+              onClick={() => step(1)}
+            />
+            <Separator orientation="vertical" className="reader-bar-rule" />
+            <HeaderAction
+              label={active.resolved ? 'Reopen' : 'Resolve'}
+              icon={
+                active.resolved ? <RotateCcw aria-hidden="true" /> : <Check aria-hidden="true" />
+              }
+            />
+            <HeaderAction
+              label={`Resolve all open (${open.length})`}
+              icon={<CheckCheck aria-hidden="true" />}
+              disabled={open.length === 0}
+              onClick={() => setQuery({ confirm: '1' })}
+            />
+            <Separator orientation="vertical" className="reader-bar-rule" />
+          </>
+        )}
+        <HeaderAction
+          label="Close (Esc)"
+          icon={<X aria-hidden="true" />}
+          onClick={() => setQuery({ dock: null, thread: null })}
+        />
       </header>
       {kind === 'comments' ? (
         <div className="reader-window-body">
-          {threads.map((thread) => (
-            <section
-              key={thread.n}
-              className="reader-thread"
-              data-selected={(selected && thread.n === 1) || undefined}
-              data-resolved={thread.resolved || undefined}
-            >
-              <div className="reader-thread-head">
-                <Marker
-                  n={thread.n}
-                  resolved={thread.resolved}
-                  selected={selected && thread.n === 1}
-                />
-                <q className="reader-thread-quote">{thread.quote}</q>
-                {thread.resolved && <Badge variant="secondary">Resolved</Badge>}
-              </div>
-              {(!thread.resolved || selected) &&
-                thread.turns.map(([who, time, text]) => (
-                  <Turn key={text} who={who!} time={time!} text={text!} />
-                ))}
-              {!thread.resolved && (
-                <Input placeholder="Reply" aria-label={`Reply to comment ${thread.n}`} />
+          {query.get('report') === '1' && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                1 comment could not be resolved. Not notified: @sample-2
+              </AlertDescription>
+            </Alert>
+          )}
+          {loading ? (
+            <p role="status" className="reader-quiet">
+              Loading comments…
+            </p>
+          ) : (
+            <>
+              {drafts === 'saved' && (
+                <Surface level="sheet" className="reader-draft">
+                  <q className="reader-thread-quote">Counts keep the same radius</q>
+                  <p className="reader-quiet">Select this quote again to continue.</p>
+                  <Button type="button" variant="ghost" size="xs">
+                    Discard draft
+                  </Button>
+                </Surface>
               )}
-            </section>
-          ))}
+              {drafts === 'unsaved' && (
+                <p role="status" className="reader-quiet">
+                  Drafts are not saved on this device.
+                </p>
+              )}
+              {active ? (
+                <ThreadView thread={active} selected shown={query.get('shown') === '1'} />
+              ) : listed.length ? (
+                listed.map((thread) => (
+                  <button
+                    key={thread.n}
+                    type="button"
+                    className="reader-thread-row"
+                    data-selected={(selected && thread.n === 1) || undefined}
+                    onClick={() => setQuery({ thread: String(thread.n) })}
+                  >
+                    <Marker n={thread.n} resolved={thread.resolved} inert />
+                    <q className="reader-thread-quote">{thread.quote}</q>
+                    <span className="reader-quiet">
+                      {thread.resolved ? 'Resolved' : `${thread.turns.length} messages`}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="reader-quiet">
+                  Nothing waiting here. You are caught up in this view.
+                </p>
+              )}
+            </>
+          )}
         </div>
       ) : (
         <div className="reader-window-body">
@@ -694,6 +924,7 @@ function DockWindow({
           </Button>
         </footer>
       )}
+      {kind === 'comments' && query.get('confirm') === '1' && <ResolveAllDialog open={open} />}
     </Surface>
   );
 }
@@ -760,6 +991,57 @@ const controls: StateControl[] = [
       ['', 'Closed'],
       ['chat', 'Chat'],
       ['comments', 'Comments'],
+    ],
+  },
+  {
+    key: 'thread',
+    label: 'Discussion',
+    options: [
+      ['', 'List'],
+      ['1', 'One thread'],
+      ['3', 'Resolved thread'],
+    ],
+  },
+  {
+    key: 'filter',
+    label: 'Thread filter',
+    options: [
+      ['', 'Open'],
+      ['needs', 'Needs you'],
+      ['all', 'All'],
+    ],
+  },
+  {
+    key: 'confirm',
+    label: 'Resolve all',
+    options: [
+      ['', 'Closed'],
+      ['1', 'Confirm'],
+    ],
+  },
+  {
+    key: 'report',
+    label: 'Resolve report',
+    options: [
+      ['', 'None'],
+      ['1', 'Failure'],
+    ],
+  },
+  {
+    key: 'drafts',
+    label: 'Drafts',
+    options: [
+      ['', 'None'],
+      ['saved', 'Saved draft'],
+      ['unsaved', 'Not saved'],
+    ],
+  },
+  {
+    key: 'loading',
+    label: 'Comments',
+    options: [
+      ['', 'Loaded'],
+      ['1', 'Loading'],
     ],
   },
   {
@@ -886,7 +1168,7 @@ const missing = [
   'Annotation marker (numbered circle and +n pill after a range): a styled button here.',
   'Highlighted range: a mark with the annotation highlight tokens.',
   'Floating actions capsule (FAB dock): ghost Buttons on an overlay Surface with the pill radius.',
-  'Discussion window (dock window): an overlay Surface placed from the nav to the dock.',
+  'Discussion window (dock window): an overlay Surface placed from the nav to the dock, with the list and one-thread headers.',
   'Status chip with its own menu: a DropdownMenu trigger styled as a chip.',
   'Progress bar: a token-filled span.',
   'RadioGroup for single-choice questions: buttons with role=radio.',
