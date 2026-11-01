@@ -134,3 +134,47 @@ test('a history-heavy page keeps its main thread free while it takes writes', as
     expect(long.length).toBeLessThanOrEqual(2);
   });
 });
+
+// #5891: on a page near the 2 MiB source limit, a live write changes a few bytes; the frame
+// applies it without long main-thread tasks. Only the count is asserted; the total is recorded.
+test('a 2 MiB page keeps its main thread free while it takes live writes', async () => {
+  test.setTimeout(900_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'large-owner');
+    const colab = world.binaries.colab;
+    const body = text(2 * MIB - 16 * 1024);
+    let source = `${body}<p id="n">0</p>`;
+    const created = createPage(world, 'Large and live', source);
+    const page = await openPage(door, browser, created);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('#n')).toHaveText('0', { timeout: 120_000 });
+    await page.evaluate(() => {
+      const long: number[] = [];
+      Object.defineProperty(window, 'longTasks', { value: long });
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) long.push(entry.duration);
+      }).observe({ type: 'longtask' });
+    });
+    const started = Date.now();
+    for (let i = 1; i <= 10; i++) {
+      const held = source;
+      source = `${body}<p id="n">${i}</p>`;
+      run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json'], held), source);
+      await expect(frame.locator('#n')).toHaveText(String(i), { timeout: 60_000 });
+    }
+    await page.waitForTimeout(Math.max(0, 30_000 - (Date.now() - started)));
+    const long = await page.evaluate(
+      () => (window as unknown as { longTasks: number[] }).longTasks,
+    );
+    const busy = JSON.stringify({
+      longTasks: long.map(Math.round),
+      busyMs: Math.round(long.reduce((sum, value) => sum + value, 0)),
+      windowMs: Date.now() - started,
+    });
+    test.info().annotations.push({ type: 'colab-large-busy', description: busy });
+    // The run log keeps the durations, so a slower runner's failure says how far it was.
+    console.log(`colab-large-busy ${busy}`);
+    expect(long.length).toBeLessThanOrEqual(2);
+  });
+});
