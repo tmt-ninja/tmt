@@ -323,7 +323,7 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     };
     let Some(Effect::Orchestration(Task {
         step: Step::Preview { mutation, .. },
-    })) = app.orchestration_key(key('a'))
+    })) = Some(app.key(key('a')))
     else {
         panic!("allow once starts Core's preview")
     };
@@ -334,13 +334,10 @@ fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_block
     // The reverse route is held, not blocked: nothing to allow, a notice instead.
     app.orchestration.selected = Some(OTHER.into());
     app.orchestration.target = Some(MEMBER.into());
-    assert!(matches!(
-        app.orchestration_key(key('a')),
-        Some(Effect::None)
-    ));
+    assert!(matches!(Some(app.key(key('a'))), Some(Effect::None)));
     let Some(Effect::Orchestration(Task {
         step: Step::Preview { mutation, .. },
-    })) = app.orchestration_key(key('r'))
+    })) = Some(app.key(key('r')))
     else {
         panic!("resume starts Core's preview for a held pair")
     };
@@ -385,4 +382,111 @@ fn a_confirmed_preview_applies_exactly_it_and_a_conflict_saves_nothing() {
             .as_deref()
             .is_some_and(|n| n.contains("nothing was saved"))
     );
+}
+
+#[test]
+fn the_footer_is_fitted_from_bound_keys_and_keeps_help_at_every_width() {
+    let app = matrix_app();
+    for width in [160u16, 100, 80, 60] {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 36)).unwrap();
+        terminal
+            .draw(|frame| super::super::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let last: String = (0..width)
+            .map(|x| buffer[(x, 35)].symbol().to_owned())
+            .collect();
+        assert!(last.contains("? help"), "{width}: {last}");
+        if width >= 100 {
+            assert!(last.contains("a allow once"), "{width}: {last}");
+        }
+    }
+    // The keys are the tab's own scope, listed by help and open to rebinding.
+    assert_eq!(
+        app.workspace_scope(),
+        crate::config::OpsKeyScope::Orchestration
+    );
+    let bindings = app.bindings();
+    assert_eq!(bindings["r"].text, "release-held");
+    assert_eq!(bindings["a"].text, "allow-once");
+}
+
+/// HOME oracle scenes of the Orchestration tab (#5890 review): its own states, painted from the
+/// same handwritten public wire facts as the tests above.
+pub(in crate::board) mod captures {
+    use super::super::write::{Completed, Step, Task};
+    use super::*;
+    pub(in crate::board) const SCENES: &[&str] = &[
+        "orchestration-loading",
+        "orchestration-unsupported",
+        "orchestration-table",
+        "orchestration-matrix",
+        "orchestration-plans",
+        "orchestration-why",
+        "orchestration-preview",
+    ];
+    fn plans_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+        if op == "orchestration.read" && input["view"] == "overview" {
+            let mut value = pair_document();
+            value["plans"] = json!([
+                {"id":"20000000-0000-4000-8000-000000000001","name":"Night shift","revision":3,
+                 "fields":{},"schedule":{},"targets":[],"members":[],"enabled":true,"priority":10},
+                {"id":"20000000-0000-4000-8000-000000000002","name":"Review week","revision":1,
+                 "fields":{},"schedule":{},"targets":[],"members":[],"enabled":false,"priority":5}
+            ]);
+            return Ok(value);
+        }
+        pair_api(op, input)
+    }
+    pub(in crate::board) fn case(
+        scene: &str,
+        look: crate::look::Look,
+    ) -> super::super::super::app::App {
+        let mut app =
+            crate::board::app::workspace::tests::capture_case("idle-alert-overview", look);
+        assert!(app.shell.select_digit(
+            '3',
+            super::super::super::shell::OpsInputOwner::List,
+            &mut app.workspace.selected,
+        ));
+        app.orchestration = state();
+        let observation = match scene {
+            "orchestration-loading" => return app,
+            "orchestration-unsupported" => Observation::Unavailable,
+            "orchestration-table" => Observation::Ready(Box::new(ready())),
+            "orchestration-plans" => Observation::Ready(Box::new(observe(plans_api))),
+            _ => Observation::Ready(Box::new(observe(pair_api))),
+        };
+        app.orchestration
+            .apply(app.orchestration.read(), observation);
+        match scene {
+            "orchestration-plans" => app.orchestration.plans = true,
+            "orchestration-why" => {
+                app.orchestration.why = Some((
+                    MEMBER.into(),
+                    vec![
+                        "route blocked · worker may message leads only".into(),
+                        "focus set · until 01:00".into(),
+                    ],
+                ));
+            }
+            "orchestration-preview" => {
+                let preview = json!({"mutation":{"kind":"talks.resume","aId":MEMBER,"bId":OTHER},
+                    "configurationRevision":3,"previewAtMs":1000,"previewDigest":"d",
+                    "releases":1,"held":[{}]});
+                let _ = app.finished_orchestration(Completed {
+                    task: Task {
+                        step: Step::Preview {
+                            title: "Release held worker ⇄ peer".into(),
+                            mutation: preview["mutation"].clone(),
+                        },
+                    },
+                    result: Ok(preview),
+                });
+            }
+            _ => {}
+        }
+        app
+    }
 }

@@ -3,9 +3,7 @@ use super::super::{
     app::{App, Effect},
     shell::OpsTab,
 };
-use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
+use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 #[derive(Clone, Copy)]
 pub(in crate::board) enum Control {
     Range(u8),
@@ -27,33 +25,32 @@ pub(in crate::board) enum Control {
     Why,
 }
 impl App {
-    pub(in crate::board) fn orchestration_key(&mut self, key: KeyEvent) -> Option<Effect> {
-        if key.kind == KeyEventKind::Release
-            || key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
-            return None;
-        }
-        let control = match key.code {
-            KeyCode::Char('d') => Control::Range(1),
-            KeyCode::Char('7') => Control::Range(7),
-            KeyCode::Char('0') => Control::Range(30),
-            KeyCode::Char('P') => Control::Plans,
-            KeyCode::Char('N') => Control::Now,
-            KeyCode::Char('[') => Control::PreviousTime,
-            KeyCode::Char(']') => Control::NextTime,
-            KeyCode::Char('a') => Control::Allow,
-            KeyCode::Char('f') => Control::Focus(true),
-            KeyCode::Char('F') => Control::Focus(false),
-            KeyCode::Char('r') => Control::Resume,
-            KeyCode::Char('w') => Control::Why,
-            KeyCode::Left | KeyCode::Right => {
+    /// A bound action on the Orchestration tab: its own controls, and the list moves read as moves
+    /// through members, plans or matrix cells. Any other action keeps its usual meaning.
+    pub(in crate::board) fn orchestration_bound(
+        &mut self,
+        action: crate::action::OpsUiAction,
+    ) -> Option<Effect> {
+        use crate::action::OpsUiAction as Ui;
+        let control = match action {
+            Ui::OrchestrationDay => Control::Range(1),
+            Ui::OrchestrationWeek => Control::Range(7),
+            Ui::OrchestrationMonth => Control::Range(30),
+            Ui::OrchestrationPlans => Control::Plans,
+            Ui::OrchestrationNow => Control::Now,
+            Ui::OrchestrationEarlier => Control::PreviousTime,
+            Ui::OrchestrationLater => Control::NextTime,
+            Ui::AllowOnce => Control::Allow,
+            Ui::FocusHour => Control::Focus(true),
+            Ui::EndFocus => Control::Focus(false),
+            Ui::ReleaseHeld => Control::Resume,
+            Ui::Why => Control::Why,
+            Ui::Fold | Ui::Expand => {
                 let state = &self.orchestration;
                 let snapshot = state.snapshot()?;
                 if snapshot.sending.routes.is_none() || state.plans {
-                    // Without a route matrix the arrows keep moving the selected time.
-                    if key.code == KeyCode::Left {
+                    // Without a route matrix the sideways moves keep moving the selected time.
+                    if action == Ui::Fold {
                         Control::PreviousTime
                     } else {
                         Control::NextTime
@@ -68,7 +65,7 @@ impl App {
                         .iter()
                         .position(|m| Some(&m.identity_id) == state.target.as_ref())
                         .unwrap_or(0);
-                    let column = if key.code == KeyCode::Left {
+                    let column = if action == Ui::Fold {
                         column.saturating_sub(1)
                     } else {
                         (column + 1).min(members.len().saturating_sub(1))
@@ -76,7 +73,7 @@ impl App {
                     Control::Cell(row, column)
                 }
             }
-            KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End => {
+            Ui::Previous | Ui::Next | Ui::First | Ui::Last => {
                 let state = &self.orchestration;
                 let snapshot = state.snapshot()?;
                 let ids: Vec<_> = if state.plans {
@@ -100,10 +97,10 @@ impl App {
                     state.selected.as_deref()
                 };
                 let index = ids.iter().position(|id| Some(*id) == selected).unwrap_or(0);
-                let index = match key.code {
-                    KeyCode::Up => index.saturating_sub(1),
-                    KeyCode::Down => (index + 1).min(ids.len().saturating_sub(1)),
-                    KeyCode::Home => 0,
+                let index = match action {
+                    Ui::Previous => index.saturating_sub(1),
+                    Ui::Next => (index + 1).min(ids.len().saturating_sub(1)),
+                    Ui::First => 0,
                     _ => ids.len().saturating_sub(1),
                 };
                 if state.plans {
@@ -282,7 +279,7 @@ impl App {
                     )));
                 }
                 preview(
-                    format!("Resume {} ⇄ {}", a.name, b.name),
+                    format!("Release held {} ⇄ {}", a.name, b.name),
                     serde_json::json!({"kind": "talks.resume", "aId": a.identity_id, "bId": b.identity_id}),
                 )
             }

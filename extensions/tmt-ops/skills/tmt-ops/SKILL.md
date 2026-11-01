@@ -1152,6 +1152,13 @@ preview, nothing is saved; preview again. A Core without `orchestration.write`
 refuses changes with a notice. The tab never interrupts running work. `--tab` and
 `board.startup_tab` do not offer it yet.
 
+These keys are the defaults of the tab's own key scope, so `?` lists them and a
+`[bind]` entry can move them: `orchestration-day`, `orchestration-week`,
+`orchestration-month`, `orchestration-earlier`, `orchestration-later`,
+`orchestration-now`, `orchestration-plans`, `allow-once`, `focus-hour`, `end-focus`,
+`release-held` and `why`; the list moves (`previous`, `next`, `fold`, `expand`,
+`first`, `last`) move through members, plans or matrix cells there.
+
 ## Cron on the board
 
 The Agents section's Timers control opens all observed rooms without retargeting

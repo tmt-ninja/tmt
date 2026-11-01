@@ -4,7 +4,7 @@ mod load;
 mod model;
 pub(super) mod surface;
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;
 pub(in crate::board) mod write;
 pub(in crate::board) use load::{Observation, Read};
 use model::{Query, Snapshot};

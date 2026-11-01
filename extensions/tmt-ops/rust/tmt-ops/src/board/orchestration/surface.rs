@@ -459,7 +459,7 @@ fn inspector(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
                 let (result, role) = match route.verdict {
                     Verdict::Allowed => ("allowed", Role::Text),
                     Verdict::Blocked => ("not sent, explained · a allows once", Role::Blocked),
-                    Verdict::NeedsPerson => ("held · needs a person · r resumes", Role::Waiting),
+                    Verdict::NeedsPerson => ("held · needs a person · r releases", Role::Waiting),
                 };
                 lines.push((format!("Result · {result}"), role));
                 lines.push((

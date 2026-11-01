@@ -4074,14 +4074,6 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
-        if self.shell.tab == super::shell::OpsTab::Orchestration
-            && !self.modal_open()
-            && self.input.is_none()
-            && !self.searching
-            && let Some(effect) = self.orchestration_key(key)
-        {
-            return effect;
-        }
         self.trace_key("key_before", key);
         let effect = self.key_effect(key);
         self.trace_key("key_after", key);

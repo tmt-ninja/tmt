@@ -587,6 +587,9 @@ impl App {
     }
 
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
+        if self.shell.tab == super::super::shell::OpsTab::Orchestration {
+            return OpsKeyScope::Orchestration;
+        }
         if self.workspace_snapshot().is_none() {
             // The generic row surface has no Overview request context.
             return if self.focused() == Pane::Replies {
@@ -1084,6 +1087,11 @@ impl App {
 
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
+        if self.shell.tab == super::super::shell::OpsTab::Orchestration
+            && let Some(effect) = self.orchestration_bound(action)
+        {
+            return effect;
+        }
         match action {
             ResizePane => {
                 return self
@@ -1140,6 +1148,11 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            OrchestrationDay | OrchestrationWeek | OrchestrationMonth | OrchestrationPlans
+            | OrchestrationNow | OrchestrationEarlier | OrchestrationLater | AllowOnce
+            | FocusHour | EndFocus | ReleaseHeld | Why => {
+                return self.say("This key acts on the Orchestration tab (3).");
+            }
             ClearScope => {
                 self.workspace.visibility.scope.clear();
                 self.workspace_startup = None;

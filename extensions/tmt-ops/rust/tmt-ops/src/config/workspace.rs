@@ -230,10 +230,18 @@ pub enum OpsKeyScope {
     Member,
     Pool,
     Reader,
+    /// The Orchestration tab (#4893): its own controls, with the tab and app keys.
+    Orchestration,
 }
 
 impl OpsKeyScope {
-    pub(crate) const ALL: [Self; 4] = [Self::Squad, Self::Member, Self::Pool, Self::Reader];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Squad,
+        Self::Member,
+        Self::Pool,
+        Self::Reader,
+        Self::Orchestration,
+    ];
 
     pub(crate) fn is_reader(self) -> bool {
         self == Self::Reader
@@ -248,7 +256,37 @@ pub struct WorkspaceKeys {
 }
 
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
-    let mut entries = if scope.is_reader() {
+    let mut entries = if scope == OpsKeyScope::Orchestration {
+        vec![
+            ("1", "agents"),
+            ("2", "digest-dashboard"),
+            ("3", "orchestration"),
+            ("up", "previous"),
+            ("down", "next"),
+            ("left", "fold"),
+            ("right", "expand"),
+            ("home", "first"),
+            ("end", "last"),
+            ("d", "orchestration-day"),
+            ("7", "orchestration-week"),
+            ("0", "orchestration-month"),
+            ("P", "orchestration-plans"),
+            ("N", "orchestration-now"),
+            ("[", "orchestration-earlier"),
+            ("]", "orchestration-later"),
+            ("a", "allow-once"),
+            ("f", "focus-hour"),
+            ("F", "end-focus"),
+            ("r", "release-held"),
+            ("w", "why"),
+            ("/", "search"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("ctrl-r", "refresh"),
+            (",", "settings"),
+            ("g", "open-web"),
+        ]
+    } else if scope.is_reader() {
         vec![
             ("1", "agents"),
             ("2", "digest-dashboard"),
@@ -307,7 +345,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]
     };
     match scope {
-        OpsKeyScope::Reader => {}
+        OpsKeyScope::Reader | OpsKeyScope::Orchestration => {}
         OpsKeyScope::Squad => entries.extend([
             ("e", "edit"),
             ("r", "rename"),
@@ -343,11 +381,13 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         entries.push(("s", "discover-agents"));
         entries.push(("f", "agents-filter"));
     }
-    entries.extend([
-        ("w", "workspace-snapshots"),
-        ("g", "open-web"),
-        ("y", "copy"),
-    ]);
+    if scope != OpsKeyScope::Orchestration {
+        entries.extend([
+            ("w", "workspace-snapshots"),
+            ("g", "open-web"),
+            ("y", "copy"),
+        ]);
+    }
     entries
         .into_iter()
         .map(|(key, action)| {

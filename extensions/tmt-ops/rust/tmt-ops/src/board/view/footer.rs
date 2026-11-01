@@ -34,6 +34,22 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
             _ => {}
         }
     }
+    if app.shell.tab == crate::board::shell::OpsTab::Orchestration {
+        use crate::action::OpsUiAction as Ui;
+        let state = &app.orchestration;
+        let matrix = !state.plans
+            && state
+                .snapshot()
+                .is_some_and(|snapshot| snapshot.sending.routes.is_some());
+        match action.verb {
+            Verb::Ui(Ui::Previous | Ui::Next) => {
+                return if state.plans { "plan" } else { "member" }.into();
+            }
+            Verb::Ui(Ui::Fold | Ui::Expand) => return if matrix { "cell" } else { "time" }.into(),
+            Verb::Ui(Ui::Search) if app.search.is_empty() => return "members".into(),
+            _ => {}
+        }
+    }
     if app.workspace_snapshot().is_some() && action.verb == Verb::Run {
         return format!(
             "run {}",
@@ -513,6 +529,33 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                 }
             }
 
+            if app.shell.tab == crate::board::shell::OpsTab::Orchestration {
+                // Only the tab's own controls, its moves and search; the matrix actions need routes.
+                let routes = app
+                    .orchestration
+                    .snapshot()
+                    .is_some_and(|snapshot| snapshot.sending.routes.is_some());
+                let useful = match action.verb {
+                    Verb::Ui(OpsUiAction::AllowOnce | OpsUiAction::ReleaseHeld) => routes,
+                    Verb::Ui(ui) => {
+                        ui.orchestration()
+                            || matches!(
+                                ui,
+                                OpsUiAction::Previous
+                                    | OpsUiAction::Next
+                                    | OpsUiAction::Fold
+                                    | OpsUiAction::Expand
+                                    | OpsUiAction::Search
+                                    | OpsUiAction::Help
+                                    | OpsUiAction::Quit
+                            )
+                    }
+                    _ => false,
+                };
+                if !useful {
+                    return false;
+                }
+            }
             !matches!(event.as_str(), "click" | "double-click")
                 && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
@@ -544,8 +587,8 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         )
     });
     let mut seen = std::collections::BTreeSet::new();
-    let mut hints = Vec::new();
-    let mut tail = Vec::new();
+    let mut hints: Vec<Hint> = Vec::new();
+    let mut tail: Vec<Hint> = Vec::new();
     if app.focused_pane() == Some(crate::config::Pane::Replies) {
         tail.push(("Esc".into(), "back".into()));
     }
@@ -569,6 +612,13 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             continue;
         }
         let word = hint_word(app, action);
+        if app.shell.tab == crate::board::shell::OpsTab::Orchestration
+            && let Some(paired) = hints.iter_mut().find(|(_, label)| *label == word)
+        {
+            // One move in two directions reads as one hint: `↑↓ member`.
+            paired.0.push_str(key_label(key));
+            continue;
+        }
         let hint = (key_label(key).to_owned(), word);
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {
@@ -601,29 +651,6 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    if app.shell.tab == crate::board::shell::OpsTab::Orchestration
-        && !app.modal_open()
-        && app.shown_notice().is_none()
-        && app.error.is_none()
-    {
-        strip::paint_left(
-            frame.buffer_mut(),
-            footer,
-            ratatui::text::Line::styled(
-                if app
-                    .orchestration
-                    .snapshot()
-                    .is_some_and(|s| s.sending.routes.is_some())
-                {
-                    " ↑↓←→ cell · [ ] time · d/7/0 range · P plans · / members · a allow once · f/F focus · r resume · w why · ? help"
-                } else {
-                    " ↑↓ member · ←→ time · d/7/0 range · P plans · / members · f/F focus · w why · ? help"
-                },
-                look.role(Role::Muted),
-            ),
-        );
-        return;
-    }
     if !app.modal_open()
         && app.input.is_none()
         && !app.searching
