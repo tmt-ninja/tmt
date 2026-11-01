@@ -71,8 +71,9 @@ Keep inspection proportional; record material findings and resolve them within s
 
 Give each member one bounded topic with an explicit owner, done condition and
 verification. A topic may be an area queue: queued issues of one area and owning
-squad that the member adds to the same open PR until it is ready for review. Prevent overlapping edits and keep read-only audits free of
-mutations. Keep decisions that span topics with the reviewing lead. Model choice
+squad that the member adds to the same open PR until it is ready for review.
+Prevent overlapping edits and keep read-only audits free of mutations. Keep
+decisions that span topics with the reviewing lead. Model choice
 is a staffing decision recorded with the team, not a repository rule.
 Delegation never expands authorization.
 
@@ -111,17 +112,21 @@ ask when resolution would require an undecided product or authorization choice.
 
 - GitHub Issues is the active tracker for TMT. Historical Linear links are
   references, not a second workflow or a requirement to duplicate tickets.
-- For development beyond incidental edits, use tracked GitHub issues, one
-  dedicated branch/worktree, and one reviewable PR. Confirm outcome, scope,
-  acceptance criteria, dependencies and project relationship before editing;
-  mark each issue started when implementation begins. Issues may stay small so each
-  is easy to verify; PRs may not. One member carries a whole feature, or the fixes in
-  one module, as one PR that closes several issues (one `Fixes #N` line each, or
-  `Part of #N` for an issue it does not finish); a PR of a few thousand lines is fine.
-  The reviewing lead decides the bundle and records the mapping on each issue. Split
-  a PR only when it is too large to review or crosses squad paths without a recorded
-  owner mandate; under such a mandate it stays one PR, and each owning lead reviews
-  its own paths on the same head.
+- For development beyond incidental edits, track the work in GitHub issues and
+  deliver it from a dedicated branch/worktree as a reviewable PR. Confirm outcome,
+  scope, acceptance criteria, dependencies and project relationship before editing;
+  mark each issue started when implementation begins.
+- Bundle PRs by relatedness and size; never default to one issue per PR. CI runs,
+  merge-queue slots and review passes are the scarce resource, and agentic review
+  handles larger PRs than human-only review does. Issues may stay small so each is
+  easy to verify. One PR carries a whole feature, or the related fixes in one area
+  and owning squad, with one `Fixes #N` line per issue it finishes (`Part of #N`
+  otherwise). Aim for about 1,000 to 3,000 changed lines of hand-written code;
+  a whole feature may go beyond that. Generated fixtures, snapshots and lockfiles
+  do not count toward the size. The reviewing lead decides the bundle and records
+  the mapping on each issue. Split only when the PR is too large to review well, or
+  when it crosses squad paths without a recorded owner mandate; under such a mandate
+  it stays one PR and each owning lead reviews its own paths on the same head.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
