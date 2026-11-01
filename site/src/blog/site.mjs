@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { metadata, validateApproval, validateStoredArticle } from "./content.mjs";
 import { languages, languageInfo, indexPath, postPath } from "./languages.mjs";
 import { tagPath } from "./tags.mjs";
+import { stats } from "./stats.mjs";
+import { siteChrome } from "../shared/site-chrome.mjs";
 
 export const escapeHtml = (value) =>
   String(value)
@@ -132,6 +134,25 @@ export function layout({
     ? csp.replace("connect-src 'none'", "connect-src 'self' ws://127.0.0.1:*")
     : csp;
   const languageIndex = location.base + indexPath(requestedLanguage);
+  const published = site.published;
+  if (
+    !published ||
+    ["product", "journal", "colab", "github"].some((key) => typeof published[key] !== "boolean")
+  )
+    throw new Error("Site navigation requires explicit published destination booleans");
+  const chrome = siteChrome({
+    sectionPath: "~/journal",
+    brandHref: languageIndex,
+    markUrl: location.base + "team-tmt.png",
+    links: [
+      { label: "Product", url: location.siteBase, published: published.product },
+      { label: "Journal", url: languageIndex, published: published.journal },
+      { label: "Colab", url: location.siteBase + "colab/", published: published.colab },
+      { label: "GitHub", url: location.repository, published: published.github },
+    ],
+    rssUrl: languageIndex + "feed.xml",
+    xHandle: site.xHandle,
+  });
   const alternateLinks = alternates
     .map(
       ({ language, path }) =>
@@ -177,16 +198,17 @@ export function layout({
 ${share}<meta name="twitter:card" content="summary_large_image">
 ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<meta name="robots" content="noindex,follow">' : ""}${canonical}${alternateLinks}${defaultAlternate}`}
 <link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(languageIndex)}feed.xml">
-<link vite-ignore rel="icon" href="${e(location.base)}favicon.png" type="image/png">
+<link vite-ignore rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
 <link vite-ignore rel="apple-touch-icon" href="${e(location.base)}favicon.png">
+<link rel="stylesheet" href="/src/shared/site-chrome.css">
 <link rel="stylesheet" href="/src/blog/blog.css">
 </head><body>
 <a class="skip-link" lang="en" href="#main">Skip to content</a>
-<header class="site-header" lang="en"><a class="brand" href="${e(languageIndex)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(languageIndex)}">Articles</a><a href="${e(languageIndex)}feed.xml">RSS ↗</a><a href="${e(location.repository)}">Explore TMT ↗</a></nav></header>
+${chrome.header}
 ${translated ? `<nav class="language-switcher" aria-label="${slug ? "Article" : tag ? "Topic" : "Index"} language" lang="en">${switcher}</nav>` : ""}
 ${demo ? '<div class="preview-notice">◇ Template preview · Example content, not a published post</div>' : ""}
 <main id="main">${body}</main>
-<footer class="site-footer" lang="en"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.repository)}">TMT ↗</a></footer>
+${chrome.footer}
 </body></html>\n`;
 }
 
@@ -195,11 +217,22 @@ function tagLinks(meta, location) {
   return `<ul class="post-tags" aria-label="Tags" lang="en">${meta.tags.map((tag) => `<li><a href="${escapeHtml(location.base + tagPath(tag, meta.language))}">#${escapeHtml(tag)}</a></li>`).join("")}</ul>`;
 }
 
-export function indexBody(posts, site, location, language = "en", fallback = false, { tag } = {}) {
+export function indexBody(
+  posts,
+  site,
+  location,
+  language = "en",
+  fallback = false,
+  { tag, stats: snapshot = stats } = {},
+) {
   const e = escapeHtml;
-  return `<section class="index-intro" lang="en"><p class="eyebrow">${tag ? "TOPIC" : "THE TMT JOURNAL"}</p><h1${tag ? ' class="tag-title"' : ""}>${tag ? "#" + e(tag) : "Field notes.<br>Working ideas."}</h1><p class="intro-description">${tag ? "Articles tagged #" + e(tag) + "." : e(site.description)}</p>${fallback ? `<p class="translation-notice">${e(languageInfo(language).label)} translations are not available yet. Showing the English index.</p>` : ""}</section>
-<section class="article-index" aria-labelledby="articles-title"><div class="section-heading" lang="en"><h2 id="articles-title">${tag ? "Tagged articles" : "All articles"}</h2><span>${String(posts.length).padStart(2, "0")} ARTICLES</span></div>
-${posts.length ? posts.map(({ meta }, index) => `<div class="article-row" lang="${languageInfo(meta.language).tag}"><span class="article-number">${String(index + 1).padStart(2, "0")}</span><div><time datetime="${meta.date}">${meta.date}</time><h3><a href="${e(location.base + postPath(meta.slug, language))}">${e(meta.title)}</a></h3><p>${e(meta.summary)}</p>${tagLinks(meta, location)}${meta.language !== language ? '<p class="fallback-label" lang="en">English · translation not available yet</p>' : ""}</div><span class="article-arrow" aria-hidden="true">↗</span></div>`).join("\n") : '<div class="empty-state" lang="en"><p class="eyebrow">A SPACE FOR WHAT COMES NEXT</p><h3>The first note is on its way.</h3><p>New articles will appear here when they are ready.</p></div>'}
+  const intro = tag
+    ? `<h1 class="tag-title">#${e(tag)}</h1><p class="intro-description">Articles tagged #${e(tag)}.</p>`
+    : `<h1>We run a team of agents.<br>These are the numbers.</h1><p class="intro-description">A person sets the direction and <strong>never reads the code</strong>. Agents plan, build, review and merge.</p><ol class="index-questions"><li><span>01</span>How should a person hand agents knowledge and intent?</li><li><span>02</span>How do you tune and control what they spend?</li></ol><div class="index-stats" aria-label="Team statistics as of ${e(snapshot.asOf)}">${snapshot.metrics.map(({ id, value, label }) => `<div class="index-stat${id === "subscriptions" ? " index-stat-money" : ""}"><b>${e(value)}</b><span>${e(label)}</span></div>`).join("")}</div><p class="stats-note">${e(snapshot.note)}</p>`;
+  return `<section class="index-intro" lang="en"><p class="eyebrow">${tag ? "TOPIC" : "THE TMT JOURNAL"}</p>${intro}${fallback ? `<p class="translation-notice">${e(languageInfo(language).label)} translations are not available yet. Showing the English index.</p>` : ""}</section>
+${tag ? "" : '<p class="index-contact" lang="en">Questions, data you want us to measure, or a team trying the same thing? Write to <a href="mailto:tofu@tmt.ninja">tofu@tmt.ninja</a>.</p>'}
+<section class="article-index" aria-labelledby="articles-title"><div class="section-heading" lang="en"><h2 id="articles-title">${tag ? "Tagged articles" : "Index"}</h2><span>DATE · ARTICLE · KEY NUMBER</span></div>
+${posts.length ? posts.map(({ meta }) => `<div class="article-row" lang="${languageInfo(meta.language).tag}"><time datetime="${meta.date}">${meta.date}</time><div><h3><a href="${e(location.base + postPath(meta.slug, language))}">${e(meta.title)}</a></h3><p>${e(meta.summary)}</p>${tagLinks(meta, location)}${meta.language !== language ? '<p class="fallback-label" lang="en">English · translation not available yet</p>' : ""}</div><div class="article-key-number">${meta.keyNumber ? `<b>${e(meta.keyNumber.value)}</b><span>${e(meta.keyNumber.label)}</span>` : ""}</div></div>`).join("\n") : '<div class="empty-state" lang="en"><p class="eyebrow">A SPACE FOR WHAT COMES NEXT</p><h3>The first note is on its way.</h3><p>New articles will appear here when they are ready.</p></div>'}
 </section>`;
 }
 

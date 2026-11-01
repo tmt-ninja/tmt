@@ -148,7 +148,8 @@ export function verifyPages(files, info, { origin, repository } = {}) {
     if (!path.startsWith("blog/") || !path.endsWith(".html")) continue;
     const shellLinks = [];
     walk(parse(bytes.toString("utf8")), (node) => {
-      if (!["site-header", "site-footer"].includes(attr(node, "class"))) return;
+      if (!["header", "footer"].includes(node.tagName) || node.parentNode?.tagName !== "body")
+        return;
       const outbound = [];
       walk(node, (child) => {
         if (child.tagName === "a" && /^https?:/.test(attr(child, "href") ?? ""))
@@ -158,7 +159,14 @@ export function verifyPages(files, info, { origin, repository } = {}) {
     });
     if (
       shellLinks.length !== 2 ||
-      shellLinks.some((links) => links.length !== 1 || links[0] !== expectedRepository)
+      shellLinks.some(
+        (links) =>
+          links.filter((url) => url === expectedRepository).length !== 1 ||
+          links.some(
+            (url) =>
+              url !== expectedRepository && !/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}$/.test(url),
+          ),
+      )
     )
       throw new Error(`Blog header/footer must link to the repository: ${path}`);
   }

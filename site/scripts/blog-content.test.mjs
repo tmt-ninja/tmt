@@ -184,3 +184,24 @@ test("validates date/language/slug and rejects unexpected metadata", () => {
   ])
     assert.throws(() => metadata({ ...meta, ...changed }));
 });
+
+test("optional key numbers are bounded, closed metadata and approval-bound", () => {
+  const keyNumber = { value: "2.9×", label: "tokens per line" };
+  assert.deepEqual(metadata({ ...meta, keyNumber }).keyNumber, keyNumber);
+  assert.equal(Object.hasOwn(metadata(meta), "keyNumber"), false);
+  for (const bad of [
+    null,
+    [],
+    {},
+    { value: "1" },
+    { ...keyNumber, extra: true },
+    { ...keyNumber, value: 1 },
+    { ...keyNumber, value: " " },
+    { ...keyNumber, label: "a\n" },
+    { ...keyNumber, value: "x".repeat(33) },
+    { ...keyNumber, label: "x".repeat(101) },
+  ])
+    assert.throws(() => metadata({ ...meta, keyNumber: bad }), /keyNumber/);
+  const html = '<article id="blog-article"><p>Evidence</p></article>';
+  assert.notEqual(artifactHash(meta, html, {}), artifactHash({ ...meta, keyNumber }, html, {}));
+});

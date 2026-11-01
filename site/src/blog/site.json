@@ -1,4 +1,11 @@
 {
   "title": "TMT Journal",
-  "description": "Field notes on building tools for people and agents."
+  "description": "Field notes on building tools for people and agents.",
+  "published": {
+    "product": false,
+    "journal": true,
+    "colab": false,
+    "github": true
+  },
+  "xHandle": "tmtTofu"
 }
