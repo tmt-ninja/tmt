@@ -35,7 +35,153 @@ fn conflict() -> Error {
         "Cron changed during adoption. Inspect the current source before starting a new import.",
     )
 }
+fn marker(bytes: &[u8]) -> Result<Option<Value>, Error> {
+    let value: Value = serde_json::from_slice(bytes).map_err(io)?;
+    if value["version"].as_u64().is_some_and(|v| v < 3) {
+        return Ok(None);
+    }
+    let id = value["sourceId"].as_str().ok_or_else(conflict)?;
+    let hash = value["sourceDigest"].as_str().ok_or_else(conflict)?;
+    if value["version"] != 3
+        || value["owner"] != "core.jobs"
+        || !matches!(value["phase"].as_str(), Some("frozen" | "adopted"))
+        || !crate::operation::uuid_like(id)
+        || id != id.to_ascii_lowercase()
+        || hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(conflict());
+    }
+    Ok(Some(value))
+}
 impl Store {
+    /// Only a confirmed Core receipt permits the caller to publish this redirect.
+    /// No Core bytes are read here; the source fence remains an Ops transaction.
+    pub fn confirm_core_adoption(&self, frozen: &FrozenJobs) -> Result<(), Error> {
+        let slot = self.slot();
+        let mut database = Database::open(&self.root).map_err(refused)?;
+        database
+            .update(
+                &slot,
+                |bytes| {
+                    let mut value = marker(bytes.ok_or_else(conflict)?)?.ok_or_else(conflict)?;
+                    if value["sourceId"] != frozen.source_id
+                        || value["sourceDigest"] != frozen.source_digest
+                        || digest(&frozen.bytes) != frozen.source_digest
+                    {
+                        return Err(conflict());
+                    }
+                    let changed = value["phase"] != "adopted";
+                    value["phase"] = json!("adopted");
+                    Ok((
+                        if changed {
+                            Some(serde_json::to_vec(&value).map_err(io)?)
+                        } else {
+                            None
+                        },
+                        (),
+                    ))
+                },
+                |_, tx| {
+                    let retained: Vec<u8> = tx
+                        .query_row(
+                            "SELECT body FROM documents WHERE kind='cron-cutover-source' AND key=?",
+                            [&frozen.source_id],
+                            |r| r.get(0),
+                        )
+                        .map_err(io)?;
+                    if retained != frozen.bytes {
+                        return Err(conflict());
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(failed)
+    }
+    pub fn core_redirect(&self) -> Result<Option<(String, String)>, Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(None);
+        };
+        database
+            .inspect(&slot, |bytes| {
+                let Some(bytes) = bytes else {
+                    return Ok(None);
+                };
+                let Some(value) = marker(bytes)? else {
+                    return Ok(None);
+                };
+                Ok((value["phase"] == "adopted").then(|| {
+                    (
+                        value["sourceId"].as_str().unwrap().to_owned(),
+                        value["sourceDigest"].as_str().unwrap().to_owned(),
+                    )
+                }))
+            })
+            .map_err(failed)
+    }
+    /// One durable, exact export is retained beside the frozen database source.
+    /// A pre-existing unknown file is never replaced or removed.
+    pub fn export_core_source(&self, frozen: &FrozenJobs) -> Result<PathBuf, Error> {
+        use std::{
+            io::Read,
+            os::unix::fs::{MetadataExt, PermissionsExt},
+        };
+        if !crate::operation::uuid_like(&frozen.source_id)
+            || frozen.source_id != frozen.source_id.to_ascii_lowercase()
+            || frozen.bytes.len() as u64 > LIMIT
+            || digest(&frozen.bytes) != frozen.source_digest
+        {
+            return Err(conflict());
+        }
+        let layout = tmt_extension_state::Layout::open(&self.root, "cron", &[])
+            .map_err(|e| io(format!("Cannot open private cron export directory: {e:?}")))?;
+        let path = layout
+            .directory
+            .join(format!("core-source-{}.json", frozen.source_id));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(&frozen.bytes)
+                    .and_then(|()| file.sync_all())
+                    .map_err(io)?;
+                layout.sync().map_err(io)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let file = std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(
+                        (nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits(),
+                    )
+                    .open(&path)
+                    .map_err(io)?;
+                let metadata = file.metadata().map_err(io)?;
+                if !metadata.is_file()
+                    || metadata.len() > LIMIT
+                    || metadata.permissions().mode() & 0o077 != 0
+                    || metadata.uid() != nix::unistd::geteuid().as_raw()
+                {
+                    return Err(conflict());
+                }
+                let mut bytes = Vec::new();
+                file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(io)?;
+                if bytes != frozen.bytes {
+                    return Err(conflict());
+                }
+            }
+            Err(error) => return Err(io(error)),
+        }
+        Ok(path)
+    }
     /// Preflight observes the exact source without freezing or archiving it.
     /// Core validates this immutable document before the freeze hash CAS.
     pub fn cutover_source(&self) -> Result<(String, Vec<u8>), Error> {
@@ -84,27 +230,17 @@ impl Store {
         };
         let row = database
             .snapshot(|transaction| {
-                let marker: Option<Vec<u8>> = transaction
+                let stored_marker: Option<Vec<u8>> = transaction
                     .query_row(
                         "SELECT CASE WHEN length(body)<=16777216 THEN body END FROM documents WHERE kind='cron' AND key=''",
                         [],
                         |row| row.get(0),
                     )
                     .optional()?;
-                let Some(marker) = marker else {
+                let Some(stored_marker) = stored_marker else {
                     return Ok(None);
                 };
-                let value: Value =
-                    serde_json::from_slice(&marker).map_err(|_| rusqlite::Error::InvalidQuery)?;
-                if value["version"].as_u64().is_some_and(|version| version < 3) {
-                    return Ok(None);
-                }
-                if value["version"] != 3
-                    || value["owner"] != "core.jobs"
-                    || !matches!(value["phase"].as_str(), Some("frozen" | "adopted"))
-                {
-                    return Err(rusqlite::Error::InvalidQuery);
-                }
+                let Some(value) = marker(&stored_marker).map_err(|_|rusqlite::Error::InvalidQuery)? else { return Ok(None); };
                 let id = value["sourceId"]
                     .as_str()
                     .ok_or(rusqlite::Error::InvalidQuery)?

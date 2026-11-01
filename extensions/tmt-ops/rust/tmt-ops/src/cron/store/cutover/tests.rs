@@ -192,3 +192,74 @@ fn expired_holder_is_not_quiescence_and_another_root_guard_cannot_freeze() {
     );
     assert_eq!(f.retained_count(), 0);
 }
+
+#[test]
+fn exact_export_and_redirect_keep_frozen_source_and_old_writer_refusal() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    f.seed();
+    let (hash, _) = f.store().cutover_source().unwrap();
+    let guard = f.clock().quiescent_for_cutover().unwrap();
+    let frozen = f.store().freeze_for_core(&guard, SOURCE, &hash).unwrap();
+    let path = f.store().export_core_source(&frozen).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), frozen.bytes);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(f.store().export_core_source(&frozen).unwrap(), path);
+    assert!(f.store().core_redirect().unwrap().is_none());
+    let marker = f.raw();
+    // A redirect cannot commit over a changed recovery source, even after its
+    // marker update has run in this same transaction.
+    f.db()
+        .execute(
+            "UPDATE documents SET body=? WHERE kind='cron-cutover-source' AND key=?",
+            params![b"changed".as_slice(), SOURCE],
+        )
+        .unwrap();
+    assert!(f.store().confirm_core_adoption(&frozen).is_err());
+    assert_eq!(f.raw(), marker);
+    f.db()
+        .execute(
+            "UPDATE documents SET body=? WHERE kind='cron-cutover-source' AND key=?",
+            params![frozen.bytes, SOURCE],
+        )
+        .unwrap();
+    f.store().confirm_core_adoption(&frozen).unwrap();
+    let adopted = f.raw();
+    assert_eq!(
+        f.store().core_redirect().unwrap(),
+        Some((SOURCE.into(), hash))
+    );
+    assert_eq!(f.store().frozen_for_core().unwrap(), Some(frozen.clone()));
+    f.store().confirm_core_adoption(&frozen).unwrap();
+    assert_eq!(f.raw(), adopted);
+    assert_eq!(f.store().read().unwrap_err().code, "SQUAD_CRON_STORE_NEWER");
+    assert_eq!(
+        f.store().update(|_| Ok(())).unwrap_err().code,
+        "SQUAD_CRON_STORE_NEWER"
+    );
+    fs::write(&path, b"unrelated retained file").unwrap();
+    assert!(f.store().export_core_source(&frozen).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"unrelated retained file");
+    assert_eq!(f.store().frozen_for_core().unwrap(), Some(frozen));
+}
+#[test]
+fn an_export_path_that_became_a_symlink_is_retained_and_refused() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    f.seed();
+    let (hash, _) = f.store().cutover_source().unwrap();
+    let guard = f.clock().quiescent_for_cutover().unwrap();
+    let frozen = f.store().freeze_for_core(&guard, SOURCE, &hash).unwrap();
+    let path = f.store().export_core_source(&frozen).unwrap();
+    fs::remove_file(&path).unwrap();
+    let foreign = f.0.join("foreign");
+    fs::write(&foreign, b"foreign bytes").unwrap();
+    symlink(&foreign, &path).unwrap();
+    assert!(f.store().export_core_source(&frozen).is_err());
+    assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(foreign).unwrap(), b"foreign bytes");
+    assert!(f.store().core_redirect().unwrap().is_none());
+}
