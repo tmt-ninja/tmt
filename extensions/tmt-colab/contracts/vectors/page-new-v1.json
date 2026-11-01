@@ -1,0 +1,57 @@
+{
+  "description": "page.new payloads (contract: New pages from the browser, #5866). The request names the space scope page.",
+  "accepted": [
+    {
+      "payload": {
+        "title": "Acme",
+        "kind": "design-system"
+      },
+      "title": "Acme",
+      "kind": "design-system"
+    },
+    {
+      "payload": {
+        "title": "Notes",
+        "kind": null
+      },
+      "title": "Notes",
+      "kind": null
+    }
+  ],
+  "refused": [
+    {
+      "why": "kind is required",
+      "payload": {
+        "title": "Acme"
+      }
+    },
+    {
+      "why": "unknown kind",
+      "payload": {
+        "title": "Acme",
+        "kind": "dashboard"
+      }
+    },
+    {
+      "why": "empty title",
+      "payload": {
+        "title": "",
+        "kind": null
+      }
+    },
+    {
+      "why": "no title",
+      "payload": {
+        "kind": null
+      }
+    },
+    {
+      "why": "caller source",
+      "payload": {
+        "title": "Acme",
+        "kind": null,
+        "source": "<p>x</p>"
+      }
+    }
+  ]
+}

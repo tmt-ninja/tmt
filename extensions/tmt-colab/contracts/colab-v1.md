@@ -5417,12 +5417,11 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text (the empty string for `page.projects`, `project.manage`, `page.pin` and `page.kind`, see [Projects](#projects-3747), [Pins](#pins-4356) and [Page kinds](#page-kinds-5866))
+positive decimal text (the empty string for `page.projects`, `project.manage`, `page.pin`, `page.kind` and `page.new`, see [Projects](#projects-3747), [Pins](#pins-4356) and [Page kinds](#page-kinds-5866))
 and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient`, an optional `creator` selection `{agent,machineId?}` (the owner supplies attribution), optional `template` name (a compiled template's, or a user template's with `templatePage`, the page that carries that name) and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a dashboard has none) as defined
 in the content-root definition above; it accepts
-revision `"0"` only when initializing owner genesis. Browser-signed management
-cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
+revision `"0"` only when initializing owner genesis. Browser-signed management cannot use `page.create`; the owner device asks for a page with `page.new` ([New pages from the browser](#new-pages-from-the-browser-5866)). Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
 local route has a separate body cap for worst-case JSON escaping plus base64
 (`LOCAL_CREATE_PAYLOAD_BYTES = 6 * (2 MiB + 256 KiB) + 1024`, body cap
 `ceil(payloadCap / 3) * 4 + 2048`). Other management selections retain 16 KiB
@@ -5906,6 +5905,25 @@ Before page kinds the browser marked these pages with a reserved display-only pr
 in that project the kind, then removes the project, its assignments and its pin. A browser on a
 serve that refuses `page.kind` (`INVALID`) keeps marking with that project until the serve
 upgrades.
+
+### New pages from the browser (#5866)
+
+`page.new` is how an admitted owner device makes a top-level page from the browser (the Design
+tab's New design system). It is a device-signed management request on the browser path only; the
+local path refuses it and keeps `page.create`. Like `project.manage` it names the space scope page
+`00000000-0000-4000-8000-000000000000` in `page`, and no other request may; it signs the empty
+`expectedRevision`. Its payload is exactly `{title, kind}`: `title` follows the `subpage.create`
+title rule, and `kind` is `"design-system"` or `null` and is required. Anything else is `INVALID`
+before any page is made.
+
+The owner makes the page as a browser `subpage.create` does, with its own root-local
+`page.create` at its current head: a column page whose first text is the title as an escaped
+heading, no source, layout or agent from the caller, attached to no page. The page ID is the same
+name-based ID over the space ID and the operation ID, so the same operation never makes two pages
+and a replay finds its page and makes none. A given `kind` is then set as `page.kind` sets it. The
+reply is `{operationId, membershipHead, pageId}`. A serve from before this refuses the request
+(`INVALID`); the browser then makes the page as a sub-page of an existing page and detaches it at
+once. `vectors/page-new-v1.json` pins the accepted and refused payloads.
 
 ### Page summary (#2588)
 

@@ -867,7 +867,7 @@ mod tests {
     fn revision(operation: &str) -> &'static str {
         if matches!(
             operation,
-            "page.projects" | "project.manage" | "page.pin" | "page.kind"
+            "page.projects" | "project.manage" | "page.pin" | "page.kind" | "page.new"
         ) {
             ""
         } else {
@@ -876,7 +876,7 @@ mod tests {
     }
     /// A space-level change names the space scope page; every other operation names a page.
     fn page_of(operation: &str) -> &'static str {
-        if operation == "project.manage" {
+        if matches!(operation, "project.manage" | "page.new") {
             auth::SPACE_SCOPE_PAGE
         } else {
             PAGE
@@ -1132,6 +1132,39 @@ mod tests {
                 .action,
             Action::Kind(Some(_))
         ));
+    }
+    #[test]
+    fn page_new_names_the_space_scope_a_title_and_a_kind_on_the_browser_path_only() {
+        let cases: Value =
+            serde_json::from_str(include_str!("../../../contracts/vectors/page-new-v1.json"))
+                .unwrap();
+        let action = |payload: &Value| {
+            browser(
+                &signed(
+                    "page.new",
+                    &serde_json::to_vec(payload).unwrap(),
+                    DEVICE,
+                    100,
+                ),
+                100,
+            )
+            .map(|command| command.action)
+        };
+        for case in cases["accepted"].as_array().unwrap() {
+            assert!(
+                matches!(&action(&case["payload"]), Ok(Action::New { title, kind })
+                    if title == case["title"].as_str().unwrap()
+                        && kind.as_deref() == case["kind"].as_str()),
+                "{case}"
+            );
+        }
+        for case in cases["refused"].as_array().unwrap() {
+            assert_eq!(
+                action(&case["payload"]).err(),
+                Some(Code::Invalid),
+                "{case}"
+            );
+        }
     }
     #[test]
     fn project_manage_names_the_space_scope_and_one_valid_change() {

@@ -223,6 +223,9 @@ alone, as the DOM has none. The `limits` block must equal each side's named cons
 cases by hand and run both runners: the file has no independent generator, because the browser
 is the oracle.
 
+`page-new-v1.json` holds the `page.new` payloads (colab-v1, "New pages from the browser"), with the
+title and kind each makes; the owner's management parser reads it.
+
 `page-kind-v1.json` holds the `page.kind` payloads (colab-v1, "Page kinds"): `accepted` with the
 kind each sets (`null` clears) and `refused` with why. The owner's management parser reads it.
 Edit the cases by hand and run its test.
