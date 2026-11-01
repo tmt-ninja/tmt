@@ -154,10 +154,101 @@ fn subprocess_fixture() {
         .map(std::path::PathBuf::from)
         .expect("fixture event path");
     let mode = mode.to_str().expect("fixture mode is UTF-8");
-    let mut interrupt = Interrupt::install().expect("install interrupt fixture");
+    let before_install = (mode == "drop").then(open_fd_count);
+    let mut interrupt = if mode == "fanout-term" {
+        Interrupt::install_termination()
+    } else {
+        Interrupt::install()
+    }
+    .expect("install interrupt fixture");
     fs::write(&ready, b"ready").expect("publish interrupt fixture readiness");
 
     match mode {
+        "cancel" => {
+            interrupt.defer_emergency_exit();
+            interrupt.cancel().unwrap();
+            interrupt.cancel().unwrap();
+            assert!(interrupt.is_interrupted());
+            assert_eq!(interrupt.take_notifications().unwrap(), 1);
+            assert_eq!(interrupt.take_notifications().unwrap(), 1);
+            interrupt.wait_until(Instant::now() + EXIT_TIMEOUT).unwrap();
+            fs::write(&event, b"cancelled").unwrap();
+        }
+        "fanout" | "fanout-term" => {
+            use crate::process::{
+                CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner,
+            };
+            use std::sync::mpsc;
+            interrupt.defer_emergency_exit();
+            let (sender, receiver) = mpsc::channel();
+            let results = std::thread::scope(|scope| {
+                let mut handles = Vec::new();
+                for _ in 0..2 {
+                    let sender = sender.clone();
+                    let interrupt = &interrupt;
+                    handles.push(scope.spawn(move || {
+                        let mut observed = Vec::new();
+                        let mut announced = false;
+                        UnixCommandRunner.execute_cancellable(
+                            CommandRequest {
+                                program: env::current_exe().unwrap().as_os_str(),
+                                args: &[
+                                    "--exact".into(),
+                                    "interrupt::tests::fanout_child_fixture".into(),
+                                    "--nocapture".into(),
+                                    "--test-threads=1".into(),
+                                ],
+                                input: &[],
+                                deadline: Instant::now() + STARTUP_TIMEOUT,
+                                max_output_bytes: 2048,
+                            },
+                            1024,
+                            &mut |bytes| {
+                                observed.extend_from_slice(bytes);
+                                if !announced && observed.ends_with(b"\n") {
+                                    for line in String::from_utf8_lossy(&observed).lines() {
+                                        if let Some(pid) = line
+                                            .strip_prefix("fanout-ready:")
+                                            .and_then(|s| s.parse::<u32>().ok())
+                                        {
+                                            sender.send(pid).unwrap();
+                                            announced = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            },
+                            interrupt,
+                        )
+                    }));
+                }
+                let pids = [
+                    receiver.recv_timeout(STARTUP_TIMEOUT).unwrap(),
+                    receiver.recv_timeout(STARTUP_TIMEOUT).unwrap(),
+                ];
+                fs::write(&event, b"both-ready").unwrap();
+                let errors: Vec<_> = handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap().unwrap_err())
+                    .collect();
+                fs::write(&event,serde_json::to_vec(&serde_json::json!({"pids":pids,"kinds":errors.iter().map(|e|format!("{:?}",e.kind)).collect::<Vec<_>>()})).unwrap()).unwrap();
+                errors
+            });
+            assert!(
+                results.iter().all(|e| !e.cleanup_failed()),
+                "every owned child must be reaped even on the negative path"
+            );
+            assert!(
+                results.iter().all(|e| matches!(
+                    e.kind,
+                    CommandFailure::Exit {
+                        signal: Some(2),
+                        ..
+                    }
+                )),
+                "one SIGINT must reach both child owners"
+            );
+        }
         mode if mode.starts_with("cancellable-") => {
             use crate::process::{
                 CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner,
@@ -247,12 +338,15 @@ fn subprocess_fixture() {
         "drop" => {
             let original_interrupted = interrupt.interrupted.clone();
             let with_guard = open_fd_count();
-            assert!(with_guard >= 2, "interrupt guard descriptors are present");
+            assert!(
+                with_guard > before_install.unwrap(),
+                "interrupt guard descriptors are present"
+            );
             drop(interrupt);
             assert_eq!(
                 open_fd_count(),
-                with_guard - 2,
-                "guard drop closes both interrupt descriptors"
+                before_install.unwrap(),
+                "guard drop closes every interrupt descriptor"
             );
 
             let replacement = Interrupt::install().expect("reinstall interrupt after drop");
@@ -271,4 +365,53 @@ fn subprocess_fixture() {
         }
         _ => panic!("unknown interrupt fixture mode: {mode}"),
     }
+}
+
+fn fanout_signal(mode: &str, signal: Signal) {
+    let mut fixture = Fixture::start(mode);
+    fixture
+        .child
+        .wait_for_content(&fixture.event.clone(), "both-ready", STARTUP_TIMEOUT);
+    kill(fixture_pid(&fixture), signal).unwrap();
+    let status = fixture.child.wait_for_exit(STARTUP_TIMEOUT + EXIT_TIMEOUT);
+    assert!(
+        status.success(),
+        "fan-out fixture failed: {status}; {}",
+        event(&fixture)
+    );
+    let result: serde_json::Value = serde_json::from_str(&event(&fixture)).unwrap();
+    for pid in result["pids"].as_array().unwrap() {
+        assert_eq!(
+            nix::sys::signal::killpg(Pid::from_raw(pid.as_i64().unwrap() as i32), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+}
+
+#[test]
+fn one_interrupt_reaches_both_invocation_owned_children() {
+    fanout_signal("fanout", Signal::SIGINT);
+}
+
+#[test]
+fn termination_reaches_both_invocation_owned_children() {
+    fanout_signal("fanout-term", Signal::SIGTERM);
+}
+
+#[test]
+fn programmatic_cancellation_is_shared_and_repeated_calls_are_not_repeat_signals() {
+    let mut fixture = Fixture::start("cancel");
+    assert!(fixture.child.wait_for_exit(EXIT_TIMEOUT).success());
+    assert_eq!(event(&fixture), "cancelled");
+}
+
+#[test]
+fn fanout_child_fixture() {
+    if !env::var(FIXTURE_MODE).is_ok_and(|mode| mode.starts_with("fanout")) {
+        return;
+    }
+    use std::io::Read;
+    let (mut reader, _writer) = std::os::unix::net::UnixStream::pair().unwrap();
+    eprintln!("fanout-ready:{}", std::process::id());
+    reader.read_exact(&mut [0]).unwrap();
 }

@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod component;
 mod last;
 mod process;
 
@@ -84,9 +85,33 @@ impl TickClock for MinuteClock {
     }
 }
 
-pub fn execute() -> Result<(), Error> {
+pub fn execute(token: Option<&str>, until_ms: Option<u64>) -> Result<(), Error> {
+    let core = crate::core::Core::discover()?;
+    let Some(token) = token else {
+        use std::os::unix::process::CommandExt;
+        let error = std::process::Command::new(core.program())
+            .arg("tick")
+            .exec();
+        return Err(Error::new("CORE_UNAVAILABLE", error.to_string()));
+    };
+    let cancellation = component::Cancellation::install()?;
+    let core = core
+        .with_cancellation(cancellation.flag.clone())
+        .persistent();
+    component::verify(&core, token)?;
+    let until_ms = until_ms.ok_or_else(|| {
+        Error::new(
+            "DIGEST_CLOCK_INVALID",
+            "The unified clock must supply its finite stop time.",
+        )
+    })?;
+    execute_owned(core, token, until_ms)
+}
+fn execute_owned(core: crate::core::Core, token: &str, until_ms: u64) -> Result<(), Error> {
     // One `tmt api --session` serves every request of this minute; it ends with the tick.
-    let core = crate::core::Core::discover()?.persistent();
+    if now_ms()? >= until_ms {
+        return Ok(());
+    }
     let root = core.data_root()?;
     let directory = root.join("digest");
     fs::DirBuilder::new()
@@ -115,7 +140,7 @@ pub fn execute() -> Result<(), Error> {
     };
     let mut clock = MinuteClock(Instant::now());
     let entered = now_ms()?;
-    let remaining = MINUTE_MS - entered % MINUTE_MS;
+    let remaining = (MINUTE_MS - entered % MINUTE_MS).min(until_ms.saturating_sub(entered));
     let boundary = clock.0 + Duration::from_millis(remaining);
     let boundary_ms = entered
         .checked_add(remaining)
@@ -132,7 +157,8 @@ pub fn execute() -> Result<(), Error> {
         }
         Ok(history)
     });
-    let mut port = process::TickProcess::new(core, path, boundary_ms, boundary);
+    let mut port = process::TickProcess::new(core, path, boundary_ms, boundary)
+        .with_clock_lease(token.to_owned());
     port.attach_history(history);
     let outcome = run_until(&mut clock, &mut port, boundary_ms, remaining);
     match (outcome, port.finish()) {

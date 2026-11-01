@@ -2745,6 +2745,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-extension-state",
  "tmt-invoke",

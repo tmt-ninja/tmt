@@ -94,3 +94,6 @@ mod process_tests;
 
 #[cfg(unix)]
 pub mod workspace;
+
+#[cfg(unix)]
+pub mod tick;

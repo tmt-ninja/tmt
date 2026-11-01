@@ -107,6 +107,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-extension-state", // private history transactions only
             "toml_edit",
             "nix",
+            "signal-hook", // finite clock component cancels and reaps its owned API session
             // One anonymous, bounded GET of the public price file; no token, cookie or API.
             "ureq",
         ],

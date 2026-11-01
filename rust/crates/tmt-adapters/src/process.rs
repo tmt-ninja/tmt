@@ -570,7 +570,7 @@ fn forward_interrupt(
     let notifications = interrupt
         .take_notifications()
         .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
-    if notifications == 0 {
+    if notifications == 0 && !interrupt.is_interrupted() {
         return Ok(());
     }
     if !*forwarded {
@@ -579,9 +579,9 @@ fn forward_interrupt(
         job.send_signal_group(Signal::SIGINT as i32)
             .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?;
         *forwarded = true;
-        if notifications == 1 {
-            return Ok(());
-        }
+    }
+    if notifications < 2 {
+        return Ok(());
     }
     // A repeat expires this wait early. The same RunningCommand performs its
     // ordinary group cleanup; no partial bytes become a confirmed report.

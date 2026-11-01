@@ -42,6 +42,7 @@ const OPS: &[&str] = &[
     "orchestration.read",
     "orchestration.write",
     "orchestration.job.run",
+    "tick.status",
     "digest.receiving.sync",
     "digest.wake.step",
     "digest.policy.set",
@@ -212,6 +213,7 @@ pub enum DispatchIdentity {
 }
 
 pub enum Request {
+    TickStatus,
     Orchestration(Box<crate::orchestration::OrchReadQuery>),
     OrchestrationWrite(Box<crate::orchestration::OrchWriteQuery>),
     JobRun {
@@ -404,6 +406,11 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::Capabilities
         }
+        "tick.status"
+            if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
+        {
+            Request::TickStatus
+        }
         "storage.root"
             if serde_json::from_slice::<serde_json::Value>(input).is_ok_and(|v| v == json!({})) =>
         {
@@ -558,6 +565,12 @@ impl Session {
         if matches!(request, Request::Capabilities) {
             return Ok(capabilities());
         }
+        if matches!(request, Request::TickStatus) {
+            let value =
+                crate::tick::status(&paths.global_dir, crate::request_runtime::wall_time_ms())
+                    .map_err(|e| Fault::detailed(e.code(), e.to_string()))?;
+            return serde_json::to_vec(&value).map_err(|_| Fault::unavailable());
+        }
         if matches!(request, Request::StorageRoot) {
             let root = crate::config::normalize(
                 &std::path::absolute(&paths.global_dir).map_err(|_| Fault::unavailable())?,
@@ -630,6 +643,7 @@ impl Session {
         match request {
             Request::Notes(id) => notes::read(paths, storage, id),
             Request::Capabilities
+            | Request::TickStatus
             | Request::StorageRoot
             | Request::ConsumptionLimits
             | Request::DriverModels
