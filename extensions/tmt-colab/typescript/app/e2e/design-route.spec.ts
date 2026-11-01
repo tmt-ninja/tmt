@@ -218,6 +218,33 @@ for (const width of [1440, 390])
       expect(bundlePaint.height).toBe(bundlePaint.controlSize.trim());
       expect(bundlePaint.background).not.toBe('rgba(0, 0, 0, 0)');
       expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
+      const variants = page.locator('.docs-variant');
+      await expect(variants).toHaveCount(7);
+      for (let index = 0; index < 7; index++) {
+        const variant = variants.nth(index);
+        await variant.scrollIntoViewIfNeeded();
+        const button = variant.locator('iframe').contentFrame().getByRole('button').first();
+        await expect(button).toBeVisible();
+        await expect(button).toHaveClass(/tmt-ui-button/);
+        await expect(button).toHaveCSS('display', 'flex');
+        const buttonHeight = (await button.boundingBox())!.height;
+        await expect
+          .poll(() => variant.locator('iframe').evaluate((frame) => frame.clientHeight))
+          .toBeGreaterThanOrEqual(buttonHeight);
+        if (index === 6) await expect(button).toBeDisabled();
+        await expect(variant.locator('.docs-snippet button')).toHaveText('Copy');
+      }
+      if (captures) {
+        await variants.first().scrollIntoViewIfNeeded();
+        await variants
+          .first()
+          .screenshot({ path: join(captures, `design-user-variant-${width}-${theme}.png`) });
+        await page.locator('.docs-props').scrollIntoViewIfNeeded();
+        await page
+          .locator('.docs-props')
+          .screenshot({ path: join(captures, `design-user-props-${width}-${theme}.png`) });
+      }
+      await page.locator('.design-workspace').evaluate((element) => element.scrollTo({ top: 0 }));
       await capture(page, `design-user-component-${width}-${theme}.png`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(
         false,
