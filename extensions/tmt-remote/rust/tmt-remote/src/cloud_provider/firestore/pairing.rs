@@ -1,7 +1,7 @@
 //! Enrollment metadata uses the carrier driver's ordinary-user HTTP/Auth/budget
 //! owner. No Admin credential, operation admission or second request runner.
-use super::wire::invalid;
 use crate::cloud_inbox::stamp;
+use crate::cloud_pairing::wire::invalid;
 use crate::{
     canonical,
     cloud_inbox::Provider,
@@ -68,7 +68,7 @@ fn read(value: &Value, root: &str, machine: &str) -> Result<EnrollmentDocument, 
     };
     let uid = text("uid")?;
     let kind = text("kind")?;
-    if !super::uid_ok(uid)
+    if !crate::cloud_pairing::uid_ok(uid)
         || !["join", "receipt", "reroute", "route-response", "refused"].contains(&kind)
     {
         return Err(invalid());
@@ -353,7 +353,7 @@ impl Provider {
         io: &IoBudget<'_>,
     ) -> Result<(), RemoteError> {
         if !id_ok(id)
-            || !super::uid_ok(uid)
+            || !crate::cloud_pairing::uid_ok(uid)
             || body.is_empty()
             || body.len() > limits::CLOUD_ENROLLMENT_BYTES
             || !["join", "receipt", "reroute", "route-response", "refused"].contains(&kind)
@@ -534,7 +534,7 @@ impl Provider {
     }
     pub async fn publish_routes(
         &self,
-        rows: &[super::RouteChange],
+        rows: &[crate::cloud_pairing::RouteChange],
         invited_machine: Option<&str>,
         io: &IoBudget<'_>,
     ) -> Result<(), RemoteError> {
@@ -552,9 +552,11 @@ impl Provider {
             || live.len() > 1
             || invited_machine.is_some_and(|machine| machine != rows[0].peer || live.len() != 1)
             || canonical::uuid(&rows[0].peer).is_err()
-            || rows
-                .iter()
-                .any(|r| !super::uid_ok(&r.uid) || r.generation == 0 || r.generation >= 1 << 53)
+            || rows.iter().any(|r| {
+                !crate::cloud_pairing::uid_ok(&r.uid)
+                    || r.generation == 0
+                    || r.generation >= 1 << 53
+            })
             || rows
                 .iter()
                 .map(|r| &r.uid)
