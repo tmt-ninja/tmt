@@ -25,8 +25,9 @@
 // with empty input) or for code-mode `functions.wait`, so a wait is caught only
 // when it starts; the AGENTS rule and scripts/ci-wake.sh stay the primary fix.
 //
-// TMT_WAIT_GUARD_URL (the Messages endpoint) and TMT_WAIT_GUARD_LOG (the log
-// file) exist for isolated tests.
+// TMT_WAIT_GUARD_URL (the Messages endpoint, honored only on a loopback host,
+// since the key goes with it; any other host fails open without a request) and
+// TMT_WAIT_GUARD_LOG (the log file) exist for isolated tests.
 import { execFile, execFileSync } from 'node:child_process';
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
@@ -38,7 +39,20 @@ const JUDGE_MS = 2_000;
 const WHOAMI_MS = 500;
 const PROMPT_CHARS = 2_000;
 const LOG_CHARS = 300;
-const URL = process.env.TMT_WAIT_GUARD_URL || 'https://api.anthropic.com/v1/messages';
+const JUDGE_URL = 'https://api.anthropic.com/v1/messages';
+
+/** The judge endpoint. The test override is honored only on loopback, since the key goes with it. */
+function judgeUrl() {
+  const override = process.env.TMT_WAIT_GUARD_URL;
+  if (!override) return JUDGE_URL;
+  try {
+    const url = new URL(override);
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    return loopback && (url.protocol === 'http:' || url.protocol === 'https:') ? override : null;
+  } catch {
+    return null;
+  }
+}
 
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository.
 Deny it when the call waits or polls for something slow from the agent's main session: CI checks, a merge queue, a pull request's state, a long build, a deploy, or another agent's reply. Such waits waste the session; the agent should start scripts/ci-wake.sh (or a provider background task that wakes it) and end its turn instead.
@@ -116,8 +130,10 @@ function whoami() {
 async function judge(tool, command) {
   const secret = key();
   if (!secret) return { verdict: 'fail_open', reason: 'no key' };
+  const url = judgeUrl();
+  if (!url) return { verdict: 'fail_open', reason: 'untrusted judge url' };
   try {
-    const response = await fetch(URL, {
+    const response = await fetch(url, {
       method: 'POST',
       signal: AbortSignal.timeout(JUDGE_MS),
       headers: {

@@ -233,6 +233,22 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     }
   });
 
+  it('never sends the key to a judge override off loopback', async () => {
+    for (const override of [
+      'https://judge.example.com/v1/messages',
+      'http://10.0.0.1/v1',
+      'not a url',
+    ]) {
+      const c = newCase();
+      answer = verdict('{"verdict":"deny","reason":"x"}');
+      const result = await c.guard(bash('sleep 600'), { TMT_WAIT_GUARD_URL: override });
+      expect(result.stdout, override).toBe('');
+      expect(c.lines(), override).toEqual([
+        expect.objectContaining({ verdict: 'fail_open', reason: 'untrusted judge url' }),
+      ]);
+    }
+  });
+
   it('caps the command at 2000 characters for the judge and 300 in the log', async () => {
     const c = newCase();
     answer = verdict('{"verdict":"allow","reason":"ok"}');
