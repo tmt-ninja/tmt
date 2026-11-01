@@ -1,9 +1,13 @@
 //! Shared native installation/upgrade observations mapped to the CLI style component.
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Mutex, PoisonError, mpsc},
+    thread::JoinHandle,
+    time::{Duration, Instant},
+};
 use tmt_adapters::native_install::{Product, ProgressEvent};
 use tmt_cli_style::{
     Interaction,
-    progress::{Progress, State, Step, StepProgress, Transfer},
+    progress::{Progress, SPINNER, SPINNER_TICK, State, Step, StepProgress, Transfer},
 };
 
 fn product_label(product: Product) -> &'static str {
@@ -15,42 +19,122 @@ fn product_label(product: Product) -> &'static str {
 }
 
 pub(crate) struct InstallProgress {
-    progress: Progress,
+    view: Arc<Mutex<View>>,
     product: Product,
     action: &'static str,
-    enabled: bool,
     started: Instant,
-    last_draw: Option<Instant>,
     step: Step,
-    output_failed: bool,
     transfer: Option<Transfer>,
+    /// Only a live, colored terminal animates; pipes, `--json`, dumb terminals and
+    /// `NO_COLOR` keep the still mark and their exact bytes.
+    animate: bool,
+    ticker: Option<Ticker>,
+}
+
+/// What both the observing thread and the spinner ticker draw, one at a time.
+struct View {
+    progress: Progress,
+    enabled: bool,
+    output_failed: bool,
+    last_draw: Option<Instant>,
+    /// When the spinner started turning; frames count from here.
+    since: Instant,
+    frame: Option<usize>,
+}
+
+impl View {
+    fn draw(&mut self) {
+        if self.output_failed || !self.enabled {
+            return;
+        }
+        let mut output = tmt_cli_style::stream::stdout(false);
+        let terminal = output.terminal();
+        self.output_failed = self.progress.write(&mut output, terminal).is_err();
+        self.last_draw = Some(Instant::now());
+    }
+
+    /// Turns the running mark to the frame `now` selects and redraws when it moved.
+    /// Nothing turns once no step runs.
+    fn tick(&mut self, now: Instant) -> bool {
+        if !self.progress.running() {
+            return false;
+        }
+        let frame = (now.saturating_duration_since(self.since).as_millis()
+            / SPINNER_TICK.as_millis()) as usize
+            % SPINNER.len();
+        if self.frame == Some(frame) {
+            return false;
+        }
+        self.frame = Some(frame);
+        self.progress.frame(frame);
+        self.draw();
+        true
+    }
+}
+
+fn lock(view: &Mutex<View>) -> std::sync::MutexGuard<'_, View> {
+    view.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Redraws the spinner every tick between events. It lives only while a step may run and
+/// is joined when the view settles, fails or is dropped.
+struct Ticker {
+    stop: mpsc::Sender<()>,
+    thread: JoinHandle<()>,
+}
+
+impl Ticker {
+    fn start(view: Arc<Mutex<View>>, tick: Duration) -> Option<Self> {
+        let (stop, stopped) = mpsc::channel::<()>();
+        lock(&view).since = Instant::now();
+        let thread = std::thread::Builder::new()
+            .name("tmt-progress-spinner".into())
+            .spawn(move || {
+                // A message or a dropped sender both end the wait at once.
+                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(tick) {
+                    lock(&view).tick(Instant::now());
+                }
+            })
+            .ok()?;
+        Some(Self { stop, thread })
+    }
+
+    fn stop(self) {
+        let _ = self.stop.send(());
+        let _ = self.thread.join();
+    }
 }
 
 impl InstallProgress {
     pub(crate) fn new(action: &'static str, product: Product, interaction: Interaction) -> Self {
+        let live = interaction.stdout && !interaction.dumb;
         Self {
-            progress: Progress::new(
-                &format!("{action} {}", product_label(product)),
-                interaction.stdout && !interaction.dumb,
-            ),
+            view: Arc::new(Mutex::new(View {
+                progress: Progress::new(&format!("{action} {}", product_label(product)), live),
+                enabled: !interaction.json,
+                output_failed: false,
+                last_draw: None,
+                since: Instant::now(),
+                frame: None,
+            })),
             product,
             action,
-            enabled: !interaction.json,
             started: Instant::now(),
-            last_draw: None,
             step: Step::Download,
-            output_failed: false,
             transfer: None,
+            animate: live && !interaction.json && tmt_cli_style::Terminal::stdout(false).color,
+            ticker: None,
         }
     }
 
     pub(crate) fn observe(&mut self, event: ProgressEvent<'_>) {
+        let mut view = lock(&self.view);
         let (step, state, transfer, detail) = match event {
             ProgressEvent::Selected {
                 version,
                 archive_bytes,
             } => {
-                self.progress.title(&format!(
+                view.progress.title(&format!(
                     "{} {} {version}",
                     self.action,
                     product_label(self.product)
@@ -116,23 +200,30 @@ impl InstallProgress {
         if step == Step::Download {
             self.transfer = transfer;
         }
-        self.progress.update(StepProgress {
+        view.progress.update(StepProgress {
             step,
             state,
             transfer,
             detail: &detail,
         });
         let throttled = matches!(event, ProgressEvent::Download { .. })
-            && self
+            && view
                 .last_draw
                 .is_some_and(|last| last.elapsed() < Duration::from_millis(100));
         if !throttled {
-            self.draw();
+            view.draw();
+        }
+        let running = view.progress.running();
+        drop(view);
+        if self.animate && running && self.ticker.is_none() {
+            self.ticker = Ticker::start(Arc::clone(&self.view), SPINNER_TICK);
         }
     }
 
     pub(crate) fn settled(&mut self, warning: bool) {
-        self.progress.update(StepProgress {
+        self.stop_ticker();
+        let mut view = lock(&self.view);
+        view.progress.update(StepProgress {
             step: Step::Activate,
             state: if warning { State::Warning } else { State::Done },
             transfer: None,
@@ -142,27 +233,31 @@ impl InstallProgress {
                 "release and bundled skills ready"
             },
         });
-        self.draw();
+        view.draw();
     }
 
     pub(crate) fn failed(&mut self) {
-        self.progress.update(StepProgress {
+        self.stop_ticker();
+        let mut view = lock(&self.view);
+        view.progress.update(StepProgress {
             step: self.step,
             state: State::Failed,
             transfer: None,
             detail: "stopped; inspect the reported installation outcome",
         });
-        self.draw();
+        view.draw();
     }
 
-    fn draw(&mut self) {
-        if self.output_failed || !self.enabled {
-            return;
+    fn stop_ticker(&mut self) {
+        if let Some(ticker) = self.ticker.take() {
+            ticker.stop();
         }
-        let mut output = tmt_cli_style::stream::stdout(false);
-        let terminal = output.terminal();
-        self.output_failed = self.progress.write(&mut output, terminal).is_err();
-        self.last_draw = Some(Instant::now());
+    }
+}
+
+impl Drop for InstallProgress {
+    fn drop(&mut self) {
+        self.stop_ticker();
     }
 }
 
@@ -553,6 +648,115 @@ pub(crate) mod child {
 #[cfg(test)]
 mod presentation_tests {
     use super::*;
+
+    fn quiet() -> Interaction {
+        Interaction {
+            json: true,
+            stdin: false,
+            stdout: false,
+            stderr: false,
+            dumb: true,
+        }
+    }
+
+    fn plain(view: &Mutex<View>) -> String {
+        let mut bytes = Vec::new();
+        lock(view)
+            .progress
+            .write(&mut bytes, tmt_cli_style::Terminal::PLAIN)
+            .unwrap();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn the_running_mark_turns_on_the_clock_without_new_events_and_stops_when_settled() {
+        let progress = InstallProgress::new("Upgrading", Product::Cli, quiet());
+        let view = Arc::clone(&progress.view);
+        let start = Instant::now();
+        lock(&view).since = start;
+        lock(&view).progress.update(StepProgress {
+            step: Step::Verify,
+            state: State::Running,
+            transfer: None,
+            detail: "checking release record and archive",
+        });
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut marks = Vec::new();
+        for (ms, moved) in [(0, true), (40, false), (80, true), (160, true), (900, true)] {
+            assert_eq!(lock(&view).tick(at(ms)), moved, "{ms} ms");
+            let text = plain(&view);
+            let row = text.lines().find(|l| l.contains("Verify")).unwrap();
+            marks.push(row.trim_start().chars().next().unwrap());
+        }
+        // One frame per tick from the clock alone; 900 ms is frame 11, which wraps to 1.
+        assert_eq!(marks, ['⠋', '⠋', '⠙', '⠹', '⠙']);
+        lock(&view).progress.update(StepProgress {
+            step: Step::Verify,
+            state: State::Done,
+            transfer: None,
+            detail: "checked",
+        });
+        assert!(
+            !lock(&view).tick(at(2_000)),
+            "nothing turns once no step runs"
+        );
+    }
+
+    #[test]
+    fn only_a_live_colored_terminal_animates_and_still_output_keeps_its_mark() {
+        for interaction in [
+            quiet(),
+            Interaction {
+                json: false,
+                ..quiet()
+            },
+            Interaction {
+                json: false,
+                stdout: true,
+                dumb: true,
+                ..quiet()
+            },
+        ] {
+            let mut progress = InstallProgress::new("Upgrading", Product::Cli, interaction);
+            assert!(!progress.animate);
+            // Keep this check's frames off the test's own stdout.
+            lock(&progress.view).enabled = false;
+            progress.observe(ProgressEvent::Verifying);
+            assert!(progress.ticker.is_none());
+            assert!(plain(&progress.view).contains("⠹ Verify"));
+        }
+    }
+
+    #[test]
+    fn the_ticker_lives_only_while_a_step_runs_and_leaves_nothing_behind() {
+        // Settled and failed join the ticker and release its share of the view.
+        for settle in [true, false] {
+            let mut progress = InstallProgress::new("Upgrading", Product::Ops, quiet());
+            progress.animate = true;
+            progress.observe(ProgressEvent::Verifying);
+            assert!(progress.ticker.is_some());
+            assert_eq!(Arc::strong_count(&progress.view), 2);
+            if settle {
+                progress.settled(false);
+            } else {
+                progress.failed();
+            }
+            assert!(progress.ticker.is_none());
+            assert_eq!(Arc::strong_count(&progress.view), 1);
+        }
+        // Dropping a view mid-step joins its ticker too.
+        let mut progress = InstallProgress::new("Upgrading", Product::Ops, quiet());
+        progress.animate = true;
+        progress.observe(ProgressEvent::Activating);
+        let view = Arc::clone(&progress.view);
+        assert_eq!(Arc::strong_count(&view), 3);
+        drop(progress);
+        assert_eq!(Arc::strong_count(&view), 1);
+        // A ticker that never ticked stops at once; its wait is never a sleep.
+        let ticker = Ticker::start(Arc::clone(&view), Duration::from_secs(3_600)).unwrap();
+        ticker.stop();
+        assert_eq!(Arc::strong_count(&view), 1);
+    }
     #[test]
     fn observed_install_and_upgrade_share_bounded_plain_frames() {
         for action in ["Installing", "Upgrading"] {
@@ -588,7 +792,8 @@ mod presentation_tests {
             view.settled(false);
             for width in [20, 40, 80] {
                 let mut bytes = Vec::new();
-                view.progress
+                lock(&view.view)
+                    .progress
                     .write(
                         &mut bytes,
                         tmt_cli_style::Terminal {
