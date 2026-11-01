@@ -31,7 +31,7 @@ var UUID$5 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 function valid$8(condition) {
 	if (!condition) throw new Error("This invitation cannot be read. Ask its owner for a new code.");
 }
-function object$4(value, keys) {
+function object$5(value, keys) {
 	valid$8(value !== null && typeof value === "object" && !Array.isArray(value));
 	const row = value;
 	valid$8(Object.keys(row).length === keys.length && keys.every((key) => Object.hasOwn(row, key)));
@@ -60,7 +60,7 @@ function decodeDetails(token, now) {
 	const text = utf8$3.decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
 	const value = JSON.parse(text);
 	valid$8(JSON.stringify(value) === text);
-	const invite = object$4(value, [
+	const invite = object$5(value, [
 		"version",
 		"context",
 		"publicConfig",
@@ -70,7 +70,7 @@ function decodeDetails(token, now) {
 	valid$8(invite.version === 2);
 	bytes(invite.code, 16);
 	valid$8(typeof invite.machineName === "string" && invite.machineName.length > 0 && new TextEncoder().encode(invite.machineName).length <= 64 && !hasControl(invite.machineName) && invite.machineName.replace(/\uFEFF/g, "").trim().length > 0);
-	const context = object$4(invite.context, [
+	const context = object$5(invite.context, [
 		"binding",
 		"owner",
 		"owner_key",
@@ -88,7 +88,7 @@ function decodeDetails(token, now) {
 	valid$8(typeof issued === "number" && Number.isSafeInteger(issued) && issued >= 0);
 	valid$8(typeof expiry === "number" && Number.isSafeInteger(expiry) && expiry > issued && expiry - issued <= 6e5);
 	valid$8(issued <= now + 6e4 && now < expiry);
-	const binding = object$4(context.binding, [
+	const binding = object$5(context.binding, [
 		"backend",
 		"reference",
 		"owner_principal"
@@ -199,7 +199,7 @@ var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 function requireValue$1(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
 }
-function text$1(value) {
+function text$2(value) {
 	requireValue$1(typeof value === "string", "text");
 	for (let index = 0; index < value.length; index++) {
 		const unit = value.charCodeAt(index);
@@ -230,7 +230,7 @@ function concat(parts) {
 function lp(value) {
 	return concat([count$1(value.length), value]);
 }
-var lpText = (value) => lp(text$1(value));
+var lpText = (value) => lp(text$2(value));
 function uuid(value) {
 	requireValue$1(value.length === 36 && UUID$4.test(value), "UUIDv4");
 }
@@ -244,7 +244,7 @@ function doorOrigin(value) {
 	return port !== void 0 && Number(port) <= 65535;
 }
 function origin(value) {
-	requireValue$1(text$1(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
+	requireValue$1(text$2(value).length <= 128 && (value === "cli" || addonOrigin(value) || doorOrigin(value)), "origin");
 }
 /** Hash the exact supplied payload bytes, without parsing or reserializing them. */
 async function envelopeSigningBytes(value) {
@@ -277,7 +277,7 @@ async function envelopeSigningBytes(value) {
 	}
 	requireValue$1(Number.isSafeInteger(value.timestampMs) && value.timestampMs >= 0, "timestampMs");
 	origin(value.origin);
-	requireValue$1(text$1(value.operation).length > 0, "operation");
+	requireValue$1(text$2(value.operation).length > 0, "operation");
 	requireValue$1(value.payload instanceof Uint8Array, "payload bytes");
 	const payload = new Uint8Array(value.payload);
 	const fields = [
@@ -309,7 +309,7 @@ function enrollmentSigningBytes(value) {
 	]) uuid(id);
 	origin(value.origin);
 	requireValue$1(value.kind === "addon" && addonOrigin(value.origin) || value.kind === "browser" && doorOrigin(value.origin) || value.kind === "cli" && value.origin === "cli", "kind/origin");
-	const name = text$1(value.name);
+	const name = text$2(value.name);
 	requireValue$1(name.length >= 1 && name.length <= 64 && value.name.trim().length > 0 && !Array.from(value.name).some((character) => {
 		const point = character.codePointAt(0);
 		return point <= 31 || point >= 127 && point <= 159;
@@ -637,7 +637,7 @@ var USER_NAME_REASONS = [
 	"USER_NAME_INVALID",
 	"USER_NAME_TAKEN"
 ];
-function text(value) {
+function text$1(value) {
 	return typeof value === "string" && value.length > 0 && utf8$2.encode(value).length <= 512;
 }
 /** Optional, and exact when present: a notice that does not parse makes the whole reply unverifiable. */
@@ -647,7 +647,7 @@ function identity$1(value) {
 	const keys = Object.keys(notice).sort().join();
 	if (notice.state === "anonymous") {
 		valid$7(keys === "message,reason,state" && USER_NAME_REASONS.includes(notice.reason));
-		valid$7(text(notice.message));
+		valid$7(text$1(notice.message));
 		return { identity: {
 			state: "anonymous",
 			reason: notice.reason,
@@ -655,7 +655,7 @@ function identity$1(value) {
 		} };
 	}
 	valid$7(notice.state === "person" && keys === "name,renamedFrom,state");
-	valid$7(text(notice.name) && text(notice.renamedFrom));
+	valid$7(text$1(notice.name) && text$1(notice.renamedFrom));
 	return { identity: {
 		state: "person",
 		name: notice.name,
@@ -1067,7 +1067,7 @@ function valid$6(condition) {
 function input(condition) {
 	if (!condition) throw new TypeError("Invalid management input.");
 }
-function object$3(value) {
+function object$4(value) {
 	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
@@ -1147,7 +1147,7 @@ var firestoreSpecs = [
 function requireValid(condition) {
 	if (!condition) throw new Error("Invalid Firestore readiness response.");
 }
-function object$2(value) {
+function object$3(value) {
 	requireValid(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
@@ -1159,7 +1159,7 @@ function parseFirestoreLayers(value) {
 	if (!value.length) return [];
 	requireValid(value.length === firestoreSpecs.length);
 	for (const [index, [layer, items]] of firestoreSpecs.entries()) {
-		const row = object$2(value[index]);
+		const row = object$3(value[index]);
 		keys$1(row, [
 			"layer",
 			"state",
@@ -1168,7 +1168,7 @@ function parseFirestoreLayers(value) {
 		requireValid(row.layer === layer && Array.isArray(row.prerequisites) && row.prerequisites.length === items.length);
 		const states = [];
 		for (const [i, item] of items.entries()) {
-			const entry = object$2(row.prerequisites[i]);
+			const entry = object$3(row.prerequisites[i]);
 			requireValid(entry.item === item && [
 				"enabled",
 				"not-enabled",
@@ -1486,7 +1486,7 @@ function parsePublishedLimits(value) {
 var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
 function settings(value) {
-	const row = object$3(value);
+	const row = object$4(value);
 	exact(row, [
 		"open",
 		"source",
@@ -1501,7 +1501,7 @@ function settings(value) {
 	return row;
 }
 function device(value, activity = false) {
-	const row = object$3(value);
+	const row = object$4(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -1559,7 +1559,7 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_MEMBER_CONFLICT"
 ]);
 function parseManagementOutcome(value, operationId) {
-	const row = object$3(value);
+	const row = object$4(value);
 	valid$6(row.operationId === operationId);
 	if (row.state === "committed") {
 		exact(row, [
@@ -1569,7 +1569,7 @@ function parseManagementOutcome(value, operationId) {
 			"sessionEnded"
 		]);
 		valid$6(typeof row.sessionEnded === "boolean");
-		const result = object$3(row.result);
+		const result = object$4(row.result);
 		valid$6(Object.keys(result).length === 1);
 		if (Object.hasOwn(result, "settings")) settings(result.settings);
 		else if (Object.hasOwn(result, "removed")) valid$6(integer$1(result.removed) && result.removed <= 1e3 && row.sessionEnded === false);
@@ -1613,7 +1613,7 @@ function management(session, options = {}) {
 	return {
 		clientId,
 		previewRemoveOthers: () => call("remote.devices.remove-others.preview", crypto.randomUUID(), {}, (value) => {
-			const row = object$3(value);
+			const row = object$4(value);
 			exact(row, ["count", "fingerprint"]);
 			valid$6(integer$1(row.count) && row.count <= 1e3 && typeof row.fingerprint === "string" && /^[0-9a-f]{64}$/.test(row.fingerprint));
 			return row;
@@ -1623,7 +1623,7 @@ function management(session, options = {}) {
 			return mutate("remote.devices.remove-others", { ...change });
 		},
 		settings: ((options) => call("remote.settings.show", crypto.randomUUID(), options ?? {}, (value) => {
-			const row = object$3(value);
+			const row = object$4(value);
 			exact(row, [
 				"settings",
 				"capabilities",
@@ -1635,7 +1635,7 @@ function management(session, options = {}) {
 				parsePublishedLimits(row.firestoreBudget);
 			}
 			settings(row.settings);
-			const capabilities = object$3(row.capabilities);
+			const capabilities = object$4(row.capabilities);
 			exact(capabilities, ["settingsWrite", "devicesWrite"]);
 			valid$6(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
 			valid$6(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
@@ -1645,7 +1645,7 @@ function management(session, options = {}) {
 		devices: (page) => {
 			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
 			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
-				const row = object$3(value);
+				const row = object$4(value);
 				exact(row, ["devices", "nextCursor"]);
 				valid$6(Array.isArray(row.devices) && row.devices.length <= page.limit);
 				const ids = /* @__PURE__ */ new Set();
@@ -1694,7 +1694,7 @@ var snapshot$1 = (value) => {
 	}
 };
 function parsePendingInvitation(value) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state === "none") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -1722,7 +1722,7 @@ function parsePendingInvitation(value) {
 			"unconfirmed"
 		].includes(row.cleanup));
 		if (row.candidate !== null) {
-			const candidate = object$3(row.candidate);
+			const candidate = object$4(row.candidate);
 			exact(candidate, [
 				"clientId",
 				"name",
@@ -1737,7 +1737,7 @@ function parsePendingInvitation(value) {
 	return row;
 }
 function parseInvitationOutcome(value, operationId) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -1746,9 +1746,9 @@ function parseInvitationOutcome(value, operationId) {
 		"result"
 	]);
 	valid$6(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$3(row.result);
+	const result = object$4(row.result);
 	exact(result, ["invitation"]);
-	const invitation = object$3(result.invitation);
+	const invitation = object$4(result.invitation);
 	valid$6(id$1(invitation.offerId) && id$1(invitation.clientId));
 	if (invitation.state === "refused") exact(invitation, [
 		"offerId",
@@ -1768,7 +1768,7 @@ function parseInvitationOutcome(value, operationId) {
 	return row;
 }
 function parseIssuedInvitationPage(value, remoteId) {
-	const page = object$3(value);
+	const page = object$4(value);
 	exact(page, [
 		"remoteId",
 		"invitations",
@@ -1778,7 +1778,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 	valid$6(page.nextCursor === null || typeof page.nextCursor === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(page.nextCursor));
 	const ids = /* @__PURE__ */ new Set();
 	for (const value of page.invitations) {
-		const row = object$3(value);
+		const row = object$4(value);
 		exact(row, [
 			"offerId",
 			"issuedAtMs",
@@ -1809,7 +1809,7 @@ function parseIssuedInvitationPage(value, remoteId) {
 	return page;
 }
 function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
 	const secret = Object.hasOwn(row, "secret");
 	exact(row, [
@@ -1820,9 +1820,9 @@ function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
 		...secret ? ["secret"] : []
 	]);
 	valid$6(row.operationId === operationId && row.sessionEnded === false);
-	const result = object$3(row.result);
+	const result = object$4(row.result);
 	exact(result, ["invitation"]);
-	const invite = object$3(result.invitation);
+	const invite = object$4(result.invitation);
 	valid$6(id$1(invite.offerId));
 	if (creatingRemote !== void 0) valid$6(invite.state === "created");
 	if (invite.state === "created") {
@@ -1842,7 +1842,7 @@ function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
 	}
 	if (secret) {
 		valid$6(creatingRemote !== void 0 && invite.state === "created");
-		const part = object$3(row.secret);
+		const part = object$4(row.secret);
 		exact(part, ["code", "link"]);
 		valid$6(typeof part.code === "string" && (part.link === null || typeof part.link === "string"));
 		const details = invitationDetails(part.code);
@@ -1852,12 +1852,12 @@ function parseInvitationIssueOutcome(value, operationId, creatingRemote) {
 	return row;
 }
 function parseOriginal(value, id) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state === "committed" && [
 		"created",
 		"cancelled",
 		"not-active"
-	].includes(object$3(object$3(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
+	].includes(object$4(object$4(row.result).invitation).state)) return parseInvitationIssueOutcome(value, id);
 	return parseInvitationOutcome(value, id);
 }
 /** A presenter over the current offer. No admission, provider call or retry is created here. */
@@ -2269,14 +2269,14 @@ async function originLink(origin, fetcher) {
 function valid$5(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
-function object$1(value, keys) {
+function object$2(value, keys) {
 	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
 	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
 function parsePublicWebConfig(value) {
-	const r = object$1(value, [
+	const r = object$2(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
@@ -2306,7 +2306,7 @@ async function verifyHostedLink(link, origin) {
 		const text = decoder$1.decode(bytes);
 		const raw = JSON.parse(text);
 		const hasSite = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "hostingSite");
-		const r = object$1(raw, [
+		const r = object$2(raw, [
 			"version",
 			"kind",
 			"publicWebConfig",
@@ -7296,7 +7296,7 @@ function createDigestSource() {
 //#endregion
 //#region src/digest-view.ts
 var HOUR = 36e5;
-var DAY = 24 * HOUR;
+var DAY$1 = 24 * HOUR;
 /** Input plus output; cached input is part of input and is never added. */
 var tokensOf = (point) => point.input + point.output;
 function seatName(seat) {
@@ -7487,7 +7487,7 @@ function observedAgo(observedAtMs, nowMs) {
 function resetsIn(resetsAtMs, nowMs) {
 	const ms = resetsAtMs - nowMs;
 	if (ms <= 0) return "now";
-	if (ms >= DAY) return `${Math.floor(ms / DAY)}d ${Math.floor(ms % DAY / HOUR)}h`;
+	if (ms >= DAY$1) return `${Math.floor(ms / DAY$1)}d ${Math.floor(ms % DAY$1 / HOUR)}h`;
 	return `${Math.max(1, Math.floor(ms / HOUR))}h`;
 }
 //#endregion
@@ -9143,6 +9143,629 @@ function timersView() {
 	};
 }
 //#endregion
+//#region src/orchestration-client.ts
+/** Core's own refusal of an orchestration call, relayed by the door as `{refused}`. */
+var OrchestrationRefused = class extends Error {
+	code;
+	detail;
+	constructor(code, detail) {
+		super(detail ?? `Orchestration refused: ${code}.`);
+		this.code = code;
+		this.detail = detail;
+		this.name = "OrchestrationRefused";
+	}
+};
+var object$1 = (value) => {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Orchestration answered with an unreadable document.");
+	return value;
+};
+function orchestrationApi(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	const parse = (value) => {
+		const answer = object$1(value);
+		if (answer.refused && typeof answer.refused === "object") {
+			const refused = answer.refused;
+			throw new OrchestrationRefused(typeof refused.code === "string" ? refused.code : "ORCH_REFUSED", typeof refused.message === "string" ? refused.message : void 0);
+		}
+		return answer;
+	};
+	const ask = (operation, input) => call(operation, crypto.randomUUID(), {
+		version: 1,
+		operation,
+		input
+	}, parse);
+	return {
+		read: (input) => ask("orchestration.read", input),
+		write: (input) => ask("orchestration.write", input)
+	};
+}
+var safe = (value) => Number.isSafeInteger(value) && Number(value) >= 0;
+var text = (value) => typeof value === "string";
+function source(value) {
+	if (!value || typeof value !== "object") return null;
+	const row = value;
+	return text(row.kind) ? {
+		kind: row.kind,
+		planId: text(row.planId) ? row.planId : null
+	} : null;
+}
+/** The overview the page draws, or a TypeError for a document it cannot read. */
+function decodeOverview(value) {
+	const range = object$1(value.range);
+	const members = Array.isArray(value.members) ? value.members : [];
+	const plans = Array.isArray(value.plans) ? value.plans : [];
+	const timeline = Array.isArray(value.timeline) ? value.timeline : [];
+	if (!safe(value.configurationRevision) || !safe(value.atMs) || !text(value.timeZone) || !safe(range.startMs) || !safe(range.endMs)) throw new TypeError("Orchestration answered with an unreadable overview.");
+	return {
+		configurationRevision: value.configurationRevision,
+		atMs: value.atMs,
+		timeZone: value.timeZone,
+		range: {
+			startMs: range.startMs,
+			endMs: range.endMs
+		},
+		plans: plans.flatMap((plan) => {
+			const row = object$1(plan);
+			return text(row.id) && text(row.name) ? [{
+				id: row.id,
+				name: row.name
+			}] : [];
+		}),
+		members: members.map((member) => {
+			const row = object$1(member);
+			const effective = object$1(row.effective);
+			const field = (name) => {
+				const entry = effective[name] && typeof effective[name] === "object" ? effective[name] : {};
+				return {
+					value: entry.value ?? null,
+					source: source(entry.source)
+				};
+			};
+			if (!text(row.identityId) || !text(row.name)) throw new TypeError("Orchestration answered with an unreadable member.");
+			return {
+				identityId: row.identityId,
+				name: row.name,
+				fields: {
+					state: field("state"),
+					receiving: field("receiving"),
+					sending: field("sending"),
+					routine: field("routine")
+				},
+				nextChangeAtMs: safe(row.nextChangeAtMs) ? row.nextChangeAtMs : null
+			};
+		}),
+		timeline: timeline.flatMap((interval) => {
+			const row = object$1(interval);
+			return safe(row.startMs) && safe(row.endMs) && Array.isArray(row.planIds) ? [{
+				startMs: row.startMs,
+				endMs: row.endMs,
+				planIds: row.planIds.filter(text)
+			}] : [];
+		})
+	};
+}
+var VERDICTS = [
+	"allowed",
+	"blocked",
+	"needs_person"
+];
+function decodeRoutes(rows) {
+	const routes = /* @__PURE__ */ new Map();
+	for (const value of rows) {
+		const row = object$1(value);
+		const routeSource = source(row.source);
+		if (!text(row.from) || !text(row.to) || !VERDICTS.includes(row.verdict) || !routeSource) continue;
+		const grant = object$1(row.source).grantUntilMs;
+		routes.set(`${row.from}>${row.to}`, {
+			verdict: row.verdict,
+			source: {
+				...routeSource,
+				...safe(grant) ? { grantUntilMs: grant } : {}
+			}
+		});
+	}
+	return routes;
+}
+function decodeTalks(rows) {
+	return rows.flatMap((value) => {
+		const row = object$1(value);
+		const [a, b] = Array.isArray(row.members) ? row.members.map(object$1) : [];
+		if (!a || !b || !text(a.identityId) || !text(b.identityId) || !safe(row.count)) return [];
+		return [{
+			ids: [a.identityId, b.identityId],
+			names: [text(a.name) ? a.name : a.identityId, text(b.name) ? b.name : b.identityId],
+			count: row.count,
+			limit: safe(row.limit) ? row.limit : null,
+			held: row.state === "held",
+			heldCount: safe(row.heldCount) ? row.heldCount : 0
+		}];
+	});
+}
+/** Core refuses a view it does not know; the page reads that as not available. */
+var unknownView = (error) => error instanceof OrchestrationRefused && error.code === "ORCH_INPUT_INVALID";
+/** Every routes page Core offers (at most 32), then this hour's talk pairs. */
+async function readSending(api, memberQuery) {
+	const query = memberQuery ? { memberQuery } : {};
+	let routes = /* @__PURE__ */ new Map();
+	let truncated = false;
+	let after = void 0;
+	for (let page = 0; page < 32; page += 1) {
+		let answer;
+		try {
+			answer = await api.read({
+				view: "routes",
+				limit: 256,
+				...query,
+				...after === void 0 ? {} : { after }
+			});
+		} catch (error) {
+			if (page === 0 && unknownView(error)) {
+				routes = null;
+				break;
+			}
+			if (error instanceof OrchestrationRefused && error.code === "ORCH_LIMIT") {
+				truncated = true;
+				break;
+			}
+			throw error;
+		}
+		for (const [key, route] of decodeRoutes(Array.isArray(answer.routes) ? answer.routes : [])) routes.set(key, route);
+		after = answer.nextAfter ?? void 0;
+		if (after === void 0) break;
+		if (page === 31) truncated = true;
+	}
+	let talks;
+	try {
+		const answer = await api.read({
+			view: "talks",
+			limit: 256,
+			...query
+		});
+		talks = decodeTalks(Array.isArray(answer.pairs) ? answer.pairs : []);
+	} catch (error) {
+		if (!unknownView(error)) throw error;
+		talks = null;
+	}
+	return {
+		routes,
+		talks,
+		truncated
+	};
+}
+/** The confirm dialog's lines for a preview: Core's own effect, never a local guess. */
+function previewLines(preview, name) {
+	const lines = [];
+	if (object$1(preview.mutation ?? {}).kind === "talks.resume") {
+		const releases = safe(preview.releases) ? preview.releases : 0;
+		const held = Array.isArray(preview.held) ? preview.held.length : 0;
+		lines.push(`Releases ${releases} of ${held} held messages.`);
+		if (releases < held) lines.push("Expired held messages stay unsent.");
+		lines.push("They go out through normal delivery; the pair's hour restarts.");
+	} else {
+		const changes = Array.isArray(preview.changes) ? preview.changes.map(object$1) : [];
+		if (!changes.length) lines.push("No member's effective policy changes at this time.");
+		for (const change of changes.slice(0, 8)) {
+			const fields = Array.isArray(change.fields) ? change.fields.filter(text) : [];
+			lines.push(`${name(text(change.identityId) ? change.identityId : "?")} · ${fields.join(", ")}`);
+		}
+		if (changes.length > 8) lines.push(`… and ${changes.length - 8} more members`);
+	}
+	lines.push("Running work is never interrupted.");
+	return lines;
+}
+/** Apply exactly the preview the person confirmed. */
+function applyInput(preview) {
+	return {
+		phase: "apply",
+		mutation: preview.mutation,
+		expectedConfigurationRevision: preview.configurationRevision,
+		previewAtMs: preview.previewAtMs,
+		previewDigest: preview.previewDigest,
+		consent: true
+	};
+}
+/** Short receiving words for a matrix cell. */
+function receivingCell(value) {
+	if (!value || typeof value !== "object") return "·";
+	const row = value;
+	switch (row.mode) {
+		case "direct": return "Direct";
+		case "auto": return "Auto";
+		case "batch": return safe(row.intervalMs) ? `B${Math.round(row.intervalMs / 6e4)}` : "Batch";
+		default: return text(row.mode) ? row.mode : "·";
+	}
+}
+//#endregion
+//#region src/ops-orchestration.ts
+/** The Orchestration page (#4894): Core's plans and each member's effective policy at a selected
+* time, who may message whom, and this hour's talks. Every change shows Core's preview first and
+* saves only that exact preview after the person confirms. Nothing is computed here: each value and
+* its source is Core's. */
+var DAY = 864e5;
+var FIELDS = [
+	["state", "State"],
+	["receiving", "Receiving"],
+	["sending", "Sending"],
+	["routine", "Routine jobs"]
+];
+var words = (value) => {
+	if (value === null || value === void 0) return "—";
+	if (typeof value === "string") return value.charAt(0).toUpperCase() + value.slice(1);
+	if (typeof value === "object" && "mode" in value) return receivingCell(value);
+	return JSON.stringify(value);
+};
+function orchestrationView(connect, now = () => Date.now()) {
+	const node = el("div", "ops-orchestration-page");
+	const status = el("p", "ops-note");
+	status.setAttribute("role", "status");
+	const controls = el("div", browserUiClasses.actions);
+	const ranges = [
+		1,
+		7,
+		30
+	].map((days) => {
+		const button = el("button", browserUiClasses.action, days === 1 ? "1 day" : `${days} days`);
+		button.type = "button";
+		button.dataset.days = String(days);
+		return button;
+	});
+	const earlier = el("button", browserUiClasses.action, "◀ Earlier");
+	const later = el("button", browserUiClasses.action, "Later ▶");
+	const nowButton = el("button", browserUiClasses.action, "Now");
+	for (const button of [
+		earlier,
+		later,
+		nowButton
+	]) button.type = "button";
+	const filter = el("input", browserUiClasses.fieldControl);
+	filter.type = "search";
+	filter.placeholder = "Members: prefix or contains";
+	filter.setAttribute("aria-label", "Filter members");
+	const search = el("div", browserUiClasses.searchField);
+	search.append(createIcon("search"), filter);
+	controls.append(...ranges, earlier, later, nowButton, search);
+	const timeline = el("div", "ops-orchestration-timeline");
+	timeline.setAttribute("role", "group");
+	timeline.setAttribute("aria-label", "Plans in effect over the range");
+	const matrixCard = el("section", browserUiClasses.card);
+	const matrixHead = el("div", browserUiClasses.cardHead);
+	matrixHead.append(el("h3", browserUiClasses.cardTitle, "Who may message whom"));
+	const matrixBody = el("div");
+	const talks = el("div", "ops-orchestration-talks");
+	matrixCard.append(matrixHead, matrixBody, talks);
+	const inspector = el("section", browserUiClasses.card);
+	inspector.setAttribute("aria-label", "Selected member and route");
+	const grid = el("div", "ops-grid");
+	grid.append(matrixCard, inspector);
+	const dialog = el("dialog", browserUiClasses.dialog);
+	node.append(pageHead("Plans, time slots and who may message whom, as Core decides them."), controls, status, timeline, grid, pageFoot("Changes show Core’s preview first · Refreshes while visible"), dialog);
+	let api;
+	let days = 1;
+	let atMs = null;
+	let memberQuery = "";
+	let overview;
+	let sending;
+	let selected;
+	let target;
+	let why;
+	let generation = 0;
+	const say = (text) => {
+		status.textContent = text;
+	};
+	const time = (ms) => new Intl.DateTimeFormat(void 0, {
+		weekday: days > 1 ? "short" : void 0,
+		hour: "2-digit",
+		minute: "2-digit",
+		timeZone: overview?.timeZone
+	}).format(ms);
+	const member = (id) => overview?.members.find((m) => m.identityId === id);
+	const name = (id) => member(id)?.name ?? id;
+	const planName = (id) => overview?.plans.find((plan) => plan.id === id)?.name ?? "a plan";
+	const from = (source) => {
+		switch (source?.kind) {
+			case "base": return "Base";
+			case "plan": return planName(source.planId);
+			case "member": return "member setting";
+			case "focus": return "focus";
+			case "grant": return "allowed once";
+			default: return "unknown";
+		}
+	};
+	async function load() {
+		const mine = ++generation;
+		try {
+			api ??= await connect();
+			const input = {
+				view: "overview",
+				rangeDays: days,
+				...atMs === null ? {} : { atMs },
+				...memberQuery ? { memberQuery } : {}
+			};
+			const next = decodeOverview(await api.read(input));
+			const nextSending = await readSending(api, memberQuery || void 0);
+			if (mine !== generation) return;
+			overview = next;
+			sending = nextSending;
+			if (!member(selected)) selected = next.members[0]?.identityId;
+			if (!member(target) || target === selected) target = next.members.find((m) => m.identityId !== selected)?.identityId;
+			say("");
+			draw();
+		} catch (error) {
+			if (mine !== generation) return;
+			api = void 0;
+			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the read (${error.code}).` : "Orchestration is not available right now. `tmt orch` shows it in the terminal.");
+		}
+	}
+	function drawTimeline(view) {
+		const span = Math.max(1, view.range.endMs - view.range.startMs);
+		const row = el("div", "ops-orchestration-slots");
+		for (const interval of view.timeline) {
+			const slot = el("button", "ops-orchestration-slot");
+			slot.type = "button";
+			slot.style.flexGrow = String(Math.max(1, interval.endMs - interval.startMs) / span);
+			const count = interval.planIds.length;
+			slot.textContent = count ? String(count) : "·";
+			slot.title = `${time(interval.startMs)} · ${count} plan${count === 1 ? "" : "s"}`;
+			if (view.atMs >= interval.startMs && view.atMs < interval.endMs) slot.ariaCurrent = "time";
+			slot.addEventListener("click", () => {
+				atMs = Math.max(interval.startMs, view.range.startMs);
+				load();
+			});
+			row.append(slot);
+		}
+		const names = view.timeline.find((i) => view.atMs >= i.startMs && view.atMs < i.endMs)?.planIds.map((id) => planName(id)) ?? [];
+		timeline.replaceChildren(row, el("p", "ops-note", `${time(view.atMs)} ${view.timeZone} · ${names.length ? names.join(", ") : "Base only"}`));
+	}
+	function cellText(row, column) {
+		if (row.identityId === column.identityId) return {
+			text: "—",
+			label: "same member"
+		};
+		const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
+		if (!route) return {
+			text: "·",
+			label: "not reported"
+		};
+		if (route.verdict === "blocked") return {
+			text: "✕",
+			label: `blocked by ${from(route.source)}`
+		};
+		if (route.verdict === "needs_person") return {
+			text: "◆",
+			label: "needs a person"
+		};
+		const receiving = receivingCell(column.fields.receiving.value);
+		return {
+			text: receiving,
+			label: `allowed · receives ${receiving}`
+		};
+	}
+	function drawMatrix(view) {
+		if (!sending?.routes) {
+			matrixBody.replaceChildren(sentence("Routes are not available on this Core. Member policies are shown on the right."));
+			return;
+		}
+		const scroll = el("div", browserUiClasses.tableScroll);
+		const table = el("table", `${browserUiClasses.table} ops-orchestration-matrix`);
+		const head = el("tr");
+		head.append(el("th", void 0, "From ↓ To →"));
+		for (const column of view.members) {
+			const th = el("th", void 0, column.name);
+			th.scope = "col";
+			if (column.identityId === target) th.dataset.crosshair = "";
+			head.append(th);
+		}
+		const thead = el("thead");
+		thead.append(head);
+		const body = el("tbody");
+		for (const row of view.members) {
+			const tr = el("tr");
+			const th = el("th", void 0, row.name);
+			th.scope = "row";
+			if (row.identityId === selected) th.dataset.crosshair = "";
+			tr.append(th);
+			for (const column of view.members) {
+				const cell = cellText(row, column);
+				const td = el("td", browserUiClasses.tableMono);
+				const button = el("button", "ops-orchestration-cell", cell.text);
+				button.type = "button";
+				button.setAttribute("aria-label", `${row.name} to ${column.name}: ${cell.label}`);
+				if (row.identityId === selected && column.identityId === target) button.ariaPressed = "true";
+				button.addEventListener("click", () => {
+					selected = row.identityId;
+					target = column.identityId === row.identityId ? target : column.identityId;
+					why = void 0;
+					draw();
+				});
+				td.append(button);
+				tr.append(td);
+			}
+			body.append(tr);
+		}
+		table.append(thead, body);
+		scroll.append(table);
+		const notes = [el("p", "ops-note", "B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person")];
+		if (sending.truncated) notes.push(el("p", "ops-note", "Core stopped at its page limit; filter members to see the rest."));
+		matrixBody.replaceChildren(scroll, ...notes);
+	}
+	function drawTalks() {
+		if (!sending?.talks) return talks.replaceChildren();
+		if (!sending.talks.length) return talks.replaceChildren(el("p", "ops-note", "Talks this hour: none counted."));
+		const list = el("ul", browserUiClasses.list);
+		list.setAttribute("aria-label", "Talks this hour");
+		for (const pair of sending.talks) {
+			const item = el("li", browserUiClasses.listRow);
+			const limit = pair.limit === null ? "" : `/${pair.limit}`;
+			item.append(el("span", browserUiClasses.listTitle, `${pair.names[0]} ⇄ ${pair.names[1]}`), el("span", browserUiClasses.listMeta, `${pair.count}${limit}${pair.held ? ` · ◆ ${pair.heldCount} held` : ""}`));
+			list.append(item);
+		}
+		talks.replaceChildren(el("h4", browserUiClasses.sectionHeading, "Talks this hour"), list);
+	}
+	const action = (label, run) => {
+		const button = el("button", browserUiClasses.action, label);
+		button.type = "button";
+		button.addEventListener("click", run);
+		return button;
+	};
+	function drawInspector() {
+		const parts = [];
+		const row = member(selected);
+		const column = member(target);
+		if (row && column) {
+			const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
+			parts.push(el("h3", browserUiClasses.cardTitle, `${row.name} → ${column.name}`));
+			const facts = el("dl", browserUiClasses.facts);
+			const add = (term, value) => facts.append(el("dt", void 0, term), el("dd", void 0, value));
+			add("Sending", `${words(row.fields.sending.value)} ← ${from(row.fields.sending.source)}`);
+			add("Result", !route ? "not reported" : route.verdict === "blocked" ? "◆ not sent, explained" : route.verdict === "needs_person" ? "◆ held for a person" : `sent · ${receivingCell(column.fields.receiving.value)}`);
+			parts.push(facts);
+			const actions = el("div", browserUiClasses.actions);
+			if (route?.verdict === "blocked") {
+				const end = Math.min(row.nextChangeAtMs ?? now() + DAY, now() + DAY);
+				actions.append(action(`Allow once until ${time(end)}`, () => preview(`Allow ${row.name} → ${column.name} once`, {
+					kind: "route.allow",
+					fromId: row.identityId,
+					toId: column.identityId,
+					untilMs: end
+				})));
+			}
+			if ((sending?.talks?.find((p) => p.ids.includes(row.identityId) && p.ids.includes(column.identityId)))?.held) actions.append(action(`Resume ${row.name} ⇄ ${column.name}`, () => preview(`Resume ${row.name} ⇄ ${column.name}`, {
+				kind: "talks.resume",
+				aId: row.identityId,
+				bId: column.identityId
+			})));
+			if (actions.childElementCount) parts.push(actions);
+		}
+		if (row) {
+			parts.push(el("h3", browserUiClasses.cardTitle, row.name));
+			const facts = el("dl", browserUiClasses.facts);
+			for (const [key, label] of FIELDS) {
+				const field = row.fields[key];
+				facts.append(el("dt", void 0, label), el("dd", void 0, `${words(field.value)} ← ${from(field.source)}`));
+			}
+			parts.push(facts);
+			const at = now();
+			const actions = el("div", browserUiClasses.actions);
+			actions.append(action("Focus now 1h", () => preview(`Focus ${row.name} for one hour`, {
+				kind: "focus.set",
+				identityId: row.identityId,
+				startMs: at,
+				endMs: at + 36e5
+			})), action("End focus", () => preview(`End ${row.name}'s focus`, {
+				kind: "focus.clear",
+				identityId: row.identityId
+			})), action("Why", () => void explain(row)));
+			parts.push(actions);
+			if (why?.id === row.identityId) {
+				const list = el("ul", browserUiClasses.list);
+				list.setAttribute("aria-label", `Why · ${row.name}`);
+				for (const line of why.lines) list.append(el("li", browserUiClasses.listRow, line));
+				parts.push(list);
+			}
+			parts.push(el("p", "ops-note", "Jobs · not available yet"));
+		}
+		if (!parts.length) parts.push(sentence("No members match."));
+		inspector.replaceChildren(...parts);
+	}
+	function draw() {
+		for (const button of ranges) button.ariaPressed = String(button.dataset.days === String(days));
+		if (!overview) return;
+		drawTimeline(overview);
+		drawMatrix(overview);
+		drawTalks();
+		drawInspector();
+	}
+	async function explain(row) {
+		try {
+			api ??= await connect();
+			const page = await api.read({
+				view: "why",
+				subject: {
+					kind: "identity",
+					id: row.identityId
+				},
+				limit: 20
+			});
+			const items = Array.isArray(page.items) ? page.items : [];
+			why = {
+				id: row.identityId,
+				lines: items.length ? items.map((item) => `${String(item.action ?? "?")} ${String(item.outcome ?? "?")} · ${String(item.reason ?? "?")}`) : ["No recorded decision."]
+			};
+			drawInspector();
+		} catch {
+			say("Core could not read the decisions right now.");
+		}
+	}
+	/** Core's preview in a dialog; Save applies exactly that preview, Cancel sends nothing. */
+	async function preview(title, mutation) {
+		try {
+			api ??= await connect();
+			const answer = await api.write({
+				phase: "preview",
+				mutation
+			});
+			const head = el("div", browserUiClasses.dialogHeader);
+			head.append(el("h2", browserUiClasses.title, title));
+			const body = el("div", browserUiClasses.dialogBody);
+			for (const line of previewLines(answer, name)) body.append(el("p", void 0, line));
+			const actions = el("div", browserUiClasses.dialogActions);
+			const cancel = action("Cancel", () => dialog.close());
+			const save = action("Save", () => {
+				save.disabled = true;
+				apply(answer);
+			});
+			save.dataset.primary = "";
+			actions.append(cancel, save);
+			dialog.replaceChildren(head, body, actions);
+			dialog.showModal();
+		} catch (error) {
+			say(error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "Core could not preview the change right now; nothing was saved.");
+		}
+	}
+	async function apply(previewed) {
+		try {
+			await api.write(applyInput(previewed));
+			dialog.close();
+			await load();
+			if (!status.textContent) say("Orchestration saved.");
+		} catch (error) {
+			dialog.close();
+			say(error instanceof OrchestrationRefused && error.code === "ORCH_CONFLICT" ? "Orchestration changed since the preview; nothing was saved. Try again." : error instanceof OrchestrationRefused ? error.detail ?? `Core refused the change (${error.code}).` : "The save could not be confirmed. Refresh to see what Core recorded.");
+		}
+	}
+	for (const button of ranges) button.addEventListener("click", () => {
+		days = Number(button.dataset.days);
+		load();
+	});
+	const step = (direction) => {
+		if (!overview) return;
+		const boundaries = [...overview.timeline.flatMap((i) => [i.startMs, i.endMs]), ...overview.members.flatMap((m) => m.nextChangeAtMs === null ? [] : [m.nextChangeAtMs])].filter((value, at, all) => all.indexOf(value) === at).sort((a, b) => a - b);
+		const next = direction < 0 ? boundaries.reverse().find((at) => at < overview.atMs) : boundaries.find((at) => at > overview.atMs);
+		if (next === void 0) return;
+		atMs = next;
+		load();
+	};
+	earlier.addEventListener("click", () => step(-1));
+	later.addEventListener("click", () => step(1));
+	nowButton.addEventListener("click", () => {
+		atMs = null;
+		load();
+	});
+	let typing;
+	filter.addEventListener("input", () => {
+		clearTimeout(typing);
+		typing = setTimeout(() => {
+			memberQuery = filter.value.trim();
+			load();
+		}, 300);
+	});
+	return {
+		node,
+		/** One refresh; the page's owner calls it while the section is visible. */
+		refresh: load
+	};
+}
+//#endregion
 //#region src/ops-menu.ts
 /** The fixed Ops rail: observed counts only; the shared leaf owns row presentation. */
 var OPS_SECTIONS = [
@@ -9153,6 +9776,10 @@ var OPS_SECTIONS = [
 	{
 		id: "squads",
 		label: "Squads"
+	},
+	{
+		id: "orchestration",
+		label: "Orchestration"
 	},
 	{
 		id: "schedules",
@@ -9935,12 +10562,18 @@ function conversationHistory(shell, observed, read = sessionRead(shell)) {
 }
 //#endregion
 //#region src/ops-page.ts
-/** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
-* the module menu. Every state is a mark and a word; what the reader sets on a section stays across
-* the board's refreshes. */
+/** The Ops web view: Agents, Squads, Orchestration, Timers and Ops settings, one section at a time
+* from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
+* (#4894). Every state is a mark and a word; what the reader sets on a section stays across the
+* board's refreshes. */
 /** The board's own reload cadence (`tmt ops ui`). */
 var REFRESH_MS = 5e3;
-function opsPage(shell, source = opsSource, historyRead) {
+/** Orchestration changes by configuration, not by turn: a slower reread while it is shown. */
+var ORCHESTRATION_REFRESH_MS = 3e4;
+function opsPage(shell, source = opsSource, historyRead, orchestrationConnect = async () => {
+	if (!shell.session) throw new Error("No signed browser session.");
+	return orchestrationApi(await shell.session());
+}) {
 	const main = document.getElementById("ops-section");
 	const note = document.getElementById("ops-note");
 	if (!main || !note) return;
@@ -9953,6 +10586,12 @@ function opsPage(shell, source = opsSource, historyRead) {
 		schedules: timersView()
 	};
 	let settings;
+	const orchestration = orchestrationView(orchestrationConnect);
+	let orchestrationAt = 0;
+	const refreshOrchestration = () => {
+		orchestrationAt = Date.now();
+		return orchestration.refresh();
+	};
 	const channel = channelView(location.pathname);
 	const collapsedSquads = /* @__PURE__ */ new Set();
 	const unread = /* @__PURE__ */ new Map();
@@ -10000,6 +10639,11 @@ function opsPage(shell, source = opsSource, historyRead) {
 			if (channel.node.parentElement !== main) main.replaceChildren(channel.node);
 			channel.update(board, section);
 			if (member && history.node.parentElement !== channel.history) channel.history.replaceChildren(history.node);
+		} else if (section === "orchestration") {
+			if (orchestration.node.parentElement !== main) {
+				main.replaceChildren(orchestration.node);
+				refreshOrchestration();
+			}
 		} else if (section === "settings") {
 			settings ??= settingsView(href);
 			if (settings.parentElement !== main) main.replaceChildren(settings);
@@ -10012,6 +10656,10 @@ function opsPage(shell, source = opsSource, historyRead) {
 	window.addEventListener("hashchange", paint, { signal: shell.signal });
 	shell.signal.addEventListener("abort", () => views.squads.close(), { once: true });
 	paint();
+	whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
+		if (Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS && current() === "orchestration" && orchestration.node.parentElement === main) await refreshOrchestration();
+		return true;
+	});
 	let last = "";
 	whileVisible(REFRESH_MS, shell.signal, async () => {
 		const next = await source.board(shell.signal);
@@ -10045,7 +10693,7 @@ function page(value) {
 	input(cursor(value.cursor) && integer$1(value.limit) && value.limit >= 1 && value.limit <= 50);
 }
 function person(value) {
-	const row = object$3(value);
+	const row = object$4(value);
 	exact(row, [
 		"remoteId",
 		"memberId",
@@ -10060,7 +10708,7 @@ function person(value) {
 	return row;
 }
 function invitation(value) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state === "unavailable" || row.state === "no-current-offer") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -10087,7 +10735,7 @@ function invitation(value) {
 	return row;
 }
 function routes$1(value) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state === "unavailable" || row.state === "not-recorded") exact(row, ["state"]);
 	else {
 		exact(row, [
@@ -10100,7 +10748,7 @@ function routes$1(value) {
 	return row;
 }
 function machine(value, caller) {
-	const row = object$3(value);
+	const row = object$4(value);
 	exact(row, [
 		"clientId",
 		"name",
@@ -10127,9 +10775,9 @@ function machine(value, caller) {
 	return row;
 }
 function original(value, operationId) {
-	const row = object$3(value);
+	const row = object$4(value);
 	if (row.state !== "committed") return parseManagementOutcome(value, operationId);
-	const result = object$3(row.result);
+	const result = object$4(row.result);
 	if (!Object.hasOwn(result, "member") && !Object.hasOwn(result, "remote")) return parseManagementOutcome(value, operationId);
 	exact(row, [
 		"operationId",
@@ -10143,7 +10791,7 @@ function original(value, operationId) {
 		person(result.member);
 	} else {
 		exact(result, ["remote"]);
-		const remote = object$3(result.remote);
+		const remote = object$4(result.remote);
 		exact(remote, ["remoteId", "displayName"]);
 		valid$6(typeof remote.remoteId === "string" && V4.test(remote.remoteId) && memberName(remote.displayName) && row.sessionEnded === false);
 	}
@@ -10178,7 +10826,7 @@ function members(session, options = {}) {
 	return {
 		clientId,
 		summary: () => call("remote.members.summary", crypto.randomUUID(), {}, (value) => {
-			const row = object$3(value);
+			const row = object$4(value);
 			exact(row, [
 				"remoteId",
 				"memberCount",
@@ -10192,7 +10840,7 @@ function members(session, options = {}) {
 			page(value);
 			const frozen = { ...value };
 			return call("remote.members.list", crypto.randomUUID(), frozen, (value) => {
-				const row = object$3(value);
+				const row = object$4(value);
 				exact(row, [
 					"remoteId",
 					"administrator",
@@ -10205,7 +10853,7 @@ function members(session, options = {}) {
 				valid$6(row.remoteId === remoteId && typeof row.administrator === "boolean" && (row.displayName === null || memberName(row.displayName)) && Array.isArray(row.members) && row.members.length <= frozen.limit && cursor(row.nextCursor));
 				const seen = /* @__PURE__ */ new Set();
 				for (const entry of row.members) {
-					const observed = object$3(entry);
+					const observed = object$4(entry);
 					valid$6(Object.hasOwn(observed, "lastUsedAtMs") && time(observed.lastUsedAtMs));
 					const { lastUsedAtMs: _lastUsedAtMs, ...base } = observed;
 					const member = person(base);
@@ -10228,7 +10876,7 @@ function members(session, options = {}) {
 			input(id(value.memberId));
 			const frozen = { ...value };
 			return call("remote.members.machines", crypto.randomUUID(), frozen, (value) => {
-				const row = object$3(value);
+				const row = object$4(value);
 				exact(row, [
 					"remoteId",
 					"memberId",
