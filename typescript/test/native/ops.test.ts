@@ -5066,6 +5066,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
           expiresMs: Date.now() + 120_000,
         })
       );
+      const heldLease = readFileSync(lease);
       const pending = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
       expect(pending.status, JSON.stringify(pending.body)).toBe(0);
       expect(pending.body.jobs).toHaveLength(1);
@@ -5087,7 +5088,11 @@ describe('Ops path migration with unchanged Squad commands', () => {
       expect(board.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
       const competitor = await squad(sandbox, ['cron', 'tick']);
       expect(competitor.status).toBe(1);
-      expect(competitor.body.error.code).toBe('SQUAD_CRON_CLOCK_RUNNING');
+      expect(competitor.body.error.code).toBe('SQUAD_CRON_CUTOVER_CLOCK_PRESENT');
+      expect(competitor.body.error.message).toContain('Close the existing Ops clock');
+      expect(readFileSync(lease)).toEqual(heldLease);
+      expect(await canonicalJobs(sandbox)).toEqual([]);
+      expect(existsSync(path.join(root, 'tick', 'clock.json'))).toBe(false);
       expect(existsSync(config)).toBe(false);
       expect(existsSync(opsRoot)).toBe(false);
       expect(readFileSync(path.join(sandbox.globalDir, 'squad.toml'))).toEqual(configBytes);
