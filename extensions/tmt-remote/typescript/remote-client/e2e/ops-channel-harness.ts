@@ -4,6 +4,7 @@ import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { setRouteTitle, type RemoteShell } from '../src/remote-shell.js';
 import { opsPage } from '../src/ops-page.js';
 import type { OpsBoard } from '../src/ops-source.js';
+import { OrchestrationRefused } from '../src/orchestration-client.js';
 import {
   parseConversation,
   type ConversationPage,
@@ -25,6 +26,8 @@ declare global {
     channelStop(): void;
     channelHold: boolean;
     channelRelease(): void;
+    orchCalls: { kind: 'read' | 'write'; input: Record<string, unknown> }[];
+    orchRefuseApply?: string;
   }
 }
 window.channelReads = 0;
@@ -134,6 +137,92 @@ window.dmOlder = {
     },
   ],
 };
+// Orchestration answers as Core would through the door; Core's own rules have native proofs.
+const lead = '00000000-0000-4000-8000-000000000001';
+const member1 = '00000000-0000-4000-8000-000000000002';
+const orchMembers = [
+  { identityId: lead, name: 'sample-lead', receiving: { mode: 'direct' }, state: 'active' },
+  {
+    identityId: member1,
+    name: 'sample-1',
+    receiving: { mode: 'batch', intervalMs: 1_800_000 },
+    state: 'focus',
+  },
+];
+window.orchCalls = [];
+const orchestration = {
+  async read(input: Record<string, unknown>) {
+    window.orchCalls.push({ kind: 'read', input: structuredClone(input) });
+    if (input.view === 'overview')
+      return {
+        configurationRevision: 3,
+        atMs: 1720000000000,
+        timeZone: 'UTC',
+        range: { startMs: 1720000000000, endMs: 1720086400000 },
+        plans: [{ id: 'night', name: 'Night shift' }],
+        members: orchMembers.map((m) => ({
+          identityId: m.identityId,
+          name: m.name,
+          effective: {
+            state: { value: m.state, source: { kind: m.state === 'focus' ? 'focus' : 'base' } },
+            receiving: { value: m.receiving, source: { kind: 'plan', planId: 'night' } },
+            sending: { value: 'members', source: { kind: 'base' } },
+            routine: { value: 'paused', source: { kind: 'plan', planId: 'night' } },
+          },
+          nextChangeAtMs: 1720003600000,
+        })),
+        timeline: [{ startMs: 1720000000000, endMs: 1720036000000, planIds: ['night'] }],
+      };
+    if (input.view === 'routes')
+      return {
+        routes: [
+          { from: lead, to: member1, verdict: 'allowed', source: { kind: 'base' } },
+          {
+            from: member1,
+            to: lead,
+            verdict: 'blocked',
+            source: { kind: 'plan', planId: 'night' },
+          },
+        ],
+        nextAfter: null,
+      };
+    if (input.view === 'talks')
+      return {
+        pairs: [
+          {
+            members: [
+              { identityId: lead, name: 'sample-lead' },
+              { identityId: member1, name: 'sample-1' },
+            ],
+            count: 12,
+            limit: 12,
+            state: 'held',
+            heldCount: 2,
+          },
+        ],
+      };
+    if (input.view === 'why')
+      return {
+        items: [{ action: 'route', outcome: 'blocked', reason: 'Night shift: members only' }],
+      };
+    throw new OrchestrationRefused('ORCH_INPUT_INVALID');
+  },
+  async write(input: Record<string, unknown>) {
+    window.orchCalls.push({ kind: 'write', input: structuredClone(input) });
+    if (input.phase === 'preview')
+      return {
+        mutation: input.mutation,
+        configurationRevision: 3,
+        previewAtMs: 1720000000000,
+        previewDigest: 'digest-1',
+        changes: [{ identityId: member1, fields: ['state', 'receiving'] }],
+        releases: 2,
+        held: [{}, {}],
+      };
+    if (window.orchRefuseApply) throw new OrchestrationRefused(window.orchRefuseApply);
+    return { applied: true, configurationRevision: 4 };
+  },
+};
 applyStoredTheme();
 const controller = new AbortController();
 window.channelStop = () => controller.abort();
@@ -192,4 +281,5 @@ opsPage(
         };
       }
     : undefined,
+  async () => orchestration,
 );

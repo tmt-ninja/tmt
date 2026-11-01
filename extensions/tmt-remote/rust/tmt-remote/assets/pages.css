@@ -726,6 +726,47 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-agents-tools .tmt-ui-search-field {
   width: 11rem;
 }
+/* Orchestration (#4894): controls wrap on narrow screens; the matrix scrolls inside its card. */
+.ops-orchestration-page {
+  min-width: 0;
+}
+.ops-orchestration-page > .tmt-ui-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ops-orchestration-page > .tmt-ui-actions .tmt-ui-search-field {
+  flex: 1 1 11rem;
+  min-width: 0;
+}
+.ops-orchestration-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ops-orchestration-page .tmt-ui-card {
+  min-width: 0;
+}
+/* Time slots and matrix cells are flat controls on the page's own surfaces and rule. */
+.ops-orchestration-slot,
+.ops-orchestration-cell {
+  min-width: 2.25rem;
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font: var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-mono);
+  cursor: pointer;
+}
+.ops-orchestration-slot[aria-current='time'],
+.ops-orchestration-cell[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-rule-soft);
+  border-color: var(--tmt-ui-color-text);
+}
+.ops-orchestration-slot:focus-visible,
+.ops-orchestration-cell:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
 .ops-detail {
   display: flex;
   flex-direction: column;

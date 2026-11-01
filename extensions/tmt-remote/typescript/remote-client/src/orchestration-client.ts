@@ -97,9 +97,7 @@ const text = (value: unknown): value is string => typeof value === 'string';
 function source(value: unknown): Source | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Json;
-  return text(row.kind)
-    ? { kind: row.kind, planId: text(row.planId) ? row.planId : null }
-    : null;
+  return text(row.kind) ? { kind: row.kind, planId: text(row.planId) ? row.planId : null } : null;
 }
 /** The overview the page draws, or a TypeError for a document it cannot read. */
 export function decodeOverview(value: Json): Overview {
@@ -128,7 +126,8 @@ export function decodeOverview(value: Json): Overview {
       const row = object(member);
       const effective = object(row.effective);
       const field = (name: string): Field => {
-        const entry = effective[name] && typeof effective[name] === 'object' ? (effective[name] as Json) : {};
+        const entry =
+          effective[name] && typeof effective[name] === 'object' ? (effective[name] as Json) : {};
         return { value: entry.value ?? null, source: source(entry.source) };
       };
       if (!text(row.identityId) || !text(row.name))
@@ -159,7 +158,12 @@ export function decodeRoutes(rows: unknown[]): Map<string, Route> {
   for (const value of rows) {
     const row = object(value);
     const routeSource = source(row.source);
-    if (!text(row.from) || !text(row.to) || !VERDICTS.includes(row.verdict as Verdict) || !routeSource)
+    if (
+      !text(row.from) ||
+      !text(row.to) ||
+      !VERDICTS.includes(row.verdict as Verdict) ||
+      !routeSource
+    )
       continue;
     const grant = object(row.source).grantUntilMs;
     routes.set(`${row.from}>${row.to}`, {
@@ -251,7 +255,9 @@ export function previewLines(preview: Json, name: (id: string) => string): strin
     if (!changes.length) lines.push("No member's effective policy changes at this time.");
     for (const change of changes.slice(0, 8)) {
       const fields = Array.isArray(change.fields) ? change.fields.filter(text) : [];
-      lines.push(`${name(text(change.identityId) ? change.identityId : '?')} · ${fields.join(', ')}`);
+      lines.push(
+        `${name(text(change.identityId) ? change.identityId : '?')} · ${fields.join(', ')}`,
+      );
     }
     if (changes.length > 8) lines.push(`… and ${changes.length - 8} more members`);
   }

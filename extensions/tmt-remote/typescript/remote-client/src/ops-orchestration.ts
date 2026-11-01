@@ -3,6 +3,7 @@
  * saves only that exact preview after the person confirms. Nothing is computed here: each value and
  * its source is Core's. */
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
+import { createIcon } from '@tmt/browser-ui/glyph';
 import { el, pageFoot, pageHead, sentence } from './ops-parts.js';
 import {
   OrchestrationRefused,
@@ -50,11 +51,13 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
   const later = el('button', c.action, 'Later ▶');
   const nowButton = el('button', c.action, 'Now');
   for (const button of [earlier, later, nowButton]) button.type = 'button';
-  const filter = el('input', c.searchField);
+  const filter = el('input', c.fieldControl);
   filter.type = 'search';
   filter.placeholder = 'Members: prefix or contains';
   filter.setAttribute('aria-label', 'Filter members');
-  controls.append(...ranges, earlier, later, nowButton, filter);
+  const search = el('div', c.searchField);
+  search.append(createIcon('search'), filter);
+  controls.append(...ranges, earlier, later, nowButton, search);
   const timeline = el('div', 'ops-orchestration-timeline');
   timeline.setAttribute('role', 'group');
   timeline.setAttribute('aria-label', 'Plans in effect over the range');
@@ -185,7 +188,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     if (row.identityId === column.identityId) return { text: '—', label: 'same member' };
     const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
     if (!route) return { text: '·', label: 'not reported' };
-    if (route.verdict === 'blocked') return { text: '✕', label: `blocked by ${from(route.source)}` };
+    if (route.verdict === 'blocked')
+      return { text: '✕', label: `blocked by ${from(route.source)}` };
     if (route.verdict === 'needs_person') return { text: '◆', label: 'needs a person' };
     const receiving = receivingCell(column.fields.receiving.value);
     return { text: receiving, label: `allowed · receives ${receiving}` };
@@ -223,7 +227,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
         const button = el('button', 'ops-orchestration-cell', cell.text);
         button.type = 'button';
         button.setAttribute('aria-label', `${row.name} to ${column.name}: ${cell.label}`);
-        if (row.identityId === selected && column.identityId === target) button.ariaPressed = 'true';
+        if (row.identityId === selected && column.identityId === target)
+          button.ariaPressed = 'true';
         button.addEventListener('click', () => {
           selected = row.identityId;
           target = column.identityId === row.identityId ? target : column.identityId;
@@ -237,9 +242,17 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     }
     table.append(thead, body);
     scroll.append(table);
-    const notes = [el('p', 'ops-note', 'B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person')];
+    const notes = [
+      el(
+        'p',
+        'ops-note',
+        'B30 batch 30 min · Direct · ✕ blocked by the sender rule · ◆ needs a person',
+      ),
+    ];
     if (sending.truncated)
-      notes.push(el('p', 'ops-note', 'Core stopped at its page limit; filter members to see the rest.'));
+      notes.push(
+        el('p', 'ops-note', 'Core stopped at its page limit; filter members to see the rest.'),
+      );
     matrixBody.replaceChildren(scroll, ...notes);
   }
 
@@ -254,7 +267,11 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       const limit = pair.limit === null ? '' : `/${pair.limit}`;
       item.append(
         el('span', c.listTitle, `${pair.names[0]} ⇄ ${pair.names[1]}`),
-        el('span', c.listMeta, `${pair.count}${limit}${pair.held ? ` · ◆ ${pair.heldCount} held` : ''}`),
+        el(
+          'span',
+          c.listMeta,
+          `${pair.count}${limit}${pair.held ? ` · ◆ ${pair.heldCount} held` : ''}`,
+        ),
       );
       list.append(item);
     }
@@ -276,7 +293,8 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       const route = sending?.routes?.get(`${row.identityId}>${column.identityId}`);
       parts.push(el('h3', c.cardTitle, `${row.name} → ${column.name}`));
       const facts = el('dl', c.facts);
-      const add = (term: string, value: string) => facts.append(el('dt', undefined, term), el('dd', undefined, value));
+      const add = (term: string, value: string) =>
+        facts.append(el('dt', undefined, term), el('dd', undefined, value));
       add('Sending', `${words(row.fields.sending.value)} ← ${from(row.fields.sending.source)}`);
       add(
         'Result',
@@ -323,7 +341,10 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       const facts = el('dl', c.facts);
       for (const [key, label] of FIELDS) {
         const field = row.fields[key];
-        facts.append(el('dt', undefined, label), el('dd', undefined, `${words(field.value)} ← ${from(field.source)}`));
+        facts.append(
+          el('dt', undefined, label),
+          el('dd', undefined, `${words(field.value)} ← ${from(field.source)}`),
+        );
       }
       parts.push(facts);
       const at = now();
@@ -376,7 +397,10 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
       why = {
         id: row.identityId,
         lines: items.length
-          ? items.map((item) => `${String(item.action ?? '?')} ${String(item.outcome ?? '?')} · ${String(item.reason ?? '?')}`)
+          ? items.map(
+              (item) =>
+                `${String(item.action ?? '?')} ${String(item.outcome ?? '?')} · ${String(item.reason ?? '?')}`,
+            )
           : ['No recorded decision.'],
       };
       drawInspector();
@@ -417,8 +441,9 @@ export function orchestrationView(connect: OrchestrationConnect, now = () => Dat
     try {
       await api!.write(applyInput(previewed));
       dialog.close();
-      say('Orchestration saved.');
-      void load();
+      await load();
+      // A failed reread keeps its own message; otherwise the save is the news.
+      if (!status.textContent) say('Orchestration saved.');
     } catch (error) {
       dialog.close();
       say(
