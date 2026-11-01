@@ -113,7 +113,8 @@ Chromium package list through the bounded apt action; browser downloads stay sep
 The Colab three-engine safety net retains Playwright's own dependency installation.
 
 `browser-ui` runs the design gallery's six computed-style audits and overlay motion checks
-in Chromium, with seeded negative controls. `browser_ui` selects `design/browser-ui/**`,
+in Chromium, with seeded negative controls, then the TUI docs suite (`test:tui-docs`).
+`browser_ui` selects `design/browser-ui/**`,
 `design/tokens/**` and the closed CI/tooling/workspace inputs in `ci-scope.mjs`; a tooling
 guard follows the gallery's local import graph and refuses inputs outside that selector.
 PR and merge-group diffs select it independently of native scope; main-full and weekly/manual

@@ -381,6 +381,12 @@ jobs:
       - name: Run design gallery audits
         working-directory: typescript
         run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2
+      - name: Run TUI docs audits
+        if: ${{ !cancelled() }}
+        working-directory: typescript
+        env:
+          TUI_DOCS_TEST_RESULTS: ${{ github.workspace }}/design/browser-ui/test-results/tui-docs
+        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:tui-docs
       # Only this synthetic gallery's failure traces; no product, account or host state.
       - name: Upload gallery failure traces
         if: failure()

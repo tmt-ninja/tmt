@@ -1266,7 +1266,12 @@ It never attaches to an existing server or opens a product/host fixture.
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
 border-only control contrast and the named soft-edge field exception, plus overlay exit
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
-repair. CI selection and gate ownership live in the
+repair.
+
+`pnpm --filter @tmt/browser-ui test:tui-docs` runs the TUI docs suite
+(`docs/tui/playwright.config.ts`) against its own docs server on port 15835
+(`TUI_DOCS_TEST_PORT` overrides it); the same CI job runs it after the gallery audits.
+CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
 
 ### List table and page subheader

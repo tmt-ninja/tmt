@@ -30,7 +30,8 @@
     "test": "vp test run --config vitest.config.ts",
     "gallery": "vp dev --config vite.gallery.config.ts",
     "design-docs": "vp dev --config vite.docs.config.ts",
-    "test:browser": "vp exec playwright test"
+    "test:browser": "vp exec playwright test",
+    "test:tui-docs": "vp exec playwright test --config docs/tui/playwright.config.ts"
   },
   "peerDependencies": {
     "react": "19.2.8",
