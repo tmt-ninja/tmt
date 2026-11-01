@@ -30,7 +30,7 @@
               Object.fromEntries(readerAttributes.map((name) => [name, node.getAttribute(name)])),
             );
         }
-        function morphPage(live, next, owner) {
+        function morphPage(live, next, owner, range) {
           const attributes = (el, src) => {
             const source = (a) =>
               !readerAttributes.includes(a.name) && !owner.attribute(el, a.name);
@@ -61,8 +61,13 @@
               (a.namespaceURI === b.namespaceURI &&
                 a.localName === b.localName &&
                 (a.localName !== 'template' || a.innerHTML === b.innerHTML)));
-          const children = (parent, source, previous) => {
-            const candidates = [...parent.childNodes].filter((n) => !owner.node(n));
+          // `range`, for a part of the body only: the live nodes standing for that part and the node
+          // after it (null at the end), so the rest is not walked.
+          const children = (parent, source, previous, range) => {
+            const candidates = range
+              ? range.candidates
+              : [...parent.childNodes].filter((n) => !owner.node(n));
+            const after = range?.after ?? null;
             // The live children stand for the previous source's, one to one, or nothing is skipped.
             const before =
               previous && previous.childNodes.length === candidates.length
@@ -84,13 +89,13 @@
               if (!match) {
                 const node = parent.ownerDocument.importNode(child, true);
                 if (node.nodeType === 1) rememberSource(node, owner.state);
-                parent.insertBefore(node, cursor ?? null);
+                parent.insertBefore(node, cursor ?? after);
                 continue;
               }
               used.add(match);
               const earlier = match === cursor ? before?.[index] : undefined;
               if (match === cursor) index++;
-              else parent.insertBefore(match, cursor ?? null);
+              else parent.insertBefore(match, cursor ?? after);
               if (earlier?.isEqualNode(child)) continue;
               patch(match, child, earlier && same(earlier, child) ? earlier : undefined);
             }
@@ -104,7 +109,226 @@
             attributes(a, b);
             if (!owner.expanded(a)) children(a, b, previous);
           };
-          patch(live, next, owner.previous);
+          if (range) children(live, next, owner.previous, range);
+          else patch(live, next, owner.previous);
+        }
+        // An update of a large page parses only what changed (#5891). `topLevelSpans` places a body
+        // source's top-level nodes as [start, end) offsets, or answers null when this conservative
+        // scan cannot be sure a full parse would make exactly those nodes: an element whose parse
+        // closes, moves or drops others implicitly (table parts, select, template, a p closed by a
+        // block, a list item or heading opened inside its own kind), an end tag that does not close
+        // the open element, foreign content, a document-level or unknown construct, or a script.
+        const VOID = new Set(
+          'area base br col embed hr img input link meta param source track wbr'.split(' '),
+        );
+        const RCDATA = new Set(['style', 'textarea', 'title']);
+        const REFUSED = new Set(
+          (
+            'html head body frameset frame select ' +
+            'option optgroup template svg math script noscript iframe noembed noframes xmp ' +
+            'plaintext image isindex keygen rb rp rt rtc'
+          ).split(' '),
+        );
+        const CLOSES_P = new Set(
+          (
+            'address article aside blockquote center details dialog dir div dl fieldset figcaption ' +
+            'figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr listing main menu nav ol p pre ' +
+            'search section summary ul li dd dt'
+          ).split(' '),
+        );
+        const HEADING = /^h[1-6]$/;
+        // A table is placed only when nothing in it would be moved out (foster-parented) or dropped:
+        // each table-level element holds only its own children and whitespace, closed explicitly.
+        const TABLE_CHILDREN = {
+          table: ['caption', 'colgroup', 'thead', 'tbody', 'tfoot', 'tr'],
+          thead: ['tr'],
+          tbody: ['tr'],
+          tfoot: ['tr'],
+          tr: ['td', 'th'],
+          colgroup: ['col'],
+        };
+        const TABLE_PARTS = new Set([
+          'caption',
+          'colgroup',
+          'col',
+          'thead',
+          'tbody',
+          'tfoot',
+          'tr',
+          'td',
+          'th',
+        ]);
+        function topLevelSpans(source) {
+          const spans = [];
+          const stack = [];
+          let at = 0;
+          let start = 0;
+          // A run of text at the top level is one node, ended by the next top-level tag or comment.
+          const text = (end) => {
+            if (end > start && !stack.length) spans.push([start, end, 'text']);
+          };
+          while (at < source.length) {
+            const open = source.indexOf('<', at);
+            if (open < 0) break;
+            const next = source[open + 1] ?? '';
+            if (source.startsWith('<!--', open)) {
+              const close = source.indexOf('-->', open + 4);
+              const body = close < 0 ? '' : source.slice(open + 4, close);
+              if (
+                close < 0 ||
+                body.startsWith('>') ||
+                body.startsWith('->') ||
+                body.includes('--!>')
+              )
+                return null;
+              if (TABLE_CHILDREN[stack.at(-1)] && /\S/.test(source.slice(at, open))) return null;
+              if (!stack.length) {
+                text(open);
+                spans.push([open, close + 3]);
+                start = close + 3;
+              }
+              at = close + 3;
+              continue;
+            }
+            if (next === '!' || next === '?') return null;
+            const closing = next === '/';
+            const nameAt = open + (closing ? 2 : 1);
+            if (!/[A-Za-z]/.test(source[nameAt] ?? '')) {
+              if (closing) return null;
+              at = open + 1;
+              continue;
+            }
+            // The tag ends at the first `>` outside a quoted attribute value.
+            let end = nameAt;
+            let quote = '';
+            let last = '';
+            for (; end < source.length; end++) {
+              const c = source[end];
+              if (quote) {
+                if (c === quote) quote = '';
+              } else if ((c === '"' || c === "'") && last === '=') quote = c;
+              else if (c === '>') break;
+              if (!/\s/.test(c)) last = c;
+            }
+            if (end >= source.length) return null;
+            const name = /^[A-Za-z][^\s/>]*/.exec(source.slice(nameAt, end))[0].toLowerCase();
+            const tagEnd = end + 1;
+            if (REFUSED.has(name)) return null;
+            const inTable = TABLE_CHILDREN[stack.at(-1)];
+            if (inTable && /\S/.test(source.slice(at, open))) return null;
+            if (!closing && (inTable ? !inTable.includes(name) : TABLE_PARTS.has(name)))
+              return null;
+            if (closing) {
+              if (stack.at(-1) !== name) return null;
+              stack.pop();
+              if (!stack.length) {
+                spans.push([start, tagEnd]);
+                start = tagEnd;
+              }
+              at = tagEnd;
+              continue;
+            }
+            if (source[end - 1] === '/' && !VOID.has(name)) return null;
+            if (stack.includes('p') && CLOSES_P.has(name)) return null;
+            if (
+              (name === 'li' || name === 'dd' || name === 'dt') &&
+              // An open item of its list closes; a list between them keeps it open.
+              stack
+                .slice(stack.findLastIndex((open) => ['ul', 'ol', 'menu', 'dl'].includes(open)) + 1)
+                .some((open) => open === 'li' || open === 'dd' || open === 'dt')
+            )
+              return null;
+            if (HEADING.test(name) && HEADING.test(stack.at(-1) ?? '')) return null;
+            if (['a', 'button', 'form', 'nobr'].includes(name) && stack.includes(name)) return null;
+            if (!stack.length) {
+              text(open);
+              start = open;
+            }
+            if (VOID.has(name)) {
+              if (!stack.length) {
+                spans.push([open, tagEnd]);
+                start = tagEnd;
+              }
+              at = tagEnd;
+              continue;
+            }
+            if (RCDATA.has(name)) {
+              const closeAt = source.slice(tagEnd).search(new RegExp(`</${name}[\\s/>]`, 'i'));
+              if (closeAt < 0) return null;
+              const closeEnd = source.indexOf('>', tagEnd + closeAt);
+              if (closeEnd < 0) return null;
+              if (!stack.length) {
+                spans.push([open, closeEnd + 1]);
+                start = closeEnd + 1;
+              }
+              at = closeEnd + 1;
+              continue;
+            }
+            stack.push(name);
+            at = tagEnd;
+          }
+          if (stack.length) return null;
+          text(source.length);
+          return spans;
+        }
+        // What an update must parse when `before` (bound, with its top-level `spans`) becomes
+        // `after`: the changed run widened to whole top-level nodes, with their index range in the
+        // bound body, the new text and its spans; null when the page must be parsed whole. A run
+        // that touches a style, a script, a document-level tag, a question, review or reading block,
+        // an inline handler or the design-system markers is always parsed whole.
+        const WHOLE =
+          /<\/?(?:style|script|link|meta|base|title|head|body|html|table|caption|colgroup|col|thead|tbody|tfoot|tr|td|th|tmt-questions?|tmt-review|tmt-read|tmt-icon|tmt-starter)\b|data-(?:question|choice)|[\s/]on[a-z-]*\s*=|tmt-colab-runtime|tmt-ui-/i;
+        function planFragment(before, spans, after) {
+          if (!spans) return null;
+          const most = Math.min(before.length, after.length);
+          let head = 0;
+          while (
+            head + 4096 <= most &&
+            before.slice(head, head + 4096) === after.slice(head, head + 4096)
+          )
+            head += 4096;
+          while (head < most && before.charCodeAt(head) === after.charCodeAt(head)) head++;
+          let tail = 0;
+          while (
+            tail + 4096 <= most - head &&
+            before.slice(before.length - tail - 4096, before.length - tail) ===
+              after.slice(after.length - tail - 4096, after.length - tail)
+          )
+            tail += 4096;
+          while (
+            tail < most - head &&
+            before.charCodeAt(before.length - tail - 1) ===
+              after.charCodeAt(after.length - tail - 1)
+          )
+            tail++;
+          // The first node not wholly before the change and the first wholly after it; a text node
+          // beside the run joins it, since a full parse would merge text across the boundary.
+          let from = spans.findIndex(([, end]) => end > head);
+          if (from < 0) from = spans.length;
+          let to = spans.length;
+          while (to > from && spans[to - 1][0] >= before.length - tail) to--;
+          const textAt = (index) => spans[index]?.[2] === 'text';
+          while (from > 0 && (textAt(from - 1) || from === to)) from--;
+          while (to < spans.length && (textAt(to) || from === to)) to++;
+          const start = from < spans.length ? spans[from][0] : before.length;
+          const end = to > 0 && to > from ? spans[to - 1][1] : start;
+          const delta = after.length - before.length;
+          const old = before.slice(start, end);
+          const text = after.slice(start, end + delta);
+          if (WHOLE.test(old) || WHOLE.test(text)) return null;
+          const placed = topLevelSpans(text);
+          if (!placed) return null;
+          return {
+            from,
+            to,
+            text,
+            spans: [
+              ...spans.slice(0, from),
+              ...placed.map(([a, b, ...kind]) => [a + start, b + start, ...kind]),
+              ...spans.slice(to).map(([a, b, ...kind]) => [a + delta, b + delta, ...kind]),
+            ],
+            count: placed.length,
+          };
         }
         // END PAGE MORPH
         // What an update compares with: the same shape bind writes, parsed inertly (no script runs
@@ -1848,7 +2072,9 @@
           };
           // The source an update compares with; parsed once, at the first update.
           const sourceState = new WeakMap();
-          let boundKey, boundBody;
+          // `boundSpans`: the bound source's top-level nodes (`topLevelSpans`), null when an update
+          // of this source must parse it whole.
+          let boundKey, boundBody, boundSpans;
           // Applies a new source to this page in place (#5022), or answers false when the page needs
           // a fresh frame: its key differs from the bound one, or it is a page that never updates in
           // place. Everything the frame reports is measured again before the answer.
@@ -1857,9 +2083,27 @@
               const bound = parsePage(boundSource);
               boundKey = pageKey(boundSource, bound);
               boundBody = bound.body;
+              boundSpans = topLevelSpans(boundSource);
+              if (boundSpans?.length !== boundBody.childNodes.length) boundSpans = null;
             }
-            const doc = parsePage(source);
-            if (boundKey === null || pageKey(source, doc) !== boundKey) return false;
+            if (boundKey === null) return false;
+            // Only the changed top-level nodes are parsed and compared when that is the same as
+            // parsing the page whole (`planFragment`); the key cannot change then, since the run
+            // holds no script, handler, design marker or document-level tag.
+            const candidates = [...document.body.childNodes].filter((n) => !frameNodes.has(n));
+            let plan =
+              candidates.length === boundBody.childNodes.length
+                ? planFragment(boundSource, boundSpans, source)
+                : null;
+            let doc;
+            if (plan) {
+              doc = parsePage(plan.text);
+              if (doc.body.childNodes.length !== plan.count) plan = null;
+            }
+            if (!plan) {
+              doc = parsePage(source);
+              if (pageKey(source, doc) !== boundKey) return false;
+            }
             clearTarget();
             // Each image the frame drew goes back to its source form, so the page compares with its
             // source, and is drawn again from the current image request.
@@ -1871,15 +2115,40 @@
                 else item.image.setAttribute('style', item.style);
               }
             images.clear();
-            morphPage(document.body, doc.body, {
+            const owner = {
               node: (node) => frameNodes.has(node),
               attribute: (el, name) =>
                 name.startsWith('data-colab-') || (name === 'hidden' && frameHidden.has(el)),
               expanded: (el) => el.localName === 'tmt-icon',
               state: sourceState,
               previous: boundBody,
-            });
-            boundBody = doc.body;
+            };
+            if (plan) {
+              // The bound nodes of the run leave the bound body as the morph's `previous`, and the
+              // parsed ones take their place, so the bound body stays the parse of the source.
+              const replaced = document.createDocumentFragment();
+              const next = boundBody.childNodes[plan.to] ?? null;
+              for (const node of [...boundBody.childNodes].slice(plan.from, plan.to))
+                replaced.append(node);
+              morphPage(
+                document.body,
+                doc.body,
+                { ...owner, previous: replaced },
+                {
+                  candidates: candidates.slice(plan.from, plan.to),
+                  after: candidates[plan.to] ?? null,
+                },
+              );
+              const parsed = boundBody.ownerDocument.createDocumentFragment();
+              parsed.append(...doc.body.childNodes);
+              boundBody.insertBefore(parsed, next);
+              boundSpans = plan.spans;
+            } else {
+              morphPage(document.body, doc.body, owner);
+              boundBody = doc.body;
+              boundSpans = topLevelSpans(source);
+              if (boundSpans?.length !== boundBody.childNodes.length) boundSpans = null;
+            }
             if (imageRequestId) configureImages(imageRequestId);
             boundSource = source;
             prepareLockQuotes();

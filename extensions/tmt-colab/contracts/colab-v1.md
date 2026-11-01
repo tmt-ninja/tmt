@@ -2700,7 +2700,11 @@ recomputes its own key from that parse: any `script` element, `on*` attribute or
 runtime marker, a different root attribute or a different design-system match
 answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
 reason:"remount"}`. Otherwise it changes its body in place to the new source,
-matching elements by `id` and then by kind and position. It keeps what it added
+matching elements by `id` and then by kind and position. When the change lies within whole
+top-level nodes and touches no `style`, `script`, document-level or table tag,
+question, review or read block, inline handler or design-system marker, it parses
+and changes only those nodes, and only where that gives the same nodes as parsing
+the whole source; otherwise it parses the whole source. It keeps what it added
 itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
 choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
 `checked`, `selected` and the matching live state stay until the source changes
