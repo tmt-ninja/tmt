@@ -126,6 +126,11 @@ carry one oversized first item, while provider hooks leave it held.
   a closed or idle-without-end turn reads `unconfirmed`/`turn_ended_without_reply`, and a request with no
   row keeps the activity-only reading bounded to six hours (#4911). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
+  The recipient's facts (binding, refusal, Digest limit, activity, oldest held arrival) are read once
+  per recipient per transaction (`delivery::Recipients`) and reread whenever `change_cursor` advances,
+  so a page of rows to one recipient costs one recipient read.
+- The two-party conversation read (`history::conversation_sql`) is two seeks on the partial index
+  `request_history_pair` (schema 88), one per direction, merged in order without a sort.
 - A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
   confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's
   runtime-observation transaction when an admitted turn start's prompt names one of its request
