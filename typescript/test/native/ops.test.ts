@@ -6555,8 +6555,7 @@ describe('send now chip', () => {
   }, 120_000);
 });
 
-describe('workspace snapshots in the real board', () => {
-  // Quarantined in #5107: diagnose the post-quit PID state (zombie or live hang), then restore.
+describe('close and delete through Core', () => {
   it.each(['offline', 'hand-bound'] as const)(
     'close/delete preserves %s history and Core-guarded lifecycle decisions',
     async (binding) => {
@@ -6721,7 +6720,10 @@ describe('workspace snapshots in the real board', () => {
     },
     120_000
   );
+});
 
+describe('workspace snapshots in the real board', () => {
+  // Quarantined in #5107: diagnose the post-quit PID state (zombie or live hang), then restore.
   it.skip('opens w and previews distinct automatic generations beside named saves', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
