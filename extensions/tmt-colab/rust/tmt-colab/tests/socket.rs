@@ -6716,7 +6716,8 @@ fn describe_adds_the_design_module_only_when_remote_admits_modules() {
                 "id":"design",
                 "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
                 "menu":[],
-                "settings":[]
+                "settings":[],
+                "entry":"/assets/colab-module.js"
             }])
         );
         let mut primary = new.clone();
