@@ -31,6 +31,24 @@ This private module implements the device side of
   exposes `pairingPage(link)` for the fragment-erasing bootstrap inlined from `assets/pair.js` and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
+`conversations(session, {timeoutMs?})` shares that same verified Session lane and opens
+nothing. `read(memberId, {limit?, before?, since?})` reads only the admitted owner-browser
+DM scope (20 by default, at most 50; 64 KiB). Pass structured `nextBefore` unchanged for
+older pages. `changePosition`/`since` are opaque strings: never parse or compare them.
+Core supplies `viewerId`; the browser cannot select the person. Missing support or authority
+is unavailable, with no wider read, sending or acknowledgment fallback. The
+[conversation contract](../../../../contracts/remote-channel-v1.md#operations) owns exact
+fields, preview/retention bounds and changed counts.
+
+The Ops history view uses the root's verified Session, shared with owner-read re-admission;
+route abort fences a late signer/read. Browser-local seen stores only an opaque position
+under machine/viewer/member. A successful visible newest-page read marks that conversation
+seen. Older pages and hidden/background reads do not; unread is only Core's `changedSince`
+(N / 50+ / unknown), never an inferred zero. The selected or last-opened DM refreshes while
+Ops is visible, without an all-members query or global total. An unread sidebar row reflects
+that last verified conversation observation, not presence. Storage failure and a changed
+viewer reset the relevant evidence to unknown.
+
 `invitations(session)` shares the verified Session lane and opens nothing. Its
 `create({operationId})`, `list({cursor})` and `cancel({operationId,offerId})` methods use
 only the signed owner-browser management path; `pending()` and `decide()` retain the

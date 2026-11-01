@@ -166,7 +166,13 @@ confined Colab import per entry and a disposable route/session registry; Navigat
 the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
 so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
 Session observations invalidate search; the existing management hold reason fences navigation.
-These UI lifetimes add no native endpoint, stored authority or provider observation.
+The same root retains a verified signed Session for owner reads and DM history, joins
+admission within the route lifetime, and retires only the failed handle rather than a newer
+observation. `conversations` owns SDK decoding; `conversation-history` owns bounded paging
+and the selected/last-opened DM poll; `conversation-seen` stores only the browser-local
+machine/viewer/member position. Positions are opaque. A visible newest-page read alone
+advances seen; background/older-page reads do not. The operations contract owns unread
+semantics. These UI lifetimes add no native endpoint, stored authority or provider observation.
 
 `create-page` is the global setup guide, outside the current-door tab frame. Its inputs are
 memory-only; naming delegates to the registry CAS owner. `settings-page` passes the existing

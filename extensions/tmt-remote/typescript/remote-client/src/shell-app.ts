@@ -27,6 +27,8 @@ import { homePage, hostRemote, remoteShell, setRouteTitle } from './remote-shell
 import { tmtSettingsPage } from './tmt-settings-page.js';
 import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { navigationSnapshot, RootSearch, type SearchModule } from './root-search.js';
+import { channelFor } from './session-channel.js';
+import type { Session } from './device.js';
 
 /** Root-private cancellation; modules still consume the existing shared slot contract. */
 interface RootSlot extends ShellSlot {
@@ -166,7 +168,10 @@ function remotePage(
         return;
       }
       const lifetime = new AbortController();
-      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason));
+      hostRemote(slot, lifetime.signal, observedSession, (reason) => (heldBy = reason), {
+        get: rootSession,
+        forget: forgetSession,
+      });
       let ended = false;
       const end = () => {
         if (ended) return;
@@ -379,6 +384,35 @@ function observedSession(next: object): void {
   publishSearch?.();
 }
 
+let sessionAdmission: { signal: AbortSignal; result: Promise<Session> } | undefined;
+/** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
+function rootSession(signal: AbortSignal): Promise<Session> {
+  signal.throwIfAborted();
+  if (session && channelFor(session as Session)?.ended === false)
+    return Promise.resolve(session as Session);
+  if (sessionAdmission?.signal === signal) return sessionAdmission.result;
+  const result = import('./browser.js').then(async ({ reopenSession }) => {
+    const next = await reopenSession(undefined, { signal });
+    signal.throwIfAborted();
+    observedSession(next);
+    return next;
+  });
+  const admitted = { signal, result };
+  sessionAdmission = admitted;
+  void result
+    .finally(() => {
+      if (sessionAdmission === admitted) sessionAdmission = undefined;
+    })
+    .catch(() => {});
+  return result;
+}
+function forgetSession(previous: Session): void {
+  if (session !== previous) return;
+  session = undefined;
+  search?.replace();
+  publishSearch?.();
+}
+
 /** Start the app once in the served shell document. */
 export function shellApp(): ShellHost | undefined {
   const root = document.querySelector<HTMLElement>('.tmt-ui-shell');
@@ -489,6 +523,7 @@ export function shellApp(): ShellHost | undefined {
   });
   const dispose = () => {
     currentRoute?.abort();
+    session = undefined;
     search?.dispose();
     host.dispose();
     status.remove();

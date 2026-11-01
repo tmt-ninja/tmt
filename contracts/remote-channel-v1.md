@@ -1575,8 +1575,8 @@ to both attach and supervised-start use.
 
 ### Operations
 
-Payloads for core API operations are the existing API envelope, decoded without rewriting input.
-Remote narrows supported operations/authority before core calls.
+Payloads use the existing API envelope. Remote admits operation-specific bounded input and
+applies its published public Core mapping after narrowing supported operations and authority.
 
 | Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1588,12 +1588,56 @@ Remote narrows supported operations/authority before core calls.
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
+| `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID; fixed Core `requests.list` `view:"conversation"` below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
-| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
+| global `changes.cursor`, `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
 | reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
+
+**Owner-browser DM history.** Signed `requests.list` takes
+`{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
+Only this machine's own-origin browser grant with `results.read` and the selected
+canonical member UUID is admitted, under the existing live-grant observation fence.
+Native, CLI, add-on and foreign-browser grants refuse before Core. Browser input cannot
+choose a viewer, originator, room or another view. Remote fixes Core's `view:"conversation"`;
+Core resolves only the existing configured person, without identity creation, and filters
+the viewer/member pair before pagination. Missing Core support/person or a failed or
+malformed read is unavailable; there is no broader-history fallback or compatibility probe.
+
+The default page is 20, maximum 50. Both Core subprocess output and the projected response
+are capped at 64 KiB. The response is `{viewerId,member,items,nextBefore,changePosition,changedSince?}`:
+`viewerId` is Core's server-derived canonical person UUID, disclosed only to this admitted
+browser; `member` is `active`, `unknown` or `retired` (the latter two have no items).
+Items allow only the Core results-view fields `requestId`, `recipientId`, `sender`, `kind`,
+`origin`, `preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
+`previewTruncated`, plus `direction` (`toMember`/`fromMember`), `changePosition` and optional
+`responseId`. Remote checks both parties against the resolved viewer/selected member.
+Final states and metadata keep their Core meanings; nested final text, receipts, pane/cwd,
+provider data and unknown fields are excluded. Previews are at most 160 Unicode scalars /
+640 UTF-8 bytes; unavailable content stays null. Reads never renew retention, acknowledge
+Core work, send, or expand into full-text detail.
+
+`nextBefore` is null or `{preparedAtMs,requestId}`; pass it unchanged as `before` for the
+same scope. No string cursor is accepted. Item/top-level `changePosition` and `since` are
+opaque strings matching `^[A-Za-z0-9_-]{1,64}$`: store and echo only, never parse, compare
+or perform arithmetic. Malformed positions refuse; a well-formed foreign or pre-pruning
+baseline returns `changedSince:"unknown"`. Only a request with `since` has `changedSince`:
+`{count,more}` counts distinct changed in-scope requests, exact up to 50 (`more:true`
+means 50+), or `"unknown"`; late finals on older requests count as changes.
+
+The Ops DM view keeps only a browser-local seen position keyed by machine + server
+`viewerId` + member UUID, never previews or whole pages. No baseline or a storage failure
+means unread unknown. Unread comes only from Core's `changedSince`: N, 50+, or unknown;
+zero is shown only when Core proves it. Seen advances to a verified response's top-level
+position only after its newest page renders in a visible DM panel and visible document.
+Opening that newest page counts as seeing the conversation; background reads, older-page
+navigation and hidden documents never advance it. No per-item maximum watermark is used.
+The Ops page refreshes only the selected/last-opened conversation on its existing visible
+five-second cadence, with one read in flight and failure backoff; it does not fan out across
+members or invent a global unread total. Viewer/machine changes isolate the seen key and
+clear old sidebar observations. Only verified positive counts add the shared unread emphasis.
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv

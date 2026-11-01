@@ -2434,10 +2434,29 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
         "requests.list",
         payload.to_string().as_bytes(),
     );
-    let refused = append(&owner, operations, &wire);
+    let refused = append(&owner, Arc::clone(&operations), &wire);
     assert_eq!(refused["error"]["code"], "REMOTE_CORE_UNAVAILABLE");
     assert_eq!(refused["error"]["message"], "Remote request refused.");
     assert_eq!(core.calls().len(), 3);
+    fs::write(
+        core.root.join("conversation-error"),
+        "OLD-CORE-PRIVATE-ERROR",
+    )
+    .unwrap();
+    let wire = owner.wire(
+        &session,
+        "4",
+        "requests.list",
+        payload.to_string().as_bytes(),
+    );
+    let unavailable = append(&owner, operations, &wire);
+    assert_eq!(unavailable["error"]["code"], "REMOTE_CORE_UNAVAILABLE");
+    assert!(!unavailable.to_string().contains("OLD-CORE-PRIVATE-ERROR"));
+    assert_eq!(
+        core.calls().len(),
+        4,
+        "old Core refusal never falls back to broader history or creates a viewer"
+    );
     assert!(
         core.calls()
             .iter()

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { OWNER_READ_REASONS, ownerAnswer, ownerRead, whileVisible } from '../src/owner-reads.js';
+import { hostRemote } from '../src/remote-shell.js';
 
 const reopenSession = vi.fn<(_: undefined, options: { signal: AbortSignal }) => Promise<void>>();
 vi.mock('../src/browser.js', () => ({
@@ -212,4 +213,54 @@ it('reads that meet the same door restart share one reopen until it settles', as
   settle();
   expect(await next).toEqual(ok);
   reopenSession.mockReset();
+});
+
+it('owner reads join the root signer and retire only the stale handle after a repeated 404', async () => {
+  reopenSession.mockReset();
+  const route = new AbortController();
+  const session = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    serverTimeMs: 1,
+    grantRevision: 1,
+    expiresAtMs: null,
+  };
+  let open = false,
+    admit = true,
+    calls = 0;
+  const forgotten: unknown[] = [];
+  hostRemote({} as never, route.signal, undefined, undefined, {
+    async get() {
+      calls++;
+      if (admit) open = true;
+      return session;
+    },
+    forget(value) {
+      forgotten.push(value);
+    },
+  });
+  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('fetch', async (input: string) =>
+    input === '/sdk/mount'
+      ? Response.json({ address: 'https://door.test/r/owner' })
+      : open
+        ? Response.json({ version: 1, state: 'ok', observedAtMs: 1 })
+        : new Response('', { status: 404 }),
+  );
+  try {
+    const answers = await Promise.all([
+      ownerRead('ops', route.signal),
+      ownerRead('limits', route.signal),
+    ]);
+    expect(answers.every((answer) => answer.state === 'ok')).toBe(true);
+    expect(calls).toBe(1);
+    expect(reopenSession).not.toHaveBeenCalled();
+    open = false;
+    admit = false;
+    expect(await ownerRead('ops', route.signal)).toEqual({ state: 'unreachable' });
+    expect(forgotten).toEqual([session]);
+    expect(reopenSession).not.toHaveBeenCalled();
+  } finally {
+    route.abort();
+    hostRemote(undefined);
+  }
 });
