@@ -542,7 +542,7 @@ pub fn apply(
             (Some(before), job, action, update)
         }
     };
-    let preview = canonical::preview(core, Some(&actor.id), &mutation)?;
+    let preview = canonical::preview(core, &mutation)?;
     if matches!(action, "added" | "reassigned") {
         let key = if action == "added" {
             let proposed = &preview["proposedLegacy"];
@@ -572,7 +572,7 @@ pub fn apply(
             retirement::register_key(core, &key, owner)?;
         }
     }
-    let applied = canonical::apply_preview(core, Some(&actor.id), &preview)?;
+    let applied = canonical::apply_preview(core, &preview)?;
     let changed = applied["changed"].as_bool().unwrap();
     if action == "removed" {
         if changed {

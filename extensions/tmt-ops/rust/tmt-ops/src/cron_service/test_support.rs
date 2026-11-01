@@ -115,6 +115,7 @@ if a[0]=='api':
  elif op=='identityHooks.ack':
   m['hooks']=[h for h in m['hooks'] if h!=i]; out={'acknowledged':True}
  elif op in ['orchestration.read','orchestration.write','orchestration.job.run']:
+  if op!='orchestration.job.run': assert 'identity' not in q and 'originator' not in q, 'configuration ports are unattributed'
   out=job_operation(q,op,i)
   if op=='orchestration.write' and i['phase']=='apply' and m.get('loseJobApplyResponse'):
    m['loseJobApplyResponse']=False;save(m);print('interrupted');sys.exit(0)
@@ -206,6 +207,10 @@ elif a[0]=='send-now':
  if failure: save(m); print(json.dumps({'error':failure})); sys.exit(1)
  if 'afterSendNow' in m: m['requestShow']=m['afterSendNow']
  save(m); print(json.dumps({'status':m.get('sendNowStatus','sent'),'requestId':a[1],'state':'delivered'}))
+elif a[0]=='tick':
+ assert a in [['tick','run','--json'],['tick','--json']]
+ m['clockStarts']=m.get('clockStarts',0)+1; save(m)
+ print(json.dumps({'error':{'code':'TICK_CLOCK_RUNNING','message':'Another clock owns scheduling.'}}));sys.exit(5)
 elif a[0]=='whoami':
  if m['caller']=='ambiguous': fail('CALLER_IDENTITY_AMBIGUOUS')
  print(json.dumps({'bound':False} if m['caller'] is None else dict(next(x for x in m['members'] if x['id']==m['caller']),bound=True)))

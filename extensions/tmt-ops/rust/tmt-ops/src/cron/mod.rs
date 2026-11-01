@@ -1,4 +1,5 @@
-//! Time-based Squad jobs, independent of core storage and execution results.
+//! Legacy cron formats, cutover guards and local schedule previews.
+//! Current job and scheduling authority belongs to the public Core ports.
 mod clock;
 mod schedule;
 mod store;

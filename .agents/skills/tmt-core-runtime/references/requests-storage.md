@@ -57,6 +57,26 @@ The leaf owns no store, identity, policy, dispatch or clock lifecycle.
 - Hook subscriptions queue retirement notifications in the retiring transaction; a delivered
   subscription cannot be resurrected; no transaction spans remote work.
 
+## Canonical jobs and explicit clock
+
+`storage::orchestration::jobs` owns job definitions, stable legacy selectors and
+run receipts. Its writer revalidates current configuration, ownership, revision
+and proposed squad-ID allocation before canonical dispatch acceptance. Hook
+registration uses the proposed selector before apply; a stale preview allocates
+nothing. Request acceptance, held-slot settlement and wake spacing share the
+existing request transaction; no transaction spans an external wake. Exact import
+readback proves the source digest, counters and complete mapping before Ops
+publishes its redirect. Frozen source state is not a second live job store.
+
+Adapter `tick` owns the explicit finite/foreground process lifetime and kernel
+lease. All component children are joined before release, and one increasing
+minute gate covers jobs, Digest and capture. Optional user-unit file validation
+belongs to `tick::timer`; the CLI owns consent, while the user manager invokes
+finite ticks. A loaded manager label is not proof of matching unit configuration.
+Ops keeps idle alerts in its independent worker. The
+[orchestration contract](../../../../contracts/orchestration-v1.md#unified-clock-and-optional-user-timer)
+owns commands, limits, status and recovery behavior.
+
 ## Request service
 
 `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
@@ -507,8 +527,9 @@ admit Digest before granting new external input. Owner UUID and urgent bypass on
 this gate. A request already stored as queue-only remains pull-only. A provider owns
 turn/launch admission; talk/check and the UUID-pinned `digest.checklist.flush` API
 use fresh matching live idle evidence and the ordinary channel-first delivery owner.
-There is no Core Digest timer, detached worker,
-cadence or scheduler. Definite unsent settlement releases only the sealed members;
+Digest has no independent Core cadence or detached worker. The explicit unified
+clock offers opportunities through the existing Digest component; it does not
+replace checklist admission or settlement. Definite unsent settlement releases only the sealed members;
 claimed/uncertain effects never become replay leases. Canonical contracts:
 [Digest delivery](../../../../contracts/request-response-v1.md#digest-delivery-windows),
 [local API](../../../../contracts/extension-api.md#digest-policy-and-checklist).

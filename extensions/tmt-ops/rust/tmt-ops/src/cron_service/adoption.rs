@@ -143,7 +143,7 @@ fn recovery(frozen: &FrozenJobs, error: SquadError) -> SquadError {
         " ",
         &format!(
             "Inspect `tmt orch job import-receipt {} --json` and the retained cron/core-source-{}.json before any manual recovery; no automatic import is retried.",
-            frozen.source_id, frozen.source_id
+            frozen.source_id, frozen.source_digest
         ),
     )
 }

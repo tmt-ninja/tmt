@@ -36,7 +36,7 @@ fn conflict() -> Error {
     )
 }
 fn marker(bytes: &[u8]) -> Result<Option<Value>, Error> {
-    let value: Value = serde_json::from_slice(bytes).map_err(io)?;
+    let value: Value = serde_json::from_slice(bytes).map_err(|error| corrupt(error.to_string()))?;
     if value["version"].as_u64().is_some_and(|v| v < 3) {
         return Ok(None);
     }
@@ -124,7 +124,8 @@ impl Store {
             })
             .map_err(failed)
     }
-    /// One durable, exact export is retained beside the frozen database source.
+    /// One durable export per exact content digest, including before freeze.
+    /// Repeated refused preflights cannot accumulate a copy for every attempt.
     /// A pre-existing unknown file is never replaced or removed.
     pub fn export_core_source(&self, frozen: &FrozenJobs) -> Result<PathBuf, Error> {
         use std::{
@@ -142,7 +143,7 @@ impl Store {
             .map_err(|e| io(format!("Cannot open private cron export directory: {e:?}")))?;
         let path = layout
             .directory
-            .join(format!("core-source-{}.json", frozen.source_id));
+            .join(format!("core-source-{}.json", frozen.source_digest));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -228,39 +229,35 @@ impl Store {
         else {
             return Ok(None);
         };
+        // Keep document-validation failures typed inside the same read snapshot;
+        // converting them to InvalidQuery would misreport corruption as store I/O.
         let row = database
             .snapshot(|transaction| {
-                let stored_marker: Option<Vec<u8>> = transaction
-                    .query_row(
-                        "SELECT CASE WHEN length(body)<=16777216 THEN body END FROM documents WHERE kind='cron' AND key=''",
-                        [],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                let Some(stored_marker) = stored_marker else {
-                    return Ok(None);
+                let stored: Option<Option<Vec<u8>>> = transaction.query_row(
+                    "SELECT CASE WHEN length(body)<=16777216 THEN body END FROM documents WHERE kind='cron' AND key=''",
+                    [], |row| row.get(0),
+                ).optional()?;
+                let Some(stored) = stored else { return Ok(Ok(None)); };
+                let Some(bytes) = stored else { return Ok(Err(corrupt("Cron marker exceeds 16 MiB."))); };
+                let value = match marker(&bytes) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => return Ok(Ok(None)),
+                    Err(error) => return Ok(Err(error)),
                 };
-                let Some(value) = marker(&stored_marker).map_err(|_|rusqlite::Error::InvalidQuery)? else { return Ok(None); };
-                let id = value["sourceId"]
-                    .as_str()
-                    .ok_or(rusqlite::Error::InvalidQuery)?
-                    .to_owned();
-                let digest = value["sourceDigest"]
-                    .as_str()
-                    .ok_or(rusqlite::Error::InvalidQuery)?
-                    .to_owned();
-                let bytes = transaction.query_row(
+                let id = value["sourceId"].as_str().expect("validated marker").to_owned();
+                let hash = value["sourceDigest"].as_str().expect("validated marker").to_owned();
+                let retained: Option<Option<Vec<u8>>> = transaction.query_row(
                     "SELECT CASE WHEN length(body)<=16777216 THEN body END FROM documents WHERE kind='cron-cutover-source' AND key=?",
-                    [&id],
-                    |row| row.get(0),
-                )?;
-                Ok(Some(FrozenJobs {
-                    source_id: id,
-                    source_digest: digest,
-                    bytes,
-                }))
+                    [&id], |row| row.get(0),
+                ).optional()?;
+                let bytes = match retained {
+                    Some(Some(bytes)) => bytes,
+                    Some(None) => return Ok(Err(corrupt("Frozen cron source exceeds 16 MiB."))),
+                    None => return Ok(Err(corrupt("Frozen cron source is missing."))),
+                };
+                Ok(Ok(Some(FrozenJobs {source_id:id, source_digest:hash, bytes})))
             })
-            .map_err(refused)?;
+            .map_err(refused)??;
         if let Some(frozen) = &row {
             if frozen.bytes.len() as u64 > LIMIT || digest(&frozen.bytes) != frozen.source_digest {
                 return Err(corrupt("Frozen cron source does not match its digest."));

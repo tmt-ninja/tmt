@@ -263,3 +263,91 @@ fn an_export_path_that_became_a_symlink_is_retained_and_refused() {
     assert_eq!(fs::read(foreign).unwrap(), b"foreign bytes");
     assert!(f.store().core_redirect().unwrap().is_none());
 }
+
+#[test]
+fn malformed_legacy_input_keeps_its_typed_refusal_and_exact_bytes() {
+    let f = Fixture::new();
+    f.seed();
+    let bytes = b"not a JSON job document";
+    f.db()
+        .execute(
+            "UPDATE documents SET body=? WHERE kind='cron' AND key=''",
+            [bytes.as_slice()],
+        )
+        .unwrap();
+    assert_eq!(
+        f.store().frozen_for_core().unwrap_err().code,
+        "SQUAD_CRON_STORE_INVALID"
+    );
+    assert_eq!(
+        f.store().core_redirect().unwrap_err().code,
+        "SQUAD_CRON_STORE_INVALID"
+    );
+    assert_eq!(f.raw(), bytes);
+    assert_eq!(f.retained_count(), 0);
+}
+#[test]
+fn missing_or_oversized_retained_sources_are_invalid_not_store_io() {
+    for oversized in [false, true] {
+        let f = Fixture::new();
+        f.seed();
+        let (hash, _) = f.store().cutover_source().unwrap();
+        let guard = f.clock().quiescent_for_cutover().unwrap();
+        f.store().freeze_for_core(&guard, SOURCE, &hash).unwrap();
+        drop(guard);
+        let marker = f.raw();
+        if oversized {
+            f.db()
+                .execute(
+                    "UPDATE documents SET body=? WHERE kind='cron-cutover-source'",
+                    [vec![b'x'; LIMIT as usize + 1]],
+                )
+                .unwrap();
+        } else {
+            f.db()
+                .execute("DELETE FROM documents WHERE kind='cron-cutover-source'", [])
+                .unwrap();
+        }
+        assert_eq!(
+            f.store().frozen_for_core().unwrap_err().code,
+            "SQUAD_CRON_STORE_INVALID"
+        );
+        assert_eq!(
+            f.raw(),
+            marker,
+            "refused recovery must not thaw or replace the marker"
+        );
+    }
+}
+
+#[test]
+fn unchanged_preflight_exports_reuse_one_immutable_file_across_attempt_ids() {
+    let f = Fixture::new();
+    f.seed();
+    let (hash, bytes) = f.store().cutover_source().unwrap();
+    let mut source = FrozenJobs {
+        source_id: SOURCE.into(),
+        source_digest: hash,
+        bytes,
+    };
+    let first = f.store().export_core_source(&source).unwrap();
+    source.source_id = OWNER.into();
+    assert_eq!(f.store().export_core_source(&source).unwrap(), first);
+    assert_eq!(fs::read(&first).unwrap(), source.bytes);
+    assert_eq!(
+        fs::read_dir(first.parent().unwrap())
+            .unwrap()
+            .filter(|entry| entry
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("core-source-"))
+            .count(),
+        1
+    );
+    assert!(
+        f.store().frozen_for_core().unwrap().is_none(),
+        "exporting a preview is not a freeze or import"
+    );
+}

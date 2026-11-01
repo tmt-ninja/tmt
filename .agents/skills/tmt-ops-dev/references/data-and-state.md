@@ -414,7 +414,8 @@ owns current definitions, admission, run evidence and the shared clock; Ops is a
   child through `TMT_EXECUTABLE`. `cron_clock::core_clock` reads bounded unsolicited frames
   through `tmt-invoke::LineChannel`, with the existing 90-second read ceiling. Shutdown
   signals the owned supervisor, allows its existing 15-second component cleanup, drains and
-  joins it before confirming a successful stop; unconfirmed cleanup remains an error. Core
+  joins it before confirming a successful stop; unconfirmed cleanup returns
+  `SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED`, never a successful UI stop. Core
   owns the stable kernel lock, advisory holder, sub-minute slots, one-minute Digest/capture
   composition and rollback gate. Ops neither renews that lock nor preempts another owner.
   Public `tick.status` supplies the unchanged Running/NoClock/Unknown board projection.

@@ -168,15 +168,10 @@ pub(super) fn selected(core: &Core, key: &JobKey, revision: u64) -> Result<Curre
     }
     Ok(current)
 }
-pub(super) fn preview(
-    core: &Core,
-    actor: Option<&str>,
-    mutation: &Value,
-) -> Result<Value, SquadError> {
-    let preview = core.api_write(
+pub(super) fn preview(core: &Core, mutation: &Value) -> Result<Value, SquadError> {
+    let preview = core.api(
         "orchestration.write",
         json!({"phase":"preview","mutation":mutation}),
-        actor,
     )?;
     if preview["schemaVersion"] != 1
         || preview["mutation"] != *mutation
@@ -189,12 +184,8 @@ pub(super) fn preview(
     }
     Ok(preview)
 }
-pub(super) fn apply_preview(
-    core: &Core,
-    actor: Option<&str>,
-    preview: &Value,
-) -> Result<Value, SquadError> {
-    let applied=core.api_write("orchestration.write",json!({"phase":"apply","mutation":preview["mutation"],"expectedConfigurationRevision":preview["configurationRevision"],"previewAtMs":preview["previewAtMs"],"previewDigest":preview["previewDigest"],"consent":true}),actor)?;
+pub(super) fn apply_preview(core: &Core, preview: &Value) -> Result<Value, SquadError> {
+    let applied=core.api("orchestration.write",json!({"phase":"apply","mutation":preview["mutation"],"expectedConfigurationRevision":preview["configurationRevision"],"previewAtMs":preview["previewAtMs"],"previewDigest":preview["previewDigest"],"consent":true}))?;
     if applied["schemaVersion"] != 1
         || applied["preview"] != *preview
         || applied["requiresConsent"] != false
@@ -205,13 +196,9 @@ pub(super) fn apply_preview(
     }
     Ok(applied)
 }
-pub(super) fn mutation(
-    core: &Core,
-    actor: Option<&str>,
-    mutation: Value,
-) -> Result<Value, SquadError> {
-    let preview = preview(core, actor, &mutation)?;
-    apply_preview(core, actor, &preview)
+pub(super) fn mutation(core: &Core, mutation: Value) -> Result<Value, SquadError> {
+    let preview = preview(core, &mutation)?;
+    apply_preview(core, &preview)
 }
 
 /// The apply response itself supplies the committed projection; a failed later read

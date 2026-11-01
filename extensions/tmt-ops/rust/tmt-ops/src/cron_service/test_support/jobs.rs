@@ -82,7 +82,7 @@ def job_operation(q,op,i):
   if m.get('dispatchRefusal'):job_fail(m['dispatchRefusal'])
   owner=job['definition']['ownerIdentityId']
   if owner is None or owner in m['retired'] or owner in m['rosterWithout']:job_fail('ORCH_JOB_NO_OWNER')
-  operation=i['manualOperationId']; intent={'input':dict(i,origin='automation'),'identity':q.get('identity'),'originator':q.get('originator')}
+  operation=i['manualOperationId']; intent={'input':{'operationId':operation,'kind':'request','origin':'automation','recipientIds':[owner],'message':job['definition']['message']},'runInput':i,'identity':q.get('identity'),'originator':q.get('originator')}
   previous=m.setdefault('dispatches',{}).get(operation)
   if previous and previous['intent']!=intent:job_fail('DISPATCH_IDEMPOTENCY_CONFLICT')
   receipt=previous['receipt'] if previous else {'operationId':operation,'items':[{'recipientId':owner,'acceptance':'queued','requestId':'req_'+operation}]}
