@@ -552,12 +552,28 @@ describe('release version gate workflow boundaries', () => {
     expect(products?.includes('ops')).toBe(
       !!map.components.ops && map.components.ops.release !== false
     );
-    for (const host of ['macos-15', 'macos-15-intel', 'ubuntu-24.04-arm', 'ubuntu-24.04'])
-      expect(injection).toContain(`runner: ${host}`);
     // A PR runs the Linux hosts only; main pushes and the daily schedule keep both macOS hosts (#2547).
-    expect(injection).toContain(
-      `exclude: \${{ github.event_name == 'pull_request' && fromJSON('[{"target":"aarch64-apple-darwin"},{"target":"x86_64-apple-darwin"}]') || fromJSON('[]') }}`
+    // The host list is chosen per event: an `exclude` would leave product-less macOS include rows.
+    const hostLists =
+      /host: \$\{\{ fromJSON\(github\.event_name == 'pull_request' && '(\[[^']+\])' \|\| '(\[[^']+\])'\) \}\}/.exec(
+        injection
+      );
+    expect(hostLists).not.toBeNull();
+    const [pullRequestHosts, otherHosts] = [hostLists![1], hostLists![2]].map(
+      (list) => JSON.parse(list) as { target: string; runner: string }[]
     );
+    const linux = [
+      { target: 'aarch64-unknown-linux-musl', runner: 'ubuntu-24.04-arm' },
+      { target: 'x86_64-unknown-linux-musl', runner: 'ubuntu-24.04' },
+    ];
+    expect(pullRequestHosts).toEqual(linux);
+    expect(otherHosts).toEqual([
+      { target: 'aarch64-apple-darwin', runner: 'macos-15' },
+      { target: 'x86_64-apple-darwin', runner: 'macos-15-intel' },
+      ...linux,
+    ]);
+    expect(injection).not.toMatch(/^ {8}(include|exclude):/m);
+    expect(injection).not.toMatch(/matrix\.(target|runner)\b/);
     expect(injection).toMatch(/^ {2}push:\n {4}branches: \[main\]$/m);
     expect(injection).toMatch(/^ {2}schedule:\n {4}- cron: '29 3 \* \* \*'$/m);
     const action = read('.github/actions/inject-release-version/action.yml');

@@ -60,30 +60,16 @@ jobs:
 
   injection:
     needs: declarations
-    name: ${{ matrix.product }} injection (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.product }} injection (${{ matrix.host.target }})
+    runs-on: ${{ matrix.host.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         product: [cli, ops, remote, colab, digest]
-        target:
-          [
-            aarch64-apple-darwin,
-            x86_64-apple-darwin,
-            aarch64-unknown-linux-musl,
-            x86_64-unknown-linux-musl,
-          ]
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-15
-          - target: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-24.04-arm
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-24.04
-        exclude: ${{ github.event_name == 'pull_request' && fromJSON('[{"target":"aarch64-apple-darwin"},{"target":"x86_64-apple-darwin"}]') || fromJSON('[]') }}
+        # One host list per event: an `exclude` on target alone would leave the macOS
+        # `include` rows as standalone legs with no product, so PRs select Linux hosts only.
+        host: ${{ fromJSON(github.event_name == 'pull_request' && '[{"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04-arm"},{"target":"x86_64-unknown-linux-musl","runner":"ubuntu-24.04"}]' || '[{"target":"aarch64-apple-darwin","runner":"macos-15"},{"target":"x86_64-apple-darwin","runner":"macos-15-intel"},{"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04-arm"},{"target":"x86_64-unknown-linux-musl","runner":"ubuntu-24.04"}]') }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
@@ -103,11 +89,11 @@ jobs:
         with:
           packages: musl-tools
       - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
+        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.host.target }}'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: rust
-          shared-key: release-injection-${{ matrix.product }}-${{ matrix.target }}
+          shared-key: release-injection-${{ matrix.product }}-${{ matrix.host.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Cache packaging tools
         id: tools
@@ -121,7 +107,7 @@ jobs:
           cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
           cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
       - name: Test the private production TOML owner and injection contracts
-        if: matrix.product == 'cli' && matrix.target == 'x86_64-unknown-linux-musl'
+        if: matrix.product == 'cli' && matrix.host.target == 'x86_64-unknown-linux-musl'
         env:
           RUSTUP_TOOLCHAIN: 1.97.0
         run: |
@@ -138,7 +124,7 @@ jobs:
       - name: Build and prove the injected native archive
         env:
           PRODUCT: ${{ matrix.product }}
-          TARGET: ${{ matrix.target }}
+          TARGET: ${{ matrix.host.target }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           TMT_RELEASE_VERSION_STATE: ${{ runner.temp }}/release-version-state.json
         run: |
@@ -167,7 +153,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-injection-${{ matrix.product }}-${{ matrix.target }}
+          name: release-injection-${{ matrix.product }}-${{ matrix.host.target }}
           path: |
             ${{ runner.temp }}/version-gate*.json
             ${{ runner.temp }}/plan.json
