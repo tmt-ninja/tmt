@@ -70,7 +70,8 @@ and conventions for reusable patterns, duplicate responsibility and conflicts.
 Keep inspection proportional; record material findings and resolve them within scope.
 
 Give each member one bounded topic with an explicit owner, done condition and
-verification; prevent overlapping edits and keep read-only audits free of
+verification. A topic may be an area queue: queued issues of one area and owning
+squad that the member adds to the same open PR until it is ready for review. Prevent overlapping edits and keep read-only audits free of
 mutations. Keep decisions that span topics with the reviewing lead. Model choice
 is a staffing decision recorded with the team, not a repository rule.
 Delegation never expands authorization.
@@ -118,7 +119,9 @@ ask when resolution would require an undecided product or authorization choice.
   one module, as one PR that closes several issues (one `Fixes #N` line each, or
   `Part of #N` for an issue it does not finish); a PR of a few thousand lines is fine.
   The reviewing lead decides the bundle and records the mapping on each issue. Split
-  a PR only when it crosses squad paths and needs another owner.
+  a PR only when it is too large to review or crosses squad paths without a recorded
+  owner mandate; under such a mandate it stays one PR, and each owning lead reviews
+  its own paths on the same head.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Keep the issue's Project fields, tracker parentage and Status current as defined in
