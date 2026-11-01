@@ -98,6 +98,8 @@
   align-items: center;
   column-gap: 8px;
   margin-bottom: 6px;
+  /* Its words start with the field's text: the field's border plus its 12px inline padding. */
+  padding-inline: calc(var(--tmt-ui-field-border-width) + 12px);
   font-size: var(--tmt-ui-caption-size);
   line-height: 1.5;
 }
@@ -125,7 +127,7 @@
 }
 .annotation-compose .notice-line:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: 1px;
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
 /* A next step follows the notice on its line; its taller hit box does not open the line up. */
 .annotation-compose .annotation-notice-slot .tmt-ui-action {
