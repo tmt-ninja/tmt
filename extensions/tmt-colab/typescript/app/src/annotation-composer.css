@@ -88,20 +88,24 @@
   flex: none;
 }
 
-/* The composer's notice slot keeps one caption line reserved above the field, empty and unmarked
-   until a refusal fills it. */
+/* The composer's notice slot is the input's top row, one caption line reserved above the text:
+   empty and unmarked until a notice fills it, then ruled off from the text (#5911). Its words
+   start with the field's text. */
 .annotation-compose .annotation-notice-slot {
+  box-sizing: border-box;
   /* Whole pixels: a fractional slot would round the history's pinned end differently each frame. */
-  height: round(up, calc(var(--tmt-ui-caption-size) * 1.5), 1px);
+  height: round(up, calc(var(--tmt-ui-caption-size) * 1.5 + 8px), 1px);
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   column-gap: 8px;
-  margin-bottom: 6px;
-  /* Its words start with the field's text: the field's border plus its 12px inline padding. */
-  padding-inline: calc(var(--tmt-ui-field-border-width) + 12px);
+  padding-inline: 12px;
+  border-bottom: 1px solid transparent;
   font-size: var(--tmt-ui-caption-size);
   line-height: 1.5;
+}
+.annotation-compose .annotation-notice-slot:not(:empty) {
+  border-bottom-color: var(--tmt-ui-surface-rule);
 }
 .annotation-compose .annotation-notice-slot > * {
   min-width: 0;

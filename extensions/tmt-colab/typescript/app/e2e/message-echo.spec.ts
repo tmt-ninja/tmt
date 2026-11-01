@@ -325,8 +325,20 @@ for (const surface of ['reply', 'chat']) {
         return [field.getBoundingClientRect().top - composer.top, composer.height];
       });
     const empty = await place();
+    const composer = page.locator('.annotation-compose');
+    const capture = async (state: string) => {
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await composer.screenshot({
+          path: capturePath(`composer-slot-${surface}-${state}-${theme}.png`),
+        });
+      }
+      await page.emulateMedia({ colorScheme: null });
+    };
+    await capture('empty');
     await input.press('Enter');
     await expect(page.locator('.annotation-send-notice')).toContainText('(ref S13)');
+    await capture('filled');
     // The notice fills the composer's reserved slot: the field neither moves nor grows (#5911).
     // In Chat's narrow composer this long notice and its next step stay on one line, the notice
     // ending in an ellipsis, its whole text in its name and its tip.

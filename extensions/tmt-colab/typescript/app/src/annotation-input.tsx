@@ -557,43 +557,6 @@ export function AnnotationInput({
       ref={section}
       {...fileHandlers}
     >
-      {/* One reserved slot above the composer: a refusal, a recipient that was not reached, or a
-          recorded message's next step fills it, so neither the history nor the field moves (#5911). */}
-      <div className="annotation-notice-slot">
-        {sendFailureNotice}
-        <CommentSendFailures
-          failures={failures}
-          binding={binding}
-          blocked={blocked || busy || !!recorded}
-          settled={(failure, outcome) =>
-            setFailures((previous) =>
-              outcome.adopted === true
-                ? previous.filter((value) => value !== failure)
-                : outcome.adopted === false
-                  ? previous
-                  : previous.map((value) =>
-                      value === failure ? { ...value, uncertain: true } : value,
-                    ),
-            )
-          }
-        />
-        {recorded && (chat || !thread) && (
-          <BrowserAction
-            type="button"
-            label={chat ? text.messageAnother : text.messageOpenRecorded}
-            variant="text"
-            onActivate={(event) => {
-              if (event.isTrusted) {
-                if (chat) {
-                  setRecorded(undefined);
-                  setError(undefined);
-                  clearDraft();
-                } else committed(recorded);
-              }
-            }}
-          />
-        )}
-      </div>
       <MessageComposer
         activation={activation}
         edit={edit}
@@ -625,6 +588,46 @@ export function AnnotationInput({
                 revision: creatorPreference.revision,
               }
             : undefined
+        }
+        // One reserved slot in the composer, above the text: a refusal, a recipient that was not
+        // reached, or a recorded message's next step fills it, so neither the history nor the
+        // field moves (#5911).
+        header={
+          <div className="annotation-notice-slot">
+            {sendFailureNotice}
+            <CommentSendFailures
+              failures={failures}
+              binding={binding}
+              blocked={blocked || busy || !!recorded}
+              settled={(failure, outcome) =>
+                setFailures((previous) =>
+                  outcome.adopted === true
+                    ? previous.filter((value) => value !== failure)
+                    : outcome.adopted === false
+                      ? previous
+                      : previous.map((value) =>
+                          value === failure ? { ...value, uncertain: true } : value,
+                        ),
+                )
+              }
+            />
+            {recorded && (chat || !thread) && (
+              <BrowserAction
+                type="button"
+                label={chat ? text.messageAnother : text.messageOpenRecorded}
+                variant="text"
+                onActivate={(event) => {
+                  if (event.isTrusted) {
+                    if (chat) {
+                      setRecorded(undefined);
+                      setError(undefined);
+                      clearDraft();
+                    } else committed(recorded);
+                  }
+                }}
+              />
+            )}
+          </div>
         }
         accessory={
           <>

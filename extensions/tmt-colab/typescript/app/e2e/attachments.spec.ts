@@ -118,9 +118,10 @@ test('a visible raster previews from a data URL; any file downloads its exact by
   const notes = entries.filter({ hasText: 'notes.txt' });
   // Only the visible raster reads automatically; the generic file still needs a click.
   await expect(png.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
-  expect((await actions(page)).filter((a) => a.startsWith('attach:open'))).toEqual([
-    'attach:open:shot.png:1',
-  ]);
+  // The echo's drawn image is shown first; the record's own read follows it.
+  await expect
+    .poll(async () => (await actions(page)).filter((a) => a.startsWith('attach:open')))
+    .toEqual(['attach:open:shot.png:1']);
   await expect(png.locator('img')).toHaveAttribute('alt', 'shot.png');
   await expect(png.locator('img')).toHaveJSProperty('complete', true);
   await png.getByRole('button', { name: 'Preview shot.png' }).click();
