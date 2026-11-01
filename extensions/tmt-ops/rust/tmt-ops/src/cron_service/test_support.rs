@@ -1,9 +1,11 @@
 //! Public-port fixtures shared by management and clock scenario tests.
+mod jobs;
 use super::*;
 use std::{
     fs,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use tmt_ops::cron::Jobs;
 
 pub(crate) const USER: &str = "11111111-1111-4111-8111-111111111111";
 pub(crate) const LEAD: &str = "22222222-2222-4222-8222-222222222222";
@@ -29,8 +31,8 @@ impl Fixture {
             {"id":WORKER,"name":"worker","lifetime":"saved","metadata":{}}]});
         fs::write(directory.join("model.json"), model.to_string()).unwrap();
         fs::write(directory.join("ops.toml"), "").unwrap();
-        fs::write(directory.join("core.py"), r#"
-import json,sys,pathlib,fcntl,os,signal,tempfile
+        let script = r#"
+import json,sys,pathlib,fcntl,os,signal,tempfile,hashlib,uuid
 p=pathlib.Path(__file__).parent
 def save(m):
  fd,tmp=tempfile.mkstemp(dir=p)
@@ -112,6 +114,11 @@ if a[0]=='api':
  elif op=='identityHooks.attempt': out={'recorded':True}
  elif op=='identityHooks.ack':
   m['hooks']=[h for h in m['hooks'] if h!=i]; out={'acknowledged':True}
+ elif op in ['orchestration.read','orchestration.write','orchestration.job.run']:
+  out=job_operation(q,op,i)
+  if op=='orchestration.write' and i['phase']=='apply' and m.get('loseJobApplyResponse'):
+   m['loseJobApplyResponse']=False;save(m);print('interrupted');sys.exit(0)
+ elif op=='tick.status':out=m.get('clockStatus',{'schemaVersion':1,'state':'stopped','holder':None})
  elif op=='dispatch.create':
   assert not locked, 'dispatch ran under jobs lock'
   if m.get('dispatchRefusal'): save(m); fail(m['dispatchRefusal'])
@@ -145,13 +152,12 @@ if a[0]=='api':
   out=previous['receipt']
  else: fail('API_INPUT_INVALID')
  save(m); print(json.dumps(out))
+elif a[:2]==['orch','job']:
+ out=job_import(a);save(m);print(json.dumps(out))
 elif a[0]=='config': print(json.dumps({'paths':{'global':str(p/'config.toml')}}))
 elif a[0]=='room' and a[1]=='leave':
  m['calls'].append({'command':a})
- import sqlite3
- database=p/'ops/ops.db'
- row=sqlite3.connect(str(database),timeout=5).execute("SELECT body FROM documents WHERE kind='cron' AND key=''").fetchone() if database.exists() else None
- m['jobsAtLeave']=json.loads(row[0]) if row else {'jobs':[]}
+ m['jobsAtLeave']={'source':'core.jobs','jobs':[dict(id='c'+str(job['legacy']['cronId']),roomId=job['legacy']['roomId'],ownerId=job['definition']['ownerIdentityId'],pause=job['manualPause'],state='no owner' if job['definition']['ownerIdentityId'] is None else ('paused' if job['manualPause'] else 'on')) for job in m.get('jobs',{}).values() if job['legacy'] is not None]}
  if m.get('leaveFailure'): save(m); fail(m['leaveFailure'])
  id=a[a.index('--identity')+1]
  if id not in m['rosterWithout']: m['rosterWithout'].append(id)
@@ -204,7 +210,13 @@ elif a[0]=='whoami':
  if m['caller']=='ambiguous': fail('CALLER_IDENTITY_AMBIGUOUS')
  print(json.dumps({'bound':False} if m['caller'] is None else dict(next(x for x in m['members'] if x['id']==m['caller']),bound=True)))
 else: fail('UNKNOWN_COMMAND')
-"#).unwrap();
+"#;
+        assert_eq!(script.matches("\nif a[0]=='api':\n").count(), 1);
+        let script = script.replace(
+            "\nif a[0]=='api':\n",
+            &format!("\n{}\nif a[0]=='api':\n", jobs::PORT),
+        );
+        fs::write(directory.join("core.py"), script).unwrap();
         let executable = directory.join("tmt");
         crate::test_support::write_ready_executable(
             &executable,
@@ -236,6 +248,40 @@ else: fail('UNKNOWN_COMMAND')
         let temporary = self.directory.join("model.rust.tmp");
         fs::write(&temporary, m.to_string()).unwrap();
         fs::rename(temporary, self.directory.join("model.json")).unwrap();
+    }
+    /// Legacy input setup happens before adoption, never by thawing a redirect.
+    pub(crate) fn seed_legacy(&self, bytes: &[u8]) {
+        let store = Store::new(&self.directory.join("ops")).unwrap();
+        store
+            .update(|jobs| {
+                jobs.insert(Job::new(
+                    ROOM.into(),
+                    WORKER.into(),
+                    "seed".into(),
+                    Schedule::parse(
+                        ScheduleInput::Every {
+                            duration: "30m",
+                            from: None,
+                        },
+                        "UTC",
+                        0,
+                    )
+                    .unwrap(),
+                ))?;
+                Ok(())
+            })
+            .unwrap();
+        crate::test_support::replace_stored_jobs(&self.directory, bytes);
+    }
+    /// Current authority in this public-port model. The private Ops document is
+    /// separately inspected when asserting freeze/redirect/retained-source bytes.
+    pub(crate) fn current_jobs(&self) -> Jobs {
+        let model = self.model();
+        let jobs=model["jobs"].as_object().into_iter().flat_map(|jobs|jobs.values()).filter(|job|!job["legacy"].is_null()).map(|job|{
+            let definition=&job["definition"];let owner=&definition["ownerIdentityId"];let pause=&job["manualPause"];
+            json!({"id":format!("c{}",job["legacy"]["cronId"].as_u64().unwrap()),"roomId":job["legacy"]["roomId"],"ownerId":owner,"message":definition["message"],"schedule":definition["schedule"],"revision":job["revision"],"pause":pause,"state":if owner.is_null(){"no owner"}else if pause.is_null(){"on"}else{"paused"}})
+        }).collect::<Vec<_>>();
+        Jobs::from_document(&json!({"version":2,"counters":model.get("jobCounters").cloned().unwrap_or_else(||json!({})),"jobs":jobs})).unwrap()
     }
     pub(crate) fn actor(&self, id: &str) -> CronActor {
         actor(&self.core, Some(id)).unwrap()

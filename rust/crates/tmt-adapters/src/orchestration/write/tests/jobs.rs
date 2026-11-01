@@ -203,6 +203,52 @@ fn squad_jobs_preserve_imported_numbers_pause_and_atomic_counter_fences() {
     let before = cursor(&d);
     let p = preview_for(&mut storage, mutation.clone());
     assert_eq!(cursor(&d), before, "preview reserves no c-ID");
+    assert_eq!(p["proposedLegacy"], json!({"roomId":room,"cronId":8}));
+    assert!(
+        storage
+            .list_orchestration_jobs(crate::storage::JobListQuery {
+                room_id: Some(room),
+                owner_id: None,
+                job_id: None,
+                after_number: 0,
+                limit: 128
+            })
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    let fence = storage.squad_job_write_fence(room).unwrap();
+    let counter_writer = rusqlite::Connection::open(d.path.join("state.db")).unwrap();
+    counter_writer
+        .execute(
+            "UPDATE orchestration_job_legacy_counters SET last_id=8 WHERE room_id=?",
+            [room],
+        )
+        .unwrap();
+    let dummy = tmt_core::orchestration::jobs::JobDefinition {
+        owner_id: Some(owner.clone()),
+        room_id: Some(room.into()),
+        title: None,
+        message: "fenced".into(),
+        schedule: tmt_core::orchestration::jobs::JobSchedule::Every {
+            zone: "UTC".into(),
+            seconds: 10,
+            anchor_ms: 0,
+            from: None,
+        },
+        pause: None,
+    }
+    .with_identity("88888888-8888-4888-8888-888888888888".into(), 1);
+    assert!(matches!(
+        storage.create_job_fenced(dummy, Some(&fence), true),
+        Err(crate::storage::JobStoreError::Job(JobError::Conflict))
+    ));
+    counter_writer
+        .execute(
+            "UPDATE orchestration_job_legacy_counters SET last_id=7 WHERE room_id=?",
+            [room],
+        )
+        .unwrap();
     let mut other = Storage::open(d.path.join("state.db")).unwrap();
     let competing = preview_for(&mut other, mutation.clone());
     let created: Value = serde_json::from_slice(

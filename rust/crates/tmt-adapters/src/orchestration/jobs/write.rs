@@ -186,14 +186,37 @@ fn projected(m: &Mutation, fence: &JobWriteFence, at: u64) -> Result<Value, Orch
         .map(|p| json!({"by":p.by,"atMs":p.at_ms}));
     let after=after.map(|d|json!({"ownerIdentityId":d.owner_id,"squadRoomId":d.room_id,"title":d.title,"message":d.message,"schedule":JobScheduleDocument::from(&d.schedule),"manualPause":pause}));
     let mut p = json!({"schemaVersion":1,"configurationRevision":fence.revision,"previewAtMs":at,"mutation":m,"before":fence.job.as_ref().map(document),"after":after,"validUntilMs":null,"requiresConsent":true});
+    if let Mutation::AddSquadJob { candidate, .. } = m {
+        let room = candidate
+            .squad_room_id
+            .as_deref()
+            .ok_or(JobError::Invalid)?;
+        let proposed = fence
+            .proposed_legacy
+            .as_ref()
+            .filter(|legacy| legacy.room_id == room)
+            .ok_or(JobError::Invalid)?;
+        p["proposedLegacy"] = json!({"roomId":proposed.room_id,"cronId":proposed.cron_id});
+    }
     p["previewDigest"] = json!(content_digest::framed_sha256(
         b"tmt-orchestration-job-preview-v1",
         &serde_json::to_vec(&p).map_err(|_| JobError::Invalid)?
     ));
     Ok(p)
 }
+fn mutation_fence(s: &Storage, m: &Mutation) -> Result<JobWriteFence, OrchReadFailure> {
+    Ok(match m {
+        Mutation::AddSquadJob { candidate, .. } => s.squad_job_write_fence(
+            candidate
+                .squad_room_id
+                .as_deref()
+                .ok_or(JobError::Invalid)?,
+        )?,
+        _ => s.job_write_fence(selector(m).map(|(id, _)| id))?,
+    })
+}
 pub(crate) fn preview(s: &Storage, m: &Mutation, at: u64) -> Result<Value, OrchReadFailure> {
-    let fence = s.job_write_fence(selector(m).map(|(id, _)| id))?;
+    let fence = mutation_fence(s, m)?;
     projected(m, &fence, at)
 }
 pub(crate) fn apply(
@@ -207,7 +230,7 @@ pub(crate) fn apply(
     if now == 0 || now > MAX_JS_SAFE_INTEGER || at > now {
         return Err(JobError::Invalid.into());
     }
-    let fence = s.job_write_fence(selector(m).map(|(id, _)| id))?;
+    let fence = mutation_fence(s, m)?;
     let p = projected(m, &fence, at)?;
     if fence.revision != revision || p["previewDigest"].as_str() != Some(digest) {
         return Err(JobError::Conflict.into());

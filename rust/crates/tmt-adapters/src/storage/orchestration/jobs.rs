@@ -258,8 +258,7 @@ impl Storage {
             if squad_number {
                 let room = job.room_id.as_deref().ok_or(JobError::Invalid)?;
                 if job.legacy.is_some() { return Err(JobError::Invalid.into()); }
-                let previous: Option<i64> = tx.query_row("SELECT last_id FROM orchestration_job_legacy_counters WHERE room_id=?",[room],|row|row.get(0)).optional().map_err(|e|classify(e,"Read squad job counter"))?;
-                let number=previous.map(unsigned).transpose()?.unwrap_or(0).checked_add(1).filter(|n|*n<=MAX_JS_SAFE_INTEGER).ok_or(JobError::Limit)?;
+                let number=write::next_squad_number(tx,room)?;
                 tx.execute("INSERT INTO orchestration_job_legacy_counters(room_id,last_id) VALUES(?,?) ON CONFLICT(room_id) DO UPDATE SET last_id=excluded.last_id",params![room,number as i64]).map_err(|e|classify(e,"Reserve squad job number"))?;
                 job.legacy=Some(LegacyJob { room_id:room.to_owned(),cron_id:number });
             }
