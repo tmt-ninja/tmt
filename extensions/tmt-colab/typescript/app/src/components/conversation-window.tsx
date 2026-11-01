@@ -195,15 +195,19 @@ export function ConversationWindow({
     const ids = new Set(messageIds);
     const opened = previous.current === undefined;
     const added = [...ids].filter((id) => !previous.current?.has(id));
-    const own = added.some(
-      (id) =>
-        id.startsWith('echo:') ||
-        (ownWriter &&
-          (id.startsWith(`comment:${ownWriter}:`) || id.startsWith(`ask:${ownWriter}:`))),
+    // A record that takes the place of its echo is the same message landing, not a new one: it
+    // moves the reader only if they follow the end (#5911). A retry keeps its echo's ID.
+    const landing = [...(previous.current ?? [])].some(
+      (id) => id.startsWith('echo:') && !ids.has(id),
     );
+    const mine = (id: string) =>
+      id.startsWith('echo:') ||
+      (!!ownWriter &&
+        (id.startsWith(`comment:${ownWriter}:`) || id.startsWith(`ask:${ownWriter}:`)));
+    const own = added.some((id) => mine(id) && (!landing || id.startsWith('echo:')));
     previous.current = ids;
     if (opened || own || (added.length && following.current)) latest();
-    else if (added.length) setPending(true);
+    else if (added.some((id) => !landing || !mine(id))) setPending(true);
   }, [messageIds, ownWriter, latest]);
   useLayoutEffect(() => {
     requestReveal();

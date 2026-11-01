@@ -404,14 +404,15 @@ export function CommentExchange({
       delivery={delivery}
     />
   );
-  return records.length ? (
+  // One element for the message before and after its first Ask record (#5911).
+  return (
     <AskPanel
       readOnly={readOnly}
       inline
       records={records}
       binding={ask}
       blocked={blocked}
-      renderUser={(_record, status, delivery) => user(status, delivery)}
+      renderUser={user}
       retryInput={
         typeof retryInput === 'function'
           ? (record) =>
@@ -420,8 +421,6 @@ export function CommentExchange({
           : (retryInput ?? ordinaryRetryInput)
       }
     />
-  ) : (
-    user()
   );
 }
 

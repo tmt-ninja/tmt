@@ -349,11 +349,11 @@ export function AnnotationInput({
       if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
-          echoHost.remove(retried.echo.local);
           unsentRef.current = undefined;
           setUnsent(undefined);
         }
-        // The echo and the cleared composer appear in the same frame.
+        // The echo and the cleared composer appear in the same frame. A retry is the same message:
+        // it keeps its echo's ID and time, so its row stays where it is (#5911).
         echoed = messageEcho(
           captured.value,
           files.getSnapshot().chips.map(({ id, filename, mediaType, size }) => ({
@@ -365,6 +365,7 @@ export function AnnotationInput({
           })),
           captured.destinations.map((destination) => destination.agentName),
         );
+        if (retried) echoed = { ...echoed, local: retried.echo.local, at: retried.echo.at };
         echoHost.show(echoed);
         setEchoing(true);
         if (current.value === latestEdit.current.value) clearDraft();
