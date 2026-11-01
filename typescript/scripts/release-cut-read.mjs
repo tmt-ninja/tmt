@@ -13,14 +13,17 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? ''))
     throw new Error('Release catalogue needs a repository.');
   let requests = 0;
+  let requestAllowance = 60;
   // A quiet P-page catalogue costs P + 2 requests: discovery, terminal anchor,
-  // middle pages, terminal verification and page-one verification. The shared
-  // 60-request/90-second budget admits 58 pages (5,800 releases); all three
-  // attempts spend this same budget. The live cut can exhaust its separate
-  // 180-request budget earlier across snapshots. Exhaustion never returns partial history.
-  const deadline = Date.now() + 90_000;
+  // middle pages, terminal verification and page-one verification.
+  // The first page freezes a size-scaled request allowance (at least the old
+  // 60 calls, at most 180) shared by all three attempts. At most 100 pages
+  // are admitted. The live caller separately retains its 177 normal-call cap
+  // across catalogue and mutations; the bridge reader has its own 150-second deadline.
+  const deadline = Date.now() + 150_000;
   const get = (page) => {
-    if (++requests > 60 || Date.now() >= deadline) throw new Error('Cut REST budget exceeded.');
+    if (++requests > requestAllowance || Date.now() >= deadline)
+      throw new Error('Cut REST budget exceeded.');
     const output = execute(
       'gh',
       [
@@ -80,7 +83,9 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const first = get(1);
     const pages = first.lastPage;
-    if (requests + pages + 1 > 60) throw new Error('Cut REST budget exceeded.');
+    if (pages > 100) throw new Error('Cut REST page allowance exceeded (maximum 100 pages).');
+    if (attempt === 0) requestAllowance = Math.min(180, Math.max(60, 3 * (pages + 2)));
+    if (requests + pages + 1 > requestAllowance) throw new Error('Cut REST budget exceeded.');
     // Capture the terminal boundary before traversing the middle. A verification
     // taken only after traversal would miss a removal that already shifted it.
     const terminal = pages === 1 ? first : get(pages);
