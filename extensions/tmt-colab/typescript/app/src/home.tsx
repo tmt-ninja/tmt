@@ -379,7 +379,7 @@ export function Home() {
     root.addEventListener('scroll', measure, { passive: true });
     const resize = new ResizeObserver(measure);
     resize.observe(root);
-    for (const node of root.querySelectorAll('.page-list-hero, .page-pins, .tmt-ui-tabs-header'))
+    for (const node of root.querySelectorAll('.page-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
     return () => {
@@ -838,15 +838,61 @@ export function Home() {
       </div>
     </>
   );
-  const newPageAction = (
+  const newPageAction = phone ? (
+    <BrowserIconAction
+      type="button"
+      variant="primary"
+      label={t.newPage}
+      icon={<Plus />}
+      onActivate={() => setNewPage(true)}
+    />
+  ) : (
     <BrowserAction
       type="button"
       variant="primary"
       label={t.newPage}
-      visibleLabel={phone ? t.newShort : undefined}
-      leadingIcon={<Plus size={14} />}
+      leadingIcon={<Plus />}
       onActivate={() => setNewPage(true)}
     />
+  );
+  const listActions = (
+    <div className="page-list-actions">
+      {port && (
+        <>
+          <span className="page-list-shortcut-wide">
+            <BrowserAction
+              type="button"
+              variant="secondary"
+              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+              leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
+              disabled={!shortcuts.store}
+              onActivate={() => {
+                shortcutFromMenu.current = false;
+                setShortcutTarget(undefined);
+                setShortcutDialog(currentShortcut ? 'edit' : 'save');
+              }}
+            />
+          </span>
+          <span className="page-list-shortcut-phone">
+            <BrowserIconAction
+              type="button"
+              variant="secondary"
+              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+              icon={currentShortcut ? <Pencil /> : <Bookmark />}
+              disabled={!shortcuts.store}
+              onActivate={() => {
+                shortcutFromMenu.current = false;
+                setShortcutTarget(undefined);
+                setShortcutDialog(currentShortcut ? 'edit' : 'save');
+              }}
+            />
+          </span>
+        </>
+      )}
+      <span className="page-list-hero-create" inert={compact}>
+        {newPageAction}
+      </span>
+    </div>
   );
   const content = (
     <>
@@ -1047,43 +1093,7 @@ export function Home() {
         title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
-      <header className="page-list-hero">
-        {port && (
-          <>
-            <span className="page-list-shortcut-wide">
-              <BrowserAction
-                type="button"
-                variant="secondary"
-                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-                leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
-                disabled={!shortcuts.store}
-                onActivate={() => {
-                  shortcutFromMenu.current = false;
-                  setShortcutTarget(undefined);
-                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
-                }}
-              />
-            </span>
-            <span className="page-list-shortcut-phone">
-              <BrowserIconAction
-                type="button"
-                variant="secondary"
-                label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-                icon={currentShortcut ? <Pencil /> : <Bookmark />}
-                disabled={!shortcuts.store}
-                onActivate={() => {
-                  shortcutFromMenu.current = false;
-                  setShortcutTarget(undefined);
-                  setShortcutDialog(currentShortcut ? 'edit' : 'save');
-                }}
-              />
-            </span>
-          </>
-        )}
-        <span className="page-list-hero-create" inert={compact}>
-          {newPageAction}
-        </span>
-      </header>
+      {!port && listActions}
       {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
@@ -1150,6 +1160,7 @@ export function Home() {
         <div className="page-stage-tabs">
           <BrowserTabs
             label={t.views}
+            status={listActions}
             variant="flat"
             tabs={viewTabs}
             selected={view}

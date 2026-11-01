@@ -150,8 +150,6 @@
   gap: var(--tmt-ui-space-s);
   margin-block: var(--tmt-ui-space-l);
   flex: none;
-  --tmt-ui-host-action-min-height: var(--tmt-ui-control-size-l);
-  --tmt-ui-host-icon-action-size: var(--tmt-ui-control-size-l);
 }
 
 .page-list-search {
@@ -1060,12 +1058,43 @@
   border-left-color: transparent;
 }
 
-/* One size owner for the normal and sticky list controls, including their phone icon hosts. */
-.page-list-controls
-  :is(.tmt-ui-menu-trigger, .tmt-ui-icon-action-control, .page-list-compact-create > button) {
+/* Normal and sticky controls share one size owner, including phone icon hosts.
+   Keep these host sizes off the search editor and its chips. */
+:is(.page-list-filter-menu, .page-list-sort, .page-list-compact-create) {
+  --tmt-ui-host-action-min-height: var(--tmt-ui-control-size-l);
+  --tmt-ui-host-icon-action-size: var(--tmt-ui-control-size-l);
+}
+:is(.page-list-filter-menu, .page-list-sort) > .tmt-ui-menu > .tmt-ui-menu-trigger,
+:is(.page-list-filter-menu, .page-list-sort)
+  > .tmt-ui-menu
+  > .tmt-ui-icon-action
+  > .tmt-ui-icon-action-control,
+.page-list-compact-create > .tmt-ui-action,
+.page-list-compact-create > .tmt-ui-icon-action > .tmt-ui-icon-action-control {
   box-sizing: border-box;
   height: var(--tmt-ui-control-size-l);
   min-height: var(--tmt-ui-control-size-l);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
+}
+
+/* The stage strip and its actions share one row; only tabs yield space on narrow screens. */
+.page-stage-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.page-stage-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header > .tmt-ui-tab-list {
+  flex: 1 1 0;
+}
+.page-stage-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header > .tmt-ui-tabs-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-inline-start: auto;
+  padding: 0;
+}
+.page-list-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
 }

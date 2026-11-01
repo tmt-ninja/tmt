@@ -18,7 +18,12 @@ const PAGE = {
   made: id(99),
 };
 
-async function mount(page: Page, owner = true, scenario: 'tree' | 'empty' = 'tree', tall = false) {
+async function mount(
+  page: Page,
+  owner = true,
+  scenario: 'tree' | 'empty' | 'many' = 'tree',
+  tall = false,
+) {
   await page.goto('/');
   await page.evaluate(
     async ([owner, scenario, tall]) => {
@@ -452,4 +457,67 @@ for (const width of [1440, 390])
       band = await mount(page, true, 'empty');
       await expect(head(band)).toContainText('No sub-pages yet');
       await shot('mock2-empty');
+    });
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const)
+    test(`Add dialog owns overflow and whole-field focus at ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const band = await mount(page, true, 'many');
+      await expand(band);
+      const dialog = await openAdd(page, band);
+      const input = dialog.getByRole('combobox');
+      const wrapper = dialog.locator('[data-slot="command-input-wrapper"]');
+      const list = dialog.locator('[cmdk-list]');
+      await expect(dialog.getByRole('option')).toHaveCount(78);
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(900);
+      const overflow = await list.evaluate((node) => ({
+        scroll: node.scrollHeight,
+        client: node.clientHeight,
+        overflow: getComputedStyle(node).overflowY,
+      }));
+      expect(overflow.scroll).toBeGreaterThan(overflow.client);
+      expect(overflow.overflow).toBe('auto');
+      const capture = async (state: string) => {
+        const name = `5859-add-${state}-${width}-${theme}.png`;
+        const image = await page.screenshot({ path: capturePath(name) });
+        await test.info().attach(name, { body: image, contentType: 'image/png' });
+      };
+      await input.blur();
+      await capture('empty');
+      await input.focus();
+      const focus = await wrapper.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const input = node.querySelector('input')!;
+        return {
+          radius: style.borderRadius,
+          tokenRadius: style.getPropertyValue('--tmt-ui-radius').trim(),
+          outline: style.outlineStyle,
+          width: style.outlineWidth,
+          tokenWidth: style.getPropertyValue('--tmt-ui-focus-width').trim(),
+          inputOutline: getComputedStyle(input).outlineStyle,
+        };
+      });
+      expect(focus.radius).toBe(focus.tokenRadius);
+      expect(focus.outline).toBe('solid');
+      expect(focus.width).toBe(focus.tokenWidth);
+      expect(focus.inputOutline).toBe('none');
+      await capture('focused');
+      const top = (await input.boundingBox())!.y;
+      await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
+      await expect.poll(() => list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+      expect((await input.boundingBox())!.y).toBe(top);
+      const footer = dialog.locator('[data-slot="dialog-footer"]');
+      expect(
+        (await footer.boundingBox())!.y + (await footer.boundingBox())!.height,
+      ).toBeLessThanOrEqual(900);
+      await capture('scrolled');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+      expect(await calls(page)).toEqual([]);
     });

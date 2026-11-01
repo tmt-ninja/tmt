@@ -291,8 +291,45 @@ a.work-row-title:hover {
 
 /* The one Add window (Mock 5). */
 .work-add-dialog[data-slot='dialog-content'] {
+  display: flex;
+  flex-direction: column;
   max-width: min(var(--tmt-ui-dialog-narrow-width), calc(100vw - 2 * var(--tmt-ui-space-l)));
+  max-height: min(
+    var(--tmt-layer-available-height, 100dvh),
+    calc(100dvh - 2 * var(--tmt-ui-space-l))
+  );
+  overflow: hidden;
+  gap: var(--tmt-ui-space-l);
   padding: var(--tmt-ui-space-l);
+}
+.work-add-dialog [data-slot='dialog-header'],
+.work-add-dialog [data-slot='dialog-footer'] {
+  flex: none;
+}
+.work-add-command {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  gap: var(--tmt-ui-space-s);
+}
+.work-add-command [data-slot='command-input-wrapper'] {
+  flex: none;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.work-add-command [data-slot='command-input-wrapper']:focus-within {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.work-add-command [cmdk-input],
+.work-add-command [cmdk-input]:focus-visible {
+  outline: none;
+}
+.work-add-command [cmdk-list] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .work-add-dialog [data-slot='dialog-footer'] {
   margin-top: var(--tmt-ui-space-m);
