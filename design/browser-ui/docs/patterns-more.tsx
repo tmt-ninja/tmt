@@ -57,7 +57,7 @@ import {
   UiTheme,
 } from '../src/ui/index.js';
 import { ScaledFrame } from '../gallery/kit.js';
-import { frameDocument } from './routes.js';
+import { guiRoot } from './routes.js';
 import { PageTable, samplePages } from '../gallery/page-table.js';
 import { PageRow } from './patterns.js';
 
@@ -691,7 +691,7 @@ export function PatternViewports({ doc }: { doc: PatternDoc }) {
                   </figcaption>
                   <ScaledFrame
                     title={`${doc.title} ${label} ${width} ${theme}`}
-                    src={`${frameDocument()}?${new URLSearchParams({ frame: 'pattern', slug: doc.slug, state, theme })}`}
+                    src={`${guiRoot}?${new URLSearchParams({ frame: 'pattern', slug: doc.slug, state, theme })}`}
                     width={width}
                     height={doc.height}
                   />

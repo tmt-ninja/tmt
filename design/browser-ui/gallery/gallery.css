@@ -188,6 +188,23 @@
   border: 0;
   transform-origin: 0 0;
 }
+/* A static preview where the host cannot frame the docs (#5866): the frame's content drawn in the
+   document, labelled with its width, never interactive. The transform contains its fixed parts. */
+.scaled-frame-static {
+  display: grid;
+  gap: var(--tmt-ui-space-xs);
+  margin: 0;
+}
+.scaled-frame-static > figcaption {
+  color: var(--tmt-ui-color-secondary);
+  font: 12px / 1.5 var(--tmt-ui-font-body);
+}
+.scaled-frame-inline {
+  overflow: hidden;
+  transform-origin: 0 0;
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+}
 .scaled-frame-open {
   position: absolute;
   top: var(--tmt-ui-space-xs);

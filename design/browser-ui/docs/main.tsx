@@ -14,7 +14,8 @@ import { DocsApp } from './app.js';
 import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
 import { TuiMock } from './tui-nav.js';
-import { currentLocation, embedded, replacePath, usePath } from './router.js';
+import { currentLocation, replacePath, usePath } from './router.js';
+import { previewRoot } from './preview.js';
 import { frameFor } from '../gallery/frames.js';
 import { PatternFrame } from './patterns-more.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
@@ -23,7 +24,7 @@ import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 function redirect() {
   const { path, search } = currentLocation();
   const next = canonicalPath(path);
-  if (next) replacePath(`${next}${search}${embedded ? '' : location.hash}`);
+  if (next) replacePath(`${next}${search}${location.hash}`);
   return next;
 }
 redirect();
@@ -43,6 +44,7 @@ function Root() {
 
 // A gallery frame (`?frame=`): the iframe demos of the Browser entries, in palette B and the theme
 // the frame names, not the viewer's stored one.
+previewRoot(document.documentElement);
 const params = new URLSearchParams(location.search);
 const frame = params.get('frame');
 if (frame) {
