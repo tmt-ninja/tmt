@@ -30,9 +30,10 @@ owns shapes, recurrence rules, state defaults and slice boundaries.
   Collection is opportunistic: every lease holds a shared lock on the scope's `live.lock`, and a
   later run collects this user's `run-*` directories older than `STALE_RUN_SCOPE_AGE` (6 h) only
   while it holds the exclusive lock. It first renames the scope to a `retired-*` path in the same
-  root, then removes it, so a new user always creates a new scope and lock. A scope without a lock
-  file (from before the lock, or a crash before its lock was created) is never collected; remove it
-  by hand outside active runs.
+  root, then removes it, so a new user always creates a new scope and lock. Old `retired-*`
+  leftovers are collected too, with or without a lock file. Only a `run-*` scope without a lock file
+  (from before the lock, or a crash before its lock was created) is never collected; remove it by
+  hand outside active runs.
 - WAL setup retries only classified Busy inside one five-second budget, verifies the returned
   journal mode is `wal` before migrating and preserves the original Busy error on exhaustion.
 - OS-denied writes and SQLite read-only/WAL failures classify as a typed not-writable error (a
