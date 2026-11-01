@@ -32,9 +32,10 @@ jobs:
     permissions:
       contents: read
     env:
-      # Where Pages serves this site (canonical links, RSS, sitemap). It follows the repository
-      # owner, so an organization rename needs no edit here; a custom domain is this one line.
-      SITE_ORIGIN: https://${{ github.repository_owner }}.github.io
+      # Where Pages serves this site (canonical links, link previews, RSS, sitemap): the
+      # tmt.ninja custom domain set in the repository's Pages settings, at the domain root.
+      SITE_ORIGIN: https://tmt.ninja
+      SITE_BASE: /
       SITE_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
