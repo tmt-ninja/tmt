@@ -15,7 +15,7 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, types::Value};
 
-use super::{STALE_RUN_SCOPE_AGE, TemplateStore, admit, key, published};
+use super::{RUN_SCOPE_LOCK, STALE_RUN_SCOPE_AGE, TemplateStore, admit, key, published};
 use crate::{
     storage::{Storage, hook_queue::HookQueue, migrations},
     test_support::{TestChild, TestDirectory},
@@ -411,34 +411,45 @@ fn set_age(path: &Path, age: Duration) {
     nix::sys::stat::lutimes(path, &time, &time).unwrap();
 }
 
-#[test]
-fn a_run_scope_prunes_only_stale_run_scopes_of_earlier_runs() {
-    let directory = TestDirectory::new();
+fn private_root(directory: &TestDirectory) -> PathBuf {
     let root = directory.path.join("templates");
     fs::create_dir(&root).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-    let stale = STALE_RUN_SCOPE_AGE + Duration::from_secs(60 * 60);
-    let scope = |name: &str, age: Duration| {
-        let path = root.join(name);
-        fs::create_dir_all(path.join("key")).unwrap();
-        fs::write(path.join("key").join("template.db"), b"old").unwrap();
-        for private in [path.join("key"), path.clone()] {
-            fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        set_age(&path, age);
-        path
-    };
-    scope("run-old", stale);
-    scope("run-current", stale);
-    scope("run-fresh", Duration::from_secs(60));
-    scope("process-1-2-3", stale);
-    scope("run-not.an.id", stale);
+    root
+}
+
+const STALE: Duration = STALE_RUN_SCOPE_AGE.saturating_add(Duration::from_secs(60 * 60));
+
+/// An unleased scope as an earlier run leaves it: lock file, key, template.
+fn left_scope(root: &Path, name: &str, age: Duration, lock: bool) {
+    let path = root.join(name);
+    fs::create_dir_all(path.join("key")).unwrap();
+    fs::write(path.join("key").join("template.db"), b"old").unwrap();
+    if lock {
+        fs::write(path.join(RUN_SCOPE_LOCK), b"").unwrap();
+    }
+    for private in [path.join("key"), path.clone()] {
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    set_age(&path, age);
+}
+
+#[test]
+fn a_run_scope_collects_only_old_unlocked_run_scopes_of_earlier_runs() {
+    let directory = TestDirectory::new();
+    let root = private_root(&directory);
+    left_scope(&root, "run-old", STALE, true);
+    left_scope(&root, "run-current", STALE, true);
+    left_scope(&root, "run-fresh", Duration::from_secs(60), true);
+    left_scope(&root, "run-nolock", STALE, false);
+    left_scope(&root, "process-1-2-3", STALE, true);
+    left_scope(&root, "run-not.an.id", STALE, true);
     // An old link named like a run scope is not followed and not removed.
     let outside = directory.path.join("outside");
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("keep"), b"keep").unwrap();
     symlink(&outside, root.join("run-link")).unwrap();
-    set_age(&root.join("run-link"), stale);
+    set_age(&root.join("run-link"), STALE);
 
     let store = TemplateStore::new(root.clone(), Some("current".into()), &[], |_| {});
     let _lease = store.place(&directory.path.join("tmt.db"));
@@ -450,11 +461,51 @@ fn a_run_scope_prunes_only_stale_run_scopes_of_earlier_runs() {
             "run-current",
             "run-fresh",
             "run-link",
+            "run-nolock",
             "run-not.an.id"
         ]
     );
     assert_eq!(entries(&outside), ["keep"]);
     assert!(published(&store).is_some());
+}
+
+/// A run that sleeps or debugs keeps an old scope directory while its lease
+/// is live; a later run must not collect it.
+#[test]
+fn an_old_run_scope_with_a_live_lease_is_kept() {
+    let directory = TestDirectory::new();
+    let root = private_root(&directory);
+    let active = TemplateStore::new(root.clone(), Some("active".into()), &[], |_| {});
+    let lease = active.place(&directory.path.join("active.db"));
+    let (template, inode) = published(&active).unwrap();
+    set_age(&root.join("run-active"), STALE);
+
+    let later = TemplateStore::new(root.clone(), Some("later".into()), &[], |_| {});
+    let _later = later.place(&directory.path.join("later.db"));
+
+    assert_eq!(entries(&root), ["run-active", "run-later"]);
+    assert_eq!(fs::metadata(&template).unwrap().ino(), inode);
+    drop(lease);
+}
+
+/// After a collector removed its scope, a run that places again creates the
+/// scope again instead of using the removed one.
+#[test]
+fn a_collected_run_scope_is_created_again_on_next_use() {
+    let directory = TestDirectory::new();
+    let root = private_root(&directory);
+    let earlier = TemplateStore::new(root.clone(), Some("earlier".into()), &[], |_| {});
+    drop(earlier.place(&directory.path.join("first.db")));
+    set_age(&root.join("run-earlier"), STALE);
+
+    let later = TemplateStore::new(root.clone(), Some("later".into()), &[], |_| {});
+    let _later = later.place(&directory.path.join("later.db"));
+    assert_eq!(entries(&root), ["run-later"]);
+
+    let _again = earlier.place(&directory.path.join("again.db"));
+    assert_eq!(entries(&root), ["run-earlier", "run-later"]);
+    assert!(published(&earlier).is_some());
+    Storage::open(directory.path.join("again.db")).unwrap();
 }
 
 #[test]
@@ -730,6 +781,7 @@ fn a_scope_cleanup_failure_fails_the_test() {
         drop(super::Scope {
             directory: scope.clone(),
             removed_on_drop: true,
+            _live: None,
         });
     });
     assert!(

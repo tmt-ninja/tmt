@@ -10,9 +10,13 @@
 //! - Templates live in a private root under the temporary directory, in a scope
 //!   that one test run owns: `NEXTEST_RUN_ID` under nextest, else a process
 //!   scope that the last lease removes on drop. A template is never reused by a
-//!   later run. A run scope outlives its run, so each process that uses a run
-//!   scope removes this user's run scopes that are older than
-//!   `STALE_RUN_SCOPE_AGE`.
+//!   later run. A run scope outlives its run, so the first use of a run scope in
+//!   a process also collects this user's other run scopes that are older than
+//!   `STALE_RUN_SCOPE_AGE` and that no process holds. Collection is
+//!   opportunistic: nothing runs after the last run.
+//! - Liveness of a run scope is a lock, not a timestamp: every lease holds a
+//!   shared `flock` on the scope's lock file, and a collector removes a scope
+//!   only while it holds the exclusive lock on that file.
 //! - Builders do not elect a winner: concurrent builders each run the real chain
 //!   and publish with a no-replace hard link, so a published template never
 //!   changes and readers only copy it.
@@ -31,6 +35,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use nix::{
+    errno::Errno,
+    fcntl::{Flock, FlockArg, OFlag},
+};
 use rusqlite::{Connection, OpenFlags};
 
 use super::{Storage, hook_queue::HookQueue, migrations};
@@ -39,10 +47,10 @@ use crate::private_file::directory_is_private;
 const FORMAT: &str = "tmt-adapters-storage-template-v1";
 const TEMPLATE: &str = "template.db";
 const RUN_SCOPE_PREFIX: &str = "run-";
+const RUN_SCOPE_LOCK: &str = "live.lock";
 
-/// A run scope that nothing changed for this long is left from an earlier
-/// nextest run. No local test run takes this long, so a live run keeps its
-/// scope.
+/// A run scope must be at least this old before a later run may collect it.
+/// Age alone never removes a scope: the scope must also be unlocked.
 pub(super) const STALE_RUN_SCOPE_AGE: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Keeps the scope that holds this case's template alive for the case. A
@@ -68,6 +76,8 @@ struct Scope {
     /// Only a process scope is removed by its last lease; a later run removes
     /// a stale run scope.
     removed_on_drop: bool,
+    /// A run scope's shared lock, held while any lease of this scope lives.
+    _live: Option<Flock<fs::File>>,
 }
 
 impl Drop for Scope {
@@ -184,12 +194,13 @@ impl TemplateStore {
             ScopeKind::Run(run) => {
                 let name = format!("{RUN_SCOPE_PREFIX}{run}");
                 let directory = self.root.join(&name);
-                private_directory(&directory);
                 self.stale_runs_pruned
                     .call_once(|| prune_stale_run_scopes(&self.root, &name));
+                let live = hold_run_scope(&directory);
                 Arc::new(Scope {
                     directory,
                     removed_on_drop: false,
+                    _live: Some(live),
                 })
             }
             ScopeKind::Process => {
@@ -219,6 +230,7 @@ impl TemplateStore {
                 let scope = Arc::new(Scope {
                     directory,
                     removed_on_drop: true,
+                    _live: None,
                 });
                 slot.live = Arc::downgrade(&scope);
                 scope
@@ -418,16 +430,70 @@ fn is_run_id(run: &str) -> bool {
     !run.is_empty() && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
-/// Removes run scopes that earlier nextest runs left in this private root:
-/// only real `run-*` directories owned by this user that are older than
-/// `STALE_RUN_SCOPE_AGE`, never `current`. Links are not followed, and
-/// `remove_dir_all` does not follow links inside a scope. Another process may
+/// Creates the run scope if needed and takes a shared lock on its lock file.
+/// A collector removes a scope only while it holds the exclusive lock, so a
+/// lock on a file that is no longer at its path means the scope was removed
+/// meanwhile; the scope is then created again. A new scope is never stale, so
+/// this repeats at most once per collection.
+fn hold_run_scope(directory: &Path) -> Flock<fs::File> {
+    let lock = directory.join(RUN_SCOPE_LOCK);
+    loop {
+        private_directory(directory);
+        let file = match open_lock(&lock, true) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => panic!("open {}: {error}", lock.display()),
+        };
+        let held = Flock::lock(file, FlockArg::LockShared)
+            .unwrap_or_else(|(_, error)| panic!("lock {}: {error}", lock.display()));
+        if is_at_path(&held, &lock) {
+            return held;
+        }
+    }
+}
+
+fn open_lock(path: &Path, create: bool) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(create)
+        .mode(0o600)
+        .custom_flags(OFlag::O_NOFOLLOW.bits())
+        .open(path)
+}
+
+/// Whether `file` is still the file at `path`.
+fn is_at_path(file: &fs::File, path: &Path) -> bool {
+    let held = file.metadata().expect("inspect held storage template lock");
+    fs::symlink_metadata(path)
+        .is_ok_and(|current| current.dev() == held.dev() && current.ino() == held.ino())
+}
+
+/// Collects run scopes that earlier nextest runs left in this private root:
+/// only real `run-*` directories owned by this user, older than
+/// `STALE_RUN_SCOPE_AGE`, not `current`, and whose lock file this collector
+/// can lock exclusively without waiting. A held lock means a live lease, so the
+/// scope is kept whatever its age. A scope without a lock file is kept: it is
+/// being created, or it predates the lock. Links are not followed, and
+/// `remove_dir_all` does not follow links inside a scope. Another collector may
 /// remove the same scope at the same time; that is not an error.
 fn prune_stale_run_scopes(root: &Path, current: &str) {
     let uid = nix::unistd::geteuid().as_raw();
-    let now = SystemTime::now();
     let inspect = |error: io::Error| -> ! {
         panic!("inspect storage template root {}: {error}", root.display())
+    };
+    let collectable = |path: &Path| match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            metadata.file_type().is_dir()
+                && metadata.uid() == uid
+                && metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+                    .is_some_and(|age| age > STALE_RUN_SCOPE_AGE)
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => inspect(error),
     };
     for entry in fs::read_dir(root).unwrap_or_else(|error| inspect(error)) {
         let entry = entry.unwrap_or_else(|error| inspect(error));
@@ -436,21 +502,24 @@ fn prune_stale_run_scopes(root: &Path, current: &str) {
             continue;
         };
         let is_run_scope = name.strip_prefix(RUN_SCOPE_PREFIX).is_some_and(is_run_id);
-        if name == current || !is_run_scope {
+        let path = entry.path();
+        if name == current || !is_run_scope || !collectable(&path) {
             continue;
         }
-        let path = entry.path();
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
+        let lock = path.join(RUN_SCOPE_LOCK);
+        let file = match open_lock(&lock, false) {
+            Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::NotFound => continue,
             Err(error) => inspect(error),
         };
-        let stale = metadata
-            .modified()
-            .ok()
-            .and_then(|modified| now.duration_since(modified).ok())
-            .is_some_and(|age| age > STALE_RUN_SCOPE_AGE);
-        if !metadata.file_type().is_dir() || metadata.uid() != uid || !stale {
+        let held = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+            Ok(held) => held,
+            Err((_, Errno::EWOULDBLOCK)) => continue,
+            Err((_, error)) => panic!("lock {}: {error}", lock.display()),
+        };
+        // Check again under the lock: another collector may have removed the
+        // scope, and a new run may have created it again.
+        if !is_at_path(&held, &lock) || !collectable(&path) {
             continue;
         }
         match fs::remove_dir_all(&path) {
@@ -461,6 +530,7 @@ fn prune_stale_run_scopes(root: &Path, current: &str) {
                 path.display()
             ),
         }
+        drop(held);
     }
 }
 
