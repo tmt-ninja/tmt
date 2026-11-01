@@ -72,7 +72,7 @@ pub enum OrchTalkAdmission {
 }
 
 /// `grant_until_ms` is the end of the grant stored for this exact ordered pair, if any.
-pub fn route(
+pub fn sending_route(
     sending: &OrchValue<OrchSending>,
     recipient_is_lead: bool,
     grant_until_ms: Option<u64>,
@@ -144,15 +144,15 @@ mod tests {
     #[test]
     fn each_sending_value_decides_the_route_and_only_a_live_grant_lets_a_restricted_one_through() {
         assert_eq!(
-            route(&sending(OrchSending::Anyone), false, None, 10),
+            sending_route(&sending(OrchSending::Anyone), false, None, 10),
             OrchRoute::Allowed
         );
         assert_eq!(
-            route(&sending(OrchSending::Leads), true, None, 10),
+            sending_route(&sending(OrchSending::Leads), true, None, 10),
             OrchRoute::Allowed
         );
         for value in [OrchSending::Leads, OrchSending::Paused] {
-            let restricted = route(&sending(value), false, None, 10);
+            let restricted = sending_route(&sending(value), false, None, 10);
             assert_eq!(
                 restricted,
                 OrchRoute::Restricted {
@@ -161,17 +161,17 @@ mod tests {
                 }
             );
             assert_eq!(
-                route(&sending(value), false, Some(50), 10),
+                sending_route(&sending(value), false, Some(50), 10),
                 OrchRoute::Granted { until_ms: 50 }
             );
             assert_eq!(
-                route(&sending(value), false, Some(10), 10),
+                sending_route(&sending(value), false, Some(10), 10),
                 restricted,
                 "ended"
             );
         }
         assert!(matches!(
-            route(&sending(OrchSending::Paused), true, None, 10),
+            sending_route(&sending(OrchSending::Paused), true, None, 10),
             OrchRoute::Restricted { .. }
         ));
     }

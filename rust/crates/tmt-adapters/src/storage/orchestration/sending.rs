@@ -39,7 +39,7 @@ impl ReceivingCalendar {
             .find(|g| g.from_id == from && g.to_id == to)
             .map(|g| g.until_ms);
         if let OrchRoute::Restricted { sending, source } =
-            route(&sender.sending, leads.contains(&to), grant, now)
+            sending_route(&sender.sending, leads.contains(&to), grant, now)
         {
             return Ok(OrchTalkAdmission::Restricted(Box::new(OrchRouteRefusal {
                 sender_id: from.into(),

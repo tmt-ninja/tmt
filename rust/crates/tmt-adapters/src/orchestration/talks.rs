@@ -157,38 +157,41 @@ pub(super) fn routes(
                 continue;
             }
             let grant = s.grant(from, to, at).map(|g| g.until_ms);
-            let (verdict, source) = match route(&sender.sending, leads.contains(to), grant, at) {
-                OrchRoute::Restricted { source, .. } => ("blocked", wire::source_value(&source)),
-                OrchRoute::Granted { until_ms } => {
-                    ("allowed", json!({"kind":"grant","grantUntilMs":until_ms}))
-                }
-                OrchRoute::Allowed => {
-                    let limit = pair_limit(sender.talk_limit.value, recipient.talk_limit.value);
-                    let key = if from < to {
-                        (*from, *to)
-                    } else {
-                        (*to, *from)
-                    };
-                    let counted = counts
-                        .get(&(key.0.to_owned(), key.1.to_owned()))
-                        .copied()
-                        .unwrap_or(0);
-                    if !leads.contains(from) && needs_person(counted, limit) {
-                        // The smaller limit decides; its source explains the verdict.
-                        let decider = if recipient.talk_limit.value == limit {
-                            recipient
-                        } else {
-                            sender
-                        };
-                        (
-                            "needs_person",
-                            wire::source_value(&decider.talk_limit.source),
-                        )
-                    } else {
-                        ("allowed", wire::source_value(&sender.sending.source))
+            let (verdict, source) =
+                match sending_route(&sender.sending, leads.contains(to), grant, at) {
+                    OrchRoute::Restricted { source, .. } => {
+                        ("blocked", wire::source_value(&source))
                     }
-                }
-            };
+                    OrchRoute::Granted { until_ms } => {
+                        ("allowed", json!({"kind":"grant","grantUntilMs":until_ms}))
+                    }
+                    OrchRoute::Allowed => {
+                        let limit = pair_limit(sender.talk_limit.value, recipient.talk_limit.value);
+                        let key = if from < to {
+                            (*from, *to)
+                        } else {
+                            (*to, *from)
+                        };
+                        let counted = counts
+                            .get(&(key.0.to_owned(), key.1.to_owned()))
+                            .copied()
+                            .unwrap_or(0);
+                        if !leads.contains(from) && needs_person(counted, limit) {
+                            // The smaller limit decides; its source explains the verdict.
+                            let decider = if recipient.talk_limit.value == limit {
+                                recipient
+                            } else {
+                                sender
+                            };
+                            (
+                                "needs_person",
+                                wire::source_value(&decider.talk_limit.source),
+                            )
+                        } else {
+                            ("allowed", wire::source_value(&sender.sending.source))
+                        }
+                    }
+                };
             rows.push((
                 format!("{from}:{to}"),
                 json!({"from":from,"fromName":s.name(from),"to":to,"toName":s.name(to),"verdict":verdict,"source":source}),
