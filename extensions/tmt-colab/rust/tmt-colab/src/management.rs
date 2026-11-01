@@ -1165,6 +1165,9 @@ mod tests {
                 "{case}"
             );
         }
+        // The local path keeps page.create and refuses page.new.
+        let local_new = local("page.new", json!({"title":"Acme","kind":null}));
+        assert_eq!(Command::local(&local_new, SPACE).err(), Some(Code::Invalid));
     }
     #[test]
     fn project_manage_names_the_space_scope_and_one_valid_change() {
