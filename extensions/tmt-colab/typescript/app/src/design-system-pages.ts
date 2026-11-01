@@ -247,7 +247,7 @@ const docs = {
   h3: 'text-base font-semibold mt-6 mb-2',
   block: 'my-3',
   code: 'font-mono text-sm',
-  pre: 'font-mono text-sm bg-code rounded p-3 mt-2 overflow-x-auto',
+  pre: 'font-mono text-sm bg-code p-3 overflow-x-auto',
   link: 'text-link underline',
 };
 
@@ -263,7 +263,8 @@ export function componentPageSource(doc: ComponentDoc & { notes?: string }, pref
   const examples = exampleIds(doc.examples ?? [])
     .map(({ id, example }) => {
       const markup = example.markup.replaceAll('tmt-ui-', `${prefix}-`);
-      return `<section class="tmt-ui-section"><h3 class="${docs.h3}">${escape(example.title)}</h3><div data-ds-example="${escape(`${doc.tag}:${id}`)}" class="flex flex-wrap items-center gap-3 rounded border border-rule p-4">${markup}</div><pre class="${docs.pre}"><code>${escape(markup)}</code></pre></section>`;
+      // The example root holds the live elements and their markup: a comment anywhere in it quotes both.
+      return `<section class="tmt-ui-section"><h3 class="${docs.h3}">${escape(example.title)}</h3><div data-ds-example="${escape(`${doc.tag}:${id}`)}" class="rounded border border-rule overflow-hidden"><div class="flex flex-wrap items-center gap-3 p-4">${markup}</div><pre class="${docs.pre}"><code>${escape(markup)}</code></pre></div></section>`;
     })
     .join('\n');
   return `${blockHtml('component', doc)}

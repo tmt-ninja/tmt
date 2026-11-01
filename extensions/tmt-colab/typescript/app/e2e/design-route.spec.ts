@@ -360,3 +360,35 @@ test('the header crumb opens the DS menu from the keyboard and closes on Escape'
   await expect(items).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
+
+test('a click on a design-system example in selection mode quotes the whole example', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await pickSystem(page, 'Acme');
+  await designFrame(page)
+    .getByRole('link', { name: /acme-button/ })
+    .click();
+  const example = designFrame(page).locator('[data-ds-example="button:secondary"]');
+  await expect(example.getByRole('button', { name: 'Draft', exact: true })).toBeVisible();
+  // C in the page toggles selection mode, as on any Colab page.
+  await designFrame(page).locator('h1').click();
+  await page.keyboard.press('c');
+  await example.getByRole('button', { name: 'Draft', exact: true }).click();
+  const popover = page.locator('.annotation-popover');
+  await expect(popover).toBeVisible();
+  // The anchor is the example's text: its live label and the markup that draws it.
+  await expect(popover).toContainText('<acme-button variant="secondary">Draft</acme-button>');
+  await page.keyboard.type('Make this the outline variant');
+  await page.keyboard.press('Enter');
+  const anchors = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { designFixture: { anchors: { anchor: { exact: string } }[] } })
+          .designFixture.anchors,
+    );
+  await expect.poll(async () => (await anchors()).length).toBe(1);
+  const [{ anchor }] = await anchors();
+  expect(anchor.exact).toBe('Draft<acme-button variant="secondary">Draft</acme-button>');
+});

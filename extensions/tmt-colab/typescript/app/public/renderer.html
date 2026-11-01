@@ -660,13 +660,15 @@
             target instanceof HTMLElement &&
             (target.isContentEditable ||
               !!target.closest('input,textarea,select,[role="textbox"]'));
+          // A design-system example (#5866) is one target: its live elements and the markup under
+          // them, so a click anywhere in it quotes the whole example.
           const targetAt = (target) =>
             target instanceof Element &&
             !target.closest('[data-colab-highlight]') &&
             !editingTarget(target) &&
             target !== document.body &&
             target !== document.documentElement
-              ? target
+              ? (target.closest('[data-ds-example]') ?? target)
               : null;
           // Geometry comes only from the current admitted anchor batch, never author attributes.
           function highlightAt(x, y) {

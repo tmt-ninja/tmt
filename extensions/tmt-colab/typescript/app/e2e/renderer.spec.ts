@@ -634,7 +634,8 @@ test('every frame carries the design system in its own layer, below the starter 
     });
   const light = await read();
   // One order: the frame, then the starter, then the classes; an author's unlayered rule beats a class.
-  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'tmt-ui']);
+  // The page runtime's Tailwind layers (theme, base) sit under the components (#5866).
+  expect(light.order).toEqual(['colab-frame', 'tmt-starter', 'theme', 'base', 'tmt-ui']);
   expect(light.card).toMatchObject({ padding: '24px', radius: '8px', border: '1px' });
   expect(light.mine).toBe('3px');
   expect(light.action).toBe('7px');

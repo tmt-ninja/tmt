@@ -23,6 +23,7 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   const controls = { failUpload: false };
   const pages = new Map<string, PageRecord>();
   const counts = { opened: 0, closed: 0, active: 0, edits: 0 };
+  const anchors: { pageId: string; body: string; anchor: unknown }[] = [];
   const make = (title: string) => {
     const id = crypto.randomUUID();
     pages.set(id, {
@@ -58,7 +59,26 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     let closed = false;
     counts.opened++;
     counts.active++;
+    // Enough discussion to annotate: comments are recorded, never sent anywhere.
+    const unused = async (): Promise<never> => {
+      throw new Error('Not used by the Design fixture');
+    };
+    const discussion = {
+      deviceId: '20000000-0000-4000-8000-000000000001',
+      create: async (body: string, anchor: unknown) => {
+        anchors.push({ pageId: id, body, anchor });
+        return unused();
+      },
+      createChat: unused,
+      reply: unused,
+      edit: unused,
+      deleteComment: unused,
+      setStatus: unused,
+      notificationFailed: unused,
+      updateThread: unused,
+    } as unknown as NonNullable<PageBinding['discussion']>;
     return {
+      discussion,
       close: () => {
         if (!closed) {
           closed = true;
@@ -140,6 +160,7 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   (window as unknown as { designFixture: unknown }).designFixture = {
     pages,
     counts,
+    anchors,
     controls,
     initial,
     home,

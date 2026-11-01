@@ -2923,7 +2923,9 @@ IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-s
 the parent enables it only for the admitted comment surface. Its bound port projection is
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
-the same bounded quote owner opens the existing anchored discussion. Textless clicks
+the same bounded quote owner opens the existing anchored discussion. A click inside an
+element marked `data-ds-example` (a design-system example, #5866) targets that whole element,
+so its quote is the example's own text; the anchor stays a text quote. Textless clicks
 show a temporary polite hint and create nothing. Starting a comment exits selection mode,
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
