@@ -558,3 +558,28 @@ test('a same-page reopen keeps a dirty Source draft, its base and caret, and sav
   ).toEqual([10, 14]);
   expect(await run(page, 'sourceSaveCount')).toBe(0);
 });
+
+// #5891: the Source editor mounts only while its drawer is open, and the draft lives with the page,
+// so an unsaved draft survives closing the drawer, a live write meanwhile, and reopening it.
+test('closing and reopening Source keeps its unsaved draft through a live write', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await change(page, source);
+  await (await pageAction(page, 'Source')).click();
+  const area = page.locator('#source-edit:visible');
+  await expect(area).toHaveValue(source);
+  const draft = source.replace('Exact selected text', 'Unsaved edit of the source');
+  await area.fill(draft);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#source-edit')).toHaveCount(0);
+  await run(page, 'change', revised);
+  await expect(page.frameLocator('#ask-page-fixture iframe').locator('body')).toContainText(
+    'New source',
+  );
+  await (await pageAction(page, 'Source')).click();
+  await expect(area).toHaveValue(draft);
+  await expect(page.getByRole('button', { name: 'Save source', exact: true })).toBeEnabled();
+  expect(await run(page, 'sourceSaveCount')).toBe(0);
+});
