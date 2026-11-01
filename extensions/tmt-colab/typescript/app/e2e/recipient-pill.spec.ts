@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { caretAtEnd } from './caret.js';
 import { destination, id } from '../test/ask-fixtures.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -50,11 +51,7 @@ for (const surface of ['annotation', 'reply', 'chat'])
     await page.getByRole('button', { name: /^Remove mention: @alpha/ }).click();
     await expect(pill(page)).toHaveText('Ask beta, gamma');
     // Backspace right after a chip takes the whole chip.
-    await input.evaluate((node) => {
-      node.focus();
-      document.getSelection()!.selectAllChildren(node);
-      document.getSelection()!.collapseToEnd();
-    });
+    await caretAtEnd(input);
     await input.press('Backspace');
     await input.press('Backspace');
     await expect(chips(page)).toHaveCount(1);
