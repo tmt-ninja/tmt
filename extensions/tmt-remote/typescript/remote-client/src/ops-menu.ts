@@ -7,6 +7,7 @@ import type { ConversationUnread } from './conversation-seen.js';
 export const OPS_SECTIONS = [
   { id: 'agents', label: 'Agents' },
   { id: 'squads', label: 'Squads' },
+  { id: 'orchestration', label: 'Orchestration' },
   { id: 'schedules', label: 'Timers' },
   { id: 'settings', label: 'Ops settings' },
 ] as const;
@@ -51,7 +52,7 @@ export function opsMenu(
 ): ShellMenu {
   // A bounded subset cannot establish a total, and an unavailable read is not an empty board.
   const observed = board && !board.unavailable && !board.truncated ? board : undefined;
-  const totals = {
+  const totals: Partial<Record<OpsSection, number>> = {
     agents: observed?.agents.length,
     squads: observed?.squads.length,
     schedules: observed?.schedules?.length,

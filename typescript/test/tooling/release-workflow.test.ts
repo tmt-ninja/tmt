@@ -148,7 +148,7 @@ describe('signature-limited native install wiring (#1806)', () => {
       'Install verification dependencies',
       'Install release-cut proof dependencies',
     ]);
-    expect(read('.github/workflows/ci.yml')).toContain(
+    expect(read('.github/workflows/release-rehearsal.yml')).toContain(
       'uses: ./.github/workflows/native-release-prepare.yml'
     );
     expect(prepare).toContain('uses: ./.github/workflows/native-release-upgrade-prove.yml');
@@ -180,8 +180,8 @@ describe('signature-limited native install wiring (#1806)', () => {
       },
       mainPush: [
         {
-          workflow: 'ci.yml',
-          job: 'release-rehearsal',
+          workflow: 'release-rehearsal.yml',
+          job: 'prepare',
           selection: {
             kind: 'ci-scope',
             output: 'release_rehearsal',
@@ -1152,10 +1152,8 @@ describe('shared prepare pipeline and release rehearsal', () => {
       'uses: ./.github/workflows/native-release-prepare.yml'
     );
     expect(job(bundle, 'prepare')).toContain('tag: ${{ inputs.tag }}');
-    const ci = read('.github/workflows/ci.yml');
     for (const [name, call, sha] of [
-      ['nightly', job(rehearsal, 'prepare'), 'sha: ${{ github.sha }}'],
-      ['main push', job(ci, 'release-rehearsal'), 'sha: ${{ github.sha }}'],
+      ['rehearsal', job(rehearsal, 'prepare'), 'sha: ${{ github.sha }}'],
     ]) {
       expect(call, name).toContain('uses: ./.github/workflows/native-release-prepare.yml');
       expect(call, name).toContain(sha);
@@ -1171,16 +1169,14 @@ describe('shared prepare pipeline and release rehearsal', () => {
       /secrets\.|environment:|gh release|workflow_run|repository_dispatch/
     );
     expect(rehearsal).not.toMatch(/native-release\.yml|native-release-bundle\.yml#|release\.yml/);
-    expect([...jobs(rehearsal).keys()]).toEqual(['plan', 'prepare']);
+    expect([...jobs(rehearsal).keys()]).toEqual(['changes', 'prepare']);
     expect(rehearsal).not.toContain('merge_group');
     expect(rehearsal).not.toContain('pull_request');
     expect(rehearsal).toMatch(
-      /^on:\n {2}schedule:\n {4}- cron: '[^']+'\n {2}workflow_dispatch:\n/m
+      /^on:\n {2}push:\n {4}branches: \[main\]\n {2}schedule:\n {4}- cron: '[^']+'\n {2}workflow_dispatch:\n/m
     );
-    // Nightly drift detection covers every active product, not a selection.
-    expect(job(rehearsal, 'plan')).toContain('release-rehearsal.mjs all');
     expect(job(rehearsal, 'prepare')).toContain(
-      'product: ${{ fromJSON(needs.plan.outputs.products) }}'
+      'product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}'
     );
   });
   it('writes the Rust cache from main only, so a rehearsal restores without saving', () => {
@@ -1228,7 +1224,6 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
   });
 
   it('enables the upgrade proof only for rehearsal callers, never the publication path', () => {
-    expect(job(ci, 'release-rehearsal')).toContain('upgrade: true');
     expect(job(rehearsal, 'prepare')).toContain('upgrade: true');
     expect(job(bundle, 'prepare')).not.toContain('upgrade');
     expect(run).not.toContain('upgrade: true');
@@ -1347,42 +1342,39 @@ describe('rehearsal upgrade proof and the publishing upgrade call', () => {
   });
 });
 
-describe('main-push release rehearsal in ci.yml', () => {
+describe('main-push release rehearsal (release-rehearsal.yml)', () => {
   const ci = read('.github/workflows/ci.yml');
   const rehearsal = read('.github/workflows/release-rehearsal.yml');
-  it('rehearses the products an admitted main push changed, never for a PR or merge group (#2547)', () => {
-    const select = ci
-      .split('      - name: Select the release rehearsal products\n')[1]
-      .split('\n\n')[0];
-    expect(select).toContain("if: steps.main.outputs.admitted == 'true'");
+  it('rehearses the products a main push changed in its own workflow, never for a PR or merge group (#2547)', () => {
+    const select = job(rehearsal, 'changes');
+    expect(select).toContain('fetch-depth: 0');
     expect(select).toContain('BASE_SHA: ${{ github.event.before }}');
     expect(select).toContain('HEAD_SHA: ${{ github.sha }}');
     expect(select).toContain('release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA"');
-    expect(select).not.toMatch(/pull_request|merge_group/);
-    const rehearse = job(ci, 'release-rehearsal');
+    // Nightly and manual runs rehearse every active product, which covers a superseded push.
+    expect(select).toContain('release-rehearsal.mjs all');
+    expect(rehearsal).toContain("cron: '17 3 * * *'");
+    // Outputs default to "no rehearsal" if the selection writes nothing.
+    expect(select).toContain(
+      "release_rehearsal: ${{ steps.select.outputs.release_rehearsal || 'false' }}"
+    );
+    expect(select).toContain("|| '[]' }}");
+    const rehearse = job(rehearsal, 'prepare');
     expect(rehearse).toContain("if: needs.changes.outputs.release_rehearsal == 'true'");
     expect(rehearse).not.toContain('verify');
-    // Complete trusted-main verification requires it whenever the push selected it.
-    expect(job(ci, 'complete-main')).toMatch(/^ {6}- release-rehearsal$/m);
-    // The nightly all-products rehearsal covers a superseded push.
-    expect(rehearsal).toContain("cron: '17 3 * * *'");
-    expect(job(rehearsal, 'plan')).toContain('release-rehearsal.mjs all');
-    expect(rehearse).toContain(
-      'product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}'
+    // A started push rehearsal finishes; only nightly and manual runs replace older ones.
+    expect(rehearsal).toContain(
+      'group: release-rehearsal-${{ github.event_name }}-${{ github.ref }}'
     );
-    // Outputs default to "no rehearsal" for every event that skips the selection step.
-    expect(ci).toContain(
-      "release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}"
-    );
-    expect(ci).toContain("|| '[]' }}");
+    expect(rehearsal).toContain("cancel-in-progress: ${{ github.event_name != 'push' }}");
   });
-  it('fails the aggregate native gate for a selected rehearsal that is missing, failed or skipped', () => {
-    const gate = job(ci, 'native-install-gate');
-    expect(gate).toMatch(/^ {8}release-rehearsal,$/m);
-    const step = gate.split('      - name: Require the selected release rehearsal\n')[1];
-    expect(step).toContain('REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}');
-    expect(step).toContain('REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}');
-    expect(step).toContain('ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"');
+  it('keeps ci.yml main verification free of the rehearsal, so it never waits on macOS', () => {
+    // Only the tooling test list may name the rehearsal; no job, output or gate does.
+    expect(ci.replace('test/tooling/release-rehearsal.test.ts', '')).not.toMatch(
+      /release[-_]rehearsal|REHEARSAL_|native-release-prepare\.yml/
+    );
+    expect(job(ci, 'complete-main')).not.toContain('rehearsal');
+    expect(job(ci, 'native-install-gate')).not.toContain('rehearsal');
   });
 });
 

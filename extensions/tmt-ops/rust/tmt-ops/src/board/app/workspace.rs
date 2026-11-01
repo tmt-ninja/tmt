@@ -501,6 +501,7 @@ impl App {
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
+            OpsTab::Orchestration => false,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
@@ -586,6 +587,9 @@ impl App {
     }
 
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
+        if self.shell.tab == super::super::shell::OpsTab::Orchestration {
+            return OpsKeyScope::Orchestration;
+        }
         if self.workspace_snapshot().is_none() {
             // The generic row surface has no Overview request context.
             return if self.focused() == Pane::Replies {
@@ -865,6 +869,10 @@ impl App {
             .unwrap_or_default()
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
+        if self.shell.tab == OpsTab::Orchestration {
+            self.workspace.selected = None;
+            return;
+        }
         self.digest_rows.get_mut().clear();
         if self
             .search_preview_tab
@@ -1079,6 +1087,11 @@ impl App {
 
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
+        if self.shell.tab == super::super::shell::OpsTab::Orchestration
+            && let Some(effect) = self.orchestration_bound(action)
+        {
+            return effect;
+        }
         match action {
             ResizePane => {
                 return self
@@ -1094,10 +1107,11 @@ impl App {
                 self.open_help(false);
                 return Effect::None;
             }
-            Agents | DigestDashboard => {
+            Agents | DigestDashboard | Orchestration => {
                 let digit = match action {
                     Agents => '1',
-                    _ => '2',
+                    DigestDashboard => '2',
+                    _ => '3',
                 };
                 let owner = self.workspace_input_owner();
                 if !self
@@ -1134,6 +1148,11 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            OrchestrationDay | OrchestrationWeek | OrchestrationMonth | OrchestrationPlans
+            | OrchestrationNow | OrchestrationEarlier | OrchestrationLater | AllowOnce
+            | FocusHour | EndFocus | ReleaseHeld | Why => {
+                return self.say("This key acts on the Orchestration tab (3).");
+            }
             ClearScope => {
                 self.workspace.visibility.scope.clear();
                 self.workspace_startup = None;
@@ -1370,9 +1389,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
-            | ScrollPageDown | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
+            | UsageControls | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown
+            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

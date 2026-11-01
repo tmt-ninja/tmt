@@ -5,7 +5,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                                                                                  TOK  % of all",
@@ -37,7 +37,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                      TOK  % of all",
@@ -69,7 +69,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                  TOK  % of all",
@@ -101,7 +101,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                                                                                  TOK  % of all",
@@ -133,7 +133,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                      TOK  % of all",
@@ -165,7 +165,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                  TOK  % of all",

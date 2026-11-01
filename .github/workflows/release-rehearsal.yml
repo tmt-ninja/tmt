@@ -1,11 +1,15 @@
 name: Release rehearsal
 
-# Nightly and manual rehearsal of every active product's prepare pipeline (build, assemble, final
-# verification on the four matching hosts) on main, so drift in release inputs shows up here and
-# never for the first time in a release. Pull requests rehearse only the products their release
-# inputs affect, from `ci.yml`, and merge groups never rehearse. No secrets, no Environment, no
-# tags, drafts, publication or dispatch of other workflows; a red run is the triage evidence.
+# Rehearses the prepare pipeline (build, assemble, final verification on the four matching hosts)
+# on main, so drift in release inputs shows up here and never for the first time in a release.
+# A main push rehearses the products its before..sha diff selects; the nightly and manual runs
+# rehearse every active product, which also covers a superseded or unrehearsed push. Pull requests
+# and merge groups never rehearse, and this workflow runs apart from `ci.yml` so main verification
+# never waits on the macOS pool (#2547). No secrets, no Environment, no tags, drafts, publication
+# or dispatch of other workflows; a red run is the triage evidence.
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -14,34 +18,47 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-rehearsal-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-rehearsal-${{ github.event_name }}-${{ github.ref }}
+  # A started push rehearsal finishes; GitHub keeps one pending push run and the nightly run
+  # covers any push it replaced. Nightly and manual runs replace an older run of their kind.
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
-  plan:
-    name: Plan the rehearsal
+  changes:
+    name: Select the rehearsed products
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      products: ${{ steps.plan.outputs.products }}
+      release_rehearsal: ${{ steps.select.outputs.release_rehearsal || 'false' }}
+      release_rehearsal_products: ${{ steps.select.outputs.release_rehearsal_products || '[]' }}
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 26.12.1
-      - name: List the active products
-        id: plan
-        run: node typescript/scripts/release-rehearsal.mjs all >> "$GITHUB_OUTPUT"
+      - name: Select the products this run rehearses
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            node typescript/scripts/release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          else
+            node typescript/scripts/release-rehearsal.mjs all >> "$GITHUB_OUTPUT"
+          fi
 
   prepare:
     name: Rehearse ${{ matrix.product }} bundle
-    needs: plan
+    needs: changes
+    if: needs.changes.outputs.release_rehearsal == 'true'
     strategy:
       fail-fast: false
       matrix:
-        product: ${{ fromJSON(needs.plan.outputs.products) }}
+        product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}
     permissions:
       contents: read
     uses: ./.github/workflows/native-release-prepare.yml

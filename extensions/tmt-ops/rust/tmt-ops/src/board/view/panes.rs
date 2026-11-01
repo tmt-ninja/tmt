@@ -4,7 +4,11 @@ use crate::board::app::App;
 use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
-    if app.workspace_snapshot().is_some() && app.shell.tab == crate::board::shell::OpsTab::Digest {
+    if app.shell.tab == crate::board::shell::OpsTab::Orchestration {
+        crate::board::orchestration::surface::render(frame, app, area);
+    } else if app.workspace_snapshot().is_some()
+        && app.shell.tab == crate::board::shell::OpsTab::Digest
+    {
         crate::board::digest_dashboard::render(frame, app, area);
     } else {
         let area = if app.shell.tab == crate::board::shell::OpsTab::Agents
