@@ -381,12 +381,15 @@ test('a comment keeps its element when its first Ask record arrives (#5911)', as
 
 /** The nearest scrolling ancestor of the open discussion's history. */
 const scroller = (page: Page) =>
-  page.locator('.conversation-messages').first().evaluateHandle((node) => {
-    for (let at: HTMLElement | null = node as HTMLElement; at; at = at.parentElement)
-      if (at.scrollHeight > at.clientHeight && /auto|scroll/.test(getComputedStyle(at).overflowY))
-        return at;
-    throw new Error('no scrolling history');
-  });
+  page
+    .locator('.conversation-messages')
+    .first()
+    .evaluateHandle((node) => {
+      for (let at: HTMLElement | null = node as HTMLElement; at; at = at.parentElement)
+        if (at.scrollHeight > at.clientHeight && /auto|scroll/.test(getComputedStyle(at).overflowY))
+          return at;
+      throw new Error('no scrolling history');
+    });
 for (const newer of [false, true])
   test(`a retried reply keeps its row${newer ? ' and moves once below a newer message without scrolling the reader' : ' in place when nothing newer arrived'} (#5911)`, async ({
     page,
@@ -422,22 +425,21 @@ for (const newer of [false, true])
     expect(await echo.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(
       true,
     );
-    // The failure line goes, so the row is shorter: an anchored reader keeps its top, a reader
-    // at the end keeps its bottom there.
+    // The failure and the sending state share one status line: the row keeps its height and
+    // place, so nothing above or below it moves.
     const sending = (await echo.boundingBox())!;
-    if (newer) {
-      expect(sending.y).toBe(before.y);
-      expect(await history.evaluate((node) => node.scrollTop)).toBe(top);
-    } else {
-      expect(Math.abs(sending.y + sending.height - before.y - before.height)).toBeLessThan(2);
-      expect(await history.evaluate(fromEnd)).toBeLessThan(2);
-    }
+    expect(sending.y).toBe(before.y);
+    expect(sending.height).toBe(before.height);
+    expect(await history.evaluate((node) => node.scrollTop)).toBe(top);
+    if (!newer) expect(await history.evaluate(fromEnd)).toBeLessThan(2);
     await run(page, 'releaseReply');
     const entries = thread.getByTestId('comment-entry');
     await expect(entries.filter({ hasText: 'Retried reply.' })).toHaveCount(1);
     await expect(echo).toHaveCount(0);
-    // Landing orders it by its signed time, after the newer message, without moving the reader.
+    // Landing orders it by its signed time, after the newer message, without moving the reader;
+    // the recorded row has the echo's height.
     await expect(entries.last()).toContainText('Retried reply.');
+    expect((await entries.last().boundingBox())!.height).toBe(before.height);
     if (newer) expect(await history.evaluate((node) => node.scrollTop)).toBe(top);
     else expect(await history.evaluate(fromEnd)).toBeLessThan(2);
   });

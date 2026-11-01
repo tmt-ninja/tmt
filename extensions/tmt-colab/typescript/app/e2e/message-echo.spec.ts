@@ -385,7 +385,7 @@ async function openAnchoredThread(page: Page) {
 }
 
 for (const width of [1440, 390])
-  test(`chat: a failed row's Retry and Edit start flush with the message text: ${width}px`, async ({
+  test(`chat: a failed row's words start flush with the message text and Retry and Edit follow them: ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -403,8 +403,13 @@ for (const width of [1440, 390])
       await page.mouse.move(2, 2);
       await page.screenshot({ path: capturePath(`failed-row-actions-${width}.png`) });
     }
-    // A text action starts where the text above it starts, not one padding in (#4452).
-    expect(Math.abs(retry.x - body.x)).toBeLessThanOrEqual(1);
+    // The failure sits on the message's one status line (#5911): its words start where the text
+    // above starts, and Retry follows them on that line rather than adding one.
+    const alert = (await echo(page).getByRole('alert').boundingBox())!;
+    expect(Math.abs(alert.x - body.x)).toBeLessThanOrEqual(1);
+    expect(retry.y).toBeLessThan(alert.y + alert.height);
+    expect(retry.y + retry.height).toBeGreaterThan(alert.y);
+    expect(retry.x).toBeGreaterThan(alert.x + alert.width);
     // The two keep a gap between their labels.
     expect(edit.x - (retry.x + retry.width)).toBeGreaterThanOrEqual(12);
   });

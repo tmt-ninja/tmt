@@ -109,7 +109,36 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
         )
       }
       status={
-        !echo.failure && echo.recipients.length > 0 ? (
+        echo.failure ? (
+          // The row is the draft and the one place this failure is reported, on its status line:
+          // the line keeps its height, and Retry and Edit follow the words (#5911).
+          <span className="conversation-status" data-message-state="not_sent">
+            <span role="alert" className="comment-echo-failure">
+              <span className="annotation-send-mark" aria-hidden="true">
+                ✗{' '}
+              </span>
+              {text.messageUnsent} {text.messageSendReference(echo.failure.reference)}
+            </span>
+            <span className="conversation-status-actions" data-paired="">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.chatRetry}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.retry();
+                }}
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentEdit}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.edit();
+                }}
+              />
+            </span>
+          </span>
+        ) : echo.recipients.length > 0 ? (
           <>
             {echo.recipients.map((recipient, index) => (
               <span key={index}>
@@ -130,39 +159,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
           </>
         ) : undefined
       }
-      delivery={
-        echo.failure ? (
-          // The row is the draft and the one place this failure is reported.
-          <>
-            <p role="alert" className="comment-echo-failure">
-              <span className="annotation-send-mark" aria-hidden="true">
-                ✗{' '}
-              </span>
-              {text.messageUnsent} {text.messageSendReference(echo.failure.reference)}
-            </p>
-            <div className="comment-actions">
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={text.chatRetry}
-                onActivate={(event) => {
-                  if (event.isTrusted) echo.failure?.retry();
-                }}
-              />
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={text.commentEdit}
-                onActivate={(event) => {
-                  if (event.isTrusted) echo.failure?.edit();
-                }}
-              />
-            </div>
-          </>
-        ) : echo.recipients.length ? (
-          <div />
-        ) : undefined
-      }
+      delivery={!echo.failure && echo.recipients.length ? <div /> : undefined}
     >
       <MarkdownText className="comment-body" value={echo.body} names={echo.recipients} />
       <EchoAttachments attachments={echo.attachments} />
