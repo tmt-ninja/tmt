@@ -1,5 +1,6 @@
 //! Direct/held dispatch and same-ID observation through the public core API.
 mod conversation;
+mod orchestration;
 use crate::{
     admission::MessagePermit,
     audit, canonical,
@@ -432,6 +433,13 @@ impl Operations {
             if permit.owner_browser() && permit.grant.permits_scope("talk") {
                 supported.push("requests.sendNow");
             }
+            let every_agent = permit.authority.agents == crate::authority::PermittedAgents::All;
+            if permit.owner_browser() && every_agent && permit.grant.permits_scope("agents.read") {
+                supported.push("orchestration.read");
+            }
+            if permit.owner_browser() && every_agent && permit.grant.permits_scope("talk") {
+                supported.push("orchestration.write");
+            }
             if self.management.is_some() && permit.owner_browser() {
                 supported.extend([
                     "remote.settings.show",
@@ -471,6 +479,14 @@ impl Operations {
         }
         if operation == "requests.sendNow" {
             return self.send_now(permit);
+        }
+        if operation == "orchestration.write" {
+            let request = orchestration::write(permit)?;
+            permit.revalidate()?;
+            return permit.response(&orchestration::outcome(self.api_with_limit(
+                request.to_string().as_bytes(),
+                crate::limits::ORCHESTRATION_RESPONSE_BYTES,
+            ))?);
         }
         let (id, notice) = match operation {
             "dispatch.create" => {
@@ -620,6 +636,7 @@ impl Operations {
         let mut request = None;
         let mut owned = None;
         let mut conversation = None;
+        let mut orchestration = None;
         match operation {
             "agents.list" if permit.message.input == json!({}) => {}
             "identities.status" => {
@@ -655,6 +672,7 @@ impl Operations {
                 );
                 conversation = Some(query);
             }
+            "orchestration.read" => orchestration = Some(orchestration::read(permit)?),
             "requests.show" | "result" => {
                 let input: ResultInput = if operation == "requests.show" {
                     read_input(permit)?
@@ -727,6 +745,10 @@ impl Operations {
                     let core = self.api_with_limit(query.to_string().as_bytes(), crate::limits::CONVERSATION_RESPONSE_BYTES)
                         .map_err(|_| RemoteError::new("REMOTE_CORE_UNAVAILABLE", "Conversation is unavailable."))?;
                     conversation::response(&core, query)
+                },
+                "orchestration.read" => {
+                    let request = orchestration.as_ref().expect("admitted orchestration read");
+                    orchestration::outcome(self.api_with_limit(request.to_string().as_bytes(), crate::limits::ORCHESTRATION_RESPONSE_BYTES))
                 },
                 "identities.status" => self.api(&permit.message.payload),
                 "requests.show" => self.api(&permit.message.payload).map(|mut detail| {

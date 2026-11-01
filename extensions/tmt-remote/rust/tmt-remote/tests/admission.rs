@@ -89,9 +89,11 @@ impl OwnerDoor {
         let grant = Grant {
             client_id: uuid_v4().unwrap(),
             public_key: key.verifying_key().to_bytes(),
-            kind: kind.into(),
+            // A `foreign-browser` is a browser grant paired from another origin than this door.
+            kind: if kind == "foreign-browser" { "browser" } else { kind }.into(),
             origin: match kind {
                 "browser" => "http://127.0.0.1:32100",
+                "foreign-browser" => "http://127.0.0.1:40000",
                 "addon" => "chrome-extension://pppppppppppppppppppppppppppppppp",
                 _ => "cli",
             }
