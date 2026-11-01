@@ -45,11 +45,11 @@ fn selection(c: Command) -> Command {
 pub(in crate::grammar) fn orch() -> Command {
     let jobs=storage(spec!("job","Read and manage agent-owned scheduled messages",["List jobs"=>"tmt orch job ls","Read one job"=>"tmt orch job show j1"]))
         .subcommand_required(true)
-        .subcommand(storage(spec!("ls","List jobs, their next slots and recorded outcomes",["List all jobs as JSON"=>"tmt orch job ls --json"]))
+        .subcommand(storage(spec!("ls","List jobs, their next slots and recorded outcomes",["List all jobs as JSON"=>"tmt orch job ls --json"])).alias("list")
             .arg(Arg::new("owner").long("owner").help("Filter by an exact current owner name or UUID"))
             .arg(Arg::new("squad-room").long("squad-room").help("Filter by the explicit squad room UUID"))
             .arg(Arg::new("cursor").long("cursor").help("Continue the same filtered page"))
-            .arg(Arg::new("limit").long("limit").default_value("50").value_parser(clap::value_parser!(u16).range(1..=128))))
+            .arg(Arg::new("limit").long("limit").help("Read 1 through 128 jobs").default_value("50").value_parser(clap::value_parser!(u16).range(1..=128))))
         .subcommand(storage(spec!("show","Read a job and its exact message",["Read a job"=>"tmt orch job show j1 --json"])).arg(operand("job",true)))
         .subcommand(consent(file(storage(spec!("add","Preview and add a job from a definition file",["Preview a new job"=>"tmt orch job add --file job.json"])))))
         .subcommand(consent(file(storage(spec!("edit","Preview replacement of a job definition",["Edit a job"=>"tmt orch job edit j1 --file job.json --yes"])).arg(operand("job",true)))))
