@@ -203,8 +203,20 @@ describe('template, publish and the renderer source', () => {
       id: rootId,
       title: 'Acme',
       kind: 'design-system',
-      children: [{ title: 'acme-button', kind: 'component', children: [] }],
+      // The tmt GUI docs by section; the components the template carries are live component pages.
+      children: [
+        { title: 'Foundations', kind: 'page' },
+        { title: 'Components', kind: 'page' },
+        { title: 'Patterns', kind: 'page' },
+      ],
     });
+    const [foundations, components, patterns] = systems[0]!.tree.children;
+    expect(foundations!.children.map((page) => page.title)).toContain('Colour');
+    expect(components!.children.find((page) => page.kind === 'component')?.title).toBe(
+      'acme-button',
+    );
+    expect(components!.children.length).toBeGreaterThan(20);
+    expect(patterns!.children.length).toBeGreaterThan(10);
     const listed = withoutDesignSystems(await transport.spaceHome());
     expect(listed.pages.map((page) => page.id)).toEqual([note]);
     expect(listed.projects).toEqual([]);

@@ -7,6 +7,8 @@
 //   dist/sha256-<hex>.json   the template's release bundle: tokens and every component's props,
 //                            slots, CSS and code (a function body that returns the factory); the
 //                            skeleton that runs it ships with each surface, not in the bundle
+//   generated/pages.json     the tmt GUI docs (foundations, components, patterns) as the static doc
+//                            pages a new system copies under its root, rendered from browser-ui/docs
 //   generated/template.json  the template as Colab copies it into a space: the root page's config
 //                            and each component page's data block, with source and CSS inline
 //   generated/<tag>.mjs      the component source as an ES module, for the product build
@@ -17,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildBundle, propType } from './compiler.mjs';
+import { renderDocs } from './docs-render.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
@@ -45,9 +48,30 @@ function tokensCss() {
   return stripComments(css.slice(0, end));
 }
 
+/** The UI island's CSS (browser-ui's generated ui.css) on a page of its own: the island is the
+ * page root, and its theme is the frame's `data-theme`. */
+function pageUiCss() {
+  const css = readFileSync(join(repo, 'design/browser-ui/generated/ui.css'), 'utf8');
+  const scoped = stripComments(css)
+    .replaceAll("[data-tmt-ui]:not([data-tmt-theme='light'])", ":root:not([data-theme='light'])")
+    .replaceAll("[data-tmt-ui][data-tmt-theme='light']", ":root[data-theme='light']")
+    .replaceAll("[data-tmt-ui][data-tmt-theme='dark']", ":root[data-theme='dark']")
+    .replaceAll("[data-tmt-palette='b'] [data-tmt-ui],\n[data-tmt-ui][data-tmt-palette='b']", ":root[data-tmt-palette='b']")
+    .replaceAll("[data-tmt-palette='b'] [data-tmt-ui] ", ":root[data-tmt-palette='b'] ")
+    .replaceAll("[data-tmt-ui][data-tmt-palette='b'] ", ":root[data-tmt-palette='b'] ")
+    .replaceAll('[data-tmt-ui]', ':root');
+  if (/data-tmt-ui|data-tmt-theme/.test(scoped)) throw new Error('ui.css: an island selector was left');
+  return scoped;
+}
+
+/** The docs' own look (the article, canvases, snippets), scoped to `.tmt-design-docs`. */
+const docsCss = () =>
+  stripComments(readFileSync(join(repo, 'design/browser-ui/generated/docs-embed.css'), 'utf8'));
+
 async function compile(dir) {
   const { components: docs, ...rest } = readJson(join(dir, 'system.json'));
-  const config = { ...rest, tokens: { ...rest.tokens, css: tokensCss() } };
+  const css = [tokensCss(), pageUiCss(), docsCss()].join('\n');
+  const config = { ...rest, tokens: { ...rest.tokens, css } };
   const components = docs.map(({ doc }) => {
     const path = join(dir, doc);
     const { source, css, ...component } = readJson(path);
@@ -83,6 +107,20 @@ async function compile(dir) {
               .join('\n')}\n}\n`,
         )
         .join('\n')}`,
+    ],
+    [
+      'generated/pages.json',
+      `${JSON.stringify(
+        (await renderDocs()).map((section) => ({
+          title: section.title,
+          pages: section.pages.map((page) => ({
+            ...page,
+            html: `<div class="tmt-design-docs">${page.html}</div>`,
+          })),
+        })),
+        null,
+        1,
+      )}\n`,
     ],
     ...components.map((c) => [
       `generated/${c.tag}.mjs`,

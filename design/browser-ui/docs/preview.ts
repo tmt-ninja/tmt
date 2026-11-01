@@ -62,7 +62,9 @@ export function usePreview(): { theme: Theme; reduced: boolean } {
     listeners.add(notify);
     return () => listeners.delete(notify);
   };
-  const snapshot = useSyncExternalStore(subscribe, () => `${theme}|${reduced}`);
+  const read = () => `${theme}|${reduced}`;
+  // The server render (the design-system template's doc pages, #5866) reads the same defaults.
+  const snapshot = useSyncExternalStore(subscribe, read, read);
   const [t, m] = snapshot.split('|') as [Theme, string];
   return { theme: t, reduced: m === 'true' };
 }

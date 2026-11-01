@@ -5,7 +5,6 @@ import {
   type ComponentDoc,
   type DesignSystemConfig,
 } from '../../../../../design/systems/compiler.mjs';
-import template from '../../../../../design/systems/tmt-gui/generated/template.json';
 import type { DesignSystemBundle, DesignSystemSource } from './design-system.js';
 import type {
   PageBinding,
@@ -17,6 +16,7 @@ import type {
 import { ManagementError } from './management.js';
 import { DESIGN_SYSTEM_PROJECT } from './projects.js';
 import { subpages } from './work.js';
+import { PROJECT_REQUEST_PAGES } from './projects.js';
 
 /*
  * Design systems as ordinary pages (#5821, epic #5866): the root page holds the
@@ -213,10 +213,17 @@ export async function publishDesignSystem(
   };
   // The attachment edit kept the source; the config and the home page's pin change now.
   await binding.edit(writePin(writeBlock(source, 'design-system', next), pin), source);
-  for (const entry of config.components)
-    await withPage(transport, entry.page!, async (page) => {
-      if (page.binding) await page.binding.edit(writePin(page.source, pin), page.source);
+  // Every page of the system's tree draws with this version: the components, the doc pages
+  // (they take its CSS) and the section pages.
+  const pinTree = async (id: string, depth: number): Promise<void> => {
+    const children = await withPage(transport, id, async (page) => {
+      if (id !== rootId && page.binding)
+        await page.binding.edit(writePin(page.source, pin), page.source);
+      return depth >= TREE_DEPTH ? [] : subpages(page.work);
     });
+    for (const child of children) await pinTree(child, depth + 1);
+  };
+  await pinTree(rootId, 0);
   return { pin, bundle };
 }
 
@@ -299,13 +306,21 @@ export function rootPageSource(config: DesignSystemConfig) {
 <p class="${docs.block}">Publish a version from this page to pin it on other pages.</p>`;
 }
 
+/** One section of the tmt GUI docs a new system copies: its title and its static doc pages. */
+interface DocSection {
+  title: string;
+  pages: { slug: string; title: string; html: string }[];
+}
+
+/** A section page: its title and a link to each of its pages. */
+const sectionSource = (title: string, pages: readonly { id: string; title: string }[]) =>
+  `<h1>${escape(title)}</h1>\n<ul>${pages.map((page) => `<li><a href="/p/${escape(page.id)}">${escape(page.title)}</a></li>`).join('')}</ul>`;
+
 /**
- * Copy the TMT template into the space under the open page: a root page with its own name and
- * prefix, a page per component, then publish the first version so every page draws.
- */
-/**
- * Fill a new root page from the TMT template: a page per component under it, the root's config
- * with its own name and prefix, then publish the first version so every page draws.
+ * Fill a new root page from the TMT template (#5866): the tmt GUI docs as section pages
+ * (Foundations, Components, Patterns) with a page each, every component the template carries as
+ * a live component page in Components, the root's config with its own name and prefix, then
+ * publish the first version so every page draws. The template is loaded only here.
  */
 async function fillFromTemplate(
   transport: PageTransport,
@@ -313,20 +328,45 @@ async function fillFromTemplate(
   name: string,
   prefix: string,
 ): Promise<void> {
+  const [{ default: template }, { default: sections }] = await Promise.all([
+    import('../../../../../design/systems/tmt-gui/generated/template.json'),
+    import('../../../../../design/systems/tmt-gui/generated/pages.json'),
+  ]);
   const { system, components } = template as unknown as {
     system: DesignSystemConfig;
     components: (ComponentDoc & { notes?: string })[];
   };
+  const live = new Map(components.map((doc) => [doc.tag, doc]));
   const entries: DesignSystemConfig['components'] = [];
   await withPage(transport, rootId, async (root) => {
     if (!root.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
-    for (const doc of components) {
-      const child = await root.binding.work('subpage.create', { title: `${prefix}-${doc.tag}` });
-      if (!child.childPage) throw new Error(`The ${doc.tag} page was not made.`);
+    const make = async (parent: Snapshot, title: string, source: string) => {
+      const child = await parent.binding!.work!('subpage.create', { title });
+      if (!child.childPage) throw new Error(`The ${title} page was not made.`);
       await withPage(transport, child.childPage, async (page) => {
-        await page.binding!.edit(componentPageSource(doc, prefix), page.source);
+        await page.binding!.edit(source, page.source);
       });
-      entries.push({ page: child.childPage, tag: doc.tag, status: 'stable' });
+      return child.childPage;
+    };
+    for (const section of sections as DocSection[]) {
+      const sectionId = await make(root, section.title, sectionSource(section.title, []));
+      const made: { id: string; title: string }[] = [];
+      await withPage(transport, sectionId, async (sectionPage) => {
+        for (const doc of section.pages) {
+          const component = section.title === 'Components' ? live.get(doc.slug) : undefined;
+          const title = component ? `${prefix}-${component.tag}` : doc.title;
+          const id = await make(
+            sectionPage,
+            title,
+            component ? componentPageSource(component, prefix) : doc.html,
+          );
+          if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
+          made.push({ id, title });
+        }
+      });
+      await withPage(transport, sectionId, async (sectionPage) => {
+        await sectionPage.binding!.edit(sectionSource(section.title, made), sectionPage.source);
+      });
     }
     const config: DesignSystemConfig = {
       ...system,
@@ -460,13 +500,15 @@ async function markDesignPages(transport: PageTransport, ids: readonly string[])
   }
   const home = await transport.spaceHome();
   const projects = new Map(home.pages.map((page) => [page.id, page.projects ?? []]));
-  // The request lists its pages in ID order.
-  await management.setProjects(
-    [...ids].sort().map((pageId) => ({
-      pageId,
-      projects: [...new Set([...(projects.get(pageId) ?? []), DESIGN_PROJECT])],
-    })),
-  );
+  // A request lists at most PROJECT_REQUEST_PAGES pages, in ID order.
+  const sorted = [...ids].sort();
+  for (let start = 0; start < sorted.length; start += PROJECT_REQUEST_PAGES)
+    await management.setProjects(
+      sorted.slice(start, start + PROJECT_REQUEST_PAGES).map((pageId) => ({
+        pageId,
+        projects: [...new Set([...(projects.get(pageId) ?? []), DESIGN_PROJECT])],
+      })),
+    );
 }
 const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
 
