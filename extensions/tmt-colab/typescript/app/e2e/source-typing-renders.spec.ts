@@ -22,7 +22,15 @@ type Renders = Record<string, number>;
  */
 async function countRenders(page: Page) {
   await page.addInitScript(() => {
-    const watched = new Set(['OpenPage', 'ThreadPanel', 'BrowserDrawer', 'SourceEditor']);
+    const watched = new Set([
+      'OpenPage',
+      'ThreadPanel',
+      'BrowserDrawer',
+      'SourceEditor',
+      'PageFloatingActions',
+      'ChatPanel',
+      'CommentExchange',
+    ]);
     const counts: Record<string, number> = {};
     const present: Record<string, number> = {};
     const seen = new WeakMap<object, { props: unknown; state: unknown }>();
@@ -42,9 +50,10 @@ async function countRenders(page: Page) {
       if (!name || !watched.has(name)) return undefined;
       return name === 'BrowserDrawer' ? `BrowserDrawer:${fiber.memoizedProps?.panel}` : name;
     };
-    const visit = (root: Fiber | null | undefined) => {
+    const visit = (root: { current: Fiber; containerInfo?: HTMLElement }) => {
+      if (root.containerInfo?.id !== 'ask-page-fixture') return;
       for (const key of Object.keys(present)) present[key] = 0;
-      const stack: Fiber[] = root ? [root] : [];
+      const stack: Fiber[] = [root.current];
       while (stack.length) {
         const fiber = stack.pop()!;
         const name = nameOf(fiber);
@@ -66,7 +75,8 @@ async function countRenders(page: Page) {
         supportsFiber: true,
         renderers: new Map(),
         inject: () => 1,
-        onCommitFiberRoot: (_id: number, root: { current: Fiber }) => visit(root.current),
+        onCommitFiberRoot: (_id: number, root: { current: Fiber; containerInfo?: HTMLElement }) =>
+          visit(root),
         onCommitFiberUnmount: () => {},
         onPostCommitFiberRoot: () => {},
         checkDCE: () => {},
@@ -140,4 +150,58 @@ test('typing in the Source editor renders only the editor', async ({ page }) => 
   expect(others).toEqual(Object.fromEntries(Object.keys(others).map((name) => [name, 0])));
   // The Source drawer holds the editor and its Save, so it may render with it, never more.
   expect(caused['BrowserDrawer:source'] ?? 0).toBeLessThanOrEqual(typed.length);
+});
+
+test('unchanged scroll geometry does not render the page, dock or Chat turns', async ({ page }) => {
+  await countRenders(page);
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'chatPolish', 'messages');
+  await (await pageAction(page, 'Chat')).click();
+  await expect(page.getByTestId('chat-panel')).toBeVisible();
+  const before = await quiet(page);
+  const { present } = await renders(page);
+  expect(present).toMatchObject({ OpenPage: 1, PageFloatingActions: 1, ChatPanel: 1 });
+  expect(present.CommentExchange).toBeGreaterThan(0);
+  for (let i = 0; i < 30; i++) {
+    await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
+    await frames(page);
+  }
+  const after = await quiet(page);
+  for (const name of ['OpenPage', 'PageFloatingActions', 'ChatPanel', 'CommentExchange'])
+    expect(after[name] - before[name], name).toBe(0);
+});
+
+test('dock geometry still updates without rebuilding Chat turns, and new messages render', async ({
+  page,
+}) => {
+  await countRenders(page);
+  await page.goto('/');
+  await run(page, 'mount', { statusAgents: true });
+  await run(page, 'chatPolish', 'messages');
+  await (await pageAction(page, 'Chat')).click();
+  const chat = page.getByTestId('chat-panel');
+  await expect(chat).toBeVisible();
+  const dock = page.locator('#ask-page-fixture .selection-mode');
+  const before = await quiet(page);
+  const position = await dock.boundingBox();
+  await page.locator('#ask-page-fixture .frame-host').evaluate((host: HTMLElement) => {
+    host.style.width = '70%';
+    window.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(async () => (await dock.boundingBox())!.x).toBeLessThan(position!.x);
+  const after = await quiet(page);
+  expect(after.OpenPage - before.OpenPage).toBeGreaterThan(0);
+  expect(after.ChatPanel - before.ChatPanel).toBeGreaterThan(0);
+  expect(after.CommentExchange - before.CommentExchange).toBe(0);
+  await run(page, 'conversation', {
+    surface: 'chat',
+    state: 'replied',
+    message: 'A new admitted Chat message',
+    reply: 'A fresh reply',
+  });
+  await expect(chat).toContainText('A new admitted Chat message');
+  await expect(chat).toContainText('A fresh reply');
+  const updated = await quiet(page);
+  expect(updated.CommentExchange - after.CommentExchange).toBeGreaterThan(0);
 });

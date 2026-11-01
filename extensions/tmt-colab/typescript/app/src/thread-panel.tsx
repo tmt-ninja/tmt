@@ -24,7 +24,7 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MarkdownText } from './components/markdown-text.js';
 import { EchoAttachments, MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -74,11 +74,14 @@ export function useMessageEcho(comments: readonly CommentView[], asks: readonly 
     return () => timers.forEach(clearTimeout);
   }, [landedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   /** A verified record whose echo still holds its place is hidden until the swap. */
-  const held = (comment: CommentView) =>
-    echoes.some(
-      (echo) =>
-        echo.message?.writer === comment.ref.writer && echo.message.id === comment.messageId,
-    );
+  const held = useCallback(
+    (comment: CommentView) =>
+      echoes.some(
+        (echo) =>
+          echo.message?.writer === comment.ref.writer && echo.message.id === comment.messageId,
+      ),
+    [echoes],
+  );
   return [echoes, host, held] as const;
 }
 
