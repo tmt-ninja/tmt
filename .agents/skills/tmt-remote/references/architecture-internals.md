@@ -9,8 +9,9 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `cloud_hpke`, `cloud_keys`                       | Fixed native HPKE descriptors/carriers and consuming response contexts; private Document keyring renewed at serve startup and existing Site maintenance; no transport, peer authority or replay ledger                                              |
-| `cloud_pairing`                                  | Native invite/join, proofs, mailbox and uid routing; Store confirmation/receipts under the serve lease; shared project Auth/runtime/budget                                                                                                          |
+| `cloud_pairing`                                  | Native invite/join proofs, owner policy and typed provider reconciliation; Store confirmation/receipts under the serve lease; shared project Auth/runtime/budget                                                                                    |
 | `invitations`                                    | Backend-neutral proofs, memory-only offer coordinator, metadata-only issued history and exact-original recovery; bounded exchange and confirmation ports                                                                                            |
+| `cloud_provider`                                 | Typed carrier/enrollment/metadata port, provider factory and opaque continuations; Firestore adapter owns REST fields, paths, timestamps and sealed-value decoding; no operation authority                                                          |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
 | `message`                                        | Common signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
@@ -24,7 +25,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `declaration`, `deploy_plan`, `hosting`, `rules` | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (bytes in; installed discovery belongs to `deploy_discovery`)                                                   |
 | `deploy_command`, `deploy_record`, `remote_link` | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                                                      |
 | `remote_catalog`, `remote_selector`              | Public references and explicit/default/local targeting; imported configuration never grants access or ownership                                                                                                                                     |
-| `sealed_sync`, `sealed_sync::codec`              | Bound sealed-document/Auth ports and pure context, restricted REST fields, query/interest/mutation and cloud-manifest validation; no provider, credential storage or I/O                                                                            |
+| `sealed_sync`, `sealed_sync::codec`              | Bound sealed-document/Auth ports and pure context, declaration/digest/resource/scope/query/interest/mutation and cloud-manifest validation; selected adapter decodes values; no credentials or I/O                                                  |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                                                     |
 | `firebase_auth`, `sync_cli`                      | Remote-private refresh credential file, bounded ordinary-user ureq effects and monotonic lifecycle over injected ports; command/status composition, ID tokens in memory, no shared-state change                                                     |
 | `native_sync`                                    | Injected ordinary-user REST effects, adaptive polling, project stop fence, serving/consumer caps and attempted-read persistence; no document decryption or Core authority                                                                           |
@@ -425,8 +426,9 @@ and `crypto` verification; only its carrier uses `hpke` and `aes-gcm`. Request a
 are single-use values. `cloud_keys` publishes admitted state only after Document succeeds, preserving
 its prior admitted keyring on uncertainty. Its named bounds live in `limits`; the existing Site
 maintenance callback renews without adding a worker and a failure never stops local pairing.
-`cloud_inbox` is the native carrier driver: `document` admits provider fields/createTime;
-`provider` reuses `NativeRuntime` Auth/HTTP/budget; `ingress` alone constructs a verified hand-off into
+`cloud_provider` owns the injected typed `Provider`/`Factory`; its Firestore adapter alone
+interprets REST documents, provider creation times and legacy continuation fields. `cloud_inbox`
+is the provider-independent native carrier driver; `ingress` alone constructs a verified hand-off into
 `MessageService`; `driver` reconciles one machine query with a durable machine continuation; `sender` freezes before
 HTTP and recovers a lost context with a fresh signed ID lookup. `store` uses the authoritative Store
 connection/lease and existing journal effect owner, never a second replay ledger. Permanent carrier
@@ -442,7 +444,7 @@ and advances the machine timestamp; the next query uses the normal overlap. Lega
 checkpoints seed the first query except the machine UUID, which belongs to enrollment. Inbox completion never updates those peer keys; a quiet peer cannot hold subsequent machine progress back.
 The first query always probes one document. A full page can use bounded follow-up pages, sized by
 `store::cloud_inbox_page_limit` from existing retained rows, without skipping any overlap timestamp
-or ID. `provider` bounds retained response bytes by the admitted page count; `limits` owns the cap.
+or ID. The adapter bounds retained response bytes by the admitted page count; `limits` owns the cap.
 Empty idle polls retain their one-minute cadence and one-document reservation. `driver` observes
 an already-attempted response by exact ID after its current grant fence, avoiding another unsent
 commit reservation; ambiguous observations preserve the same frozen uncertainty and progress rules.
@@ -640,8 +642,9 @@ the isolated v1 profile binds project, owner UUID/key, offer/challenge/generatio
 peer UUID/key, authenticated uid, name and candidate nonce. One-shot reroutes sign the target machine UUID/key, peer, new uid, generation
 and timestamp; the provider createTime supplies the 60-second freshness reference. It reuses local pairing MAC, possession, fingerprint and receipt-proof primitives.
 A verified proof alone grants nothing. `pairing_cli` adapts the owner-only control socket to explicit
-terminal consent; `cloud_pairing::service` owns policy and reconciliation, and its `provider` extends
-the ordinary-user carrier provider. Byte proofs have no I/O; none of these modules prepares Core work.
+terminal consent; `cloud_pairing::service` owns policy and reconciliation through the typed provider
+port. Its Firestore adapter owns enrollment and metadata decoding. Byte proofs have no I/O;
+none of these modules prepares Core work.
 
 The additive `cloud_pairing` migration uses the existing Store/lease. Explicit owner confirmation
 atomically saves the default read-only grant (or the same ceremony's explicit talk choice), original receipt/proof and desired route. Exact lost-join
@@ -653,7 +656,13 @@ Provider publication must apply each peer's desired route swap atomically; ackno
 project/uid/peer/member/generation/capability hash/revocation, so stale completion cannot hide newer changes. Offline work
 stays pending. This state is not a second operation ledger.
 
-`native_sync::Projects` owns one cached Auth/runtime/budget per project, shared with extension sync.
+`native_sync::Projects` implements the carrier factory and owns one cached Auth/runtime/budget per
+project, shared with extension sync. Construction purposes preserve explicit pairing admission;
+they grant no consent. The selected adapter admits production backends before token/HTTP work.
+`sealed_sync` retains common resource/digest/scope checks; its context binds the selected value codec,
+used by native reads/subscriptions and the object-service carrier. Unsupported backends still refuse.
+Common Store progress retains bounded opaque continuations and numeric watermarks; only the adapter
+validates legacy cursor fields before I/O. Serialization remains byte-identical across restart.
 Its FileStore retains one lazy CLOEXEC credential-lock description. A nonblocking mutex serializes
 operation guards, which explicitly unlock before releasing the mutex, even if a fork keeps a copy.
 Failed lock admission, missing or mismatched metadata, or a poisoned mutex refuses the current

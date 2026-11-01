@@ -17,7 +17,10 @@ grant expiry and serve windows.
 
 ## Owners and layers
 
-Remote owns its listeners, provider transports and private state. Core owns its public dispatch,
+Remote owns its listeners, provider transports and private state. Native inbox, pairing and message
+callers share one typed provider port; its adapter alone decodes provider documents and continuations.
+Exact carrier bytes, operation admission, replay and authority remain with their existing common owners.
+Core owns its public dispatch,
 request and input-safety semantics independently of Remote authentication. Remote uses only the
 fixed public Core APIs/JSON commands: Core has no dependency on Remote device keys, pairing or
 trust grants, and no Remote base-trust check is added to Core. Its existing safety checks remain.
@@ -3881,6 +3884,11 @@ uses the same owned cleanup. Budget refusal performs no provider I/O or allowanc
 
 Browser transport is shipped. Native credentials and REST effects belong to `firebase_auth`
 and `native_sync`; serve composes their shared project owner behind the opt-in v3 carrier.
+The selected provider adapter owns REST-value/document decoding. Common context, declaration,
+digest, resource and scope admission remain provider-independent; unsupported production backends
+refuse at factory admission before token acquisition or HTTP. Carrier and sealed-document factories
+reuse the same serving-project Auth/runtime/budget and stop owner. No wire, settings or persisted
+field names change; the existing continuation serialization is retained byte-identically.
 
 The SDK and native types define one bound client port. Provider implementations are separate
 from this pure type boundary. The browser factory `HostedAuth.sealedSync(space, guard)` binds
