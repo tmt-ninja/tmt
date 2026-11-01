@@ -2,7 +2,12 @@ import { requireValue } from '@tmt/colab-client';
 import type { PageAsk } from './ask-panel.js';
 import type { AgentDestination } from './live-ask.js';
 import type { DiscussionRef, ThreadView } from './thread-records.js';
-import { asksAbout, type ThreadBinding, type StatusChange } from './thread-store.js';
+import {
+  asksAbout,
+  type ThreadBinding,
+  type StatusChange,
+  type StatusOutcome,
+} from './thread-store.js';
 import {
   discussionRefKey,
   type ThreadRecipient,
@@ -124,7 +129,7 @@ export type NotificationAdoption =
   | { adopted: true }
   | { adopted: false; reason: ThreadNotificationRecord['reason'] };
 export interface ThreadStatusCoordinatorOptions {
-  binding: Pick<ThreadBinding, 'setStatus' | 'notificationFailed'>;
+  binding: Pick<ThreadBinding, 'setStatus' | 'setStatuses' | 'notificationFailed'>;
   asks(): readonly PageAsk[];
   destinations(): Promise<readonly AgentDestination[]>;
   notify(
@@ -143,12 +148,6 @@ export interface ResolveAllResult {
     | { thread: DiscussionRef; error: unknown }
   )[];
 }
-interface ResolveAllContext {
-  asks: readonly PageAsk[];
-  destinations(): Promise<readonly AgentDestination[]>;
-  assigned: Set<string>;
-  notifications: Promise<void>[];
-}
 /** Explicit parent action only. The status and recipient operation IDs are
  * durable before sequential notification attempts. No open/reload/retry path. */
 export class ThreadStatusCoordinator {
@@ -162,8 +161,9 @@ export class ThreadStatusCoordinator {
   >();
   #batch: Promise<ResolveAllResult> | undefined;
   constructor(private options: ThreadStatusCoordinatorOptions) {}
-  /** The confirmed filter snapshot only. Each write re-admits through the existing binding;
-   * failure leaves earlier commits intact. A recipient belongs to its first committed status. */
+  /** The confirmed filter snapshot only, published by one `setStatuses` under one admission.
+   * A refused thread or update leaves the others intact; a recipient belongs to its first
+   * committed status. Each committed thread then notifies on its own, as `change` does. */
   resolveAll(threads: readonly ThreadView[]): Promise<ResolveAllResult> {
     if (this.#batch) return this.#batch;
     const captured = [
@@ -172,32 +172,12 @@ export class ThreadStatusCoordinator {
       ).values(),
     ];
     const asks = structuredClone([...this.options.asks()]);
-    let directory: Promise<readonly AgentDestination[]> | undefined;
-    const context: ResolveAllContext = {
-      asks,
-      destinations: () =>
-        (directory ??= (async () => this.options.destinations())()
-          .catch(() => [])
-          .then((values) => structuredClone([...values]))),
-      assigned: new Set(),
-      notifications: [],
-    };
-    const publications = Promise.resolve().then(async () => {
-      const results: ResolveAllResult['results'] = [];
-      for (const thread of captured) {
-        try {
-          results.push({
-            thread: thread.ref,
-            result: await this.#start(thread, true, undefined, context),
-          });
-        } catch (error) {
-          results.push({ thread: thread.ref, error });
-        }
-      }
-      return results;
-    });
+    const notifications: Promise<void>[] = [];
+    const publications = Promise.resolve().then(() =>
+      this.#resolveAll(captured, asks, notifications),
+    );
     const settled = publications
-      .then(() => Promise.allSettled(context.notifications))
+      .then(() => Promise.allSettled(notifications))
       .then(() => undefined);
     const task = publications.then((results) => ({ results, settled }));
     // Repeated clicks share the publication report until all original attempts settle.
@@ -208,20 +188,93 @@ export class ThreadStatusCoordinator {
     this.#batch = task;
     return task;
   }
+  async #resolveAll(
+    captured: readonly ThreadView[],
+    asks: readonly PageAsk[],
+    notifications: Promise<void>[],
+  ): Promise<ResolveAllResult['results']> {
+    const results: ResolveAllResult['results'] = captured.map((thread) => ({
+      thread: thread.ref,
+      result: { changed: false },
+    }));
+    const writes: {
+      index: number;
+      key: string;
+      generation: symbol;
+      settle(outcome: StatusOutcome): void;
+    }[] = [];
+    for (const [index, thread] of captured.entries()) {
+      const key = discussionRefKey(thread.ref);
+      // A batch never joins or supersedes another explicit action on the same thread.
+      if (this.#changing.has(key)) continue;
+      if (!isStatusThread(thread)) {
+        results[index] = { thread: thread.ref, error: new Error('Not a status thread') };
+        continue;
+      }
+      if (thread.resolved) continue;
+      const generation = Symbol();
+      let settle!: (outcome: StatusOutcome) => void;
+      const task = new Promise<StatusOutcome>((resolve) => (settle = resolve)).then((outcome) => {
+        if ('error' in outcome) throw outcome.error;
+        return outcome;
+      });
+      task.catch(() => {});
+      this.#changing.set(key, { resolved: true, generation, task });
+      writes.push({ index, key, generation, settle });
+    }
+    if (!writes.length) return results;
+    // Start directory I/O before the binding acquires its lock and admits the writer.
+    // Prior signed IDs still identify recipients if the directory is unavailable.
+    const destinations = (async () => this.options.destinations())()
+      .catch(() => [])
+      .then((values) => structuredClone([...values]));
+    const frozen = destinations.then((values) =>
+      writes.map(({ index }) => freezeThreadRecipients(captured[index], asks, values)),
+    );
+    const outcomes = await this.options.binding
+      .setStatuses(
+        writes.map(({ index }, i) => ({
+          thread: captured[index].ref,
+          previous: captured[index].status?.ref ?? null,
+          resolved: true,
+          recipients: frozen.then((values) => values[i].recipients),
+        })),
+      )
+      .catch((error: unknown) => writes.map(() => ({ error })));
+    const directory = await destinations;
+    for (const [i, { index, key, generation, settle }] of writes.entries()) {
+      const outcome = outcomes[i] ?? { error: new Error('Missing status outcome') };
+      const thread = captured[index];
+      const done = () => {
+        if (this.#changing.get(key)?.generation === generation) this.#changing.delete(key);
+      };
+      if ('error' in outcome) results[index] = { thread: thread.ref, error: outcome.error };
+      else if (outcome.changed) {
+        const result = { ...outcome, warnings: (await frozen)[i].warnings };
+        results[index] = { thread: thread.ref, result };
+        notifications.push(
+          this.#notify(key, generation, outcome.status, thread, directory).finally(done),
+        );
+        settle(result);
+        continue;
+      }
+      done();
+      settle(outcome);
+    }
+    return results;
+  }
   change(thread: ThreadView, resolved: boolean, options?: { onlyAgentName: string }) {
     return this.#start(thread, resolved, options?.onlyAgentName);
   }
-  #start(thread: ThreadView, resolved: boolean, onlyAgentName?: string, batch?: ResolveAllContext) {
+  #start(thread: ThreadView, resolved: boolean, onlyAgentName?: string) {
     const key = discussionRefKey(thread.ref);
     const pending = this.#changing.get(key);
-    // A batch never joins or supersedes another explicit action on the same thread.
-    if (pending && batch) return Promise.resolve({ changed: false } as const);
     if (pending?.resolved === resolved) return pending.task;
     const generation = Symbol();
     const captured = structuredClone(thread);
-    const asks = batch?.asks ?? structuredClone([...this.options.asks()]);
+    const asks = structuredClone([...this.options.asks()]);
     const task = Promise.resolve().then(() =>
-      this.#change(key, generation, captured, asks, resolved, onlyAgentName, batch),
+      this.#change(key, generation, captured, asks, resolved, onlyAgentName),
     );
     this.#changing.set(key, { resolved, generation, task });
     return task;
@@ -233,7 +286,6 @@ export class ThreadStatusCoordinator {
     asks: readonly PageAsk[],
     resolved: boolean,
     onlyAgentName?: string,
-    batch?: ResolveAllContext,
   ) {
     let notifying = false;
     try {
@@ -242,18 +294,13 @@ export class ThreadStatusCoordinator {
       // Start directory I/O before the binding acquires its lock and admits the writer.
       // Prior signed IDs still identify recipients if the directory is unavailable.
       const destinations = resolved
-        ? (batch?.destinations() ?? this.options.destinations().catch(() => []))
+        ? this.options.destinations().catch(() => [])
         : Promise.resolve([]);
-      const frozen = destinations.then((values) => {
-        const value = resolved
+      const frozen = destinations.then((values) =>
+        resolved
           ? freezeThreadRecipients(thread, asks, values, onlyAgentName)
-          : { recipients: [], warnings: [] };
-        if (batch)
-          value.recipients = value.recipients.filter(
-            (recipient) => !batch.assigned.has(recipientKey(recipient)),
-          );
-        return value;
-      });
+          : { recipients: [], warnings: [] },
+      );
       const result = await this.options.binding.setStatus(
         thread.ref,
         thread.status?.ref ?? null,
@@ -261,8 +308,6 @@ export class ThreadStatusCoordinator {
         frozen.then((value) => value.recipients),
       );
       if (!result.changed) return result;
-      for (const recipient of result.status.recipients)
-        batch?.assigned.add(recipientKey(recipient));
       notifying = true;
       const notification = this.#notify(
         key,
@@ -273,8 +318,7 @@ export class ThreadStatusCoordinator {
       ).finally(() => {
         if (this.#changing.get(key)?.generation === generation) this.#changing.delete(key);
       });
-      if (batch) batch.notifications.push(notification);
-      else void notification;
+      void notification;
       return { ...result, warnings: (await frozen).warnings };
     } finally {
       if (!notifying && this.#changing.get(key)?.generation === generation)

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * The in-place update's morph (#5022), one table of node cases. It runs the exact code of the
@@ -83,6 +83,26 @@ const cases: MorphCase[] = [
       '<details id="d" open=""><summary>S</summary>T, edited</details><input id="t" value="one"><input id="u" value="two">',
     kept: ['d', 't', 'u'],
   },
+  {
+    // With the previous source given, a node whose source did not change is not compared again:
+    // what the live node holds stays, while the changed node takes its new source.
+    name: 'an unchanged source node is left alone',
+    before: '<p id="a">A</p><section id="s"><p id="b">B</p></section>',
+    live: 'drift',
+    after: '<p id="a">A changed</p><section id="s"><p id="b">B</p></section>',
+    expected:
+      '<p id="a">A changed</p><section id="s"><p id="b">B, as the reader left it</p></section>',
+    kept: ['a', 's', 'b'],
+  },
+  {
+    name: 'a changed child inside an unchanged parent position is patched',
+    before: '<section id="s"><p id="a">A</p><p id="b">B</p></section>',
+    live: 'drift-a',
+    after: '<section id="s"><p id="a">A</p><p id="b">B changed</p></section>',
+    expected:
+      '<section id="s"><p id="a">A, as the reader left it</p><p id="b">B changed</p></section>',
+    kept: ['s', 'a', 'b'],
+  },
 ];
 
 test('the page morph table', async ({ page }) => {
@@ -117,22 +137,29 @@ test('the page morph table', async ({ page }) => {
           svg.setAttribute('data-drawn', '');
           body.querySelector('#i')!.append(svg);
         }
+        if (item.live === 'drift')
+          body.querySelector('#b')!.firstChild!.nodeValue = 'B, as the reader left it';
+        if (item.live === 'drift-a')
+          body.querySelector('#a')!.firstChild!.nodeValue = 'A, as the reader left it';
         if (item.live === 'reader') {
           (body.querySelector('#d') as HTMLDetailsElement).open = true;
           (body.querySelector('#t') as HTMLInputElement).value = 'typed';
           (body.querySelector('#u') as HTMLInputElement).value = 'typed';
         }
         const nodes = new Map(item.kept.map((id) => [id, body.querySelector(`#${id}`)]));
-        const next = new DOMParser().parseFromString(
-          `<!doctype html><html><head></head><body>${item.after}</body></html>`,
-          'text/html',
-        ).body;
+        const parse = (source: string) =>
+          new DOMParser().parseFromString(
+            `<!doctype html><html><head></head><body>${source}</body></html>`,
+            'text/html',
+          ).body;
+        const next = parse(item.after);
         morphPage(body, next, {
           node: (node: Node) => owned.has(node),
           attribute: (el: Element, name: string) =>
             name.startsWith('data-colab-') || (name === 'hidden' && hidden.has(el)),
           expanded: (el: Element) => el.localName === 'tmt-icon',
           state,
+          previous: parse(item.before),
         });
         if (item.live === 'reader') {
           values.t = (body.querySelector('#t') as HTMLInputElement).value;
@@ -154,5 +181,385 @@ test('the page morph table', async ({ page }) => {
     expect(result.kept, item.name).toEqual(item.kept);
   }
   // A typed value stays while its source attribute stays; a changed attribute replaces it.
-  expect(results.at(-1)!.values).toEqual({ t: 'typed', u: 'two' });
+  expect(
+    results.find(
+      (result) => result.name === 'reader state stays until its source attribute changes',
+    )!.values,
+  ).toEqual({ t: 'typed', u: 'two' });
+});
+
+// #5891: an update of a large page parses only its changed top-level nodes when that is the same
+// as parsing the page whole. Each edit runs both ways from the same page: the parse of the run
+// spliced into the bound body, and the live body morphed over that range only, must serialize
+// exactly as the full parse does; an edit the scan cannot place is parsed whole.
+const PAGE = [
+  '<style>.note{color:teal}</style>',
+  '<h1 id="t">Release plan</h1>',
+  'Loose text at the top, then a comment.',
+  '<!-- kept -->',
+  // Left open: the next paragraph closes it. Only an edit beside it parses it again.
+  '<p id="open">Left open, never closed',
+  '<p id="p1">First <b>bold</b> paragraph &amp; more.</p>',
+  '<ul id="l"><li>One</li><li>Two <i>it</i></li></ul>',
+  '<div id="d"><p>Nested</p><pre>\ncode</pre></div>',
+  '<table id="tb"><tr><td>1</td><td>2</td></tr></table>',
+  '<tmt-question data-id="q1"><p data-question="">Pick one</p></tmt-question>',
+  '<p id="p2">Second paragraph.</p>',
+  '<section id="s"><h2>Part</h2><p>Body <a href="#x">link</a></p><img src="x.png" alt=""></section>',
+  'Tail text <3 with a bare angle.',
+].join('\n');
+const edits: { name: string; after: string; fragment: boolean }[] = [
+  {
+    name: 'edit inside the open paragraph',
+    after: PAGE.replace('never closed', 'still never closed'),
+    fragment: true,
+  },
+  {
+    name: 'text now follows the open paragraph',
+    after: PAGE.replace('<p id="p1">First <b>bold</b> paragraph &amp; more.</p>', 'Plain now.'),
+    fragment: true,
+  },
+  {
+    // Text and a comment follow it, which a paragraph holds: the page parses whole.
+    name: 'a paragraph left open before nodes it would hold',
+    after: PAGE.replace('<h1 id="t">Release plan</h1>', '<p id="t">Release plan'),
+    fragment: false,
+  },
+  {
+    name: 'list items left open',
+    after: PAGE.replace('<li>One</li><li>Two <i>it</i></li>', '<li>One<li><p>Two <i>it</i>'),
+    fragment: true,
+  },
+  {
+    name: 'definitions left open',
+    after: PAGE.replace('<p id="p2">', '<dl><dt>Term<dd>One<dd>Two</dl><p id="p2">'),
+    fragment: true,
+  },
+  {
+    // An item with a formatting element left open in it cannot be placed.
+    name: 'a list item with an open inline element',
+    after: PAGE.replace('<li>One</li><li>', '<li><b>One<li>'),
+    fragment: false,
+  },
+  {
+    name: 'an edit beside an icon with a title',
+    after: PAGE.replace(
+      '<p id="p2">',
+      '<p id="ic"><svg viewBox="0 0 1 1"><title>Icon</title><path d="M0 0"/></svg> Icon</p>\n<p id="p2">',
+    ),
+    fragment: false,
+  },
+  {
+    // An svg whose content breaks back out into HTML cannot be placed by its end tag.
+    name: 'an svg that breaks out',
+    after: PAGE.replace('<p id="p2">', '<svg><p>out</p></svg><p id="p2">'),
+    fragment: false,
+  },
+  {
+    name: 'a list of options',
+    after: PAGE.replace('Second paragraph.', 'Pick <select><option>a<option>b</select>'),
+    fragment: false,
+  },
+  {
+    name: 'the open paragraph is closed',
+    after: PAGE.replace('never closed', 'now closed</p>'),
+    fragment: true,
+  },
+  {
+    name: 'an inline node now follows the open paragraph',
+    after: PAGE.replace('<p id="p1">First <b>bold</b> paragraph &amp; more.</p>', '<b>Bold</b>'),
+    fragment: true,
+  },
+  {
+    name: 'change at the start',
+    after: PAGE.replace('Release plan', 'Release plan v2'),
+    fragment: true,
+  },
+  {
+    name: 'change in the middle',
+    after: PAGE.replace('Second paragraph.', 'Second, edited.'),
+    fragment: true,
+  },
+  { name: 'change at the end', after: PAGE.replace('bare angle.', 'bare angle!'), fragment: true },
+  {
+    name: 'insert a node',
+    after: PAGE.replace('<p id="p2">', '<p id="new">New</p>\n<p id="p2">'),
+    fragment: true,
+  },
+  {
+    name: 'delete a node',
+    after: PAGE.replace('<p id="p2">Second paragraph.</p>\n', ''),
+    fragment: true,
+  },
+  { name: 'insert at the very start', after: `<p id="first">First</p>\n${PAGE}`, fragment: false },
+  { name: 'append at the very end', after: `${PAGE}\n<p id="last">Last</p>`, fragment: true },
+  {
+    name: 'change inside a list',
+    after: PAGE.replace('<li>One</li>', '<li>Uno</li>'),
+    fragment: true,
+  },
+  {
+    name: 'change inside a table',
+    after: PAGE.replace('<td>1</td>', '<td>uno</td>'),
+    fragment: false,
+  },
+  { name: 'change near a style', after: PAGE.replace('color:teal', 'color:navy'), fragment: false },
+  {
+    name: 'change in a question block',
+    after: PAGE.replace('Pick one', 'Pick two'),
+    fragment: false,
+  },
+  { name: 'text beside text', after: PAGE.replace('Loose text', 'Looser text'), fragment: true },
+  {
+    // The section after it closes it, as the parser does.
+    name: 'an unclosed paragraph',
+    after: PAGE.replace('<p id="p2">Second paragraph.</p>', '<p id="p2">Open'),
+    fragment: true,
+  },
+  {
+    name: 'a block inside a paragraph',
+    after: PAGE.replace('<p id="p2">Second paragraph.</p>', '<p id="p2">A<div>B</div>C</p>'),
+    fragment: false,
+  },
+  {
+    name: 'a review block',
+    after: PAGE.replace(
+      '<p id="p2">',
+      '<tmt-review data-id="r1"><p>Look</p></tmt-review><p id="p2">',
+    ),
+    fragment: false,
+  },
+  {
+    name: 'a read block',
+    after: PAGE.replace('<p id="p2">', '<tmt-read data-id="d1"><p>Read</p></tmt-read><p id="p2">'),
+    fragment: false,
+  },
+  {
+    name: 'a body tag',
+    after: PAGE.replace('<p id="p2">', '<body class="x"><p id="p2">'),
+    fragment: false,
+  },
+  {
+    name: 'a script',
+    after: PAGE.replace('<p id="p2">', '<script>1</script><p id="p2">'),
+    fragment: false,
+  },
+  {
+    name: 'an inline handler',
+    after: PAGE.replace('<p id="p2">', '<p id="p2" onclick="x()">'),
+    fragment: false,
+  },
+  {
+    name: 'a stray end tag',
+    after: PAGE.replace('Second paragraph.</p>', 'Second paragraph.</p></div>'),
+    fragment: false,
+  },
+  {
+    name: 'nested list item',
+    after: PAGE.replace('<li>One</li>', '<li>One<ul><li>Inner</li></ul></li>'),
+    fragment: true,
+  },
+];
+
+/** Each edit of `before` run both ways: the parse of its run spliced into the bound body, and the
+ * live body morphed over that run only, each against the full parse of the edited page. */
+async function parity(page: Page, before: string, edits: { name: string; after: string }[]) {
+  await page.setContent('<!doctype html><html><body></body></html>');
+  return page.evaluate(
+    ({ region, before, edits }) => {
+      const { morphPage, rememberSource, topLevelSpans, planFragment } = new Function(
+        `${region}\nreturn { morphPage, rememberSource, topLevelSpans, planFragment };`,
+      )();
+      const parse = (source: string) =>
+        new DOMParser().parseFromString(
+          `<!doctype html><html><head></head><body>${source}</body></html>`,
+          'text/html',
+        ).body;
+      const spans = topLevelSpans(before);
+      return {
+        placed: spans?.length === parse(before).childNodes.length,
+        edits: edits.map((edit) => {
+          const fullBody = parse(edit.after);
+          const full = fullBody.innerHTML;
+          const plan = planFragment(before, spans, edit.after);
+          if (!plan) return { name: edit.name, fragment: false };
+          const part = parse(plan.text);
+          // The bound body, spliced.
+          const bound = parse(before);
+          const next = bound.childNodes[plan.to] ?? null;
+          const previous = document.createDocumentFragment();
+          for (const node of [...bound.childNodes].slice(plan.from, plan.to)) previous.append(node);
+          const spliced = part.cloneNode(true) as Element;
+          bound.insertBefore(Object.assign(document.createDocumentFragment()), next);
+          const parsed = bound.ownerDocument.createDocumentFragment();
+          parsed.append(...spliced.childNodes);
+          bound.insertBefore(parsed, next);
+          // The live body, morphed over the run only.
+          const body = document.body;
+          body.innerHTML = '';
+          body.append(...parse(before).childNodes);
+          const state = new WeakMap();
+          rememberSource(body, state);
+          const candidates = [...body.childNodes];
+          morphPage(
+            body,
+            part,
+            {
+              node: () => false,
+              attribute: () => false,
+              expanded: () => false,
+              state,
+              previous,
+            },
+            {
+              candidates: candidates.slice(plan.from, plan.to),
+              after: candidates[plan.to] ?? null,
+            },
+          );
+          const respanned = topLevelSpans(edit.after);
+          return {
+            name: edit.name,
+            fragment: true,
+            count: part.childNodes.length === plan.count,
+            bound: bound.innerHTML === full,
+            // Equal nodes: a morph may put a new attribute after the kept ones.
+            live:
+              body.childNodes.length === fullBody.childNodes.length &&
+              [...body.childNodes].every((node, at) => node.isEqualNode(fullBody.childNodes[at]!)),
+            spans: JSON.stringify(respanned) === JSON.stringify(plan.spans),
+          };
+        }),
+      };
+    },
+    { region, before, edits },
+  );
+}
+
+// Pages with their own document tags, an icon and options: each later edit takes the fragment path.
+const DOCUMENT = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Doc</title>\n<style>p{margin:0}</style>\n</head>\n<body>\n${PAGE.replace('<style>.note{color:teal}</style>\n', '').replace('<table id="tb"><tr><td>1</td><td>2</td></tr></table>\n', '')}\n<p id="icon"><svg viewBox="0 0 1 1"><title>Icon</title><path d="M0 0"/></svg> Icon</p>\n<p id="pick">Pick <select><option>a<option>b</select></p>\n<p id="end">End</p>\n</body>\n</html>\n`;
+
+test('a full document with an icon and options updates its own nodes only', async ({ page }) => {
+  const edits = [
+    { name: 'last paragraph', after: DOCUMENT.replace('>End<', '>The end<') },
+    {
+      name: 'first paragraph',
+      after: DOCUMENT.replace('First <b>bold</b>', 'First <b>bolder</b>'),
+    },
+    {
+      name: 'a node before the end tags',
+      after: DOCUMENT.replace('</body>', '<p>Added</p>\n</body>'),
+    },
+  ];
+  const results = await parity(page, DOCUMENT, edits);
+  expect(results.placed).toBe(true);
+  for (const result of results.edits)
+    expect(result, result.name).toEqual({
+      name: result.name,
+      fragment: true,
+      count: true,
+      bound: true,
+      live: true,
+      spans: true,
+    });
+});
+
+// The scanner is a partial HTML tokenizer: random edits over real page shapes find what chosen cases
+// miss. Every edit that takes the fragment path must equal the full parse; the rest parse whole.
+test('200 seeded random edits over the page templates each equal a full parse', async ({
+  page,
+}) => {
+  const templates = ['board', 'compare', 'gallery', 'report', 'review', 'starter'].map((name) =>
+    readFileSync(
+      new URL(`../../../rust/tmt-colab/templates/${name}.html`, import.meta.url),
+      'utf8',
+    ),
+  );
+  const pages = [PAGE, DOCUMENT, ...templates];
+  let seed = 5891;
+  const random = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let value = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(values: readonly T[]) => values[Math.floor(random() * values.length)]!;
+  const snippets = [
+    'text',
+    '\n',
+    ' &amp; ',
+    '<p>',
+    '</p>',
+    '<p id="r">New</p>',
+    '<li>',
+    '</li>',
+    '<ul><li>a<li>b</ul>',
+    '<div>',
+    '</div>',
+    '<b>',
+    '</b>',
+    '<span>x</span>',
+    '<br>',
+    '<hr>',
+    '<!-- c -->',
+    '<h2>H</h2>',
+    '<svg><title>t</title><path d="M0 0"/></svg>',
+    '<select><option>a</select>',
+    '<table><tr><td>1</td></tr></table>',
+    '</body>',
+    '<!doctype html>',
+    '<a href="#">a</a>',
+    '<img src="x.png" alt="">',
+  ];
+  let total = 0;
+  let fragments = 0;
+  for (const [index, before] of pages.entries()) {
+    const edits: { name: string; after: string }[] = [];
+    for (let n = 0; n < Math.ceil(200 / pages.length); n++) {
+      let at = Math.floor(random() * before.length);
+      // Half the edits land on a tag boundary, where the scanner's choices matter most.
+      if (random() < 0.5) at = Math.max(0, before.indexOf('<', at));
+      const cut = random() < 0.4 ? Math.floor(random() * 40) : 0;
+      const insert = random() < 0.85 ? pick(snippets) : '';
+      edits.push({
+        name: `page ${index} edit ${n}: at ${at}, cut ${cut}, insert ${JSON.stringify(insert)}`,
+        after: before.slice(0, at) + insert + before.slice(at + cut),
+      });
+    }
+    const results = await parity(page, before, edits);
+    for (const result of results.edits) {
+      total++;
+      if (!result.fragment) continue;
+      fragments++;
+      expect(result, result.name).toEqual({
+        name: result.name,
+        fragment: true,
+        count: true,
+        bound: true,
+        live: true,
+        spans: true,
+      });
+    }
+  }
+  expect(total).toBeGreaterThanOrEqual(200);
+  // Enough of them take the fragment path for the comparison to mean something (58 with this seed;
+  // the templates' design-marked sections send most of the rest to the full parse).
+  expect(fragments).toBeGreaterThanOrEqual(50);
+});
+
+test('a large page update parses only what changed, exactly as a full parse', async ({ page }) => {
+  const results = await parity(page, PAGE, edits);
+  expect(results.placed).toBe(true);
+  for (const [index, edit] of edits.entries()) {
+    const result = results.edits[index];
+    expect(result.fragment, edit.name).toBe(edit.fragment);
+    if (result.fragment)
+      expect(result, edit.name).toEqual({
+        name: edit.name,
+        fragment: true,
+        count: true,
+        bound: true,
+        live: true,
+        spans: true,
+      });
+  }
 });

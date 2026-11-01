@@ -324,6 +324,43 @@ impl OwnerTransaction<'_> {
     pub(crate) fn page_list_for_cli(&self, space: SpaceExpiry) -> Result<serde_json::Value> {
         self.page_list_with(Some(space))
     }
+    /// Every membership payload, each verified against the chain up to this transaction's head.
+    /// A read transaction reuses the payloads verified at the same head (#5882); the chain must
+    /// still end exactly at the head, or nothing is returned.
+    fn verified_log(&self) -> Result<std::sync::Arc<Vec<payload::Payload>>> {
+        let cache = match (self.cache, self.head()) {
+            (Some(cache), Some(head)) => Some((&cache.log, self.cache_key(head)?)),
+            _ => None,
+        };
+        if let Some(log) = cache.as_ref().and_then(|(cache, key)| cache.get(key)) {
+            return Ok(log);
+        }
+        let mut head = None;
+        let mut payloads = Vec::new();
+        let mut log = self
+            .tx
+            .prepare("SELECT length(envelope),envelope FROM membership_log ORDER BY revision")?;
+        let mut rows = log.query([])?;
+        while let Some(row) = rows.next()? {
+            let size: i64 = row.get(0)?;
+            if size <= 0 || size > ((payload::MAX_BYTES + 1024) * 4 / 3 + 2048) as i64 {
+                return Err(OwnerFault::Capacity.into());
+            }
+            let bytes: Vec<u8> = row.get(1)?;
+            let envelope = statement::Envelope::from_json(&bytes)?;
+            let verified = envelope.verify_next(self.space, self.root, head.as_ref())?;
+            head = Some(verified.head);
+            payloads.push(verified.payload);
+        }
+        if head.as_ref() != self.head() {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let payloads = std::sync::Arc::new(payloads);
+        if let Some((cache, key)) = cache {
+            cache.put(&key, payloads.clone());
+        }
+        Ok(payloads)
+    }
     fn page_list_with(&self, space: Option<SpaceExpiry>) -> Result<serde_json::Value> {
         let mut query = self.tx.prepare(
             "SELECT page,epoch,last_update_at_ms,last_activity_at_ms FROM pages ORDER BY page LIMIT 1001",
@@ -370,28 +407,15 @@ impl OwnerTransaction<'_> {
         }
         // Existence/epoch are the local creation projection; presentation policy
         // comes only from owner-signed statements. Never expose encrypted titles.
-        let mut head = None;
         let mut policies = std::collections::BTreeMap::<String, crate::fold::PagePolicy>::new();
-        let mut log = self
-            .tx
-            .prepare("SELECT length(envelope),envelope FROM membership_log ORDER BY revision")?;
-        let mut rows = log.query([])?;
-        while let Some(row) = rows.next()? {
-            let size: i64 = row.get(0)?;
-            if size <= 0 || size > ((payload::MAX_BYTES + 1024) * 4 / 3 + 2048) as i64 {
-                return Err(OwnerFault::Capacity.into());
-            }
-            let bytes: Vec<u8> = row.get(1)?;
-            let envelope = statement::Envelope::from_json(&bytes)?;
-            let verified = envelope.verify_next(self.space, self.root, head.as_ref())?;
-            head = Some(verified.head);
-            if let Some(page) = verified.payload.page() {
+        for payload in self.verified_log()?.iter() {
+            if let Some(page) = payload.page() {
                 policies
                     .entry(page.to_owned())
                     .or_default()
-                    .apply(&verified.payload, page)?;
+                    .apply(payload, page)?;
             }
-            match verified.payload {
+            match payload {
                 payload::Payload::PageShare(p) => {
                     if let Some(page) = pages.get_mut(&p.page_id) {
                         page["sharing"] = serde_json::json!(match p.mode {
@@ -438,9 +462,6 @@ impl OwnerTransaction<'_> {
                 }
                 _ => {}
             }
-        }
-        if head.as_ref() != self.head() {
-            return Err(OwnerFault::Invalid.into());
         }
         let now = (self.clock)()?;
         values::time(now)?;

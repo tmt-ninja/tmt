@@ -320,7 +320,26 @@ its whole text), so a metadata-only change remounts the frame. Any other source 
 open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstrap's `PAGE MORPH`
 region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
 `data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
-node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
+node cases is `e2e/page-morph.spec.ts`. An update costs what changed, not the page (#5891): the
+morph leaves a node whose source equals the previous source's node in the same place, a change
+inside whole top-level nodes parses only those nodes when `planFragment` shows that equals the
+whole parse (the doctype and the document's own `html`, `head` and `body` tags give no node; an
+`svg` or `math` subtree, and a `select` holding only options, is one element up to its end tag; a
+top-level paragraph left open is its own node that an edit beside it parses again; and a block's end
+tag closes the list items and paragraphs left open in it. `topLevelSpans` refuses the rest, so these
+pages parse whole on every update: a `script`, `noscript`, `template`, `iframe` or `frameset`
+anywhere, content after the body's end tag, an unterminated comment, other `<!`/`<?` markup, an
+`svg` or `math` whose content breaks back out into HTML (anything but text in a `title` or `desc`),
+a `select` holding anything but options, a stray or misnested end tag, an inline element left open,
+a paragraph left open with an element open inside it, a list item left open with anything but a
+paragraph open inside it, a table that is not explicit and strict, `/>` on a non-void element, and
+a heading, `a`, `button`, `form` or `nobr` opened inside its own kind. An edit that touches a style,
+a table, an `svg`, `math` or `select`, a question, review or read block, a handler or a design marker
+parses the whole page too, and an edit may hold the document's own tags only unchanged. The
+seeded-edit test in that spec compares 200 random edits over the page templates with the full parse), the frame's
+style element is written only when its text changes (a rewrite restyles and relays the whole
+page), and the anchor and question passes walk the page text only when they have something to
+match. On success the router's `contentRevision` counter re-runs
 the highlight, select, question and slot effects without a `loading` state; the question pass sets
 the question, review and reading marks on the blocks the parent admits and clears them (and the
 `hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s

@@ -2700,7 +2700,11 @@ recomputes its own key from that parse: any `script` element, `on*` attribute or
 runtime marker, a different root attribute or a different design-system match
 answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
 reason:"remount"}`. Otherwise it changes its body in place to the new source,
-matching elements by `id` and then by kind and position. It keeps what it added
+matching elements by `id` and then by kind and position. When the change lies within whole
+top-level nodes and touches no `style`, `script`, document-level or table tag,
+question, review or read block, inline handler or design-system marker, it parses
+and changes only those nodes, and only where that gives the same nodes as parsing
+the whole source; otherwise it parses the whole source. It keeps what it added
 itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
 choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
 `checked`, `selected` and the matching live state stay until the source changes
@@ -3929,10 +3933,11 @@ In Discussion, Resolve and Reopen retain the conversation, quote, messages, comp
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;
 unknown or ambiguous recipients remain visible as Not notified. Resolve all confirms a
-snapshot of the open threads in the current filter, then re-admits each status write;
-partial failure leaves committed changes in place and is reported in the existing state
-line. A mentioned agent is assigned to its first successfully committed status in the
-batch and notified at most once. Reopen can supersede remaining attempts for its status.
+snapshot of the open threads in the current filter, then admits once and publishes their
+statuses in the fewest own updates that fit (at most 32 records each, within the update
+size); a refused thread or update leaves the other commits in place and is reported in the
+existing state line. A mentioned agent is assigned to its first successfully committed status
+in the batch and notified at most once. Reopen can supersede remaining attempts for its status.
 Agent replies join verified Ask records to comment IDs and remain attributed to their
 agent. Overlay geometry does not reflow page content.
 Shared Source, Agents, Files and Export drawers leave an 8 px

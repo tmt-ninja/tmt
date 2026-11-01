@@ -125,6 +125,7 @@ const discussion: ThreadBinding = {
   deleteComment: unexpectedDiscussion,
   updateThread: unexpectedDiscussion,
   setStatus: unexpectedDiscussion,
+  setStatuses: unexpectedDiscussion,
   notificationFailed: unexpectedDiscussion,
 };
 const binding: PageBinding = {

@@ -173,6 +173,10 @@ test('Resolve all confirms the filter snapshot, preserves Cancel and notifies a 
       (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('notify:')),
     )
     .toEqual(['notify:Agent 1']);
+  // Both statuses went to the binding as one batch.
+  expect(
+    (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('statuses:')),
+  ).toEqual(['statuses:2']);
 });
 
 test('a confirmed Resolve-all snapshot excludes an arrival while the confirmation is open', async ({

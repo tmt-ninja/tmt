@@ -209,6 +209,7 @@ pub struct PageStorageBytes {
 pub struct Store {
     connection: Connection,
     clock: Arc<Clock>,
+    read_cache: owner::ReadCache,
 }
 /// Match the state leaf's descriptor-free SQLite admission. Closing a separate file handle
 /// would release this process's locks held by another SQLite connection on the same inode.
@@ -371,6 +372,7 @@ impl Store {
         Ok(Self {
             connection,
             clock: Arc::new(now_ms),
+            read_cache: Default::default(),
         })
     }
     /// Existing-state reads never create files, change pragmas or run migrations.
@@ -402,6 +404,7 @@ impl Store {
         Ok(Self {
             connection,
             clock: Arc::new(now_ms),
+            read_cache: Default::default(),
         })
     }
     /// Trusted server clock; injected by tests, never selected by a request.

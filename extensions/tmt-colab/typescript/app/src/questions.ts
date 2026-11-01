@@ -323,6 +323,10 @@ function readChoice(node: Element): { choice: QuestionChoice; invalidDescription
  * Structural failures silence descendants; group-empty preserves evaluated child findings.
  */
 export function inspectQuestions(source: string): QuestionInspection {
+  // Element and attribute names are literal in source, so a page that never names one inspects to
+  // nothing without parsing it: a large page's live write skips a whole-page parse (#5891).
+  if (!/<tmt-(?:question|review|read)|data-(?:question|choice)/i.test(source))
+    return { questions: [], groups: [], reviews: [], readings: [], findings: [] };
   const template = document.createElement('template');
   template.innerHTML = source;
   const root = template.content;
