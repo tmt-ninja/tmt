@@ -187,10 +187,10 @@ test.describe('the door', () => {
   });
 
   test('keeps the strict request-target grammar in front of the fallback', async () => {
-    // An escape, an empty inner segment or a query beyond plain name=value text is a malformed
+    // A path escape, empty inner segment or malformed/escaped query key is a malformed
     // target (400), never the shell; the fallback stays an explicit list.
     for (const path of [
-      '/settings?section=%2F',
+      '/settings?section=%G1',
       '/colab/pages/abcd?read=a/b',
       '/colab/pages/abcd?tmt-session=x',
       '/colab/a%2Fb',
@@ -198,13 +198,13 @@ test.describe('the door', () => {
     ])
       for (const method of ['GET', 'HEAD'])
         expect((await get(path, { method })).status, `${method} ${path}`).toBe(400);
-    // The app writes its own plain keys onto its routes (`?open=`, `?read=`, `?anchor=`), so a
+    // The app writes its own keys and opaque values onto its routes, so a
     // reload of such an address is the shell.
     for (const path of ['/colab/pages/abcd?read=x', '/colab/p/abcd?open=1&a=b'])
       expect((await get(path)).status, path).toBe(200);
   });
 
-  test('redirects a short page link that carries a plain query', async () => {
+  test('redirects a short page link and preserves its opaque query bytes', async () => {
     for (const method of ['GET', 'HEAD']) {
       const short = await get('/p/abcd1234?open=1&a=b', { method });
       expect([short.status, short.headers.get('location')], method).toEqual([
@@ -212,9 +212,65 @@ test.describe('the door', () => {
         '/colab/p/abcd1234?open=1&a=b',
       ]);
     }
-    // Only a plain name=value query rides on the short link.
-    for (const path of ['/p/abcd1234?a=%2e', '/p/abcd1234?a=/../x', '/p/abcd1234?a=b;c'])
+    for (const method of ['GET', 'HEAD']) {
+      for (const query of ['project=%5B%22blog%22%5D', 'project=%E6%96%87&read=%2f%2F']) {
+        const short = await get(`/p/abcd1234?${query}`, { method });
+        expect([short.status, short.headers.get('location')], `${method} ${query}`).toEqual([
+          308,
+          `/colab/p/abcd1234?${query}`,
+        ]);
+      }
+    }
+    for (const path of [
+      '/p/abcd1234?a=%G1',
+      '/p/abcd1234?a=%4',
+      '/p/abcd1234?a=%',
+      '/p/abcd1234?%61=b',
+      '/p/abcd1234?a=/../x',
+      '/p/abcd1234?a=b;c',
+    ])
       expect((await get(path)).status, path).toBe(400);
+  });
+
+  test('app routes keep well-formed escaped query values opaque without widening paths or handoff', async () => {
+    const shell = await (await get('/')).text();
+    // Colab's locked TanStack serializer uses URLSearchParams over JSON search values.
+    const projectQuery = new URLSearchParams({
+      project: JSON.stringify(['Q4 plan*(a)!~', '文']),
+    }).toString();
+    expect(projectQuery).toBe('project=%5B%22Q4+plan*%28a%29%21%7E%22%2C%22%E6%96%87%22%5D');
+    const spacedName = new URLSearchParams({ project: JSON.stringify(['Q4 plan']) }).toString();
+    for (const method of ['GET', 'HEAD']) {
+      for (const path of ['/', '/colab/', '/colab/p/abcd', '/remote/']) {
+        for (const query of [
+          'project=%5B%22blog%22%5D',
+          projectQuery,
+          spacedName,
+          'project=%E6%96%87',
+          'read=%20',
+          'read=%2F%26tmt-session%3Dopaque',
+        ]) {
+          const reply = await get(`${path}?${query}`, { method });
+          expect(reply.status, `${method} ${path}?${query}`).toBe(200);
+          expect(reply.headers.get('set-cookie')).toBeNull();
+          if (method === 'GET') expect(await reply.text()).toBe(shell);
+        }
+      }
+      for (const query of [
+        'a=%G1',
+        'a=%4',
+        'a=%',
+        'tmt%2Dsession=x',
+        '%61=b',
+        'a+b=x',
+        'a*b=x',
+        'tmt-session=x',
+        'tmt-session=11111111-1111-4111-8111-111111111111',
+        'a=b=c',
+      ])
+        expect((await get(`/colab/?${query}`, { method })).status, `${method} ${query}`).toBe(400);
+      expect((await get('/colab/a%2Fb?project=%5B%5D', { method })).status).toBe(400);
+    }
   });
 
   test('serves shell.html public and static', async () => {

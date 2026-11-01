@@ -118,9 +118,9 @@ and the document reads no cookie or session. Its policy is the pairing page poli
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
 `frame-src 'self'`, with `object-src 'none'`; it is no wider than Colab's mounted document policy.
 `GET /p/<id>` answers 308 with `Location: /colab/p/<id>` (its query kept) and an empty body; a
-malformed `/p` path receives the generic HTML 404 page. An app route and `/p/<id>` accept only a
-plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`; the app writes
-its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
+malformed `/p` path receives the generic HTML 404 page. App/`/p/<id>` queries: `key=value` split on `&`; unreserved keys except
+`tmt-session`; values: unreserved, `+`, `*` or `%HH` (hex). Bad pairs/escapes/escaped keys: 400.
+Remote never decodes; app/308 queries are byte-exact. The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
 always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules and
