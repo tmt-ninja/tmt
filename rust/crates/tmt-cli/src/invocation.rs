@@ -635,6 +635,7 @@ pub enum OrchWriteOperation {
     },
     SetLeads {
         members: Vec<String>,
+        identity: Option<String>,
     },
     /// `duration_ms` `None` lasts to the end of the restricting slot, at most 24 hours.
     AllowRoute {

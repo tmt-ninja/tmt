@@ -526,4 +526,23 @@ fn a_talk_limit_hold_waits_for_a_person_and_expires_unsent() {
         (view.state, view.reason),
         (DeliveryState::NotSent, DeliveryReason::TalkHoldExpired)
     );
+    // An identified recipient's request has no wake while held; its status decides.
+    let inbox = DeliveryFacts {
+        talk_held: true,
+        status: AttemptStatus::DefinitelyFailed,
+        ..through_inbox(WakeState::NotAttempted)
+    };
+    assert_eq!(
+        delivery_view(&inbox, 0).reason,
+        DeliveryReason::TalkHoldExpired
+    );
+    let waiting = DeliveryFacts {
+        talk_held: true,
+        status: AttemptStatus::Prepared,
+        ..through_inbox(WakeState::NotAttempted)
+    };
+    assert_eq!(
+        delivery_view(&waiting, 0).reason,
+        DeliveryReason::HeldAtTalkLimit
+    );
 }

@@ -41,11 +41,13 @@ pub enum OrchMutationDocument {
         #[serde(rename = "identityId")]
         identity_id: String,
     },
-    /// Replace the leads list (#4892).
+    /// Replace the leads list (#4892). `actorId` is checked as for `route.allow`.
     #[serde(rename = "leads.set")]
     SetLeads {
         #[serde(rename = "identityIds")]
         identity_ids: Vec<String>,
+        #[serde(rename = "actorId", default, skip_serializing_if = "Option::is_none")]
+        actor_id: Option<String>,
     },
     /// Allow one ordered route past its sending rule until `untilMs`. `actorId` attributes
     /// the caller (a verified agent must be a lead); it authenticates no one.
@@ -152,9 +154,13 @@ fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
             }
             None
         }
-        OrchMutationDocument::SetLeads { identity_ids } => {
+        OrchMutationDocument::SetLeads {
+            identity_ids,
+            actor_id,
+        } => {
             if identity_ids.len() > tmt_core::orchestration::ORCH_MAX_MEMBERS
                 || identity_ids.iter().any(|id| !canonical_id(id))
+                || actor_id.as_deref().is_some_and(|id| !canonical_id(id))
             {
                 return Err(OrchError::Invalid);
             }
@@ -278,12 +284,19 @@ fn normalized(
                 },
             )
         }
-        OrchMutationDocument::SetLeads { identity_ids } => (
-            doc.clone(),
-            OrchMutation::SetLeads {
-                identity_ids: identity_ids.clone(),
-            },
-        ),
+        OrchMutationDocument::SetLeads {
+            identity_ids,
+            actor_id,
+        } => {
+            // Otherwise a non-lead agent could make itself a lead, then allow or resume.
+            permitted(snapshot, actor_id.as_deref())?;
+            (
+                doc.clone(),
+                OrchMutation::SetLeads {
+                    identity_ids: identity_ids.clone(),
+                },
+            )
+        }
         OrchMutationDocument::AllowRoute {
             from_id,
             to_id,
@@ -309,7 +322,7 @@ fn normalized(
     })
 }
 
-/// A verified agent may allow a route or resume a pair only as a current lead; a person
+/// A verified agent may set leads, allow a route or resume a pair only as a current lead; a person
 /// (no verified caller) may always. Local attribution, not authentication.
 fn permitted(snapshot: &OrchSnapshot, actor: Option<&str>) -> Result<(), OrchError> {
     match actor {

@@ -658,8 +658,9 @@ pub trait RequestRecords {
         a: &str,
         b: &str,
     ) -> Result<Vec<crate::orchestration::sending::OrchHeld>, Self::Error>;
-    /// Release the pair: drop its holds, restart its window at `now_ms`, give each live
-    /// released attempt a fresh normal expiry and journal the release.
+    /// Release the pair: drop the `released` holds (an expired hold stays), restart its
+    /// window at `now_ms`, give each released attempt a fresh normal expiry capped by its
+    /// retained text, and journal the release.
     fn release_person_holds(
         &mut self,
         a: &str,

@@ -61,7 +61,8 @@ fn send_as(
     service(f).prepare_delivery(
         input,
         format!("attempt-{id}"),
-        7,
+        // Retained longer than the 7-day hold, so an expired hold stays readable.
+        30,
         DeliveryPolicy::default(),
         None,
     )
@@ -231,4 +232,61 @@ fn an_unresumed_hold_expires_unsent_once_and_resume_skips_it() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn resume_keeps_an_expired_hold_reported_and_releases_only_live_ones() {
+    let (mut f, db, a, b) = world("{\"talkLimit\":1}");
+    send(&mut f, &a, &b).unwrap();
+    let expired = send(&mut f, &a, &b).unwrap();
+    f.set_now(NOW_MS + 1000);
+    let live = send(&mut f, &a, &b).unwrap();
+    assert!(expired.held_for_person && live.held_for_person);
+    let expiry = |db: &Connection, id: &str| -> u64 {
+        db.query_row(
+            "SELECT expires_at_ms FROM request_attempts WHERE request_id=?",
+            [id],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap() as u64
+    };
+    f.set_now(expiry(&db, &expired.request_id));
+    service(&mut f).cleanup().unwrap();
+    // A short retained text: the released expiry must stop with it.
+    let short = expiry(&db, &expired.request_id) + 60_000;
+    db.execute(
+        "UPDATE request_attempts SET message_expires_at_ms=? WHERE request_id=?",
+        rusqlite::params![short as i64, live.request_id],
+    )
+    .unwrap();
+    let ids = vec![expired.request_id.clone(), live.request_id.clone()];
+    let released = service(&mut f).resume_pair(&a, &b, None, &ids).unwrap();
+    assert_eq!(released, vec![live.request_id.clone()]);
+    // The expired hold still reports itself; the live one is gone from the holds.
+    let held = f.storage.orchestration_held(&a, &b).unwrap();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].request_id, expired.request_id);
+    let page = service(&mut f)
+        .request_history(tmt_core::request::history::HistoryQuery {
+            scope: tmt_core::request::history::HistoryScope::Recipient {
+                identity_id: b.clone(),
+                room_id: None,
+            },
+            before: None,
+            limit: 50,
+        })
+        .unwrap();
+    let view = &page
+        .items
+        .iter()
+        .find(|i| i.item.request_id == expired.request_id)
+        .expect("the expired request is still in history")
+        .item
+        .delivery_view;
+    assert_eq!(
+        view.reason,
+        tmt_core::request::delivery::DeliveryReason::TalkHoldExpired
+    );
+    // A released expiry never outlives the retained text.
+    assert_eq!(expiry(&db, &live.request_id), short);
 }

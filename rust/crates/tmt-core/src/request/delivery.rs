@@ -423,11 +423,13 @@ pub fn delivery_view(facts: &DeliveryFacts, now_ms: u64) -> DeliveryView {
     let started = busy
         && !turn_over
         && working_since.is_some_and(|since| now_ms.saturating_sub(since) <= WORKING_WINDOW_MS);
+    // A held attempt never reached a wake, so its own status tells held from expired.
     if facts.talk_held {
-        match handover(facts) {
-            Handover::Waiting => return DeliveryView::of(State::Batched, Why::HeldAtTalkLimit),
-            Handover::Refused => return DeliveryView::of(State::NotSent, Why::TalkHoldExpired),
-            _ => {}
+        if facts.status == AttemptStatus::DefinitelyFailed {
+            return DeliveryView::of(State::NotSent, Why::TalkHoldExpired);
+        }
+        if handover(facts) == Handover::Waiting {
+            return DeliveryView::of(State::Batched, Why::HeldAtTalkLimit);
         }
     }
     let mut view = match (handover(facts), facts.hold) {

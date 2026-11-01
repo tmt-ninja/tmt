@@ -475,6 +475,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     .get_many::<String>("member-name")
                     .map(|v| v.cloned().collect())
                     .unwrap_or_default(),
+                identity: text(m, "identity"),
             },
             yes: flag(m, "yes"),
         }),

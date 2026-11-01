@@ -207,8 +207,8 @@ pub(in crate::storage) fn held_for_person(
 }
 
 impl ReceivingCalendar {
-    /// Drop the pair's holds, restart its window, refresh each live attempt's expiry and
-    /// journal each release, all in the caller's transaction.
+    /// Drop the released holds, restart the pair's window, refresh each released attempt's
+    /// expiry and journal each release, all in the caller's transaction.
     pub(in crate::storage) fn release_person_holds(
         &self,
         db: &Connection,
@@ -218,11 +218,6 @@ impl ReceivingCalendar {
         actor: Option<&str>,
         now: u64,
     ) -> Result<(), StorageError> {
-        db.execute(
-            "DELETE FROM orchestration_talk_holds WHERE (from_id=?1 AND to_id=?2) OR (from_id=?2 AND to_id=?1)",
-            params![a, b],
-        )
-        .map_err(|e| classify(e, "Release held requests"))?;
         let (first, second) = ordered(a, b);
         db.execute(
             "INSERT INTO orchestration_talk_resumes(first_id,second_id,resumed_ms) VALUES(?1,?2,?3) \
@@ -233,8 +228,15 @@ impl ReceivingCalendar {
         let stored = read_snapshot(db, None, None)?;
         let zone = self.zone.as_ref().ok_or_else(corrupt)?;
         for held in released {
+            // Only released holds go; an expired one stays so `talks` and `x show` report it.
             db.execute(
-                "UPDATE request_attempts SET expires_at_ms=?2 WHERE request_id=?1",
+                "DELETE FROM orchestration_talk_holds WHERE request_id=?",
+                [&held.request_id],
+            )
+            .map_err(|e| classify(e, "Release held request"))?;
+            // A fresh normal expiry, never past the retained text.
+            db.execute(
+                "UPDATE request_attempts SET expires_at_ms=MIN(?2, COALESCE(message_expires_at_ms, ?2)) WHERE request_id=?1",
                 params![
                     held.request_id,
                     now.saturating_add(tmt_core::retention::REQUEST_MIN_EXPIRY_MS) as i64

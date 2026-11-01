@@ -296,7 +296,9 @@ transaction, with the same resolver; there is no other entry point, counter or c
 
 Leads are an explicit list of canonical identity UUIDs in the orchestration
 configuration, replaced by `orchestration.write` mutation `leads.set`
-(`identityIds`, at most 256, unique) or `tmt orch leads set NAME...`. Core never
+(`identityIds`, at most 256, unique; optional `actorId`) or
+`tmt orch leads set NAME...`. Only a person or a current lead may set it, as for
+`route.allow` below, so an agent cannot make itself a lead. Core never
 reads another component's squad metadata. A retired identity stays stored and
 is dropped from the effective list at read time.
 
@@ -332,8 +334,8 @@ one journal entry (action `delay`, outcome `failed`, reason `talk_hold_expired`)
 `talk_hold_expired`, and resume skips it.
 `--urgent` does not bypass the limit.
 
-`route.allow` and `talks.resume` use the same preview, consent and CAS as other
-writes. `talks.resume` (`aId`, `bId`, optional `actorId`) changes requests, not
+`leads.set`, `route.allow` and `talks.resume` use the same preview, consent and CAS
+as other writes. `talks.resume` (`aId`, `bId`, optional `actorId`) changes requests, not
 the configuration: its preview lists the pair's `held` entries and the number of
 `releases`, and its digest fences their IDs and the configuration revision. Apply
 returns the `released` request IDs; a changed held set is `ORCH_CONFLICT` (exit 5).

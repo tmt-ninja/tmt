@@ -36,7 +36,8 @@ fn mutation(
                 },
             }
         }
-        OrchWriteOperation::SetLeads { members } => OrchMutationDocument::SetLeads {
+        OrchWriteOperation::SetLeads { members, identity } => OrchMutationDocument::SetLeads {
+            actor_id: actor(storage, identity.as_deref())?,
             identity_ids: members
                 .into_iter()
                 .map(|name| member(storage, name))
