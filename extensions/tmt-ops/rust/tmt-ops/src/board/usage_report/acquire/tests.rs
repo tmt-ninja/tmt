@@ -423,3 +423,63 @@ fn digest_redesign_daily_buckets_keep_real_resolution_gaps_and_exact_bounds() {
         assert!(window_series(&document, ID, range).is_err());
     }
 }
+
+#[test]
+fn digest_daily_request_keeps_the_existing_cut_and_adds_one_bounded_series_read() {
+    let scratch = Scratch::new("digest-series-read");
+    let range = TokRange::Week;
+    let (totals, hourly) = histories(range);
+    let mut daily = hourly.clone();
+    let from = NOW - range.milliseconds();
+    daily["identities"][0]["windows"][0] = json!({"windowMs":range.milliseconds(),"fromMs":from,"toMs":NOW,"bucketMs":86_400_000u64,
+        "buckets":(0..7).map(|n| json!({"fromMs":from+n*86_400_000u64,"toMs":from+(n+1)*86_400_000u64,"inputTokens":1,"outputTokens":2,"cachedInputTokens":0,"coveredMs":86_400_000u64,"complete":true})).collect::<Vec<_>>()});
+    for (name, document) in [("totals", totals), ("hourly", hourly), ("daily", daily)] {
+        std::fs::write(scratch.join(format!("{name}.json")), document.to_string()).unwrap();
+    }
+    let script = scratch.join("core");
+    let payload = scratch.join("core.py");
+    std::fs::write(
+        &payload,
+        format!(
+            r#"import json,pathlib,sys
+root=pathlib.Path({root:?})
+if sys.argv[1]=='x':
+ print(json.dumps({{'sinceMs':0,'observedAtMs':{NOW},'rows':[]}})); sys.exit(0)
+request=json.load(sys.stdin)
+with open(root/'history-calls','a') as out: out.write(json.dumps(request)+'\n')
+count=request['input']['maxBuckets']
+print((root/('totals.json' if count==1 else 'hourly.json' if count==24 else 'daily.json')).read_text())
+"#,
+            root = scratch.display().to_string()
+        ),
+    ).unwrap();
+    write_ready_executable(
+        &script,
+        &format!(
+            "#!/bin/sh\nexec /usr/bin/python3 '{}' \"$@\"\n",
+            payload.display()
+        ),
+    );
+    let mut request = Request::new(range, vec![ID.into()]);
+    request.window_series = true;
+    let report = read(&Core::at(script), &request, Duration::from_secs(10)).unwrap();
+    let series = report.seats[0].window_series.as_ref().unwrap();
+    assert_eq!(
+        (series.from_ms, series.bucket_ms, series.points.len()),
+        (from, 86_400_000, 7)
+    );
+    assert_eq!(series.points[0].tokens, 3);
+    let calls: Vec<Value> = std::fs::read_to_string(scratch.join("history-calls"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(calls.len(), 3);
+    assert!(calls[0]["input"].get("throughMs").is_none());
+    assert!(
+        calls[1..]
+            .iter()
+            .all(|call| call["input"]["throughMs"] == NOW)
+    );
+    assert_eq!(calls[2]["input"]["maxBuckets"], 7);
+}
