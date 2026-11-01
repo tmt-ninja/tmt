@@ -929,7 +929,6 @@ export const text = {
     tabNeedsYou: 'Needs you',
     tabNeedsYouWaiting: 'waiting',
     newPage: 'New page',
-    newShort: 'New',
     newPageTitle: 'New page',
     newPageClose: 'Close',
     newPageHint: 'Return to your TMT workspace after creating the page.',

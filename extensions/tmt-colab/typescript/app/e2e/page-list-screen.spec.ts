@@ -59,7 +59,9 @@ for (const width of [1440, 390])
         return { search, tabs, list };
       };
       const before = await top();
-      expect(before.search.y - before.tabs.y - before.tabs.height).toBe(16);
+      // The tabs row (tabs plus the list actions) keeps #5818's space-l above the search row.
+      const tabsRow = (await app(page).locator('.tmt-ui-tabs-header').first().boundingBox())!;
+      expect(before.search.y - tabsRow.y - tabsRow.height).toBe(16);
       expect(before.list.y - before.search.y - before.search.height).toBe(16);
       expect(before.search.height).toBe(36);
 
@@ -684,8 +686,15 @@ for (const width of [1440, 390])
     page,
   }) => {
     await mount(page, width, 'light');
-    await page.setViewportSize({ width, height: 180 });
     const home = app(page).locator('[data-page-list]');
+    // Shorten the viewport until the boundary sits just below the list's own viewport.
+    const below = await home.evaluate(
+      (node) =>
+        node.querySelector('.page-list-controls-boundary')!.getBoundingClientRect().top -
+        node.getBoundingClientRect().bottom,
+    );
+    const height = width < 480 ? 844 : 900;
+    await page.setViewportSize({ width, height: Math.min(180, Math.floor(height + below) - 8) });
     const outside = await home.evaluate(
       (node) =>
         node.querySelector('.page-list-controls-boundary')!.getBoundingClientRect().top >
