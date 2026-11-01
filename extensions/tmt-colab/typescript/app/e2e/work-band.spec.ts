@@ -525,6 +525,15 @@ for (const width of [390, 1440])
       expect(
         (await footer.boundingBox())!.y + (await footer.boundingBox())!.height,
       ).toBeLessThanOrEqual(900);
+      // One column gap: the footer sits as far below the list as the list block below the header.
+      const gaps = await dialog.evaluate((node) => {
+        const box = (selector: string) => node.querySelector(selector)!.getBoundingClientRect();
+        return {
+          header: box('.work-add-command').top - box('[data-slot="dialog-header"]').bottom,
+          footer: box('[data-slot="dialog-footer"]').top - box('.work-add-command').bottom,
+        };
+      });
+      expect(gaps.footer).toBe(gaps.header);
       await capture('scrolled');
       await page.keyboard.press('Escape');
       await expect(dialog).toHaveCount(0);

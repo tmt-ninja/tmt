@@ -335,9 +335,6 @@ a.work-row-title:hover {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.work-add-dialog [data-slot='dialog-footer'] {
-  margin-top: var(--tmt-ui-space-m);
-}
 .work-add-command [cmdk-input] {
   height: 100%;
 }
