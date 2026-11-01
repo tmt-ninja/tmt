@@ -501,12 +501,28 @@
     var(--tmt-ui-ref-space-4);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+.reader-window-bar > * {
+  flex: none;
+  white-space: nowrap;
+}
+.reader-window-bar > .reader-grow {
+  flex: 1;
+}
+.reader-window-bar:has(.reader-position) {
+  gap: 2px;
+}
 .reader-position {
+  margin-inline: var(--tmt-ui-ref-space-1);
   font-variant-numeric: tabular-nums;
 }
+/* Main's header icon actions are text actions a step smaller than a toolbar button. */
+.reader-bar-icon {
+  width: 28px;
+  height: 28px;
+}
 .reader-bar-rule {
-  align-self: stretch;
-  margin-block: var(--tmt-ui-ref-space-2);
+  height: 16px;
+  margin-inline: var(--tmt-ui-ref-space-1);
 }
 .reader-thread-row {
   display: grid;
@@ -666,6 +682,9 @@
 }
 
 @media (max-width: 760px) {
+  .reader-wide {
+    display: none;
+  }
   .reader-subs-long {
     display: none;
   }

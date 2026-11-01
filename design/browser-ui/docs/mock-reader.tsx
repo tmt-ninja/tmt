@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   Check,
   CheckCheck,
@@ -188,15 +188,27 @@ function SubNav({ parent, subs }: { parent: boolean; subs: boolean }) {
           <Badge variant="outline" className="reader-project">
             spec
           </Badge>
-          <Button type="button" variant="ghost" size="icon" aria-label="Add project">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="reader-wide"
+            aria-label="Add project"
+          >
             <Plus aria-hidden="true" />
           </Button>
-          <Button type="button" variant="ghost" size="icon" aria-label="Pin page">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="reader-wide"
+            aria-label="Pin page"
+          >
             <Pin aria-hidden="true" />
           </Button>
         </div>
       }
-      status={<span className="reader-quiet">Live</span>}
+      status={<span className="reader-quiet reader-wide">Live</span>}
     />
   ) : null;
 }
@@ -699,7 +711,8 @@ function HeaderAction({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="icon-sm"
+          className="reader-bar-icon"
           aria-label={label}
           disabled={disabled}
           onClick={onClick}
@@ -714,9 +727,18 @@ function HeaderAction({
 
 /** Resolve all's confirmation (resolve-all-threads.tsx), listing the threads it will resolve. */
 function ResolveAllDialog({ open }: { open: Thread[] }) {
+  const cancel = useRef<HTMLButtonElement>(null);
   return (
     <Dialog open onOpenChange={(next) => !next && setQuery({ confirm: null })}>
-      <DialogContent className="reader-confirm">
+      <DialogContent
+        className="reader-confirm"
+        showCloseButton={false}
+        onOpenAutoFocus={(event) => {
+          // As in main: the safe answer takes focus.
+          event.preventDefault();
+          cancel.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Resolve {open.length} open comments?</DialogTitle>
           <DialogDescription>Each thread closes for everyone on this page.</DialogDescription>
@@ -730,7 +752,12 @@ function ResolveAllDialog({ open }: { open: Thread[] }) {
           ))}
         </ul>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setQuery({ confirm: null })}>
+          <Button
+            ref={cancel}
+            type="button"
+            variant="outline"
+            onClick={() => setQuery({ confirm: null })}
+          >
             Cancel
           </Button>
           <Button type="button" onClick={() => setQuery({ confirm: null, report: '1' })}>
@@ -888,7 +915,9 @@ function DockWindow({
                     <Marker n={thread.n} resolved={thread.resolved} inert />
                     <q className="reader-thread-quote">{thread.quote}</q>
                     <span className="reader-quiet">
-                      {thread.resolved ? 'Resolved' : `${thread.turns.length} messages`}
+                      {thread.resolved
+                        ? 'Resolved'
+                        : `${thread.turns.length} ${thread.turns.length === 1 ? 'message' : 'messages'}`}
                     </span>
                   </button>
                 ))
