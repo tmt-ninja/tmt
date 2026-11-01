@@ -911,7 +911,12 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           db.close();
         }
       };
+      // Empty-job adoption owns the shared configuration revision. Complete it
+      // before freezing the exact no-lead-publication baseline; no squad exists yet.
+      const initialCoreLeads = coreLeadState().leads;
+      expectJsonResult(await squadCli(fixture, ['cron', 'ls']));
       const beforeCoreLeads = coreLeadState();
+      expect(beforeCoreLeads.leads).toEqual(initialCoreLeads);
       const beforeRequests = requestAttempts(fixture);
       const beforeIdentities = durableState(fixture);
       await fixture.attachSessionClient('e2e');
