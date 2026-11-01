@@ -15,7 +15,10 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, types::Value};
 
-use super::{RUN_SCOPE_LOCK, STALE_RUN_SCOPE_AGE, TemplateStore, admit, key, published};
+use super::{
+    RUN_SCOPE_LOCK, STALE_RUN_SCOPE_AGE, TemplateStore, admit, key, prune_stale_run_scopes,
+    published,
+};
 use crate::{
     storage::{Storage, hook_queue::HookQueue, migrations},
     test_support::{TestChild, TestDirectory},
@@ -444,6 +447,11 @@ fn a_run_scope_collects_only_old_unlocked_run_scopes_of_earlier_runs() {
     left_scope(&root, "run-nolock", STALE, false);
     left_scope(&root, "process-1-2-3", STALE, true);
     left_scope(&root, "run-not.an.id", STALE, true);
+    // Directories a collector retired but did not remove, with or without
+    // their lock file.
+    left_scope(&root, "retired-gone-1-0", STALE, true);
+    left_scope(&root, "retired-gone-1-1", STALE, false);
+    left_scope(&root, "retired-recent-1-2", Duration::from_secs(60), true);
     // An old link named like a run scope is not followed and not removed.
     let outside = directory.path.join("outside");
     fs::create_dir(&outside).unwrap();
@@ -458,6 +466,7 @@ fn a_run_scope_collects_only_old_unlocked_run_scopes_of_earlier_runs() {
         entries(&root),
         [
             "process-1-2-3",
+            "retired-recent-1-2",
             "run-current",
             "run-fresh",
             "run-link",
@@ -485,6 +494,36 @@ fn an_old_run_scope_with_a_live_lease_is_kept() {
 
     assert_eq!(entries(&root), ["run-active", "run-later"]);
     assert_eq!(fs::metadata(&template).unwrap().ino(), inode);
+    drop(lease);
+}
+
+/// reviewer-8's split lock domain: a user arrives while a collector holds the
+/// exclusive lock on the old scope and has not removed it yet. The user must
+/// end on a new scope with a new lock file, which the collector leaves alone.
+#[test]
+fn a_user_arriving_during_collection_gets_a_new_scope() {
+    let directory = TestDirectory::new();
+    let root = private_root(&directory);
+    let user = TemplateStore::new(root.clone(), Some("shared".into()), &[], |_| {});
+    drop(user.place(&directory.path.join("first.db")));
+    let scope = root.join("run-shared");
+    let old_lock = fs::metadata(scope.join(RUN_SCOPE_LOCK)).unwrap().ino();
+    set_age(&scope, STALE);
+
+    let mut lease = None;
+    let mut retired = None;
+    prune_stale_run_scopes(&root, "collector", &mut |path| {
+        lease = Some(user.place(&directory.path.join("during.db")));
+        retired = Some(path.to_path_buf());
+    });
+
+    let retired = retired.expect("the collector retired the old scope");
+    assert!(!retired.exists());
+    assert_eq!(entries(&root), ["run-shared"]);
+    let new_lock = fs::metadata(scope.join(RUN_SCOPE_LOCK)).unwrap().ino();
+    assert_ne!(new_lock, old_lock);
+    assert!(published(&user).is_some());
+    Storage::open(directory.path.join("during.db")).unwrap();
     drop(lease);
 }
 
