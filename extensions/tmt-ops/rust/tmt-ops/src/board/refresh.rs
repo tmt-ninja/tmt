@@ -63,6 +63,7 @@ impl Generation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
+    Orchestration(super::orchestration::Read),
     Conversation(super::selected_conversation::Plan),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
@@ -135,6 +136,14 @@ impl Worker {
                         let cancellation = read_generation.cancellation(generation);
                         let reader = core.cancellable(cancellation.clone());
                         let event = match read {
+                            SelectedRead::Orchestration(read) => {
+                                super::BoardEvent::OrchestrationRead {
+                                    observation: read.complete(&reader),
+                                    read,
+                                    revision,
+                                    cancellation: cancellation.clone(),
+                                }
+                            }
                             SelectedRead::Conversation(plan) => super::BoardEvent::Conversation {
                                 projection: plan.read(&reader, &mut sent_texts, &cancellation),
                                 plan,

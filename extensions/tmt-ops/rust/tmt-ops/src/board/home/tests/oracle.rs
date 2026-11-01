@@ -968,6 +968,21 @@ fn action_needed_frames(styles: &mut Styles) -> Vec<Value> {
 }
 
 #[inline(never)]
+fn orchestration_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        for scene in crate::board::orchestration::tests::captures::SCENES {
+            for width in [160, 100, 80, 60] {
+                for height in [36, 8] {
+                    let app = crate::board::orchestration::tests::captures::case(scene, look);
+                    frames.push(capture_frame(&app, scene, look_name, width, height, styles));
+                }
+            }
+        }
+    }
+    frames
+}
+
 fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
@@ -1210,6 +1225,7 @@ fn captures() -> Value {
         frames.extend(account_limits_frames(&mut styles));
         frames.extend(mention_picker_frames(&mut styles));
         frames.extend(visibility_frames(&mut styles));
+        frames.extend(orchestration_frames(&mut styles));
         let styles = styles
             .0
             .into_iter()

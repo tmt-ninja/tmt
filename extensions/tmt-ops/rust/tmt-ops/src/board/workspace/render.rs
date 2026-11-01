@@ -42,7 +42,7 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let tabs = [OpsTab::Agents, OpsTab::Digest];
+    let tabs = [OpsTab::Agents, OpsTab::Digest, OpsTab::Orchestration];
     let selected = tabs
         .iter()
         .position(|tab| *tab == app.shell.tab)
@@ -51,6 +51,7 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let keys = [
         (OpsUiAction::Agents, "1"),
         (OpsUiAction::DigestDashboard, "2"),
+        (OpsUiAction::Orchestration, "3"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let (line, hits) =
@@ -871,7 +872,8 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
 }
 
 /// The scope chip's wordings, longest first: `Scope: product` (`+2` for more
-/// squads), then `Scope: 3 squads`. Names are admitted whole, never cut.
+/// squads), then `Scope: 3 squads`, then the bare count `Scope 3` that still fits
+/// beside every tab at 60 columns. Names are admitted whole, never cut.
 pub(in crate::board) fn scope_labels(app: &App) -> Vec<String> {
     let scope = &app.workspace.visibility.scope;
     let (Some(first), Some(snapshot)) = (scope.first(), app.workspace_snapshot()) else {
@@ -884,11 +886,16 @@ pub(in crate::board) fn scope_labels(app: &App) -> Vec<String> {
         .find(|squad| &squad.room_id == first)
         .map_or_else(|| "(unavailable)".to_owned(), |squad| safe(&squad.name));
     if scope.len() == 1 {
-        vec![format!("Scope: {name}"), "Scope: 1 squad".into()]
+        vec![
+            format!("Scope: {name}"),
+            "Scope: 1 squad".into(),
+            "Scope 1".into(),
+        ]
     } else {
         vec![
             format!("Scope: {name} +{}", scope.len() - 1),
             format!("Scope: {} squads", scope.len()),
+            format!("Scope {}", scope.len()),
         ]
     }
 }

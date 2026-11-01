@@ -181,8 +181,8 @@ describe('release gate parity inventory', () => {
   it('maps the rehearsed prepare stages and incidents to the main-push rehearsal job', () => {
     const value = manifest();
     const rehearsal = {
-      workflow: 'ci.yml',
-      job: 'release-rehearsal',
+      workflow: 'release-rehearsal.yml',
+      job: 'prepare',
       selection: {
         kind: 'ci-scope',
         output: 'release_rehearsal',
@@ -238,7 +238,11 @@ describe('release gate parity inventory', () => {
     expect(value.incidents['1550'].mainPush).toEqual([rehearsal]);
     expect(value.incidents['1542'].preMerge[0].coverage).toBe('policy');
     // No release stage is mapped to the rehearsal as pre-merge coverage any more.
-    expect(JSON.stringify(value)).not.toMatch(/"preMerge":\[[^\]]*"job":"release-rehearsal"/);
+    expect(JSON.stringify(value)).not.toMatch(
+      /"preMerge":\[[^\]]*"workflow":"release-rehearsal\.yml"/
+    );
+    // The rehearsal no longer runs inside ci.yml, so main verification never waits on it (#2547).
+    expect(JSON.stringify(value)).not.toContain('"job":"release-rehearsal"');
   });
 
   it('maps the dry publication gates and the always-run title check, and leaves no follow-up open', () => {
@@ -411,14 +415,14 @@ describe('release gate parity inventory', () => {
   });
 
   it('does not accept a rehearsal job whose condition no longer uses its selector', () => {
-    const source = read('.github/workflows/ci.yml');
-    const job = inventoryWorkflow(source, 'ci.yml', 'release-rehearsal')['release-rehearsal'].body;
+    const source = read('.github/workflows/release-rehearsal.yml');
+    const job = inventoryWorkflow(source, 'release-rehearsal.yml', 'prepare').prepare.body;
     const changedJob = job.replace(
       "    if: needs.changes.outputs.release_rehearsal == 'true'",
       "    if: github.event_name == 'push'"
     );
     expect(changedJob).not.toBe(job);
-    const readChanged = changed('.github/workflows/ci.yml', (text) =>
+    const readChanged = changed('.github/workflows/release-rehearsal.yml', (text) =>
       text.replace(job, changedJob)
     );
     expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
@@ -427,9 +431,9 @@ describe('release gate parity inventory', () => {
   });
 
   it('refuses main-push coverage that a PR-only condition or a missing main trigger would hide', () => {
-    const source = read('.github/workflows/ci.yml');
-    const job = inventoryWorkflow(source, 'ci.yml', 'release-rehearsal')['release-rehearsal'].body;
-    const prOnly = changed('.github/workflows/ci.yml', (text) =>
+    const source = read('.github/workflows/release-rehearsal.yml');
+    const job = inventoryWorkflow(source, 'release-rehearsal.yml', 'prepare').prepare.body;
+    const prOnly = changed('.github/workflows/release-rehearsal.yml', (text) =>
       text.replace(
         job,
         job.replace(
@@ -441,7 +445,7 @@ describe('release gate parity inventory', () => {
     expect(() => checkReleaseParity(manifest(), { read: prOnly })).toThrow(
       'mainPush job must not require a pull-request verification event'
     );
-    const noMain = changed('.github/workflows/ci.yml', (text) =>
+    const noMain = changed('.github/workflows/release-rehearsal.yml', (text) =>
       text.replace('  push:\n    branches: [main]\n', '')
     );
     expect(() => checkReleaseParity(manifest(), { read: noMain })).toThrow(

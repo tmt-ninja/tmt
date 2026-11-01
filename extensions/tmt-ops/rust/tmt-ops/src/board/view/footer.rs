@@ -446,7 +446,90 @@ fn agents_legend(app: &App) -> Option<Hints> {
     Some(Hints { keys, tail })
 }
 
+/// The Orchestration tab's line, from its bound keys: moves first, then `? help` and `q quit`,
+/// then only the actions that apply to what is selected now (#5890 review).
+fn orchestration_pairs(app: &App, width: usize) -> Vec<Hint> {
+    use crate::action::{OpsUiAction as Ui, Verb};
+    let bindings = app.bindings();
+    let key = |action: Ui, preferred: &str| {
+        effective_key(app, &bindings, Verb::Ui(action), preferred).map(|key| match key.as_str() {
+            "up" => "↑".to_owned(),
+            "down" => "↓".to_owned(),
+            other => key_label(other).to_owned(),
+        })
+    };
+    let state = &app.orchestration;
+    let mut hints: Vec<Hint> = Vec::new();
+    let mut tail: Vec<Hint> = Vec::new();
+    for (action, preferred, word) in [(Ui::Help, "?", "help"), (Ui::Quit, "q", "quit")] {
+        if let Some(key) = key(action, preferred) {
+            tail.push((key, word.into()));
+        }
+    }
+    let Some(snapshot) = state.snapshot() else {
+        // Loading or an unsupported Core: nothing to move through or act on yet.
+        return fit_hints(hints, tail, width);
+    };
+    let matrix = !state.plans && snapshot.sending.routes.is_some();
+    let pair = |a: Option<String>, b: Option<String>, word: &str| {
+        let keys = format!("{}{}", a.unwrap_or_default(), b.unwrap_or_default());
+        (!keys.is_empty()).then(|| (keys, word.to_owned()))
+    };
+    hints.extend(pair(
+        key(Ui::Previous, "up"),
+        key(Ui::Next, "down"),
+        if state.plans { "plan" } else { "member" },
+    ));
+    hints.extend(pair(
+        key(Ui::Fold, "left"),
+        key(Ui::Expand, "right"),
+        if matrix { "cell" } else { "time" },
+    ));
+    if state.enlarge.get() {
+        // The tab asks for room: nothing it cannot show is offered, only the moves.
+        return fit_hints(hints, tail, width);
+    }
+    let (blocked, held) = state.cell_actions();
+    let actions = [
+        (Ui::AllowOnce, "a", blocked),
+        (Ui::ReleaseHeld, "r", held),
+        (Ui::FocusHour, "f", !state.plans),
+        (Ui::EndFocus, "F", !state.plans),
+        (Ui::Why, "w", !state.plans),
+        (Ui::OrchestrationPlans, "P", true),
+        (Ui::OrchestrationEarlier, "[", true),
+        (Ui::OrchestrationLater, "]", true),
+        (Ui::OrchestrationNow, "N", !state.follow_now),
+        (Ui::Search, "/", true),
+    ];
+    for (action, preferred, applies) in actions {
+        if applies && let Some(key) = key(action, preferred) {
+            let word = match action {
+                Ui::Search if app.search.is_empty() => "filter",
+                Ui::OrchestrationPlans if state.plans => "members",
+                _ => action.spec().label,
+            };
+            hints.push((key, word.into()));
+        }
+    }
+    // Moves and help/quit lead and stay; each action follows only while the whole line fits.
+    let moves = hints.len().min(2);
+    let actions = hints.split_off(moves);
+    let mut line = fit_hints(hints, tail, width);
+    for action in actions {
+        line.push(action);
+        if hint_text(&line).width() > width {
+            line.pop();
+            break;
+        }
+    }
+    line
+}
+
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
+    if app.shell.tab == crate::board::shell::OpsTab::Orchestration && !app.searching {
+        return orchestration_pairs(app, width);
+    }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
         let scrollable = app.usage_chart.borrow().scrollable();
         return fit_hints(
@@ -520,6 +603,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                     Verb::Ui(
                         OpsUiAction::Agents
                             | OpsUiAction::DigestDashboard
+                            | OpsUiAction::Orchestration
                             | OpsUiAction::First
                             | OpsUiAction::Last
                             | OpsUiAction::PageUp
@@ -543,8 +627,8 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         )
     });
     let mut seen = std::collections::BTreeSet::new();
-    let mut hints = Vec::new();
-    let mut tail = Vec::new();
+    let mut hints: Vec<Hint> = Vec::new();
+    let mut tail: Vec<Hint> = Vec::new();
     if app.focused_pane() == Some(crate::config::Pane::Replies) {
         tail.push(("Esc".into(), "back".into()));
     }
@@ -769,6 +853,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                     usize::from(hint_area.width.saturating_sub(u16::from(matches!(
                         app.shell.tab,
                         crate::board::shell::OpsTab::Agents
+                            | crate::board::shell::OpsTab::Orchestration
                     )))),
                 )
             },
@@ -785,7 +870,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         } else {
             hint_line(&text, look)
         };
-        if app.shell.tab == crate::board::shell::OpsTab::Agents {
+        if matches!(
+            app.shell.tab,
+            crate::board::shell::OpsTab::Agents | crate::board::shell::OpsTab::Orchestration
+        ) {
             line.spans.insert(0, Span::raw(" "));
         }
         line

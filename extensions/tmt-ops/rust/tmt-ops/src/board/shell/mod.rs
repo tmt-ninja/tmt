@@ -6,6 +6,7 @@ pub enum OpsTab {
     #[default]
     Agents,
     Digest,
+    Orchestration,
 }
 
 impl OpsTab {
@@ -13,6 +14,7 @@ impl OpsTab {
         match self {
             Self::Agents => "Agents",
             Self::Digest => "Digest",
+            Self::Orchestration => "Orchestration",
         }
     }
 }
@@ -48,23 +50,32 @@ pub enum OpsInputOwner {
 #[derive(Debug, Default)]
 pub struct OpsShell {
     pub tab: OpsTab,
-    inactive_selection: Option<super::workspace::OpsTarget>,
+    anchors: [Option<super::workspace::OpsTarget>; 2],
 }
 
 impl OpsShell {
-    /// The active App selection stays authoritative. Only the other destination's
-    /// anchor lives here; neither this anchor nor visit history is persisted.
+    /// Workspace destinations retain their own anchors; Orchestration owns no
+    /// workspace row. Neither anchors nor visit history are persisted.
     pub fn select(&mut self, tab: OpsTab, selected: &mut Option<super::workspace::OpsTarget>) {
         if self.tab == tab {
             return;
         }
-        let destination = self.inactive_selection.take().or_else(|| match tab {
-            OpsTab::Digest => Some(super::workspace::OpsTarget::DigestAll),
-            OpsTab::Agents => selected
-                .clone()
-                .filter(|target| *target != super::workspace::OpsTarget::DigestAll),
-        });
-        self.inactive_selection = std::mem::replace(selected, destination);
+        let previous = match self.tab {
+            OpsTab::Agents => Some(0),
+            OpsTab::Digest => Some(1),
+            OpsTab::Orchestration => None,
+        };
+        let destination = match tab {
+            OpsTab::Agents => self.anchors[0].take(),
+            OpsTab::Digest => self.anchors[1]
+                .take()
+                .or(Some(super::workspace::OpsTarget::DigestAll)),
+            OpsTab::Orchestration => None,
+        };
+        if let Some(index) = previous {
+            self.anchors[index] = selected.take();
+        }
+        *selected = destination;
         self.tab = tab;
     }
 
@@ -86,6 +97,7 @@ impl OpsShell {
         let tab = match digit {
             '1' => OpsTab::Agents,
             '2' => OpsTab::Digest,
+            '3' => OpsTab::Orchestration,
             _ => return false,
         };
         self.select(tab, selected);

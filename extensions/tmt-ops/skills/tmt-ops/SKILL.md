@@ -1132,6 +1132,33 @@ Core owns digest and held items; Squad stores no policy. The command passes thro
 Core errors, including when an older Core has no digest operation. Digest delays
 ordinary deliveries; owner and urgent messages can still interrupt.
 
+## Orchestration tab
+
+`3` opens **Orchestration**: Core's plans and every member's effective state and
+receiving policy at a selected time, read through the public `orchestration.read`
+views. `d`, `7` and `0` pick a 1, 7 or 30 day range, `[` and `]` step to the
+previous or next policy change, `N` returns to now, `P` lists plans and `/` filters
+members. When Core reports routes, a **From ↓ To →** matrix shows who may message whom
+(`✕` blocked, `◆` needs a person, otherwise the recipient's receiving mode) and the
+pairs with talks this hour; arrows move the selected cell. An older Core without
+those views shows member policies only and says routes are not available.
+
+Changes always show Core's preview first and save only that exact preview after you
+confirm: `a` allows a blocked route once until the sender's current slot ends (at
+most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
+and `r` releases a held pair's messages through normal delivery. `w` shows Core's
+recorded decisions for the selected member. If Orchestration changed after the
+preview, nothing is saved; preview again. A Core without `orchestration.write`
+refuses changes with a notice. The tab never interrupts running work. `--tab` and
+`board.startup_tab` do not offer it yet.
+
+These keys are the defaults of the tab's own key scope, so `?` lists them and a
+`[bind]` entry can move them: `orchestration-day`, `orchestration-week`,
+`orchestration-month`, `orchestration-earlier`, `orchestration-later`,
+`orchestration-now`, `orchestration-plans`, `allow-once`, `focus-hour`, `end-focus`,
+`release-held` and `why`; the list moves (`previous`, `next`, `fold`, `expand`,
+`first`, `last`) move through members, plans or matrix cells there.
+
 ## Cron on the board
 
 The Agents section's Timers control opens all observed rooms without retargeting
