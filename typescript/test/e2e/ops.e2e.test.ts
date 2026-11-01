@@ -1625,6 +1625,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-board');
+      const keyTrace = path.join(fixture.root, 'checklist-navigation.jsonl');
       fixture.tmux(['select-window', '-t', shell.pane]);
       // ops.toml may not exist: the user lives in Core, not in this file.
       const configPath = path.join(fixture.globalDir, 'ops.toml');
@@ -1637,7 +1638,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           'send-keys',
           '-t',
           shell.pane,
-          'tmt ops ui --squad product; echo CHECKLIST_BOARD_EXIT=$?',
+          `TMT_OPS_TEST_KEY_TRACE=${quote(keyTrace)} tmt ops ui --squad product; echo CHECKLIST_BOARD_EXIT=$?`,
           'Enter',
         ]);
         await fixture.waitForCapture(
@@ -1665,7 +1666,16 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down')]);
         await fixture.waitForCapture((screen) => /›\s*Checklist\b/.test(screen), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-        await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
+        try {
+          await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
+        } catch (error) {
+          const navigation = fs.existsSync(keyTrace)
+            ? fs.readFileSync(keyTrace, 'utf8').split('\n').slice(-24).join('\n')
+            : '<no key trace>';
+          throw new Error(`${String(error)}\nChecklist activation key trace:\n${navigation}`, {
+            cause: error,
+          });
+        }
         // ↓ on the empty list reaches the Filter chip; → moves to Actions.
         fixture.tmux(['send-keys', '-t', shell.pane, 'Down', 'Right', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
