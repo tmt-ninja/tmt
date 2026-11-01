@@ -135,8 +135,10 @@ discussions or sharing, and needs its own `--layout` (the export does not carry 
 `--dry-run`. A preview is conservative: it excludes unproven rebuild savings. Actual results
 measure retained payload reduction, not guaranteed physical file shrink. Comments, resolved
 threads, archive state and signed-cut history stay protected. Shared-history, public and archived
-pages are skipped; existing paired heads with no new tail remain. Attachment removal is not yet
-implemented; unknown attachment bytes are null in JSON.
+pages are skipped; existing paired heads with no new tail remain. Reclaim never removes
+attachments; on writable current-history pages the serve removes an attachment file 30 days after
+no revision references it, and `storage` shows those bytes and the removal time.
+Unknown attachment bytes are null in JSON.
 
 ## Design a page for agents
 

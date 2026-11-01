@@ -10,6 +10,7 @@ const row = {
   commentsBytes: 5,
   attachmentsBytes: null,
   unusedAttachmentBytes: null,
+  unusedAttachmentsRemoveAtMs: null,
   totalBytes: null,
   freeable: { history: 4, files: 0 },
   lastCleanedAutomaticallyAtMs: null,
@@ -93,5 +94,25 @@ describe('owner storage endpoint', () => {
       ),
     );
     await expect(storagePort(new URL('https://example.test/')).reclaim(page)).rejects.toThrow();
+  });
+  it('accepts a not-in-use estimate with its removal time and refuses a partial row', async () => {
+    const unused = {
+      ...row,
+      unusedAttachmentBytes: 4096,
+      unusedAttachmentsRemoveAtMs: 1767225600000,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(unused), { status: 200 })),
+    );
+    expect(await storagePort(new URL('https://example.test/')).read(page)).toEqual(unused);
+    const { unusedAttachmentsRemoveAtMs: _, ...missing } = unused;
+    for (const bad of [missing, { ...unused, unusedAttachmentsRemoveAtMs: -1 }]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(JSON.stringify(bad), { status: 200 })),
+      );
+      await expect(storagePort(new URL('https://example.test/')).read(page)).rejects.toThrow();
+    }
   });
 });

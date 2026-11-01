@@ -92,13 +92,14 @@ such reference; only `read` and `verify` answer it, mutations answer `unknown`),
 `unavailable` (everything else, including storage, the channel and a key epoch the
 reader does not hold).
 
-| Event                          | Existing attachment reads                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope. |
-| Archive                        | Native reads and catch-up still work; writes are denied. See below.             |
-| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.   |
-| Delete                         | Denied; the page's ciphertext is removed. See below.                            |
-| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
+| Event                          | Existing attachment reads                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope.        |
+| Archive                        | Native reads and catch-up still work; writes are denied. See below.                    |
+| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.          |
+| No reference for 30 days       | The object is removed; see [Unreferenced attachments](#unreferenced-attachments-5284). |
+| Delete                         | Denied; the page's ciphertext is removed. See below.                                   |
+| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.                     |
 
 Warning-only page expiry never deletes completed objects. After a committed page delete,
 Colab removes its derived object namespace through the negotiated object channel. The
@@ -200,9 +201,10 @@ fence to equal the base captured at seal time, so another device's or agent's wr
 files upload never stops the Send. If the membership head or epoch changed meanwhile,
 nothing is published, the affected chips show that the page changed and the next Send
 uploads them again from the retained local bytes under the same message ID, releasing
-the first original. Objects left unreferenced by a failed or abandoned Send stay in the
-backend; Colab runs no garbage collection, so reclaiming them belongs to Remote (#2294). A message that has attachments cannot be
-edited; deleting it removes its references.
+the first original. Objects left unreferenced by a failed or abandoned Send are removed 30 days
+after this machine first sees them unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
+A message that has attachments cannot be edited; deleting it adds a revision without references, and
+the earlier revisions keep their files.
 
 Visible message raster tiles read through the admitted path for that exact message
 revision, serially and without preloading hidden images. The header is parsed again with
@@ -237,7 +239,7 @@ publishes the `intents` proof records first and only then writes the references 
 existing Save path as a typed `{set}` change (see Browser Save). A changed page never
 attaches: a stale base or source digest makes the chips upload again from the retained local
 bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
-bytes stay unreferenced and unreclaimed (#2294). A page holds at most 128 files and one
+bytes are removed 30 days later unless a reference returns ([Unreferenced attachments](#unreferenced-attachments-5284)). A page holds at most 128 files and one
 batch at most 16. The `tmt colab` command line has no attach entry yet.
 
 ## Channel boundary
@@ -5311,7 +5313,9 @@ Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts
 its existing positive day count or forever; this is separate from the finite
-cloud lifetime. Local data is never automatically deleted.
+cloud lifetime. Local page data (content, comments and their revisions, the receipt ledger) is never
+automatically deleted; an attachment object that no retained reference reaches is removed 30 days
+after this machine first saw it unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
 
 The space's page expiry (#2600) is the days a page may sit without activity before it is
 archived: 180 by default. `tmt colab settings page-expiry DAYS|off|default` sets it to a whole
@@ -6608,7 +6612,7 @@ contexts cannot request either route. Bodies are `{version:1,page,dryRun?}`; unk
 malformed page IDs refuse. No route starts another service or changes sharing.
 
 Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
-`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `totalBytes`, `freeable`,
+`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `unusedAttachmentsRemoveAtMs`, `totalBytes`, `freeable`,
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
 stream's latest paired content checkpoint, any required fold anchor, and active tail after that cut;
 other retained content payloads and earlier baselines are history. Every counted payload appears
@@ -6618,11 +6622,13 @@ and `dbFreeBytes` separately report physical DB size and SQLite free pages. The 
 includes `version`, `space`, those DB values and `pages`. When the active local object channel
 supports namespace usage, `attachmentsBytes` is its per-page `chargedBytes`: a conservative
 allocation that can include uploading and retained object identities, not an exact filesystem
-measurement. Unsupported, unavailable or timed-out usage is null. The object wire does not expose
-a complete per-object local inventory, so `unusedAttachmentBytes` is null; `totalBytes` sums known
-page payload bytes and the attachment allocation and is null when that allocation is unknown.
+measurement. Unsupported, unavailable or timed-out usage is null. `unusedAttachmentBytes` sums the
+listed objects this machine currently records as not in use, and `unusedAttachmentsRemoveAtMs` is
+when the earliest of them is removed; both are null when the active channel cannot list objects (a
+Remote before object channel version 4, or no serve), and the time is null when none waits. `totalBytes`
+sums known page payload bytes and the attachment allocation and is null when that allocation is unknown.
 Storage reads use a short bounded object-channel deadline without holding the sync lock. Reclaim
-never waits for object usage. No attachments are removed here (#5284).
+never waits for object usage. Reclaim removes no attachments; [Unreferenced attachments](#unreferenced-attachments-5284) does.
 
 `freeable:{history,files}` estimates the bytes the next cleanup is expected to remove; the result
 reports what was actually freed. It selects current prune candidates using the same paired,
@@ -6654,11 +6660,45 @@ The owner Manage page displays Page content, Edit history, Attachments and Comme
 machine. Cleanup is the only storage action and requires confirmation; its completion reports
 measured freed bytes and that the page is unchanged. On partial failure the error reports any
 known positive savings; unknown savings are not presented as zero. Unavailable attachment
-inventory is shown as unknown and no attachment expiry claim is made before #5284.
+inventory is shown as unknown. When files wait for removal the Attachments row adds
+`(<size> not in use, removed on <Mon D>)`, the earliest removal day in local time; human `storage`
+output adds `<title>: <size> not in use, removed in <interval>`. Nothing else in the section changes.
 
 `lastCleanedAutomaticallyAtMs` is a local Unix-millisecond timestamp recorded best-effort only
 after an automatic pass actually compacts the page; scans, no-ops, dry-runs and manual requests do
 not update it. Legacy and unrecorded results are null.
+
+### Unreferenced attachments (#5284)
+
+The serve's object-maintenance worker removes attachment objects that no retained reference reaches.
+It visits one page per minute, rotating through every page, and needs an established object channel
+at version 4 (`objects.list` and `objects.remove`); on an older Remote it records and removes nothing.
+
+- **Eligible pages.** Only writable pages in `current` history mode that are not public. Pages in the
+  default `shared` history mode, public pages, archived pages and deleted pages keep every object, and
+  a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
+  namespace is removed whole by the existing sweep.
+- **Reference set.** Every descriptor in the current page source, every message revision of every
+  readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
+  unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
+  old-epoch document lists are not references: no reader can address them, so a rekeyed object's old
+  copy is removed and its exposure window ends. A page with more than 64 epochs, an epoch that cannot
+  be read, a listing over 1,024 objects or a spent budget decides nothing that visit.
+- **Clock.** Each listed committed object outside the reference set gets a local
+  `attachment_unreferenced` row (space.db schema 21, never synced) holding its size and the time this
+  machine first saw it unreferenced. A visit that finds it referenced again, or no longer listed,
+  deletes the row; a new reference therefore restarts the full wait. A row whose time is in the future
+  is not due. Losing the table only restarts the wait.
+- **Removal.** An object is due 30 days after its row's time (`ATTACHMENT_UNREFERENCED_GRACE_MS`). At
+  most 16 are removed per visit, each its own request with a 5 s deadline. Before the listing, the
+  visit records a fence over the membership head, the page epoch and every stream's highest receipt
+  and checkpoint; each removal runs under the serve's write exclusion, rechecks the fence and the
+  page's eligibility, and the admission callbacks recheck them again. A moved fence refuses the
+  removal before its effect, and the next visit recomputes. Only `removed` deletes the row; `unknown`
+  keeps it and the next visit sees whether the object is still listed. Remote releases the charge
+  before it answers `removed`, so `attachmentsBytes` drops only after removal is confirmed. A removed
+  object keeps Remote's small retained record. Removal deletes the stored ciphertext; it is not secure
+  erasure.
 
 ### Content publication (#1908, #1928, #1934)
 
@@ -7182,8 +7222,9 @@ page and never remembered.
 
 **Window.** Between the advance and the swap the document references old-epoch objects. A holder
 of the revoked key can read those bytes only with raw access to the object store, and only until
-the swap and until the old object is deleted, which needs the Remote delete operation of #2294.
-Until then the old object stays and is charged; this contract makes no erasure claim.
+the swap and until the old object is removed, 30 days after the swap left it unreferenced
+([Unreferenced attachments](#unreferenced-attachments-5284)). Until then the old object stays and is
+charged; removal deletes the stored ciphertext and makes no secure-erasure claim.
 
 **Swap.** The serve reads the old attachment through the root-local read, stages the plaintext in
 a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under

@@ -115,6 +115,8 @@ fn method(method: Method) -> &'static str {
         Method::Discard => "objects.discard",
         Method::RemoveNamespace => "objects.remove-namespace",
         Method::Usage => "objects.usage",
+        Method::Remove => "objects.remove",
+        Method::List => "objects.list",
     }
 }
 
@@ -126,6 +128,8 @@ fn call(call: &Call) -> String {
             object.text("namespace", input.namespace);
         }
         Call::Usage(scope) => usage_scope(&mut object, *scope),
+        Call::Remove(input) => remove_input(&mut object, input),
+        Call::List(input) => list_input(&mut object, input),
         Call::Begin(input) => begin_input(&mut object, input),
         Call::Part(input) => {
             object
@@ -151,6 +155,38 @@ fn usage_scope(object: &mut Object, scope: UsageScope) {
                 .text("scope", "namespace")
                 .text("namespace", namespace);
         }
+    }
+}
+fn remove_input(object: &mut Object, input: &RemoveInput) {
+    object
+        .text("namespace", input.namespace)
+        .text("opaqueKey", input.opaque_key)
+        .text("payloadSha256", input.payload_sha256)
+        .number("payloadBytes", input.payload_bytes);
+}
+fn list_input(object: &mut Object, input: &ListInput) {
+    object.text("namespace", input.namespace);
+    if let Some(after) = input.after {
+        object.text("after", after);
+    }
+    object.number("limit", input.limit);
+}
+fn listing(object: &mut Object, listing: &Listing) {
+    let entries: Vec<String> = listing
+        .entries
+        .iter()
+        .map(|entry| {
+            let mut item = Object::new();
+            item.text("opaqueKey", entry.opaque_key)
+                .text("payloadSha256", entry.payload_sha256)
+                .number("payloadBytes", entry.payload_bytes)
+                .number("adoptedAtMs", entry.adopted_at_ms);
+            item.finish()
+        })
+        .collect();
+    object.raw("entries", format!("[{}]", entries.join(",")));
+    if let Some(next) = listing.next {
+        object.text("next", next);
     }
 }
 fn usage(object: &mut Object, value: Usage) {
@@ -200,6 +236,10 @@ fn success(success: &Success) -> String {
         Success::Usage(value) => {
             object.text("result", "usage");
             usage(&mut object, *value);
+        }
+        Success::Listed(value) => {
+            object.text("result", "listed");
+            listing(&mut object, value);
         }
         Success::Config(value) => {
             object.text("result", "config");
@@ -395,6 +435,8 @@ fn admit_input(input: &AdmitInput) -> String {
             object.text("namespace", input.namespace);
         }
         AdmitInput::Usage(scope) => usage_scope(&mut object, *scope),
+        AdmitInput::Remove(input) => remove_input(&mut object, input),
+        AdmitInput::List(input) => list_input(&mut object, input),
         AdmitInput::Begin(input) => begin_input(&mut object, input),
         AdmitInput::Status(input) => status_input(&mut object, input),
         AdmitInput::Read(input) => read_input(&mut object, input),
@@ -434,6 +476,9 @@ fn disclosure(disclosure: &Disclosure) -> String {
         Disclosure::Usage(value) => {
             object.text("class", "usage");
             usage(&mut object, value);
+        }
+        Disclosure::Listed { count } => {
+            object.text("class", "listed").number("count", count);
         }
         Disclosure::Config { projection } => {
             object.text("class", "config").text(

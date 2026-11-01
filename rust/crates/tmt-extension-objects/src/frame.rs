@@ -24,6 +24,10 @@ pub use callback::{
     OriginPhase, OriginState, PartAdmit, Projection, Retained, TransferAdmit,
 };
 
+/// The most entries one `objects.list` answer may carry. A full answer of maximal
+/// entries stays inside [`FRAME_BYTES`] (the frame tests check it).
+pub const LIST_ENTRIES: u32 = 256;
+
 /// One decoded frame body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Frame {
@@ -67,6 +71,10 @@ pub enum Method {
     Discard,
     RemoveNamespace,
     Usage,
+    /// One committed object, pinned by its digest and length (version 4).
+    Remove,
+    /// A page of a namespace's committed objects (version 4).
+    List,
 }
 impl Method {
     /// Whether results and errors of this method repeat the original transfer id.
@@ -81,7 +89,12 @@ impl Method {
     fn mutates(self) -> bool {
         matches!(
             self,
-            Self::Begin | Self::Part | Self::Commit | Self::Discard | Self::RemoveNamespace
+            Self::Begin
+                | Self::Part
+                | Self::Commit
+                | Self::Discard
+                | Self::RemoveNamespace
+                | Self::Remove
         )
     }
 }
@@ -114,6 +127,8 @@ pub enum Call {
     Discard(TransferInput),
     RemoveNamespace(NamespaceInput),
     Usage(UsageScope),
+    Remove(RemoveInput),
+    List(ListInput),
 }
 impl Call {
     pub fn method(&self) -> Method {
@@ -127,6 +142,8 @@ impl Call {
             Self::Discard(_) => Method::Discard,
             Self::RemoveNamespace(_) => Method::RemoveNamespace,
             Self::Usage(_) => Method::Usage,
+            Self::Remove(_) => Method::Remove,
+            Self::List(_) => Method::List,
         }
     }
 }
@@ -134,6 +151,36 @@ impl Call {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NamespaceInput {
     pub namespace: Bytes32,
+}
+/// The exact committed original to remove: a key alone never names a different body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoveInput {
+    pub namespace: Bytes32,
+    pub opaque_key: Bytes32,
+    pub payload_sha256: Sha256Hex,
+    pub payload_bytes: u64,
+}
+/// A page of committed objects in ascending key order, starting after `after`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListInput {
+    pub namespace: Bytes32,
+    pub after: Option<Bytes32>,
+    /// 1 to [`LIST_ENTRIES`].
+    pub limit: u32,
+}
+/// One committed object of a listing. Observation only: it grants no read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub opaque_key: Bytes32,
+    pub payload_sha256: Sha256Hex,
+    pub payload_bytes: u64,
+    pub adopted_at_ms: u64,
+}
+/// `next` is the last listed key when more committed objects follow it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listing {
+    pub entries: Vec<Listed>,
+    pub next: Option<Bytes32>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageScope {
@@ -215,6 +262,7 @@ pub enum Success {
     Config(Config),
     Removed,
     Usage(Usage),
+    Listed(Listing),
     /// `expires_at_ms` is the actual stored expiry and appears only when answering
     /// `status`; a begin never fabricates one.
     Pending {
@@ -244,6 +292,7 @@ impl Success {
             Self::Config(_) => Answer::Config,
             Self::Removed => Answer::Removed,
             Self::Usage(_) => Answer::Usage,
+            Self::Listed(_) => Answer::Listed,
             Self::Pending { .. } => Answer::Pending,
             Self::Progress { .. } => Answer::Progress,
             Self::Committed { .. } => Answer::Committed,
@@ -263,6 +312,7 @@ enum Answer {
     Config,
     Removed,
     Usage,
+    Listed,
     Pending,
     Progress,
     Committed,
@@ -273,8 +323,9 @@ impl Answer {
     fn allowed_for(self, method: Method) -> bool {
         match self {
             Self::Config => method == Method::Config,
-            Self::Removed => method == Method::RemoveNamespace,
+            Self::Removed => matches!(method, Method::RemoveNamespace | Method::Remove),
             Self::Usage => method == Method::Usage,
+            Self::Listed => method == Method::List,
             Self::Pending => matches!(method, Method::Begin | Method::Status),
             Self::Progress => method == Method::Part,
             Self::Committed => matches!(method, Method::Begin | Method::Commit | Method::Status),
@@ -383,8 +434,20 @@ impl Call {
             Self::Begin(input) => input.check(),
             Self::Part(input) => require(!input.bytes.as_bytes().is_empty()),
             Self::Read(input) => input.check(),
+            Self::Remove(input) => input.check(),
+            Self::List(input) => input.check(),
             _ => Ok(()),
         }
+    }
+}
+impl RemoveInput {
+    pub(super) fn check(&self) -> Result<(), ErrorClass> {
+        require(self.payload_bytes <= PAYLOAD_BYTES)
+    }
+}
+impl ListInput {
+    pub(super) fn check(&self) -> Result<(), ErrorClass> {
+        require((1..=LIST_ENTRIES).contains(&self.limit))
     }
 }
 impl BeginInput {
@@ -422,6 +485,7 @@ impl Success {
             Self::Config(config) => config.check(),
             Self::Removed => Ok(()),
             Self::Usage(usage) => require(usage.charged_bytes <= MAX_SAFE_INTEGER),
+            Self::Listed(listing) => listing.check(),
             Self::Pending {
                 received,
                 expires_at_ms,
@@ -445,6 +509,27 @@ impl Success {
                     && offset.saturating_add(bytes.as_bytes().len() as u64) <= *total_bytes,
             ),
         }
+    }
+}
+impl Listing {
+    /// Keys strictly ascend, and `next`, when present, is the last listed key.
+    fn check(&self) -> Result<(), ErrorClass> {
+        let ascending = self
+            .entries
+            .windows(2)
+            .all(|pair| pair[0].opaque_key.as_bytes() < pair[1].opaque_key.as_bytes());
+        let next = match &self.next {
+            None => true,
+            Some(next) => self.entries.last().map(|last| &last.opaque_key) == Some(next),
+        };
+        require(
+            self.entries.len() <= LIST_ENTRIES as usize
+                && ascending
+                && next
+                && self.entries.iter().all(|entry| {
+                    entry.payload_bytes <= PAYLOAD_BYTES && entry.adopted_at_ms <= MAX_SAFE_INTEGER
+                }),
+        )
     }
 }
 impl Config {

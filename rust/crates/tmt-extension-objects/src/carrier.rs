@@ -170,8 +170,19 @@ fn halves(
     ))
 }
 
+/// The highest carrier version this build speaks.
+pub(crate) const VERSION_MAX: u8 = 4;
+/// Version 2 adds namespace removal and usage; version 4 adds per-object removal and
+/// listing. Version 3 and later carry sync frames.
 fn supports(version: u8, method: Method) -> bool {
-    version >= 2 || !matches!(method, Method::RemoveNamespace | Method::Usage)
+    match method {
+        Method::RemoveNamespace | Method::Usage => version >= 2,
+        Method::Remove | Method::List => version >= 4,
+        _ => true,
+    }
+}
+fn syncs(version: u8) -> bool {
+    version >= 3
 }
 /// The consumer-facing hint for an unsupported namespace management action.
 pub fn unsupported_hint() -> &'static str {
@@ -255,7 +266,7 @@ fn channel_generation(frame: &ChannelFrame) -> Result<Uuid4, Fault> {
 fn channel_supported(version: u8, frame: &ChannelFrame) -> bool {
     match frame {
         ChannelFrame::Object(frame) => frame_supported(version, frame),
-        ChannelFrame::Sync(_) => version == 3,
+        ChannelFrame::Sync(_) => syncs(version),
     }
 }
 fn prepared_channel(generation: Uuid4, frame: &ChannelFrame) -> Result<Vec<u8>, Fault> {

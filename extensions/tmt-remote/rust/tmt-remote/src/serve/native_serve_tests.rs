@@ -378,9 +378,9 @@ impl Peer {
                     .find_map(|line| line.strip_prefix("tmt-object-generation: "))
                     .unwrap()
                     .to_owned();
-                let v3 = head.contains("tmt-object-channel: 3\r\n");
+                let v3 = head.contains("tmt-object-channel: 4\r\n");
                 let version = if v3 {
-                    "tmt-object-channel: 3\r\n"
+                    "tmt-object-channel: 4\r\n"
                 } else {
                     assert!(head.contains("tmt-object-channel: 2\r\n"));
                     ""

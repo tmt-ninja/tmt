@@ -706,6 +706,12 @@ impl Server<crate::registration::OwnerAdmission> {
     }
 }
 impl Server<crate::registration::OwnerAdmission> {
+    /// Run `effect` under the sync mutex that excludes every write through this serve, so no
+    /// Save or patch lands while it runs. The effect must not need this serve's own sync work.
+    pub(crate) fn exclusive<R>(&self, effect: impl FnOnce() -> R) -> crate::Result<R> {
+        let _state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
+        Ok(effect())
+    }
     /// Combine this device's own stream for the root-local CLI, under the sync mutex that
     /// excludes every write. Other devices' streams are never touched.
     pub(crate) fn compact_page(

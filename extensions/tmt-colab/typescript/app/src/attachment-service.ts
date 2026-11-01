@@ -372,7 +372,7 @@ export class AttachmentService implements AttachmentBinding {
       const c = await this.#channel();
       await c.attachmentObjects.discard(original, this.#bound());
     } catch {
-      // Best effort: the original stays unreferenced either way.
+      // Best effort: an unreferenced original is removed 30 days later either way.
     }
   }
   /** Records for the same batch as the message: verified committed bytes only. */

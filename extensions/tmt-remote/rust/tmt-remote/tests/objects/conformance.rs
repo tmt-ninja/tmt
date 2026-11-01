@@ -1226,6 +1226,145 @@ pub fn a_consumer_needs_only_the_interface(adapter: &dyn Adapter) {
     });
 }
 
+/// One committed object is removed: its payload and entry are released, its original
+/// stays as a tombstone, and a repeat, an absent key or a fenced namespace succeed.
+pub fn object_removal_releases_one_payload_and_keeps_the_tombstone(adapter: &dyn Adapter) {
+    adapter.run(contract(), &mut |s| {
+        let backend = s.backend("alpha");
+        let kept = bytes(CHUNK + 7, 1);
+        let gone = bytes(3 * CHUNK, 2);
+        let a = spec(1, 1, 1, &kept);
+        let b = spec(2, 1, 2, &gone);
+        upload(&*backend, &a, &kept);
+        upload(&*backend, &b, &gone);
+        let before = namespace_usage(&*backend, 1);
+        assert_eq!(
+            backend.remove_object(b.key, b.payload_sha256, b.payload_bytes, &io()),
+            Ok(())
+        );
+        let after = namespace_usage(&*backend, 1);
+        assert_eq!(
+            after.charged_bytes,
+            before.charged_bytes - round(gone.len())
+        );
+        assert_eq!((after.entries, after.retained_identities), (1, 2));
+        assert_eq!(backend.stat(b.key, &io()), Err(BackendError::Missing));
+        assert_eq!(backend.read(b.key, 0, 1, &io()), Err(BackendError::Missing));
+        assert_eq!(
+            backend.status(b.intent, &io()).unwrap().state,
+            TransferState::Unavailable
+        );
+        // The neighbour is untouched.
+        assert_eq!(backend.read(a.key, 0, 4, &io()).unwrap().bytes, kept[..4]);
+        // Idempotent: a repeat and a never-used key change nothing.
+        assert_eq!(
+            backend.remove_object(b.key, b.payload_sha256, b.payload_bytes, &io()),
+            Ok(())
+        );
+        assert_eq!(backend.remove_object(key(1, 9), [0; 32], 0, &io()), Ok(()));
+        assert_eq!(namespace_usage(&*backend, 1), after);
+        // The removed original never runs again.
+        assert_eq!(
+            backend.begin(&b, &io()),
+            Ok(BeginResult::Terminal(TransferState::Unavailable))
+        );
+        // A removed namespace's own removal owns its rows.
+        backend
+            .remove_namespace(NamespaceId([1; 32]), &io())
+            .unwrap();
+        assert_eq!(
+            backend.remove_object(a.key, a.payload_sha256, a.payload_bytes, &io()),
+            Ok(())
+        );
+    });
+}
+
+/// Only the exact committed body is removed: a different digest or length, or an
+/// original that is still staging, conflicts and keeps everything charged.
+pub fn object_removal_names_the_exact_committed_body(adapter: &dyn Adapter) {
+    adapter.run(contract(), &mut |s| {
+        let backend = s.backend("alpha");
+        let payload = bytes(CHUNK, 3);
+        let done = spec(1, 1, 1, &payload);
+        upload(&*backend, &done, &payload);
+        let staging = spec(2, 1, 2, &payload);
+        backend.begin(&staging, &io()).unwrap();
+        let before = namespace_usage(&*backend, 1);
+        let mut other = done.payload_sha256;
+        other[0] ^= 1;
+        for (key, digest, length) in [
+            (done.key, other, done.payload_bytes),
+            (done.key, done.payload_sha256, done.payload_bytes + 1),
+            (staging.key, staging.payload_sha256, staging.payload_bytes),
+        ] {
+            assert_eq!(
+                backend.remove_object(key, digest, length, &io()),
+                Err(BackendError::Conflict)
+            );
+        }
+        assert_eq!(namespace_usage(&*backend, 1), before);
+        assert_eq!(backend.stat(done.key, &io()), Ok(receipt(&done)));
+        // Another extension's handle cannot reach this extension's object.
+        let beta = s.backend("beta");
+        assert_eq!(
+            beta.remove_object(done.key, done.payload_sha256, done.payload_bytes, &io()),
+            Ok(())
+        );
+        assert_eq!(backend.stat(done.key, &io()), Ok(receipt(&done)));
+    });
+}
+
+/// A listing shows committed objects only, in ascending key order, a page at a time.
+pub fn listing_pages_committed_objects_in_key_order(adapter: &dyn Adapter) {
+    adapter.run(contract(), &mut |s| {
+        let backend = s.backend("alpha");
+        let namespace = NamespaceId([1; 32]);
+        assert_eq!(backend.list(namespace, None, 8, &io()), Ok(Vec::new()));
+        let payload = bytes(10, 4);
+        for object in [5u8, 2, 9, 7] {
+            upload(&*backend, &spec(object, 1, object, &payload), &payload);
+        }
+        backend.begin(&spec(20, 1, 3, &payload), &io()).unwrap();
+        upload(&*backend, &spec(30, 2, 1, &payload), &payload);
+        let removed = spec(7, 1, 7, &payload);
+        backend
+            .remove_object(
+                removed.key,
+                removed.payload_sha256,
+                removed.payload_bytes,
+                &io(),
+            )
+            .unwrap();
+        let keys = |listed: Vec<tmt_remote::objects::ListedObject>| {
+            listed
+                .iter()
+                .map(|entry| entry.key.0[0])
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys(backend.list(namespace, None, 8, &io()).unwrap()),
+            vec![2, 5, 9]
+        );
+        let first = backend.list(namespace, None, 2, &io()).unwrap();
+        assert_eq!(keys(first.clone()), vec![2, 5]);
+        let entry = first[0];
+        assert_eq!(
+            (entry.payload_sha256, entry.payload_bytes),
+            (spec(2, 1, 2, &payload).payload_sha256, 10)
+        );
+        let rest = backend
+            .list(namespace, Some(first[1].key), 2, &io())
+            .unwrap();
+        assert_eq!(keys(rest), vec![9]);
+        assert_eq!(
+            s.backend("beta").list(namespace, None, 8, &io()),
+            Ok(Vec::new())
+        );
+        backend.remove_namespace(namespace, &io()).unwrap();
+        assert_eq!(backend.list(namespace, None, 8, &io()), Ok(Vec::new()));
+    });
+}
+
 /// One test per scenario for an adapter expression.
 #[macro_export]
 macro_rules! conformance {
@@ -1254,6 +1393,9 @@ macro_rules! conformance {
             concurrent_begins_admit_exactly_the_capacity
             duplicate_commits_return_one_receipt
             a_consumer_needs_only_the_interface
+            object_removal_releases_one_payload_and_keeps_the_tombstone
+            object_removal_names_the_exact_committed_body
+            listing_pages_committed_objects_in_key_order
         );
     };
     (@each $adapter:expr; $($name:ident)+) => {
