@@ -1,6 +1,8 @@
 name: Release version injection
 
-# Native PR checks, no secrets, tags, drafts, dispatch or publishing. This remains after the spike.
+# Native checks, no secrets, tags, drafts, dispatch or publishing. This remains after the spike.
+# Pull requests run the Linux hosts only; main pushes and the daily schedule add both macOS hosts,
+# and every release injects on all four hosts in native-release-prepare (#2547).
 on:
   pull_request:
     paths:
@@ -23,12 +25,14 @@ on:
       - 'typescript/scripts/release-declaration.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
+  schedule:
+    - cron: '29 3 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-version-injection-${{ github.event.pull_request.number || github.ref }}
+  group: release-version-injection-${{ github.event.pull_request.number || format('{0}-{1}', github.event_name, github.ref) }}
   cancel-in-progress: true
 
 jobs:
@@ -79,6 +83,7 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
+        exclude: ${{ github.event_name == 'pull_request' && fromJSON('[{"target":"aarch64-apple-darwin"},{"target":"x86_64-apple-darwin"}]') || fromJSON('[]') }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:

@@ -56,7 +56,8 @@ jobs:
         id: event
         env:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-          MACOS: ${{ github.event_name != 'merge_group' }}
+          # macOS jobs run on main push, schedule and dispatch, never for a PR or merge group (#2547).
+          MACOS: ${{ github.event_name != 'merge_group' && github.event_name != 'pull_request' }}
         run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
@@ -94,13 +95,14 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node typescript/scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
-      # Pull requests only: merge groups never rehearse, and seed/weekly runs have the nightly workflow.
+      # The admitted main push only (#2547): pull requests and merge groups never rehearse, and
+      # seed/weekly runs have the nightly all-products workflow, which also covers a superseded push.
       - name: Select the release rehearsal products
-        if: github.event_name == 'pull_request'
+        if: steps.main.outputs.admitted == 'true'
         id: rehearsal
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: node typescript/scripts/release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   code-quality:
@@ -195,7 +197,7 @@ jobs:
   release-rehearsal:
     name: Release rehearsal (${{ matrix.product }})
     needs: changes
-    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'
+    if: needs.changes.outputs.release_rehearsal == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -205,7 +207,7 @@ jobs:
     uses: ./.github/workflows/native-release-prepare.yml
     with:
       product: ${{ matrix.product }}
-      sha: ${{ github.event.pull_request.head.sha }}
+      sha: ${{ github.sha }}
       upgrade: true
 
   native-notices:
@@ -1063,6 +1065,7 @@ jobs:
     name: Complete trusted-main verification
     needs:
       - changes
+      - release-rehearsal
       - code-quality
       - native-notices
       - colab-chrome
