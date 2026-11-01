@@ -274,9 +274,10 @@ fn pairing_rows(
     loop {
         let mut args = words.to_vec();
         args.extend(["--json", "--limit", "10"]);
-        if let Some(cursor) = &cursor {
-            args.extend(["--cursor", cursor]);
-        }
+        // One `--cursor=VALUE` word: a base64url cursor may start with `-`, and as a separate word
+        // it would parse as a flag (#5934).
+        let flag = cursor.as_ref().map(|cursor| format!("--cursor={cursor}"));
+        args.extend(flag.as_deref());
         let value: serde_json::Value = serde_json::from_str(&call(&args)?).ok()?;
         rows.extend(value[key].as_array()?.iter().cloned());
         match value.get("nextCursor")? {
@@ -515,9 +516,9 @@ mod tests {
             calls.push(args.clone());
             Some(match args.as_str() {
                 "members --json --limit 10" => r#"{"members":[{"memberId":"person-a","revokedAtMs":null}],"nextCursor":"people-next"}"#,
-                "members --json --limit 10 --cursor people-next" => r#"{"members":[{"memberId":"person-b","revokedAtMs":null}],"nextCursor":null}"#,
-                "members machines person-a --json --limit 10" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-1","revoked":false,"grantLive":false}],"nextCursor":"machines-next"}"#,
-                "members machines person-a --json --limit 10 --cursor machines-next" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-2","revoked":true}],"nextCursor":null}"#,
+                "members --json --limit 10 --cursor=people-next" => r#"{"members":[{"memberId":"person-b","revokedAtMs":null}],"nextCursor":null}"#,
+                "members machines person-a --json --limit 10" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-1","revoked":false,"grantLive":false}],"nextCursor":"-machines-next"}"#,
+                "members machines person-a --json --limit 10 --cursor=-machines-next" => r#"{"memberId":"person-a","machines":[{"clientId":"machine-2","revoked":true}],"nextCursor":null}"#,
                 "members machines person-b --json --limit 10" => r#"{"memberId":"person-b","machines":[{"clientId":"machine-3","revoked":false}],"nextCursor":null}"#,
                 _ => panic!("unexpected pairing call: {args}"),
             }.to_owned())
