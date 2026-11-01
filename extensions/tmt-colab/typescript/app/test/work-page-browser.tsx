@@ -108,16 +108,19 @@ const linked = (): StoredWork => ({
 });
 
 let root: Root | undefined;
+/** This page's title; the `filled` scenario gives it one that cannot fit. */
+let pageTitle = 'Release plan';
 
 /**
- * `scenario`: `tree` has four direct sub-pages and a three-level branch; `empty` has none.
+ * `scenario`: `tree` has four direct sub-pages and a three-level branch; `empty` has none;
+ * `filled` is `tree` with long titles, a parent two levels below the top and one archived sub-page.
  * `owner` true is the owner device: this page's binding and every other page's commit writes, and
  * the owner list follows them as the serve would. `tall` gives the page content taller than the
  * viewport, for the pinned-band checks.
  */
 export function mountWorkPage(
   owner = false,
-  scenario: 'tree' | 'empty' | 'many' = 'tree',
+  scenario: 'tree' | 'empty' | 'many' | 'filled' = 'tree',
   tall = false,
 ) {
   root?.unmount();
@@ -142,13 +145,35 @@ export function mountWorkPage(
     );
   if (scenario === 'empty')
     for (const row of list) if (row.parent?.page === THIS) delete row.parent;
+  pageTitle =
+    scenario === 'filled'
+      ? 'Release plan for the hosted reader, device pairing and the November sharing rollout'
+      : 'Release plan';
+  if (scenario === 'filled') {
+    const row = (page: string) => list.find((value) => value.id === page)!;
+    Object.assign(row(PAGES.launch), {
+      title: 'Remote launch and device pairing rollout for the November release',
+      parent: { page: id(55), index: 0 },
+    });
+    row(PAGES.remote).title = 'Remote pages v2 with the hosted reader and its sharing settings';
+    row(PAGES.draft).archived = true;
+    list.push(
+      {
+        id: id(55),
+        title: 'Q4 platform programme',
+        state: 'in-progress',
+        parent: { page: id(56), index: 0 },
+      },
+      { id: id(56), title: '2026 roadmap', state: 'in-progress' },
+    );
+  }
   let current: StoredWork | undefined = scenario !== 'empty' ? linked() : undefined;
   let manualState: PageState = 'in-progress';
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`
     : '<h1>Release plan</h1>';
   const view = (): PageView => ({
-    title: 'Release plan',
+    title: pageTitle,
     source,
     state: manualState,
     pageState: manualState,
@@ -176,7 +201,7 @@ export function mountWorkPage(
   const listed = (): PageSummary[] => [
     {
       id: THIS,
-      title: 'Release plan',
+      title: pageTitle,
       state: manualState,
       sharing: 'private',
       summary: {
@@ -287,7 +312,7 @@ export function mountWorkPage(
     close() {},
   });
   const transport = localTransport('Review space', [
-    { id: THIS, title: 'Release plan', source, sharing: 'private', binding },
+    { id: THIS, title: pageTitle, source, sharing: 'private', binding },
   ]);
   const routed = {
     ...transport,

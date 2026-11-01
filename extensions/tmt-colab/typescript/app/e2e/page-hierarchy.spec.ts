@@ -6,7 +6,7 @@ import { capturePath } from './captures.js';
 const id = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const PAGE = { remote: id(1), launch: id(53), elsewhere: id(54) };
 
-async function mount(page: Page, scenario: 'tree' | 'empty' = 'tree', owner = true) {
+async function mount(page: Page, scenario: 'tree' | 'empty' | 'filled' = 'tree', owner = true) {
   await page.goto('/');
   await page.evaluate(
     async ([owner, scenario]) => {
@@ -16,7 +16,7 @@ async function mount(page: Page, scenario: 'tree' | 'empty' = 'tree', owner = tr
     [owner, scenario] as const,
   );
   const bar = page.locator('.tmt-ui-topbar:visible');
-  await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText('Release plan');
+  await expect(bar.locator('.tmt-ui-topbar-title-current')).toHaveText(/^Release plan/);
   return bar;
 }
 
@@ -102,4 +102,34 @@ for (const width of [1440, 390])
       if (width === 390) return;
       await bar.locator('.page-hierarchy-subpages').click();
       await page.screenshot({ path: capturePath(`top-bar-subpages-menu-${width}-${theme}.png`) });
+    });
+
+// Filled states: long titles, a parent two levels below the top, and an archived sub-page, which
+// neither the sub-pages menu nor the work panel lists (#5506, #5867).
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`captures filled states at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      const bar = await mount(page, 'filled');
+      // The long titles end in an ellipsis and stay on one line; the bar keeps its height.
+      const title = bar.locator('.tmt-ui-topbar-title-current');
+      expect(await title.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+      expect((await bar.boundingBox())!.height).toBeLessThan(80);
+      await page.screenshot({ path: capturePath(`top-bar-filled-${width}-${theme}.png`) });
+      await bar.locator('.page-hierarchy-count').click();
+      await page.screenshot({
+        path: capturePath(`top-bar-filled-parent-menu-${width}-${theme}.png`),
+      });
+      await page.keyboard.press('Escape');
+      if (width === 390) return;
+      const subpages = bar.locator('.page-hierarchy-subpages');
+      await expect(subpages).toHaveText(/^3 sub-pages/);
+      await subpages.click();
+      const menu = page.locator('.page-hierarchy-menu');
+      await expect(menu.getByRole('menuitem')).toHaveCount(3);
+      await expect(menu).not.toContainText('Release notes draft');
+      await page.screenshot({
+        path: capturePath(`top-bar-filled-subpages-menu-${width}-${theme}.png`),
+      });
     });
