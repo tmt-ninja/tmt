@@ -24,13 +24,11 @@ pub(super) fn show_receipt(storage: &Storage, id: String) -> Result<Vec<u8>, Fau
         .ok_or_else(|| Fault::new("DISPATCH_NOT_FOUND", "Operation receipt was not found."))
 }
 
-pub(super) fn create_dispatch(
+pub(super) fn originator(
     storage: &mut Storage,
     selector: Option<DispatchIdentity>,
-    mut input: DispatchInput,
-    settings: Option<Settings>,
-) -> Result<Vec<u8>, Fault> {
-    let (originator, sender) = match selector {
+) -> Result<(Originator, String), Fault> {
+    Ok(match selector {
         Some(DispatchIdentity::Explicit(selector)) => {
             let selected = identity_entry(storage, &selector)?;
             (Originator::Explicit(selected.id), selected.name)
@@ -51,7 +49,16 @@ pub(super) fn create_dispatch(
             (Originator::Explicit(selected.id), selected.name)
         }
         None => (Originator::Unknown, "anonymous".into()),
-    };
+    })
+}
+
+pub(super) fn create_dispatch(
+    storage: &mut Storage,
+    selector: Option<DispatchIdentity>,
+    mut input: DispatchInput,
+    settings: Option<Settings>,
+) -> Result<Vec<u8>, Fault> {
+    let (originator, sender) = originator(storage, selector)?;
     input.originator = originator;
     let settings = settings.expect("dispatch settings");
     let direct = input.kind == tmt_core::request::RequestKind::Request

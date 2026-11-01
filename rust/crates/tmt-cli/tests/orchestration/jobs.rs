@@ -170,6 +170,14 @@ fn manual_send_is_one_canonical_automated_request_without_resuming_or_consuming_
     assert_eq!(first["outcome"], "accepted");
     assert_eq!(first["dispatch"]["operationId"], operation);
     assert_eq!(first["runId"], replay["runId"]);
+    let request = json!({"version":1,"operation":"orchestration.job.run","identity":"Night-1","input":{"jobId":id,"revision":2,"slotMs":1000,"manualOperationId":operation,"consent":true}});
+    let api = f.json(&["api"], Some(request.clone()));
+    assert_eq!(api["runId"], first["runId"]);
+    let mut refused = request;
+    refused["input"]["consent"] = json!(false);
+    let denied = f.run(&["api"], Some(refused));
+    assert!(!denied.status.success());
+
     assert_eq!(db.query_row("SELECT COUNT(*) FROM request_attempts WHERE origin='automation' AND originator_identity_id=?",[&owner],|r|r.get::<_,i64>(0)).unwrap(),1);
     assert_eq!(
         db.query_row("SELECT COUNT(*) FROM orchestration_job_runs", [], |r| r

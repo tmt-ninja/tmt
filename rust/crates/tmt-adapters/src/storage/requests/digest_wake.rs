@@ -30,12 +30,15 @@ pub(super) fn write_marker(
     }
     Ok(())
 }
-pub(super) fn clock(db: &Connection) -> Result<DigestWakeClock, StorageError> {
+pub(in crate::storage) fn clock(db: &Connection) -> Result<DigestWakeClock, StorageError> {
     Ok(db.query_row("SELECT next_admission_ms,scan_after_identity_id FROM orchestration_wake_clock WHERE id=1", [], |r| Ok(DigestWakeClock {
         next_admission_ms: rows::u64_at(r,0)?, scan_after_identity_id: r.get(1)?,
     })).optional().map_err(|e|classify(e,"Read Incoming wake clock"))?.unwrap_or_default())
 }
-pub(super) fn write_clock(db: &Connection, clock: &DigestWakeClock) -> Result<(), StorageError> {
+pub(in crate::storage) fn write_clock(
+    db: &Connection,
+    clock: &DigestWakeClock,
+) -> Result<(), StorageError> {
     if self::clock(db)? == *clock {
         return Ok(());
     }

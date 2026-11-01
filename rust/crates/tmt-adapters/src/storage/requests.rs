@@ -8,7 +8,7 @@ mod attention;
 mod delivery;
 mod digest;
 mod digest_journal;
-mod digest_wake;
+pub(super) mod digest_wake;
 mod flow;
 mod history;
 mod notification;

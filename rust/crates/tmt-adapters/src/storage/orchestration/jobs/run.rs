@@ -22,6 +22,9 @@ pub struct JobRunInput {
 }
 #[derive(Debug)]
 pub enum JobRunResult {
+    Waiting {
+        next_admission_ms: u64,
+    },
     NoOwner,
     Paused,
     Held {
@@ -192,6 +195,21 @@ impl Storage {
                 JobRunResult::Held { slot, journal_id }
             }
             JobDecision::Dispatch { slot_ms } => {
+                if job.pending.is_some() && input.manual_operation_id.is_none() {
+                    let mut admission = crate::storage::requests::digest_wake::clock(&tx)?;
+                    let Some(next) = tmt_core::orchestration::next_wake_admission(
+                        admission.next_admission_ms,
+                        now,
+                    )
+                    .map_err(|_| JobError::Limit)?
+                    else {
+                        return Ok(JobRunResult::Waiting {
+                            next_admission_ms: admission.next_admission_ms,
+                        });
+                    };
+                    admission.next_admission_ms = next;
+                    crate::storage::requests::digest_wake::write_clock(&tx, &admission)?;
+                }
                 let operation = input
                     .manual_operation_id
                     .clone()

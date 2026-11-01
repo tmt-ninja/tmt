@@ -41,6 +41,7 @@ pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
     "orchestration.read",
     "orchestration.write",
+    "orchestration.job.run",
     "digest.receiving.sync",
     "digest.wake.step",
     "digest.policy.set",
@@ -213,6 +214,10 @@ pub enum DispatchIdentity {
 pub enum Request {
     Orchestration(Box<crate::orchestration::OrchReadQuery>),
     OrchestrationWrite(Box<crate::orchestration::OrchWriteQuery>),
+    JobRun {
+        identity: Option<DispatchIdentity>,
+        input: Box<crate::orchestration::JobRunDocument>,
+    },
     Digest(Box<digest::Operation>),
     Capabilities,
     ConsumptionLimits,
@@ -360,7 +365,12 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
     let input = wire.input.get().as_bytes();
     let writing = matches!(
         wire.operation.as_str(),
-        "dispatch.create" | "rooms.write" | "rooms.retire" | "requests.sendNow" | "requests.ack"
+        "dispatch.create"
+            | "orchestration.job.run"
+            | "rooms.write"
+            | "rooms.retire"
+            | "requests.sendNow"
+            | "requests.ack"
     );
     // Originator-attributed writes name exactly one identity or `"anonymous"`.
     // Other operations, including metadata target mutations, name neither.
@@ -440,6 +450,12 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "pane.screen" => pane::decode(input)?,
         "terminal.stream" => terminal::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
+        "orchestration.job.run" => Request::JobRun {
+            identity: wire.identity.map(DispatchIdentity::Explicit),
+            input: Box::new(
+                crate::orchestration::JobRunDocument::decode(input).map_err(|_| invalid())?,
+            ),
+        },
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
             input: dispatch::decode_create(input)?,
@@ -582,6 +598,7 @@ impl Session {
         let settings = if matches!(
             request,
             Request::Dispatch { .. }
+                | Request::JobRun { .. }
                 | Request::SendNow { .. }
                 | Request::UserIdentity
                 | Request::History(crate::request_history::ListQuery::Conversation(_))
@@ -717,6 +734,12 @@ impl Session {
                 id,
                 expected_revision,
             } => rooms::retire(storage, selector, id, expected_revision),
+            Request::JobRun { identity, input } => orchestration::run_job(
+                storage,
+                identity,
+                *input,
+                settings.expect("job execution settings"),
+            ),
             Request::Dispatch {
                 identity: selector,
                 input,

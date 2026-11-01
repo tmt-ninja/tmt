@@ -131,7 +131,7 @@ pub(crate) fn read(
             "no_owner"
         } else if job.pause.is_some() {
             "paused"
-        } else if held {
+        } else if held || job.pending.is_some() {
             "held"
         } else {
             "on"

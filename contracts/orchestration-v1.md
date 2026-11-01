@@ -413,6 +413,32 @@ its held slot) and configuration in one transaction before publication. A race
 returns `ORCH_CONFLICT`; no-op pause changes neither revision nor attribution.
 Configuration mutations create no run outcomes. Removal never reuses a j-id.
 
+
+### Job execution
+
+`orchestration.job.run` takes `jobId`, exact definition `revision`, and the
+observed `slotMs`, each within the safe integer bounds. It loads the stored exact
+message and owner; callers cannot substitute them. The envelope names an
+originator identity or `originator:"anonymous"`; the scheduler uses anonymous.
+An explicit manual call supplies a frozen `manualOperationId` and `consent:true`.
+Manual sending does not resume a paused job or consume its held slot. Both modes
+create automated traffic, preserving the caller attribution for manual work.
+
+Admission rechecks current ownership, membership, revision and policy in the
+canonical request transaction. An ordinary due slot under routine hold coalesces
+one observed pending slot; absence creates no historical backlog. Released held
+jobs and Incoming summaries reserve the same persistent one-second wake clock.
+A busy clock returns `outcome:"waiting"` and `nextAdmissionAtMs`, retaining the
+held slot; a manual send does not reserve this automatic-release clock.
+The reservation, run evidence and request acceptance commit or roll back together.
+A pending catch-up remains visibly held until accepted even after policy releases it.
+
+Results distinguish `paused`, `held`, `waiting` and `accepted`. An accepted result
+contains `runId` and the immutable canonical `dispatch` receipt with its advisory
+wake result. Acceptance is not final delivery or an agent answer. Exact run replay
+recovers the existing receipt and never performs a second wake. Interrupted or
+uncertain work is inspected by its canonical operation ID, not blindly resent.
+
 ## Calendar
 
 One machine IANA zone is configured; absent configuration uses the system's named
