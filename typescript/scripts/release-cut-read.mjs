@@ -63,7 +63,7 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
     }
     const rows = batch.map((row) => {
       if (!Number.isSafeInteger(row?.id)) throw new Error('Missing cut REST record identity.');
-      const { id, tag_name, draft, body, target_commitish, assets } = row;
+      const { id, tag_name, draft, body, target_commitish, published_at, assets } = row;
       if (!Array.isArray(assets) || assets.some((asset) => typeof asset?.name !== 'string'))
         throw new Error('Invalid release asset metadata.');
       if (typeof draft !== 'boolean' || typeof tag_name !== 'string')
@@ -74,6 +74,8 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
         draft,
         body,
         target_commitish,
+        // Retention ages publications; the cut itself never reads this field.
+        published_at,
         assets: assets.map(({ name }) => ({ name })),
       };
     });
