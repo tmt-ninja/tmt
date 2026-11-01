@@ -1146,26 +1146,45 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                     // A real menu entry owns its click, even where an old
                     // input used to be. Probe the stale input only where the
                     // current menu paints no actionable entry.
-                    let point = if owner == "menu" {
-                        let menu = app.menu.as_ref().unwrap();
-                        let surface = menu.surface.borrow();
-                        let surface = surface.as_ref().unwrap();
-                        (point.y..point.bottom())
-                            .flat_map(|y| (point.x..point.right()).map(move |x| (x, y)))
-                            .find(|&(x, y)| {
-                                surface
-                                    .pointer(MouseEvent {
-                                        kind: MouseEventKind::Down(MouseButton::Left),
-                                        column: x,
-                                        row: y,
-                                        modifiers: KeyModifiers::NONE,
+                    let point =
+                        if owner == "menu" {
+                            let menu = app.menu.as_ref().unwrap();
+                            let surface = menu.surface.borrow();
+                            let surface = surface.as_ref().unwrap();
+                            (point.y..point.bottom())
+                                .flat_map(|y| (point.x..point.right()).map(move |x| (x, y)))
+                                .find(|&(x, y)| {
+                                    surface
+                                        .pointer(MouseEvent {
+                                            kind: MouseEventKind::Down(MouseButton::Left),
+                                            column: x,
+                                            row: y,
+                                            modifiers: KeyModifiers::NONE,
+                                        })
+                                        .is_none()
+                                })
+                                .expect("a stale input cell outside current menu entries")
+                        } else if owner == "review" {
+                            let draft = app.workspace_form.as_ref().unwrap();
+                            let hits = draft.close.as_ref().unwrap().hits.borrow();
+                            // The old quote-remove cell can now be a real Confirm
+                            // button. Prefer that stale region, then another old band
+                            // cell, without pressing any currently painted button.
+                            (point.y..point.bottom())
+                                .flat_map(|y| (point.x..point.right()).map(move |x| (x, y)))
+                                .chain(
+                                    (band.y..band.bottom())
+                                        .flat_map(|y| (band.x..band.right()).map(move |x| (x, y))),
+                                )
+                                .find(|&(x, y)| {
+                                    !hits.buttons.iter().flatten().any(|rect| {
+                                        rect.contains(ratatui::layout::Position::new(x, y))
                                     })
-                                    .is_none()
-                            })
-                            .expect("a stale input cell outside current menu entries")
-                    } else {
-                        (point.x, point.y)
-                    };
+                                })
+                                .expect("a stale band cell outside current dialog buttons")
+                        } else {
+                            (point.x, point.y)
+                        };
                     assert_eq!(
                         app.mouse(
                             MouseEvent {
