@@ -128,9 +128,13 @@ ask when resolution would require an undecided product or authorization choice.
   The review request names that head. Authors own CI end to end (watch,
   rerun, fix); nobody asks a lead to watch CI. Leads gate (review, design, seams,
   merge decision) and do not babysit: no CI watching, no chasing members for status.
-- Wait on CI, a queue or a long build with one long-interval monitor, a script or
-  the seat's cheapest subagent, that reports only on a state change; never loop on
-  short intervals in the main session.
+- After starting a CI, merge-queue or long-build wait, end the turn and let one
+  message wake you: start `scripts/ci-wake.sh` (see
+  [DEVELOPMENT](DEVELOPMENT.md#waiting-on-ci-and-the-merge-queue)) or a provider-native
+  background task whose completion the harness delivers (Claude `run_in_background`).
+  Never `wait`, `sleep`, `wait_agent` or poll it from the main session; where
+  neither can run, use one long-interval monitor or the seat's cheapest subagent
+  that reports only the final state.
 - Merge only when authorized and all required CI has passed on the reviewed head.
   Never bypass protection or lower checks to deliver. Publishing, releases and
   destructive operations require their own applicable authorization.
