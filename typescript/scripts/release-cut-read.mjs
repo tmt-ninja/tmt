@@ -17,10 +17,10 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   // A quiet P-page catalogue costs P + 2 requests: discovery, terminal anchor,
   // middle pages, terminal verification and page-one verification.
   // The first page freezes a size-scaled request allowance (at least the old
-  // 60 calls, at most 180) shared by all three attempts. At most 120 pages
+  // 60 calls, at most 180) shared by all three attempts. At most 100 pages
   // are admitted. The live caller separately retains its 177 normal-call cap
-  // across catalogue and mutations; the reader's 90-second deadline is unchanged.
-  const deadline = Date.now() + 90_000;
+  // across catalogue and mutations; the bridge reader has its own 150-second deadline.
+  const deadline = Date.now() + 150_000;
   const get = (page) => {
     if (++requests > requestAllowance || Date.now() >= deadline)
       throw new Error('Cut REST budget exceeded.');
@@ -83,7 +83,7 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const first = get(1);
     const pages = first.lastPage;
-    if (pages > 120) throw new Error('Cut REST page allowance exceeded (maximum 120 pages).');
+    if (pages > 100) throw new Error('Cut REST page allowance exceeded (maximum 100 pages).');
     if (attempt === 0) requestAllowance = Math.min(180, Math.max(60, 3 * (pages + 2)));
     if (requests + pages + 1 > requestAllowance) throw new Error('Cut REST budget exceeded.');
     // Capture the terminal boundary before traversing the middle. A verification

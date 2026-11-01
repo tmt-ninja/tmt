@@ -746,7 +746,7 @@ describe('bounded REST-only state acquisition', () => {
     expect(f.execute).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
-  it.each([0, 100, 1201, 5800, 6000, 12000])(
+  it.each([0, 100, 1201, 5800, 6000, 10000])(
     'reads %i releases under the P+2 request rule',
     (count) => {
       const f = api(count);
@@ -757,9 +757,10 @@ describe('bounded REST-only state acquisition', () => {
   it.each([
     { count: 6000, pageMs: 1021, mutationMs: 5600, outcome: 'success', elapsedMs: 232302 },
     { count: 6000, pageMs: 1306, mutationMs: 5600, outcome: 'success', elapsedMs: 249972 },
-    { count: 12000, pageMs: 500, mutationMs: 5600, outcome: 'success', elapsedMs: 230000 },
-    { count: 12000, pageMs: 1021, mutationMs: 5600, outcome: 'reader-timeout', elapsedMs: 91000 },
-    { count: 12000, pageMs: 500, mutationMs: 9000, outcome: 'outer-timeout', elapsedMs: 330000 },
+    { count: 10000, pageMs: 1021, mutationMs: 5600, outcome: 'success', elapsedMs: 273142 },
+    { count: 10000, pageMs: 1306, mutationMs: 5600, outcome: 'success', elapsedMs: 302212 },
+    { count: 10000, pageMs: 1706, mutationMs: 5600, outcome: 'reader-timeout', elapsedMs: 151000 },
+    { count: 10000, pageMs: 1306, mutationMs: 9000, outcome: 'outer-timeout', elapsedMs: 330000 },
   ])(
     'qualifies $count rows at $pageMs ms/page: $outcome',
     ({ count, pageMs, mutationMs, outcome, elapsedMs }) => {
@@ -823,7 +824,7 @@ describe('bounded REST-only state acquisition', () => {
         } else {
           expect(run).toThrow(/ETIMEDOUT|budget/);
           if (outcome === 'reader-timeout') {
-            expect(clock).toBe(91_000);
+            expect(clock).toBe(151_000);
             expect(drafts.size).toBe(0);
             expect(dispatches).toBe(0);
           } else {
@@ -880,8 +881,8 @@ describe('bounded REST-only state acquisition', () => {
     expect(execute).toHaveBeenCalledTimes(108); // Catalogues + main + seven five-request mutation boundaries.
     expect(execute.mock.calls.length).toBeLessThan(180);
   });
-  it('fails closed one page beyond the 120-page allowance before traversing history', () => {
-    const f = api(12001);
+  it('fails closed one page beyond the 100-page allowance before traversing history', () => {
+    const f = api(10001);
     expect(() => readCutMetadata(input, f.execute)).toThrow('page allowance');
     expect(f.execute).toHaveBeenCalledTimes(1);
   });
@@ -966,7 +967,7 @@ describe('bounded REST-only state acquisition', () => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValue(0);
     const f = api(250, (_rows, _page, call) => {
-      if (call === 1) now.mockReturnValue(90_000);
+      if (call === 1) now.mockReturnValue(150_000);
     });
     try {
       expect(() => readCutMetadata(input, f.execute)).toThrow('budget');

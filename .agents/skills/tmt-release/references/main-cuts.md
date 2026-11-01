@@ -199,9 +199,9 @@ released component is releasable under `Other changes`; see
 are developer dependencies, not runtime owners.
 
 The cut remains O(P): a quiet P-page read costs P+2 requests, with three attempts
-sharing one request allowance and the unchanged 90-second reader deadline. The
+sharing one request allowance and a 150-second reader deadline. The
 first page freezes `min(180, max(60, 3*(P+2)))` calls; retries do not reset it.
-The size allowance admits at most 120 pages (12,000 releases), but does not
+The size allowance admits at most 100 pages (10,000 releases), but does not
 promise they fit the time budget. The live caller also counts every catalogue
 call against its normal-work limit; exhaustion never returns a partial view.
 The live coordinator shares 180 requests / 360 seconds, reserving the last three
