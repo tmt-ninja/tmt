@@ -445,7 +445,7 @@ jobs:
       scope: ${{ needs.changes.outputs.native_scope }}
       native-sync: ${{ needs.changes.outputs.native_sync_emulator == 'true' }}
       save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
-      partitions: 2
+      partitions: 3
 
   # Native process contracts runs as one fixture build and two test shards, so the
   # serial process suite is about half as long on the merge-group path. The shards
