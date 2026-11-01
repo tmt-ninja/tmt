@@ -656,7 +656,7 @@ jobs:
           "$JAVA_HOME_21_X64/bin/java" -version
       - name: Install the pinned Firestore Rules emulator tools
         if: needs.changes.outputs.remote_firestore == 'true'
-        run: npm install --global firebase-tools@15.29.0
+        uses: ./.github/actions/setup-firebase-tools
       - name: Run the Remote Firestore Rules emulator suite
         if: needs.changes.outputs.remote_firestore == 'true'
         timeout-minutes: 8

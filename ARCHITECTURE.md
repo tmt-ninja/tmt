@@ -73,6 +73,10 @@ site and release tooling stay outside this lockfile.
 
 ### CI selection and worker model
 
+`.github/actions/setup-firebase-tools` owns the isolated npm lockfile and shared
+installation for hosted Firebase emulator tools, outside the pnpm workspace. The
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns its consumers.
+
 [`.github/components.json`](.github/components.json) is the one component map:
 `owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
 files, and ordered rules select CI consumers independently. `release:false`

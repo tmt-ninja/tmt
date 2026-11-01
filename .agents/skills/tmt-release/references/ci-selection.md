@@ -45,13 +45,16 @@ Remote and Colab Rules emulators are selected steps in `Unit tests`, requiring
 full scope. `remote_firestore` covers Remote's suite, fixtures, `rules.rs` or
 `ci.yml`; `colab_firestore` covers Colab's `firestore/`, `deploy-declaration-*`
 vectors, emulator suite or `ci.yml`. The [workflow](../../../../.github/workflows/ci.yml)
-owns Java/Node/firebase-tools pins. Remote uses hosted Temurin; Colab's digest-pinned
+owns Java/Node pins. All hosted Firebase CLI consumers use the
+[locked installer](../../../../.github/actions/setup-firebase-tools/action.yml): one isolated
+`package-lock.json`, `npm ci --ignore-scripts`, and its local `firebase` binary on PATH;
+no global or floating install. Installer changes select Remote Rules, native sync and hosted-reader proofs. Remote uses hosted Temurin; Colab's digest-pinned
 image uses the same pins, `--rm --init --network none`, a read-only extension mount
 and no credentials. Both fail closed within step bounds, without retries or cache.
 
 [Remote squads emulator qualifier](../../../../.github/workflows/remote-squads-emulator.yml)
 is advisory and outside required aggregates: PRs and main pushes touching Remote Rust,
-the workflow, its script, `rust/Cargo.toml` or `rust/Cargo.lock` run
+the workflow, shared Firebase installer, its script, `rust/Cargo.toml` or `rust/Cargo.lock` run
 [the qualifier script](../../../../typescript/scripts/remote-squads-qualifier.mjs). It reads
 the Remote squads README command at run time, because Remote's emulator guard keeps the
 default-off feature out of `.github/`. It runs against loopback Auth and Firestore emulators
@@ -212,7 +215,7 @@ served step exceeds 90 seconds or the job 15 minutes.
 Catchup/reader keys), signed-proof client, native producer/composer and Remote
 production Rust/assets/SDK; it excludes client tests, Remote tests/docs and the
 test-only Colab pin. The [shared action](../../../../.github/actions/hosted-reader-emulator/action.yml)
-owns Java/firebase-tools pins and populated cache, using the unchanged owner wrapper,
+owns Java and the populated emulator cache, consumes the same locked Firebase installer, and uses the unchanged owner wrapper,
 private state, loopback demo Auth/Firestore and Chromium. The qualifier follows the
 ordinary spec because it rebuilds Remote with `test-emulator`. Full label/weekly/manual
 acceptance runs it once on shard 1 after ordinary acceptance, even on failure,

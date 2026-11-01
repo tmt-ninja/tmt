@@ -8,6 +8,7 @@ on:
     paths:
       - 'extensions/tmt-remote/rust/**'
       - '.github/workflows/remote-squads-emulator.yml'
+      - '.github/actions/setup-firebase-tools/**'
       - 'scripts/install-ci-rust.sh'
       - 'typescript/scripts/remote-squads-qualifier.mjs'
       - 'rust/Cargo.toml'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'extensions/tmt-remote/rust/**'
       - '.github/workflows/remote-squads-emulator.yml'
+      - '.github/actions/setup-firebase-tools/**'
       - 'scripts/install-ci-rust.sh'
       - 'typescript/scripts/remote-squads-qualifier.mjs'
       - 'rust/Cargo.toml'
@@ -65,7 +67,7 @@ jobs:
           printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
           "$JAVA_HOME_21_X64/bin/java" -version
       - name: Install the pinned Firebase emulator tools
-        run: npm install --global firebase-tools@15.29.0
+        uses: ./.github/actions/setup-firebase-tools
       - name: Run the two-machine squads qualifier against Auth and Firestore emulators
         timeout-minutes: 10
         run: node typescript/scripts/remote-squads-qualifier.mjs qualify

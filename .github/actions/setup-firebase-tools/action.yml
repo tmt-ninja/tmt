@@ -1,0 +1,10 @@
+name: Install locked Firebase emulator tools
+description: Install the shared Firebase CLI dependency closure without global resolution.
+runs:
+  using: composite
+  steps:
+    - name: Install the committed Firebase dependency graph
+      shell: bash
+      run: |
+        npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund
+        printf '%s\n' "$GITHUB_ACTION_PATH/node_modules/.bin" >> "$GITHUB_PATH"

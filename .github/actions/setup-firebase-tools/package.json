@@ -1,0 +1,8 @@
+{
+  "name": "tmt-ci-firebase-tools",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "firebase-tools": "15.29.0"
+  }
+}
