@@ -47,14 +47,14 @@ test('a 2 MiB page keeps its main thread free while it takes live writes', async
     const long = await page.evaluate(
       () => (window as unknown as { longTasks: number[] }).longTasks,
     );
-    test.info().annotations.push({
-      type: 'colab-large-busy',
-      description: JSON.stringify({
-        longTasks: long.length,
-        busyMs: Math.round(long.reduce((sum, value) => sum + value, 0)),
-        windowMs: Date.now() - started,
-      }),
+    const busy = JSON.stringify({
+      longTasks: long.map(Math.round),
+      busyMs: Math.round(long.reduce((sum, value) => sum + value, 0)),
+      windowMs: Date.now() - started,
     });
+    test.info().annotations.push({ type: 'colab-large-busy', description: busy });
+    // The run log keeps the durations, so a slower runner's failure says how far it was.
+    console.log(`colab-large-busy ${busy}`);
     expect(long.length).toBeLessThanOrEqual(2);
   });
 });
