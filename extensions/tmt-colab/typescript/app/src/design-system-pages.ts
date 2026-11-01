@@ -445,14 +445,14 @@ async function treeOf(
     : component
       ? 'component'
       : 'page';
-  const children =
-    depth >= TREE_DEPTH
-      ? []
-      : await Promise.all(
-          subpages(page.work).map((child) =>
-            withPage(transport, child, (sub) => treeOf(transport, sub, titles, depth + 1)),
-          ),
-        );
+  // One page at a time, like publish: a new system's ~50 pages opened at once trip the sync
+  // server's capacity limits (503/429).
+  const children: DesignTreeNode[] = [];
+  if (depth < TREE_DEPTH)
+    for (const child of subpages(page.work))
+      children.push(
+        await withPage(transport, child, (sub) => treeOf(transport, sub, titles, depth + 1)),
+      );
   return {
     id: page.id,
     title: titles.get(page.id) ?? page.title,
