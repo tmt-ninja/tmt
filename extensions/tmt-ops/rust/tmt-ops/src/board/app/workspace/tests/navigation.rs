@@ -374,9 +374,11 @@ fn pending_operations_hide_reopen_and_keep_their_single_outcome_without_resubmis
                     },
                 })
             }
-            Change::Membership(_) | Change::PublishLeads(_) => app.finished_workspace(Err(
-                crate::core::SquadError::new("API_UNAVAILABLE", "Outcome not confirmed"),
-            )),
+            Change::Membership(_) | Change::PublishLeads(_) | Change::PreviewLeads(_) => app
+                .finished_workspace(Err(crate::core::SquadError::new(
+                    "API_UNAVAILABLE",
+                    "Outcome not confirmed",
+                ))),
         }
         assert!(!app.workspace_form.as_ref().unwrap().shown);
         assert!(matches!(

@@ -51,10 +51,16 @@ impl Preview {
             "Replace Core's global leads with all active Ops squad leads.".into(),
             "Core-only leads below will be removed. Declining keeps the squad change.".into(),
             format!(
-                "Core revision {} · {} → {} leads",
+                "Core revision {} · {} removed · {} added",
                 self.0["preview"]["configurationRevision"],
-                before.len(),
-                after.len()
+                before
+                    .iter()
+                    .filter(|row| !contains(after, &row["identityId"]))
+                    .count(),
+                after
+                    .iter()
+                    .filter(|row| !contains(before, &row["identityId"]))
+                    .count()
             ),
         ];
         for row in before
@@ -132,6 +138,17 @@ fn prepare(core: &Core) -> Result<Preview, SquadError> {
     if let Some(actor) = actor {
         mutation["actorId"] = json!(actor);
     }
+    prepare_intent(
+        core,
+        mutation,
+        leads
+            .into_iter()
+            .map(|(id, name)| json!({"identityId":id,"name":name}))
+            .collect(),
+    )
+}
+
+fn prepare_intent(core: &Core, mutation: Value, after: Vec<Value>) -> Result<Preview, SquadError> {
     // Core's write preview has effective policies, not its explicit lead list.
     // The talks view supplies that list at the same configuration revision.
     let current = core.api("orchestration.read", json!({"view":"talks","limit":1}))?;
@@ -168,7 +185,7 @@ fn prepare(core: &Core) -> Result<Preview, SquadError> {
     }
     Preview::from_document(
         &json!({"status":"preview","preview":preview,"before":before,
-        "after":leads.into_iter().map(|(id,name)|json!({"identityId":id,"name":name})).collect::<Vec<_>>()}),
+        "after":after}),
     )
 }
 
@@ -203,6 +220,21 @@ pub(crate) fn offer(core: &Core, mut outcome: Outcome) -> Outcome {
         }
     }
     outcome
+}
+
+/// Refresh only the reviewed replacement intent, never repeat the squad mutation or apply.
+pub(crate) fn refresh(core: &Core, preview: &Preview) -> Outcome {
+    match prepare_intent(
+        core,
+        preview.0["preview"]["mutation"].clone(),
+        preview.0["after"].as_array().unwrap().clone(),
+    ) {
+        Ok(preview) => json!({"coreLeads":preview.document()}).into(),
+        Err(error) => Outcome {
+            document: json!({"coreLeads":failure(&error)}),
+            complete: false,
+        },
+    }
 }
 
 pub(crate) fn apply(core: &Core, preview: &Preview) -> Outcome {
@@ -544,6 +576,41 @@ esac
             f.calls()
                 .iter()
                 .all(|call| call["operation"] != "orchestration.write")
+        );
+    }
+    #[test]
+    fn publication_summary_names_removed_and_added_counts() {
+        let fixture = Fixture::new();
+        let text = prepare(&fixture.core).unwrap().text();
+        assert!(
+            text.contains("Core revision 7 · 1 removed · 2 added"),
+            "{text}"
+        );
+    }
+    #[test]
+    fn publication_refresh_uses_the_frozen_intent_and_never_applies() {
+        let f = Fixture::new();
+        let preview = prepare(&f.core).unwrap();
+        let calls = f.calls().len();
+        f.put("rooms", json!({"rooms":[]}));
+        f.put("current", json!({"configurationRevision":8,"leads":[]}));
+        let mut raw = preview.0["preview"].clone();
+        raw["configurationRevision"] = json!(8);
+        raw["previewDigest"] = json!("fresh");
+        f.put("preview", raw);
+        let outcome = refresh(&f.core, &preview);
+        assert!(outcome.complete);
+        let fresh = Preview::from_document(&outcome.document["coreLeads"]).unwrap();
+        assert_eq!(fresh.0["preview"]["configurationRevision"], 8);
+        assert_eq!(
+            fresh.0["preview"]["mutation"],
+            preview.0["preview"]["mutation"]
+        );
+        assert_eq!(fresh.0["after"], preview.0["after"]);
+        assert!(
+            f.calls()[calls..]
+                .iter()
+                .all(|call| call["input"]["phase"] != "apply")
         );
     }
 }

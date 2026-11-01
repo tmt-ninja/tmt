@@ -478,6 +478,9 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 workspace::manage::Change::PublishLeads(preview) => ActionOutcome::Workspace(
                     Box::new(Ok(crate::membership::publish::apply(core, &preview))),
                 ),
+                workspace::manage::Change::PreviewLeads(preview) => ActionOutcome::Workspace(
+                    Box::new(Ok(crate::membership::publish::refresh(core, &preview))),
+                ),
                 workspace::manage::Change::CloseMember(request) => {
                     ActionOutcome::CloseMember(Box::new(request.apply(core)))
                 }

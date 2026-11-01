@@ -979,3 +979,55 @@ fn squad_leads_publication_hidden_preview_reopens_cancel_first() {
     );
     assert!(hidden(&app));
 }
+
+#[test]
+fn squad_leads_publication_requires_the_whole_question_before_publish() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-preview", crate::look::Look::default());
+    let screen = paint(&app, 80, 8).join("\n");
+    assert!(screen.contains("Enlarge to review"), "{screen}");
+    assert!(!screen.contains("Publish leads"), "{screen}");
+    assert!(matches!(app.workspace_confirm(), Effect::None));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+}
+
+#[test]
+fn squad_leads_publication_conflict_offers_an_explicit_fresh_preview() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-conflict", crate::look::Look::default());
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("Preview again"), "{screen}");
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert!(
+        app.workspace_form.is_none(),
+        "Cancel closes the result without requesting a preview"
+    );
+}
+
+#[test]
+fn squad_leads_publication_retry_dispatches_only_a_preview_and_reopens_on_cancel() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app =
+        lead_publication_capture("leads-publication-conflict", crate::look::Look::default());
+    draw(&app, 160, 36);
+    key(&mut app, KeyCode::Right);
+    assert!(matches!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::WorkspaceOperation(Change::PreviewLeads(_)))
+    ));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Pending);
+    app.finished_workspace(Ok(
+        serde_json::json!({"coreLeads":lead_publication_preview()}).into(),
+    ));
+    assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Review);
+    assert_eq!(
+        app.workspace_form.as_ref().unwrap().review.focus,
+        tmt_tui::components::Focus::Buttons(0)
+    );
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("1 removed · 1 added"), "{screen}");
+    assert!(matches!(key(&mut app, KeyCode::Enter), Effect::None));
+    assert!(hidden(&app));
+}

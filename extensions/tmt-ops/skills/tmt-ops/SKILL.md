@@ -1786,7 +1786,10 @@ tmt ops squad rm <name>                           # leaves the squad; the agent 
   (preserving Core's code and message when Core refuses).
   On the board, Set/clear lead and Create with a lead open a separate Cancel-first
   confirmation. Declining keeps the squad change. A refusal or conflict says
-  "Squad changed. Core leads not updated" plus Core's message; reopen to try again.
+  "Squad changed. Core leads not updated" plus Core's message. After an apply refusal,
+  Preview again reads a fresh preview of the same intent; it does not apply. The
+  new preview starts on Cancel. A clipped question offers Cancel only and asks
+  to enlarge the board before publishing.
   Pending work is never retried automatically. Core decides who may publish; an Ops
   lead marker alone does not grant Core lead authority. Retired identities need no
   cleanup: Core excludes them from its effective leads.

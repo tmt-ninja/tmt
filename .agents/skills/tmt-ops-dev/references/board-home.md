@@ -141,7 +141,8 @@ Ops never executes a shell.
 Successful lead changes and Create with a lead offer a separate Cancel-first
 Core leads publication in the same workspace draft/review and ordered lane.
 The follow-up shows all Ops leads and Core-only removals. Hiding pending work
-never replays it; a conflict requires reopening. The membership publisher owns
+never replays it. A failed publication offers Preview again for the frozen intent,
+then a new Cancel-first confirmation. Clipped questions offer Cancel only. The membership publisher owns
 preview/apply and partial-result wording ([lead data](data-and-state.md#membership-and-leadership)).
 
 ## Shell, geometry and input

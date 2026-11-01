@@ -1792,6 +1792,9 @@ impl App {
                 return;
             }
         }
+        let publication_failed = outcome
+            .as_ref()
+            .is_ok_and(|outcome| outcome.document["coreLeads"]["status"] == "failed");
         let message = match outcome {
             Ok(outcome)
                 if crate::membership::publish::message(&outcome.document["coreLeads"])
@@ -1832,6 +1835,17 @@ impl App {
             .as_mut()
             .filter(|draft| draft.kind != Kind::RenameMember)
         {
+            if publication_failed
+                && let Some(
+                    crate::board::workspace::manage::Change::PublishLeads(preview)
+                    | crate::board::workspace::manage::Change::PreviewLeads(preview),
+                ) = &draft.operation
+            {
+                draft.operation = Some(crate::board::workspace::manage::Change::PreviewLeads(
+                    preview.clone(),
+                ));
+                draft.review.focus = tmt_tui::components::Focus::Buttons(0);
+            }
             draft.stage = crate::board::workspace::manage::Stage::Result(message);
             draft.invalidate();
             *draft.scroll.borrow_mut() = Default::default();
