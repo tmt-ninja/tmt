@@ -523,13 +523,13 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 ## Remote extension
 
-`extensions/tmt-remote` owns listener, restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
+`extensions/tmt-remote` owns listen/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
 `<dataRoot>/remote/` ([leaf](#shared-extension-state-layout)), door/[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
 [Colab](#colab-extension) mounts `/r/<prefix>/x/colab/`.
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`, never Remote state files.
-Remote: member/channel authority, People/row data, local effect fences, invites/history, join UI, shell extras, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
+Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no Remote state files.
+Remote: member/channel authority, People/rows, local effect fences, invites/history, join UI, shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
 Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,

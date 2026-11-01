@@ -4,9 +4,22 @@ import { applyStoredTheme } from '@tmt/browser-ui/theme';
 import { setRouteTitle, type RemoteShell } from '../src/remote-shell.js';
 import { opsPage } from '../src/ops-page.js';
 import type { OpsBoard } from '../src/ops-source.js';
+import {
+  parseConversation,
+  type ConversationPage,
+  type ConversationChanges,
+  type ConversationInput,
+} from '../src/conversations.js';
 
 declare global {
   interface Window {
+    dmEnabled?: boolean;
+    dmNewest: ConversationPage;
+    dmOlder: ConversationPage;
+    dmChanges: ConversationChanges;
+    dmCalls: { memberId: string; input: ConversationInput }[];
+    dmHold: boolean;
+    dmRelease(): void;
     channelBoard: OpsBoard;
     channelReads: number;
     channelStop(): void;
@@ -61,6 +74,66 @@ window.channelBoard = {
   ],
   truncated: false,
 };
+// Deterministic UI source only: native admission and signed SDK transport have separate proofs.
+window.dmCalls = [];
+window.dmHold = false;
+window.dmChanges = { count: 1, more: false };
+const memberId = '00000000-0000-4000-8000-000000000002';
+const viewerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const request = 'req_cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+window.dmNewest = {
+  viewerId,
+  member: 'active',
+  changePosition: 'position_1',
+  nextBefore: { preparedAtMs: 1720000000000, requestId: request },
+  items: [
+    {
+      requestId: request,
+      recipientId: memberId,
+      sender: { kind: 'verified', identityId: viewerId },
+      direction: 'toMember',
+      kind: 'request',
+      origin: 'person',
+      preparedAtMs: 1720000000000,
+      delivery: 'sent',
+      messageState: {
+        state: 'answered',
+        reason: { code: 'answered_by_reply', text: 'Answered by reply' },
+        latestMs: 1720000001000,
+        remainingMs: null,
+        canSendNow: false,
+      },
+      final: {
+        status: 'retained',
+        submittedAtMs: 1720000001000,
+        bodyBytes: 64,
+        expiresAtMs: 1920000000000,
+      },
+      preview: 'Please review the release checklist before the next test run.',
+      responsePreview: 'The checks passed. The remaining browser work is recorded on the issue.',
+      previewTruncated: false,
+      changePosition: 'item_1',
+    },
+  ],
+};
+window.dmOlder = {
+  viewerId,
+  member: 'active',
+  changePosition: 'position_while_paging',
+  nextBefore: null,
+  items: [
+    {
+      ...window.dmNewest.items[0]!,
+      requestId: 'req_dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      preparedAtMs: 1719000000000,
+      final: { status: 'expired', submittedAtMs: 1719000001000, expiresAtMs: 1719900000000 },
+      preview: 'An earlier review request.',
+      responsePreview: null,
+      previewTruncated: false,
+      changePosition: 'older_item',
+    },
+  ],
+};
 applyStoredTheme();
 const controller = new AbortController();
 window.channelStop = () => controller.abort();
@@ -99,4 +172,24 @@ opsPage(
       return board;
     },
   },
+  window.dmEnabled
+    ? async (selected, input) => {
+        window.dmCalls.push({ memberId: selected, input: structuredClone(input) });
+        if (selected !== memberId) throw new Error('No fixture for this member.');
+        const page = structuredClone(input.before ? window.dmOlder : window.dmNewest);
+        if (input.since !== undefined)
+          page.changedSince =
+            input.since === window.dmNewest.changePosition
+              ? { count: 0, more: false }
+              : structuredClone(window.dmChanges);
+        if (window.dmHold)
+          await new Promise<void>((resolve) => {
+            window.dmRelease = resolve;
+          });
+        return {
+          machineId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          page: parseConversation(page, selected, input),
+        };
+      }
+    : undefined,
 );

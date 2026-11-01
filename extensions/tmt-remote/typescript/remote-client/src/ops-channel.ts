@@ -1,5 +1,5 @@
-/** Local channel / DM read panels. The board remains the only source; history and all writes
- * are explicitly unavailable until their separately admitted operations ship. */
+/** Local channel / DM context. The board owns members/timers; admitted conversation reads
+ * own DM history. Channel messages and all writes remain unavailable. */
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 import type { OpsAgent, OpsBoard } from './ops-source.js';
 import { el, pageFoot } from './ops-parts.js';
@@ -16,6 +16,7 @@ export function memberState(agent: Pick<OpsAgent, 'presence' | 'activity'>): str
 
 export function channelView(pathname: string): {
   node: HTMLElement;
+  history: HTMLElement;
   update(board: OpsBoard, place: ChannelPlace): void;
 } {
   const page = el('div', 'ops-channel');
@@ -67,7 +68,8 @@ export function channelView(pathname: string): {
   const history = el('section', 'ops-channel-history');
   const unavailable = el('h2', c.sectionHeading);
   const explanation = el('p');
-  history.append(unavailable, explanation, commandCopy('tmt ops ui'));
+  const terminalHistory = commandCopy('tmt ops ui');
+  history.append(unavailable, explanation, terminalHistory);
   const compose = el('section', 'ops-channel-compose');
   const reason = el('p', 'ops-detail-note');
   reason.id = 'ops-channel-write-reason';
@@ -103,6 +105,7 @@ export function channelView(pathname: string): {
   }
   return {
     node: page,
+    history,
     update(board, place) {
       const key = opsHref(pathname, place);
       const people = board.agents
@@ -218,6 +221,7 @@ export function channelView(pathname: string): {
           ? [el('p', 'ops-detail-note', 'Partial board; totals are not known.')]
           : []),
       );
+      if (!place.memberId) history.replaceChildren(unavailable, explanation, terminalHistory);
       unavailable.textContent = place.memberId
         ? "History isn't available in the browser yet"
         : "Channel messages aren't available in the browser yet";
