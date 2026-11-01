@@ -66,10 +66,8 @@
   flex: none;
 }
 
-/* Phone layout, pending Ben's answer on the Night page (#5506 block). Recommended option, applied
-   here: the parent progress chip and the title only (the chip's menu goes back to the parent; the work
-   band below lists sub-pages). The other answers change only this block: "chips + title" keeps
-   .page-hierarchy-subpages (showing .page-hierarchy-narrow); "P2 as-is" keeps the name and icon too. */
+/* A phone bar keeps the parent progress chip and the title only (#5506): the chip's menu goes back
+   to the parent or across to a sibling, and the work band below lists the sub-pages. */
 @media (max-width: 900px) {
   .tmt-ui-topbar-title-prefix:has(> .page-hierarchy-parent) {
     display: contents;

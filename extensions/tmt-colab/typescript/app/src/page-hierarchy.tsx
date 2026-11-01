@@ -16,7 +16,7 @@ import { getTheme, subscribeTheme } from './theme.js';
 import type { PageTransport } from './transport.js';
 import { useLinkedPages } from './work-stages.js';
 import { subpageTree, type SubpageRow } from './work-tree.js';
-import type { Work } from './work.js';
+import type { StoredWork } from './work.js';
 import './page-hierarchy.css';
 
 const t = text.pageHierarchy;
@@ -55,7 +55,7 @@ export function usePageHierarchy({
   transport: PageTransport;
   space?: string;
   pageId: string;
-  work?: Work;
+  work?: StoredWork;
   pageHref(pageId: string): string;
 }): { parent?: ReactNode; subpages?: ReactNode } {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
