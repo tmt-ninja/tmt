@@ -430,7 +430,7 @@ or null when none is recorded or the record is unsafe. It is liveness evidence o
 status never infers a hold, a delivery or an owner from it.
 
 `percent` is null or `{basisPoints, estimatedInputTokensAvoided,
-observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
+observedInputTokens, fromMs, throughMs}`. It is available for `24h`, `7d` and `30d`;
 **lifetime percent is always null**. Its interval uses whole closed minutes inside
 the parent window: `fromMs = ceil(parent.fromMs / 60000) * 60000`,
 `throughMs = floor(parent.throughMs / 60000) * 60000`. Empty intervals are null.

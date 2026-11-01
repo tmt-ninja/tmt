@@ -59,7 +59,13 @@ esac`
     [ ! -f "$HOME/talk-fails" ] || exit 1 ;;
 esac`
   );
-  tool('nap', 'echo "$*" >> "$HOME/sleeps.log"; [ -z "$REAL_NAP" ] || /bin/sleep 1');
+  // A fake clock that only a nap advances, so the cap is reached by naps, never by how
+  // long a slow runner takes to poll.
+  tool('tick', 'cat "$HOME/clock" 2>/dev/null || echo 0');
+  tool(
+    'nap',
+    'echo "$*" >> "$HOME/sleeps.log"; echo $(($(cat "$HOME/clock" 2>/dev/null || echo 0) + $1)) > "$HOME/clock"'
+  );
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -81,6 +87,7 @@ function newCase(pulls: string[], files: Record<string, string> = {}) {
         HOME: home,
         TMPDIR: `${home}/`,
         CI_WAKE_SLEEP: 'nap',
+        CI_WAKE_CLOCK: 'tick',
         TMUX: '/tmp/tmux-501/default,1,0',
         TMUX_PANE: '%1',
         ...environment,
@@ -164,11 +171,11 @@ describe('scripts/ci-wake.sh', () => {
     const c = newCase([open], {
       runs: tsv(check('in_progress', '', 'rust'), check('completed', 'success', 'docs')),
     });
-    // The pending poll repeats until the cap; one real second ends it.
-    const result = c.wait(['--interval', '200', '--cap', '1'], { REAL_NAP: '1' });
+    // The pending poll naps once at the interval plus jitter; that nap passes the cap.
+    const result = c.wait(['--interval', '200', '--cap', '1']);
     expect(result.status).toBe(0);
     const sleeps = c.lines('sleeps.log').map(Number);
-    expect(sleeps.length).toBeGreaterThan(0);
+    expect(sleeps).toHaveLength(1);
     for (const sleep of sleeps) {
       expect(sleep).toBeGreaterThanOrEqual(200);
       expect(sleep).toBeLessThanOrEqual(230);
@@ -182,7 +189,7 @@ describe('scripts/ci-wake.sh', () => {
       runs: tsv(check('completed', 'success', 'early')),
       workflows: 'completed\nin_progress\n',
     });
-    const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
+    const result = c.wait(['--cap', '1']);
     expect(result.status).toBe(0);
     expect(c.lines('talk.log')).toEqual([expect.stringContaining(': no final state after 0 min')]);
     expect(c.lines('gh.log').join('\n')).toContain(`actions/runs?head_sha=${HEAD}&per_page=100`);
@@ -190,14 +197,14 @@ describe('scripts/ci-wake.sh', () => {
 
   it('does not report green before any workflow run exists for the head', () => {
     const c = newCase([open], { runs: tsv(check('completed', 'success', 'early')), workflows: '' });
-    const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
+    const result = c.wait(['--cap', '1']);
     expect(result.status).toBe(0);
     expect(c.lines('talk.log')[0]).toContain('no final state');
   });
 
   it('does not report green before any check has started', () => {
     const c = newCase([open]);
-    const result = c.wait(['--cap', '1'], { REAL_NAP: '1' });
+    const result = c.wait(['--cap', '1']);
     expect(result.status).toBe(0);
     expect(c.lines('talk.log')[0]).toContain('no final state');
   });
