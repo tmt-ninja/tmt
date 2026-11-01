@@ -40,6 +40,8 @@ export type RichInputControlProps = {
   describedBy?: string;
   /** Presentation only, inside the input below text; grants no editor or send authority. */
   accessory?: ReactNode;
+  /** Presentation only, inside the input above text, as `accessory` is below it. */
+  header?: ReactNode;
   trigger?: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> };
   onKeyDownCapture?(event: KeyboardEvent<HTMLDivElement>): void;
 };
@@ -185,6 +187,7 @@ export function RichInputControl(props: RichInputControlProps) {
             data-accessory={Boolean(props.accessory) || undefined}
             data-disabled={(props.disabled && !props.busy) || undefined}
           >
+            {props.header}
             {editable}
             {props.accessory && <div className="rich-input-accessory">{props.accessory}</div>}
           </div>

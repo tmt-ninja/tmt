@@ -147,7 +147,10 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `annotation-number.css` owns the shared circle metrics; the renderer-style generator
   projects that checked CSS alongside its paint roles into the opaque frame.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
-  editor, recipient and Send ownership stays unchanged. The [GUI rule](../../../../design/gui-style.md#conversation-turn)
+  editor, recipient and Send ownership stays unchanged. Its notices (a refusal, a recipient
+  not reached, a recorded message's next step) share one reserved one-line slot, `RichInput`'s
+  `header` row inside the input above the text, so neither the history nor the field moves (#5911).
+  The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
   composer slot, as in the anchored dialog) and Chat provide `MessageEchoContext`; inside it,
