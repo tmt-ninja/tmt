@@ -90,3 +90,10 @@ export interface EmptyProps {
   children?: ReactNode;
   icon?: ReactNode;
 }
+
+/** <tmt-ui-tabs>: props from its schema, slots as nodes. */
+export interface TabsProps {
+  items?: string;
+  value?: string;
+  children?: ReactNode;
+}

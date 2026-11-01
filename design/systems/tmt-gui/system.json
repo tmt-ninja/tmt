@@ -45,6 +45,9 @@
     },
     {
       "doc": "components/empty.json"
+    },
+    {
+      "doc": "components/tabs.json"
     }
   ],
   "principles": {

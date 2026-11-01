@@ -42,7 +42,21 @@ export async function classTable({ load, React, renderToStaticMarkup }, ui) {
   const base = lists.reduce((shared, list) => shared.filter((name) => list.includes(name)));
   // The classes of every inner element (a switch's thumb, say), by data-slot, as drawn by default.
   const inner = {};
-  if (!variants) {
+  // A component with parts that only draw inside it (Radix context) names a sample to draw them.
+  if (ui.compose && ui.sample) {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        UiTheme,
+        { theme: 'light' },
+        React.createElement(composed(parseMarkup(ui.compose), exports, React), ui.sample),
+      ),
+    );
+    for (const [, attrs] of html.matchAll(/<[a-z][a-z0-9-]*((?:\s+[^\s=>]+(?:="[^"]*")?)*)\s*\/?>/g)) {
+      const slot = /\sdata-slot="([^"]*)"/.exec(attrs)?.[1];
+      const classes = /\sclass="([^"]*)"/.exec(attrs)?.[1];
+      if (slot && classes) inner[slot] = rootClass(` class="${classes}"`);
+    }
+  } else if (!variants) {
     const html = renderToStaticMarkup(
       React.createElement(UiTheme, { theme: 'light' }, React.createElement(exports[component])),
     );
@@ -125,28 +139,35 @@ export function structure(html) {
  * `{prop}` text or attribute values from the example's props (`{children}` its content), and an
  * element with `if="prop"` drawn only when that prop is given.
  */
-function composed(tree, exports, React) {
+export function composed(tree, exports, React) {
   const Composed = (props) => {
-    const value = (text) => {
+    const value = (text, scope) => {
       const name = /^\{([a-z]+)\}$/.exec(text.trim())?.[1];
-      return name ? props[name] : text;
+      return name ? scope[name] : text;
     };
-    const draw = (node, key) => {
-      if (typeof node === 'string') return value(node);
-      if (node.attrs.if && props[node.attrs.if] === undefined) return null;
-      const { if: _if, ...attrs } = node.attrs;
+    const draw = (node, key, scope) => {
+      if (typeof node === 'string') return value(node, scope);
+      if (node.attrs.if && scope[node.attrs.if] === undefined) return null;
+      const { if: _if, each, ...attrs } = node.attrs;
+      // `each="items"` repeats the element for every comma-separated value, named `{item}`.
+      if (each)
+        return String(scope[each] ?? '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .map((item) => draw({ ...node, attrs: attrs }, item, { ...scope, item }));
       const given = Object.fromEntries(
         Object.entries(attrs)
-          .map(([name, text]) => [name, typeof text === 'string' ? value(text) : text])
+          .map(([name, text]) => [name, typeof text === 'string' ? value(text, scope) : text])
           .filter(([, text]) => text !== undefined),
       );
       return React.createElement(
         exports[node.tag] ?? node.tag,
         { ...given, key },
-        ...node.children.map(draw),
+        ...node.children.map((child, index) => draw(child, index, scope)),
       );
     };
-    return tree.map(draw);
+    return tree.map((node, index) => draw(node, index, props));
   };
   // Like the template component, it takes a named slot as a prop.
   Composed.takesSlots = true;

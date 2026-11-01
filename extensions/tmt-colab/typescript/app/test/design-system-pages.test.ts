@@ -191,6 +191,7 @@ describe('template, publish and the renderer source', () => {
       'acme-skeleton',
       'acme-surface',
       'acme-switch',
+      'acme-tabs',
       'acme-textarea',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);

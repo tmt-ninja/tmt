@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "tabs",
+  "source": "tabs.js",
+  "props": {
+    "items": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "tabs.css",
+  "ui": {
+    "module": "/src/ui/tabs.tsx",
+    "component": "Tabs",
+    "compose": "<Tabs value=\"{value}\"><TabsList><TabsTrigger each=\"items\" value=\"{item}\">{item}</TabsTrigger></TabsList>{children}</Tabs>",
+    "sample": {
+      "items": "One,Two",
+      "value": "One"
+    }
+  },
+  "examples": [
+    {
+      "title": "Views",
+      "markup": "<tmt-ui-tabs items=\"Members, Timers, Notes\" value=\"Members\"></tmt-ui-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Two views",
+      "markup": "<tmt-ui-tabs items=\"Open, Done\" value=\"Done\"></tmt-ui-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

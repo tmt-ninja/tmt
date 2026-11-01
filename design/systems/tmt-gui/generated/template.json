@@ -82,6 +82,10 @@
    {
     "tag": "empty",
     "status": "stable"
+   },
+   {
+    "tag": "tabs",
+    "status": "stable"
    }
   ]
  },
@@ -670,6 +674,42 @@
     }
    ],
    "source": "// Ports browser-ui's ui Empty and its parts (#5866): plain JavaScript and htm on the skeleton\n// (React, html, cn). The compiler fills `classes` from the ui component; every example must draw\n// like the ui parts composed as `ui.compose` says.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"empty\":\"tmt:box-border tmt:font-body tmt:flex tmt:min-w-0 tmt:flex-1 tmt:flex-col tmt:items-center tmt:justify-center tmt:gap-4 tmt:rounded-surface tmt:border-dashed tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:p-6 tmt:text-center tmt:text-balance tmt:text-foreground\"},\"base\":\"tmt:box-border tmt:font-body tmt:flex tmt:min-w-0 tmt:flex-1 tmt:flex-col tmt:items-center tmt:justify-center tmt:gap-4 tmt:rounded-surface tmt:border-dashed tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:p-6 tmt:text-center tmt:text-balance tmt:text-foreground\",\"by\":{\"\":\"\"},\"parts\":{\"empty-header\":\"tmt:flex tmt:max-w-sm tmt:flex-col tmt:items-center tmt:gap-2\",\"empty-icon\":\"tmt:mb-1 tmt:flex tmt:size-10 tmt:shrink-0 tmt:items-center tmt:justify-center tmt:rounded-control tmt:bg-muted tmt:text-foreground tmt:[&_svg]:pointer-events-none tmt:[&_svg]:size-5\",\"empty-title\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight)\",\"empty-description\":\"tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground\",\"empty-content\":\"tmt:flex tmt:w-full tmt:max-w-sm tmt:min-w-0 tmt:flex-col tmt:items-center tmt:gap-2\"}};\n  const part = (slot, content) =>\n    html`<div data-slot=${slot} className=${classes.parts[slot]}>${content}</div>`;\n  return function Empty({ heading, description, icon, children }) {\n    return html`<div data-slot=\"empty\" className=${classes.base}>\n      <div data-slot=\"empty-header\" className=${classes.parts['empty-header']}>\n        ${icon !== undefined && part('empty-icon', icon)}\n        ${part('empty-title', heading)}\n        ${description !== undefined && part('empty-description', description)}\n      </div>\n      ${children !== undefined && part('empty-content', children)}\n    </div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "tabs",
+   "props": {
+    "items": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Views",
+     "markup": "<tmt-ui-tabs items=\"Members, Timers, Notes\" value=\"Members\"></tmt-ui-tabs>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Two views",
+     "markup": "<tmt-ui-tabs items=\"Open, Done\" value=\"Done\"></tmt-ui-tabs>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Tabs (#5866), the default (filled) list: plain JavaScript and htm on the\n// skeleton (React, html, cn). The compiler fills `classes` from the ui parts drawn as `ui.sample`;\n// every example must draw like the ui parts composed as `ui.compose` says. The line list's\n// sliding indicator needs layout, so it is not ported yet.\nexport default ({ React, html }) => {\n  const classes = {\"slots\":{\"tabs\":\"tmt:font-body tmt:group/tabs tmt:flex tmt:gap-2 tmt:data-[orientation=horizontal]:flex-col\",\"tabs-list\":\"tmt:[border-radius:var(--tmt-foundation-radius)] tmt:group/tabs-list tmt:inline-flex tmt:w-fit tmt:items-center tmt:justify-center tmt:p-1 tmt:text-muted-foreground tmt:group-data-[orientation=horizontal]/tabs:h-9 tmt:group-data-[orientation=vertical]/tabs:h-fit tmt:group-data-[orientation=vertical]/tabs:flex-col tmt:bg-muted\",\"tabs-trigger\":\"tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:relative tmt:inline-flex tmt:h-[calc(100%-var(--tmt-foundation-rule-width))] tmt:flex-1 tmt:items-center tmt:justify-center tmt:gap-1.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:px-2 tmt:py-1 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:text-foreground tmt:group-data-[orientation=vertical]/tabs:w-full tmt:group-data-[orientation=vertical]/tabs:justify-start tmt:hover:text-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:group-data-[variant=line]/tabs-list:bg-transparent tmt:group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent tmt:data-[state=active]:bg-background tmt:data-[state=active]:text-foreground\"},\"base\":\"tmt:font-body tmt:group/tabs tmt:flex tmt:gap-2 tmt:data-[orientation=horizontal]:flex-col\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Tabs({ items = '', value, children }) {\n    const list = items\n      .split(',')\n      .map((item) => item.trim())\n      .filter(Boolean);\n    const [selected, setSelected] = React.useState(value ?? list[0]);\n    return html`<div dir=\"ltr\" data-orientation=\"horizontal\" data-slot=\"tabs\" className=${classes.base}>\n      <div\n        role=\"tablist\"\n        aria-orientation=\"horizontal\"\n        data-slot=\"tabs-list\"\n        data-variant=\"default\"\n        data-orientation=\"horizontal\"\n        className=${classes.slots['tabs-list']}\n      >\n        ${list.map(\n          (item) =>\n            html`<button\n              key=${item}\n              type=\"button\"\n              role=\"tab\"\n              aria-selected=${item === selected}\n              data-state=${item === selected ? 'active' : 'inactive'}\n              data-slot=\"tabs-trigger\"\n              data-orientation=\"horizontal\"\n              className=${classes.slots['tabs-trigger']}\n              onClick=${() => setSelected(item)}\n            >\n              ${item}\n            </button>`,\n        )}\n      </div>\n      ${children}\n    </div>`;\n  };\n};\n",
    "css": ""
   }
  ]

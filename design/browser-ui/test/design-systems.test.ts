@@ -37,6 +37,7 @@ describe('buildBundle', () => {
       'tmt-ui-alert',
       'tmt-ui-surface',
       'tmt-ui-empty',
+      'tmt-ui-tabs',
     ]);
   });
 
