@@ -1,43 +1,47 @@
 import { useSyncExternalStore, type MouseEvent } from 'react';
 
 /**
- * The docs' location. On the dev server it is the URL path; embedded in Colab (#5866), the docs are
- * one asset document, `assets/design-docs.html`, so the path and query live in its hash
- * (`#/ds/gui/components/button?x=1`) and the host page follows them through messages.
+ * The docs' location. On the dev server it is the URL path. When Design hosts the docs inside
+ * Colab (#5866), the host owns the URL: it passes its path and a navigate function, and the docs'
+ * own paths sit under the host's base (`/colab/design` + `/ds/gui/components/button`).
  */
-export const embedded = location.pathname.endsWith('/design-docs.html');
+export interface DocsHost {
+  /** The host's path that holds the docs, without a trailing slash. */
+  base: string;
+  /** The host's current path and query. */
+  path: string;
+  navigate(href: string): void;
+}
+let host: DocsHost | undefined;
+const listeners = new Set<() => void>();
+/** Hand the location to a host, or back to the window with undefined. */
+export function hostDocs(next: DocsHost | undefined) {
+  host = next;
+  for (const notify of listeners) notify();
+}
+/** Whether a host owns the location and the chrome around the docs. */
+export const hosted = () => host !== undefined;
 
 function parts(): { path: string; search: string } {
-  if (!embedded) return { path: location.pathname, search: location.search };
-  const hash = location.hash.slice(1) || '/';
-  const query = hash.indexOf('?');
+  if (!host) return { path: location.pathname, search: location.search };
+  const inner = host.path.startsWith(host.base) ? host.path.slice(host.base.length) || '/' : '/';
+  const query = inner.indexOf('?');
   return query < 0
-    ? { path: hash, search: '' }
-    : { path: hash.slice(0, query), search: hash.slice(query) };
+    ? { path: inner, search: '' }
+    : { path: inner.slice(0, query), search: inner.slice(query) };
 }
 function subscribe(notify: () => void) {
+  listeners.add(notify);
   addEventListener('popstate', notify);
-  addEventListener('hashchange', notify);
   return () => {
+    listeners.delete(notify);
     removeEventListener('popstate', notify);
-    removeEventListener('hashchange', notify);
   };
 }
-/** Tell an embedding host where the docs are now, so its own URL can follow. */
-function announce() {
-  if (embedded && parent !== window) {
-    const { path, search } = parts();
-    parent.postMessage({ type: 'tmt-docs.path', path: `${path}${search}` }, location.origin);
-  }
-}
 function write(href: string, replace: boolean) {
-  if (embedded) {
-    const url = new URL(location.href);
-    url.hash = href;
-    history[replace ? 'replaceState' : 'pushState'](null, '', url);
-  } else history[replace ? 'replaceState' : 'pushState'](null, '', href);
+  if (host) return host.navigate(`${host.base}${href}`);
+  history[replace ? 'replaceState' : 'pushState'](null, '', href);
   dispatchEvent(new PopStateEvent('popstate'));
-  announce();
 }
 /** A history-backed path, so links inside the docs and the mock never reload the page. */
 export function navigate(href: string) {
@@ -48,18 +52,6 @@ export function navigate(href: string) {
 export function replacePath(href: string) {
   write(href, true);
 }
-if (embedded)
-  addEventListener('message', (event) => {
-    const data = event.data as { type?: unknown; path?: unknown } | null;
-    if (
-      event.source === parent &&
-      event.origin === location.origin &&
-      data?.type === 'tmt-docs.go' &&
-      typeof data.path === 'string' &&
-      data.path.startsWith('/')
-    )
-      navigate(data.path);
-  });
 export function usePath() {
   return useSyncExternalStore(subscribe, () => parts().path);
 }

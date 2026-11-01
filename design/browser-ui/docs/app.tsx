@@ -9,7 +9,7 @@ import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
-import { follow } from './router.js';
+import { follow, hosted } from './router.js';
 import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
 
 interface Page {
@@ -207,23 +207,28 @@ function TopBar({ system, onMenu }: { system: DesignSystem; onMenu?: () => void 
           ☰
         </button>
       )}
-      <a className="docs-brand" href={system.root} onClick={follow}>
-        <BrandMark size={22} />
-        <span>tmt</span>
-        <span className="docs-brand-sub">design system</span>
-      </a>
-      <nav className="docs-segment docs-systems" aria-label="Design system">
-        {designSystems.map((entry) => (
-          <a
-            key={entry.id}
-            href={entry.root}
-            aria-current={entry === system ? 'page' : undefined}
-            onClick={follow}
-          >
-            {entry.name}
+      {/* Hosted in Design (#5866), the host's header carries the brand and the system switcher. */}
+      {!hosted() && (
+        <>
+          <a className="docs-brand" href={system.root} onClick={follow}>
+            <BrandMark size={22} />
+            <span>tmt</span>
+            <span className="docs-brand-sub">design system</span>
           </a>
-        ))}
-      </nav>
+          <nav className="docs-segment docs-systems" aria-label="Design system">
+            {designSystems.map((entry) => (
+              <a
+                key={entry.id}
+                href={entry.root}
+                aria-current={entry === system ? 'page' : undefined}
+                onClick={follow}
+              >
+                {entry.name}
+              </a>
+            ))}
+          </nav>
+        </>
+      )}
       <div className="docs-switches">
         <system.Controls />
       </div>
