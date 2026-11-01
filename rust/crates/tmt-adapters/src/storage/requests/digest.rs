@@ -159,16 +159,31 @@ pub(super) fn release_item(
     .map_err(|e| classify(e, "Release a held digest reference"))
 }
 
+/// The identity's oldest held item: unsealed, or sealed into its one claimed checklist. Two index
+/// lookups whose cost never grows with the delivered backlog (#5862).
+pub(super) const OLDEST_HELD: &str = "SELECT MIN(held) FROM (
+    SELECT MIN(i.created_at_ms) AS held FROM focus_items i JOIN request_attempts a USING(request_id)
+    WHERE i.identity_id=?1 AND i.checklist_id IS NULL AND a.retention_expires_at_ms>?2
+    UNION ALL
+    SELECT MIN(i.created_at_ms) FROM focus_checklists c JOIN focus_items i ON i.checklist_id=c.id
+    JOIN request_attempts a USING(request_id)
+    WHERE c.identity_id=?1 AND c.state='claimed' AND i.identity_id=?1 AND a.retention_expires_at_ms>?2)";
+
 pub(super) fn oldest_held(
     db: &Connection,
     identity: &str,
     now: u64,
 ) -> Result<Option<u64>, StorageError> {
-    db.query_row("SELECT MIN(i.created_at_ms) FROM focus_items i JOIN request_attempts a USING(request_id)
-        LEFT JOIN focus_checklists c ON c.id=i.checklist_id WHERE i.identity_id=?1 AND a.retention_expires_at_ms>?2
-        AND (i.checklist_id IS NULL OR c.state='claimed')", params![identity,checked_now(now,"Digest age clock")?],
-        |row| row.get::<_,Option<i64>>(0)?.map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery)).transpose())
-        .map_err(|e| classify(e,"Read oldest held digest timestamp"))
+    db.query_row(
+        OLDEST_HELD,
+        params![identity, checked_now(now, "Digest age clock")?],
+        |row| {
+            row.get::<_, Option<i64>>(0)?
+                .map(|n| u64::try_from(n).map_err(|_| rusqlite::Error::InvalidQuery))
+                .transpose()
+        },
+    )
+    .map_err(|e| classify(e, "Read oldest held digest timestamp"))
 }
 
 fn item_row(r: &rusqlite::Row<'_>, identity: &str) -> rusqlite::Result<DigestItem> {
@@ -389,6 +404,23 @@ pub(super) fn settle(
             _ => None,
         },
     )?;
+    // An idle paste typed into a running turn reaches the model with no prompt to confirm it, so
+    // it is confirmed here and never offered again at that turn's Stop (#5869).
+    if state == DigestState::Delivered
+        && b.projection == DigestProjection::Full
+        && super::delivery::folds_typed_text_now(db, &b.identity_id)?
+    {
+        let carried = db
+            .execute(
+                "UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE id=?1 AND opportunity='idle'
+                 AND confirmed_at_ms IS NULL",
+                params![b.id, checked_now(now, "Digest carried clock")?],
+            )
+            .map_err(|e| classify(e, "Confirm a carried digest checklist"))?;
+        if carried == 1 {
+            super::super::capture_batches::confirm_checklist_batch(db, &b.identity_id, &b.id)?;
+        }
+    }
     if state == DigestState::Delivered {
         db.execute("INSERT INTO digest_counters(identity_id,delivered_digests) VALUES(?1,1)
             ON CONFLICT(identity_id) DO UPDATE SET delivered_digests=digest_counters.delivered_digests+1", [&b.identity_id])

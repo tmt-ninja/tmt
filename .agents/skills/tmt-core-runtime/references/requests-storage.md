@@ -114,7 +114,8 @@ carry one oversized first item, while provider hooks leave it held.
   history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
-  arrival (the latest send time), the driver activity of the exact bound session and process (a
+  arrival (the latest send time; read only for a message still held, by two index lookups that never
+  scan the delivered backlog), the driver activity of the exact bound session and process (a
   stored event, no host call), and what came back (`ReturnedAnswer`: a submitted final, or the
   passthrough capture as `state_at` reads it, so a capture past its window already reads
   `no_answer`). A returned answer outranks every other fact: `answered` is terminal, and an ended capture
@@ -125,6 +126,11 @@ carry one oversized first item, while provider hooks leave it held.
   a closed or idle-without-end turn reads `unconfirmed`/`turn_ended_without_reply`, and a request with no
   row keeps the activity-only reading bounded to six hours (#4911). The Digest tick writes `maxHoldMs` with every `digest.policy.set` and
   rewrites a policy whose recorded value differs; older policies read null until then.
+  The recipient's facts (binding, refusal, Digest limit, activity, oldest held arrival) are read once
+  per recipient per transaction (`delivery::Recipients`) and reread whenever `change_cursor` advances,
+  so a page of rows to one recipient costs one recipient read.
+- The two-party conversation read (`history::conversation_sql`) is two seeks on the partial index
+  `request_history_pair` (schema 88), one per direction, merged in order without a sort.
 - A delivered checklist keeps `confirmed_at_ms` null until later evidence arrives (pre-068 rows are
   confirmed by the migration). One typed at an idle opportunity is confirmed by the hook's
   runtime-observation transaction when an admitted turn start's prompt names one of its request

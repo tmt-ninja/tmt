@@ -113,9 +113,11 @@ fn snapshot(db: &Connection) -> Snapshot {
             })
             .collect(),
         responses: rows(db, "SELECT * FROM request_responses ORDER BY request_id"),
+        // Indexes later migrations add (088: request_history_pair) are not the rebuild's to keep.
         dependents: text(
             "SELECT name, sql FROM sqlite_schema WHERE tbl_name = 'request_attempts'
-             AND type IN ('index', 'trigger') AND sql IS NOT NULL",
+             AND type IN ('index', 'trigger') AND sql IS NOT NULL
+             AND name <> 'request_history_pair'",
         ),
         child_tables: CHILDREN
             .iter()
@@ -176,7 +178,7 @@ fn the_rebuild_keeps_every_row_dependent_row_index_and_trigger() {
     drop(old);
 
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 87);
+    assert_eq!(storage.health().unwrap().schema_version, 88);
     storage.close().unwrap();
 
     let db = Connection::open(&path).unwrap();
@@ -451,7 +453,7 @@ fn a_failed_rebuild_changes_nothing() {
     // The same database then migrates, and nothing about the failed attempt lingers.
     drop(db);
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 87);
+    assert_eq!(storage.health().unwrap().schema_version, 88);
     storage.close().unwrap();
     assert_eq!(
         snapshot(&Connection::open(&path).unwrap()).attempts,

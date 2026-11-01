@@ -10,7 +10,7 @@ import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   patchArgs,
   annotationInput,
-  clientId,
+  revokeMachine,
   createPage,
   freePort,
   openChat,
@@ -865,12 +865,7 @@ test('revoking a device rekeys a native document attachment with one complete sw
 
       // Revoke an actually registered device through the real Remote door, rather than a
       // sharing-mode toggle. Its callback narrows this page before the serve rekeys the file.
-      run(world, world.binaries.remote, [
-        'devices',
-        'revoke',
-        clientId(world, author.name),
-        '--json',
-      ]);
+      revokeMachine(world, author.name);
 
       // Wait on the published reference, not on a staging record or a fixed delay. Every
       // sampled snapshot must contain one complete old or new reference, never neither/both.

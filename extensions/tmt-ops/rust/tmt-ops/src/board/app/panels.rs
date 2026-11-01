@@ -42,6 +42,7 @@ impl App {
             OpsTab::Agents => !self
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Usage),
+            OpsTab::Orchestration => true,
             OpsTab::Digest => !self
                 .digest_panels()
                 .shown(crate::config::DigestPanel::Chart),

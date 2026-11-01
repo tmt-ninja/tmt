@@ -35,9 +35,20 @@ fn worth_offering<E>(
     item: &digest::DigestItem,
     now: u64,
 ) -> Result<bool, RequestError<E>> {
-    Ok(item.source != digest::DigestSource::Incoming
-        || context(records, &item.request_id, now)?
-            .is_some_and(|context| responses::first_final_refusal(&context.attempt, now).is_none()))
+    if item.source == digest::DigestSource::Incoming {
+        return Ok(
+            context(records, &item.request_id, now)?.is_some_and(|context| {
+                responses::first_final_refusal(&context.attempt, now).is_none()
+            }),
+        );
+    }
+    // A notice its originator already acknowledged with `x ack` needs no second look (#5869).
+    Ok(records
+        .find_attention(&item.identity_id, &item.request_id)?
+        .is_none_or(|record| {
+            record.acknowledged_revision < record.revision
+                && record.acknowledged_through < record.revision
+        }))
 }
 
 /// The unconfirmed items one claim looked through: those worth offering again, oldest first, and

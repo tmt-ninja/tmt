@@ -232,6 +232,17 @@ current member button after refresh, with the Squads heading as its focus fallba
 Leaving the section or aborting the route closes the dialog. These views add no
 agent or schedule controls, owner reads or persistence.
 
+Orchestration (`ops-orchestration.ts`, order Agents · Squads · Orchestration · Timers) is the one
+Ops section that changes anything. It reads Core's own views (`overview`, `routes`, `talks`, `why`)
+through signed `orchestration.read` (`orchestration-client.ts`) on entry and every 30 s while shown,
+not from the board, so its rail item has no total. A missing view (`ORCH_INPUT_INVALID`) reads as
+not available, and a routes list cut at 32 pages or by `ORCH_LIMIT` says so. Every change is
+`orchestration.write` preview first, shown as Core's own effect lines; Save applies exactly that
+preview with `consent:true`, Cancel sends nothing, and a stale preview saves nothing. Only
+`focus.set`, `focus.clear`, `route.allow` and `talks.resume` are offered; plans and leads stay in
+`tmt orch` / `tmt ops ui`. `e2e/ops-orchestration.spec.ts` drives it through the shared Ops harness
+(`e2e/ops-harness-page.ts`).
+
 ## Settings page
 
 The current-door management tabs use the same embedded shared CSS, Header/Notice/Field/Action classes and

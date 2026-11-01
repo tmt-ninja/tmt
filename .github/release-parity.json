@@ -6,12 +6,12 @@
       "plan": {
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
         "sha256": "54c21fa5fafa1c21df7bc41dcd6bbbf786550237945c878b075fd7e68c58ed4e",
-        "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs before merge through the release rehearsal, which skips this planning."
+        "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs after merge through the main-push and nightly release rehearsals, which skip this planning."
       },
       "bundle": {
         "steps": ["uses:./.github/workflows/native-release-bundle.yml"],
         "sha256": "97e540892c8e36b07380c41ce965db1b0088be3b5f82dd87859eeb9ceea8d48c",
-        "releaseOnly": "The bundle call adds draft admission, attachment and publication to the prepare stages; those stages are inventoried under native-release-bundle.yml and native-release-prepare.yml, where the prepare jobs have a pre-merge rehearsal and the publishing jobs carry their own entries."
+        "releaseOnly": "The bundle call adds draft admission, attachment and publication to the prepare stages; those stages are inventoried under native-release-bundle.yml and native-release-prepare.yml, where the prepare jobs have a main-push rehearsal and the publishing jobs carry their own entries."
       },
       "release-index": {
         "releaseOnly": "Environment secrets are unreachable from reusable workflows under the enforced owner boundary. The top-level main-only release-index job verifies fresh published bytes before minting the App token; inert release-workflow controls pin this boundary, failure visibility and job ordering, while actual environment/App delivery and protected branch advancement require owner-authorized live release evidence.",
@@ -40,10 +40,10 @@
       "prepare": {
         "steps": ["uses:./.github/workflows/native-release-prepare.yml"],
         "sha256": "1d64f3cc4df7dd250df4df9123617057806939f2c6ba39b5157e6db6ef2ea536",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -83,12 +83,12 @@
           "id:gates"
         ],
         "sha256": "26ab758ceea3dca7f8fdda9762eacec0ef8c89696ab8f046c00a942d6f57b931",
-        "releaseOnly": "Live checks read the allocated draft, its merged-main commit, the PR check suite and published releases, and the hold marker is a write to the real draft. The same gates run before merge in the rehearsal on the candidate (publication-gates.mjs dry, native-release-prepare.yml gates-dry); only the draft-bound evidence stays release-only."
+        "releaseOnly": "Live checks read the allocated draft, its merged-main commit, the PR check suite and published releases, and the hold marker is a write to the real draft. The same gates run in the main-push and nightly rehearsals on the candidate (publication-gates.mjs dry, native-release-prepare.yml gates-dry); only the draft-bound evidence stays release-only."
       },
       "upgrade": {
         "steps": ["uses:./.github/workflows/native-release-upgrade.yml"],
         "sha256": "b6ca7271302c4756fc0be8568041b3d9b5a1d95c671c334108d2d5cc8219e96f",
-        "releaseOnly": "Calls the upgrade workflow for the real draft after the publication gates, whose write-token fetch needs live draft state. Its proof stages run before merge in the rehearsal (native-release-upgrade-prove.yml), including the CLI adapter acceptance."
+        "releaseOnly": "Calls the upgrade workflow for the real draft after the publication gates, whose write-token fetch needs live draft state. Its proof stages run in the main-push and nightly rehearsals (native-release-upgrade-prove.yml), including the CLI adapter acceptance."
       },
       "finish": {
         "steps": [
@@ -144,10 +144,10 @@
           "uses:actions/upload-artifact@v4"
         ],
         "sha256": "e4b37a9d82b83aff0ba75799d3c29960d606ac26f858278ab86cfeed20991ec8",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -177,10 +177,10 @@
           "uses:actions/upload-artifact@v4"
         ],
         "sha256": "280bbaa59e5c802e940b17279b1b5ff9b0fbf3cb89880ff6f1dad0e47492559c",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -210,10 +210,10 @@
           "name:Retain the matching-host verification report"
         ],
         "sha256": "8a5e36b6fba79c00f5bf62d485bd27f823e5716efe42c760ec5d72d0c2bee508",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -234,10 +234,10 @@
           "name:Hand the assets to the proof"
         ],
         "sha256": "a0498eb9e7823642faa199aa374c2a2f2a55694b81435ca28cedbfaf051764c3",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -251,10 +251,10 @@
       "upgrade": {
         "steps": ["uses:./.github/workflows/native-release-upgrade-prove.yml"],
         "sha256": "1ce6ec4608d87b59cae6619e322b95b706bfd3a506e9a5041fd7f3ea0224e251",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -275,10 +275,10 @@
           "name:Evaluate the gates for the candidate without a draft"
         ],
         "sha256": "5feb85467e527dd68b65549db19759d2750bccd54d27509faa3e01f04cc2e701",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -290,10 +290,10 @@
         ]
       },
       "declaration": {
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -323,10 +323,10 @@
       "prove": {
         "steps": ["uses:./.github/workflows/native-release-upgrade-prove.yml"],
         "sha256": "0089ff050ffbef90286d45cd9082bbab097b10136c6af8070584b5f4ac590c76",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -358,10 +358,10 @@
           "name:Keep the log of a failed proof"
         ],
         "sha256": "0367bde2c500814d525fdef4e38b684550329966866b985c3d5b915280dcdac6",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -381,10 +381,10 @@
           "name:Fail a release the proof cannot run for"
         ],
         "sha256": "7b63f062c9f0e24f4d9c3942e2852cf898185efdbda93cf6fcb8f39dbddf84ba",
-        "preMerge": [
+        "mainPush": [
           {
-            "workflow": "ci.yml",
-            "job": "release-rehearsal",
+            "workflow": "release-rehearsal.yml",
+            "job": "prepare",
             "selection": {
               "kind": "ci-scope",
               "output": "release_rehearsal",
@@ -479,10 +479,12 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -526,10 +528,12 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -555,10 +559,12 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -584,10 +590,12 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -624,10 +632,10 @@
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -644,10 +652,10 @@
         "job": "verify",
         "step": "name:Build independent expected Colab app bytes"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -678,10 +686,12 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -708,10 +718,12 @@
             "value": "true"
           },
           "coverage": "runtime"
-        },
+        }
+      ],
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -736,10 +748,10 @@
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -756,10 +768,10 @@
         "job": "verify",
         "step": "id:version"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -794,10 +806,10 @@
         "job": "verify",
         "step": "id:version"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -822,10 +834,10 @@
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",
@@ -873,17 +885,6 @@
       "preMerge": [
         {
           "workflow": "ci.yml",
-          "job": "release-rehearsal",
-          "selection": {
-            "kind": "ci-scope",
-            "output": "release_rehearsal",
-            "value": "true",
-            "source": "typescript/scripts/release-rehearsal.mjs"
-          },
-          "coverage": "runtime"
-        },
-        {
-          "workflow": "ci.yml",
           "job": "unit-tests",
           "selection": {
             "kind": "ci-scope",
@@ -895,6 +896,19 @@
             "typescript/test/tooling/install-native-verification-dependencies.test.ts",
             "typescript/test/tooling/release-workflow.test.ts"
           ]
+        }
+      ],
+      "mainPush": [
+        {
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -1070,10 +1084,10 @@
         "job": "prove",
         "step": "name:Prove last-published and declared-floor installation and bootstrap recovery"
       },
-      "preMerge": [
+      "mainPush": [
         {
-          "workflow": "ci.yml",
-          "job": "release-rehearsal",
+          "workflow": "release-rehearsal.yml",
+          "job": "prepare",
           "selection": {
             "kind": "ci-scope",
             "output": "release_rehearsal",

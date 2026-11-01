@@ -3,7 +3,6 @@
 use super::NativeBudgetFile;
 use crate::{
     declaration::Resource,
-    deploy_plan::sha256_hex,
     firebase_auth::{Cancellation, Clock, Http, Jitter, Operation, Request, Time},
     firestore_budget::{
         Decision, ExhaustedEvidence, ExhaustedOutcome, Model, ProviderExhausted, READ_LOOKUPS,
@@ -12,9 +11,9 @@ use crate::{
     limits,
     objects::{BackendError, IoBudget},
     sealed_sync::{
-        Document, DocumentAccess, Mutation, Page, Pending, Published, Query, SealedSyncPort,
-        Subscription, SyncContext, SyncCursor, SyncError, SyncInterest, SyncQueryPage,
-        SyncQueryRequest, Target, validate_document, validate_mutation, validate_query,
+        Document, Mutation, Page, Pending, Published, Query, SealedSyncPort, Subscription,
+        SyncContext, SyncCursor, SyncError, SyncInterest, SyncQueryPage, SyncQueryRequest, Target,
+        validate_mutation, validate_query,
     },
     wire,
 };
@@ -271,30 +270,8 @@ impl Consumer {
         value: &Value,
         resource: &str,
     ) -> Result<Document, SyncError> {
-        let name = value
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or(SyncError::Unavailable)?;
-        let prefix = format!(
-            "{}/x/{}/{}/",
-            self.root(),
-            self.context.extension(),
-            self.resource(resource)?.path
-        );
-        let id = name.strip_prefix(&prefix).ok_or(SyncError::Denied)?;
-        let mut fields = value.get("fields").cloned().ok_or(SyncError::Unavailable)?;
-        fields.sort_all_objects();
-        let bytes = serde_json::to_vec(&fields).map_err(|_| SyncError::Unavailable)?;
-        let document = Document {
-            target: Target {
-                resource: resource.into(),
-                id: id.into(),
-            },
-            digest: sha256_hex(&bytes),
-            bytes,
-        };
-        validate_document(&self.context, &document, DocumentAccess::Read)?;
-        Ok(document)
+        self.context
+            .provider_document(&self.root(), value, resource)
     }
     pub(super) async fn query(&self, query: &Query, io: &IoBudget<'_>) -> Result<Page, SyncError> {
         self.check(io)?;
@@ -367,7 +344,7 @@ impl Consumer {
                 return Err(SyncError::CatchUpRequired);
             }
             let document = self.parse_document(value, &query.resource)?;
-            let fields = crate::sealed_sync::validate_fields(&document.bytes)?;
+            let fields = self.context.validate_fields(&document.bytes)?;
             if query
                 .scope
                 .iter()
@@ -377,9 +354,7 @@ impl Consumer {
             }
             let next = fields
                 .get(&spec.seq_field)
-                .and_then(|v| v.get("integerValue"))
-                .and_then(Value::as_str)
-                .and_then(|s| s.parse::<u64>().ok())
+                .and_then(|v| self.context.field_sequence(v))
                 .ok_or(SyncError::Unavailable)?;
             if seq.checked_add(1) != Some(next) {
                 return Err(SyncError::CatchUpRequired);
@@ -503,15 +478,14 @@ impl SealedSyncPort for NativeClient {
                 .as_ref()
                 .ok_or(SyncError::Unavailable)?;
             let fields = document
-                .map(|d| crate::sealed_sync::validate_fields(&d.bytes))
+                .map(|d| self.0.context.validate_fields(&d.bytes))
                 .transpose()?
                 .unwrap_or_default();
             let stream = mapping
                 .query
                 .as_ref()
                 .and_then(|s| fields.get(&s.stream_field))
-                .and_then(|v| v.get("stringValue"))
-                .and_then(Value::as_str)
+                .and_then(|v| self.0.context.field_string(v))
                 .map(str::to_owned);
             // Delete has no fields and must not perform a preparation read or
             // infer a stream from an opaque ID. Reserve the resource instead.

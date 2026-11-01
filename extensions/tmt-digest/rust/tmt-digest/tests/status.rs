@@ -39,7 +39,13 @@ case "$*" in
      mv request.next.json "storage-request.$(($(ls storage-request.* 2>/dev/null | wc -l) + 1)).json"
      cat storage.json; exit 0
    fi
-   n=$(($(grep -c '^api$' calls) - $(ls storage-request.* 2>/dev/null | wc -l)))
+   if grep -q '"operation":"consumption.limits"' request.next.json; then
+     mv request.next.json "limits-request.$(($(ls limits-request.* 2>/dev/null | wc -l) + 1)).json"
+     if test -f limits.json; then cat limits.json; exit 0; fi
+     printf '%s\n' '{"error":{"code":"API_INPUT_INVALID","message":"unknown operation"}}'
+     exit 1
+   fi
+   n=$(($(grep -c '^api$' calls) - $(ls storage-request.* limits-request.* 2>/dev/null | wc -l)))
    mv request.next.json "request.$n.json"
    if test -f stats-fail; then
      printf '%s\n' '{"error":{"code":"STORAGE_NOT_WRITABLE","message":"unavailable"}}'
@@ -219,6 +225,7 @@ fn usage_report_publishes_old_current_claude_cache_limits_alongside_codex() {
             "identity ls --json",
             "x flow --since 24h --bucket 24h --json",
             "api",
+            "api",
             "api"
         ]
     );
@@ -230,6 +237,12 @@ fn usage_report_publishes_old_current_claude_cache_limits_alongside_codex() {
         assert_eq!(request["operation"], "consumption.history");
         assert_eq!(request["input"]["identityIds"], json!([ID, second]));
     }
+    // Then the account-level read, which this older stand-in does not know.
+    let limits: Value =
+        serde_json::from_slice(&fs::read(fixture.0.join("limits-request.1.json")).unwrap())
+            .unwrap();
+    assert_eq!(limits["operation"], "consumption.limits");
+    assert_eq!(limits["input"], json!({}));
 }
 
 #[test]
@@ -384,7 +397,7 @@ fn selected_savings_windows_read_private_history_without_changing_it() {
         assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), modified);
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
     }
-    let invalid = fixture.run_args(&["status", "--json", "--window", "30d"]);
+    let invalid = fixture.run_args(&["status", "--json", "--window", "90d"]);
     assert_eq!(invalid.status.code(), Some(2));
 }
 

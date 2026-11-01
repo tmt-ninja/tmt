@@ -54,6 +54,7 @@ mod menu_surface;
 mod meter;
 pub(crate) mod notes;
 mod notice;
+mod orchestration;
 mod overview;
 mod pane_chrome;
 mod pane_resize;
@@ -146,6 +147,12 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(in crate::board) enum BoardEvent {
+    OrchestrationRead {
+        read: orchestration::Read,
+        observation: orchestration::Observation,
+        revision: u64,
+        cancellation: crate::runner::Cancellation,
+    },
     Migration(Option<String>),
     CronMigration(String),
     /// The host could not say which agent runs the board, once at startup; the
@@ -158,6 +165,7 @@ pub(in crate::board) enum BoardEvent {
     NewMember(new_member::Completed),
     SwitchTool(switch_tool::Completed),
     IdleAlert(idle_alert_editor::Completed),
+    Orchestration(orchestration::write::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -300,6 +308,8 @@ impl BoardEvent {
             Self::NewMember(_) => "NewMember",
             Self::SwitchTool(_) => "SwitchTool",
             Self::IdleAlert(_) => "IdleAlert",
+            Self::OrchestrationRead { .. } => "OrchestrationRead",
+            Self::Orchestration(_) => "Orchestration",
             Self::InputClosed => "InputClosed",
             Self::Snapshot { .. } => "Snapshot",
             Self::Enriched { .. } => "Enriched",
@@ -411,6 +421,7 @@ pub(super) enum ActionOutcome {
     ),
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     RenameMember(Box<workspace::rename_member::Completed>),
+    CloseMember(Box<workspace::close_member::Completed>),
     Message(String),
     WorkspacePreferences(Box<(crate::config::OpsPreferences, String)>),
     Send(Box<conversation::outgoing::Completed>),
@@ -452,6 +463,9 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                     ActionOutcome::Workspace(Box::new(Config::load(core).and_then(|mut config| {
                         crate::membership::workspace::apply(core, &mut config, operation)
                     })))
+                }
+                workspace::manage::Change::CloseMember(request) => {
+                    ActionOutcome::CloseMember(Box::new(request.apply(core)))
                 }
                 workspace::manage::Change::RenameMember(request) => {
                     let outcome = request.apply(core);
@@ -810,6 +824,15 @@ fn session(
             usage_wants(want.clone());
             wanted = want;
         }
+        if app.shell.tab == shell::OpsTab::Orchestration {
+            dirty |= app.orchestration.tick(crate::status::now_ms());
+            // The board search is the members filter here; Core matches it.
+            let members = app.search.as_str().trim().to_owned();
+            if app.orchestration.query.member != members {
+                app.orchestration.query.member = members;
+                dirty = true;
+            }
+        }
         dirty |= app.terminal_sync();
         let history = app.history_demand();
         let demand = history.map(|request| {
@@ -932,6 +955,11 @@ fn session(
                         dirty = true;
                         app.finished_idle_alert(completed)
                     }
+                    Ok(BoardEvent::Orchestration(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_orchestration(completed)
+                    }
                     Ok(BoardEvent::NewMember(completed)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
                         dirty = true;
@@ -974,6 +1002,22 @@ fn session(
                         enrichment,
                     }) => {
                         if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
+                    Ok(BoardEvent::OrchestrationRead {
+                        read,
+                        observation,
+                        revision: read_revision,
+                        cancellation,
+                    }) => {
+                        if !cancellation.cancelled()
+                            && read_revision == revision
+                            && app.selected_read()
+                                == Some(refresh::SelectedRead::Orchestration(read.clone()))
+                        {
+                            app.orchestration.apply(read, observation);
                             dirty = true;
                         }
                         Effect::None
@@ -1217,6 +1261,9 @@ fn session(
                             Ok(ActionOutcome::Workspace(outcome)) => {
                                 app.finished_workspace(*outcome)
                             }
+                            Ok(ActionOutcome::CloseMember(outcome)) => {
+                                app.finished_close_member(*outcome)
+                            }
                             Ok(ActionOutcome::RenameMember(outcome)) => {
                                 app.finished_member_rename(*outcome)
                             }
@@ -1442,6 +1489,10 @@ fn session(
                     Effect::IdleAlert(task) => {
                         app.in_flight += 1;
                         io(lane::Job::IdleAlert(task));
+                    }
+                    Effect::Orchestration(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::Orchestration(task));
                     }
                     Effect::NewMember(task) => {
                         app.in_flight += 1;

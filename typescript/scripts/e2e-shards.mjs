@@ -30,16 +30,16 @@ export function listE2eFiles(directory = E2E_DIRECTORY) {
 
 /**
  * Splits whole files over `count` shards, largest first onto the currently lightest
- * shard (ties go to the lowest index), so the result is deterministic. Shard 1 also
- * runs the pinned adapter environment slice; its compile and execution count as starting load. Each shard's files
- * are sorted by name. Every file lands in exactly one shard, whatever the weights.
+ * shard (ties go to the lowest index), so the result is deterministic. `seconds`
+ * weighs one file; `startLoads[i]` is work shard `i` carries before any file. Each
+ * shard's files are sorted by name. Every file lands in exactly one shard, whatever
+ * the weights. The Docker E2E and native process shards share this split.
  */
-export function splitE2eFiles(files, count, weights = loadShardWeights()) {
+export function splitWeightedFiles(files, count, seconds, startLoads = []) {
   if (!Number.isInteger(count) || count < 1)
     throw new Error('The shard count must be a positive integer.');
-  const seconds = (file) => weights.files[file] ?? weights.defaultSeconds;
   const shards = Array.from({ length: count }, (_, index) => ({
-    load: index === 0 ? weights.adapterTestsSeconds : 0,
+    load: startLoads[index] ?? 0,
     files: [],
   }));
   const ordered = [...files].sort((a, b) => seconds(b) - seconds(a) || (a < b ? -1 : 1));
@@ -49,6 +49,16 @@ export function splitE2eFiles(files, count, weights = loadShardWeights()) {
     lightest.load += seconds(file);
   }
   return shards.map((shard) => ({ files: shard.files.sort(), seconds: shard.load }));
+}
+
+/**
+ * The E2E split: shard 1 also runs the pinned adapter environment slice, so its
+ * compile and execution count as starting load.
+ */
+export function splitE2eFiles(files, count, weights = loadShardWeights()) {
+  return splitWeightedFiles(files, count, (file) => weights.files[file] ?? weights.defaultSeconds, [
+    weights.adapterTestsSeconds,
+  ]);
 }
 
 /**

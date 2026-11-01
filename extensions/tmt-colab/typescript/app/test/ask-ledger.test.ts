@@ -352,6 +352,44 @@ it('a verified-ask cache reads the same views and still refuses a changed record
   expect(await readAskViews(own, scope, () => otherKey, verified)).toHaveLength(0);
   expect(remote.sends).toHaveLength(1);
 });
+// #5872: the observation loop reads the store's views every few seconds while an ask is open, and
+// each read used to decode and verify every signed ask again; on a page with many asks that was
+// a quarter-second main-thread task per read. An unchanged record verifies once per store.
+it('repeated store views verify each unchanged ask once and a changed record again', async () => {
+  const { controller, store, own } = await setup();
+  await controller.destinations();
+  const first = await controller.send(controller.prepare(destination()));
+  await controller.send(controller.prepare(destination()));
+  const verify = vi.spyOn(crypto.subtle, 'verify');
+  try {
+    const plain = await store.views();
+    expect(plain).toHaveLength(2);
+    const once = verify.mock.calls.length;
+    expect(once).toBeLessThanOrEqual(2);
+    for (let i = 0; i < 5; i++) expect(await store.views()).toEqual(plain);
+    expect(verify).toHaveBeenCalledTimes(once);
+    // A changed signature is a changed record: it is checked again, and refused.
+    const ask = own[id(4)].intents[first.intent.operationId] as unknown as {
+      signed: { signature: string };
+    };
+    const signature = ask.signed.signature;
+    ask.signed.signature = btoa('x'.repeat(64))
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replace(/=+$/, '');
+    expect(await store.views()).toHaveLength(1);
+    // The refused read forgot the original, so the restored record verifies again, once.
+    ask.signed.signature = signature;
+    expect(await store.views()).toEqual(plain);
+    expect(await store.views()).toEqual(plain);
+    expect(verify).toHaveBeenCalledTimes(once + 1);
+    // A record that gains a key no longer matches its verified shape.
+    (own[id(4)].intents[first.intent.operationId] as unknown as Record<string, unknown>).extra = 1;
+    expect(await store.views()).toHaveLength(1);
+  } finally {
+    verify.mockRestore();
+  }
+});
 it('SDK adapter keeps the shared session and observes the original ID and ignores unknown delivery values', async () => {
   let wrappers = 0;
   const sends: unknown[] = [],

@@ -1076,6 +1076,7 @@ test.describe('the Ops route on the owner read', () => {
           const opsLabels = [
             'Agents',
             'Squads',
+            'Orchestration',
             'Timers',
             '#tmt-core',
             'tmt-lead',

@@ -37,9 +37,8 @@ impl Registration {
         factory: ClientFactory,
     ) -> Result<Self, SyncError> {
         let parsed = crate::declaration::parse(&declaration).map_err(|_| SyncError::Invalid)?;
-        if parsed.backend != crate::declaration::Backend::Firestore
-            || crate::deploy_plan::sha256_hex(&declaration) != declaration_digest
-        {
+        crate::cloud_provider::sealed_codec(parsed.backend)?;
+        if crate::deploy_plan::sha256_hex(&declaration) != declaration_digest {
             return Err(SyncError::Invalid);
         }
         if public_config.get("projectId").and_then(Value::as_str)

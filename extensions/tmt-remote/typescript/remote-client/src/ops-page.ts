@@ -1,6 +1,7 @@
-/** The Ops web view, read-only: Agents, Squads, Timers and Ops settings, one section at a time from
- * the module menu. Every state is a mark and a word; what the reader sets on a section stays across
- * the board's refreshes. */
+/** The Ops web view: Agents, Squads, Orchestration, Timers and Ops settings, one section at a time
+ * from the module menu. Only Orchestration changes anything, through Core's own preview and confirm
+ * (#4894). Every state is a mark and a word; what the reader sets on a section stays across the
+ * board's refreshes. */
 import { pageLoading } from './page-loading.js';
 import type { RemoteShell } from './remote-shell.js';
 import { notAvailable } from './not-available.js';
@@ -8,6 +9,8 @@ import { agentsView } from './ops-agents.js';
 import { settingsView } from './ops-settings.js';
 import { squadsView } from './ops-squads.js';
 import { timersView } from './ops-timers.js';
+import { orchestrationView, type OrchestrationConnect } from './ops-orchestration.js';
+import { orchestrationApi } from './orchestration-client.js';
 import { opsSource, type OpsBoard, type OpsSource } from './ops-source.js';
 import { whileVisible } from './owner-reads.js';
 import { channelView } from './ops-channel.js';
@@ -17,11 +20,17 @@ import { OPS_SECTIONS, opsMenu, opsPlace, type OpsSection, type OpsPlace } from 
 
 /** The board's own reload cadence (`tmt ops ui`). */
 const REFRESH_MS = 5000;
+/** Orchestration changes by configuration, not by turn: a slower reread while it is shown. */
+const ORCHESTRATION_REFRESH_MS = 30_000;
 
 export function opsPage(
   shell: RemoteShell,
   source: OpsSource = opsSource,
   historyRead?: ConversationRead,
+  orchestrationConnect: OrchestrationConnect = async () => {
+    if (!shell.session) throw new Error('No signed browser session.');
+    return orchestrationApi(await shell.session());
+  },
 ): void {
   const main = document.getElementById('ops-section');
   const note = document.getElementById('ops-note');
@@ -37,6 +46,12 @@ export function opsPage(
     schedules: timersView(),
   };
   let settings: HTMLElement | undefined;
+  const orchestration = orchestrationView(orchestrationConnect);
+  let orchestrationAt = 0;
+  const refreshOrchestration = () => {
+    orchestrationAt = Date.now();
+    return orchestration.refresh();
+  };
   const channel = channelView(location.pathname);
   const collapsedSquads = new Set<string>();
   const unread = new Map<string, ConversationUnread>();
@@ -114,6 +129,12 @@ export function opsPage(
       channel.update(board, section);
       if (member && history.node.parentElement !== channel.history)
         channel.history.replaceChildren(history.node);
+    } else if (section === 'orchestration') {
+      // Core's own reads, not the board: the first paint of the section loads it.
+      if (orchestration.node.parentElement !== main) {
+        main.replaceChildren(orchestration.node);
+        void refreshOrchestration();
+      }
     } else if (section === 'settings') {
       // The board's settings have no browser read: the page says where they are.
       settings ??= settingsView(href);
@@ -127,6 +148,12 @@ export function opsPage(
   window.addEventListener('hashchange', paint, { signal: shell.signal });
   shell.signal.addEventListener('abort', () => views.squads.close(), { once: true });
   paint();
+  whileVisible(ORCHESTRATION_REFRESH_MS, shell.signal, async () => {
+    const due = Date.now() - orchestrationAt >= ORCHESTRATION_REFRESH_MS;
+    if (due && current() === 'orchestration' && orchestration.node.parentElement === main)
+      await refreshOrchestration();
+    return true;
+  });
   // The board while the route is visible, at the board's own cadence; a page repaints only when
   // the board changed, so a reader's place and selection stay.
   let last = '';

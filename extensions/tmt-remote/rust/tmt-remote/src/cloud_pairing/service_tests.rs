@@ -690,7 +690,7 @@ fn public_core_message_reaches_the_serving_owner_and_a_lost_answer_stays_uncerta
             owner_key: owner.key.public(),
             config: config(),
             peer: sender.machine.clone(),
-            uid: sender_provider.uid().into(),
+            uid: sender_provider.binding().principal.into(),
             request: vec![],
             confirmed: true,
             descriptor: descriptor.bytes().to_vec(),
@@ -897,7 +897,7 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
         RouteChange {
             member: None,
             project: PROJECT.into(),
-            uid: provider.uid().into(),
+            uid: provider.binding().principal.into(),
             peer: child.machine.clone(),
             generation: 2,
             revoked: true,
@@ -914,7 +914,14 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
         },
     ];
     run(
-        owner_provider.publish_routes(&rows, Some(&child.machine), &io),
+        owner_provider.publish_routes(
+            &rows
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            Some(&child.machine),
+            &io,
+        ),
         &io,
     )
     .unwrap();
@@ -950,14 +957,28 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     );
     assert!(
         run(
-            owner_provider.publish_routes(&rows, Some(&owner.machine), &io),
+            owner_provider.publish_routes(
+                &rows
+                    .iter()
+                    .map(crate::cloud_provider::Route::from)
+                    .collect::<Vec<_>>(),
+                Some(&owner.machine),
+                &io
+            ),
             &io
         )
         .is_err()
     );
     assert!(
         run(
-            owner_provider.publish_routes(&rows[..1], Some(&child.machine), &io),
+            owner_provider.publish_routes(
+                &rows[..1]
+                    .iter()
+                    .map(crate::cloud_provider::Route::from)
+                    .collect::<Vec<_>>(),
+                Some(&child.machine),
+                &io
+            ),
             &io
         )
         .is_err()
@@ -975,7 +996,13 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
         .collect();
     assert!(
         run(
-            owner_provider.publish_routes(&cap, Some(&child.machine), &io),
+            owner_provider.publish_routes(
+                &cap.iter()
+                    .map(crate::cloud_provider::Route::from)
+                    .collect::<Vec<_>>(),
+                Some(&child.machine),
+                &io
+            ),
             &io
         )
         .is_err(),
@@ -992,7 +1019,14 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
         row.reroute_hash = Some([7; 32]);
     }
     run(
-        owner_provider.publish_routes(&gated, Some(&child.machine), &io),
+        owner_provider.publish_routes(
+            &gated
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            Some(&child.machine),
+            &io,
+        ),
         &io,
     )
     .unwrap();
@@ -1015,7 +1049,18 @@ fn inviter_registration_and_atomic_route_update_preserve_the_native_pin() {
     for row in &mut gated {
         row.revoked = true;
     }
-    run(owner_provider.publish_routes(&gated, None, &io), &io).unwrap();
+    run(
+        owner_provider.publish_routes(
+            &gated
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            None,
+            &io,
+        ),
+        &io,
+    )
+    .unwrap();
     assert!(!wire.docs.lock().unwrap().contains_key(&gate_name));
     assert_eq!(
         wire.commits.lock().unwrap().last().unwrap()["writes"][2]["delete"],
@@ -1077,7 +1122,14 @@ fn route_batch_refuses_two_live_uids_without_a_provider_write() {
         .collect();
     assert!(
         run(
-            provider.publish_routes(&rows, None, &owner.io()),
+            provider.publish_routes(
+                &rows
+                    .iter()
+                    .map(crate::cloud_provider::Route::from)
+                    .collect::<Vec<_>>(),
+                None,
+                &owner.io()
+            ),
             &owner.io()
         )
         .is_err()
@@ -1708,7 +1760,7 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
             machine_id: target.machine.clone(),
             owner_key: target.key.public(),
             peer: source.machine.clone(),
-            uid: provider.uid().into(),
+            uid: provider.binding().principal.into(),
             generation: 2,
             timestamp_ms: crate::pairing::now_ms().unwrap(),
         };
@@ -1719,7 +1771,7 @@ fn paired_machines_push_exact_finals_both_ways_and_reply_without_reverse_talk_pe
             run(
                 provider.enrollment_create(
                     &id,
-                    provider.uid(),
+                    provider.binding().principal,
                     "reroute",
                     &body,
                     Some(crate::cloud_pairing::EnrollmentProof::Reroute {
@@ -2494,4 +2546,101 @@ fn member_observation_link_does_not_keep_cloud_or_its_operations_alive() {
     drop(owner);
     assert!(weak.upgrade().is_none());
     assert_eq!(link.invitation(), MemberInvitationView::Unavailable);
+}
+
+#[test]
+fn provider_port_factory_preserves_pairing_purpose_and_pin_before_descriptor() {
+    if crate::test_isolation::isolated_case(
+        "cloud_pairing::service::tests::provider_port_factory_preserves_pairing_purpose_and_pin_before_descriptor",
+    ) {
+        return;
+    }
+    struct FakeFactory {
+        provider: Arc<crate::cloud_provider::test_support::RecordingProvider>,
+        opened: Mutex<Vec<(String, bool)>>,
+    }
+    impl crate::cloud_provider::Factory for FakeFactory {
+        fn open(
+            &self,
+            _: &Value,
+            machine: &str,
+            purpose: Purpose,
+        ) -> Result<Arc<dyn crate::cloud_provider::Provider>, RemoteError> {
+            self.opened
+                .lock()
+                .unwrap()
+                .push((machine.into(), matches!(purpose, Purpose::ExplicitPairing)));
+            Ok(self.provider.clone())
+        }
+    }
+    let core = core_fixture::Core::new();
+    let wire = Arc::new(Wire::new());
+    let ports = Arc::new(Ports {
+        wire: wire.clone(),
+        clock: SystemClock::default(),
+    });
+    let (service, _lease) = service(
+        &core.root.join("provider-port"),
+        &core,
+        ProjectPorts {
+            http: ports.clone(),
+            clock: ports.clone(),
+            jitter: ports,
+        },
+    );
+    let fake = Arc::new(crate::cloud_provider::test_support::RecordingProvider::new(
+        &service.machine,
+        crate::pairing::now_ms().unwrap(),
+    ));
+    let factory = Arc::new(FakeFactory {
+        provider: fake.clone(),
+        opened: Mutex::new(vec![]),
+    });
+    let service = Arc::try_unwrap(service)
+        .ok()
+        .unwrap()
+        .with_provider_factory(factory.clone());
+    let existing = service
+        .provider(&config(), &service.machine, false)
+        .unwrap();
+    assert_eq!(
+        service
+            .descriptor(&existing, &service.key.public(), &[], &service.io())
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_CLOUD_MACHINE_CONFLICT"
+    );
+    let explicit = service.provider(&config(), &service.machine, true).unwrap();
+    assert_eq!(
+        service
+            .register(&explicit, b"descriptor", None, &service.io())
+            .unwrap_err()
+            .code,
+        "REMOTE_CLOUD_MACHINE_CONFLICT"
+    );
+    assert_eq!(
+        *factory.opened.lock().unwrap(),
+        vec![
+            (service.machine.clone(), false),
+            (service.machine.clone(), true)
+        ]
+    );
+    assert_eq!(
+        fake.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.operation)
+            .collect::<Vec<_>>(),
+        vec!["machine_metadata", "machine_metadata"]
+    );
+    assert!(wire.docs.lock().unwrap().is_empty());
+    assert!(wire.commits.lock().unwrap().is_empty());
+    assert_eq!(
+        wire.next.load(Ordering::SeqCst),
+        0,
+        "injected factory starts no Auth bootstrap"
+    );
+    assert_eq!(core.sends(), 0);
 }

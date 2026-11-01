@@ -589,9 +589,9 @@ on TOK the mark takes the blank cell before the word. A click changes only the s
 order, never the selection or a message.
 In Agents, `n` opens New member on any row; `p` pins/unpins a squad. `N`
 creates a squad on a squad row or the Common pool, `C` opens the member's Checklist on a
-member row, `m` manages a squad or moves an agent in place, and `x` leaves only the
-selected squad membership. The Agents footer is one line of the keys the selected
-row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit`.
+member row, `m` manages a squad or moves an agent in place, and `x` opens Close and
+delete for the selected agent. Leave a squad with `m` to Common pool or Edit's Squad field. The Agents footer is one line of the keys the selected
+row needs; on a member row: `↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit`.
 Squad, Common pool and Hidden group rows show their own keys. Narrow widths drop whole row
 keys from the right and keep search, help and quit; every other key still works and is listed in `?`.
 While the reply pane is focused, its selection guidance takes that line.
@@ -601,10 +601,18 @@ the squad), Enter applies and Esc cancels, with no dialog. It moves one membersh
 second squad and keep the first, use `tmt ops squad add`. The result is one status line, and a
 refused move leaves the list as it was.
 Right-click a visible Agents row to select it and open Actions, or open Settings
-(default comma) and choose Actions. With list focus, Rename agent and Remove member are named menu
-entries without default keys. Remove member is a copy-only retirement review: stop the agent first and
-recheck the displayed name before running the copied command. Retirement does
-not stop the agent or close its window. `D` opens Digest and `c` opens Timers outside a modal.
+(default comma) and choose Actions. Close and delete is also a named action. Its
+confirmation starts on Cancel. Confirm stops the agent through Core and closes
+only a pane TMT opened, then deletes the identity after Core proves it stopped.
+Conversation history and notes are kept. A kept pane's reason remains in the result.
+A stop refusal deletes nothing automatically: the dialog shows Core's reason and
+whether a stop was requested, with Cancel, Jump to pane (`j`) and Delete identity.
+Explicit Delete asks Core to check and remove the identity without retrying stop;
+a hand-bound pane with no recorded agent may remove. If Core reports still running
+or unproven, quit it in its pane, then Delete. Missing or changed identities require
+a fresh review. Esc hides pending work without cancelling or replaying it; `x`
+after a refused result starts a fresh confirmation. `D` opens Digest and `c` opens
+Timers outside a modal.
 
 On Agents, `e` opens Edit for the selected agent or squad. An agent form has Name,
 AI tool, Model, Effort and Squad; Host and Session stay fixed. The model and effort
@@ -1083,7 +1091,7 @@ Rename and membership reviews show the human CLI equivalents. Rename still
 executes the UUID/expected-name check; `c` copies its displayed command.
 Management reviews freeze exact room/identity UUIDs and revisions and show timer
 impact. Non-destructive reviews open on the apply button, so Enter applies what was
-reviewed; Leave squad and Remove member open on Cancel. ←→ move between Cancel and
+reviewed; Leave squad and Close and delete open on Cancel. ←→ move between Cancel and
 Apply, ↑↓ and the page keys read, and Tab does nothing. Clipped or stale Apply controls
 cannot submit. Pending prevents repeated applies.
 Esc, Cancel or a click outside hides a management form and keeps what you typed or
@@ -1123,6 +1131,33 @@ conflict says to reload and retry; there is no automatic retry or recurring cade
 Core owns digest and held items; Squad stores no policy. The command passes through
 Core errors, including when an older Core has no digest operation. Digest delays
 ordinary deliveries; owner and urgent messages can still interrupt.
+
+## Orchestration tab
+
+`3` opens **Orchestration**: Core's plans and every member's effective state and
+receiving policy at a selected time, read through the public `orchestration.read`
+views. `d`, `7` and `0` pick a 1, 7 or 30 day range, `[` and `]` step to the
+previous or next policy change, `N` returns to now, `P` lists plans and `/` filters
+members. When Core reports routes, a **From ↓ To →** matrix shows who may message whom
+(`✕` blocked, `◆` needs a person, otherwise the recipient's receiving mode) and the
+pairs with talks this hour; arrows move the selected cell. An older Core without
+those views shows member policies only and says routes are not available.
+
+Changes always show Core's preview first and save only that exact preview after you
+confirm: `a` allows a blocked route once until the sender's current slot ends (at
+most 24 hours), `f` focuses the selected member for one hour, `F` ends that focus,
+and `r` releases a held pair's messages through normal delivery. `w` shows Core's
+recorded decisions for the selected member. If Orchestration changed after the
+preview, nothing is saved; preview again. A Core without `orchestration.write`
+refuses changes with a notice. The tab never interrupts running work. `--tab` and
+`board.startup_tab` do not offer it yet.
+
+These keys are the defaults of the tab's own key scope, so `?` lists them and a
+`[bind]` entry can move them: `orchestration-day`, `orchestration-week`,
+`orchestration-month`, `orchestration-earlier`, `orchestration-later`,
+`orchestration-now`, `orchestration-plans`, `allow-once`, `focus-hour`, `end-focus`,
+`release-held` and `why`; the list moves (`previous`, `next`, `fold`, `expand`,
+`first`, `last`) move through members, plans or matrix cells there.
 
 ## Cron on the board
 

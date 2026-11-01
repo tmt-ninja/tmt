@@ -58,7 +58,9 @@ and `limits.rs`; do not restate them.
   then scoped baseline, wraps and the latest paired checkpoints before the merged
   namespace tails. The final page and the live subscription commit under the server lock
   so appends during paging are not missed. Large objects use the lazy chunk transfer
-  (`sync/wire.rs`), one object per page; partial transfers publish nothing.
+  (`sync/wire.rs`), one object per page; partial transfers publish nothing. The browser's
+  `Frames` parses a joined object once and hands admission that envelope (`JoinedEnvelope`)
+  under the same byte bound, never a re-encoded base64url copy (#5872).
 - Browser side: `admission.ts` admits statements and envelopes, `fold.worker.ts` folds, and
   `writer.ts` persists exact ciphertext before sending and retries those stored bytes,
   never resealing. One lifetime Web Lock owns each device stream; other tabs relay updates.

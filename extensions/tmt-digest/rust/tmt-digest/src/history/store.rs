@@ -9,6 +9,13 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::{fs, os::unix::fs::OpenOptionsExt, path::Path};
 
+/// Core's rollup ends a window above an hour at the last completed five minutes.
+const FIVE_MINUTES: u64 = 300_000;
+/// Saved tokens, avoided deliveries and the first gap reason of one span.
+type Figures = (Option<u64>, Option<u64>, Option<String>);
+/// Checklists handed off back to back, at most this far apart, are one delivery turn.
+const TURN_GAP_MS: u64 = 120_000;
+
 mod decision;
 mod settlement;
 mod usage;
@@ -379,15 +386,7 @@ impl Store {
                 .duration()
                 .map_or(started, |duration| through.saturating_sub(duration));
             if window.duration().is_some() {
-                let values: (Option<u64>,Option<u64>,Option<String>) = tx.query_row("SELECT CASE WHEN COUNT(tokens)=COUNT(*) THEN COALESCE(SUM(tokens),0) END, CASE WHEN COUNT(avoided)=COUNT(*) THEN COALESCE(SUM(avoided),0) END, MIN(gap) FROM events WHERE identity_id=?1 AND settled>?2 AND settled<=?3",params![id,from as i64,through as i64],|r| Ok((optional_number(r,0)?,optional_number(r,1)?,r.get(2)?))).map_err(io)?;
-                (tokens, avoided, gap) = values;
-                if from < started {
-                    gap = Some("before_collection".into());
-                } else if from < raw_from {
-                    gap = Some("history_evicted".into());
-                }
-                let missing: Option<String> = tx.query_row("SELECT reason FROM gaps WHERE identity_id=?1 AND from_ms<=?3 AND through_ms>=?2 LIMIT 1",params![id,from as i64,through as i64],|r| r.get(0)).optional().map_err(io)?;
-                gap = missing.or(gap);
+                (tokens, avoided, gap) = Self::figures(tx, id, (from, through), (started, raw_from))?;
             }
             if now < through {
                 gap = Some("clock_discontinuity".into());
@@ -424,8 +423,94 @@ impl Store {
                 window.duration().is_some(),
             );
             Ok(
-                json!({"method":METHOD,"window":window.text(),"fromMs":from,"throughMs":through,"estimatedInputTokensAvoided":tokens,"avoidedSeparateDeliveries":avoided,"complete":gap.is_none() && tokens.is_some() && avoided.is_some(),"gap":gap,"cost":cost,"percent":percent}),
+                json!({"method":METHOD,"window":window.text(),"fromMs":from,"throughMs":through,"estimatedInputTokensAvoided":tokens,"avoidedSeparateDeliveries":avoided,"complete":gap.is_none() && tokens.is_some() && avoided.is_some(),"gap":gap,"cost":cost,"percent":percent,
+                    "series":Self::series(tx, id, window, now, (started, through, raw_from))?}),
             )
+        })
+    }
+    /// The saved sums for deliveries settled in `(from, through]`, and the first reason
+    /// they are not the whole story: evidence before collection or eviction, a recorded
+    /// gap overlapping the span, or an event without an estimate.
+    fn figures(
+        tx: &rusqlite::Transaction<'_>,
+        id: &str,
+        (from, through): (u64, u64),
+        (started, raw_from): (u64, u64),
+    ) -> Result<Figures, Error> {
+        let (tokens, avoided, mut gap): Figures = tx.query_row("SELECT CASE WHEN COUNT(tokens)=COUNT(*) THEN COALESCE(SUM(tokens),0) END, CASE WHEN COUNT(avoided)=COUNT(*) THEN COALESCE(SUM(avoided),0) END, MIN(gap) FROM events WHERE identity_id=?1 AND settled>?2 AND settled<=?3",params![id,from as i64,through as i64],|r| Ok((optional_number(r,0)?,optional_number(r,1)?,r.get(2)?))).map_err(io)?;
+        if from < started {
+            gap = Some("before_collection".into());
+        } else if from < raw_from {
+            gap = Some("history_evicted".into());
+        }
+        let missing: Option<String> = tx.query_row("SELECT reason FROM gaps WHERE identity_id=?1 AND from_ms<=?3 AND through_ms>=?2 LIMIT 1",params![id,from as i64,through as i64],|r| r.get(0)).optional().map_err(io)?;
+        Ok((tokens, avoided, missing.or(gap)))
+    }
+    /// The window cut into `usage report`'s buckets: ending at the last completed
+    /// five-minute boundary, as Core's rollup does, so saved and used bars line up.
+    /// A bucket not wholly collected yet, or with any gap, has a null token figure.
+    fn series(
+        tx: &rusqlite::Transaction<'_>,
+        id: &str,
+        window: Window,
+        now: u64,
+        (started, through, raw_from): (u64, u64, u64),
+    ) -> Result<Value, Error> {
+        let (Some(duration), Some(width)) = (window.duration(), window.bucket()) else {
+            return Ok(Value::Null);
+        };
+        let end = now - now % FIVE_MINUTES;
+        let first = end.saturating_sub(duration);
+        let mut buckets = Vec::new();
+        for start in (first..end).step_by(width as usize) {
+            let stop = start + width;
+            let (mut tokens, mut avoided, mut gap) =
+                Self::figures(tx, id, (start, stop), (started, raw_from))?;
+            if gap.is_none() && stop > through {
+                gap = Some("uncollected_deliveries".into());
+            }
+            if gap.is_some() {
+                tokens = None;
+            }
+            if matches!(
+                gap.as_deref(),
+                Some("uncollected_deliveries" | "before_collection" | "history_evicted")
+            ) {
+                avoided = None;
+            }
+            buckets.push(json!({"fromMs":start,"toMs":stop,"estimatedInputTokensAvoided":tokens,
+                "avoidedSeparateDeliveries":avoided,"complete":gap.is_none() && tokens.is_some() && avoided.is_some(),"gap":gap}));
+        }
+        Ok(Value::Array(buckets))
+    }
+    /// The latest delivery turn: the newest delivered checklist and the delivered ones
+    /// handed off back to back before it, each settled within two minutes of the next
+    /// one's claim. `messages` counts their sealed references, `batches` the checklists.
+    pub fn last_delivery(&mut self, id: &str) -> Result<Value, Error> {
+        self.read(|tx| {
+            let mut rows = tx
+                .prepare("SELECT inputs FROM events WHERE identity_id=?1 AND delivered=1 AND settled IS NOT NULL ORDER BY settled DESC, sequence DESC LIMIT 64")
+                .map_err(io)?;
+            let settlements = rows
+                .query_map([id], |r| r.get::<_, String>(0))
+                .map_err(io)?
+                .filter_map(|row| row.ok())
+                .filter_map(|text| serde_json::from_str::<ChecklistSettlement>(&text).ok());
+            let mut turn: Option<(u64, u64, u64, u64)> = None;
+            for settlement in settlements {
+                let Some(settled) = settlement.settled_at_ms else { continue };
+                let count = settlement.sealed_count.unwrap_or(settlement.items.len() as u64);
+                turn = match turn {
+                    None => Some((settled, settlement.claimed_at_ms, count, 1)),
+                    Some((at, claim, messages, batches)) if settled.saturating_add(TURN_GAP_MS) >= claim => {
+                        Some((at, settlement.claimed_at_ms.min(claim), messages.saturating_add(count), batches + 1))
+                    }
+                    Some(_) => break,
+                };
+            }
+            Ok(turn.map_or(Value::Null, |(at, _, messages, batches)| {
+                json!({"settledAtMs":at,"messages":messages.min(MAX),"batches":batches})
+            }))
         })
     }
 }

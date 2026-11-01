@@ -95,7 +95,10 @@ export function runReleaseRehearsal(args, { cwd, stdout, stderr, summaryFile }) 
     if (summaryFile) appendFileSync(summaryFile, text);
   };
   if (args.length === 1 && args[0] === 'all') {
-    stdout.write(`products=${JSON.stringify(activeProducts())}\n`);
+    const products = activeProducts();
+    stdout.write(
+      `release_rehearsal=${products.length > 0}\nrelease_rehearsal_products=${JSON.stringify(products)}\n`
+    );
     return;
   }
   if (args.length !== 3 || args[0] !== 'select')

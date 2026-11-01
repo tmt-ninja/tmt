@@ -67,7 +67,7 @@ answer each other. Run `tmt --help` or `tmt learn` for more.
 
 ## Learn more
 
-- [Blog](https://tmt-ninja.github.io/tmt/blog/): how we run a team of agents on
+- [Blog](https://tmt.ninja/blog/): how we run a team of agents on
   tmt, with real numbers.
 
 ## License

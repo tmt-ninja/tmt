@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
-import { Objects, type ObjectEntry } from '../src/objects.js';
+import {
+  JoinedEnvelope,
+  Objects,
+  receivedEnvelope,
+  UPDATE_ENVELOPE_BYTES,
+  type ObjectEntry,
+} from '../src/objects.js';
 import { Frames } from '../src/frames.js';
 import type { Admission } from '../src/admission.js';
 const v = JSON.parse(
@@ -103,6 +109,35 @@ it('opens own ciphertext only after admission, and rejects author substitution a
     objects.admit('00000000-0000-4000-8000-000000000123', await f.entry(await f.seal())),
   ).rejects.toThrow();
 });
+/** A chunked object comes out joined and parsed once: the exact envelope bytes, never a
+ * base64url copy of them for admission to decode again. */
+function expectJoined(value: unknown, envelope: string) {
+  expect(value).toBeInstanceOf(JoinedEnvelope);
+  const joined = value as JoinedEnvelope;
+  expect(c.encodeBinary(joined.envelope.toJson())).toBe(envelope);
+  expect(joined.bytes).toBe(c.binary(envelope, Number.MAX_SAFE_INTEGER).length);
+}
+
+it('admits a joined envelope as it admits the same envelope inline, under the same byte bound', async () => {
+  const f = await fixture(),
+    env = await f.seal(),
+    row = await f.entry(env),
+    bytes = env.toJson();
+  const joined = { ...row, envelope: new JoinedEnvelope(c.Envelope.fromJson(bytes), bytes.length) };
+  expect(await new Objects(f.admission).admit(f.context.authorDevice, joined)).toEqual(
+    await new Objects(f.admission).admit(f.context.authorDevice, row),
+  );
+  // The bound is the one the inline string has: a joined update past it is refused.
+  expect(receivedEnvelope(joined.envelope, bytes.length)).toBe(joined.envelope.envelope);
+  expect(() => receivedEnvelope(joined.envelope, bytes.length - 1)).toThrow();
+  expect(() =>
+    receivedEnvelope(
+      new JoinedEnvelope(joined.envelope.envelope, UPDATE_ENVELOPE_BYTES + 1),
+      UPDATE_ENVELOPE_BYTES,
+    ),
+  ).toThrow();
+});
+
 it('reassembles exact bounded chunks, binds referenced ID and waits as long as the parts take', async () => {
   const f = await fixture(),
     frames = new Frames(f.admission),
@@ -137,7 +172,7 @@ it('reassembles exact bounded chunks, binds referenced ID and waits as long as t
     });
   let complete: Record<string, unknown> | null = null;
   for (let index = 0; index < count; index++) complete = frames.receive(part(index));
-  expect(complete?.envelope).toBe(row.envelope);
+  expectJoined(complete?.envelope, row.envelope);
   // There is no deadline: parts that arrive a minute apart still assemble.
   vi.useFakeTimers();
   try {
@@ -147,7 +182,7 @@ it('reassembles exact bounded chunks, binds referenced ID and waits as long as t
       await vi.advanceTimersByTimeAsync(60_000);
       slow = frames.receive(part(index));
     }
-    expect(slow?.envelope).toBe(row.envelope);
+    expectJoined(slow?.envelope, row.envelope);
     // A violation still fails (an index out of order), and so does a part after the acquisition
     // was closed, which is what the connection closing does.
     frames.receive(JSON.stringify(reference));
@@ -208,8 +243,8 @@ it('reassembles an anchor frame as the single object it is, and refuses one that
         bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
       }),
     );
-  const streams = complete?.streams as { anchor: { envelope: string } }[];
-  expect(streams[0].anchor.envelope).toBe(row.envelope);
+  const streams = complete?.streams as { anchor: { envelope: unknown } }[];
+  expectJoined(streams[0].anchor.envelope, row.envelope);
   // The anchor is alone in its frame: no checkpoint, no tail and no key of another shape.
   expect(() => frames.receive(anchor(small, { checkpoint: small }))).toThrow();
   expect(() => frames.receive(anchor(small, { tail: [small] }))).toThrow();

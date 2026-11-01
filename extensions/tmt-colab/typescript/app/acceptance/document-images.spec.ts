@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
-import { patchArgs, clientId, createPage, freePort, openPage, run } from './harness/ask.js';
+import { patchArgs, createPage, revokeMachine, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -111,12 +111,7 @@ test('page images keep their attachment references after a key change and the se
       }
     };
     await check();
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, author.name),
-      '--json',
-    ]);
+    revokeMachine(world, author.name);
     let current = old;
     await expect
       .poll(

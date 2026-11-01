@@ -111,6 +111,8 @@ export function layout({
   site,
   location,
   title,
+  shareTitle = title,
+  shareImage,
   description,
   path = "",
   language = "en",
@@ -121,6 +123,7 @@ export function layout({
   alternates = [],
   canonicalPath = path,
   fallback = false,
+  translated = true,
   slug,
   tag,
 }) {
@@ -136,6 +139,21 @@ export function layout({
     )
     .join("");
   const canonical = `<link rel="canonical" href="${e(location.url + canonicalPath)}">`;
+  // Link previews (Open Graph, X) need absolute URLs. An article may have its own card in
+  // src/blog/share/<slug>.png; every other page uses the site card.
+  const share = [
+    ["og:type", slug ? "article" : "website"],
+    ["og:site_name", site.title],
+    ["og:title", shareTitle],
+    ["og:description", description],
+    ["og:url", location.url + canonicalPath],
+    ["og:image", location.url + (shareImage ?? "og.png")],
+    ["og:image:width", "1200"],
+    ["og:image:height", "630"],
+    ["og:image:alt", shareImage ? shareTitle : `${site.title}: ${site.description}`],
+  ]
+    .map(([property, content]) => `<meta property="${property}" content="${e(content)}">`)
+    .join("");
   const englishAlternate = alternates.find((item) => item.language === "en");
   const defaultAlternate = englishAlternate
     ? `<link rel="alternate" hreflang="x-default" href="${e(location.url + englishAlternate.path)}">`
@@ -156,6 +174,7 @@ export function layout({
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${e(policy)}">
 <title>${e(title)}</title><meta name="description" content="${e(description)}">
+${share}<meta name="twitter:card" content="summary_large_image">
 ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<meta name="robots" content="noindex,follow">' : ""}${canonical}${alternateLinks}${defaultAlternate}`}
 <link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(languageIndex)}feed.xml">
 <link vite-ignore rel="icon" href="${e(location.base)}favicon.png" type="image/png">
@@ -164,7 +183,7 @@ ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<met
 </head><body>
 <a class="skip-link" lang="en" href="#main">Skip to content</a>
 <header class="site-header" lang="en"><a class="brand" href="${e(languageIndex)}"><img vite-ignore src="${e(location.base)}mark.svg" width="30" height="30" alt=""><span>tmt</span><span class="brand-divider"></span><span>journal</span></a><nav aria-label="Main"><a href="${e(languageIndex)}">Articles</a><a href="${e(languageIndex)}feed.xml">RSS ↗</a><a href="${e(location.repository)}">Explore TMT ↗</a></nav></header>
-<nav class="language-switcher" aria-label="${slug ? "Article" : tag ? "Topic" : "Index"} language" lang="en">${switcher}</nav>
+${translated ? `<nav class="language-switcher" aria-label="${slug ? "Article" : tag ? "Topic" : "Index"} language" lang="en">${switcher}</nav>` : ""}
 ${demo ? '<div class="preview-notice">◇ Template preview · Example content, not a published post</div>' : ""}
 <main id="main">${body}</main>
 <footer class="site-footer" lang="en"><span>TMT Journal</span><span>Tools for people and agents.</span><a href="${e(location.repository)}">TMT ↗</a></footer>

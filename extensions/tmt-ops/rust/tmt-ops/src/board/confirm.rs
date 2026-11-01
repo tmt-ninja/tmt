@@ -35,13 +35,8 @@ impl Confirm {
 
     pub(super) fn render(&self, frame: &mut Frame, app: &App, body: Rect) {
         let look = app.look();
-        let dialog = Dialog {
-            title: self.title.clone(),
-            kind: DialogKind::Confirm,
-            placement: Placement::Center,
-            buttons: buttons(&self.action).into(),
-        };
-        let width = self
+        // The body wraps inside the content-sized dialog rather than being cut (#5890 review).
+        let longest = self
             .lines
             .iter()
             .map(|line| line.chars().count())
@@ -50,15 +45,37 @@ impl Confirm {
             .max(self.title.chars().count() + 4)
             .saturating_add(4)
             .max(40);
-        let height = self.lines.len().saturating_add(5);
-        let areas = dialog.areas(
-            body,
-            [
-                u16::try_from(width).unwrap_or(u16::MAX),
-                u16::try_from(height).unwrap_or(u16::MAX),
-            ],
-            false,
-        );
+        let width = longest.min(usize::from(body.width));
+        let lines: Vec<String> = self
+            .lines
+            .iter()
+            .flat_map(|line| super::notes::wrap(line, width.saturating_sub(4)))
+            .collect();
+        let height = lines.len().saturating_add(5);
+        let size = [
+            u16::try_from(width).unwrap_or(u16::MAX),
+            u16::try_from(height).unwrap_or(u16::MAX),
+        ];
+        let full = Dialog {
+            title: self.title.clone(),
+            kind: DialogKind::Confirm,
+            placement: Placement::Center,
+            buttons: buttons(&self.action).into(),
+        };
+        let areas = full.areas(body, size, false);
+        // Never offer an action whose question cannot be shown in full: a short terminal keeps
+        // only Cancel and asks for room, as the close dialog does.
+        let short = lines.len() > usize::from(areas.content.height);
+        // A terminal too short for the body has no row for a note either: the title asks for room.
+        let dialog = if short {
+            Dialog {
+                title: "Enlarge to review · Esc close".into(),
+                buttons: vec![Button::secondary("Cancel")],
+                ..full
+            }
+        } else {
+            full
+        };
         let hits = super::buttons::paint_dialog(
             app,
             frame.buffer_mut(),
@@ -69,12 +86,8 @@ impl Confirm {
         );
         app.peek_areas.set(Overlay::Confirm, Some(areas.outer));
         let content = areas.content;
-        for (row, line) in self
-            .lines
-            .iter()
-            .take(usize::from(content.height))
-            .enumerate()
-        {
+        let shown = if short { Vec::new() } else { lines };
+        for (row, line) in shown.iter().take(usize::from(content.height)).enumerate() {
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(content.x, content.y + row as u16, content.width, 1),

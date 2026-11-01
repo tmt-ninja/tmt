@@ -15,20 +15,27 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     let mut store = Store::open(&lease).unwrap();
     let machine = store.machine().unwrap().id;
     store
-        .cloud_progress(&Continuation {
-            from_ms: 0,
-            read_ms: 1_800_000_000_000,
-            cursor: Cursor {
-                created_at: "2027-01-15T08:00:00Z".into(),
-                id: ID.into(),
+        .cloud_progress(
+            &Continuation {
+                from_ms: 0,
+                read_ms: 1_800_000_000_000,
+                cursor: Cursor {
+                    created_at: "2027-01-15T08:00:00Z".into(),
+                    id: ID.into(),
+                }
+                .into(),
             },
-        })
+            &super::document::ContinuationCodec,
+        )
         .unwrap();
     // Enrollment uses the legacy peer-keyed API with the machine UUID.
     store
         .cloud_complete(std::slice::from_ref(&machine), 1_800_000_000_100)
         .unwrap();
-    let inbox = store.cloud_query_checkpoint().unwrap().unwrap();
+    let inbox = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert!(
         inbox.continuation.is_some(),
         "enrollment must never clear inbox progress"
@@ -45,7 +52,7 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     store.cloud_finish_query(1_800_000_000_000).unwrap();
     assert!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .continuation
@@ -63,7 +70,7 @@ fn inbox_continuation_is_independent_of_the_machine_enrollment_checkpoint() {
     let store = Store::open(&lease).unwrap();
     assert_eq!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .completed
@@ -92,7 +99,12 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
         "INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',x'',1000)",
         [PEER],
     ).unwrap();
-    assert!(store.cloud_query_checkpoint().unwrap().is_none());
+    assert!(
+        store
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
     let mut progress = Continuation {
         from_ms: 880,
@@ -100,40 +112,58 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
         cursor: Cursor {
             created_at: "2027-01-15T08:00:00.000123456Z".into(),
             id: ID.into(),
-        },
+        }
+        .into(),
     };
-    store.cloud_progress(&progress).unwrap();
+    store
+        .cloud_progress(&progress, &super::document::ContinuationCodec)
+        .unwrap();
     progress.from_ms = progress.read_ms + 1;
     assert!(
-        store.cloud_progress(&progress).is_err(),
+        store
+            .cloud_progress(&progress, &super::document::ContinuationCodec)
+            .is_err(),
         "invalid progress never replaces the saved cursor"
     );
     drop(store);
     let mut store = Store::open(&lease).unwrap();
-    let checkpoint = store.cloud_query_checkpoint().unwrap().unwrap();
+    let checkpoint = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert_eq!(checkpoint.completed.created_at_ms(), 0);
     let continuation = checkpoint.continuation.unwrap();
     assert_eq!(continuation.from_ms, 880);
     assert_eq!(continuation.read_ms, 1_800_000_000_001);
     assert_eq!(
-        continuation.cursor.created_at,
+        super::document::legacy_cursor(&continuation.cursor)
+            .unwrap()
+            .created_at,
         "2027-01-15T08:00:00.000123456Z"
     );
-    assert_eq!(continuation.cursor.id, ID);
+    assert_eq!(
+        super::document::legacy_cursor(&continuation.cursor)
+            .unwrap()
+            .id,
+        ID
+    );
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
 
     // Each provider page has its own snapshot: a later arrival can be newer
     // than the earliest snapshot retained for the eventual overlap query.
     store
-        .cloud_progress(&Continuation {
-            from_ms: continuation.from_ms,
-            read_ms: 1_799_999_999_999,
-            cursor: continuation.cursor.clone(),
-        })
+        .cloud_progress(
+            &Continuation {
+                from_ms: continuation.from_ms,
+                read_ms: 1_799_999_999_999,
+                cursor: continuation.cursor.clone(),
+            },
+            &super::document::ContinuationCodec,
+        )
         .unwrap();
     assert_eq!(
         store
-            .cloud_query_checkpoint()
+            .cloud_query_checkpoint(&super::document::ContinuationCodec)
             .unwrap()
             .unwrap()
             .continuation
@@ -141,6 +171,35 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
             .read_ms,
         1_799_999_999_999
     );
+    for (from_ms, read_ms) in [
+        (crate::cloud_hpke::INTEGER_MAX + 1, continuation.read_ms),
+        (continuation.from_ms, crate::cloud_hpke::INTEGER_MAX + 1),
+    ] {
+        let invalid = Continuation {
+            from_ms,
+            read_ms,
+            cursor: continuation.cursor.clone(),
+        };
+        assert_eq!(
+            store
+                .cloud_progress(&invalid, &super::document::ContinuationCodec)
+                .unwrap_err()
+                .code,
+            "REMOTE_CLOUD_CHECKPOINT_INVALID"
+        );
+        store.connection.execute(
+            "UPDATE cloud_transport SET carrier=?1 WHERE peer_id='inbox-query' AND kind='checkpoint' AND id=''",
+            [serde_json::to_vec(&invalid).unwrap()],
+        ).unwrap();
+        assert_eq!(
+            store
+                .cloud_query_checkpoint(&super::document::ContinuationCodec)
+                .err()
+                .unwrap()
+                .code,
+            "REMOTE_CLOUD_CHECKPOINT_INVALID"
+        );
+    }
     let valid = serde_json::to_value(&continuation).unwrap();
     for bad in [
         serde_json::json!({"from_ms":0,"read_ms":1,"cursor":{"created_at":"bad","id":ID}}),
@@ -157,7 +216,9 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
             )
             .unwrap();
         assert!(
-            store.cloud_query_checkpoint().is_err(),
+            store
+                .cloud_query_checkpoint(&super::document::ContinuationCodec)
+                .is_err(),
             "malformed local continuation must refuse: {bad}"
         );
     }
@@ -171,7 +232,10 @@ fn machine_query_continuation_preserves_legacy_rows_and_exact_ties_across_restar
     store.cloud_finish_query(1_800_000_000_001).unwrap();
     store.cloud_finish_query(1000).unwrap();
     assert_eq!(store.cloud_checkpoint(PEER).unwrap().created_at_ms(), 1000);
-    let completed = store.cloud_query_checkpoint().unwrap().unwrap();
+    let completed = store
+        .cloud_query_checkpoint(&super::document::ContinuationCodec)
+        .unwrap()
+        .unwrap();
     assert!(completed.continuation.is_none());
     assert_eq!(completed.completed.created_at_ms(), 1_800_000_000_001);
     drop(store);
@@ -332,9 +396,9 @@ fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
     let machine = "11111111-1111-4111-8111-111111111111";
     let row = json!({"name":format!("{root}/m/{machine}/inbox/{ID}"),"createTime":"2026-10-23T04:00:00.123456789Z","fields":{"peer":{"stringValue":PEER},"carrier":{"bytesValue":STANDARD.encode(b"ciphertext")},"createdAt":{"timestampValue":"2026-10-23T04:00:00.123Z"}}});
     let document = super::document::Document::read(&row, root, machine, "inbox").unwrap();
-    assert_eq!(document.created_ms(), 1_792_728_000_123);
-    assert_eq!(document.bytes(), b"ciphertext");
-    assert_eq!(document.peer(), PEER);
+    assert_eq!(document.created_ms, 1_792_728_000_123);
+    assert_eq!(document.bytes.as_slice(), b"ciphertext");
+    assert_eq!(document.peer.as_str(), PEER);
     for name in [
         format!("{root}/m/{machine}/peers/{PEER}/inbox/{ID}"),
         format!("{root}/m/{PEER}/inbox/{ID}"),
@@ -367,8 +431,7 @@ fn provider_document_uses_output_create_time_and_exact_machine_namespace() {
         bad["fields"]["createdAt"]["timestampValue"] = json!(indexed);
         let admitted = super::document::Document::read(&bad, root, machine, "inbox").unwrap();
         assert_eq!(
-            admitted.created_ms(),
-            document.created_ms(),
+            admitted.created_ms, document.created_ms,
             "routing time never replaces freshness authority"
         );
     }

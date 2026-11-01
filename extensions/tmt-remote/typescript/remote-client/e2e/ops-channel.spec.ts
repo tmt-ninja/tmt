@@ -1,64 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { build } from 'vite';
+import { buildOpsHarness, serveOpsHarness, type OpsHarness } from './ops-harness-page.js';
 
 const origin = 'https://ops-channels.test';
-let directory = '',
-  harness = '',
-  html = '',
-  css = '';
+let built: OpsHarness | undefined;
 test.beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'ops-channels-'));
-  await build({
-    root: new URL('..', import.meta.url).pathname,
-    logLevel: 'silent',
-    build: {
-      outDir: directory,
-      emptyOutDir: true,
-      minify: false,
-      lib: {
-        entry: new URL('./ops-channel-harness.ts', import.meta.url).pathname,
-        formats: ['es'],
-        fileName: () => 'harness.js',
-      },
-      rollupOptions: { output: { inlineDynamicImports: true } },
-    },
-  });
-  harness = await readFile(join(directory, 'harness.js'), 'utf8');
-  const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
-  html = (await readFile(new URL('ops.html', assets), 'utf8'))
-    .replace(
-      '<div class="tmt-ui-shell-content">',
-      '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div>',
-    )
-    .replace('/sdk/shell.js', '/harness.js');
-  css =
-    (await readFile(
-      new URL('../../../../../design/browser-ui/generated/static.css', import.meta.url),
-      'utf8',
-    )) + (await readFile(new URL('pages.css', assets), 'utf8'));
+  built = await buildOpsHarness();
 });
 test.afterAll(async () => {
-  if (directory) await rm(directory, { recursive: true, force: true });
+  await built?.dispose();
 });
 async function open(page: Page, width = 1440, theme = 'light') {
-  await page.clock.install();
-  await page.setViewportSize({ width, height: 1000 });
-  await page.addInitScript((theme) => localStorage.setItem('tmt-ui-theme', theme), theme);
-  await page.route(`${origin}/**`, (route) => {
-    const path = new URL(route.request().url()).pathname;
-    return route.fulfill({
-      contentType:
-        path === '/harness.js'
-          ? 'text/javascript'
-          : path === '/sdk/pages.css'
-            ? 'text/css'
-            : 'text/html',
-      body: path === '/harness.js' ? harness : path === '/sdk/pages.css' ? css : html,
-    });
-  });
+  await serveOpsHarness(page, built!, origin, width, theme);
   await page.goto(`${origin}/ops/#channel/sample`);
   await expect(page.getByRole('tab', { name: 'Members', exact: true })).toBeVisible();
 }

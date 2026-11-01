@@ -100,6 +100,11 @@ elif wire['operation']=='requests.show':
     detail={'requestId':wire['input']['requestId'],'final':json.loads(final_path.read_text())}
     if (root/'message-state').exists(): detail['messageState']=json.loads((root/'message-state').read_text())
     print(json.dumps(detail))
+elif wire['operation'] in ('orchestration.read','orchestration.write'):
+    if (root/'orchestration-error').exists():
+        code,message=(root/'orchestration-error').read_text().split('|',1)
+        print(json.dumps({'error':{'code':code,'message':message}}));sys.exit(1)
+    print(json.dumps({'echo':wire['input']}))
 elif wire['operation']=='requests.sendNow':
     answer=(root/'send-now').read_text() if (root/'send-now').exists() else 'ok|sent'
     kind,value=answer.split('|',1)

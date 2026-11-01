@@ -709,7 +709,10 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
                 text.contains("TOK USED") || text.contains("TOK used —"),
                 "TOK follows the Digest window: {text}"
             );
-            assert!(text.contains("Scope:"));
+            assert!(
+                text.contains(if width == 60 { "Scope 1 ×" } else { "Scope: " }),
+                "{text}"
+            );
             captures.push(serde_json::json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":"Digest","mode":"scoped","lines":lines,
                 "cells":buffer.content.iter().map(|cell|serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
         }

@@ -430,6 +430,10 @@ const MIGRATIONS: &[Migration] = &[
         "record leads, route grants and talk-limit holds",
         "schema/087.sql"
     ),
+    migration!(
+        "index each direction of a two-party conversation",
+        "schema/088.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

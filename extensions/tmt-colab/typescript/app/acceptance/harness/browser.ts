@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { OwnedProcess } from './process.js';
 import type { AcceptanceWorld } from './world.js';
-import { run } from './ask.js';
+import { pairedMachines, run } from './ask.js';
 import { publicationDiagnostic } from '../../src/own-publication.js';
 
 export interface Door {
@@ -193,12 +193,9 @@ export async function pairBrowser(
   );
   await pair.exited;
   if (!options.talk) {
-    const listing = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
-      devices: { clientId: string; scopes: string[] }[];
-    };
-    const device = listing.devices.find((item) => item.clientId === paired.clientId);
-    expect(device).toBeDefined();
-    expect(device!.scopes).not.toContain('talk');
+    const machine = pairedMachines(world).find((item) => item.clientId === paired.clientId);
+    expect(machine).toBeDefined();
+    expect(machine!.sendingScope).toBe(false);
   }
   return { name, context, page, profile };
 }

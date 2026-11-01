@@ -82,12 +82,33 @@ impl std::error::Error for AncestryError {
     }
 }
 
+/// The PIDs on `first`'s chain from native parent reads, nearest first, ending before PID 1;
+/// `None` when any hop has no native read, a cycle or more than 64 entries.
+fn native_pids<R: CommandRunner>(runner: &R, first: u32, deadline: Instant) -> Option<Vec<u32>> {
+    let mut pids = Vec::new();
+    let mut pid = first;
+    for _ in 0..MAX_DEPTH {
+        if pid <= 1 {
+            return Some(pids);
+        }
+        if pids.contains(&pid) {
+            return None;
+        }
+        pids.push(pid);
+        pid = u32::try_from(runner.process_link(u64::from(pid), deadline)?.parent).ok()?;
+    }
+    None
+}
+
 /// Executable names along one complete caller chain, from a single bounded ps
-/// snapshot. Only the rows the walk visits are read: each visited PID must have exactly
-/// one well-formed row. A malformed or repeated row of an unrelated process (one that
-/// started or exited while `ps` read the table) does not matter, but a line that does not
-/// start with a PID is not a ps row at all. Missing, cyclic or truncated evidence is
-/// unavailable, never human.
+/// read. Where native parent reads find the chain's PIDs, `ps` reads only those rows
+/// (`-p`), not the whole process table (#5862); the names and the parent links the walk
+/// follows still come from that one `ps` read, so a PID reused in between breaks the walk
+/// rather than naming another process. Only the rows the walk visits are read: each
+/// visited PID must have exactly one well-formed row. A malformed or repeated row of an
+/// unrelated process (one that started or exited while `ps` read the table) does not
+/// matter, but a line that does not start with a PID is not a ps row at all. Missing,
+/// cyclic or truncated evidence is unavailable, never human.
 pub fn command_chain<R: CommandRunner>(
     runner: &R,
     first: u32,
@@ -99,13 +120,24 @@ pub fn command_chain<R: CommandRunner>(
         One(&'a str),
         Repeated,
     }
-    let output = query_ps(
-        runner,
-        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
-        deadline,
-        4 * 1024 * 1024,
-    )
-    .map_err(AncestryError::Command)?;
+    let selection: Vec<std::ffi::OsString> = match native_pids(runner, first, deadline) {
+        Some(pids) if !pids.is_empty() => {
+            let list = pids
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            vec![
+                "-o".into(),
+                "pid=,ppid=,comm=".into(),
+                "-p".into(),
+                list.into(),
+            ]
+        }
+        _ => vec!["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
+    };
+    let output =
+        query_ps(runner, &selection, deadline, 4 * 1024 * 1024).map_err(AncestryError::Command)?;
     let text = std::str::from_utf8(&output.stdout).map_err(|_| AncestryError::Unavailable)?;
     let mut rows: HashMap<u32, Rows<'_>> = HashMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
@@ -732,6 +764,47 @@ mod tests {
         assert_eq!(walk(CHAIN, 1200).unwrap(), expected());
         // PID 1 and below end the walk; a start at the root has no chain.
         assert_eq!(walk(CHAIN, 1).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn native_parents_narrow_the_one_ps_read_to_the_chain() {
+        // The cost guard for #5862: with native parent reads, one `ps -p` names only the chain's
+        // PIDs instead of reading the whole table; names and links still come from that read.
+        struct Narrow(Tree, RefCell<Vec<Vec<String>>>);
+        impl CommandRunner for Narrow {
+            fn process_link(&self, pid: u64, deadline: Instant) -> Option<ProcessLink> {
+                self.0.process_link(pid, deadline)
+            }
+            fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+                let args = request
+                    .args
+                    .iter()
+                    .map(|a| a.to_string_lossy().into_owned());
+                self.1.borrow_mut().push(args.collect());
+                Ok(CommandOutput {
+                    stdout: CHAIN.as_bytes().to_vec(),
+                    stderr: vec![],
+                })
+            }
+        }
+        let tree = Tree::default()
+            .native(1200, 900, 4_000, 0)
+            .native(900, 700, 3_000, 0)
+            .native(700, 500, 2_000, 0)
+            .native(500, 1, 1_000, 0);
+        let runner = Narrow(tree, RefCell::default());
+        assert_eq!(command_chain(&runner, 1200, soon()).unwrap(), expected());
+        let calls = runner.1.borrow();
+        assert_eq!(calls.len(), 1, "one ps spawn");
+        assert!(!calls[0].iter().any(|arg| arg == "-A"));
+        assert!(calls[0].ends_with(&["-p".into(), "1200,900,700,500".into()]));
+        // A hop without a native read keeps the whole-table read.
+        let partial = Narrow(
+            Tree::default().native(1200, 900, 4_000, 0),
+            RefCell::default(),
+        );
+        assert_eq!(command_chain(&partial, 1200, soon()).unwrap(), expected());
+        assert!(partial.1.borrow()[0].iter().any(|arg| arg == "-A"));
     }
 
     #[test]

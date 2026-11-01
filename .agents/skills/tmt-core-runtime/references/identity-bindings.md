@@ -282,7 +282,8 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
     a row that already holds its key does not change. Examples are a daemon-hosted Claude
     worker, and a provider started from another provider's tool shell, Claude and Codex in any
     order.
-  - The walk reads one `ps` snapshot. Each row it visits (the hook, its ancestors, the
+  - The walk reads one `ps` snapshot: only the chain's PIDs (`ps -p`) when native parent reads
+    find them, else the whole table; names and links come from `ps` either way. Each row it visits (the hook, its ancestors, the
     provider and the pane) must be present, well formed and the only row for its PID, or the
     hook is refused. A bad or repeated row of a process off the walk does not refuse; a line
     that does not start with a PID does. Replacement discovery keeps the strict rule: it

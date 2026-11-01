@@ -16,6 +16,9 @@ test("Vite bundles complete article HTML and external modules at project and roo
       join(root, "index.html"),
       "<!doctype html><html><body><h1>Site home</h1></body></html>",
     );
+    // The fixture article has its own link-preview card; the index keeps the site card.
+    const card = join(root, "src/blog/share/interactive-article-example.png");
+    await cp(join(root, "src/blog/og.png"), card);
     const bundle = async (base) => {
       const blog = await blogBuild({ root, base, demo: true, development: false });
       return build({
@@ -44,7 +47,34 @@ test("Vite bundles complete article HTML and external modules at project and roo
       for (const page of [index, html]) {
         assert.ok(page.includes(`src="${base}blog/mark.svg"`));
         assert.ok(page.includes(`href="${base}blog/favicon.png"`));
+        assert.ok(page.includes('<meta name="twitter:card" content="summary_large_image">'));
       }
+      assert.ok(
+        index.includes(`<meta property="og:image" content="https://localhost${base}blog/og.png">`),
+      );
+      assert.ok(
+        html.includes(
+          `<meta property="og:image" content="https://localhost${base}blog/share/interactive-article-example.png">`,
+        ),
+      );
+      assert.ok(
+        (await readFile(join(dist, "blog/share/interactive-article-example.png"))).equals(
+          await readFile(card),
+        ),
+      );
+      // Link previews name the article itself and its canonical URL, not the tab title.
+      assert.ok(
+        html.includes('<meta property="og:title" content="A small experiment in coordination">'),
+      );
+      assert.ok(html.includes('<meta property="og:type" content="article">'));
+      assert.ok(
+        html.includes(
+          `<meta property="og:url" content="https://localhost${base}blog/posts/interactive-article-example/">`,
+        ),
+      );
+      assert.ok(index.includes('<meta property="og:type" content="website">'));
+      // English-only content has nowhere to switch to, so no language links render.
+      for (const page of [index, html]) assert.doesNotMatch(page, /language-switcher/);
       assert.equal(
         await readFile(join(dist, "blog/mark.svg"), "utf8"),
         await readFile(join(root, "src/blog/mark.svg"), "utf8"),
@@ -52,6 +82,11 @@ test("Vite bundles complete article HTML and external modules at project and roo
       assert.ok(
         (await readFile(join(dist, "blog/favicon.png"))).equals(
           await readFile(join(root, "src/blog/favicon.png")),
+        ),
+      );
+      assert.ok(
+        (await readFile(join(dist, "blog/og.png"))).equals(
+          await readFile(join(root, "src/blog/og.png")),
         ),
       );
       assert.match(await readFile(join(dist, "index.html"), "utf8"), /Site home/);

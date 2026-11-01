@@ -48,7 +48,7 @@ fn restart_deduplication_atomic_rollback_and_read_only_projection() {
         store
             .status_built_in(ID, Window::Lifetime, start + 200, Some(12))
             .unwrap(),
-        json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null,"cost":null,"percent":null})
+        json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null,"cost":null,"percent":null,"series":null})
     );
     store.write(|tx| tx.execute_batch("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture write failure'); END;").map_err(io)).unwrap();
     assert!(
@@ -374,19 +374,18 @@ fn normative_status_vectors_cover_selected_windows_and_unknowns() {
             deliveries += u64::from(event.outcome == "delivered");
         }
         store.checkpoint(ID, through, 7, deliveries).unwrap();
-        assert_eq!(
-            store
-                .status_built_in(
-                    ID,
-                    Window::parse(given["window"].as_str().unwrap()).unwrap(),
-                    through,
-                    given["counter"].as_u64()
-                )
-                .unwrap(),
-            vector["expected"],
-            "{}",
-            vector["name"]
-        );
+        let mut actual = store
+            .status_built_in(
+                ID,
+                Window::parse(given["window"].as_str().unwrap()).unwrap(),
+                through,
+                given["counter"].as_u64(),
+            )
+            .unwrap();
+        // `series` is additive after the frozen vectors and has its own test.
+        assert!(actual.get("series").is_some(), "{}", vector["name"]);
+        actual.as_object_mut().unwrap().remove("series");
+        assert_eq!(actual, vector["expected"], "{}", vector["name"]);
     }
 }
 
@@ -672,7 +671,7 @@ fn a_refused_window_names_every_accepted_value_and_each_one_parses_back() {
     for given in ["", "1h", "24H", "week"] {
         assert_eq!(
             Window::parse(given).unwrap_err(),
-            "Use 24h, 7d or lifetime",
+            "Use 24h, 7d, 30d or lifetime",
             "{given:?}"
         );
     }
@@ -682,7 +681,7 @@ fn a_refused_window_names_every_accepted_value_and_each_one_parses_back() {
     }
     assert_eq!(
         Window::ALL.map(Window::text),
-        ["24h", "7d", "lifetime"],
+        ["24h", "7d", "30d", "lifetime"],
         "the CLI lists the windows in this order"
     );
 }
@@ -931,4 +930,139 @@ fn a_data_root_reached_through_a_link_opens_but_links_under_it_never_do() {
     assert!(Store::open(&dangling, false).unwrap().is_none());
     assert!(Store::open(&dangling, true).is_err());
     assert!(fs::symlink_metadata(&absent).is_err(), "nothing is created");
+}
+
+const HOUR: u64 = DAY / 24;
+const MINUTE: u64 = 60_000;
+
+#[test]
+fn series_buckets_line_up_with_usage_and_keep_unknowns_null() {
+    let fixture = Fixture::new();
+    // Late enough that a 30-day window does not reach back before the epoch.
+    let start = 40 * DAY;
+    let mut store = fixture.store();
+    store.baseline(ID, start, 5, 11).unwrap();
+    store
+        .record(
+            ID,
+            &event(6, start + HOUR + 100, &[Some(1000), Some(1200), Some(1500)]),
+            start + 2 * HOUR,
+        )
+        .unwrap();
+    store
+        .record(
+            ID,
+            &event(7, start + 3 * HOUR + 5, &[Some(400), Some(600)]),
+            start + 4 * HOUR,
+        )
+        .unwrap();
+    // Collected through 4h30m; status runs at 5h07m.
+    store
+        .checkpoint(ID, start + 4 * HOUR + 30 * MINUTE, 7, 13)
+        .unwrap();
+    let now = start + 5 * HOUR + 7 * MINUTE;
+    let day = store
+        .status_built_in(ID, Window::Day, now, Some(13))
+        .unwrap();
+    let series = day["series"].as_array().unwrap();
+    assert_eq!(series.len(), 24);
+    // Ends at the last completed five minutes, as Core's rollup ends the window.
+    let end = start + 5 * HOUR + 5 * MINUTE;
+    assert_eq!(series[23]["toMs"], end);
+    assert_eq!(series[0]["fromMs"], end - DAY);
+    let bucket = |index: usize| {
+        let b = &series[index];
+        (
+            b["estimatedInputTokensAvoided"].clone(),
+            b["avoidedSeparateDeliveries"].clone(),
+            b["complete"].clone(),
+            b["gap"].clone(),
+        )
+    };
+    // Before collection began: unknown, never zero.
+    assert_eq!(
+        bucket(18),
+        (
+            Value::Null,
+            Value::Null,
+            json!(false),
+            json!("before_collection")
+        )
+    );
+    assert_eq!(
+        bucket(19),
+        (json!(2700), json!(2), json!(true), Value::Null)
+    );
+    assert_eq!(bucket(20), (json!(0), json!(0), json!(true), Value::Null));
+    assert_eq!(bucket(21), (json!(600), json!(1), json!(true), Value::Null));
+    // Its end is past the collection watermark.
+    assert_eq!(
+        bucket(23),
+        (
+            Value::Null,
+            Value::Null,
+            json!(false),
+            json!("uncollected_deliveries")
+        )
+    );
+
+    let week = store
+        .status_built_in(ID, Window::Week, now, Some(13))
+        .unwrap();
+    let days = week["series"].as_array().unwrap();
+    assert_eq!(days.len(), 7);
+    assert_eq!(
+        days[1]["fromMs"].as_u64().unwrap() - days[0]["fromMs"].as_u64().unwrap(),
+        DAY
+    );
+    let month = store
+        .status_built_in(ID, Window::Month, now, Some(13))
+        .unwrap();
+    assert_eq!(month["window"], "30d");
+    assert_eq!(month["series"].as_array().unwrap().len(), 30);
+    assert_eq!(
+        store
+            .status_built_in(ID, Window::Lifetime, now, Some(13))
+            .unwrap()["series"],
+        Value::Null
+    );
+}
+
+#[test]
+fn last_delivery_is_the_newest_turn_of_back_to_back_checklists() {
+    let fixture = Fixture::new();
+    let start = 10 * DAY;
+    let mut store = fixture.store();
+    assert_eq!(store.last_delivery(ID).unwrap(), Value::Null, "no history");
+    store.baseline(ID, start, 5, 11).unwrap();
+    assert_eq!(
+        store.last_delivery(ID).unwrap(),
+        Value::Null,
+        "nothing delivered"
+    );
+    let at = start + HOUR;
+    // An earlier, separate delivery ten minutes before.
+    store
+        .record(ID, &event(6, at - 10 * MINUTE, &[Some(1), Some(2)]), at)
+        .unwrap();
+    store
+        .record(ID, &event(7, at, &[Some(1), Some(2), Some(3)]), at + 1)
+        .unwrap();
+    // Claimed a minute after the previous one settled: the same turn.
+    let mut next = event(8, at + MINUTE + 1_000, &[Some(1)]);
+    next.claimed_at_ms = at + MINUTE;
+    store.record(ID, &next, at + 2 * MINUTE).unwrap();
+    assert_eq!(
+        store.last_delivery(ID).unwrap(),
+        json!({"settledAtMs": at + MINUTE + 1_000, "messages": 4, "batches": 2})
+    );
+    // A delivery three minutes later starts a new turn of its own.
+    let later = at + 4 * MINUTE + 1_000;
+    store
+        .record(ID, &event(9, later, &[Some(1), Some(2)]), later + 1)
+        .unwrap();
+    assert_eq!(
+        store.last_delivery(ID).unwrap(),
+        json!({"settledAtMs": later, "messages": 2, "batches": 1})
+    );
 }

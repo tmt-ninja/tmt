@@ -62,6 +62,8 @@ struct RequestRows<'a>(
     &'a Connection,
     Option<&'a super::orchestration::ReceivingCalendar>,
     Option<&'a std::cell::Cell<Option<(u64, u64)>>>,
+    /// This transaction's per-recipient delivery facts (#5862).
+    Option<&'a delivery::Recipients>,
 );
 
 /// A caller-owned SQLite transaction can compose canonical request operations
@@ -78,7 +80,13 @@ impl RequestRepository for TransactionRequests<'_, '_> {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E> {
-        operation(&mut RequestRows(self.0, Some(self.1), None))
+        let recipients = delivery::Recipients::default();
+        operation(&mut RequestRows(
+            self.0,
+            Some(self.1),
+            None,
+            Some(&recipients),
+        ))
     }
 }
 
@@ -445,7 +453,7 @@ impl RequestRecords for RequestRows<'_> {
         attempt: &RequestAttempt,
         now: u64,
     ) -> Result<tmt_core::request::delivery::DeliveryFacts, Self::Error> {
-        let mut facts = delivery::facts(self.0, attempt, now)?;
+        let mut facts = delivery::facts(self.0, attempt, now, self.3)?;
         if facts.hold.is_some()
             && !facts.recipient_is_user
             && !attempt
@@ -455,9 +463,19 @@ impl RequestRecords for RequestRows<'_> {
                 .transpose()?
                 .unwrap_or(false)
             && let Some(id) = attempt.recipient_identity_id.as_deref()
-            && let Some(policy) = self.orchestration_receiving_policy(id, now)?
         {
-            facts.max_hold_ms = policy.max_hold_ms();
+            let recipient = delivery::Recipients::get(self.3, self.0, id, now, |recipient| {
+                if recipient.receiving_max_hold_ms.is_none() {
+                    recipient.receiving_max_hold_ms = Some(
+                        self.orchestration_receiving_policy(id, now)?
+                            .map(|policy| policy.max_hold_ms()),
+                    );
+                }
+                Ok(())
+            })?;
+            if let Some(Some(max_hold_ms)) = recipient.receiving_max_hold_ms {
+                facts.max_hold_ms = max_hold_ms;
+            }
         }
         Ok(facts)
     }
@@ -1611,11 +1629,13 @@ impl RequestRepository for Storage {
     ) -> Result<T, E> {
         let calendar = super::orchestration::ReceivingCalendar::load(self.connection()?)?;
         let retention = std::cell::Cell::new(None);
+        let recipients = delivery::Recipients::default();
         let result = with_immediate_transaction(self, "request", |transaction| {
             operation(&mut RequestRows(
                 transaction,
                 Some(&calendar),
                 Some(&retention),
+                Some(&recipients),
             ))
         });
         if result.is_ok()
@@ -1642,7 +1662,13 @@ impl RequestRepository for Storage {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(|error| E::from(classify(error, "Begin request observation transaction")))?;
-        let result = operation(&mut RequestRows(&transaction, Some(&calendar), None))?;
+        let recipients = delivery::Recipients::default();
+        let result = operation(&mut RequestRows(
+            &transaction,
+            Some(&calendar),
+            None,
+            Some(&recipients),
+        ))?;
         transaction
             .commit()
             .map_err(|error| E::from(classify(error, "Commit request observation transaction")))?;

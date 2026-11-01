@@ -203,12 +203,24 @@ test('tmt colab stop ends Colab and the door it started, and is idempotent', asy
     expect(again.code).toBe(0);
     expect(JSON.parse(again.stdout)).toEqual({ state: 'not-running', door: null });
 
-    // Pairings survive: the same device is still listed by Remote.
-    const devices = await world.tmt(['remote', 'devices', '--json']);
-    expect(devices.code, devices.stderr).toBe(0);
-    expect(JSON.parse(devices.stdout).devices.map((d: { name: string }) => d.name)).toContain(
-      device.name,
-    );
+    // Pairings survive: the same machine is still listed by Remote.
+    const members = await world.tmt(['remote', 'members', '--json']);
+    expect(members.code, members.stderr).toBe(0);
+    const names: string[] = [];
+    for (const member of JSON.parse(members.stdout).members as { memberId: string }[]) {
+      const machines = await world.tmt([
+        'remote',
+        'members',
+        'machines',
+        member.memberId,
+        '--json',
+      ]);
+      expect(machines.code, machines.stderr).toBe(0);
+      names.push(
+        ...(JSON.parse(machines.stdout).machines as { name: string }[]).map((m) => m.name),
+      );
+    }
+    expect(names).toContain(device.name);
   });
 });
 

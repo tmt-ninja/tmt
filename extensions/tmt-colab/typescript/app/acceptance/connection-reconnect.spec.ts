@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { pairBrowser, restartRemote, startDoor } from './harness/browser.js';
 import {
   patchArgs,
-  clientId,
+  revokeMachine,
   composeChat,
   createPage,
   freePort,
@@ -93,12 +93,7 @@ test('a device revoked while its page is open ends with the access card and Pair
     const page = await openPage(door, browser, created);
     await expect(page.locator('.status.live .status-label')).toHaveText('Live');
 
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, 'revoked-owner'),
-      '--json',
-    ]);
+    revokeMachine(world, 'revoked-owner');
 
     const card = page.locator('.tmt-ui-notice');
     await expect(card).toContainText(text.failurePairingRemoved, { timeout: 90_000 });
@@ -126,12 +121,7 @@ test('a device revoked while its Chat drawer is open shows the ended notice in t
     await expect(drawer).toBeVisible();
     await expect(drawer.locator('.drawer-recovery')).toHaveCount(0);
 
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, 'revoked-drawer'),
-      '--json',
-    ]);
+    revokeMachine(world, 'revoked-drawer');
 
     const notice = drawer.getByTestId('annotation-compose').getByRole('status');
     await expect(drawer.locator('.drawer-recovery')).toHaveCount(0);

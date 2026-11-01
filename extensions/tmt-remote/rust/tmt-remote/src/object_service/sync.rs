@@ -345,7 +345,7 @@ fn to_document(
             resource: document.target.resource.clone(),
             id: document.target.id.clone(),
         },
-        fields: client::validate_fields(&document.bytes)?,
+        fields: context.validate_fields(&document.bytes)?,
         digest: document.digest.clone(),
     })
 }
@@ -450,12 +450,10 @@ fn validate_tail(
         .ok_or(SyncError::Invalid)?;
     let mut position = query.cursor.clone();
     for document in &page.documents {
-        let fields = client::validate_fields(&document.bytes)?;
+        let fields = context.validate_fields(&document.bytes)?;
         let seq = fields
             .get(&mapping.seq_field)
-            .and_then(|value| value.get("integerValue"))
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| value.parse::<u64>().ok())
+            .and_then(|value| context.field_sequence(value))
             .ok_or(SyncError::Invalid)?;
         if position.as_ref().is_some_and(|cursor| seq <= cursor.seq) {
             return Err(SyncError::CatchUpRequired);

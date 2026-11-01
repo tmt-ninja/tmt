@@ -380,7 +380,7 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(caller).toContain('name: Native Rust workspace tests');
   expect(caller).toContain('needs: changes');
   expect(caller).toContain('uses: ./.github/workflows/workspace-partitions.yml');
-  expect(caller).toContain('partitions: 2');
+  expect(caller).toContain('partitions: 3');
   expect(caller).toContain('save-cache: ${{ github.ref');
   const workflow = read('.github/workflows/workspace-partitions.yml');
   const producer = workflow.split('\n  producer:\n')[1].split('\n  consumers:')[0];

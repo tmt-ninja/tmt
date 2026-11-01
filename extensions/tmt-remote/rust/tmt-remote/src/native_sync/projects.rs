@@ -171,3 +171,31 @@ impl Drop for Projects {
         let _ = self.stop();
     }
 }
+
+// Both provider ports reuse this exact serving-project cache and lifecycle.
+impl crate::cloud_provider::Factory for Projects {
+    fn open(
+        &self,
+        config: &Value,
+        machine: &str,
+        purpose: crate::cloud_provider::Purpose,
+    ) -> Result<Arc<dyn crate::cloud_provider::Provider>, RemoteError> {
+        let project = self.load(
+            config,
+            matches!(purpose, crate::cloud_provider::Purpose::ExplicitPairing),
+        )?;
+        let model = crate::firestore_budget::Model::new(
+            crate::firestore_budget::NATIVE_DEFAULT_MODEL.0,
+            crate::firestore_budget::NATIVE_DEFAULT_MODEL.1,
+        )
+        .map_err(|_| {
+            RemoteError::new("REMOTE_CLOUD_UNAVAILABLE", "Cloud pairing is unavailable.")
+        })?;
+        Ok(Arc::new(crate::cloud_provider::firestore::Provider::new(
+            project.auth.clone(),
+            project.runtime.clone(),
+            model,
+            machine,
+        )?))
+    }
+}

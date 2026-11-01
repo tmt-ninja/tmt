@@ -85,3 +85,20 @@ for (const width of [1440, 390]) {
     expect(await frameHeight(page)).toBe(height);
   });
 }
+
+// #5872: while an ask is open, its observation loop reads the page's ask views every few seconds.
+// Each read used to decode and verify every signed ask again; on a page with many asks that was a
+// quarter-second main-thread task per read, which blocked typing. The store verifies each unchanged
+// ask once, so repeated reads verify nothing. The verify count is the guard; times are recorded.
+test('repeated ask view reads on a page with many asks verify nothing again', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  const result = await page.evaluate(
+    async ({ fixture }) =>
+      (await import(fixture)).askViewReads({ asks: 120, reads: 10, quote: 8 * 1024 }),
+    { fixture: '/test/ask-browser-attempt.ts' },
+  );
+  test.info().annotations.push({ type: 'colab-ask-reads', description: JSON.stringify(result) });
+  expect(result.views).toBe(120);
+  expect(result.verified).toBe(0);
+});

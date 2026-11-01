@@ -5,7 +5,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                                                                                  TOK  % of all",
@@ -27,7 +27,7 @@
       "                                                                           │",
       "                                                                           │   ⏎ to message alpha",
       " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ alpha  ● 0 unread                                ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  C checklist  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 9, x: 0, width: 75, row: 0 }, Hit { y: 10, x: 0, width: 75, row: 1 }, Hit { y: 11, x: 0, width: 75, row: 2 }]"
   },
@@ -37,7 +37,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                      TOK  % of all",
@@ -59,7 +59,7 @@
       "",
       "   ⏎ to message alpha",
       " alpha  ● 0 unread                                                ⏎ send  Alt+⏎ new line  @ mention",
-      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x leave squad  / search  ? help  q quit"
+      " ↑↓←→ move  ⏎ chat  n new  e edit  r rename  m move  x close  C checklist  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 8, x: 0, width: 100, row: 2 }]"
   },
@@ -69,7 +69,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                  TOK  % of all",
@@ -101,7 +101,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                                                                                     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                                                                                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                                                                                  TOK  % of all",
@@ -133,7 +133,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI                         w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                                        Range 1h ▾    5m per bar (auto) ▾",
       "                                                                                      TOK  % of all",
@@ -165,7 +165,7 @@
     "height": 24,
     "lines": [
       " ▚ TMT   OPS / UI     w  Snapshots    g  Web   ● 1 online  ○ … todo  ✗ 0 blocked",
-      "   1  Agents    2  Digest",
+      "   1  Agents    2  Digest    3  Orchestration",
       "",
       " Usage · last 1h · — tok                    Range 1h ▾    5m per bar (auto) ▾",
       "                                                                  TOK  % of all",

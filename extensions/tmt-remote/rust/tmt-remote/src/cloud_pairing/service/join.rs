@@ -77,8 +77,8 @@ impl Service {
         if context.owner != self.machine
             || context.owner_key != self.key.public()
             || context.offer != doc.id
-            || context.binding.reference != provider.identity().project.as_bytes()
-            || context.binding.owner_principal != provider.uid().as_bytes()
+            || context.binding.reference != provider.binding().deployment.as_bytes()
+            || context.binding.owner_principal != provider.binding().principal.as_bytes()
             || now >= context.expires_at_ms
             || doc.created_ms >= context.expires_at_ms
             || context.issued_at_ms.saturating_sub(doc.created_ms)
@@ -89,14 +89,14 @@ impl Service {
         let submitted = v2::read_submission(
             &doc.body,
             &context,
-            &doc.uid,
+            &doc.principal,
             doc.token.ok_or_else(wire::invalid)?,
         )?;
         let sink = FirestoreConfirmation::new(
             self.store.clone(),
             context.owner_key,
             config.clone(),
-            provider.uid().into(),
+            provider.binding().principal.into(),
         )?;
         let Some(original) = sink.captured(&context)? else {
             return Ok(None);
@@ -171,7 +171,7 @@ impl Service {
         let candidate = invitations::Candidate {
             machine: self.machine.clone(),
             public_key: self.key.public(),
-            principal: provider.uid().as_bytes().to_vec(),
+            principal: provider.binding().principal.as_bytes().to_vec(),
             name: std::env::var("USER")
                 .ok()
                 .filter(|name| canonical::device_name(name))
@@ -185,7 +185,7 @@ impl Service {
             owner_key: context.owner_key,
             config: invite.public_config.clone(),
             peer: self.machine.clone(),
-            uid: provider.uid().into(),
+            uid: provider.binding().principal.into(),
             request: Vec::new(),
             confirmed: false,
             descriptor: Vec::new(),
@@ -210,7 +210,7 @@ impl Service {
                 let signed = v2::read_submission(
                     raw,
                     context,
-                    provider.uid(),
+                    provider.binding().principal,
                     invitations::service::gate(context, code)?,
                 )?;
                 SubmissionAttempt::resume_original(

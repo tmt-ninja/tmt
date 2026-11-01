@@ -148,6 +148,7 @@ describe('recorded gate cohort', () => {
       'Compile workspace test closure',
       'Execute partition 1',
       'Execute partition 2',
+      'Execute partition 3',
       'Verify exact workspace test identities',
     ].map((name) => `Native Rust workspace tests / ${name}`);
     expect(unmeasuredBudgets(summary, budgets)).toEqual(

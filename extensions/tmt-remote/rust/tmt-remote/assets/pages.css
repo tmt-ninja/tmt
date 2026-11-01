@@ -726,6 +726,82 @@ body:not(:has(.tmt-ui-shell)) {
 .ops-agents-tools .tmt-ui-search-field {
   width: 11rem;
 }
+/* Orchestration (#4894): controls wrap on narrow screens; the matrix scrolls inside its card. */
+.ops-orchestration-page {
+  min-width: 0;
+}
+.ops-orchestration-page > .tmt-ui-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ops-orchestration-page > .tmt-ui-actions .tmt-ui-search-field {
+  flex: 1 1 11rem;
+  min-width: 0;
+}
+/* An action row wraps whole buttons; a label never wraps, and a long one is cut (#5890). */
+.ops-orchestration-page .tmt-ui-actions {
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+}
+.ops-orchestration-page .tmt-ui-action {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ops-orchestration-page .tmt-ui-action > .tmt-ui-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ops-orchestration-back {
+  transform: scaleX(-1);
+}
+/* Captions share their section's content edge, unlike the padded page note. */
+.ops-orchestration-caption {
+  margin: var(--tmt-ui-space-s) 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.ops-orchestration-talks .tmt-ui-list-row {
+  padding-inline: 0;
+}
+@media (max-width: 760px) {
+  .ops-orchestration-page > .tmt-ui-actions .tmt-ui-search-field {
+    flex-basis: 100%;
+  }
+}
+.ops-orchestration-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ops-orchestration-page .tmt-ui-card {
+  min-width: 0;
+}
+/* Time slots and matrix cells are flat controls on the page's own surfaces and rule. */
+.ops-orchestration-slot,
+.ops-orchestration-cell {
+  min-width: 2.25rem;
+  padding: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  font: var(--tmt-ui-caption-size) / 1.4 var(--tmt-ui-font-mono);
+  cursor: pointer;
+}
+.ops-orchestration-slot[aria-current='time'],
+.ops-orchestration-cell[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-rule-soft);
+  border-color: var(--tmt-ui-color-text);
+}
+/* A bordered control shows focus on its own border, never a second frame outside it. */
+.ops-orchestration-slot:focus-visible,
+.ops-orchestration-cell:focus-visible {
+  outline: none;
+  border-color: var(--tmt-ui-color-focus);
+}
 .ops-detail {
   display: flex;
   flex-direction: column;

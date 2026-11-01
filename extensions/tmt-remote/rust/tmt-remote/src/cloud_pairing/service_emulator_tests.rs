@@ -175,7 +175,7 @@ impl Emulator {
         assert_eq!(
             self.commit(
                 "owner",
-                &format!("owners/{}", provider.uid()),
+                &format!("owners/{}", provider.binding().principal),
                 json!({"machine":{"stringValue":service.machine}})
             ),
             200
@@ -568,7 +568,7 @@ fn ordinary_user_pairing_rules_restart_reroute_and_revoke() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        row["fields"]["authenticationKey"]["bytesValue"],
+        STANDARD.encode(&row.authentication_key),
         STANDARD.encode(victim.key.public())
     );
     assert_eq!(owner.store().unwrap().grants().unwrap().len(), 1);
@@ -616,7 +616,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
             &owner_token,
             &format!("m/{}", crate::store::uuid_v4().unwrap()),
             json!({
-                "uid":{"stringValue":owner_provider.uid()},
+                "uid":{"stringValue":owner_provider.binding().principal},
                 "authenticationKey":{"bytesValue":STANDARD.encode(owner.key.public())},
                 "descriptor":{"bytesValue":STANDARD.encode(descriptor.bytes())}
             })
@@ -664,7 +664,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     let gate = json!({"tokenHash":{"bytesValue":STANDARD.encode(hash)}});
     for (path, fields) in [
         (
-            format!("owners/{}", stranger_provider.uid()),
+            format!("owners/{}", stranger_provider.binding().principal),
             json!({"machine":{"stringValue":stranger.machine}}),
         ),
         (
@@ -696,14 +696,19 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         submit(
             &offer,
-            candidate("join", stranger_provider.uid(), None, None)
+            candidate("join", stranger_provider.binding().principal, None, None)
         ),
         403
     );
     assert_eq!(
         submit(
             &offer,
-            candidate("join", stranger_provider.uid(), Some(&token), None)
+            candidate(
+                "join",
+                stranger_provider.binding().principal,
+                Some(&token),
+                None
+            )
         ),
         403,
         "no invitation exists"
@@ -712,14 +717,24 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         submit(
             &offer,
-            candidate("join", stranger_provider.uid(), Some(&[0; 32]), None)
+            candidate(
+                "join",
+                stranger_provider.binding().principal,
+                Some(&[0; 32]),
+                None
+            )
         ),
         403
     );
     assert_eq!(
         submit(
             &offer,
-            candidate("join", stranger_provider.uid(), Some(&token), None)
+            candidate(
+                "join",
+                stranger_provider.binding().principal,
+                Some(&token),
+                None
+            )
         ),
         200,
         "the exact capability passes Rules; native proof is still checked separately"
@@ -727,7 +742,12 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         submit(
             &offer,
-            candidate("join", stranger_provider.uid(), Some(&token), None)
+            candidate(
+                "join",
+                stranger_provider.binding().principal,
+                Some(&token),
+                None
+            )
         ),
         409,
         "create-only invitation identity cannot be replayed"
@@ -739,7 +759,12 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         submit(
             &expired,
-            candidate("join", stranger_provider.uid(), Some(&token), None)
+            candidate(
+                "join",
+                stranger_provider.binding().principal,
+                Some(&token),
+                None
+            )
         ),
         403,
         "an existing expired gate cannot authorize enrollment"
@@ -812,7 +837,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
             &reroute_id,
             candidate(
                 "reroute",
-                stranger_provider.uid(),
+                stranger_provider.binding().principal,
                 Some(&token),
                 Some(&child.machine)
             )
@@ -832,7 +857,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
             &reroute_id,
             candidate(
                 "reroute",
-                stranger_provider.uid(),
+                stranger_provider.binding().principal,
                 Some(&[0; 32]),
                 Some(&child.machine)
             )
@@ -844,7 +869,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
             &reroute_id,
             candidate(
                 "reroute",
-                stranger_provider.uid(),
+                stranger_provider.binding().principal,
                 Some(&token),
                 Some(&child.machine)
             )
@@ -852,7 +877,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         200
     );
 
-    let child_route = format!("{owner_path}/peers/{}", child_provider.uid());
+    let child_route = format!("{owner_path}/peers/{}", child_provider.binding().principal);
     for (peer, expiry) in [
         (&stranger.machine, "2035-01-01T00:00:00Z"),
         (&child.machine, "2020-01-01T00:00:00Z"),
@@ -877,14 +902,21 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     let rows = [RouteChange {
         member: None,
         project: PROJECT.into(),
-        uid: child_provider.uid().into(),
+        uid: child_provider.binding().principal.into(),
         peer: child.machine.clone(),
         generation: 1,
         revoked: false,
         reroute_hash: Some(hash),
     }];
     run(
-        owner_provider.publish_routes(&rows, None, &owner.io()),
+        owner_provider.publish_routes(
+            &rows
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            None,
+            &owner.io(),
+        ),
         &owner.io(),
     )
     .unwrap();
@@ -908,12 +940,15 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         emulator.raw(token, Operation::Commit, ":commit", json!({"writes":[{"update":{"name":format!("projects/{PROJECT}/databases/(default)/documents/m/{}",child.machine),"fields":fields},"updateMask":{"fieldPaths":mask},"currentDocument":{"exists":true}}]}))
     };
     assert_eq!(
-        move_uid(&stranger_token, stranger_provider.uid(), None),
+        move_uid(&stranger_token, stranger_provider.binding().principal, None),
         403
     );
-    assert_eq!(move_uid(&child_token, stranger_provider.uid(), None), 403);
     assert_eq!(
-        move_uid(&owner_token, stranger_provider.uid(), None),
+        move_uid(&child_token, stranger_provider.binding().principal, None),
+        403
+    );
+    assert_eq!(
+        move_uid(&owner_token, stranger_provider.binding().principal, None),
         403,
         "a matching live route is required"
     );
@@ -923,34 +958,41 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     next.push(RouteChange {
         member: None,
         project: PROJECT.into(),
-        uid: stranger_provider.uid().into(),
+        uid: stranger_provider.binding().principal.into(),
         peer: child.machine.clone(),
         generation: 2,
         revoked: false,
         reroute_hash: Some(hash),
     });
     run(
-        owner_provider.publish_routes(&next, Some(&child.machine), &owner.io()),
+        owner_provider.publish_routes(
+            &next
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            Some(&child.machine),
+            &owner.io(),
+        ),
         &owner.io(),
     )
     .unwrap();
     let row = run(child_provider.machine_metadata(&child.io()), &child.io())
         .unwrap()
         .unwrap();
-    assert_eq!(row["fields"]["uid"]["stringValue"], stranger_provider.uid());
+    assert_eq!(row.principal, stranger_provider.binding().principal);
     assert_eq!(
-        row["fields"]["authenticationKey"]["bytesValue"],
+        STANDARD.encode(&row.authentication_key),
         STANDARD.encode(child.key.public())
     );
     assert_eq!(
-        row["fields"]["descriptor"]["bytesValue"],
+        STANDARD.encode(row.descriptor.as_deref().unwrap()),
         STANDARD.encode(child_descriptor.bytes())
     );
-    assert_eq!(row["fields"]["invitingOwner"]["stringValue"], owner.machine);
+    assert_eq!(row.inviting_owner.as_deref(), Some(owner.machine.as_str()));
     assert_eq!(
         move_uid(
             &owner_token,
-            stranger_provider.uid(),
+            stranger_provider.binding().principal,
             Some((
                 "authenticationKey",
                 json!({"bytesValue":STANDARD.encode(owner.key.public())})
@@ -961,7 +1003,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         move_uid(
             &owner_token,
-            stranger_provider.uid(),
+            stranger_provider.binding().principal,
             Some(("invitingOwner", json!({"stringValue":stranger.machine})))
         ),
         403
@@ -969,7 +1011,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
     assert_eq!(
         move_uid(
             &owner_token,
-            stranger_provider.uid(),
+            stranger_provider.binding().principal,
             Some((
                 "descriptor",
                 json!({"bytesValue":STANDARD.encode(b"changed")})
@@ -981,12 +1023,19 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
         row.revoked = true;
     }
     run(
-        owner_provider.publish_routes(&next, None, &owner.io()),
+        owner_provider.publish_routes(
+            &next
+                .iter()
+                .map(crate::cloud_provider::Route::from)
+                .collect::<Vec<_>>(),
+            None,
+            &owner.io(),
+        ),
         &owner.io(),
     )
     .unwrap();
     assert_eq!(
-        move_uid(&owner_token, child_provider.uid(), None),
+        move_uid(&owner_token, child_provider.binding().principal, None),
         403,
         "revoked routes cannot recover a child uid"
     );
@@ -995,7 +1044,7 @@ fn invitation_only_rules_refuse_strangers_and_pin_inviter_uid_recovery() {
             &crate::store::uuid_v4().unwrap(),
             candidate(
                 "reroute",
-                stranger_provider.uid(),
+                stranger_provider.binding().principal,
                 Some(&token),
                 Some(&child.machine)
             )
@@ -1066,7 +1115,7 @@ fn ordinary_user_two_way_finals_and_direction_refusals() {
             machine_id: target.machine.clone(),
             owner_key: target.key.public(),
             peer: source.machine.clone(),
-            uid: provider.uid().into(),
+            uid: provider.binding().principal.into(),
             generation: 2,
             timestamp_ms: crate::pairing::now_ms().unwrap(),
         };
@@ -1076,7 +1125,7 @@ fn ordinary_user_two_way_finals_and_direction_refusals() {
             run(
                 provider.enrollment_create(
                     &crate::store::uuid_v4().unwrap(),
-                    provider.uid(),
+                    provider.binding().principal,
                     "reroute",
                     &body,
                     Some(crate::cloud_pairing::EnrollmentProof::Reroute {

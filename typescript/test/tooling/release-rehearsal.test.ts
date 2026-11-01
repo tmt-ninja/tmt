@@ -247,7 +247,10 @@ describe('selection from a real git diff', () => {
       stdout: { write: (text) => out.push(text) },
       stderr: { write: () => true },
     });
-    expect(out.join('')).toBe(`products=${JSON.stringify(all)}\n`);
+    // The same output shape as `select`, so one workflow job serves push and nightly runs.
+    expect(out.join('')).toBe(
+      `release_rehearsal=true\nrelease_rehearsal_products=${JSON.stringify(all)}\n`
+    );
     for (const args of [[], ['select'], ['select', 'a'], ['other']])
       expect(() =>
         runReleaseRehearsal(args, {
