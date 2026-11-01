@@ -138,7 +138,13 @@ actions, with More (no Theme or Remote entries), go into the bar's action slot t
 `BrowserTopBar`. The route's title goes into the bar's title slot as its one `h1`: a section route
 reads `Colab / <section>` (All pages or the scope, Settings, Open a page, the error title), a page
 `<scope> / <title>` (the title alone without a scope), then the page's project chips, + and pin and the
-`by <author>` caption; on a phone (≤900px) only the last segment stays, ellipsized. No title row or
+`by <author>` caption; on a phone (≤900px) only the last segment stays, ellipsized. A sub-page's
+title follows its place in the hierarchy (#5506, `page-hierarchy.tsx`, from the owner list the
+viewer already has): before the title a hierarchy icon, the direct parent's name linking to it and
+the parent's `done/total` progress chip, whose menu goes back to the parent or across to a sibling
+with each page's state; after the title `N sub-pages ▾` lists the direct sub-pages. A part that
+does not apply, or that the list cannot name, is absent. On a phone the bar keeps the parent's
+progress chip and the title only. No title row or
 content heading repeats it, and the connection identity is not in the bar. `barRef` hands the page the
 sticky bar to measure its clearances from. On a page the status band is the second layer: sticky
 directly under the bar (on a phone after the module tabs, which scroll away), scrolling inside itself
