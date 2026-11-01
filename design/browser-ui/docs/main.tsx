@@ -8,6 +8,9 @@ import './docs.css';
 import './mock-colab.css';
 import './mock-reader.css';
 import './mock-list.css';
+// The TUI pages' styles load here, not in their modules, so a host loads them only scoped (#5866).
+import './tui/tui.css';
+import './mock-tui/mock-tui.css';
 import { StrictMode, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocsApp } from './app.js';
