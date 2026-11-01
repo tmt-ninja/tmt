@@ -18,6 +18,8 @@ const sources = [
   '../docs/mock-list.css',
   '../docs/tui/tui.css',
   '../docs/mock-tui/mock-tui.css',
+  // Last, so the hosted overrides win over the site's own rules.
+  '../docs/hosted.css',
 ];
 const parts = await Promise.all(
   sources.map(async (source) => {

@@ -431,7 +431,7 @@ impl Registration {
     }
     /// Static display-only navigation remains available while catalog work holds the service lock.
     /// With `modules` (the caller admits extra modules, #5811), Design rides along as Colab's
-    /// one extra rail module (#5819, #5866): link-only, inside Colab's own mount.
+    /// one extra rail module (#5819, #5866), inside Colab's own mount, loaded by the same module script.
     pub(crate) fn navigation_description(modules: bool) -> serde_json::Value {
         let mut answer = serde_json::json!({
             "version":1,
@@ -445,7 +445,8 @@ impl Registration {
                 "id":"design",
                 "rail":{"label":"Design","icon":"palette","path":"/design/","order":101},
                 "menu":[],
-                "settings":[]
+                "settings":[],
+                "entry":"/assets/colab-module.js"
             }]);
         }
         answer

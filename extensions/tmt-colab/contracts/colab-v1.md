@@ -716,7 +716,8 @@ cache and the local title projection (`page_titles`, schema 16); it starts no re
 subscription or write, and only selects from that projection.
 When the callback's `tmt-describe-features` tokens contain `modules`, the answer also carries
 one extra module, `{id:"design", rail:{label:"Design", icon:"palette", path:"/design/",
-order:101}, menu:[], settings:[]}`: link-only, inside Colab's own mount, with no count. Without
+order:101}, menu:[], settings:[], entry:"/assets/colab-module.js"}`: inside Colab's own mount,
+loaded by the same module script as the primary, with no count. Without
 that token the answer is the exact primary-only one.
 Static module availability (rail, Pages link, script entry and the Design extra) does not depend
 on the registration mutex. While that mutex is busy, the reply keeps this navigation and omits
