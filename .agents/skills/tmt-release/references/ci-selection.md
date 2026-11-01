@@ -101,9 +101,15 @@ mirror builder uses `cleanup: false` and job-VM disposal; fallback/persistent
 runners retain default cleanup.
 
 `Native package matrix` requires every selected native result. Its event-derived
-`macos` flag is false only for merge groups, where both macOS build/smoke results
-must be exactly skipped; full-scope PRs require success. Linux stays required;
-release verification includes macOS. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
+`macos` flag is false for pull requests and merge groups, where both macOS build/smoke
+results must be exactly skipped, so no required check waits on macOS (#2547). Linux
+stays required. macOS coverage moved after merge: the admitted main push and weekly
+schedule run both macOS runtime builds and packed installs; the main push also runs the
+selected release rehearsal, whose prepare stages build, verify and upgrade-prove both
+Darwin targets; `release-version-injection.yml` runs its macOS hosts on main push and
+daily (PRs run Linux only); and every release's `native-release-prepare.yml` assembles and
+proves all four targets before any publish. A macOS-only break is found after merge and
+fixed forward. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
 owns Rosetta wrapping, installed-byte architecture admission and advisory Intel coverage.
 
 `Code quality` verifies the private browser leaf with frozen, lifecycle-script-free
@@ -333,12 +339,19 @@ Infra's `.github/release-parity.json` inventories executable steps in `native-re
 `releaseOnly` requires a concrete live-state reason no PR can reach and cannot
 carry `followUp`; each gap needs a counterpart or that reason, never an open marker.
 
-A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output. Separate
+A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output for a pull
+request or merge group; a `mainPush` counterpart names one that runs on the admitted main
+push, and the guard requires a main push trigger, a path selection and no PR-only `verify`
+condition. An entry may list both, or name a `releaseOnly` reason instead. The release
+rehearsal is mainPush coverage: it rehearses the products the push's `before..sha` diff
+selects. A push superseded while pending, or one whose selection missed an input, is
+rehearsed by the nightly all-products `release-rehearsal.yml`, and no release skips the
+four-target prepare proofs. Separate
 selectors (such as
 `release-rehearsal.mjs`) name `selection.source`, which must emit the output.
 Always-selected verification uses `selection.kind: "always"` and the actual incident
 step; the guard rejects path-dependent conditions or absent steps. The manifest
-maps rehearsed prepare/packaging stages to `release-rehearsal`; each incident names
+maps rehearsed prepare/packaging stages to `release-rehearsal` as mainPush; each incident names
 the release failure step and counterpart/release-only reason. Extend guard incident
 lists/tests when adding an incident.
 

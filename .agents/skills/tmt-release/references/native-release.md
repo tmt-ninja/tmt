@@ -48,7 +48,8 @@ access, tags or draft access. Cache behavior: the Rust dependency cache is saved
 packaging-tools cache is saved on a miss in any run, including a pull request's own scope.
 Manifest assembly retries its required exact-key tool-cache restore once; a final miss or restore failure still fails verification and retains the failed-draft policy.
 
-**Release rehearsal.** `ci.yml` selects it on pull requests only, never in the merge group:
+**Release rehearsal.** `ci.yml` selects it on the admitted main push only, never for a pull
+request or merge group (#2547), over the push's `before..sha` diff:
 `typescript/scripts/release-rehearsal.mjs select <base> <head>` rehearses every active product
 (released components with a package, from the component map and native release policy) when a
 shared release input changes (lockfiles, workspace/toolchain/notice/dist configuration, the
@@ -58,8 +59,9 @@ only the owning products for an extension or driver Cargo manifest. Native-insta
 installation modules, plus the CLI native-upgrade command and its tests, select CLI only for the
 existing real-archive upgrade proof. Other ordinary source and bundled-frontend edits never
 select it; their own jobs cover them, and a frontend-only change that needs packaging proof uses
-`release-rehearsal.yml` by dispatch. `Native package matrix`
-requires a selected rehearsal to succeed and an unselected one to be skipped.
+`release-rehearsal.yml` by dispatch. `Native package matrix` and complete trusted-main
+verification require a selected rehearsal to succeed and an unselected one to be skipped; a
+break it finds is fixed forward on main.
 `release-rehearsal.yml` runs every active product nightly on main (and by dispatch); a red run is
 the triage evidence. Publishing stays in `native-release-bundle.yml` (`check`, the `prepare` call,
 `attach` and the jobs after it), whose `attach` and `record-failure` depend on the `prepare` call.
@@ -403,8 +405,8 @@ commands at 60 seconds for cold Rosetta starts; timeout errors still abort the p
 Keep each prove job's thirteen-minute timeout and per-source bootstrap/adapter plus compile durations.
 Successful main-ref Darwin CLI proofs may seed the purpose-specific adapter dependency cache, reusing the existing compilation when applicable and its environment hash; PRs, Linux and non-CLI proofs only restore. Adapter stderr separately records compile, discovery and each source run's start plus returned/failed elapsed seconds; a returned command is not proof acceptance, and a start without a terminal line has no measured completion. Do not dispatch a publishing workflow to obtain proof.
 
-**Rehearsal upgrade proof.** The release rehearsal (`ci.yml` on selected pull requests and the
-nightly `release-rehearsal.yml`, never the merge group) passes `upgrade: true` to
+**Rehearsal upgrade proof.** The release rehearsal (`ci.yml` on selected main pushes and the
+nightly `release-rehearsal.yml`, never a pull request or merge group) passes `upgrade: true` to
 `native-release-prepare.yml`. Its read-only `upgrade-fetch` job stages the candidate from the
 verified bundle of the same run (`release-upgrade.mjs fetch --candidate-directory`): the manifest's
 announcement tag is the synthetic tag, and every archive must match both its cargo-dist `.sha256`

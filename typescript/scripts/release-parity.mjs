@@ -126,11 +126,18 @@ function sameKeys(actual, expected, label) {
     ensure(Object.hasOwn(actual, key), `${label}: stale ${key}`);
 }
 
+// preMerge counterparts run for a pull request or merge group; mainPush counterparts run on the
+// admitted main push after merge (the nightly rehearsal and the release's own stages cover a
+// superseded push), so a break they catch is fixed forward before any publish.
+const STAGES = ['preMerge', 'mainPush'];
+const MAIN_PUSH_TRIGGER = /^ {2}push:\n {4}branches: \[main\]$/m;
+
 function checkCoverage(entry, label, read) {
   ensure(record(entry), `${label}: expected a coverage record`);
+  const stages = STAGES.filter((stage) => Object.hasOwn(entry, stage));
   ensure(
-    Object.hasOwn(entry, 'preMerge') !== Object.hasOwn(entry, 'releaseOnly'),
-    `${label}: choose preMerge or releaseOnly`
+    stages.length > 0 !== Object.hasOwn(entry, 'releaseOnly'),
+    `${label}: choose preMerge/mainPush or releaseOnly`
   );
   if (Object.hasOwn(entry, 'releaseOnly')) {
     ensure(nonempty(entry.releaseOnly), `${label}: releaseOnly needs a reason`);
@@ -140,78 +147,93 @@ function checkCoverage(entry, label, read) {
     );
     return;
   }
+  for (const stage of stages) {
+    ensure(
+      Array.isArray(entry[stage]) && entry[stage].length > 0,
+      `${label}: empty ${stage} coverage`
+    );
+    for (const counterpart of entry[stage]) checkCounterpart(counterpart, stage, label, read);
+  }
+}
+
+function checkCounterpart(counterpart, stage, label, read) {
   ensure(
-    Array.isArray(entry.preMerge) && entry.preMerge.length > 0,
-    `${label}: empty preMerge coverage`
+    record(counterpart) && /^[\w-]+\.yml$/.test(counterpart.workflow) && nonempty(counterpart.job),
+    `${label}: invalid ${stage} reference`
   );
-  for (const counterpart of entry.preMerge) {
+  const source = read(`.github/workflows/${counterpart.workflow}`);
+  const job = inventoryWorkflow(source, counterpart.workflow, counterpart.job)[counterpart.job];
+  ensure(job, `${label}: missing ${stage} job ${counterpart.workflow}:${counterpart.job}`);
+  const selection = counterpart.selection;
+  ensure(record(selection), `${label}: missing path selection`);
+  ensure(['ci-scope', 'always'].includes(selection.kind), `${label}: unknown selection kind`);
+  if (stage === 'mainPush') {
+    // Main-push coverage needs a main push trigger and a path selection that a PR-only
+    // `verify` condition cannot hide.
+    const condition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1] ?? '';
     ensure(
-      record(counterpart) &&
-        /^[\w-]+\.yml$/.test(counterpart.workflow) &&
-        nonempty(counterpart.job),
-      `${label}: invalid preMerge reference`
+      selection.kind === 'ci-scope' && MAIN_PUSH_TRIGGER.test(source),
+      `${label}: mainPush counterpart needs a main push trigger and a path selection`
     );
-    const source = read(`.github/workflows/${counterpart.workflow}`);
-    const job = inventoryWorkflow(source, counterpart.workflow, counterpart.job)[counterpart.job];
-    ensure(job, `${label}: missing preMerge job ${counterpart.workflow}:${counterpart.job}`);
-    const selection = counterpart.selection;
-    ensure(record(selection), `${label}: missing path selection`);
-    ensure(['ci-scope', 'always'].includes(selection.kind), `${label}: unknown selection kind`);
-    if (selection.kind === 'always') {
-      // An always-run counterpart is selected by no path: the job runs on every verification event,
-      // so its `if` may name the event class (`verify`) and nothing a changed path decides.
-      const condition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1] ?? '';
-      ensure(
-        !/needs\.changes\.outputs\.(?!verify\b)/.test(condition),
-        `${label}: an always-run job must not depend on a path selection`
-      );
-      ensure(
-        nonempty(selection.step) && job.steps.includes(selection.step),
-        `${label}: always-run counterpart needs a real step of ${counterpart.job}`
-      );
-    } else {
-      ensure(
-        nonempty(selection.output) && nonempty(selection.value),
-        `${label}: invalid ci-scope selector`
-      );
-      const condition = `needs.changes.outputs.${selection.output} == '${selection.value}'`;
-      const jobCondition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1];
-      ensure(jobCondition?.includes(condition), `${label}: preMerge job does not use ${condition}`);
-      ensure(
-        source.includes(`      ${selection.output}:`),
-        `${label}: missing ci-scope output ${selection.output}`
-      );
-      // ci-scope emits most selections; a selector with its own module names it as `source`.
-      const emitter = selection.source ?? 'typescript/scripts/ci-scope.mjs';
-      ensure(
-        /^typescript\/scripts\/[\w-]+\.mjs$/.test(emitter),
-        `${label}: invalid ci-scope selector source`
-      );
-      ensure(
-        read(emitter).includes(`${selection.output}=`),
-        `${label}: ${emitter} does not emit ${selection.output}`
-      );
-    }
     ensure(
-      ['runtime', 'policy'].includes(counterpart.coverage),
-      `${label}: unknown counterpart coverage`
+      !/needs\.changes\.outputs\.verify\b/.test(condition),
+      `${label}: mainPush job must not require a pull-request verification event`
     );
-    if (counterpart.coverage === 'policy') {
+  }
+  if (selection.kind === 'always') {
+    // An always-run counterpart is selected by no path: the job runs on every verification event,
+    // so its `if` may name the event class (`verify`) and nothing a changed path decides.
+    const condition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1] ?? '';
+    ensure(
+      !/needs\.changes\.outputs\.(?!verify\b)/.test(condition),
+      `${label}: an always-run job must not depend on a path selection`
+    );
+    ensure(
+      nonempty(selection.step) && job.steps.includes(selection.step),
+      `${label}: always-run counterpart needs a real step of ${counterpart.job}`
+    );
+  } else {
+    ensure(
+      nonempty(selection.output) && nonempty(selection.value),
+      `${label}: invalid ci-scope selector`
+    );
+    const condition = `needs.changes.outputs.${selection.output} == '${selection.value}'`;
+    const jobCondition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1];
+    ensure(jobCondition?.includes(condition), `${label}: ${stage} job does not use ${condition}`);
+    ensure(
+      source.includes(`      ${selection.output}:`),
+      `${label}: missing ci-scope output ${selection.output}`
+    );
+    // ci-scope emits most selections; a selector with its own module names it as `source`.
+    const emitter = selection.source ?? 'typescript/scripts/ci-scope.mjs';
+    ensure(
+      /^typescript\/scripts\/[\w-]+\.mjs$/.test(emitter),
+      `${label}: invalid ci-scope selector source`
+    );
+    ensure(
+      read(emitter).includes(`${selection.output}=`),
+      `${label}: ${emitter} does not emit ${selection.output}`
+    );
+  }
+  ensure(
+    ['runtime', 'policy'].includes(counterpart.coverage),
+    `${label}: unknown counterpart coverage`
+  );
+  if (counterpart.coverage === 'policy') {
+    ensure(
+      Array.isArray(counterpart.tests) && counterpart.tests.length > 0,
+      `${label}: policy coverage needs tests`
+    );
+    ensure(
+      /^ {8,}pnpm test:run\s*$/m.test(job.body),
+      `${label}: policy job does not run the tooling suite`
+    );
+    for (const test of counterpart.tests) {
       ensure(
-        Array.isArray(counterpart.tests) && counterpart.tests.length > 0,
-        `${label}: policy coverage needs tests`
+        /^typescript\/test\/tooling\/[\w-]+\.test\.ts$/.test(test),
+        `${label}: invalid test path`
       );
-      ensure(
-        /^ {8,}pnpm test:run\s*$/m.test(job.body),
-        `${label}: policy job does not run the tooling suite`
-      );
-      for (const test of counterpart.tests) {
-        ensure(
-          /^typescript\/test\/tooling\/[\w-]+\.test\.ts$/.test(test),
-          `${label}: invalid test path`
-        );
-        read(test);
-      }
+      read(test);
     }
   }
 }
