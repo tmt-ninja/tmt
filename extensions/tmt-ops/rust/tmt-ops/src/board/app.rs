@@ -285,6 +285,8 @@ pub enum Effect {
     NewMember(super::new_member::Task),
     SwitchTool(super::switch_tool::Task),
     IdleAlert(super::idle_alert_editor::Task),
+    /// An Orchestration preview, apply or journal read.
+    Orchestration(super::orchestration::write::Task),
     Foreground(super::member_session::Foreground),
 }
 
@@ -335,6 +337,8 @@ pub enum Choice {
     /// Opens the squad settings overlay for this squad from the Workspace settings menu.
     SquadSettings(String),
     IdleAlert(String),
+    /// Apply the Orchestration preview the person confirmed.
+    OrchestrationApply(Box<serde_json::Value>),
     /// A rule between menu groups: painted, never chosen.
     Rule,
     /// The muted line above a menu's rows: painted, never chosen, not counted.
@@ -3180,6 +3184,11 @@ impl App {
                 self.member_link_command(&target, &action)
             }
             Choice::IdleAlert(room) => self.open_idle_alert(Some(room)),
+            Choice::OrchestrationApply(preview) => {
+                Effect::Orchestration(super::orchestration::write::Task {
+                    step: super::orchestration::write::Step::Apply(preview),
+                })
+            }
             Choice::Unavailable(reason) => self.say(reason),
             Choice::AddToNotes(seed) => self.add_to_notes(seed),
             Choice::LinkOpen(url) => self.link_open(url),

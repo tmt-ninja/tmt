@@ -5,6 +5,7 @@ mod model;
 pub(super) mod surface;
 #[cfg(test)]
 mod tests;
+pub(in crate::board) mod write;
 pub(in crate::board) use load::{Observation, Read};
 use model::{Query, Snapshot};
 use std::sync::Arc;
@@ -13,6 +14,10 @@ pub(in crate::board) struct State {
     pub query: Query,
     pub follow_now: bool,
     pub selected: Option<String>,
+    /// The matrix column: the recipient of the selected route.
+    pub target: Option<String>,
+    /// The last journal read, for the member it was read for.
+    pub why: Option<(String, Vec<String>)>,
     pub plans: bool,
     pub plan_selection: Option<String>,
     cursor: Option<u64>,
@@ -27,6 +32,8 @@ impl Default for State {
             query: Query::default(),
             follow_now: true,
             selected: None,
+            target: None,
+            why: None,
             plans: false,
             plan_selection: None,
             report: None,
@@ -74,6 +81,21 @@ impl State {
                         .members
                         .first()
                         .map(|member| member.identity_id.clone());
+                }
+                if self.target.as_ref().is_none_or(|id| {
+                    !snapshot
+                        .document
+                        .members
+                        .iter()
+                        .any(|member| &member.identity_id == id)
+                }) {
+                    self.target = snapshot
+                        .document
+                        .members
+                        .iter()
+                        .map(|member| &member.identity_id)
+                        .find(|id| Some(*id) != self.selected.as_ref())
+                        .cloned();
                 }
                 if self.plan_selection.as_ref().is_none_or(|id| {
                     !snapshot

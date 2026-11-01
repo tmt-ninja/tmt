@@ -520,6 +520,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                     Verb::Ui(
                         OpsUiAction::Agents
                             | OpsUiAction::DigestDashboard
+                            | OpsUiAction::Orchestration
                             | OpsUiAction::First
                             | OpsUiAction::Last
                             | OpsUiAction::PageUp
@@ -609,7 +610,15 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             frame.buffer_mut(),
             footer,
             ratatui::text::Line::styled(
-                " ↑↓ member · ←→ time · d/7/0 range · P plans · q quit · ? help",
+                if app
+                    .orchestration
+                    .snapshot()
+                    .is_some_and(|s| s.sending.routes.is_some())
+                {
+                    " ↑↓←→ cell · [ ] time · d/7/0 range · P plans · / members · a allow once · f/F focus · r resume · w why · ? help"
+                } else {
+                    " ↑↓ member · ←→ time · d/7/0 range · P plans · / members · f/F focus · w why · ? help"
+                },
                 look.role(Role::Muted),
             ),
         );

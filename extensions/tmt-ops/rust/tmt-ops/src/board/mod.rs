@@ -165,6 +165,7 @@ pub(in crate::board) enum BoardEvent {
     NewMember(new_member::Completed),
     SwitchTool(switch_tool::Completed),
     IdleAlert(idle_alert_editor::Completed),
+    Orchestration(orchestration::write::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
@@ -307,6 +308,8 @@ impl BoardEvent {
             Self::NewMember(_) => "NewMember",
             Self::SwitchTool(_) => "SwitchTool",
             Self::IdleAlert(_) => "IdleAlert",
+            Self::OrchestrationRead { .. } => "OrchestrationRead",
+            Self::Orchestration(_) => "Orchestration",
             Self::InputClosed => "InputClosed",
             Self::Snapshot { .. } => "Snapshot",
             Self::Enriched { .. } => "Enriched",
@@ -823,6 +826,12 @@ fn session(
         }
         if app.shell.tab == shell::OpsTab::Orchestration {
             dirty |= app.orchestration.tick(crate::status::now_ms());
+            // The board search is the members filter here; Core matches it.
+            let members = app.search.as_str().trim().to_owned();
+            if app.orchestration.query.member != members {
+                app.orchestration.query.member = members;
+                dirty = true;
+            }
         }
         dirty |= app.terminal_sync();
         let history = app.history_demand();
@@ -945,6 +954,11 @@ fn session(
                         app.in_flight = app.in_flight.saturating_sub(1);
                         dirty = true;
                         app.finished_idle_alert(completed)
+                    }
+                    Ok(BoardEvent::Orchestration(completed)) => {
+                        app.in_flight = app.in_flight.saturating_sub(1);
+                        dirty = true;
+                        app.finished_orchestration(completed)
                     }
                     Ok(BoardEvent::NewMember(completed)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
@@ -1475,6 +1489,10 @@ fn session(
                     Effect::IdleAlert(task) => {
                         app.in_flight += 1;
                         io(lane::Job::IdleAlert(task));
+                    }
+                    Effect::Orchestration(task) => {
+                        app.in_flight += 1;
+                        io(lane::Job::Orchestration(task));
                     }
                     Effect::NewMember(task) => {
                         app.in_flight += 1;

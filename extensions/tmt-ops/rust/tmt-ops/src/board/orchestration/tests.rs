@@ -17,7 +17,12 @@ fn document() -> Value {
         "timeline":[{"startMs":0,"endMs":2000,"planIds":[]},{"startMs":2000,"endMs":3000,"planIds":[]}]})
 }
 fn ready() -> model::Snapshot {
-    model::Snapshot::new(model::Overview::decode(document()).unwrap(), true).unwrap()
+    model::Snapshot::new(
+        model::Overview::decode(document()).unwrap(),
+        model::Sending::default(),
+        true,
+    )
+    .unwrap()
 }
 fn state() -> State {
     let mut state = State::default();
@@ -29,17 +34,27 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
     let read = state().read();
     let mut calls = Vec::new();
     let observation = read.read_with(|op, input| {
-        calls.push((op.to_owned(), input));
-        Ok(if op == "capabilities" {
-            json!({"operations":["orchestration.read","orchestration.write"]})
-        } else {
-            document()
+        calls.push((op.to_owned(), input.clone()));
+        Ok(match (op, input["view"].as_str()) {
+            ("capabilities", _) => {
+                json!({"operations":["orchestration.read","orchestration.write"]})
+            }
+            (_, Some("routes")) => json!({"routes":[],"nextAfter":null}),
+            (_, Some("talks")) => json!({"pairs":[]}),
+            _ => document(),
         })
     });
     let Observation::Ready(snapshot) = observation else {
         panic!("valid public observation")
     };
     assert!(snapshot.writes);
+    assert!(
+        snapshot
+            .sending
+            .routes
+            .as_ref()
+            .is_some_and(|r| r.is_empty())
+    );
     assert_eq!(
         snapshot.document.members[0]
             .effective
@@ -57,7 +72,15 @@ fn overview_uses_one_public_read_for_every_table_and_inspector_fact() {
             (
                 "orchestration.read".into(),
                 json!({"view":"overview","rangeDays":1,"atMs":1000})
-            )
+            ),
+            (
+                "orchestration.read".into(),
+                json!({"view":"routes","limit":256})
+            ),
+            (
+                "orchestration.read".into(),
+                json!({"view":"talks","limit":256})
+            ),
         ]
     );
 }
@@ -169,8 +192,193 @@ fn held_rendering_does_no_core_io_and_never_fabricates_jobs_or_routes() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("Routes are not shown yet"));
+    assert!(text.contains("routes are not available on this Core"));
     assert!(text.contains("Jobs · not available yet"));
     assert!(text.contains("batch 30m"));
     assert!(!text.contains("0 jobs"));
+}
+
+const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+/// Two members; `worker` may message only leads, so its route to `peer` is blocked.
+fn pair_document() -> Value {
+    let mut value = document();
+    let mut peer = value["members"][0].clone();
+    peer["identityId"] = OTHER.into();
+    peer["name"] = "peer".into();
+    peer["effective"]["receiving"]["value"] = json!({"mode":"direct"});
+    value["members"].as_array_mut().unwrap().push(peer);
+    value
+}
+fn routes() -> Value {
+    json!({"routes":[
+        {"from":MEMBER,"fromName":"worker","to":OTHER,"toName":"peer","verdict":"blocked","source":source()},
+        {"from":OTHER,"fromName":"peer","to":MEMBER,"toName":"worker","verdict":"needs_person","source":source()}
+    ],"nextAfter":null})
+}
+fn talks() -> Value {
+    json!({"pairs":[{"members":[
+        {"identityId":MEMBER,"name":"worker","talkLimit":{"value":2,"source":source()}},
+        {"identityId":OTHER,"name":"peer","talkLimit":{"value":null,"source":source()}}],
+        "count":2,"limit":2,"lastAtMs":900,"windowStartMs":0,"state":"held","heldCount":1,"held":[]}]})
+}
+fn observe(
+    api: impl FnMut(&str, Value) -> Result<Value, crate::core::SquadError>,
+) -> model::Snapshot {
+    let Observation::Ready(snapshot) = state().read().read_with(api) else {
+        panic!("ready observation")
+    };
+    snapshot
+}
+fn pair_api(op: &str, input: Value) -> Result<Value, crate::core::SquadError> {
+    Ok(match (op, input["view"].as_str()) {
+        ("capabilities", _) => json!({"operations":["orchestration.read","orchestration.write"]}),
+        (_, Some("routes")) => routes(),
+        (_, Some("talks")) => talks(),
+        _ => pair_document(),
+    })
+}
+#[test]
+fn an_older_core_without_sending_views_reads_them_as_not_available() {
+    let snapshot = observe(|op, input| match (op, input["view"].as_str()) {
+        ("capabilities", _) => Ok(json!({"operations":["orchestration.read"]})),
+        (_, Some("routes" | "talks")) => Err(crate::core::SquadError::new(
+            "ORCH_INPUT_INVALID",
+            "Invalid orchestration input or calendar selection.",
+        )),
+        _ => Ok(document()),
+    });
+    assert!(snapshot.sending.routes.is_none());
+    assert!(snapshot.sending.talks.is_none());
+}
+#[test]
+fn routes_pages_follow_next_after_until_core_says_the_end() {
+    let mut pages = Vec::new();
+    let snapshot = observe(|op, input| {
+        if input["view"] == "routes" {
+            pages.push(input["after"].clone());
+            return Ok(if input["after"].is_null() {
+                json!({"routes":[routes()["routes"][0].clone()],"nextAfter":"k1"})
+            } else {
+                json!({"routes":[routes()["routes"][1].clone()],"nextAfter":null})
+            });
+        }
+        pair_api(op, input)
+    });
+    assert_eq!(pages, vec![Value::Null, json!("k1")]);
+    assert_eq!(snapshot.sending.routes.as_ref().unwrap().len(), 2);
+    assert!(!snapshot.sending.truncated);
+}
+fn matrix_app() -> super::super::app::App {
+    let mut app = super::super::app::App::default();
+    app.shell.select_digit(
+        '3',
+        super::super::shell::OpsInputOwner::List,
+        &mut app.workspace.selected,
+    );
+    app.orchestration = state();
+    let snapshot = observe(pair_api);
+    app.orchestration
+        .apply(app.orchestration.read(), Observation::Ready(snapshot));
+    app
+}
+fn screen(app: &super::super::app::App) -> String {
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| super::super::view::render(frame, app))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect()
+}
+#[test]
+fn the_matrix_paints_core_verdicts_and_the_held_pair_without_reads() {
+    let app = matrix_app();
+    assert_eq!(app.orchestration.target.as_deref(), Some(OTHER));
+    let _commands = crate::runner::forbid_commands();
+    let text = screen(&app);
+    assert!(text.contains("From ↓ To →"));
+    assert!(text.contains("✕"));
+    assert!(text.contains("◆"));
+    assert!(text.contains("worker ⇄ peer 2/2 ◆ held"));
+    assert!(text.contains("Result · not sent, explained"));
+}
+#[test]
+fn allow_once_previews_core_route_allow_until_the_slot_ends_and_only_for_a_blocked_cell() {
+    use super::super::app::Effect;
+    use super::write::{Step, Task};
+    let mut app = matrix_app();
+    let key = |c| {
+        ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char(c),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        )
+    };
+    let Some(Effect::Orchestration(Task {
+        step: Step::Preview { mutation, .. },
+    })) = app.orchestration_key(key('a'))
+    else {
+        panic!("allow once starts Core's preview")
+    };
+    assert_eq!(
+        mutation,
+        json!({"kind":"route.allow","fromId":MEMBER,"toId":OTHER,"untilMs":2000})
+    );
+    // The reverse route is held, not blocked: nothing to allow, a notice instead.
+    app.orchestration.selected = Some(OTHER.into());
+    app.orchestration.target = Some(MEMBER.into());
+    assert!(matches!(
+        app.orchestration_key(key('a')),
+        Some(Effect::None)
+    ));
+    let Some(Effect::Orchestration(Task {
+        step: Step::Preview { mutation, .. },
+    })) = app.orchestration_key(key('r'))
+    else {
+        panic!("resume starts Core's preview for a held pair")
+    };
+    assert_eq!(
+        mutation,
+        json!({"kind":"talks.resume","aId":OTHER,"bId":MEMBER})
+    );
+}
+#[test]
+fn a_confirmed_preview_applies_exactly_it_and_a_conflict_saves_nothing() {
+    use super::super::app::Effect;
+    use super::write::{Completed, Step, Task};
+    let mut app = matrix_app();
+    let preview = json!({"mutation":{"kind":"focus.clear","identityId":MEMBER},"configurationRevision":3,
+        "previewAtMs":1000,"previewDigest":"d","changes":[{"identityId":MEMBER,"fields":["state"]}]});
+    app.finished_orchestration(Completed {
+        task: Task {
+            step: Step::Preview {
+                title: "End worker's focus".into(),
+                mutation: json!({}),
+            },
+        },
+        result: Ok(preview.clone()),
+    });
+    assert_eq!(app.confirm.as_ref().unwrap().title(), "End worker's focus");
+    let applied = app.choose(super::super::app::Choice::OrchestrationApply(Box::new(
+        preview.clone(),
+    )));
+    assert!(matches!(
+        applied,
+        Effect::Orchestration(Task { step: Step::Apply(ref p) }) if **p == preview
+    ));
+    let effect = app.finished_orchestration(Completed {
+        task: Task {
+            step: Step::Apply(Box::new(preview)),
+        },
+        result: Err(crate::core::SquadError::new("ORCH_CONFLICT", "changed")),
+    });
+    assert!(matches!(effect, Effect::None));
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|n| n.contains("nothing was saved"))
+    );
 }
