@@ -15,13 +15,22 @@ Status meanings and epic approval/start rules; this skill owns procedure and cad
   status at :35 (progress, releases, seats, usage, epics and owner decisions).
   The first tick after 08:00 JST also posts daily usage on #1518. Leads add
   event-driven updates; the scheduled pass below owns the steps.
+- Batch edits and never poll; stay near 200 GraphQL calls per lead per day,
+  because one account-wide GraphQL limit is shared.
+
+## Tracker body
+
+The tracker's lead keeps a three-to-six-line `Now / Next / Blocked` body, outcome
+first with issue numbers, plus `Try it` when runnable. Update it on merge, member
+start or retirement, or a blocker; keep logs and evidence in child issues/PRs. Say
+in `Now` when a tracker is parked, and keep its release gates under `Blocked`.
 
 ## Ticket levels
 
 - **Tracker (`Epic: <name>`)**: a maintainer-approved product item. Follow the
   owning guide's approval and explicit-go rules; the PM never creates an epic.
 - **Child issue**: one outcome, acceptance criteria and normally one reviewable
-  PR, sized by the [team PR size rule](https://github.com/pj-tmt/tmt/issues/606):
+  PR, sized by the [team PR size rule](https://github.com/tmt-ninja/tmt/issues/606):
   no line cap; split only by independent deliverable. Leads/PM may open direct
   native sub-issues below approved trackers.
 - **Split** work whose progress is invisible across PRs, squads or a long open
@@ -116,7 +125,7 @@ Status meanings and epic approval/start rules; this skill owns procedure and cad
    tmt-lead only decisions about core paths/contracts or cross-squad seams.
    Broadcast team-wide API, disk and CI alerts to leads.
 
-6. **Maintain [Pending owner decisions (#1053)](https://github.com/pj-tmt/tmt/issues/1053).**
+6. **Maintain [Pending owner decisions (#1053)](https://github.com/tmt-ninja/tmt/issues/1053).**
    Keep one checklist line per decision waiting on the maintainer, with its link
    and date asked; remove it after the answer is recorded in the linked issue/PR.
    Fetch the live body before every edit. The status update's `Owner action pending`
