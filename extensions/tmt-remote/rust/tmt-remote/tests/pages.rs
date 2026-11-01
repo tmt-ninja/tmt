@@ -1012,7 +1012,7 @@ fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
 }
 
 #[test]
-fn door_routes_app_routes_keep_the_app_plain_query() {
+fn door_routes_app_routes_keep_opaque_query_values() {
     let h = Harness::new(FAST);
     // A short link's query follows its redirect to an app route, which serves the shell with it.
     let short = get(&h, "/p/abcd?open=1", "");
@@ -1024,13 +1024,19 @@ fn door_routes_app_routes_keep_the_app_plain_query() {
     for path in [
         "/colab/pages/abcd?read=x",
         "/colab/pages/abcd?anchor=a-1&read=r_2",
+        "/colab/pages/abcd?read=%2F",
+        "/colab/pages/abcd?project=%5B%22blog%22%5D",
+        "/colab/pages/abcd?read=%26tmt-session%3Dopaque",
         "/settings?tab=one",
     ] {
         app_page(&h, path, "");
     }
-    // The same plain byte set as a short link: no escapes, session key or other separators.
+    // Escapes belong only to values; malformed escapes, escaped keys and reserved keys refuse.
     for path in [
-        "/colab/pages/abcd?read=%2F",
+        "/colab/pages/abcd?read=%G1",
+        "/colab/pages/abcd?read=%4",
+        "/colab/pages/abcd?read=%",
+        "/colab/pages/abcd?%72ead=x",
         "/colab/pages/abcd?tmt-session=x",
         "/colab/pages/abcd?read=x&tmt-session=y",
         "/colab/pages/abcd?read=a/b",
