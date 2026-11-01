@@ -289,6 +289,25 @@ test("a sub-page's state chip changes that page's state, and progress follows", 
   ]);
 });
 
+test('an archived sub-page leaves the panel and its counts; unarchived, it is back in place (#5867)', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  await expand(band);
+  const titles = () => band.locator('.work-row-line').getByRole('link').allInnerTexts();
+  const before = await titles();
+  await expect(head(band)).toContainText('2 of 4 done');
+  await page.evaluate((id) => window.__workPage!.setArchived!(id, true), PAGE.invites);
+  await expect(row(band, 'Invites tab')).toHaveCount(0);
+  await expect(head(band)).toContainText('1 of 3 done');
+  await page.evaluate((id) => window.__workPage!.setArchived!(id, false), PAGE.invites);
+  await expect(row(band, 'Invites tab')).toHaveCount(1);
+  await expect(head(band)).toContainText('2 of 4 done');
+  expect(await titles()).toEqual(before);
+  // Archiving writes nothing: the link was never removed.
+  expect(await calls(page)).toEqual([]);
+});
+
 test('a viewer sees the same tree without write controls', async ({ page }) => {
   const band = await mount(page, false);
   await expand(band);

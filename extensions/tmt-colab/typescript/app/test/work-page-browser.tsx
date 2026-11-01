@@ -44,6 +44,8 @@ export interface WorkPageHook {
   /** The next attach on this page has an outcome nobody knows. */
   unknownAttach?: boolean;
   metadataCaptures?: number;
+  /** Archives or unarchives a page as the owner list then reports it (#5867). */
+  setArchived?(page: string, archived: boolean): void;
 }
 declare global {
   interface Window {
@@ -56,6 +58,7 @@ type Row = {
   title: string;
   state: PageState;
   parent?: { page: string; index: number };
+  archived?: boolean;
 };
 function rows(): Row[] {
   const p = PAGES;
@@ -147,6 +150,7 @@ export function mountWorkPage(
     title: row.title,
     state: row.state,
     sharing: 'private',
+    ...(row.archived ? { archived: true } : {}),
     ...(row.parent
       ? { summary: { comments: 0, waiting: false, needsYou: 0, parent: row.parent } }
       : {}),
@@ -286,6 +290,12 @@ export function mountWorkPage(
     backendName: 'Studio Mac',
   };
   rememberPages(routed, undefined, listed());
+  hook.setArchived = (page, archived) => {
+    const row = list.find((value) => value.id === page)!;
+    row.archived = archived;
+    // Archiving never detaches: the parent link stays, and the owner list says archived.
+    rememberPages(routed, undefined, listed());
+  };
   root.render(<RouterProvider router={createAppRouter(routed)} />);
   location.hash = `/pages/${THIS}`;
 }

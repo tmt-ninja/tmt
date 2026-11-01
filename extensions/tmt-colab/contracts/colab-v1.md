@@ -3159,7 +3159,9 @@ serve opens a space it runs `work.migrate` (body `{}`, which changes nothing els
 still at version 1, under the serve's own write lock. Plain tasks are never dropped without a copy:
 before rewriting a page the serve writes its whole version 1 value to
 `migrations/5825/<pageId>.json` in the space's directory (directories 0700, file 0600, never
-through a link) and logs that path; a page whose copy cannot be written is not rewritten. A page it
+through a link) and logs that path; a page whose copy cannot be written is not rewritten. The copy
+is unencrypted plain JSON; the owner may delete it once its tasks are no longer needed, and the
+log line says so. A page whose work cannot be read is reported and left alone. A page it
 cannot copy or rewrite keeps its value, the serve logs why, `tmt colab show` and `tmt colab ls` add
 the warning `work-not-migrated` to it, and the next open tries again; the
 serve still starts. Binaries from before #5825 cannot read a migrated value, so every device of a
@@ -3192,8 +3194,10 @@ Space) holding the independent manual page state chip, which is its own menu and
 then a segmented bar, `N of M done` (`N/M` on a phone) and a chevron. The bar and count are the
 direct sub-pages by their own manual states from the owner list (Done theme green, In progress
 review purple, To do empty, Unknown neutral), the same count as the list row's `work`, never
-recursive. With no sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens
-Add. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
+recursive. An archived sub-page keeps its link but is left out at every level: no row, and it
+counts toward no progress, head summary or attention dot; unarchiving brings its row back in its
+old place (#5867). With no sub-page in use the head shows `No sub-pages yet` and no bar, and for
+the owner opens Add, which never offers an archived page. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
 states or counts.
 
 Opening the panel animates with the motion tokens (instant under reduced motion) and shows one
@@ -5902,7 +5906,8 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
   `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted
-  by its own manual state, the same count the page's work panel shows. The stage agrees with the
+  by its own manual state and leaving archived sub-pages out, the same count the page's work panel
+  shows. The stage agrees with the
   counts: `total` 0 is never sent, `done == total` is `done`, and anything else is `in-progress`. A
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,

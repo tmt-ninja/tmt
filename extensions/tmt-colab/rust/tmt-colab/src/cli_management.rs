@@ -1159,9 +1159,10 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             // the list says it is part of another page's work.
             let graph = tmt_colab::work_links::Graph(&found);
             let parents = graph.parents();
+            let archived = inspection::archived_page_ids(&store, &key)?;
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
                 let id = page["pageId"].as_str().unwrap_or_default().to_owned();
-                if let Some(work) = graph.row(&id) {
+                if let Some(work) = graph.row(&id, &archived) {
                     page["work"] = work;
                 }
                 if let Some((parent, index)) = parents.get(&id) {
@@ -1172,8 +1173,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();
         let state_graph = tmt_colab::work_links::Graph(&state_found);
+        let archived = inspection::archived_page_ids(&store, &key)?;
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
-            attach_state_progress(page, &state_graph);
+            attach_state_progress(page, &state_graph, &archived);
             page.as_object_mut()
                 .expect("page catalog row")
                 .remove("progress");
@@ -1251,7 +1253,11 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         let found = state_index(&layout, &store, &key, &pages)?;
         let graph = tmt_colab::work_links::Graph(&found);
         attach_hierarchy_warnings(&graph, &mut page);
-        attach_state_progress(&mut page, &graph);
+        attach_state_progress(
+            &mut page,
+            &graph,
+            &inspection::archived_page_ids(&store, &key)?,
+        );
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
@@ -1475,9 +1481,13 @@ fn state_index(
     tmt_colab::work_index::scan_with_live(layout, store, key, &mut decoder, ids, Some(ids))
 }
 
-fn attach_state_progress(page: &mut Value, graph: &tmt_colab::work_links::Graph<'_>) {
+fn attach_state_progress(
+    page: &mut Value,
+    graph: &tmt_colab::work_links::Graph<'_>,
+    archived: &std::collections::BTreeSet<String>,
+) {
     let id = page["pageId"].as_str().unwrap_or_default().to_owned();
-    match (graph.page_state(&id), graph.progress(&id)) {
+    match (graph.page_state(&id), graph.progress(&id, archived)) {
         (Some(state), Some(progress)) => {
             page["state"] = json!(state);
             page["progress"] = json!(progress);
