@@ -33,7 +33,7 @@ This private module implements the device side of
 
 `conversations(session, {timeoutMs?})` shares that same verified Session lane and opens
 nothing. `read(memberId, {limit?, before?, since?})` reads only the admitted owner-browser
-DM scope (20 by default, at most 50; 64 KiB). Pass structured `nextBefore` unchanged for
+DM scope (20 by default, at most 50; the shared derived 801-KiB response bound). Pass structured `nextBefore` unchanged for
 older pages. `changePosition`/`since` are opaque strings: never parse or compare them.
 Core supplies `viewerId`; the browser cannot select the person. Missing support or authority
 is unavailable, with no wider read, sending or acknowledgment fallback. The

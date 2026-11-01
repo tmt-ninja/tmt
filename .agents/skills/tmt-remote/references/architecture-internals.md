@@ -48,7 +48,8 @@ bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is 
 allowlists its bounded response. The operation owner admits only the owner's own-origin
 browser with `results.read` and the selected member UUID, under the existing observation
 fence. Core positions remain opaque; no identity creation, acknowledgment or new store
-belongs to the projection. The Core subprocess and projected response each have a 64-KiB cap.
+belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
+bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
 
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.

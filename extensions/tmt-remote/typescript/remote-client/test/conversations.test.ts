@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'vite-plus/test';
 import { openSession } from '../src/device.js';
-import { conversations, parseConversation, type ConversationPage } from '../src/conversations.js';
+import {
+  conversations,
+  parseConversation,
+  CONVERSATION_RESPONSE_BYTES,
+  type ConversationPage,
+} from '../src/conversations.js';
 import { operations, ClientError } from '../src/operations.js';
 import { Door, paired } from './door.js';
 const MEMBER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -155,4 +161,79 @@ test('Core final states, unknown members and changedSince stay exact without inf
     }),
   );
   assert.throws(() => parseConversation({ ...page(), changedSince: 'unknown' }, MEMBER, {}));
+});
+
+const capVector = JSON.parse(
+  readFileSync(
+    new URL('../../../rust/tmt-remote/tests/fixtures/conversation-bounds.json', import.meta.url),
+    'utf8',
+  ),
+) as { responseBytes: number };
+function maximumPage(withdrawn: boolean, escaped: boolean): ConversationPage {
+  const value = page();
+  const text = (bytes: number) => (escaped ? '\u0000'.repeat(bytes) : '🦊'.repeat(bytes / 4));
+  const item = value.items[0]!;
+  item.preparedAtMs = Number.MAX_SAFE_INTEGER;
+  item.origin = 'automation';
+  item.delivery = 'definitely_failed';
+  item.changePosition = 'x'.repeat(64);
+  item.responseId = 'r'.repeat(128);
+  item.preview = escaped ? '\u0000'.repeat(160) : text(640);
+  item.messageState!.reason = { code: 'r'.repeat(64), text: text(256) };
+  item.messageState!.latestMs = Number.MAX_SAFE_INTEGER;
+  item.messageState!.remainingMs = Number.MAX_SAFE_INTEGER;
+  item.final = withdrawn
+    ? { status: 'withdrawn', reason: text(1024), withdrawnAtMs: Number.MAX_SAFE_INTEGER }
+    : {
+        status: 'retained',
+        submittedAtMs: Number.MAX_SAFE_INTEGER,
+        expiresAtMs: Number.MAX_SAFE_INTEGER,
+        bodyBytes: Number.MAX_SAFE_INTEGER,
+      };
+  item.responsePreview = withdrawn ? null : item.preview;
+  item.previewTruncated = !withdrawn;
+  value.items = Array.from({ length: 50 }, (_, index) => ({
+    ...structuredClone(item),
+    requestId: `req_00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+  }));
+  value.changePosition = 'p'.repeat(64);
+  value.nextBefore = {
+    preparedAtMs: Number.MAX_SAFE_INTEGER,
+    requestId: value.items[49]!.requestId,
+  };
+  value.changedSince = { count: 50, more: true };
+  return value;
+}
+test('full maximum conversation pages fit the response policy including JSON escaping', async () => {
+  assert.equal(CONVERSATION_RESPONSE_BYTES, capVector.responseBytes);
+  const { door, client } = await ready();
+  // Four-byte scalars and control escapes exercise UTF-8 and JSON expansion.
+  for (const withdrawn of [false, true])
+    for (const escaped of [false, true]) {
+      const raw = maximumPage(withdrawn, escaped);
+      assert.ok(new TextEncoder().encode(JSON.stringify(raw)).length > 65536);
+      assert.equal(
+        parseConversation(raw, MEMBER, { limit: 50, since: 'baseline' }).items.length,
+        50,
+      );
+      door.conversationReply = () => raw;
+      assert.equal((await client.read(MEMBER, { limit: 50, since: 'baseline' })).items.length, 50);
+    }
+});
+test('a conversation response one byte over the policy is refused before field projection', async () => {
+  const raw = { ...maximumPage(true, true), unknownPadding: '' };
+  raw.unknownPadding = 'x'.repeat(
+    capVector.responseBytes + 1 - new TextEncoder().encode(JSON.stringify(raw)).length,
+  );
+  assert.equal(new TextEncoder().encode(JSON.stringify(raw)).length, capVector.responseBytes + 1);
+  assert.throws(
+    () => parseConversation(raw, MEMBER, { limit: 50, since: 'baseline' }),
+    /Conversation response exceeds byte limit/,
+  );
+  const { door, client } = await ready();
+  door.conversationReply = () => raw;
+  await assert.rejects(
+    client.read(MEMBER, { limit: 50, since: 'baseline' }),
+    (error: unknown) => error instanceof ClientError && error.code === 'unverifiable_response',
+  );
 });

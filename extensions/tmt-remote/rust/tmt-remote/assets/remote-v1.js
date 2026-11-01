@@ -9442,6 +9442,9 @@ function channelView(pathname) {
 }
 //#endregion
 //#region src/conversations.ts
+var CONVERSATION_PAGE_MAX = 50;
+var CONVERSATION_PREVIEW_BYTES = 640;
+var CONVERSATION_WITHDRAWAL_BYTES = 1024;
 var utf8$1 = new TextEncoder();
 var conversationPosition = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 function valid(condition) {
@@ -9455,7 +9458,7 @@ function keys(row, required, optional = []) {
 	valid(required.every((key) => Object.hasOwn(row, key)) && Object.keys(row).every((key) => required.includes(key) || optional.includes(key)));
 }
 var integer = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= 640;
+var preview = (value) => value === null || typeof value === "string" && [...value].length <= 160 && utf8$1.encode(value).length <= CONVERSATION_PREVIEW_BYTES;
 function cursor$1(value) {
 	const row = object(value);
 	keys(row, ["preparedAtMs", "requestId"]);
@@ -9478,7 +9481,7 @@ function final(value) {
 				"reason",
 				"withdrawnAtMs"
 			]);
-			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= 1024 && integer(row.withdrawnAtMs));
+			valid(typeof row.reason === "string" && utf8$1.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES && integer(row.withdrawnAtMs));
 			break;
 		case "retained":
 			keys(row, [
@@ -9504,7 +9507,7 @@ function final(value) {
 }
 /** Called only after signature/correlation verification by the shared Session lane. */
 function parseConversation(value, memberId, input) {
-	valid(utf8$1.encode(JSON.stringify(value)).length <= 65536);
+	if (utf8$1.encode(JSON.stringify(value)).length > 820224) throw new Error("Conversation response exceeds byte limit.");
 	const row = object(value);
 	keys(row, [
 		"viewerId",
@@ -9573,7 +9576,7 @@ function parseConversation(value, memberId, input) {
 		else {
 			const changes = object(row.changedSince);
 			keys(changes, ["count", "more"]);
-			valid(integer(changes.count) && changes.count <= 50 && typeof changes.more === "boolean" && (!changes.more || changes.count === 50));
+			valid(integer(changes.count) && changes.count <= CONVERSATION_PAGE_MAX && typeof changes.more === "boolean" && (!changes.more || changes.count === CONVERSATION_PAGE_MAX));
 			changedSince = {
 				count: changes.count,
 				more: changes.more
@@ -9600,7 +9603,7 @@ function conversations(session, options = {}) {
 				"limit",
 				"before",
 				"since"
-			].includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > 50) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
+			].includes(key)) || value.limit !== void 0 && (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX) || value.since !== void 0 && !conversationPosition(value.since)) throw new TypeError("Invalid conversation input.");
 			let before;
 			if (value.before !== void 0) try {
 				before = cursor$1(value.before);

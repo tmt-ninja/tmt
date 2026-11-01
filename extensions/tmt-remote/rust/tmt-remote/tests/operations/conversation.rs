@@ -135,7 +135,7 @@ fn malformed_or_cross_pair_conversations_are_unavailable_not_partial() {
     assert!(super::response(&raw, &query).is_err());
     raw["items"][0]["responsePreview"] = json!(null);
     assert!(super::response(&raw, &query).is_ok());
-    raw["unknownField"] = json!("x".repeat(65536));
+    raw["unknownField"] = json!("x".repeat(crate::limits::CONVERSATION_RESPONSE_BYTES));
     assert!(super::response(&raw, &query).is_err());
 }
 #[test]
@@ -150,4 +150,54 @@ fn unknown_baselines_and_missing_members_preserve_their_exact_states() {
         assert_eq!(projected["member"], state);
         assert_eq!(projected["changedSince"], "unknown");
     }
+}
+
+#[path = "../support/conversation_page.rs"]
+mod maximum;
+#[test]
+fn full_maximum_pages_and_the_exact_response_byte_boundary_are_admitted() {
+    let vector: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/conversation-bounds.json")).unwrap();
+    let cap = crate::limits::CONVERSATION_RESPONSE_BYTES;
+    assert_eq!(cap as u64, vector["responseBytes"].as_u64().unwrap());
+    let query = request(&json!({"memberId":MEMBER,"limit":50,"since":"baseline"})).unwrap();
+    for withdrawn in [false, true] {
+        for escaped in [false, true] {
+            let raw = maximum::maximum_page(
+                MEMBER,
+                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                withdrawn,
+                escaped,
+            );
+            assert!(serde_json::to_vec(&raw).unwrap().len() > 65536);
+            let mut metadata = raw["items"][0].clone();
+            metadata["preview"] = json!("");
+            if !withdrawn {
+                metadata["responsePreview"] = json!("");
+            }
+            metadata["messageState"]["reason"]["text"] = json!("");
+            if withdrawn {
+                metadata["final"]["reason"] = json!("");
+            }
+            assert!(serde_json::to_vec(&metadata).unwrap().len() <= 1024);
+            let mut header = raw.clone();
+            header["items"] = json!([]);
+            assert!(serde_json::to_vec(&header).unwrap().len() <= 1024);
+
+            let projected = super::response(&raw, &query).unwrap();
+            assert_eq!(projected["items"].as_array().unwrap().len(), 50);
+        }
+    }
+    let mut raw = maximum::maximum_page(MEMBER, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", true, true);
+    raw["unknownPadding"] = json!("");
+    let padding = cap - serde_json::to_vec(&raw).unwrap().len();
+    raw["unknownPadding"] = json!("x".repeat(padding));
+    assert_eq!(serde_json::to_vec(&raw).unwrap().len(), cap);
+    assert!(super::response(&raw, &query).is_ok());
+    raw["unknownPadding"] = json!("x".repeat(padding + 1));
+    assert_eq!(serde_json::to_vec(&raw).unwrap().len(), cap + 1);
+    assert_eq!(
+        super::response(&raw, &query).unwrap_err().code,
+        "REMOTE_CORE_UNAVAILABLE"
+    );
 }

@@ -1606,8 +1606,10 @@ Core resolves only the existing configured person, without identity creation, an
 the viewer/member pair before pagination. Missing Core support/person or a failed or
 malformed read is unavailable; there is no broader-history fallback or compatibility probe.
 
-The default page is 20, maximum 50. Both Core subprocess output and the projected response
-are capped at 64 KiB. The response is `{viewerId,member,items,nextBefore,changePosition,changedSince?}`:
+The default page is 20, maximum 50. Core subprocess output, the projected response
+and SDK decoding share the 801-KiB response bound: 50 rows times six-byte JSON escaping
+for two 640-byte previews, a 1-KiB withdrawal reason and a 256-byte state reason, plus
+1 KiB of metadata per row and per page. The response is `{viewerId,member,items,nextBefore,changePosition,changedSince?}`:
 `viewerId` is Core's server-derived canonical person UUID, disclosed only to this admitted
 browser; `member` is `active`, `unknown` or `retired` (the latter two have no items).
 Items allow only the Core results-view fields `requestId`, `recipientId`, `sender`, `kind`,

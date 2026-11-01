@@ -53,6 +53,20 @@ export interface RemoteConversations {
   readonly machineId: string;
   read(memberId: string, input?: ConversationInput): Promise<ConversationPage>;
 }
+// Mirrors limits::CONVERSATION_RESPONSE_BYTES; the independent boundary vector is
+// checked by both native and SDK tests. No different raw/projected response budget.
+const CONVERSATION_PAGE_MAX = 50;
+const CONVERSATION_PREVIEW_BYTES = 640;
+const CONVERSATION_WITHDRAWAL_BYTES = 1024;
+const CONVERSATION_REASON_BYTES = 256;
+const CONVERSATION_JSON_ESCAPE_BYTES = 6;
+const CONVERSATION_METADATA_BYTES = 1024;
+export const CONVERSATION_RESPONSE_BYTES =
+  CONVERSATION_PAGE_MAX *
+    (CONVERSATION_JSON_ESCAPE_BYTES *
+      (2 * CONVERSATION_PREVIEW_BYTES + CONVERSATION_WITHDRAWAL_BYTES + CONVERSATION_REASON_BYTES) +
+      CONVERSATION_METADATA_BYTES) +
+  CONVERSATION_METADATA_BYTES;
 const utf8 = new TextEncoder();
 export const conversationPosition = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -73,7 +87,9 @@ const integer = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const preview = (value: unknown) =>
   value === null ||
-  (typeof value === 'string' && [...value].length <= 160 && utf8.encode(value).length <= 640);
+  (typeof value === 'string' &&
+    [...value].length <= 160 &&
+    utf8.encode(value).length <= CONVERSATION_PREVIEW_BYTES);
 function cursor(value: unknown): ConversationCursor {
   const row = object(value);
   keys(row, ['preparedAtMs', 'requestId']);
@@ -91,7 +107,7 @@ function final(value: unknown): ConversationFinal {
       keys(row, ['status', 'reason', 'withdrawnAtMs']);
       valid(
         typeof row.reason === 'string' &&
-          utf8.encode(row.reason).length <= 1024 &&
+          utf8.encode(row.reason).length <= CONVERSATION_WITHDRAWAL_BYTES &&
           integer(row.withdrawnAtMs),
       );
       break;
@@ -115,7 +131,8 @@ export function parseConversation(
   memberId: string,
   input: ConversationInput,
 ): ConversationPage {
-  valid(utf8.encode(JSON.stringify(value)).length <= 65536);
+  if (utf8.encode(JSON.stringify(value)).length > CONVERSATION_RESPONSE_BYTES)
+    throw new Error('Conversation response exceeds byte limit.');
   const row = object(value);
   keys(
     row,
@@ -205,9 +222,9 @@ export function parseConversation(
       keys(changes, ['count', 'more']);
       valid(
         integer(changes.count) &&
-          changes.count <= 50 &&
+          changes.count <= CONVERSATION_PAGE_MAX &&
           typeof changes.more === 'boolean' &&
-          (!changes.more || changes.count === 50),
+          (!changes.more || changes.count === CONVERSATION_PAGE_MAX),
       );
       changedSince = { count: changes.count, more: changes.more };
     }
@@ -235,7 +252,7 @@ export function conversations(
         !coreId(memberId) ||
         Object.keys(value).some((key) => !['limit', 'before', 'since'].includes(key)) ||
         (value.limit !== undefined &&
-          (!integer(value.limit) || value.limit < 1 || value.limit > 50)) ||
+          (!integer(value.limit) || value.limit < 1 || value.limit > CONVERSATION_PAGE_MAX)) ||
         (value.since !== undefined && !conversationPosition(value.since))
       )
         throw new TypeError('Invalid conversation input.');

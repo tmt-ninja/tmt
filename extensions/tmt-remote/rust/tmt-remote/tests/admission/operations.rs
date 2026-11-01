@@ -2463,3 +2463,42 @@ fn conversation_owner_read_uses_one_public_core_call_and_never_creates_or_acknow
             .all(|call| call["operation"] == "requests.list")
     );
 }
+
+#[path = "../support/conversation_page.rs"]
+mod maximum_conversation;
+#[test]
+fn conversation_raw_core_stdout_accepts_the_exact_cap_and_refuses_one_more_byte() {
+    let owner = OwnerDoor::owner_browser("direct");
+    let core = Core::new();
+    let operations = core.operations();
+    let member = uuid_v4().unwrap();
+    let session = owner.open();
+    let page = maximum_conversation::maximum_page(&member, Core::PERSON, true, true);
+    let payload = json!({"version":1,"operation":"requests.list","input":{"memberId":member,"limit":50,"since":"baseline"}});
+    let exact = page.to_string();
+    let cap = tmt_remote::limits::CONVERSATION_RESPONSE_BYTES;
+    for over in [0, 1] {
+        // The existing process fixture appends one newline to this exact file.
+        let stdout = format!("{}{}", exact, " ".repeat(cap - exact.len() - 1 + over));
+        assert_eq!(stdout.len() + 1, cap + over);
+        fs::write(core.root.join("conversation"), stdout).unwrap();
+        let wire = owner.wire(
+            &session,
+            &(over + 1).to_string(),
+            "requests.list",
+            payload.to_string().as_bytes(),
+        );
+        let answer = append(&owner, Arc::clone(&operations), &wire);
+        if over == 0 {
+            assert_eq!(answer, page);
+        } else {
+            assert_eq!(answer["error"]["code"], "REMOTE_CORE_UNAVAILABLE");
+        }
+    }
+    assert_eq!(core.calls().len(), 2);
+    assert!(
+        core.calls()
+            .iter()
+            .all(|call| call["operation"] == "requests.list")
+    );
+}
