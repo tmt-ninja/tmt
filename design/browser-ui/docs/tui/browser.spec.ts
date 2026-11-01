@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { componentDocs, resolveSample, locatePart, tuiRoot } from './catalog.js';
+import { patternDocs } from './patterns.js';
 import { tuiMockBase } from '../routes.js';
 import { oracle, states } from './model.js';
 const captures = process.env.TUI_DOCS_CAPTURE_DIR ?? '/tmp/tmt-tui-docs-captures';
@@ -31,6 +32,19 @@ async function checkSample(page: Page, sample: Locator) {
     .locator('.tui-frame-row')
     .evaluateAll((rows) => rows.map((row) => row.textContent!.trimEnd()));
   expect(lines).toEqual(source!.lines.slice(from, to));
+  const cells = await frame.evaluate((node) => {
+    const row = node.querySelector('.tui-frame-row')!;
+    const first = row.firstElementChild!;
+    return {
+      display: getComputedStyle(row).display,
+      width: row.getBoundingClientRect().width,
+      cellWidth: first.getBoundingClientRect().width,
+      count: row.children.length,
+    };
+  });
+  expect(cells.display).toBe('flex');
+  expect(cells.count).toBe(source!.width);
+  expect(Math.abs(cells.width - cells.cellWidth * source!.width)).toBeLessThan(1);
   return frame;
 }
 async function checkPreviewBounds(page: Page) {
@@ -51,7 +65,13 @@ async function checkPreviewBounds(page: Page) {
         faults.push(frame.querySelector('iframe')!.title);
     }
     if (document.documentElement.scrollWidth > innerWidth + 1)
-      faults.push('horizontal page overflow');
+      faults.push(
+        'horizontal page overflow: ' +
+          [...document.querySelectorAll<HTMLElement>('.tui-component *')]
+            .filter((node) => node.getBoundingClientRect().right > innerWidth + 1)
+            .map((node) => node.tagName + '.' + node.className)
+            .join(', '),
+      );
     return faults;
   });
   expect(faults).toEqual([]);
@@ -119,6 +139,60 @@ for (const width of [1440, 390])
       });
     }
   }
+test('TUI catalog groups variants by their owning module', async ({ page }) => {
+  expect(componentDocs).toHaveLength(18);
+  expect(new Set(componentDocs.map((doc) => doc.module)).size).toBe(18);
+  expect(componentDocs.filter((doc) => doc.family === 'tmt-tui')).toHaveLength(14);
+  expect(componentDocs.filter((doc) => doc.family === 'Ops')).toHaveLength(4);
+  expect(
+    componentDocs
+      .filter((doc) => doc.family === 'tmt-tui')
+      .map((doc) => doc.module.split('/').at(-1))
+      .sort(),
+  ).toEqual([
+    'button.rs',
+    'collection.rs',
+    'completion.rs',
+    'dialog.rs',
+    'editor.rs',
+    'key_help.rs',
+    'list.rs',
+    'modal.rs',
+    'outline.rs',
+    'picker.rs',
+    'scroll.rs',
+    'status.rs',
+    'strip.rs',
+    'terminal.rs',
+  ]);
+  await page.goto(`${tuiRoot}/list`);
+  const nav = page
+    .getByRole('navigation', { name: 'tmt TUI documentation' })
+    .locator('.docs-nav-group')
+    .filter({ has: page.locator('.docs-nav-title', { hasText: /^Components$/ }) });
+  // The shell owns grouping; the pack owns exactly one route for each source module.
+  for (const doc of componentDocs)
+    await expect(nav.locator(`a[href="${tuiRoot}/${doc.slug}"]`)).toHaveCount(1);
+  for (const slug of [
+    'selection',
+    'table-header',
+    'table-columns',
+    'key-hints',
+    'footer',
+    'count-chip',
+    'state-chip',
+    'confirm-dialog',
+    'pane-border',
+    'text-input',
+    'search',
+    'messages',
+    'error',
+    'status-mark',
+    'loading',
+    'empty',
+  ])
+    await expect(nav.locator(`a[href="${tuiRoot}/${slug}"]`)).toHaveCount(0);
+});
 for (const doc of componentDocs)
   test(`TUI component library: ${doc.slug}`, async ({ page }) => {
     // Data and DOM both prove that each page uses real anatomy/state records, not placeholders.
@@ -145,8 +219,12 @@ for (const doc of componentDocs)
         await page.addInitScript((value) => localStorage.setItem('tmt-docs-theme', value), theme);
         await page.goto(`${tuiRoot}/${doc.slug}`);
         const body = page.locator(`[data-tui-component="${doc.slug}"]`);
-        for (const title of ['Anatomy', 'States', 'Missing frames', 'Keys', 'Roles'])
+        for (const title of ['Anatomy', 'Variants', 'States', 'Missing frames', 'Keys', 'Roles'])
           await expect(body.getByRole('heading', { name: title, exact: true })).toBeVisible();
+        await expect(body).toHaveAttribute('data-tui-source-module', doc.module);
+        expect(await body.locator('[data-tui-variants] dt').allTextContents()).toEqual(
+          doc.variants.map((variant) => variant.name),
+        );
         await expect(body.locator('.tui-rule-link a')).toHaveAttribute(
           'href',
           new RegExp(`/design/cli-style.md#${doc.section}$`),
@@ -159,6 +237,50 @@ for (const doc of componentDocs)
         await page.evaluate(() => scrollTo(0, 0));
         await page.screenshot({
           path: join(captures, `component-${doc.slug}-${width}-${theme}.png`),
+          fullPage: true,
+        });
+      }
+  });
+for (const doc of patternDocs)
+  test(`TUI guidance pattern: ${doc.slug}`, async ({ page }) => {
+    expect(doc.rules.length).toBeGreaterThanOrEqual(3);
+    expect(doc.links.length).toBeGreaterThanOrEqual(2);
+    for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
+      const { frame, from, to } = resolveSample(doc.anatomy.sample, look);
+      for (const part of doc.anatomy.parts) {
+        expect(part.row).toBeGreaterThan(from);
+        expect(part.row).toBeLessThanOrEqual(to);
+        expect(locatePart(frame, part).column).toBeGreaterThan(0);
+      }
+      for (const sample of doc.samples)
+        expect(resolveSample(sample.sample, look).frame).toBeDefined();
+    }
+    for (const width of [1440, 390])
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.addInitScript((value) => localStorage.setItem('tmt-docs-theme', value), theme);
+        await page.goto(`${tuiRoot}/${doc.slug}`);
+        const body = page.locator(`[data-tui-pattern="${doc.slug}"]`);
+        for (const title of ['Problem', 'Anatomy', 'Rules', 'Variants and states', 'Links'])
+          await expect(body.getByRole('heading', { name: title, exact: true })).toBeVisible();
+        await expect(body.locator('.tui-rule-link a')).toHaveAttribute(
+          'href',
+          new RegExp(`/design/cli-style.md#${doc.section}$`),
+        );
+        const samples = body.locator('.tui-sample');
+        await expect(samples).toHaveCount(doc.samples.length + 1);
+        for (let index = 0; index < (await samples.count()); index++)
+          await checkSample(page, samples.nth(index));
+        for (const link of doc.links)
+          await expect(body.getByRole('link', { name: link.title, exact: true })).toHaveAttribute(
+            'href',
+            `${tuiRoot}/${link.slug}`,
+          );
+        await checkPreviewBounds(page);
+        mkdirSync(captures, { recursive: true });
+        await page.evaluate(() => scrollTo(0, 0));
+        await page.screenshot({
+          path: join(captures, `pattern-${doc.slug}-${width}-${theme}.png`),
           fullPage: true,
         });
       }

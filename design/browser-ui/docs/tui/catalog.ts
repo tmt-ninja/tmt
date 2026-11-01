@@ -29,7 +29,7 @@ export interface AnatomyPart {
   row: number;
   text: string;
 }
-export interface ComponentDoc {
+interface RecordedComponent {
   slug: string;
   title: string;
   lead: string;
@@ -92,7 +92,7 @@ export function locatePart(frame: Frame, part: AnatomyPart) {
 export const cliStyle = (section: string) =>
   `https://github.com/tmt-ninja/tmt/blob/main/design/cli-style.md#${section}`;
 
-const recordedExamples: Omit<ComponentDoc, 'source'>[] = [
+const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
   {
     slug: 'header',
     title: 'Header / title bar',
@@ -405,15 +405,15 @@ const recordedExamples: Omit<ComponentDoc, 'source'>[] = [
 // A component page may reuse a source crop, but owns its anatomy, purpose and evidence limits.
 function component(
   base: string,
-  doc: Partial<ComponentDoc> & Pick<ComponentDoc, 'slug' | 'title' | 'source'>,
-): ComponentDoc {
+  doc: Partial<RecordedComponent> & Pick<RecordedComponent, 'slug' | 'title' | 'source'>,
+): RecordedComponent {
   const example = recordedExamples.find((entry) => entry.slug === base);
   if (!example) throw new Error(`Unknown recorded example: ${base}`);
   return { ...example, ...doc };
 }
 const widget = (name: string) => `rust/crates/tmt-tui/src/components/${name}.rs`;
 const board = (name: string) => `extensions/tmt-ops/rust/tmt-ops/src/board/${name}.rs`;
-export const componentDocs: ComponentDoc[] = [
+const recordedParts: RecordedComponent[] = [
   component('header', {
     slug: 'header',
     title: 'Title bar and context',
@@ -508,37 +508,6 @@ export const componentDocs: ComponentDoc[] = [
     states: [
       { kind: 'focused', label: 'List pane owns focus', sample: sample('agents', [7, 9]) },
       { kind: 'normal', label: 'Detail pane owns focus', sample: sample('terminal-live', [7, 22]) },
-    ],
-    keys: [],
-  }),
-  component('list', {
-    slug: 'pane-split',
-    title: 'Pane split',
-    lead: 'Divides the recorded list and detail composition using the host layout.',
-    source: [board('workspace/render'), board('pane_chrome')],
-    anatomy: sample('agents', [14, 21]),
-    parts: [
-      { name: 'List totals', row: 15, text: '1–3 / 3 rows' },
-      { name: 'Detail pane title', row: 16, text: 'Talk' },
-      { name: 'Conversation region', row: 21, text: 'Conversation' },
-    ],
-    states: [
-      { kind: 'normal', label: 'Recorded workspace split', sample: sample('agents') },
-      { kind: 'narrow', label: 'Narrow workspace composition', sample: narrow('agents') },
-    ],
-    keys: [],
-  }),
-  component('chips', {
-    slug: 'status-mark',
-    title: 'Status mark',
-    lead: 'Pairs a semantic mark with observed member status instead of relying on colour alone.',
-    section: 'marks',
-    source: ['rust/crates/tmt-cli-style/src/mark.rs', board('workspace/render')],
-    anatomy: sample('agents', [10, 12]),
-    parts: [{ name: 'Status and text', row: 12, text: '● working' }],
-    states: [
-      { kind: 'normal', label: 'Working', sample: sample('agents', [10, 12]) },
-      { kind: 'focused', label: 'Unread activity', sample: sample('unread-working', [10, 12]) },
     ],
     keys: [],
   }),
@@ -699,37 +668,225 @@ export const componentDocs: ComponentDoc[] = [
     title: 'Help overlay',
     source: [widget('key_help'), board('help')],
   }),
-  component('states', {
-    slug: 'empty',
-    title: 'Empty state',
-    lead: 'Explains the absence of a current recipient or query result.',
-    source: [board('workspace/render')],
-    anatomy: sample('empty', [15, 21]),
-    parts: [
-      { name: 'Selected scope', row: 17, text: 'Common pool' },
-      { name: 'Empty explanation', row: 20, text: 'No current recipient observed.' },
-    ],
-    states: [
-      { kind: 'empty', label: 'No recipient', sample: sample('empty', [15, 21]) },
-      { kind: 'normal', label: 'No query matches', sample: sample('search-agents-all-empty') },
-    ],
-  }),
-  component('states', {
-    slug: 'loading',
-    title: 'Loading state',
-    source: [board('workspace/render')],
-    states: [
-      {
-        kind: 'normal',
-        label: 'Conversation read in progress',
-        sample: sample('conversation-loading', [20, 27]),
-      },
-    ],
-  }),
   component('messages', {
     slug: 'error',
     title: 'Error and stale state',
     lead: 'Explains failed observations while retaining the last known content.',
     source: [board('notice'), board('workspace/render')],
   }),
+];
+
+export interface ComponentDoc extends RecordedComponent {
+  module: string;
+  family: 'tmt-tui' | 'Ops';
+  variants: { name: string; description: string }[];
+}
+
+/** One page owns each source module; source crops describe variants, never extra components. */
+function modulePage(
+  slug: string,
+  title: string,
+  module: string,
+  variants: { part: string; name: string; description: string }[],
+): ComponentDoc {
+  const records = variants.map(({ part }) => {
+    const record = recordedParts.find((entry) => entry.slug === part);
+    if (!record) throw new Error(`Missing recorded TUI part: ${part}`);
+    return record;
+  });
+  const main = records[0]!;
+  return {
+    ...main,
+    slug,
+    title,
+    module,
+    family: module.startsWith('rust/crates/tmt-tui/') ? 'tmt-tui' : 'Ops',
+    source: [
+      ...new Set([
+        module,
+        ...records.flatMap((record) =>
+          record.source.filter((path) => path.startsWith('extensions/')),
+        ),
+      ]),
+    ],
+    variants: variants.map(({ name, description }) => ({ name, description })),
+    states: records.flatMap((record, index) =>
+      record.states.map((state) => ({
+        ...state,
+        label: `${variants[index]!.name}: ${state.label}`,
+      })),
+    ),
+    keys: [...new Set(records.flatMap((record) => record.keys))],
+    roles: [...new Set(records.flatMap((record) => record.roles))],
+  };
+}
+export const componentDocs: ComponentDoc[] = [
+  modulePage('header', 'Title bar and context', board('view/header'), [
+    {
+      part: 'header',
+      name: 'Workspace title',
+      description: 'The Ops workspace context and reserved header regions.',
+    },
+  ]),
+  modulePage('tabs', 'Tab bar', board('view/tabs'), [
+    {
+      part: 'tabs',
+      name: 'Workspace tabs',
+      description: 'The selected Ops workspace and its retained neighbours.',
+    },
+  ]),
+  modulePage('button', 'Button', widget('button'), [
+    {
+      part: 'button',
+      name: 'Button and button row',
+      description: 'Explicit actions keep their reserved positions within the dialog.',
+    },
+  ]),
+  modulePage('table', 'Table', widget('collection'), [
+    {
+      part: 'table-header',
+      name: 'Header and sorting',
+      description: 'Column labels and the active sort remain distinct from selection.',
+    },
+    {
+      part: 'table-columns',
+      name: 'Columns and widths',
+      description: 'The same collection degrades through recorded width steps.',
+    },
+  ]),
+  modulePage('list', 'List', widget('list'), [
+    {
+      part: 'list',
+      name: 'Rows',
+      description: 'Identity and state occupy stable cells in the collection.',
+    },
+    {
+      part: 'selection',
+      name: 'Focused and retained selection',
+      description: 'Keep the selected target while another pane owns keyboard focus.',
+    },
+  ]),
+  modulePage('key-help', 'Key help', widget('key_help'), [
+    {
+      part: 'key-hints',
+      name: 'Inline hint',
+      description: 'A local key is attached to the action it explains.',
+    },
+    {
+      part: 'footer',
+      name: 'Footer',
+      description: 'The effective layer exposes its available keys in the footer.',
+    },
+    {
+      part: 'help',
+      name: 'Help overlay',
+      description: 'The complete effective map is a reference layer, not a separate component.',
+    },
+  ]),
+  modulePage('chip', 'Chip', widget('strip'), [
+    {
+      part: 'count-chip',
+      name: 'Count',
+      description: 'Count is contextual information rather than keyboard focus.',
+    },
+    {
+      part: 'state-chip',
+      name: 'State',
+      description: 'A state label complements the foundation status mark.',
+    },
+  ]),
+  modulePage('dialog', 'Dialog', widget('dialog'), [
+    {
+      part: 'dialog',
+      name: 'Dialog kinds',
+      description: 'Fields and actions belong to one focused interaction.',
+    },
+    {
+      part: 'confirm-dialog',
+      name: 'Confirmation',
+      description: 'A committing choice keeps its target and cancel action visible.',
+    },
+  ]),
+  modulePage('pane', 'Pane', widget('outline'), [
+    {
+      part: 'pane-border',
+      name: 'Outline',
+      description: 'The border identifies a pane; multi-pane splitting is a layout pattern.',
+    },
+  ]),
+  modulePage('text-field', 'Text field', widget('editor'), [
+    {
+      part: 'text-input',
+      name: 'Composer',
+      description: 'Multi-line editing owns its cursor and draft independently of row selection.',
+    },
+    {
+      part: 'search',
+      name: 'Search and filter editing',
+      description: 'The query field edits text; the Picker owns result selection.',
+    },
+  ]),
+  modulePage('modal', 'Modal', widget('modal'), [
+    {
+      part: 'overlay',
+      name: 'Overlay placement',
+      description: 'Opaque layer chrome and placement keep the underlying workspace legible.',
+    },
+  ]),
+  modulePage('picker', 'Picker', widget('picker'), [
+    {
+      part: 'search',
+      name: 'Query and result selection',
+      description:
+        'Translate query, selection, confirm and cancel without owning application filtering.',
+    },
+  ]),
+  modulePage('completion', 'Completion', widget('completion'), [
+    {
+      part: 'completion',
+      name: 'Source-range candidates',
+      description: 'A candidate inserts into the active field; it does not route or submit.',
+    },
+  ]),
+  modulePage('scroll', 'Scroll position', widget('scroll'), [
+    {
+      part: 'scroll-indicator',
+      name: 'Range and overflow',
+      description: 'Report the visible range without inventing an unrecorded scrollbar.',
+    },
+  ]),
+  modulePage('status', 'Status slot', widget('status'), [
+    {
+      part: 'spinner',
+      name: 'Text, age and spinner',
+      description: 'The application supplies time and state while the reserved line stays stable.',
+    },
+  ]),
+  modulePage('terminal', 'Terminal surface', widget('terminal'), [
+    {
+      part: 'terminal',
+      name: 'Live and connecting',
+      description: 'Foreign terminal cells retain their own recorded colours and input model.',
+    },
+  ]),
+  modulePage('meter', 'Meter', board('meter'), [
+    {
+      part: 'meter',
+      name: 'Usage and progress',
+      description:
+        'An Ops measure preserves its range and unit; it is not a generic loading state.',
+    },
+  ]),
+  modulePage('notice', 'Notice', board('notice'), [
+    {
+      part: 'messages',
+      name: 'Persistent message',
+      description: 'Explain the observation without replacing the surrounding content.',
+    },
+    {
+      part: 'error',
+      name: 'Stale and error',
+      description: 'Retain last-known evidence and name what could not be refreshed.',
+    },
+  ]),
 ];

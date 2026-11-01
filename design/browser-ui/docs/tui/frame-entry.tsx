@@ -1,4 +1,5 @@
 import '../../generated/static.css';
+import './tui.css';
 import { createRoot } from 'react-dom/client';
 import { TuiFrame } from './frame.js';
 import { oracle } from './model.js';

@@ -2512,12 +2512,16 @@ tmt-tui-frame,
   margin-block: var(--tmt-ui-ref-space-4);
 }
 .tui-controls label {
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: var(--tmt-ui-ref-space-1);
   font-size: var(--tmt-ui-ref-size-2);
   color: var(--tmt-ui-color-secondary);
 }
 .tui-controls select {
+  min-width: 0;
+  box-sizing: border-box;
   max-width: 100%;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
