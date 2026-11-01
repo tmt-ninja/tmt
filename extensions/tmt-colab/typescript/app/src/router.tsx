@@ -11,7 +11,7 @@ import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
+import { designBase, entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
   BrowserAction,
   BrowserCommand,
@@ -2905,7 +2905,9 @@ export function createAppRouter(
       designPage,
     ]),
     history,
-    ...(inShell() ? { basepath: '/colab' } : {}),
+    // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
+    // this module for Design at /design/ (#5873), where its /design routes match as they are.
+    ...(inShell() ? { basepath: designBase() === '/design' ? '/' : '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
   });
   router.subscribe('onResolved', () => void buildWatch.check());

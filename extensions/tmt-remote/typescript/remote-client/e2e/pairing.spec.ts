@@ -6059,11 +6059,11 @@ test('the rail shows the same items in the same order on every page', async () =
     for (const path of ['/', '/remote/', '/remote/settings', '/ops/', '/digest/', '/settings/']) {
       await page.goto(`${origin}${path}`);
       const items = page.locator('.tmt-ui-rail .tmt-ui-rail-item');
-      await expect(items).toHaveCount(6);
+      await expect(items).toHaveCount(7);
       rails.push(await items.evaluateAll((nodes) => nodes.map((node) => node.dataset.id!)));
     }
     for (const rail of rails)
-      expect(rail).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
+      expect(rail).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
   } finally {
     await page.close();
   }
@@ -6643,4 +6643,145 @@ test('owner DM history reuses one root Session and strips private Core fields', 
     .map((line) => JSON.parse(line) as { operation: string });
   expect(final.slice(before).some((call) => call.operation === 'requests.list')).toBe(false);
   await outsider.close();
+});
+
+test('Design uses a described Colab entry after owner pairing and keeps one active rail item', async () => {
+  const page = await browser.newPage();
+  const captures =
+    process.env.TMT_REMOTE_CAPTURE_DIR ??
+    (process.env.CI ? test.info().outputPath('design-root-captures') : undefined);
+  let imports = 0;
+  await page.route('**/x/-/shell', async (route) => {
+    // Keep the actual door's live owner-session admission; replace display data only.
+    const admitted = await route.fetch();
+    if (!admitted.ok()) {
+      await route.fulfill({ response: admitted });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        version: 1,
+        modules: [
+          {
+            extension: 'colab',
+            rail: { label: 'Colab', icon: 'file-text', path: mounts + 'colab/', order: 100 },
+            menu: [],
+            settings: [],
+            entry: 'assets/colab-module.js',
+          },
+          {
+            extension: 'colab',
+            module: 'design',
+            rail: { label: 'Design', icon: 'palette', path: origin + '/design/', order: 101 },
+            menu: [],
+            settings: [],
+            entry: mounts + 'colab/assets/colab-module.js',
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/x/colab/assets/colab-module.js', async (route) => {
+    imports++;
+    await route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+      window.designProof = {mounts:0,disposals:0};
+      export function mount(slot) {
+        window.designProof.mounts++;
+        const main=document.createElement('section'); main.className='tmt-page'; main.id='design-host-fixture';
+        const title=document.createElement('h1'); title.textContent='Design host fixture';
+        const note=document.createElement('p'); note.textContent='Explicit Colab module stand-in: root ownership only, not Design editor acceptance.';
+        main.append(title,note); slot.main.replaceChildren(main);
+        return () => {window.designProof.disposals++;main.remove();};
+      }
+      export function mountSearchSession() {return {open(){},dispose(){}};}
+    `,
+    });
+  });
+  try {
+    await page.goto(origin + '/design/');
+    await expect(
+      page.getByRole('heading', { name: 'Design', exact: true, level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator('.tmt-ui-shell-main')).toContainText('Pair this browser with Remote');
+    expect(imports).toBe(0);
+    await captureState(
+      page,
+      'root-design-unpaired',
+      'Design owner gate before pairing: no module import',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      captures,
+    );
+    pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    await page.goto(offer.link as string);
+    await page.fill('#name', 'Design owner browser');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('#words')).toBeVisible();
+    expect((await events.next()).event).toBe('candidate');
+    pair.stdin.write('confirm\n');
+    expect((await events.next()).reason).toBe('paired');
+    await expect(page.locator('#status')).toContainText('This browser is paired.');
+    await page.goto(origin + '/design/');
+    await expect(
+      page.getByRole('heading', { name: 'Design host fixture', exact: true }),
+    ).toBeVisible();
+    const rail = page.locator('.tmt-ui-rail');
+    expect(
+      await rail
+        .locator('.tmt-ui-rail-item')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id'))),
+    ).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
+    await expect(rail.locator('[data-id="design"]')).toHaveAttribute('aria-current', 'page');
+    await expect(rail.locator('[aria-current="page"]')).toHaveCount(1);
+    expect(imports).toBe(1);
+    await page.mouse.move(500, 500);
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
+    await captureState(
+      page,
+      'root-design-host',
+      'Design root with explicit Colab stand-in; host/rail proof only',
+      [1440, 390],
+      ['light', 'dark'],
+      undefined,
+      captures,
+    );
+    await page.evaluate(async () => {
+      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+        shellApp(): { navigate(href: string): void } | undefined;
+      };
+      sdk.shellApp()?.navigate('/');
+    });
+    await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { designProof: { disposals: number } }).designProof.disposals,
+      ),
+    ).toBe(1);
+    await page.evaluate(async () => {
+      const sdk = (await import('/sdk/remote-v1.js' as string)) as {
+        shellApp(): { navigate(href: string): void } | undefined;
+      };
+      sdk.shellApp()?.navigate('/design/library');
+    });
+    await expect(
+      page.getByRole('heading', { name: 'Design host fixture', exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(origin + '/design/library');
+    expect(imports).toBe(1);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { designProof: { mounts: number } }).designProof.mounts,
+      ),
+    ).toBe(2);
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
 });

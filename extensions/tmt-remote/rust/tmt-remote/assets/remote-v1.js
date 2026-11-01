@@ -3727,7 +3727,34 @@ var shellIconNodes = {
 		rx: "2",
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
-	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	palette: [
+		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
+		["circle", {
+			cx: "13.5",
+			cy: "6.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "17.5",
+			cy: "10.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "6.5",
+			cy: "12.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "8.5",
+			cy: "7.5",
+			r: ".5",
+			fill: "currentColor"
+		}]
+	]
 };
 var moduleIcons = [
 	"house",
@@ -3737,7 +3764,8 @@ var moduleIcons = [
 	"chart-column",
 	"search",
 	"settings",
-	"box"
+	"box",
+	"palette"
 ];
 var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
 //#endregion
@@ -5753,6 +5781,12 @@ var RAIL = [
 		path: "/colab/"
 	},
 	{
+		id: "design",
+		label: "Design",
+		icon: "palette",
+		path: "/colab/design/"
+	},
+	{
 		id: "remote",
 		label: "Remote",
 		icon: "monitor-smartphone",
@@ -5771,6 +5805,12 @@ var RAIL = [
 		path: "/digest/"
 	}
 ];
+/**
+* A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
+* extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
+* Design extra, which is the fixed `design` item.
+*/
+var shellModuleKey = (module) => module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
 var HOST_SERVED = /* @__PURE__ */ new Set([
 	"remote",
@@ -5778,19 +5818,33 @@ var HOST_SERVED = /* @__PURE__ */ new Set([
 	"digest"
 ]);
 /**
-* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
 * order, then TMT settings at the bottom. Colab is available
 * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
 * The current item is the host's module, else the longest matching path.
 */
 function shellRail(answer, place, host) {
 	const active = host?.extension;
-	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+	const keyOf = shellModuleKey;
+	const owner = (id) => id === "design" ? "colab" : id.split(":")[0];
+	const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
+	const primaries = (answer?.modules ?? []).filter((module) => !module.module);
 	const hosted = (id) => host?.extension === id;
 	const path = place.href.slice(place.origin.length);
 	const settings = path === "/settings" || path.startsWith("/settings/");
 	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
 	const modules = [...RAIL.map((fixed) => {
+		if (fixed.id === "design") {
+			const module = described.get("colab:design");
+			return {
+				id: fixed.id,
+				label: module?.rail.label ?? fixed.label,
+				icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+				href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+				needsYou: void 0,
+				available: described.has("colab") || hosted("colab")
+			};
+		}
 		const module = described.get(fixed.id);
 		return {
 			id: fixed.id,
@@ -5800,16 +5854,17 @@ function shellRail(answer, place, host) {
 			needsYou: module?.needsYou,
 			available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id)
 		};
-	}), ...[...described.values(), ...host && !described.has(host.extension) ? [host] : []].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
-		id: module.extension,
+	}), ...[...described.values(), ...host && !described.has(keyOf(host)) ? [host] : []].filter((module) => module.module ? keyOf(module) !== "colab:design" : !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
+		id: keyOf(module),
 		label: module.rail.label,
 		icon: moduleIcon(module.rail.icon),
 		href: module.rail.path,
-		needsYou: module.needsYou,
+		needsYou: module.module ? void 0 : module.needsYou,
 		available: true
 	}))];
-	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
-	const counts = [...described.values()].map((module) => module.needsYou);
+	const longest = modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
+	const matched = longest && owner(longest) === active ? longest : active ?? longest;
+	const counts = primaries.map((module) => module.needsYou);
 	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
 	return {
 		main: [{
@@ -8217,6 +8272,40 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
+}
+/** Only the admitted Design app family can leave a Colab extra's mount for navigation. */
+function designPath(path) {
+	if (path === "/design" || path === "/design/") return true;
+	const rest = path.startsWith("/design/") ? path.slice(8) : void 0;
+	return rest !== void 0 && rest.length <= 160 && rest.split("/").every((segment) => /^[A-Za-z0-9_-]+$/.test(segment));
+}
+/** Navigation may use the owner route; script authority still comes from the primary mount. */
+function designModuleLoad(answer, here) {
+	const primary = answer?.modules.find((module) => module.extension === "colab" && !("module" in module));
+	if (!primary) return {};
+	let page;
+	try {
+		page = new URL(here);
+	} catch {
+		return {};
+	}
+	const extra = answer?.modules.find((module) => {
+		if (module.extension !== "colab" || !("module" in module) || typeof module.module !== "string" || !/^[a-z0-9-]{1,32}$/.test(module.module) || !plain(module.rail.path)) return false;
+		try {
+			const route = new URL(module.rail.path, page);
+			return route.origin === page.origin && !route.search && !route.hash && designPath(route.pathname);
+		} catch {
+			return false;
+		}
+	});
+	if (!extra) return {};
+	const load = moduleLoad(primary.rail.path, extra.entry, here);
+	if (!load.link) return {};
+	const route = new URL(extra.rail.path, page);
+	return {
+		link: `${load.link}${route.pathname.slice(1)}`,
+		...load.entry ? { entry: load.entry } : {}
+	};
 }
 //#endregion
 //#region src/ops-source.ts
@@ -11912,6 +12001,33 @@ function message(slot, title, text, link) {
 	slot.main.replaceChildren(main);
 	setRouteTitle(slot, title);
 }
+/** The same owner-session/reopen lifetime loads Colab and its described Design module. */
+function colabRouteLoad(title, select) {
+	return async (_remembered, settled) => {
+		let answer = await settled();
+		if (!answer && await reopened()) answer = await started?.redescribe();
+		const load = select(answer);
+		const entry = load?.entry;
+		if (!entry) return { mount: (slot) => load ? message(slot, title, `${title} could not be opened here.`, load.link ? {
+			href: load.link,
+			label: `Open ${title}`
+		} : void 0) : answer ? message(slot, title, title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there, then reload." : "Design is not available from this Colab. Start or update Colab on your machine, then reload.") : message(slot, title, `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`, {
+			href: "/remote/",
+			label: "Pair this browser"
+		}) };
+		try {
+			return await import(
+				/* @vite-ignore */
+				entry
+);
+		} catch {
+			return { mount: (slot) => message(slot, title, title === "Colab" ? "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page." : "Design could not start here. Colab may have stopped on your machine. Reload to try again.", load.link ? {
+				href: load.link,
+				label: `Open ${title}`
+			} : void 0) };
+		}
+	};
+}
 var routes = [
 	{
 		id: "home",
@@ -11963,30 +12079,16 @@ var routes = [
 		id: "colab",
 		paths: ["/colab", "/colab/"],
 		rail: "colab",
-		async load(_remembered, settled) {
-			let answer = await settled();
-			if (!answer && await reopened()) answer = await started?.redescribe();
-			const load = colabLoad(answer);
-			const entry = load?.entry;
-			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "Colab could not be opened here.", load.link ? {
-				href: load.link,
-				label: "Open Colab"
-			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.", {
-				href: "/remote/",
-				label: "Pair this browser"
-			}) };
-			try {
-				return await import(
-					/* @vite-ignore */
-					entry
-);
-			} catch {
-				return { mount: (slot) => message(slot, "Colab", "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.", load.link ? {
-					href: load.link,
-					label: "Open Colab"
-				} : void 0) };
-			}
-		}
+		load: colabRouteLoad("Colab", colabLoad)
+	},
+	{
+		id: "design",
+		paths: ["/design", "/design/"],
+		rail: "design",
+		load: colabRouteLoad("Design", (answer) => {
+			const load = designModuleLoad(answer, location.href);
+			return load.link ? load : void 0;
+		})
 	}
 ];
 /** Whether this browser's pairing reopened a door session. */

@@ -159,8 +159,10 @@ behavior.
 
 `shell` admits one capability-gated extra display module under the extension's same
 callback, cache age and socket fence. Composition keys extras by `(extension, module)`;
-Remote extension-wide lookups select only primaries. The describe contract owns
-validation, ordering and version-skew rules; the shared leaf owns rail rendering.
+Remote extension-wide lookups select only primaries. `pages` maps the Design app family
+to Colab's existing mount; `shell` resolves only that Colab extra's navigation at the root,
+with its script still confined to Colab's mount. The describe contract owns validation,
+ordering and version-skew rules; the shared leaf owns rail rendering.
 
 `shell-app` owns common top-bar bindings and the global-search bridge. `root-search` keeps one
 confined Colab import per entry and a disposable route/session registry; Navigation comes from
