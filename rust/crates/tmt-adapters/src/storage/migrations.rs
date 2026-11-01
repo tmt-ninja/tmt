@@ -434,6 +434,10 @@ const MIGRATIONS: &[Migration] = &[
         "index each direction of a two-party conversation",
         "schema/088.sql"
     ),
+    migration!(
+        "name an empty Digest turn boundary while references are held",
+        "schema/089.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

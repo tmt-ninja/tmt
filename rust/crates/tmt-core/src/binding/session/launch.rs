@@ -165,8 +165,9 @@ pub enum SessionLearningStop {
     /// The turn end has no admitted start in its exact session/process/turn.
     NoAdmittedStart,
 }
-/// Why a Digest Stop hook ended with no output on an admitted launch (#4871). Only a
-/// refusal is named: a Stop with no Digest due is not one.
+/// Why a Digest Stop hook ended with no output on an admitted launch (#4871). A refusal
+/// is named, and so is an empty handoff while Digest references are held (#5459); a Stop
+/// with nothing held names nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionLearningDigestStop {
     /// The supervisor could not start its worker.
@@ -279,9 +280,16 @@ pub enum SessionLearningDigestStop {
     LaunchContinuationRead,
     /// The awaiting-session read operation returned Busy.
     LaunchContinuationReadBusy,
+    /// The turn boundary handed off nothing while another checklist was still claimed
+    /// (#5459). Named only when the identity holds Digest references.
+    WorkerEmptyActiveClaim,
+    /// The identity holds Digest references, but none was claimable at this turn boundary.
+    WorkerEmptyNotEligible,
+    /// Held references fitted the turn boundary, but the launch's claim sealed nothing.
+    WorkerEmptyClaimNothing,
 }
 impl SessionLearningDigestStop {
-    pub const ALL: [Self; 55] = [
+    pub const ALL: [Self; 58] = [
         Self::WorkerSpawn,
         Self::WorkerTimeout,
         Self::WorkerError,
@@ -337,6 +345,9 @@ impl SessionLearningDigestStop {
         Self::LaunchContinuationCloseBusy,
         Self::LaunchContinuationRead,
         Self::LaunchContinuationReadBusy,
+        Self::WorkerEmptyActiveClaim,
+        Self::WorkerEmptyNotEligible,
+        Self::WorkerEmptyClaimNothing,
     ];
     /// The name without the `digest_stop:` family prefix. A worker reports its own
     /// refusal to its supervisor with this name.
@@ -397,6 +408,9 @@ impl SessionLearningDigestStop {
             Self::LaunchContinuationCloseBusy => "launch:continuation:close:busy",
             Self::LaunchContinuationRead => "launch:continuation:read:error",
             Self::LaunchContinuationReadBusy => "launch:continuation:read:busy",
+            Self::WorkerEmptyActiveClaim => "worker:empty:active_claim",
+            Self::WorkerEmptyNotEligible => "worker:empty:not_eligible",
+            Self::WorkerEmptyClaimNothing => "worker:empty:claim_nothing",
         }
     }
     /// A refusal the worker itself can report: capture, a worker operation or a launch check.
@@ -418,7 +432,12 @@ impl SessionLearningDigestStop {
         let reason = match self {
             Self::WorkerSpawn => SessionLearningReason::SpawnFailed,
             Self::WorkerTimeout | Self::LaunchDeadline => SessionLearningReason::BudgetTimeout,
-            Self::NoticeUnavailable | Self::ChecklistChanged => SessionLearningReason::Conflict,
+            Self::NoticeUnavailable | Self::ChecklistChanged | Self::WorkerEmptyActiveClaim => {
+                SessionLearningReason::Conflict
+            }
+            Self::WorkerEmptyNotEligible | Self::WorkerEmptyClaimNothing => {
+                SessionLearningReason::NotAdmitted
+            }
             _ => SessionLearningReason::WorkerError,
         };
         SessionLearningDiagnostic {
@@ -645,7 +664,7 @@ impl SessionLearningDetail {
 }
 
 /// `digest_stop:` and the name, in `SessionLearningDigestStop` order.
-const DIGEST_STOP_TOKENS: [&str; 55] = [
+const DIGEST_STOP_TOKENS: [&str; 58] = [
     "digest_stop:worker_spawn",
     "digest_stop:worker_timeout",
     "digest_stop:worker_error",
@@ -701,6 +720,9 @@ const DIGEST_STOP_TOKENS: [&str; 55] = [
     "digest_stop:launch:continuation:close:busy",
     "digest_stop:launch:continuation:read:error",
     "digest_stop:launch:continuation:read:busy",
+    "digest_stop:worker:empty:active_claim",
+    "digest_stop:worker:empty:not_eligible",
+    "digest_stop:worker:empty:claim_nothing",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
