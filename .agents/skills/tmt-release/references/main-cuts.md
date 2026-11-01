@@ -255,6 +255,30 @@ build manifest and extracted binary must agree. Already-versioned reruns require
 byte-identical source and lock. Preparation uses the [fixture reference's non-publishing
 synthetic version](installation-fixtures.md#synthetic-preparation-version) and keeps the same source/artifact/installation gates.
 
+## Alpha release retention
+
+Ben decided that alpha releases are kept for one week (#3663). `release-retention.mjs plan`
+freezes one UTC cutoff (default now minus seven days) and plans deletion of release records
+and assets only for published alpha versions published before it; tags are never deleted,
+because they keep reserving their versions. It keeps every draft (live, held, failed), every
+non-alpha release, each product's newest publication, the repository's newest publication,
+the CLI upgrade support floor and every boundary that `releaseCutHistory`, `resolveDeclaration`,
+frozen `tmt-release-cli` markers, component `uses` and the drafts' `selectPrevious` read, for
+main and for each draft's captured commit. Every selector must return the same result after the
+deletions, with all tags kept. An unknown product, duplicate row, malformed marker, missing tag,
+unresolved reference or incomplete catalogue refuses the whole plan with zero deletions.
+
+Only the dry run exists: `release-retention.yml` (daily, main only, `contents: read`) uploads
+the `release-retention-plan` artifact. That token cannot list drafts, so its plan is
+`advisory`; only a plan read with draft-visible credentials (`--draft-visibility trusted`)
+can be reviewed for live mode. Live deletion is a later change, after Infra reviews a trusted
+list. Once it runs, an alpha older than one week can no longer be installed by its exact
+version; `tmt upgrade --channel alpha` is unaffected, since the newest publications are kept.
+
+```sh
+node typescript/scripts/release-retention.mjs plan --draft-visibility trusted [--cutoff <iso>] [--cut <sha>] [--catalogue <file>]
+```
+
 ## Native pipeline selection
 
 `native-release.yml` selects one exact allocated tag with `prepare` off and
