@@ -13,27 +13,7 @@ use sha2::{Digest, Sha256};
 
 // Not a UUID: neither a peer nor the enrollment scan can own this checkpoint key.
 const QUERY_CHECKPOINT: &str = "inbox-query";
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Continuation {
-    pub(crate) from_ms: u64,
-    pub(crate) read_ms: u64,
-    pub(crate) cursor: super::document::Cursor,
-}
-impl Continuation {
-    fn validate(&self) -> Result<(), RemoteError> {
-        Checkpoint::new(self.from_ms)?;
-        Checkpoint::new(self.read_ms)?;
-        let indexed = super::document::timestamp(&self.cursor.created_at).map_err(database)?;
-        canonical::uuid(&self.cursor.id).map_err(database)?;
-        // Later pages can see documents newer than the earliest snapshot. Keep
-        // that conservative snapshot for overlap without rejecting those arrivals.
-        if self.from_ms > indexed || self.from_ms > self.read_ms {
-            return Err(database("invalid cloud query continuation"));
-        }
-        Ok(())
-    }
-}
+pub(crate) use crate::cloud_provider::Continuation;
 pub(crate) struct QueryCheckpoint {
     pub(crate) completed: Checkpoint,
     pub(crate) continuation: Option<Continuation>,
@@ -232,8 +212,20 @@ impl Store {
     }
 }
 
+fn validate_watermarks(progress: &Continuation) -> Result<(), RemoteError> {
+    Checkpoint::new(progress.from_ms)?;
+    Checkpoint::new(progress.read_ms)?;
+    if progress.from_ms > progress.read_ms {
+        return Err(database("invalid cloud query continuation"));
+    }
+    Ok(())
+}
+
 impl Store {
-    pub(crate) fn cloud_query_checkpoint(&self) -> Result<Option<QueryCheckpoint>, RemoteError> {
+    pub(crate) fn cloud_query_checkpoint(
+        &self,
+        provider: &dyn crate::cloud_provider::ContinuationCodec,
+    ) -> Result<Option<QueryCheckpoint>, RemoteError> {
         let row: Option<(i64, Vec<u8>)> = self.connection.query_row(
             "SELECT created_ms,carrier FROM cloud_transport WHERE peer_id=?1 AND kind='checkpoint' AND id=''",
             [QUERY_CHECKPOINT], |row| Ok((row.get(0)?, row.get(1)?)),
@@ -247,7 +239,8 @@ impl Store {
                 None
             } else {
                 let value: Continuation = serde_json::from_slice(&bytes).map_err(database)?;
-                value.validate()?;
+                validate_watermarks(&value)?;
+                provider.validate_continuation(&value).map_err(database)?;
                 Some(value)
             };
             Ok(QueryCheckpoint {
@@ -257,8 +250,13 @@ impl Store {
         })
         .transpose()
     }
-    pub(crate) fn cloud_progress(&mut self, progress: &Continuation) -> Result<(), RemoteError> {
-        progress.validate()?;
+    pub(crate) fn cloud_progress(
+        &mut self,
+        progress: &Continuation,
+        provider: &dyn crate::cloud_provider::ContinuationCodec,
+    ) -> Result<(), RemoteError> {
+        validate_watermarks(progress)?;
+        provider.validate_continuation(progress).map_err(database)?;
         let bytes = serde_json::to_vec(progress).map_err(database)?;
         self.connection.execute(
             "INSERT INTO cloud_transport(peer_id,kind,id,carrier,created_ms) VALUES (?1,'checkpoint','',?2,0) ON CONFLICT(peer_id,kind,id) DO UPDATE SET carrier=excluded.carrier",

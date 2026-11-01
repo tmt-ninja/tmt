@@ -529,18 +529,18 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 [Colab](#colab-extension) mounts `/r/<prefix>/x/colab/`.
 
 Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no Remote state files.
-Remote: member/channel authority, People/rows, local effect fences, invites/history, join UI, shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
+Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no Remote state.
+Remote: provider port; member/channel authority, People/rows, local effect fences, invites/history, join UI, shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
 Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
 
 `talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
-with scope/allowlist/hold and UUID/name checks and same-ID Core dispatch/recovery.
+with scope/allowlist/hold, UUID/name checks and same-ID Core dispatch/recovery.
 Finals use receipt-bound Core `reply`.
 
 [Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
 [internals](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door](.agents/skills/tmt-remote/references/door-and-discovery.md);
-[object backends](.agents/skills/tmt-remote/references/object-backends.md);
+[backends](.agents/skills/tmt-remote/references/object-backends.md);
 [release](.agents/skills/tmt-release/SKILL.md);
 [extension-serve](contracts/extension-serve-v1.md).
 

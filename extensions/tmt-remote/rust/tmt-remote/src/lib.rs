@@ -13,6 +13,7 @@ pub mod cloud_hpke;
 pub mod cloud_inbox;
 pub mod cloud_keys;
 pub mod cloud_pairing;
+mod cloud_provider;
 pub mod control;
 pub mod core;
 pub mod crypto;

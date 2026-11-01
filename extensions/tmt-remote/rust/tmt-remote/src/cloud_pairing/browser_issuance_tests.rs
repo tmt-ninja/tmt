@@ -377,7 +377,7 @@ fn browser_created_offer_confirms_through_the_original_journal_and_retains_known
                 "creation must not occupy the confirmation original ID"
             );
             let provider = Arc::new(peer.provider(&config(), &owner.machine, true).unwrap());
-            let principal = provider.uid().as_bytes().to_vec();
+            let principal = provider.binding().principal.as_bytes().to_vec();
             let (backend, _, _) = peer
                 .invitation_backend(provider, &invite.context, &config(), &[], &peer.io())
                 .unwrap();

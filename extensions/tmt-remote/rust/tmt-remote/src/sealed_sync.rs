@@ -1,7 +1,7 @@
 //! Proposed sealed-document ports and pure binding. No provider or credential implementation.
 //! Contract: Remote channel, extension-scoped sealed-document client.
 use crate::{
-    declaration::{self, Backend, Resource},
+    declaration::{self, Resource},
     deploy_plan::sha256_hex,
     hosting,
     objects::IoBudget,
@@ -82,6 +82,21 @@ pub trait AuthPort: Send + Sync {
         io: &'a IoBudget<'a>,
     ) -> Pin<Box<dyn Future<Output = Result<AuthToken, AuthFailure>> + Send + 'a>>;
 }
+/// Provider value decoding, selected by the composition factory; never authority or I/O.
+pub(crate) trait FieldCodec: Send + Sync {
+    fn document(
+        &self,
+        context: &SyncContext,
+        root: &str,
+        value: &Value,
+        resource: &str,
+    ) -> Result<Document, SyncError>;
+    fn fields(&self, bytes: &[u8]) -> Result<serde_json::Map<String, Value>, SyncError>;
+    fn field(&self, value: &Value) -> bool;
+    fn text_is(&self, value: Option<&Value>, expected: &str) -> bool;
+    fn sequence(&self, value: &Value) -> Option<u64>;
+    fn string<'a>(&self, value: &'a Value) -> Option<&'a str>;
+}
 /// Caller supplies verified public config; parsing alone cannot attest an origin or admission.
 pub struct SyncContext {
     config: Value,
@@ -91,6 +106,7 @@ pub struct SyncContext {
     identity: AuthIdentity,
     resources: Vec<Resource>,
     auth: Arc<dyn AuthPort>,
+    codec: &'static dyn FieldCodec,
 }
 impl SyncContext {
     pub fn bind(
@@ -118,7 +134,8 @@ impl SyncContext {
             }
         }
         let identity = auth.identity();
-        if declaration.backend != Backend::Firestore || !id(&identity.uid, 128) {
+        let codec = crate::cloud_provider::sealed_codec(declaration.backend)?;
+        if !id(&identity.uid, 128) {
             return Err(SyncError::Invalid);
         }
         let project = config
@@ -145,6 +162,7 @@ impl SyncContext {
             identity,
             resources: declaration.resources,
             auth,
+            codec,
         })
     }
     pub fn config(&self) -> &Value {
@@ -167,6 +185,27 @@ impl SyncContext {
     }
     pub fn auth(&self) -> &dyn AuthPort {
         self.auth.as_ref()
+    }
+    /// Decode only through this binding's selected provider codec.
+    pub fn validate_fields(
+        &self,
+        bytes: &[u8],
+    ) -> Result<serde_json::Map<String, Value>, SyncError> {
+        self.codec.fields(bytes)
+    }
+    pub(crate) fn provider_document(
+        &self,
+        root: &str,
+        value: &Value,
+        resource: &str,
+    ) -> Result<Document, SyncError> {
+        self.codec.document(self, root, value, resource)
+    }
+    pub(crate) fn field_sequence(&self, value: &Value) -> Option<u64> {
+        self.codec.sequence(value)
+    }
+    pub(crate) fn field_string<'a>(&self, value: &'a Value) -> Option<&'a str> {
+        self.codec.string(value)
     }
     pub fn document_path(&self, target: &Target) -> Result<String, SyncError> {
         let resource = self
