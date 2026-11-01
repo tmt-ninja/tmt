@@ -33,6 +33,8 @@ describe('buildBundle', () => {
       'tmt-ui-textarea',
       'tmt-ui-switch',
       'tmt-ui-checkbox',
+      'tmt-ui-card',
+      'tmt-ui-alert',
     ]);
   });
 
@@ -105,7 +107,7 @@ describe('checkElements', () => {
         [
           el('tmt-ui-button', { variant: 'outline', disabled: '', class: 'x', 'data-id': '1' }),
           el('acme-button'),
-          el('tmt-ui-card'),
+          el('tmt-ui-carousel'),
           el('tmt-ui-button', { variant: 'loud' }),
           el('tmt-ui-button', { tone: 'red', disabled: 'no' }),
         ],
@@ -114,7 +116,7 @@ describe('checkElements', () => {
       ),
     ).toEqual([
       { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 1 },
-      { code: 'unknown-ds-component', tag: 'tmt-ui-card', index: 2 },
+      { code: 'unknown-ds-component', tag: 'tmt-ui-carousel', index: 2 },
       { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'variant', index: 3 },
       { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'tone', index: 4 },
       { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'disabled', index: 4 },

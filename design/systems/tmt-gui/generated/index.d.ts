@@ -60,3 +60,19 @@ export interface CheckboxProps {
   label?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-card>: props from its schema, slots as nodes. */
+export interface CardProps {
+  heading?: string;
+  description?: string;
+  children?: ReactNode;
+  action?: ReactNode;
+  footer?: ReactNode;
+}
+
+/** <tmt-ui-alert>: props from its schema, slots as nodes. */
+export interface AlertProps {
+  variant?: "default" | "destructive";
+  heading?: string;
+  children?: ReactNode;
+}

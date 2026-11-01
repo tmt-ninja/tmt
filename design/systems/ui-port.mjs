@@ -89,7 +89,7 @@ export function parseMarkup(text) {
         return out;
       }
       if (text[at] === '<') {
-        const open = /^<([a-z][a-z0-9-]*)((?:\s+[a-z-]+(?:="[^"]*")?)*)\s*>/.exec(text.slice(at));
+        const open = /^<([A-Za-z][A-Za-z0-9-]*)((?:\s+[a-z-]+(?:="[^"]*")?)*)\s*>/.exec(text.slice(at));
         if (!open) throw new Error(`Unsupported markup at ${text.slice(at, at + 40)}`);
         at += open[0].length;
         const attrs = {};
@@ -121,6 +121,39 @@ export function structure(html) {
 }
 
 /**
+ * A ui component drawn from its parts, as a port's `compose` names them: export names as tags,
+ * `{prop}` text or attribute values from the example's props (`{children}` its content), and an
+ * element with `if="prop"` drawn only when that prop is given.
+ */
+function composed(tree, exports, React) {
+  const Composed = (props) => {
+    const value = (text) => {
+      const name = /^\{([a-z]+)\}$/.exec(text.trim())?.[1];
+      return name ? props[name] : text;
+    };
+    const draw = (node, key) => {
+      if (typeof node === 'string') return value(node);
+      if (node.attrs.if && props[node.attrs.if] === undefined) return null;
+      const { if: _if, ...attrs } = node.attrs;
+      const given = Object.fromEntries(
+        Object.entries(attrs)
+          .map(([name, text]) => [name, typeof text === 'string' ? value(text) : text])
+          .filter(([, text]) => text !== undefined),
+      );
+      return React.createElement(
+        exports[node.tag] ?? node.tag,
+        { ...given, key },
+        ...node.children.map(draw),
+      );
+    };
+    return tree.map(draw);
+  };
+  // Like the template component, it takes a named slot as a prop.
+  Composed.takesSlots = true;
+  return Composed;
+}
+
+/**
  * Render every example both ways, the template's htm component and the browser-ui component it
  * ports, and list each structural difference. `components` maps a template tag (`tmt-ui-<tag>`) to
  * its compiled code and its ui export.
@@ -133,7 +166,13 @@ export async function markupDrift({ load, React, renderToStaticMarkup }, ported)
   const ui = new Map();
   for (const component of ported) {
     template.set(`tmt-ui-${component.tag}`, new Function(component.code)()({ React, html, cn }));
-    ui.set(`tmt-ui-${component.tag}`, (await load(component.ui.module))[component.ui.component]);
+    const exports = await load(component.ui.module);
+    ui.set(
+      `tmt-ui-${component.tag}`,
+      component.ui.compose
+        ? composed(parseMarkup(component.ui.compose), exports, React)
+        : exports[component.ui.component],
+    );
   }
   const { UiTheme } = await load('/src/ui/theme.tsx');
   const element = (node, pick) => {
@@ -148,7 +187,7 @@ export async function markupDrift({ load, React, renderToStaticMarkup }, ported)
       else children.push(element(child, pick));
     }
     // A template component takes a named slot as a prop; a ui component draws it first in its children.
-    if (pick === template)
+    if (pick === template || type.takesSlots)
       for (const [name, value] of Object.entries(slots)) props[name] = value;
     else children.unshift(...Object.values(slots));
     return React.createElement(type, props, ...children);

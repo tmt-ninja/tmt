@@ -33,6 +33,12 @@
     },
     {
       "doc": "components/checkbox.json"
+    },
+    {
+      "doc": "components/card.json"
+    },
+    {
+      "doc": "components/alert.json"
     }
   ],
   "principles": {

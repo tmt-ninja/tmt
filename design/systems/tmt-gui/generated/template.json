@@ -66,6 +66,14 @@
    {
     "tag": "checkbox",
     "status": "stable"
+   },
+   {
+    "tag": "card",
+    "status": "stable"
+   },
+   {
+    "tag": "alert",
+    "status": "stable"
    }
   ]
  },
@@ -483,6 +491,84 @@
     }
    ],
    "source": "// Ports browser-ui's ui Checkbox (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it, including\n// Radix's hidden form input after the control.\nexport default ({ React, html }) => {\n  const classes = {\"slots\":{\"checkbox\":\"tmt-ui-checkbox\"},\"base\":\"tmt-ui-checkbox\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Checkbox({ checked = false, disabled = false, label }) {\n    const [on, setOn] = React.useState(checked);\n    return html`<${React.Fragment}><button\n      type=\"button\"\n      role=\"checkbox\"\n      aria-checked=${on}\n      aria-label=${label}\n      data-state=${on ? 'checked' : 'unchecked'}\n      value=\"on\"\n      data-slot=\"checkbox\"\n      disabled=${disabled}\n      className=${classes.base}\n      onClick=${() => setOn(!on)}\n    ></button><input\n      type=\"checkbox\"\n      aria-hidden=\"true\"\n      tabIndex=\"-1\"\n      style=${{ position: 'absolute', pointerEvents: 'none', opacity: 0, margin: 0, transform: 'translateX(-100%)' }}\n      checked=${on}\n      readOnly\n      value=\"on\"\n    /><//>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "card",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default",
+    "action",
+    "footer"
+   ],
+   "examples": [
+    {
+     "title": "With a title",
+     "markup": "<tmt-ui-card heading=\"Ops board\" description=\"Three members, one waiting\">Plan the release and watch the queue.</tmt-ui-card>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "With a footer",
+     "markup": "<tmt-ui-card heading=\"Night shift\">Codex members run the queue.<span slot=\"footer\">Starts at 00:00</span></tmt-ui-card>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Card and its parts (#5866): plain JavaScript and htm on the skeleton\n// (React, html, cn). The compiler fills `classes` from the ui component; every example must draw\n// like the ui parts composed as `ui.compose` says.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"card\":\"tmt:box-border tmt:font-body tmt:flex tmt:flex-col tmt:gap-4 tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-elevation-1 tmt:py-4 tmt:text-card-foreground\"},\"base\":\"tmt:box-border tmt:font-body tmt:flex tmt:flex-col tmt:gap-4 tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-elevation-1 tmt:py-4 tmt:text-card-foreground\",\"by\":{\"\":\"\"},\"parts\":{\"card-header\":\"tmt:grid tmt:auto-rows-min tmt:grid-rows-[auto_auto] tmt:items-start tmt:gap-1 tmt:px-4 tmt:has-data-[slot=card-action]:grid-cols-[1fr_auto]\",\"card-title\":\"tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight)\",\"card-description\":\"tmt:text-(length:--tmt-foundation-caption-size) tmt:text-muted-foreground\",\"card-action\":\"tmt:col-start-2 tmt:row-span-2 tmt:row-start-1 tmt:self-start tmt:justify-self-end\",\"card-content\":\"tmt:px-4\",\"card-footer\":\"tmt:flex tmt:items-center tmt:gap-2 tmt:px-4\"}};\n  const part = (slot, content) =>\n    html`<div data-slot=${slot} className=${classes.parts[slot]}>${content}</div>`;\n  return function Card({ heading, description, action, footer, children }) {\n    return html`<div data-slot=\"card\" className=${classes.base}>\n      ${heading !== undefined &&\n      html`<div data-slot=\"card-header\" className=${classes.parts['card-header']}>\n        ${part('card-title', heading)}\n        ${description !== undefined && part('card-description', description)}\n        ${action !== undefined && part('card-action', action)}\n      </div>`}\n      ${part('card-content', children)}\n      ${footer !== undefined && part('card-footer', footer)}\n    </div>`;\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "alert",
+   "props": {
+    "variant": {
+     "enum": [
+      "default",
+      "destructive"
+     ],
+     "default": "default"
+    },
+    "heading": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "examples": [
+    {
+     "title": "Default",
+     "markup": "<tmt-ui-alert heading=\"Saved\">The page is up to date.</tmt-ui-alert>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Destructive",
+     "markup": "<tmt-ui-alert variant=\"destructive\" heading=\"Blocked\">The member is waiting on a review.</tmt-ui-alert>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Ports browser-ui's ui Alert and its parts (#5866): plain JavaScript and htm on the skeleton\n// (React, html, cn). The compiler fills `classes` from the ui component; every example must draw\n// like the ui parts composed as `ui.compose` says.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{\"alert\":\"tmt:animate-rise-in tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current tmt:bg-card tmt:text-card-foreground\"},\"base\":\"tmt:animate-rise-in tmt:box-border tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:border-border tmt:relative tmt:grid tmt:w-full tmt:grid-cols-[0_1fr] tmt:items-start tmt:gap-y-0.5 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-4 tmt:py-3 tmt:text-(length:--tmt-foundation-command-size) tmt:has-[>svg]:grid-cols-[calc(var(--tmt-foundation-spacing-unit)*4)_1fr] tmt:has-[>svg]:gap-x-3 tmt:[&>svg]:size-4 tmt:[&>svg]:translate-y-0.5 tmt:[&>svg]:text-current tmt:bg-card\",\"by\":{\"default\":\"tmt:text-card-foreground\",\"destructive\":\"tmt:text-destructive tmt:*:data-[slot=alert-description]:text-destructive\"},\"parts\":{\"alert-title\":\"tmt:col-start-2 tmt:line-clamp-1 tmt:min-h-4 tmt:font-(weight:--tmt-foundation-eyebrow-weight)\",\"alert-description\":\"tmt:col-start-2 tmt:grid tmt:justify-items-start tmt:gap-1 tmt:text-(length:--tmt-foundation-command-size) tmt:text-muted-foreground\"}};\n  return function Alert({ variant = 'default', heading, children }) {\n    return html`<div data-slot=\"alert\" role=\"alert\" className=${cn(classes.base, classes.by[variant])}>\n      ${heading !== undefined &&\n      html`<div data-slot=\"alert-title\" className=${classes.parts['alert-title']}>${heading}</div>`}\n      <div data-slot=\"alert-description\" className=${classes.parts['alert-description']}>${children}</div>\n    </div>`;\n  };\n};\n",
    "css": ""
   }
  ]

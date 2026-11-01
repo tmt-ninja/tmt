@@ -180,8 +180,10 @@ describe('template, publish and the renderer source', () => {
       hash: release!.bundle,
     });
     expect(bundle!.components.map((component) => component.tag).sort()).toEqual([
+      'acme-alert',
       'acme-badge',
       'acme-button',
+      'acme-card',
       'acme-checkbox',
       'acme-input',
       'acme-separator',

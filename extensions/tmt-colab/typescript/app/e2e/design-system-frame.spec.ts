@@ -50,10 +50,11 @@ test('a pinned page draws its components with their props, slots and tokens', as
      <tmt-ui-button disabled>Send</tmt-ui-button>`,
   );
   const save = frame.getByRole('button', { name: 'Save' });
-  await expect(save).toHaveClass(/tmt-ui-button-primary/);
+  await expect(save).toHaveAttribute('data-variant', 'default');
   expect((await save.boundingBox())!.height).toBe(36);
   const create = frame.getByRole('button', { name: 'New page' });
-  await expect(create).toHaveClass(/tmt-ui-button-outline tmt-ui-button-sm/);
+  await expect(create).toHaveAttribute('data-variant', 'outline');
+  await expect(create).toHaveAttribute('data-size', 'sm');
   expect((await create.boundingBox())!.height).toBe(32);
   // The icon slot lands inside the button, before the label.
   await expect(create.locator('tmt-icon svg')).toBeVisible();
@@ -68,7 +69,10 @@ test('an attribute change re-renders the component', async ({ page }) => {
      <tmt-ui-button id="b">Review</tmt-ui-button>
      <script>addEventListener('load', () => document.getElementById('b').setAttribute('variant', 'ghost'));</script>`,
   );
-  await expect(frame.getByRole('button', { name: 'Review' })).toHaveClass(/tmt-ui-button-ghost/);
+  await expect(frame.getByRole('button', { name: 'Review' })).toHaveAttribute(
+    'data-variant',
+    'ghost',
+  );
 });
 
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
@@ -100,12 +104,12 @@ test('the page check shows its findings on the page', async ({ page }) => {
   let frame = await mount(
     page,
     `<meta name="tmt-ds" content="${pin}">
-     <tmt-ui-button tone="red">Save</tmt-ui-button><tmt-ui-card>Card</tmt-ui-card><acme-button>Other</acme-button>`,
+     <tmt-ui-button tone="red">Save</tmt-ui-button><tmt-ui-carousel>Card</tmt-ui-carousel><acme-button>Other</acme-button>`,
   );
   const findings = frame.getByRole('status', { name: 'Design system check' });
   await expect(findings).toContainText('<tmt-ui-button> has an invalid tone attribute.');
   await expect(findings).toContainText(
-    '<tmt-ui-card> is not a component of the pinned design system.',
+    '<tmt-ui-carousel> is not a component of the pinned design system.',
   );
   await expect(findings).toContainText('<acme-button> is not from the pinned design system.');
   // The valid parts still draw.
