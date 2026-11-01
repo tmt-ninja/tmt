@@ -209,31 +209,50 @@ export function canTransition(from: LedgerState, to: LedgerState) {
     return ['held', 'accepted', 'refused', 'cancelled', 'abandoned'].includes(to);
   return false;
 }
-/** Intents a reader already verified, keyed by writer and operation. An entry is reused only
- * for the identical signed record under the identical signing key, so a changed key, record or
- * signature verifies again; each read keeps only the intents it saw. */
+async function verifyRecord(value: unknown, key: Uint8Array): Promise<DecodedAsk> {
+  validateRecord(value);
+  requireValue(value.kind === 'ask');
+  return verifyAsk(value.signed, key);
+}
+/** Whether `value` is exactly `known`: the same keys and the same values, signed fields included. */
+function sameRecord(known: AskIntentRecord, value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const r = value as Record<string, unknown>,
+    s = r.signed as Record<string, unknown> | null;
+  return (
+    Object.keys(r).length === 5 &&
+    r.version === known.version &&
+    r.kind === known.kind &&
+    r.agentName === known.agentName &&
+    r.deviceName === known.deviceName &&
+    !!s &&
+    typeof s === 'object' &&
+    !Array.isArray(s) &&
+    Object.keys(s).length === 5 &&
+    s.operationId === known.signed.operationId &&
+    s.senderDevice === known.signed.senderDevice &&
+    s.input === known.signed.input &&
+    s.signature === known.signed.signature &&
+    s.finalBytes === known.signed.finalBytes
+  );
+}
+/** Ask records a reader already validated and verified, keyed by writer and operation. An entry
+ * is reused only for the identical record under the identical signing key, so a changed key,
+ * record or signature validates and verifies again; each read keeps only the intents it saw. */
 export class VerifiedAsks {
-  #entries = new Map<string, { key: Uint8Array; signed: SignedAsk; intent: DecodedAsk }>();
-  #next = new Map<string, { key: Uint8Array; signed: SignedAsk; intent: DecodedAsk }>();
-  async verify(writer: string, signed: SignedAsk, key: Uint8Array): Promise<DecodedAsk> {
-    const id = `${writer}:${signed.operationId}`;
-    const known = this.#entries.get(id);
-    if (
-      known &&
-      equal(known.key, key) &&
-      known.signed.operationId === signed.operationId &&
-      known.signed.senderDevice === signed.senderDevice &&
-      known.signed.input === signed.input &&
-      known.signed.signature === signed.signature &&
-      known.signed.finalBytes === signed.finalBytes
-    ) {
-      this.#next.set(id, known);
+  #entries = new Map<string, { key: Uint8Array; record: AskIntentRecord; intent: DecodedAsk }>();
+  #next = new Map<string, { key: Uint8Array; record: AskIntentRecord; intent: DecodedAsk }>();
+  async verify(writer: string, id: string, value: unknown, key: Uint8Array): Promise<DecodedAsk> {
+    const entry = `${writer}:${id}`;
+    const known = this.#entries.get(entry);
+    if (known && equal(known.key, key) && sameRecord(known.record, value)) {
+      this.#next.set(entry, known);
       return structuredClone(known.intent);
     }
-    const intent = await verifyAsk(signed, key);
-    this.#next.set(id, {
+    const intent = await verifyRecord(value, key);
+    this.#next.set(entry, {
       key: key.slice(),
-      signed: structuredClone(signed),
+      record: structuredClone(value as AskIntentRecord),
       intent: structuredClone(intent),
     });
     return intent;
@@ -275,11 +294,11 @@ export async function readAskRecords(
       if (!value || typeof value !== 'object' || Array.isArray(value) || value.kind !== 'ask')
         continue;
       try {
-        validateRecord(value);
-        requireValue(value.kind === 'ask');
+        // An identical record this reader already verified is neither decoded nor verified again.
         const intent = verified
-          ? await verified.verify(writer, value.signed, publicKey)
-          : await verifyAsk(value.signed, publicKey);
+          ? await verified.verify(writer, id, value, publicKey)
+          : await verifyRecord(value, publicKey);
+        const record = value as unknown as AskIntentRecord;
         requireValue(
           intent.operationId === id &&
             intent.senderDevice === writer &&
@@ -288,9 +307,9 @@ export async function readAskRecords(
         );
         const view: AskLedgerView = {
           writer,
-          agentName: value.agentName,
-          deviceName: value.deviceName,
-          signed: structuredClone(value.signed),
+          agentName: record.agentName,
+          deviceName: record.deviceName,
+          signed: structuredClone(record.signed),
           intent,
           state: 'uncertain',
           revision: '0',

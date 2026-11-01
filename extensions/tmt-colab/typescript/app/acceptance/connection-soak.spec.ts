@@ -20,7 +20,8 @@ import {
   patchArgs,
   annotationInput,
   askEntry,
-  clientId,
+  pairedMachine,
+  revokeMachine,
   composeChat,
   createPage,
   expectLive,
@@ -179,16 +180,24 @@ const triggers: Array<{ name: string; apply(s: OpenOwner): Promise<void> }> = [
   {
     name: 'grant revision change',
     async apply(s) {
-      const id = clientId(s.world, s.browser.name);
-      const change = (enabled: string) =>
-        JSON.parse(
-          run(s.world, s.world.binaries.remote, ['devices', 'talk', id, enabled, '--json']),
-        ) as { device: { revision: number; scopes: string[] } };
+      const change = (enabled: string) => {
+        const machine = pairedMachine(s.world, s.browser.name);
+        run(s.world, s.world.binaries.remote, [
+          'members',
+          'sending',
+          machine.memberId,
+          enabled,
+          '--member-revision',
+          String(machine.memberRevision),
+          '--json',
+        ]);
+        return pairedMachine(s.world, s.browser.name);
+      };
       const off = change('off');
-      expect(off.device.scopes).not.toContain('talk');
+      expect(off.sendingScope).toBe(false);
       const on = change('on');
-      expect(on.device.scopes).toContain('talk');
-      expect(on.device.revision).toBeGreaterThan(off.device.revision);
+      expect(on.sendingScope).toBe(true);
+      expect(on.revision).toBeGreaterThan(off.revision);
     },
   },
 ];
@@ -424,12 +433,7 @@ test('connection soak: explicit revoke ends access and cannot dispatch a retaine
     const input = await annotationInput(panel);
     await input.fill('@soak-agent Do not dispatch after revoke.');
     const before = world.coreCalls().filter((call) => call.operation === 'dispatch.create').length;
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, s.browser.name),
-      '--json',
-    ]);
+    revokeMachine(world, s.browser.name);
     await expect(s.page.locator('.tmt-ui-panel[data-panel=chat]')).toContainText(
       text.failurePairingRemoved,
       { timeout: 90_000 },

@@ -9,6 +9,7 @@ mod sender;
 mod store;
 pub use driver::{InboxDriver, poll_delay};
 pub use provider::Provider;
+#[cfg(test)]
 pub(crate) use provider::stamp;
 pub(crate) use sender::DeliveryEvidence;
 pub use sender::Sender;

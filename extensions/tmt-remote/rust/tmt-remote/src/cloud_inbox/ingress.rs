@@ -68,7 +68,7 @@ impl Receiver {
     }
     fn reply(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         bytes: Vec<u8>,
         grant: Option<crate::store::Grant>,
     ) -> Reply {
@@ -84,23 +84,23 @@ impl Receiver {
         Reply {
             bytes,
             grant,
-            id: document.id().into(),
-            peer: document.peer().into(),
+            id: document.id.as_str().into(),
+            peer: document.peer.as_str().into(),
             sessions: self.sessions.clone(),
             response_required,
         }
     }
     fn refuse(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         code: &str,
         response: Option<Vec<u8>>,
         now: u64,
     ) -> Result<Option<Reply>, RemoteError> {
         self.sessions.with_operation_store(|store| {
             store.cloud_refuse(
-                document.peer(),
-                document.id(),
+                document.peer.as_str(),
+                document.id.as_str(),
                 code,
                 response.as_deref(),
                 now,
@@ -110,17 +110,17 @@ impl Receiver {
     }
     pub(crate) fn receive(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         now: u64,
     ) -> Result<Option<Reply>, RemoteError> {
         // This is transport evidence only, not adoption. Refusals and frozen replies deduplicate
         // before key access, so a restart cannot reprocess a poison carrier.
         let replay = self.sessions.with_operation_store(|store| {
             store.cloud_begin(
-                document.peer(),
-                document.id(),
-                document.bytes(),
-                document.created_ms(),
+                document.peer.as_str(),
+                document.id.as_str(),
+                document.bytes.as_slice(),
+                document.created_ms,
             )
         })?;
         match replay {
@@ -128,7 +128,7 @@ impl Receiver {
                 return Ok(response.map(|bytes| self.reply(document, bytes, None)));
             }
             super::Replay::Frozen(bytes) => {
-                return match self.sessions.cloud_peer(document.peer(), now) {
+                return match self.sessions.cloud_peer(document.peer.as_str(), now) {
                     Ok(grant) => Ok(Some(self.reply(document, bytes, Some(grant)))),
                     Err(error) if permanent(&error.code) => {
                         self.refuse(document, &error.code, None, now)
@@ -138,14 +138,14 @@ impl Receiver {
             }
             _ => {}
         }
-        let grant = match self.sessions.cloud_peer_key(document.peer()) {
+        let grant = match self.sessions.cloud_peer_key(document.peer.as_str()) {
             Ok(grant) => grant,
             Err(error) if permanent(&error.code) => {
                 return self.refuse(document, &error.code, None, now);
             }
             Err(error) => return Err(error),
         };
-        let Some(value) = crate::wire::strict_json(document.bytes()) else {
+        let Some(value) = crate::wire::strict_json(document.bytes.as_slice()) else {
             return self.refuse(document, "REMOTE_CLOUD_CARRIER_INVALID", None, now);
         };
         let Some(key_id) = value["keyId"].as_str() else {
@@ -154,7 +154,7 @@ impl Receiver {
         let (key, descriptor) =
             match self
                 .keys
-                .recipient_for_document(key_id, document.created_ms(), now)
+                .recipient_for_document(key_id, document.created_ms, now)
             {
                 Ok(pair) => pair,
                 // A missing/retired recipient or invalid creation-time validity is per document.
@@ -172,11 +172,11 @@ impl Receiver {
                 Err(error) => return Err(error),
             };
         let (exact, sealer) = match cloud_hpke::open(
-            document.bytes(),
+            document.bytes.as_slice(),
             crate::limits::CLOUD_ENVELOPE_BYTES,
             &key,
             &descriptor,
-            document.created_ms(),
+            document.created_ms,
             cloud_hpke::Sender {
                 client_id: &grant.client_id,
                 authentication_key: &grant.public_key,
@@ -190,10 +190,10 @@ impl Receiver {
             return self.refuse(document, "REMOTE_CLOUD_CARRIER_INVALID", None, now);
         };
         let envelope = message.envelope();
-        let rejected = if envelope.id != document.id() {
+        let rejected = if envelope.id != document.id.as_str() {
             Some("REMOTE_CLOUD_CARRIER_INVALID")
         } else if let Err(error) =
-            super::check_freshness(envelope.timestamp_ms, document.created_ms(), now)
+            super::check_freshness(envelope.timestamp_ms, document.created_ms, now)
         {
             return self.signed_refusal(document, &message, sealer, &error.code, now);
         } else {
@@ -258,13 +258,13 @@ impl Receiver {
             return self.refuse(document, code, Some(encrypted), now);
         }
         self.sessions.with_cloud_store(&grant, now, |store| {
-            store.cloud_freeze(document.peer(), document.id(), &encrypted)
+            store.cloud_freeze(document.peer.as_str(), document.id.as_str(), &encrypted)
         })?;
         Ok(Some(self.reply(document, encrypted, Some(grant))))
     }
     fn signed_refusal(
         &self,
-        document: &super::document::Document,
+        document: &crate::cloud_provider::CarrierDocument,
         message: &SignedMessage,
         sealer: cloud_hpke::ResponseSealer,
         code: &str,

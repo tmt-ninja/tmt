@@ -831,7 +831,7 @@ export const RUST_WORKERS = ['clippy', 'tests', 'process', 'msrv'];
 /** Positional result order accepted by the gate-process CLI. */
 export const PROCESS_JOBS = ['build', 'shard1', 'shard2'];
 
-/** Direct obligations of the main-only complete aggregate; rehearsal is PR-only. */
+/** Direct obligations of the main-only complete aggregate; release rehearsal has its own workflow. */
 export const MAIN_FULL_JOBS = [
   'changes',
   'code-quality',

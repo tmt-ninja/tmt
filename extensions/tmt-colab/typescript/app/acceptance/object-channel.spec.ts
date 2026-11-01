@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { build } from 'vite-plus';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createPage, openPage, run } from './harness/ask.js';
+import { createPage, openPage, revokeMachine, run } from './harness/ask.js';
 import { pairBrowser, restartColab, restartRemote, startDoor } from './harness/browser.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -241,12 +241,7 @@ test('object channel: upload original recovers, commits and publishes through re
       // Establish a current creator connection so the refusal below cannot be
       // satisfied by the earlier sharing rotation's already-closed connection.
       await call('connect', `${door.mounts}colab/`, created.pageId);
-      const devices = JSON.parse(run(world, world.binaries.remote, ['devices', '--json'])) as {
-        devices: { name: string; clientId: string }[];
-      };
-      const device = devices.devices.find((value) => value.name === browser.name);
-      expect(device).toBeDefined();
-      run(world, world.binaries.remote, ['devices', 'revoke', device!.clientId, '--json']);
+      revokeMachine(world, browser.name);
       await expect(call('read')).rejects.toThrow();
       // Device revocation rotates affected pages too. The surviving owner must
       // establish the new epoch before reading the exact historical reference.

@@ -10,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
-  clientId,
+  revokeMachine,
   createPage,
   freePort,
   openChat,
@@ -224,12 +224,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     expect(originalAttachmentId).toMatch(/^[a-f0-9-]{36}$/);
 
     // A revoked paired device reads nothing after it reloads.
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, 'life-principal-peer'),
-      '--json',
-    ]);
+    revokeMachine(world, 'life-principal-peer');
     await second.reload();
     await expect(second.getByRole('link', { name: 'Pair this browser', exact: true })).toBeVisible({
       timeout: 30_000,

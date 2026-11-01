@@ -25,6 +25,7 @@ it('keeps a fixed child list and one selected row with settings in the shared fi
     expect(menu.groups.flatMap((group) => group.items).map((item) => item.label)).toEqual([
       'Agents',
       'Squads',
+      'Orchestration',
       'Timers',
     ]);
     expect(menu.settings).toEqual({
@@ -44,12 +45,13 @@ it('uses observed totals and the Agents view state for attention without probing
   const source = board();
   const before = JSON.stringify(source);
   const items = opsMenu('squads', source, '/ops').groups[0]!.items;
-  expect(items.map((item) => item.total)).toEqual([3, 1, undefined]);
+  // Orchestration has no board total: its rows are Core's own reads, not the board's.
+  expect(items.map((item) => item.total)).toEqual([3, 1, undefined, undefined]);
   expect(items[0]!.count).toEqual({ text: '1', needsYou: true });
   expect(items.slice(1).every((item) => item.count === undefined)).toBe(true);
   expect(JSON.stringify(source)).toBe(before);
   const empty = opsMenu('agents', { ...source, agents: [], squads: [], schedules: [] }, '/ops');
-  expect(empty.groups[0]!.items.map((item) => item.total)).toEqual([0, 0, 0]);
+  expect(empty.groups[0]!.items.map((item) => item.total)).toEqual([0, 0, undefined, 0]);
   expect(empty.groups[0]!.items.every((item) => !item.count)).toBe(true);
 });
 
@@ -64,7 +66,7 @@ it('keeps loading, unavailable, truncated and null observations unknown rather t
       menu.groups[0]!.items.every((item) => item.total === undefined && item.count === undefined),
     ).toBe(true);
   }
-  expect(opsMenu('schedules', board(), '/ops').groups[0]!.items[2]!.total).toBeUndefined();
+  expect(opsMenu('schedules', board(), '/ops').groups[0]!.items[3]!.total).toBeUndefined();
 });
 
 it('passes attention through the shared pill formatter, including its 99+ bound', () => {
@@ -147,6 +149,6 @@ it('DM emphasis and counts come only from verified conversation observations, wi
     expect(
       menu.groups[1]!.items[0]!.children!.slice(1).every((item) => !item.count && !item.emphasis),
     ).toBe(true);
-    expect(menu.groups[0]!.items.map((item) => item.total)).toEqual([3, 1, undefined]);
+    expect(menu.groups[0]!.items.map((item) => item.total)).toEqual([3, 1, undefined, undefined]);
   }
 });

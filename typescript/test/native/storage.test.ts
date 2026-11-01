@@ -166,6 +166,7 @@ function expectNativeSchema(
     { version: 85, name: 'name bounded Digest worker and caller failure stages' },
     { version: 86, name: 'record a binding that runs a plain program, not an agent' },
     { version: 87, name: 'record leads, route grants and talk-limit holds' },
+    { version: 88, name: 'index each direction of a two-party conversation' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

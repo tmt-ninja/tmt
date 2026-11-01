@@ -648,6 +648,9 @@ case \"$1\" in
     printf '%s\\n' \"$input\" >> calls
     case \"$input\" in
       *references.resolve*) cat resolve.json ;;
+      *consumption.limits*)
+        # An older Core does not know the operation unless the case supplies an answer.
+        if [ -f limits.json ]; then cat limits.json; else cat limits.unknown; exit 1; fi ;;
       *consumption.history*)
         if [ -f history.fail ]; then cat history.fail; exit 1; fi
         case \"$input\" in *'\"maxBuckets\":1,'*) cat totals.json ;; *) cat series.json ;; esac ;;
@@ -658,6 +661,11 @@ esac
 ",
             dir = path.display()
         );
+        fs::write(
+            path.join("limits.unknown"),
+            serde_json::to_vec(&error("API_INPUT_INVALID")).unwrap(),
+        )
+        .unwrap();
         fs::write(path.join("core"), script).unwrap();
         fs::set_permissions(path.join("core"), fs::Permissions::from_mode(0o700)).unwrap();
         Self(path)
@@ -751,6 +759,7 @@ fn core_is_read_in_the_documented_shape() {
             "x flow --since 24h --bucket 24h --json",
             "api",
             "api",
+            "api",
             "api"
         ]
     );
@@ -758,8 +767,11 @@ fn core_is_read_in_the_documented_shape() {
     // Only the participant off the roster is resolved, then two reads per batch.
     assert_eq!(calls[0]["operation"], "references.resolve");
     assert_eq!(calls[0]["input"], json!({"identityIds": [F]}));
-    let reads: Vec<_> = calls[1..].iter().collect();
-    assert_eq!(reads.len(), 2);
+    let reads: Vec<_> = calls[1..3].iter().collect();
+    assert_eq!(calls.len(), 4);
+    // Then Core's account-level limits; an older Core's refusal is no warning.
+    assert_eq!(calls[3]["operation"], "consumption.limits");
+    assert_eq!(calls[3]["input"], json!({}));
     for (read, buckets) in reads.iter().zip([1, 24]) {
         assert_eq!(read["operation"], "consumption.history");
         assert_eq!(
@@ -829,6 +841,7 @@ fn failed_history_batches_leave_every_seat_unavailable() {
     let sizes: Vec<_> = fake
         .calls()
         .iter()
+        .filter(|call| call["operation"] == "consumption.history")
         .map(|call| call["input"]["identityIds"].as_array().unwrap().len())
         .collect();
     assert_eq!(sizes, [16, 1]);
@@ -1073,4 +1086,92 @@ fn a_malformed_account_drops_the_observation_instead_of_joining_another_account(
     ] {
         assert_eq!(reading(bad.clone()), json!([]), "{bad}");
     }
+}
+
+/// One seat reporting `work`'s Claude windows, with Core's `consumption.limits` answer.
+fn with_accounts(answer: Option<Value>) -> Value {
+    let work = json!({"key": "a1b2c3d4e5f6", "label": "claude-work"});
+    let (totals, series, ids, labels) = one_seat(Some(json!({
+    "provider": "claude", "observedAtMs": T, "account": work,
+    "windows": [
+        {"windowMinutes": 300, "usedPercent": 10.0, "resetsAtMs": AS_OF + 1},
+        {"windowMinutes": 10_080, "usedPercent": 50.0, "resetsAtMs": AS_OF + DAY},
+    ]})));
+    let mut usage = model::usage(&totals, &series, &ids, &labels).unwrap();
+    usage.accounts = answer.as_ref().and_then(model::accounts);
+    model::document(&Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage,
+        exchange: None,
+        warnings: vec![],
+    })
+    .unwrap()
+}
+
+#[test]
+fn the_account_entry_replaces_seat_windows_whole_and_an_older_core_falls_back() {
+    let work = json!({"key": "a1b2c3d4e5f6", "label": "claude-work"});
+    let answer = json!({"observedAtMs": AS_OF, "accounts": [{
+        "driver": "claude", "account": work,
+        "rateLimits": {"provider": "claude", "observedAtMs": AS_OF - 5, "account": work,
+            "windows": [{"windowMinutes": 300, "usedPercent": 30.0, "resetsAtMs": AS_OF + 2}]}}]});
+    let document = with_accounts(Some(answer));
+    let limits = document["limits"].as_array().unwrap();
+    // Never merged per window: the seat's weekly window goes with its five-hour one.
+    assert_eq!(limits.len(), 1, "{limits:?}");
+    assert_eq!(limits[0]["usedPercent"], 30.0);
+    assert_eq!(limits[0]["resetsAtMs"], AS_OF + 2);
+    assert_eq!(limits[0]["observedAtMs"], AS_OF - 5);
+    assert_eq!(limits[0]["account"], work);
+    assert_eq!(
+        limits[0]["seats"],
+        json!([A]),
+        "the reporting seat stays attributed"
+    );
+
+    // An older Core (no answer) keeps today's per-seat derivation exactly.
+    let fallback = with_accounts(None);
+    assert_eq!(fallback["limits"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fallback,
+        with_accounts(Some(json!({"observedAtMs": AS_OF, "accounts": []})))
+    );
+}
+
+#[test]
+fn an_account_without_a_current_window_keeps_its_line_in_its_state() {
+    let work = json!({"key": "a1b2c3d4e5f6", "label": "claude-work"});
+    let document = with_accounts(Some(json!({"observedAtMs": AS_OF, "accounts": [
+        {"driver": "claude", "account": work, "rateLimits": null, "reason": "expired"}]})));
+    assert_eq!(document["limits"], json!([]));
+    assert!(
+        document["limitsUnavailable"]
+            .as_array()
+            .unwrap()
+            .contains(&json!({"provider": "claude", "account": work, "reason": "expired"})),
+        "{}",
+        document["limitsUnavailable"]
+    );
+}
+
+#[test]
+fn a_malformed_account_entry_is_dropped_alone() {
+    let other = json!({"key": "0123456789ab", "label": "claude-home"});
+    let window = json!({"windowMinutes": 300, "usedPercent": 70.0, "resetsAtMs": AS_OF + 3});
+    let document = with_accounts(Some(json!({"observedAtMs": AS_OF, "accounts": [
+        // Not an account key Core writes, and an unknown reason: both dropped.
+        {"driver": "claude", "account": {"key": "A1B2C3D4E5F6", "label": "claude-work"},
+         "rateLimits": null, "reason": "expired"},
+        {"driver": "claude", "account": {"key": "a1b2c3d4e5f6", "label": "claude-work"},
+         "rateLimits": null, "reason": "gone"},
+        {"driver": "claude", "account": other,
+         "rateLimits": {"provider": "claude", "observedAtMs": AS_OF, "account": other, "windows": [window]}},
+    ]})));
+    let limits = document["limits"].as_array().unwrap();
+    // The seat's own two windows stay; the well-formed other account adds its one.
+    assert_eq!(limits.len(), 3, "{limits:?}");
+    let home = limits.iter().find(|row| row["account"] == other).unwrap();
+    assert_eq!(home["usedPercent"], 70.0);
+    assert_eq!(home["seats"], json!([]));
 }

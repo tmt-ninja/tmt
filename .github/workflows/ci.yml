@@ -40,8 +40,6 @@ jobs:
       native: ${{ steps.mainfull.outputs.native || steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.mainfull.outputs.native_notices || steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
-      release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
-      release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
       remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
       colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
       native_sync_emulator: ${{ steps.mainfull.outputs.native_sync_emulator || steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
@@ -56,7 +54,8 @@ jobs:
         id: event
         env:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-          MACOS: ${{ github.event_name != 'merge_group' }}
+          # macOS jobs run on main push, schedule and dispatch, never for a PR or merge group (#2547).
+          MACOS: ${{ github.event_name != 'merge_group' && github.event_name != 'pull_request' }}
         run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
@@ -94,14 +93,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node typescript/scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
-      # Pull requests only: merge groups never rehearse, and seed/weekly runs have the nightly workflow.
-      - name: Select the release rehearsal products
-        if: github.event_name == 'pull_request'
-        id: rehearsal
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node typescript/scripts/release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   code-quality:
     name: Code quality
@@ -191,22 +182,6 @@ jobs:
           pnpm --filter @tmt/colab-app --fail-if-no-match build:bundles
           # The archive proof's app inventory, run on the real build so it cannot first fail at release.
           node scripts/verify-colab-app-entries.mjs ../extensions/tmt-colab/typescript/app/dist
-
-  release-rehearsal:
-    name: Release rehearsal (${{ matrix.product }})
-    needs: changes
-    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/native-release-prepare.yml
-    with:
-      product: ${{ matrix.product }}
-      sha: ${{ github.event.pull_request.head.sha }}
-      upgrade: true
 
   native-notices:
     name: Native dependency notices
@@ -443,7 +418,7 @@ jobs:
       scope: ${{ needs.changes.outputs.native_scope }}
       native-sync: ${{ needs.changes.outputs.native_sync_emulator == 'true' }}
       save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
-      partitions: 2
+      partitions: 3
 
   # Native process contracts runs as one fixture build and two test shards, so the
   # serial process suite is about half as long on the merge-group path. The shards
@@ -1106,7 +1081,6 @@ jobs:
         native-notices,
         colab-chrome,
         browser-ui,
-        release-rehearsal,
         native-rust,
         unit-tests,
         docker-e2e-shard-1,
@@ -1153,11 +1127,6 @@ jobs:
           BROWSER_UI_SELECTED: ${{ needs.changes.outputs.browser_ui }}
           BROWSER_UI_RESULT: ${{ needs.browser-ui.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$BROWSER_UI_SELECTED" "$BROWSER_UI_RESULT"
-      - name: Require the selected release rehearsal
-        env:
-          REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
-          REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}
-        run: node typescript/scripts/ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"
 
   complete-main:
     name: Complete trusted-main verification

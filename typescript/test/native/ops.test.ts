@@ -4731,16 +4731,31 @@ args=sys.argv[1:]
 if args[0]=='whoami':
  value=json.loads((root/'digest-caller.json').read_text())
  print(json.dumps(value)); sys.exit(1 if 'error' in value else 0)
+def refusal(q):
+ if not q['operation'].startswith('digest.policy.'): return None
+ with open(root/'digest-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
+ mode=(root/'digest-mode').read_text()
+ if mode=='old' or (mode=='conflict' and q['operation']!='digest.policy.show'):
+  code='API_INPUT_INVALID' if mode=='old' else 'DIGEST_REVISION_CONFLICT'
+  return json.dumps({'error':{'code':code,'message':'injected refusal'}})
+ return None
+cli=${JSON.stringify(sandbox.cli.executable)}
+# A listing reuses one 'api --session': relay it a line at a time, observing the same calls.
+if args[:2]==['api','--session']:
+ child=subprocess.Popen([cli]+args,stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+ for line in sys.stdin.buffer:
+  injected=refusal(json.loads(line))
+  if injected is None:
+   child.stdin.write(line); child.stdin.flush(); out=child.stdout.readline()
+  else:
+   out=(injected+chr(10)).encode()
+  sys.stdout.buffer.write(out); sys.stdout.buffer.flush()
+ child.stdin.close(); sys.exit(child.wait())
 body=sys.stdin.buffer.read() if args[0]=='api' else None
 if body:
- q=json.loads(body)
- if q['operation'].startswith('digest.policy.'):
-  with open(root/'digest-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
-  mode=(root/'digest-mode').read_text()
-  if mode=='old' or (mode=='conflict' and q['operation']!='digest.policy.show'):
-   code='API_INPUT_INVALID' if mode=='old' else 'DIGEST_REVISION_CONFLICT'
-   print(json.dumps({'error':{'code':code,'message':'injected refusal'}})); sys.exit(1)
-result=subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=body)
+ injected=refusal(json.loads(body))
+ if injected is not None: print(injected); sys.exit(1)
+result=subprocess.run([cli]+args,input=body)
 sys.exit(result.returncode)
 `,
         0o700
@@ -5687,12 +5702,29 @@ describe('large board responsiveness', () => {
           tmux(['resize-window', '-t', 'mentions', '-x', '160', '-y', '36']);
           const colour = theme === 'NO_COLOR' ? 'NO_COLOR=1' : 'env -u NO_COLOR';
           const trace = path.join(sandbox.root, `mentions-${theme}.jsonl`);
+          const keys = path.join(sandbox.root, `mentions-${theme}.keys.jsonl`);
+          // The board's key trace is the readiness boundary for key order: a key sent before
+          // the board has handled the previous one can land in the wrong focus under load.
+          const handled = (key: string) =>
+            vi.waitFor(
+              () => {
+                const records = existsSync(keys)
+                  ? readFileSync(keys, 'utf8')
+                      .split('\n')
+                      .filter(Boolean)
+                      .map((line) => JSON.parse(line))
+                      .filter((record) => record.event !== 'key_before')
+                  : [];
+                expect(records.at(-1)?.key).toBe(key);
+              },
+              { timeout: 10_000, interval: 25 }
+            );
           tmux([
             'send-keys',
             '-t',
             pane,
             '-l',
-            `${colour} TMT_OPS_TIMING_TRACE=${quote(trace)} ${quote(sandbox.cli.executable)} ops ui --squad product --view mentions --reset-view`,
+            `${colour} TMT_OPS_TIMING_TRACE=${quote(trace)} TMT_OPS_TEST_KEY_TRACE=${quote(keys)} ${quote(sandbox.cli.executable)} ops ui --squad product --view mentions --reset-view`,
           ]);
           tmux(['send-keys', '-t', pane, 'Enter']);
           await vi.waitFor(
@@ -5747,6 +5779,9 @@ describe('large board responsiveness', () => {
               expect(shown).toContain('Keep worker raw #tmt:unknown');
               expect(shown).toContain('↑↓←→ move');
             });
+            // The Escape that left the composer must be handled first, or Tab reaches the
+            // composer instead of the tree.
+            await handled('Esc');
             // Tab enters read focus, where the mention shows at every width.
             tmux(['send-keys', '-t', pane, 'Tab']);
             await until(`read focus at ${width} columns`, (shown) => {

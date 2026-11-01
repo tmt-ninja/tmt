@@ -2502,3 +2502,201 @@ fn conversation_raw_core_stdout_accepts_the_exact_cap_and_refuses_one_more_byte(
             .all(|call| call["operation"] == "requests.list")
     );
 }
+
+/// One signed orchestration call with `input`, from the given door.
+fn orchestrate(
+    owner: &OwnerDoor,
+    operations: &Arc<Operations>,
+    session: &str,
+    sequence: usize,
+    operation: &str,
+    input: Value,
+) -> Value {
+    let payload = json!({"version":1,"operation":operation,"input":input});
+    append(
+        owner,
+        Arc::clone(operations),
+        &owner.wire(
+            session,
+            &sequence.to_string(),
+            operation,
+            payload.to_string().as_bytes(),
+        ),
+    )
+}
+const ORCH_MEMBER: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+/// Orchestration describes and changes every member, so only the owner's own browser holding every
+/// agent may read or change it; the door passes Core's input through unchanged (#4894).
+#[test]
+fn orchestration_passes_core_input_through_for_the_owner_browser_only() {
+    let core = Core::new();
+    let owner = OwnerDoor::owner_browser("direct");
+    let operations = core.operations();
+    let session = owner.open();
+    let read = json!({"view":"routes","limit":256,"memberQuery":"night"});
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        1,
+        "orchestration.read",
+        read.clone(),
+    );
+    assert_eq!(reply["echo"], read, "{reply}");
+    let write = json!({"phase":"preview","mutation":{"kind":"route.allow","fromId":ORCH_MEMBER,"toId":ORCH_MEMBER,"untilMs":2}});
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        2,
+        "orchestration.write",
+        write.clone(),
+    );
+    assert_eq!(reply["echo"], write, "{reply}");
+    // Apply carries Core's own preview fields and the person's consent, unchanged.
+    let apply = json!({"phase":"apply","mutation":{"kind":"focus.clear","identityId":ORCH_MEMBER},
+        "expectedConfigurationRevision":3,"previewAtMs":4,"previewDigest":"d","consent":true});
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        3,
+        "orchestration.write",
+        apply.clone(),
+    );
+    assert_eq!(reply["echo"], apply, "{reply}");
+    // Core's own refusal is the reply's `refused`; any other failure stays the door's.
+    fs::write(
+        core.root.join("orchestration-error"),
+        "ORCH_CONFLICT|changed",
+    )
+    .unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        4,
+        "orchestration.write",
+        apply.clone(),
+    );
+    assert_eq!(
+        reply["refused"],
+        json!({"code":"ORCH_CONFLICT","message":"changed"}),
+        "{reply}"
+    );
+    // A sentence that is not one plain bounded line is dropped; Core's code still travels.
+    for (sequence, message) in [(5, "bell\u{7}line".to_owned()), (6, "x".repeat(257))] {
+        fs::write(
+            core.root.join("orchestration-error"),
+            format!("ORCH_LIMIT|{message}"),
+        )
+        .unwrap();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            sequence,
+            "orchestration.write",
+            apply.clone(),
+        );
+        assert_eq!(reply["refused"], json!({"code":"ORCH_LIMIT"}), "{reply}");
+    }
+    fs::write(
+        core.root.join("orchestration-error"),
+        "API_UNAVAILABLE|no storage",
+    )
+    .unwrap();
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        7,
+        "orchestration.write",
+        apply,
+    );
+    assert_eq!(reply["error"]["code"], "API_UNAVAILABLE", "{reply}");
+    fs::remove_file(core.root.join("orchestration-error")).unwrap();
+    let capabilities = append(
+        &owner,
+        Arc::clone(&operations),
+        &owner.wire(&session, "8", "capabilities", b"{}"),
+    );
+    let supported = capabilities["operations"].as_array().unwrap();
+    for operation in ["orchestration.read", "orchestration.write"] {
+        assert!(supported.contains(&json!(operation)), "{operation}");
+    }
+    assert_eq!(
+        core.calls()
+            .iter()
+            .filter(|call| call["operation"]
+                .as_str()
+                .is_some_and(|o| o.starts_with("orchestration.")))
+            .count(),
+        7
+    );
+}
+#[test]
+fn orchestration_refuses_other_grants_kinds_and_actors_before_core() {
+    let read = json!({"view":"overview","rangeDays":1,"atMs":1});
+    // A cli or add-on device, a browser from another origin, or a grant for some agents only.
+    for (kind, agents) in [
+        ("cli", "all".to_owned()),
+        ("addon", "all".to_owned()),
+        ("foreign-browser", "all".to_owned()),
+        ("browser", format!("[\"{ORCH_MEMBER}\"]")),
+    ] {
+        let core = Core::new();
+        let scopes = tmt_remote::store::SUPPORTED_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect();
+        let owner = OwnerDoor::with_device(scopes, "direct", agents.clone(), None, kind);
+        let operations = core.operations();
+        // A browser paired from another origin never gets a session here at all.
+        if kind == "foreign-browser" {
+            assert!(owner.open_refused(), "{kind}: session refused");
+            continue;
+        }
+        let session = owner.open();
+        let reply = orchestrate(
+            &owner,
+            &operations,
+            &session,
+            1,
+            "orchestration.read",
+            read.clone(),
+        );
+        assert!(reply.get("error").is_some(), "{kind} {agents}: {reply}");
+        assert!(
+            core.calls().is_empty(),
+            "{kind} {agents}: Core was not called"
+        );
+    }
+    // The owner browser: a mutation the page does not offer, or one naming an actor.
+    let core = Core::new();
+    let owner = OwnerDoor::owner_browser("direct");
+    let operations = core.operations();
+    let session = owner.open();
+    for (sequence, write) in [
+        json!({"phase":"preview","mutation":{"kind":"plan.add","name":"x"}}),
+        json!({"phase":"preview","mutation":{"kind":"leads.set","roomId":ORCH_MEMBER}}),
+        json!({"phase":"preview","mutation":{"kind":"talks.resume","aId":ORCH_MEMBER,"bId":ORCH_MEMBER,"actorId":ORCH_MEMBER}}),
+        json!({"phase":"commit","mutation":{"kind":"focus.clear","identityId":ORCH_MEMBER}}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let reply = orchestrate(&owner, &operations, &session, sequence + 1, "orchestration.write", write.clone());
+        assert_eq!(reply["error"]["code"], "REMOTE_SCOPE_DENIED", "{write}: {reply}");
+    }
+    let reply = orchestrate(
+        &owner,
+        &operations,
+        &session,
+        5,
+        "orchestration.read",
+        json!({"view":"jobs"}),
+    );
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(core.calls().is_empty(), "Core was not called");
+}

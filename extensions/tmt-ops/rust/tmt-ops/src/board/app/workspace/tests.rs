@@ -890,12 +890,15 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
             let lines = paint(&app, 80, 8);
             assert!(lines[0].contains("TMT   OPS / UI"), "{base:?} {depth:?}");
             // The tabs follow the top bar directly: there is no boundary band.
-            for label in ["1  Agents", "2  Digest"] {
+            for label in ["1  Agents", "2  Digest", "3  Orchestration"] {
                 assert!(lines[1].contains(label), "{base:?} {depth:?}: {label}");
             }
             assert!(!lines[0].contains("private-squad"));
             let hits = app.tab_hits.borrow();
-            assert_eq!(hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(), [0, 1]);
+            assert_eq!(
+                hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(),
+                [0, 1, 2]
+            );
             assert!(hits.iter().all(|hit| hit.y == 1 && hit.x + hit.width <= 80));
         }
     }
@@ -1154,13 +1157,16 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
             );
             app.tab_hits.borrow_mut().clear();
             let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
-            assert_eq!(line.to_string(), "   1  Agents    2  Digest  ");
+            assert_eq!(
+                line.to_string(),
+                "   1  Agents    2  Digest    3  Orchestration  "
+            );
             let hits = app.tab_hits.borrow();
-            assert_eq!(hits.len(), 2);
-            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 12)]) {
+            assert_eq!(hits.len(), 3);
+            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 12), (27, 19)]) {
                 assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
             }
-            for gap_x in [13, 26] {
+            for gap_x in [13, 26, 46] {
                 assert!(
                     !hits
                         .iter()
@@ -4073,7 +4079,12 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     // The chip shows at every width; the shorter frames may scroll the
                     // group row out of view.
                     if mode == "scoped" {
-                        assert!(text.contains("Scope: squad-00"), "{width} {mode} {text}");
+                        let chip = if width == 60 {
+                            "Scope 1 ×"
+                        } else {
+                            "Scope: squad-00"
+                        };
+                        assert!(text.contains(chip), "{width} {mode} {text}");
                     }
                     let all = filter == crate::board::workspace::AgentsFilter::All && width == 160;
                     if all && mode == "hidden" {
@@ -4218,9 +4229,16 @@ fn scope_chip_admits_whole_names_then_a_count_and_neutralizes_untrusted_roster_n
     );
     assert!(!wide.contains("Scope: alpha") && !wide.contains("Scope: bravo"));
     // Where the whole name does not fit after the tabs, the chip counts instead of cutting.
+    let middle = text(&app, 80);
+    assert!(middle.contains("Scope: 3 squads ×"), "{middle}");
+    assert!(!middle.contains("Scope: charlie"));
+    // Beside all three tabs at 60 columns only the bare count fits, and it still shows.
     let narrow = text(&app, 60);
-    assert!(narrow.contains("Scope: 3 squads ×"), "{narrow}");
-    assert!(!narrow.contains("Scope: charlie"));
+    assert!(narrow.contains("Scope 3 ×"), "{narrow}");
+    assert!(!narrow.contains("Scope: "));
+    app.workspace.visibility.scope = vec![ids[2].clone()];
+    let single = text(&app, 60);
+    assert!(single.contains("Scope 1 ×"), "{single}");
     app.workspace.visibility.scope = vec![ids[2].clone()];
     app.view
         .as_mut()

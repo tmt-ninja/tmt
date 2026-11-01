@@ -376,9 +376,7 @@ describe('complete trusted-main verification', () => {
     const ids = [...workflow.split('\njobs:\n')[1].matchAll(/^  ([a-z][a-z0-9-]+):\n/gm)].map(
       (match) => match[1]
     );
-    expect(ids.sort()).toEqual(
-      [...MAIN_FULL_JOBS, 'release-rehearsal', 'complete-main', 'notify-main-failure'].sort()
-    );
+    expect(ids.sort()).toEqual([...MAIN_FULL_JOBS, 'complete-main', 'notify-main-failure'].sort());
     const complete = job('complete-main');
     const needs = complete.split('    needs:\n')[1].split('    if:')[0];
     expect([...needs.matchAll(/^      - (.+)$/gm)].map((match) => match[1]).sort()).toEqual(
@@ -3535,7 +3533,10 @@ describe('required CI gate', () => {
     expect(workflow).toContain(
       'macos: ${{ steps.main.outputs.macos || steps.event.outputs.macos }}'
     );
-    expect(workflow).toContain("MACOS: ${{ github.event_name != 'merge_group' }}");
+    // Required checks never wait on macOS: PRs and merge groups skip it (#2547).
+    expect(workflow).toContain(
+      "MACOS: ${{ github.event_name != 'merge_group' && github.event_name != 'pull_request' }}"
+    );
     expect(workflow).toContain('fetch-depth: 0');
     expect(workflow).not.toContain('github.event.merge_group.base_sha');
     expect(workflow).toContain('HEAD_SHA: ${{ github.event.merge_group.head_sha }}');

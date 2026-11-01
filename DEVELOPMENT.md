@@ -274,9 +274,19 @@ Tracker rules:
 - New epics require the maintainer's approval; leads propose them through tmt-lead.
   No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
-  one outcome, acceptance criteria and normally one PR; split work hiding progress.
+  one outcome and acceptance criteria each; one PR may close several of them
+  ([Delivery lifecycle](AGENTS.md#delivery-lifecycle)).
 - [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
   daily reports, event-driven lead updates and the GraphQL budget.
+
+## Waiting on CI and the merge queue
+
+```sh
+scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
+```
+
+Start it, end the turn and let its one message wake you; the script's header owns
+its final states, bounds, log and exit codes.
 
 ## Review and evidence
 

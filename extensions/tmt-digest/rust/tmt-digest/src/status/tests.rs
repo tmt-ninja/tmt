@@ -49,6 +49,7 @@ fn every_frozen_status_response_matches_the_same_projection() {
             stats.push(held.map(|held| Observation {
                 held,
                 delivered: None,
+                next_eligible: None,
                 observed: 1791629999000,
                 age,
             }));
@@ -59,6 +60,11 @@ fn every_frozen_status_response_matches_the_same_projection() {
             assert!(row.get("oldestHeldAgeMs").is_some());
             assert!(row.get("ownerBypass").is_some());
             assert_eq!(row["deliveredDigests"], Value::Null);
+            // Additive fields after the frozen vectors: unknown here, never invented.
+            assert_eq!(row["nextEligibleAtMs"], Value::Null);
+            assert_eq!(row["lastDelivery"], Value::Null);
+            row.as_object_mut().unwrap().remove("nextEligibleAtMs");
+            row.as_object_mut().unwrap().remove("lastDelivery");
             row.as_object_mut().unwrap().remove("oldestHeldAgeMs");
             row.as_object_mut().unwrap().remove("deliveredDigests");
             row.as_object_mut().unwrap().remove("ownerBypass");
@@ -79,6 +85,7 @@ fn zero_held_leaves_only_the_mode_choice_and_unknown_evidence_stays_visible() {
         let observation = Observation {
             held: 0,
             delivered: None,
+            next_eligible: None,
             observed: 1000,
             age: None,
         };
@@ -115,18 +122,21 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
         Observation {
             held: 3,
             delivered: None,
+            next_eligible: None,
             observed: 1000,
             age: None,
         },
         Observation {
             held: 3,
             delivered: None,
+            next_eligible: None,
             observed: 1000,
             age: Some(1001),
         },
         Observation {
             held: 3,
             delivered: None,
+            next_eligible: None,
             observed: MAX_NUMBER,
             age: Some(0),
         },
@@ -142,6 +152,7 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
         Some(Observation {
             held: 10,
             delivered: None,
+            next_eligible: None,
             observed: 1000,
             age: None,
         }),
@@ -155,6 +166,7 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
         Some(Observation {
             held: 10,
             delivered: None,
+            next_eligible: None,
             observed: 1000,
             age: Some(0),
         }),
@@ -176,6 +188,7 @@ fn duration_normalization_and_countdown_rounding_do_not_overflow_or_duplicate_pr
             Some(Observation {
                 held: 1,
                 delivered: None,
+                next_eligible: None,
                 observed: 1000,
                 age: Some(0),
             }),
@@ -286,6 +299,7 @@ fn an_auto_row_counts_down_to_its_own_caps_and_is_due_at_the_count_cap() {
         let observation = Observation {
             held,
             delivered: None,
+            next_eligible: None,
             observed: 100_000_000,
             age: Some(age),
         };
@@ -329,4 +343,34 @@ fn an_auto_row_counts_down_to_its_own_caps_and_is_due_at_the_count_cap() {
 
 fn row_without_caps() -> Value {
     row("5m", None, 1000)
+}
+
+#[test]
+fn core_next_eligibility_is_copied_and_kept_apart_from_the_extension_deadline() {
+    let observed = |next_eligible| Observation {
+        held: 2,
+        delivered: Some(4),
+        next_eligible,
+        observed: 1_000_000,
+        age: Some(1_000),
+    };
+    let known = row("5m", Some(observed(Some(1_000_000))), 1_000_000);
+    assert_eq!(known["nextEligibleAtMs"], 1_000_000);
+    assert_eq!(
+        known["nextSendAtMs"], 1_299_000,
+        "the extension deadline is its own"
+    );
+    assert_eq!(
+        row("5m", Some(observed(None)), 1_000_000)["nextEligibleAtMs"],
+        Value::Null
+    );
+    assert_eq!(row("5m", None, 1_000_000)["nextEligibleAtMs"], Value::Null);
+    assert_eq!(
+        Observation::parse(
+            &json!({"heldCount": 1, "observedAtMs": 5, "oldestHeldAgeMs": null,
+            "nextEligibleAtMs": 9})
+        )
+        .map(|stats| stats.next_eligible),
+        Some(Some(9))
+    );
 }

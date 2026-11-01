@@ -41,7 +41,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   `canTransition`. `readAskRecords` (alias `readAskViews`) reads only the admitted
   per-writer projection and verifies each ask's signature with that writer's key; a
   writer, request ID or agent claimed inside a body never selects another stream. An expired
-  ask stays readable; effect checks happen in the controller.
+  ask stays readable; effect checks happen in the controller. A `VerifiedAsks` cache reuses a
+  verification only for the identical record (every key and signed field) under the identical
+  key. Validation and signature verification depend only on that record and key, and the scope
+  and state checks still run on every read. A read forgets the asks it did not see, so the cache
+  holds at most the asks on the page. `AskRecordStore` and the live view each hold one, so the
+  observation loop's repeated reads verify an unchanged ask once (#5872).
 - **`ask-record-store.ts` (`AskRecordStore`).** The own stream is the ledger. `adopt` verifies
   the signed ask and its scope, then stores the local draft (`storeAskDraft`, in the same
   module; signed input and signature only) and publishes the ask with two display labels,

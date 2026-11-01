@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
-  clientId,
+  revokeMachine,
   createPage,
   openPage,
   run,
@@ -162,11 +162,7 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
     await expect(c.getByTestId('comment-thread')).toHaveCount(1);
     await expect(c.getByTestId('comment-thread')).toContainText('Quote B.');
 
-    run(world, world.binaries.remote, [
-      'devices',
-      'revoke',
-      clientId(world, 'several-tabs-device'),
-    ]);
+    revokeMachine(world, 'several-tabs-device');
     for (const tab of [a, b, c]) {
       await tab.reload();
       await expect(tab.getByRole('link', { name: 'Pair this browser', exact: true })).toBeVisible();

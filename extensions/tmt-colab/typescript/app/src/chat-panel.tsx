@@ -56,93 +56,117 @@ export function ChatPanel({
   close(): void;
   escape?(): void;
 }) {
-  const chats = threads.filter(isChatThread);
+  const chats = useMemo(() => threads.filter(isChatThread), [threads]);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = useMemo(() => asks.filter((ask) => !ask.thread), [asks]);
   const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? [], asks);
-  // Called where the verified record will render, so it takes the same day heading.
-  const echoTurn = () =>
-    echoes.map((echo) => (
-      <Fragment key={echo.local}>
-        {dayHeading(echo.at)}
-        <MessageEchoTurn echo={echo} writer={discussion?.deviceId} />
-      </Fragment>
+  // A stable binding can advance disclosure: attachment readers must dispose and reread then.
+  const attachmentScope = discussion?.attachments?.scope?.();
+  const today = new Date().toDateString();
+  const { history, legacyDays, messageIds } = useMemo(() => {
+    // Descendant attachment readers consult the binding themselves; invalidate their cached JSX.
+    void attachmentScope;
+    // Called where the verified record will render, so it takes the same day heading.
+    const echoTurn = () =>
+      echoes.map((echo) => (
+        <Fragment key={echo.local}>
+          {dayHeading(echo.at)}
+          <MessageEchoTurn echo={echo} writer={discussion?.deviceId} />
+        </Fragment>
+      ));
+    const messageIds = [
+      ...echoes.map((echo) => `echo:${echo.local}`),
+      ...chats.flatMap((thread) => [
+        ...thread.comments
+          .filter((comment) => !held(comment))
+          .map((comment) =>
+            conversationRecordKey('comment', comment.ref.writer, comment.messageId),
+          ),
+        ...conversationAsks(thread, asks, true)
+          .filter((record) => record.reply !== undefined)
+          .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),
+      ]),
+      ...legacy.flatMap((record) => [
+        conversationRecordKey('ask', record.writer, record.operationId),
+        ...(record.reply !== undefined
+          ? [conversationRecordKey('reply', record.writer, record.operationId)]
+          : []),
+      ]),
+    ];
+    let previousDay: string | undefined;
+    const dayHeading = (at: string | number) => {
+      const date = new Date(Number(at));
+      const day = date.toDateString();
+      if (day === previousDay) return null;
+      previousDay = day;
+      return (
+        <p className="chat-day">
+          <time dateTime={date.toISOString()}>
+            {day === today
+              ? text.chatToday
+              : date.toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+          </time>
+        </p>
+      );
+    };
+    const history = chats.map((thread) => (
+      <section
+        key={
+          thread === own ? `own:${discussion?.deviceId}` : `${thread.ref.writer}:${thread.threadId}`
+        }
+        data-testid="chat-thread"
+        data-thread-id={thread.threadId}
+        data-writer={thread.ref.writer}
+      >
+        {thread.comments
+          .filter((comment) => !held(comment))
+          .map((comment) => (
+            <Fragment key={`${comment.ref.writer}:${comment.messageId}`}>
+              {dayHeading(comment.at)}
+              <CommentExchange
+                readOnly={archived}
+                key={`${comment.ref.writer}:${comment.messageId}`}
+                comment={comment}
+                thread={thread}
+                binding={discussion}
+                ask={binding}
+                asks={asks}
+                blocked={blocked || archived}
+                allowEdit={false}
+                title={title}
+              />
+            </Fragment>
+          ))}
+        {thread === own && echoTurn()}
+      </section>
     ));
-  const messageIds = [
-    ...echoes.map((echo) => `echo:${echo.local}`),
-    ...chats.flatMap((thread) => [
-      ...thread.comments
-        .filter((comment) => !held(comment))
-        .map((comment) => conversationRecordKey('comment', comment.ref.writer, comment.messageId)),
-      ...conversationAsks(thread, asks, true)
-        .filter((record) => record.reply !== undefined)
-        .map((record) => conversationRecordKey('reply', record.writer, record.operationId)),
-    ]),
-    ...legacy.flatMap((record) => [
-      conversationRecordKey('ask', record.writer, record.operationId),
-      ...(record.reply !== undefined
-        ? [conversationRecordKey('reply', record.writer, record.operationId)]
-        : []),
-    ]),
-  ];
-  let previousDay: string | undefined;
-  const dayHeading = (at: string | number) => {
-    const date = new Date(Number(at));
-    const day = date.toDateString();
-    if (day === previousDay) return null;
-    previousDay = day;
-    return (
-      <p className="chat-day">
-        <time dateTime={date.toISOString()}>
-          {day === new Date().toDateString()
-            ? text.chatToday
-            : date.toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-        </time>
-      </p>
-    );
-  };
-  const history = chats.map((thread) => (
-    <section
-      key={
-        thread === own ? `own:${discussion?.deviceId}` : `${thread.ref.writer}:${thread.threadId}`
-      }
-      data-testid="chat-thread"
-      data-thread-id={thread.threadId}
-      data-writer={thread.ref.writer}
-    >
-      {thread.comments
-        .filter((comment) => !held(comment))
-        .map((comment) => (
-          <Fragment key={`${comment.ref.writer}:${comment.messageId}`}>
-            {dayHeading(comment.at)}
-            <CommentExchange
-              readOnly={archived}
-              key={`${comment.ref.writer}:${comment.messageId}`}
-              comment={comment}
-              thread={thread}
-              binding={discussion}
-              ask={binding}
-              asks={asks}
-              blocked={blocked || archived}
-              allowEdit={false}
-              title={title}
-            />
-          </Fragment>
-        ))}
-      {thread === own && echoTurn()}
-    </section>
-  ));
-  if (!own && echoes.length > 0)
-    history.push(
-      <section key={`own:${discussion?.deviceId}`} data-testid="chat-thread">
-        {echoTurn()}
-      </section>,
-    );
-  const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
+    if (!own && echoes.length > 0)
+      history.push(
+        <section key={`own:${discussion?.deviceId}`} data-testid="chat-thread">
+          {echoTurn()}
+        </section>,
+      );
+    const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
+    return { history, legacyDays, messageIds };
+  }, [
+    chats,
+    own,
+    legacy,
+    echoes,
+    held,
+    discussion,
+    binding,
+    asks,
+    blocked,
+    archived,
+    title,
+    attachmentScope,
+    today,
+  ]);
   return (
     <ConversationPresentation value="chat">
       <ConversationWindow

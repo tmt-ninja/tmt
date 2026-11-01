@@ -125,10 +125,8 @@ impl Service {
     ) -> Result<(Firestore, FirestoreConfirmation, VerifiedDescriptor), RemoteError> {
         let row = run(provider.machine_metadata(io), io)?.ok_or_else(wire::invalid)?;
         let descriptor = self.verify_descriptor(&provider, &context.owner_key, previous, &row)?;
-        let fields = Self::machine_fields(&provider, &context.owner_key, &row)?;
-        if fields["uid"]["stringValue"].as_str().map(str::as_bytes)
-            != Some(context.binding.owner_principal.as_slice())
-        {
+        let fields = Self::pinned_metadata(&context.owner_key, &row)?;
+        if fields.principal.as_bytes() != context.binding.owner_principal.as_slice() {
             return Err(wire::invalid());
         }
         let sink = FirestoreConfirmation::new(
@@ -157,7 +155,7 @@ impl Service {
         // mutex through provider I/O. A failed preparation releases only itself.
         let reservation = Reservation::reserve(self)?;
         let provider = Arc::new(self.provider(config, &self.machine, true)?);
-        if provider.identity().project != project {
+        if provider.binding().deployment != project {
             return Err(wire::invalid());
         }
         let now = crate::pairing::now_ms()?;
@@ -173,7 +171,7 @@ impl Service {
             binding: BackendBinding {
                 backend: "firestore".into(),
                 reference: project.as_bytes().to_vec(),
-                owner_principal: provider.uid().as_bytes().to_vec(),
+                owner_principal: provider.binding().principal.as_bytes().to_vec(),
             },
             owner: self.machine.clone(),
             owner_key: self.key.public(),

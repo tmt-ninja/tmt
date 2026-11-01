@@ -17,10 +17,13 @@ grant expiry and serve windows.
 
 ## Owners and layers
 
-Remote owns its listeners, provider transports and private state. Core owns its public dispatch,
-request and input-safety semantics independently of Remote authentication. Remote uses only the
-fixed public Core APIs/JSON commands: Core has no dependency on Remote device keys, pairing or
-trust grants, and no Remote base-trust check is added to Core. Its existing safety checks remain.
+Remote owns its listeners, provider transports and private state. Native inbox, pairing and message
+callers share one typed provider port; its adapter alone decodes provider documents and continuations.
+Exact carrier bytes, operation admission, replay and authority remain with their existing common owners.
+Core owns its public dispatch, request and input-safety semantics independently of Remote
+authentication. Remote uses only the fixed public Core APIs/JSON commands: Core has no dependency
+on Remote device keys, pairing or trust grants, and no Remote base-trust check is added to Core.
+Its existing safety checks remain.
 Colab owns page/epoch/role/writer admission and content cryptography through the
 [extension channel API](#extension-channel-api); content verification grants no machine access.
 
@@ -1590,11 +1593,25 @@ applies its published public Core mapping after narrowing supported operations a
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
 | `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID; fixed Core `requests.list` `view:"conversation"` below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
+| `orchestration.read`                                                                            | `agents.read`; the owner's own-origin browser holding every agent only; Core's input passes through unchanged (Owner-browser orchestration below).                                                                              |
+| `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow` and `talks.resume`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
 | global `changes.cursor`, `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
 | reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
+
+**Owner-browser orchestration.** Signed `orchestration.read` and `orchestration.write` (#4894) take
+Core's own input (`{version:1,operation,input}`, [Orchestration v1](orchestration-v1.md)) and
+return Core's answer, bounded at 1 MiB. Core's own `ORCH_*` refusal (such as `ORCH_CONFLICT`) is
+returned as `{refused:{code,message?}}`, its sentence only when it is one bounded line. Only
+this machine's own-origin owner browser whose grant permits every agent is admitted: a cli, add-on
+or foreign-origin browser grant, or one limited to some agents, is refused `REMOTE_SCOPE_DENIED`
+before Core. A read names one of Core's views. A write is a mutation the browser page offers
+(`focus.set`, `focus.clear`, `route.allow`, `talks.resume`); plan and leads changes stay local-only.
+The owner browser is the person, so a mutation naming an `actorId` is refused. Preview and apply
+stay two calls: the browser sends Core's `expectedConfigurationRevision`, `previewAtMs`,
+`previewDigest` and `consent:true` itself, and Remote never synthesizes consent or a preview.
 
 **Owner-browser DM history.** Signed `requests.list` takes
 `{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
@@ -3881,6 +3898,11 @@ uses the same owned cleanup. Budget refusal performs no provider I/O or allowanc
 
 Browser transport is shipped. Native credentials and REST effects belong to `firebase_auth`
 and `native_sync`; serve composes their shared project owner behind the opt-in v3 carrier.
+The selected provider adapter owns REST-value/document decoding. Common context, declaration,
+digest, resource and scope admission remain provider-independent; unsupported production backends
+refuse at factory admission before token acquisition or HTTP. Carrier and sealed-document factories
+reuse the same serving-project Auth/runtime/budget and stop owner. No wire, settings or persisted
+field names change; the existing continuation serialization is retained byte-identically.
 
 The SDK and native types define one bound client port. Provider implementations are separate
 from this pure type boundary. The browser factory `HostedAuth.sealedSync(space, guard)` binds

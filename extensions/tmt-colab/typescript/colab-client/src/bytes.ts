@@ -82,21 +82,58 @@ export function namespace(value: string): void {
   requireValue(value === 'content' || value === 'own');
 }
 export function encodeBinary(value: Uint8Array): string {
+  const native = (
+    value as Uint8Array & {
+      toBase64?(options: { alphabet: 'base64url'; omitPadding: boolean }): string;
+    }
+  ).toBase64;
+  if (native) return native.call(value, { alphabet: 'base64url', omitPadding: true });
   let raw = '';
   for (let i = 0; i < value.length; i += 8192)
     raw += String.fromCharCode(...value.subarray(i, i + 8192));
   return btoa(raw).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
+const base64url = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const sextets = new Uint8Array(128);
+for (let i = 0; i < base64url.length; i++) sextets[base64url.charCodeAt(i)] = i;
 export function binary(value: unknown, max: number, exact?: number): Bytes {
   requireValue(
     typeof value === 'string' &&
       value.length <= Math.ceil(max / 3) * 4 &&
       /^[A-Za-z0-9_-]*$/.test(value),
   );
-  const raw = atob(value.replaceAll('-', '+').replaceAll('_', '/'));
-  requireValue(raw.length <= max && (exact === undefined || raw.length === exact));
-  const out = Uint8Array.from(raw, (c) => c.charCodeAt(0));
-  requireValue(encodeBinary(out) === value);
+  const tail = value.length % 4;
+  // Preserve the platform's existing atob refusal (including its message) for this invalid length.
+  if (tail === 1) atob('A');
+  const length = Math.floor((value.length * 3) / 4);
+  requireValue(length <= max && (exact === undefined || length === exact));
+  const last = sextets[value.charCodeAt(value.length - 1)] ?? 0;
+  requireValue((tail !== 2 || (last & 15) === 0) && (tail !== 3 || (last & 3) === 0));
+  const native = (
+    Uint8Array as Uint8ArrayConstructor & {
+      fromBase64?(
+        value: string,
+        options: { alphabet: 'base64url'; lastChunkHandling: 'strict' },
+      ): Bytes;
+    }
+  ).fromBase64;
+  if (native)
+    return native.call(Uint8Array, value + (tail === 2 ? '==' : tail === 3 ? '=' : ''), {
+      alphabet: 'base64url',
+      lastChunkHandling: 'strict',
+    });
+  const out = new Uint8Array(length);
+  let bits = 0;
+  let available = 0;
+  let offset = 0;
+  for (let i = 0; i < value.length; i++) {
+    bits = (bits << 6) | sextets[value.charCodeAt(i)]!;
+    available += 6;
+    if (available >= 8) {
+      available -= 8;
+      out[offset++] = (bits >>> available) & 255;
+    }
+  }
   return out;
 }
 export function exactKeys(
