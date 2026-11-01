@@ -69,9 +69,49 @@ function pageUiCss() {
 const docsCss = () =>
   stripComments(readFileSync(join(repo, 'design/browser-ui/generated/docs-embed.css'), 'utf8'));
 
+/**
+ * The docs pages with their inline `style` attributes lifted into classes: a Colab page's CSP
+ * refuses inline styles. Each distinct style becomes one rule in the system CSS, every declaration
+ * `!important` so it still wins as the inline style did.
+ */
+function liftInlineStyles(sections) {
+  const names = new Map();
+  const lift = (html) =>
+    html.replace(/<([a-z][a-z0-9-]*)([^>]*?)\sstyle="([^"]*)"([^>]*)>/g, (_, tag, before, style, after) => {
+      if (!names.has(style)) names.set(style, `ds-inline-${names.size + 1}`);
+      const name = names.get(style);
+      const attrs = `${before}${after}`;
+      const classed = /\sclass="/.test(attrs)
+        ? attrs.replace(/\sclass="([^"]*)"/, (_, classes) => ` class="${classes} ${name}"`)
+        : `${attrs} class="${name}"`;
+      return `<${tag}${classed}>`;
+    });
+  const lifted = sections.map((section) => ({
+    ...section,
+    pages: section.pages.map((page) => ({ ...page, html: lift(page.html) })),
+  }));
+  if (lifted.some((section) => section.pages.some((page) => /\sstyle="/.test(page.html))))
+    throw new Error('docs pages: an inline style was left');
+  const css = [...names]
+    .map(([style, name]) => {
+      const rules = style
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#x27;', "'")
+        .replaceAll('&amp;', '&')
+        .split(';')
+        .filter((rule) => rule.trim())
+        .map((rule) => `${rule.trim()} !important`)
+        .join(';');
+      return `.tmt-design-docs .${name}{${rules}}`;
+    })
+    .join('\n');
+  return { sections: lifted, css };
+}
+
 async function compile(dir) {
   const { components: docs, ...rest } = readJson(join(dir, 'system.json'));
-  const css = [tokensCss(), pageUiCss(), docsCss()].join('\n');
+  const pages = liftInlineStyles(await renderDocs());
+  const css = [tokensCss(), pageUiCss(), docsCss(), pages.css].join('\n');
   const config = { ...rest, tokens: { ...rest.tokens, css } };
   const read = docs.map(({ doc }) => {
     const path = join(dir, doc);
@@ -143,7 +183,7 @@ async function compile(dir) {
     [
       'generated/pages.json',
       `${JSON.stringify(
-        (await renderDocs()).map((section) => ({
+        pages.sections.map((section) => ({
           title: section.title,
           pages: section.pages.map((page) => ({
             ...page,
