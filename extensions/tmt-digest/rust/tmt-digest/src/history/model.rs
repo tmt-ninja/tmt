@@ -8,17 +8,19 @@ use serde::{Deserialize, Serialize};
 pub enum Window {
     Day,
     Week,
+    Month,
     Lifetime,
 }
 impl Window {
     /// Every window, in the order the CLI lists them. The check below keeps it complete.
-    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Lifetime];
+    pub const ALL: [Self; 4] = [Self::Day, Self::Week, Self::Month, Self::Lifetime];
     /// The window after this one in `ALL`. Its match has no wildcard: a new variant fails to
     /// compile here until it is placed, and then the check below until `ALL` lists it.
     const fn next(self) -> Option<Self> {
         match self {
             Self::Day => Some(Self::Week),
-            Self::Week => Some(Self::Lifetime),
+            Self::Week => Some(Self::Month),
+            Self::Month => Some(Self::Lifetime),
             Self::Lifetime => None,
         }
     }
@@ -36,13 +38,24 @@ impl Window {
         match self {
             Self::Day => "24h",
             Self::Week => "7d",
+            Self::Month => "30d",
             Self::Lifetime => "lifetime",
+        }
+    }
+    /// The width of one `series` bucket, as `usage report` buckets the same window:
+    /// hourly for a day, daily beyond. Lifetime has no series.
+    pub fn bucket(self) -> Option<u64> {
+        match self {
+            Self::Day => Some(super::DAY / 24),
+            Self::Week | Self::Month => Some(super::DAY),
+            Self::Lifetime => None,
         }
     }
     pub fn duration(self) -> Option<u64> {
         match self {
             Self::Day => Some(super::DAY),
             Self::Week => Some(7 * super::DAY),
+            Self::Month => Some(30 * super::DAY),
             Self::Lifetime => None,
         }
     }
