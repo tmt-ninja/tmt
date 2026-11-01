@@ -150,9 +150,8 @@ machine actions, `--grant-revision` to require the values just read. All support
 including while stopped. The [contract](../../../../contracts/remote-channel-v1.md#local-members-commands)
 owns revision fences, no-change results and interrupted-answer recovery: re-read, then explicitly
 rerun; no terminal journal or automatic resend. Route removal may remain pending after local
-revocation; offline activity/cleanup is unknown. Legacy `devices` (including JSON/talk/designate)
-remains unchanged until the Colab consumer cutover. Settings-browser authority and
-bulk confirmation follow the [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol).
+revocation; offline activity/cleanup is unknown. The legacy `devices` command is not accepted.
+Settings-browser authority and bulk confirmation follow the [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol).
 
 The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and recovery policy.
@@ -186,9 +185,9 @@ New pairings are read only. After the word-match confirmation, the terminal asks
 to allow sending, defaulting to no. Owner-side `--talk` preselects sending and skips that second
 prompt; bare JSON confirmation remains read only. `--agents <uuid,...>` and `--hold` require `--talk`
 and narrow the issued policy, not enrollment. Existing grants are unchanged; no migration ships.
-The retained `tmt remote devices talk <clientId> on|off` compatibility command changes only sending, preserving every other grant
-field, and works through the current serve or under the stopped serve lease. It commits sanitized
-audit metadata with the scope change; designated settings browsers use the existing immutable
+`tmt remote members sending <member-id|unique-name> on|off` changes the person sending choice
+through the current serve or under the stopped serve lease, with its member revision rechecked
+at the effect. Narrower per-machine grants remain unchanged; designated settings browsers use the existing immutable
 management receipt/effect owner. Changed revisions end previous Sessions; revoked grants stay revoked.
 A fresh signed open under the retained valid device key can prove revoked or expired authority;
 unknown, deleted/corrupt keys and opaque replies remain unconfirmed. The SDK's bounded reopen

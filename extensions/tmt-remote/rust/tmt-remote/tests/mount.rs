@@ -274,6 +274,24 @@ impl Drop for Mounted {
     }
 }
 
+fn machine_effect(
+    devices: &Devices,
+    store: &Arc<Mutex<Store>>,
+    client: &str,
+    name: Option<&str>,
+) -> serde_json::Value {
+    use tmt_remote::members::terminal_machines::{self, MemberMachineMutation};
+    let target = terminal_machines::resolve(&store.lock().unwrap(), client).unwrap();
+    let request = match name {
+        Some(name) => MemberMachineMutation::Rename {
+            target,
+            name: name.into(),
+        },
+        None => MemberMachineMutation::Remove { target },
+    };
+    terminal_machines::mutate(devices, &request, None).unwrap()
+}
+
 #[test]
 fn forwards_to_owner_socket_without_device_context_or_cookie() {
     let door = Mounted::new(Arc::new(NoSessions));
@@ -459,15 +477,18 @@ fn durable_device_events_retry_rename_revoke_and_replay_after_restarts() {
         let initial = serde_json::json!({"type":"device.renamed", "deviceId":original.client_id,"grantRevision":1,"name":"Laptop é"});
         assert_eq!(received(&events), initial);
         assert_eq!(received(&events), initial); // 503 must retry, not acknowledge.
-        devices.rename(&original.client_id, "Travel").unwrap();
+        machine_effect(&devices, &store, &original.client_id, Some("Travel"));
         assert_eq!(
             received(&events),
             serde_json::json!({"type":"device.renamed","deviceId":original.client_id,"grantRevision":1,"name":"Travel"})
         );
-        devices.revoke(&original.client_id).unwrap();
+        machine_effect(&devices, &store, &original.client_id, None);
         let revoked = serde_json::json!({"type":"device.revoked","deviceId":original.client_id,"grantRevision":2});
         assert_eq!(received(&events), revoked);
-        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 2);
+        assert_eq!(
+            machine_effect(&devices, &store, &original.client_id, None)["machine"]["revision"],
+            2
+        );
         assert_eq!(received(&events), revoked);
         drop(worker);
         drop(extension);
@@ -534,13 +555,13 @@ fn an_unresponsive_extension_cannot_block_mutation_or_worker_shutdown() {
         received(&events); // Callback is held, with no response yet.
         assert!(store.try_lock().is_ok(), "callback retained the grant lock");
         assert_eq!(
-            devices
-                .rename(&original.client_id, "Travel")
-                .unwrap()
-                .revision,
+            machine_effect(&devices, &store, &original.client_id, Some("Travel"))["machine"]["revision"],
             1
         );
-        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 2);
+        assert_eq!(
+            machine_effect(&devices, &store, &original.client_id, None)["machine"]["revision"],
+            2
+        );
         assert!(devices.list().unwrap()[0].disabled);
         let began = Instant::now();
         drop(worker);

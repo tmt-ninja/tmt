@@ -17,7 +17,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     process::ExitCode,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -25,7 +25,6 @@ use tmt_cli_style::{CommandSpec, Example, Interaction, Mode, OutputModes, Route}
 use tmt_remote::{
     control::{self, StatusProjection},
     core::CoreClient,
-    devices::Devices,
     error::RemoteError,
     firestore_limits, open, readiness, settings,
     state::Layout,
@@ -118,86 +117,6 @@ const SETTINGS: CommandSpec = CommandSpec {
     ],
     outputs: OutputModes::HumanAndJson,
     details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: off); changes apply at the next session open. remote-name sets the local Remote presentation name. Settings are stored only in Remote's data directory.",
-};
-const TALK: CommandSpec = CommandSpec {
-    name: "talk",
-    summary: "Enable or disable sending for one paired device",
-    examples: &[Example {
-        command: "tmt remote devices talk <person> on|off",
-        note: "Keep its other grant policy unchanged",
-    }],
-    outputs: OutputModes::HumanAndJson,
-    details: "Use a unique device name or a client ID. Only the local owner can run this command. A changed scope ends Sessions on the previous revision; revoked devices cannot be enabled.",
-};
-const DEVICES: CommandSpec = CommandSpec {
-    name: "devices",
-    summary: "List, remove or rename paired devices",
-    examples: &[
-        Example {
-            command: "tmt remote devices",
-            note: "Show each device with its fingerprint words",
-        },
-        Example {
-            command: "tmt remote devices revoke <person>",
-            note: "End a device's access now",
-        },
-        Example {
-            command: "tmt remote devices rename <client-id> <name>",
-            note: "Change a device's display name",
-        },
-    ],
-    outputs: OutputModes::HumanAndJson,
-    details: "Revoking disables the grant before it reports success and ends the device's door session and open pages.\nWorks whether or not tmt remote serve is running.",
-};
-const REVOKE: CommandSpec = CommandSpec {
-    name: "revoke",
-    summary: "Revoke one paired device",
-    examples: &[Example {
-        command: "tmt remote devices revoke <person>",
-        note: "Use a unique device name or the client ID shown by tmt remote devices",
-    }],
-    outputs: OutputModes::HumanAndJson,
-    details: "Revoking a revoked device reports it again. Pair again to trust the device anew.\nTo revoke this machine's Firestore sign-in instead, use tmt remote sync revoke.",
-};
-const REMOVE_OTHERS: CommandSpec = CommandSpec {
-    name: "remove-others",
-    summary: "Remove all other paired devices and keep the selected device",
-    details: "The kept device must be live. Removes at most 1000 other devices atomically; their saved pairing stops working.",
-    examples: &[Example {
-        command: "tmt remote devices remove-others --keep <client-id>",
-        note: "Keep this paired device and end the others' access",
-    }],
-    outputs: OutputModes::HumanAndJson,
-};
-const RENAME: CommandSpec = CommandSpec {
-    name: "rename",
-    summary: "Rename one paired device",
-    examples: &[Example {
-        command: "tmt remote devices rename <client-id> <name>",
-        note: "The client ID is shown by tmt remote devices",
-    }],
-    outputs: OutputModes::HumanAndJson,
-    details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nRenaming keeps this device's access, its open sessions and any held work.\nRenaming to the current name changes nothing. Revoked devices cannot be renamed.",
-};
-const DESIGNATE: CommandSpec = CommandSpec {
-    name: "designate",
-    summary: "Authorize one paired browser to manage Remote settings and devices",
-    examples: &[Example {
-        command: "tmt remote devices designate <client-id>",
-        note: "Select a live browser UUID shown by devices",
-    }],
-    outputs: OutputModes::HumanAndJson,
-    details: "Local-only. No browser is designated automatically. Replaces the previous designation; agent grants stay unchanged.",
-};
-const UNDESIGNATE: CommandSpec = CommandSpec {
-    name: "undesignate",
-    summary: "Remove browser authority to manage Remote settings and devices",
-    examples: &[Example {
-        command: "tmt remote devices undesignate",
-        note: "Keep every browser read-only",
-    }],
-    outputs: OutputModes::HumanAndJson,
-    details: "Local-only. Keeps pairings and existing agent grants; fences later management effects.",
 };
 const SERVE: CommandSpec = CommandSpec {
     name: "serve",
@@ -372,44 +291,6 @@ fn grammar() -> Command {
         )
         .subcommand(tmt_cli_style::command(&APPROVE).arg(Arg::new("operation-id").required(true)))
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
-        .subcommand(
-            tmt_cli_style::command(&DEVICES)
-                .subcommand(
-                    tmt_cli_style::command(&TALK)
-                        .arg(Arg::new("client-id").value_name("PERSON").required(true).help("Unique device name or client ID"))
-                        .arg(
-                            Arg::new("enabled")
-                                .required(true)
-                                .value_parser(["on", "off"]),
-                        ),
-                )
-                .subcommand(
-                    tmt_cli_style::command(&DESIGNATE).arg(Arg::new("client-id").required(true)),
-                )
-                .subcommand(tmt_cli_style::command(&UNDESIGNATE))
-                .subcommand(tmt_cli_style::command(&REMOVE_OTHERS).arg(Arg::new("keep").long("keep").required(true).help("Client ID of the paired device to keep")))
-                .subcommand(
-                    tmt_cli_style::command(&REVOKE).arg(
-                        Arg::new("client-id")
-                            .value_name("PERSON")
-                            .required(true)
-                            .help("Unique device name or client ID from tmt remote devices"),
-                    ),
-                )
-                .subcommand(
-                    tmt_cli_style::command(&RENAME)
-                        .arg(
-                            Arg::new("client-id")
-                                .required(true)
-                                .help("Device client ID from tmt remote devices"),
-                        )
-                        .arg(
-                            Arg::new("name")
-                                .required(true)
-                                .help("New device display name"),
-                        ),
-                ),
-        )
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
@@ -500,9 +381,6 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if name == "settings" {
         return settings_command(arguments);
-    }
-    if name == "devices" {
-        return devices(arguments);
     }
     if name == "members" {
         return members_cli::run(arguments);
@@ -1415,185 +1293,6 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     Ok(())
 }
-/// `tmt remote devices [revoke|rename ...]`, through the running serve or,
-/// when none runs, directly under the serve lock.
-fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
-    let mutation = arguments.subcommand();
-    let json_output =
-        arguments.get_flag("json") || mutation.is_some_and(|(_, m)| m.get_flag("json"));
-    let request = match mutation {
-        Some(("talk", m)) => {
-            json!({"op":"talk","clientId":m.get_one::<String>("client-id").unwrap(),"enabled":m.get_one::<String>("enabled").unwrap()=="on"})
-        }
-        Some(("rename", m)) => {
-            json!({"op":"rename","clientId":m.get_one::<String>("client-id").unwrap(), "name":m.get_one::<String>("name").unwrap()})
-        }
-        Some(("revoke", m)) => {
-            json!({"op":"revoke","clientId":m.get_one::<String>("client-id").unwrap()})
-        }
-        Some(("designate", m)) => {
-            json!({"op":"designate","clientId":m.get_one::<String>("client-id").unwrap()})
-        }
-        Some(("undesignate", _)) => json!({"op":"undesignate"}),
-        Some(("remove-others", m)) => {
-            json!({"op":"remove-others","keep":m.get_one::<String>("keep").unwrap()})
-        }
-        Some(_) => unreachable!("typed device grammar"),
-        None => json!({"op":"devices"}),
-    };
-    let stop = AtomicBool::new(false);
-    let root = CoreClient::discover()?.storage_root(&stop)?;
-    let answer = match std::fs::canonicalize(&root)
-        .map_err(|_| not_running())
-        .and_then(|root| control::connect(&root.join("remote")))
-    {
-        Ok(mut stream) => {
-            stream.write_all(format!("{request}\n").as_bytes())?;
-            let mut line = String::new();
-            BufReader::new(stream).read_line(&mut line)?;
-            let answer: serde_json::Value = serde_json::from_str(&line).map_err(|_| {
-                RemoteError::new("REMOTE_IO", "Remote sent an invalid control line.")
-            })?;
-            if let Some(error) = answer.get("error") {
-                return Err(RemoteError::new(
-                    error["code"].as_str().unwrap_or("REMOTE_IO"),
-                    error["message"]
-                        .as_str()
-                        .unwrap_or("Device management failed."),
-                ));
-            }
-            answer
-        }
-        Err(error) if error.code == "REMOTE_NOT_RUNNING" => {
-            let serving = Layout::open(&root)?.serve_lock()?;
-            let mut store = Store::open(&serving)?;
-            let origin = store
-                .remembered_port()?
-                .map(|port| format!("http://127.0.0.1:{port}"));
-            store.machine()?;
-            let devices = Devices::new(Arc::new(Mutex::new(store)), None);
-            match mutation {
-                Some(("talk", m)) => {
-                    json!({"device":devices.describe(&devices.talk(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("enabled").unwrap()=="on")?)?})
-                }
-                Some(("rename", m)) => {
-                    json!({"device": devices.describe(&devices.rename(m.get_one::<String>("client-id").unwrap(), m.get_one::<String>("name").unwrap())?)?})
-                }
-                Some(("revoke", m)) => {
-                    json!({"device": devices.describe(&devices.revoke(m.get_one::<String>("client-id").unwrap())?)?})
-                }
-                Some(("designate", m)) => {
-                    let origin = origin.ok_or_else(|| {
-                        RemoteError::new(
-                            "REMOTE_NOT_RUNNING",
-                            "No remembered door origin; run serve first.",
-                        )
-                    })?;
-                    let grant =
-                        devices.designate(m.get_one::<String>("client-id").unwrap(), &origin)?;
-                    json!({"designatedClientId":grant.client_id})
-                }
-                Some(("remove-others", m)) => {
-                    json!({"removed":devices.remove_others(m.get_one::<String>("keep").unwrap())?})
-                }
-                Some(("undesignate", _)) => {
-                    devices.undesignate()?;
-                    json!({"designatedClientId":null})
-                }
-                Some(_) => unreachable!("typed device grammar"),
-                None => {
-                    json!({"devices": devices.visible()?})
-                }
-            }
-        }
-        Err(error) => return Err(error),
-    };
-    let mut output = tmt_cli_style::stream::stdout(json_output);
-    if json_output {
-        writeln!(output, "{answer}")?;
-        return Ok(());
-    }
-    let terminal = output.terminal();
-    if let Some(client) = answer.get("designatedClientId") {
-        return Ok(tmt_cli_style::message::success(
-            &mut output,
-            terminal,
-            &if let Some(client) = client.as_str() {
-                format!("Designated browser {client}")
-            } else {
-                "Removed browser management designation".to_owned()
-            },
-        )?);
-    }
-    if let Some(count) = answer["removed"].as_u64() {
-        return Ok(tmt_cli_style::message::success(
-            &mut output,
-            terminal,
-            &format!(
-                "Removed {count} other {}",
-                if count == 1 { "device" } else { "devices" }
-            ),
-        )?);
-    }
-    if let Some(device) = answer.get("device") {
-        let name = device["name"].as_str().unwrap_or("");
-        return Ok(tmt_cli_style::message::success(
-            &mut output,
-            terminal,
-            &match request["op"].as_str() {
-                Some("rename") => format!("Renamed {name}"),
-                Some("talk") if request["enabled"] == true => format!("Sending is on for {name}."),
-                Some("talk") => format!("Sending is off for {name}."),
-                _ => format!("Revoked {name}. This machine no longer accepts their requests."),
-            },
-        )?);
-    }
-    use tmt_cli_style::{
-        list::Section,
-        mark::Mark,
-        table::{Cell, Column, Table},
-    };
-    let listed = answer["devices"].as_array().cloned().unwrap_or_default();
-    let mut rows = Table::new(&[
-        Column::Fixed,
-        Column::Name,
-        Column::Fixed,
-        Column::Detail,
-        Column::Fixed,
-        Column::Detail,
-    ]);
-    let now = tmt_remote::pairing::now_ms()?;
-    for device in &listed {
-        let mark = Mark::Running;
-        let last_used = device["lastUsedAtMs"]
-            .as_u64()
-            .map(|time| {
-                format!(
-                    "Last used {}",
-                    tmt_cli_style::value::relative_time(now.saturating_sub(time))
-                )
-            })
-            .unwrap_or_else(|| "Last used Not recorded".into());
-        let text = |key: &str| Cell::from(device[key].as_str().unwrap_or(""));
-        rows.row([
-            Cell::styled(mark.symbol(), mark.token()),
-            text("name"),
-            text("kind"),
-            text("words"),
-            text("clientId"),
-            Cell::from(last_used.as_str()),
-        ]);
-    }
-    Section {
-        title: "DEVICES",
-        count: Some(listed.len()),
-        rows,
-        note: None,
-        hint: None,
-    }
-    .write(&mut output, terminal)?;
-    Ok(())
-}
 /// Whether any subcommand on the chain asked for `--json`.
 fn wants_json(matches: &clap::ArgMatches) -> bool {
     matches.subcommand().is_some_and(|(_, m)| {
@@ -1732,14 +1431,17 @@ mod tests {
     }
 
     #[test]
-    fn members_cli_keeps_legacy_devices_available_for_the_colab_cutover() {
+    fn members_cli_rejects_removed_devices_without_an_alias() {
         for words in [
             vec!["tmt-remote", "devices", "--json"],
             vec!["tmt-remote", "devices", "talk", "client-id", "on", "--json"],
             vec!["tmt-remote", "devices", "designate", "client-id", "--json"],
         ] {
-            assert!(grammar().try_get_matches_from(words).is_ok());
+            assert!(grammar().try_get_matches_from(words).is_err());
         }
+        let help = grammar().render_long_help().to_string();
+        assert!(!help.contains("\n  devices "));
+        assert!(help.contains("members"));
     }
 
     #[test]

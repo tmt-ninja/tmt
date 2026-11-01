@@ -698,128 +698,143 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     assert_eq!(ended["reason"], "paired");
     assert!(pair.wait().unwrap().success());
     assert!(device.join().unwrap().starts_with("HTTP/1.1 200"));
-    // Device management reaches state through the running serve, and through
-    // the serve lock once it stops.
-    fn devices(pilot: &Pilot, args: &[&str]) -> (bool, Value) {
-        let output = pilot.command().arg("devices").args(args).output().unwrap();
-        let answer: Value = serde_json::from_slice(&output.stdout)
-            .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)));
-        (output.status.success(), answer)
-    }
-    let (listed, running) = devices(&pilot, &["--json"]);
-    assert!(listed);
     let client_id = ended["clientId"].as_str().unwrap();
     let member_id = ended["memberId"].as_str().unwrap();
-    assert_eq!(running["devices"][0]["clientId"], client_id);
-    assert_eq!(running["devices"][0]["kind"], "cli");
     member_reads::assert_shared_member_reads(&pilot, client_id, member_id);
     member_reads::assert_public_member_reads(&pilot, client_id, true);
+    let machines =
+        member_commands::json_command(&pilot, &["members", "machines", member_id, "--json"], true);
+    let machine = &machines["machines"][0];
+    assert_eq!(machine["clientId"], client_id);
+    assert_eq!(machine["kind"], "cli");
+    assert_eq!(machine["sendingScope"], explicit_policy);
     assert_eq!(
-        running["devices"][0]["scopes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|scope| scope == "talk"),
-        explicit_policy
-    );
-    assert_eq!(
-        running["devices"][0]["mode"],
+        machine["delivery"],
         if explicit_policy { "hold" } else { "direct" }
     );
+    // The bounded public projection intentionally omits the recipient allowlist.
+    // Independently retain the exact enrollment-policy oracle in private test state.
+    let agents: String = rusqlite::Connection::open_with_flags(
+        pilot.root.join("state/remote/remote.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap()
+    .query_row(
+        "SELECT agents FROM grants WHERE client_id=?1",
+        [client_id],
+        |r| r.get(0),
+    )
+    .unwrap();
     if explicit_policy {
         assert_eq!(
-            serde_json::from_str::<Value>(running["devices"][0]["agents"].as_str().unwrap())
-                .unwrap(),
+            serde_json::from_str::<Value>(&agents).unwrap(),
             serde_json::json!([selected_agent])
         );
     } else {
-        assert_eq!(running["devices"][0]["agents"], "all");
+        assert_eq!(agents, "all");
     }
-    let (renamed, name) = devices(&pilot, &["rename", client_id, "Travel laptop", "--json"]);
-    assert!(renamed);
-    assert_eq!(name["device"]["name"], "Travel laptop");
-    assert_eq!(name["device"]["clientId"], client_id);
-    assert_eq!(name["device"]["revision"], 1);
-    for field in [
-        "kind",
-        "origin",
-        "words",
-        "agents",
-        "scopes",
-        "mode",
-        "issuedAtMs",
-        "expiresAtMs",
-        "revoked",
-    ] {
-        assert_eq!(
-            name["device"][field], running["devices"][0][field],
-            "{field} changed"
-        );
-    }
-    let (repeated, same) = devices(&pilot, &["rename", client_id, "Travel laptop", "--json"]);
-    assert!(repeated);
-    assert_eq!(same, name);
+    let renamed = member_commands::json_command(
+        &pilot,
+        &[
+            "members",
+            "rename-machine",
+            client_id,
+            "Travel laptop",
+            "--json",
+        ],
+        true,
+    );
+    assert_eq!(renamed["machine"]["name"], "Travel laptop");
+    assert_eq!(renamed["machine"]["clientId"], client_id);
+    assert_eq!(renamed["machine"]["revision"], 1);
+    let same = member_commands::json_command(
+        &pilot,
+        &[
+            "members",
+            "rename-machine",
+            client_id,
+            "Travel laptop",
+            "--json",
+        ],
+        true,
+    );
+    assert_eq!(same["changed"], false);
+    assert_eq!(same["machine"], renamed["machine"]);
     for invalid in ["", " \u{feff}", "a\nb", &"é".repeat(33)] {
-        let (accepted, bad) = devices(&pilot, &["rename", client_id, invalid, "--json"]);
-        assert!(!accepted);
+        let bad = member_commands::json_command(
+            &pilot,
+            &["members", "rename-machine", client_id, invalid, "--json"],
+            false,
+        );
         assert_eq!(bad["error"]["code"], "REMOTE_INPUT_INVALID");
     }
-    // A serve names an unknown operation with its own code, so clients match
-    // on the code rather than on `REMOTE_INPUT_INVALID` text.
-    let mut control = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
-    control
-        .write_all(b"{\"op\":\"from-the-future\"}\n")
-        .unwrap();
-    let mut reply = String::new();
-    BufReader::new(control).read_line(&mut reply).unwrap();
-    let reply: Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(reply["error"]["code"], "REMOTE_CONTROL_UNSUPPORTED");
+    // Removed inventory and legacy effect grammar have no private control aliases.
+    for request in [
+        serde_json::json!({"op":"devices"}),
+        serde_json::json!({"op":"designate","clientId":client_id}),
+        serde_json::json!({"op":"undesignate"}),
+        serde_json::json!({"op":"remove-others","keep":client_id}),
+        serde_json::json!({"op":"revoke","clientId":client_id}),
+        serde_json::json!({"op":"talk","clientId":client_id,"enabled":true}),
+        serde_json::json!({"op":"rename","clientId":client_id,"name":"Legacy alias"}),
+    ] {
+        let mut control =
+            UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+        writeln!(control, "{request}").unwrap();
+        let mut reply = String::new();
+        BufReader::new(control).read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(
+            reply["error"]["code"], "REMOTE_CONTROL_UNSUPPORTED",
+            "{request}"
+        );
+    }
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
-    assert_eq!(status_json(&pilot)["running"], false);
-    let (listed, stopped) = devices(&pilot, &["--json"]);
-    assert!(listed);
-    assert_eq!(stopped["devices"][0], name["device"]);
-    // Real enrollment and its complete grant, rather than a seeded count,
-    // survive a new window at the same origin.
+    member_reads::assert_public_member_reads(&pilot, client_id, false);
     let next: Value =
         serde_json::from_str(&start_door(&mut pilot, &["--background"], false)).unwrap();
     assert_eq!(next["address"], descriptor["address"]);
     assert_ne!(next["windowId"], descriptor["windowId"]);
-    let (listed, after_restart) = devices(&pilot, &["--json"]);
-    assert!(listed);
-    assert_eq!(after_restart["devices"][0], name["device"]);
+    let restarted =
+        member_commands::json_command(&pilot, &["members", "machines", member_id, "--json"], true);
+    assert_eq!(restarted["machines"][0]["name"], "Travel laptop");
+    for field in [
+        "clientId",
+        "kind",
+        "revision",
+        "sendingScope",
+        "delivery",
+        "expiresAtMs",
+        "revoked",
+    ] {
+        assert_eq!(
+            restarted["machines"][0][field], machine[field],
+            "{field} changed"
+        );
+    }
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
-    member_reads::assert_public_member_reads(&pilot, client_id, false);
-    let (renamed, offline) = devices(&pilot, &["rename", client_id, "Home laptop", "--json"]);
-    assert!(renamed);
-    assert_eq!(offline["device"]["name"], "Home laptop");
-    assert_eq!(offline["device"]["revision"], 1);
-    let (revoked, answer) = devices(&pilot, &["revoke", client_id, "--json"]);
-    assert!(revoked);
-    assert_eq!(answer["device"]["revoked"], true);
-    assert_eq!(answer["device"]["revision"], 2);
-    let (renamed, disabled) = devices(&pilot, &["rename", client_id, "Revived", "--json"]);
-    assert!(!renamed);
-    assert_eq!(disabled["error"]["code"], "REMOTE_DEVICE_REVOKED");
-    let (renamed, missing) = devices(
+    let offline = member_commands::json_command(
         &pilot,
         &[
-            "rename",
-            "00000000-0000-4000-8000-000000000009",
-            "Missing",
+            "members",
+            "rename-machine",
+            client_id,
+            "Home laptop",
             "--json",
         ],
+        true,
     );
-    assert!(!renamed);
-    assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
-    let (found, missing) = devices(
+    assert_eq!(offline["machine"]["name"], "Home laptop");
+    assert_eq!(offline["machine"]["revision"], 1);
+    let removed = member_commands::json_command(
         &pilot,
-        &["revoke", "00000000-0000-4000-8000-000000000009", "--json"],
+        &["members", "remove-machine", client_id, "--json"],
+        true,
     );
-    assert!(!found);
-    assert_eq!(missing["error"]["code"], "REMOTE_DEVICE_NOT_FOUND");
+    assert_eq!(removed["machine"]["revoked"], true);
+    assert_eq!(removed["machine"]["revision"], 2);
     let grants: i64 = rusqlite::Connection::open(pilot.root.join("state/remote/remote.db"))
         .unwrap()
         .query_row("SELECT COUNT(*) FROM grants", [], |r| r.get(0))
@@ -1098,7 +1113,13 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
         );
         let renamed = pilot
             .command()
-            .args(["devices", "rename", &grant.client_id, "Travel", "--json"])
+            .args([
+                "members",
+                "rename-machine",
+                &grant.client_id,
+                "Travel",
+                "--json",
+            ])
             .output()
             .unwrap();
         assert!(renamed.status.success());
@@ -1109,7 +1130,7 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
         terminate(pilot.child.take().unwrap());
         let revoked = pilot
             .command()
-            .args(["devices", "revoke", &grant.client_id, "--json"])
+            .args(["members", "remove-machine", &grant.client_id, "--json"])
             .output()
             .unwrap();
         assert!(revoked.status.success());
@@ -3771,183 +3792,24 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
 }
 
 #[test]
-fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_policy() {
-    use tmt_remote::{
-        state::Layout,
-        store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
-    };
-    let mut pilot = Pilot::new();
-    let root = pilot.root.join("state");
-    fs::create_dir(&root).unwrap();
-    let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
-    let mut store = Store::open(&serving).unwrap();
-    store.machine().unwrap();
-    let id = uuid_v4().unwrap();
-    let grant = Grant {
-        client_id: id.clone(),
-        public_key: [7; 32],
-        kind: "cli".into(),
-        origin: "cli".into(),
-        name: "Owner device".into(),
-        agents: serde_json::json!([uuid_v4().unwrap()]).to_string(),
-        scopes: SUPPORTED_SCOPES.map(str::to_owned).to_vec(),
-        mode: "hold".into(),
-        issued_at_ms: tmt_remote::pairing::now_ms().unwrap(),
-        expires_at_ms: None,
-        revision: 1,
-        disabled: false,
-    };
-    store.insert_grant(&grant).unwrap();
-    drop(store);
-    drop(serving);
-    let toggle = |pilot: &Pilot, mode: &str| {
-        let output = pilot
-            .command()
-            .args(["devices", "talk", "Owner device", mode, "--json"])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        serde_json::from_slice::<Value>(&output.stdout).unwrap()["device"].clone()
-    };
-    let off = toggle(&pilot, "off");
-    assert_eq!(off["revision"], 2);
-    assert!(
-        !off["scopes"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("talk"))
-    );
-    assert_eq!(toggle(&pilot, "off"), off, "exact repeat keeps revision");
-    let human = pilot
-        .command()
-        .args(["devices", "talk", &id, "off"])
-        .output()
-        .unwrap();
-    assert!(human.status.success());
-    assert_eq!(
-        String::from_utf8(human.stdout).unwrap(),
-        "✓ Sending is off for Owner device\n"
-    );
-    let on = toggle(&pilot, "on");
-    assert_eq!(on["revision"], 3);
-    for field in [
-        "clientId",
-        "name",
-        "kind",
-        "origin",
-        "words",
-        "agents",
-        "mode",
-        "issuedAtMs",
-        "expiresAtMs",
-        "revoked",
-    ] {
-        assert_eq!(on[field], off[field], "{field} changed");
-    }
-    start_door(&mut pilot, &["--background"], false);
-    let live = toggle(&pilot, "off");
-    assert_eq!(live["revision"], 4);
-    assert_eq!(live["scopes"], off["scopes"]);
-    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
-    wait_stopped(pilot.child.as_mut().unwrap());
-}
-
-#[test]
-fn owner_cli_removes_other_devices_offline_and_shows_last_use_without_tombstones() {
-    use tmt_remote::{
-        state::Layout,
-        store::{Grant, Store, uuid_v4},
-    };
+fn removed_devices_refuses_before_core_or_state_discovery() {
     let pilot = Pilot::new();
-    let serving = Layout::open(&pilot.root.join("state"))
-        .unwrap()
-        .serve_lock()
-        .unwrap();
-    let mut store = Store::open(&serving).unwrap();
-    store.machine().unwrap();
-    let keep = uuid_v4().unwrap();
-    for i in 0..3u8 {
-        store
-            .insert_grant(&Grant {
-                client_id: if i == 0 {
-                    keep.clone()
-                } else {
-                    uuid_v4().unwrap()
-                },
-                public_key: [i + 1; 32],
-                kind: "browser".into(),
-                origin: "http://127.0.0.1:32100".into(),
-                name: format!("Device {i}"),
-                agents: "all".into(),
-                scopes: vec!["agents.read".into()],
-                mode: "direct".into(),
-                issued_at_ms: 1,
-                expires_at_ms: None,
-                revision: 1,
-                disabled: false,
-            })
-            .unwrap();
+    for tail in [
+        vec![],
+        vec!["--json"],
+        vec!["talk", "person", "on"],
+        vec!["rename", "id", "Name"],
+        vec!["revoke", "id"],
+        vec!["designate", "id"],
+        vec!["undesignate"],
+        vec!["remove-others", "--keep", "id"],
+    ] {
+        let output = pilot.command().arg("devices").args(tail).output().unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand"));
+        assert!(!pilot.root.join("calls").exists());
+        assert!(!pilot.root.join("state/remote").exists());
     }
-    store
-        .start_session(
-            &store.grant(&keep).unwrap().unwrap(),
-            &uuid_v4().unwrap(),
-            &uuid_v4().unwrap(),
-            1000,
-        )
-        .unwrap();
-    drop(store);
-    drop(serving);
-    let list = pilot
-        .command()
-        .args(["devices", "--json"])
-        .output()
-        .unwrap();
-    assert!(list.status.success(), "{list:?}");
-    let list: Value = serde_json::from_slice(&list.stdout).unwrap();
-    assert_eq!(list["devices"].as_array().unwrap().len(), 3);
-    for row in list["devices"].as_array().unwrap() {
-        if row["clientId"] == keep {
-            assert_eq!(row["lastUsedAtMs"], 1000);
-        } else {
-            assert!(row["lastUsedAtMs"].is_null());
-        }
-    }
-    let plain = pilot.command().args(["devices"]).output().unwrap();
-    assert!(plain.status.success());
-    let plain = String::from_utf8(plain.stdout).unwrap();
-    assert!(plain.contains("Last used Not recorded"), "{plain}");
-    assert!(!plain.contains("Last used:"), "{plain}");
-    let removed = pilot
-        .command()
-        .args(["devices", "remove-others", "--keep", &keep, "--json"])
-        .output()
-        .unwrap();
-    assert!(removed.status.success(), "{removed:?}");
-    assert_eq!(
-        serde_json::from_slice::<Value>(&removed.stdout).unwrap()["removed"],
-        2
-    );
-    let removed = pilot
-        .command()
-        .args(["devices", "revoke", &keep, "--json"])
-        .output()
-        .unwrap();
-    assert!(removed.status.success());
-    let list = pilot
-        .command()
-        .args(["devices", "--json"])
-        .output()
-        .unwrap();
-    assert!(list.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&list.stdout).unwrap()["devices"],
-        serde_json::json!([])
-    );
 }
 
 #[test]

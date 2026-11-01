@@ -119,9 +119,9 @@ and the document reads no cookie or session. Its policy is the pairing page poli
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
 `frame-src 'self'`, with `object-src 'none'`; it is no wider than Colab's mounted document policy.
 `GET /p/<id>` answers 308 with `Location: /colab/p/<id>` (its query kept) and an empty body; a
-malformed `/p` path receives the generic HTML 404 page. An app route and `/p/<id>` accept only a
-plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`; the app writes
-its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
+malformed `/p` path receives the generic HTML 404 page. App/`/p/<id>` queries: `key=value` split on `&`; unreserved keys except
+`tmt-session`; values: unreserved, `+`, `*` or `%HH` (hex). Bad pairs/escapes/escaped keys: 400.
+Remote never decodes; app/308 queries are byte-exact. The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
 Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
@@ -837,7 +837,7 @@ uncertain/dispatching outcomes remain recorded unchanged and cannot be released,
 observed or re-adopted by that new member. Cloud final selection and mapped result
 reads use the same ownership fence.
 
-The shared member roster/policy service and the retained devices facade consume these
+The shared member roster/policy service and browser device management consume these
 Store identities and writers; the signed management protocol is specified below. Member-wide
 sending changes reuse post-commit session cleanup; machine-specific removal retains its grant semantics.
 
@@ -879,16 +879,15 @@ This terminal path has no local-owner journal, original-ID recovery or schema mi
 interrupted or unverifiable answer (`REMOTE_MEMBER_UNCONFIRMED`), re-read `members` and its
 machine page before explicitly rerunning with the newly observed revisions. The command
 never resends or falls back to another writer after a live request. Stale-revision reruns refuse.
-The legacy `devices` grammar, JSON, talk and designation behavior remain independently available
-until the Colab consumer moves to `members`; this is not an alias or an immediate removal.
+The legacy `tmt remote devices` command is removed without an alias. Device management uses
+`members` and its revision-fenced person and exact-machine actions. Browser `remote.devices.*`
+operations and immutable receipts keep their existing shapes.
 
 ### Trust grants and remote lifecycle
 
-Owner-local `devices talk <person|client-id> on|off` and `devices revoke <person|client-id>`
-resolve an exact client ID first, otherwise a unique active member display name. Multiple machines of the same member
-resolve as one person. Duplicate member names refuse
-with the matching client IDs; no first-match selection occurs. Selection stays under the Store
-lock through the existing grant mutation. Names are command selectors, not persisted authority.
+Owner-local `members sending` and `members revoke` select a stable member ID or unique name;
+`members remove-machine` requires an exact client ID. The local members contract above owns
+selection, captured revision checks and effect ordering. Names never grant authority.
 
 A grant makes one device a trusted source on one machine. Grant JSON names are `clientId`,
 `machineId`, `profile`, `publicKey`, `kind`, `origin`, `name`, `agents`, `scopes`, `mode`,
@@ -1178,8 +1177,9 @@ means count zero and null activity. These are disposable observations, not persi
 `lastUsedAtMs` is separate durable machine wall-clock metadata: the latest accepted authenticated
 session open or sequence consumption, stored in that transaction and retained across restart.
 Earlier rows have null until observed (`Not recorded`); no creation-time fallback or online claim.
-The CLI device projection also adds this nullable JSON-safe timestamp. Revocations disappear
-from CLI/settings inventory, while their internal rows and revocation replay remain intact.
+The member machine projection includes this nullable JSON-safe timestamp and retains revoked
+rows as observations. Browser device inventory omits revoked rows; internal tombstones and
+revocation replay remain intact.
 
 Bulk preview covers every non-disabled device except the keeper, across page boundaries, up to
 1,000 targets. Its fingerprint is lowercase-hex SHA-256 of compact UTF-8 JSON `[keeper,[[id,revision],...]]`, with targets sorted by ID;
@@ -1187,8 +1187,7 @@ it is an inventory comparison, not authority. The effect rechecks live designati
 snapshot inside the same immediate transaction as all revocations and the immutable receipt.
 Changed inventory yields `REMOTE_DEVICE_LIST_CHANGED` without mutation; above the bound yields
 `REMOTE_DEVICE_REMOVAL_LIMIT`, never a partial batch. Keeper authority is unchanged; target
-sessions end after commit. Local owner `tmt remote devices remove-others --keep <client-id>` uses
-the same atomic inventory/revocation owner, with an explicit live keeper. A non-designated browser
+sessions end after commit. A non-designated browser
 can read its own inventory and sees its exact local `tmt remote members designate <client-id>` command;
 it cannot designate itself or execute removal. Re-pair short-circuit preserves the existing
 designation because the device identity stays unchanged.
@@ -1951,8 +1950,8 @@ are regenerated from the independent oracle (#1039); the superseded M1 enrollmen
 removed and envelope bytes are unchanged. The pairing ceremony is implemented through
 `tmt remote pair` and `/remote/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
-mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
-revoke are implemented (#1039). Local rename and level-triggered device events over mounted
+mount-space cookie and the device context it carries to mounts) and local `tmt remote members`
+reads and revision-fenced effects are implemented. Local rename and level-triggered device events over mounted
 extension sockets are implemented (#1100). The device SDK in `remote-client` (non-extractable WebCrypto device
 key, pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
 certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
@@ -2077,7 +2076,7 @@ for a replayed revoke. Delivery is asynchronous: remote revokes authority and en
 acknowledging the local command, while extension cleanup may still be awaiting recovery. A rename
 of a revoked device refuses, so its tombstone cannot become a name event.
 
-`tmt remote devices rename <clientId> <name>` changes presentation only, preserving the device ID,
+`tmt remote members rename-machine <clientId> <name>` changes presentation only, preserving the device ID,
 key, authority revision, Sessions, cookies and held work. A changed name wakes the device-event
 worker without ending transports; repeating the current name is a no-op. Both rename and revoke
 work through serve's control socket when running, or directly under the serve lock when stopped.
@@ -4346,7 +4345,7 @@ agree. A public Firebase reference maps to an owned file
 only when its projectId, appId and authDomain agree with that file's verified publication;
 importing a link alone cannot claim ownership or trigger provider setup.
 
-Owner-host serve/stop/pair/devices/approve/cancel/settings/catalog commands and ordinary status
+Owner-host serve/stop/pair/members/approve/cancel/settings/catalog commands and ordinary status
 always act on this home and ignore the default. An explicit other Local reference refuses
 `REMOTE_SELECTOR_LOCAL_REQUIRED`; Firebase administration refuses
 `REMOTE_SELECTOR_KIND_UNSUPPORTED`. No foreign-host administration client ships.
