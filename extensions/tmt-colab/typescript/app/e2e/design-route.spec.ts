@@ -395,3 +395,50 @@ test('a click on a design-system example in selection mode quotes the whole exam
     'button:secondaryDraft<acme-button variant="secondary">Draft</acme-button>',
   );
 });
+
+test('an agent patch of an example re-renders the open Design page live', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await pickSystem(page, 'Acme');
+  await designFrame(page)
+    .getByRole('link', { name: /acme-button/ })
+    .click();
+  const example = designFrame(page).locator('[data-ds-example="button:secondary"]');
+  await expect(example.getByRole('button', { name: 'Draft', exact: true })).not.toHaveClass(
+    /tmt-ui-button-outline/,
+  );
+  // The anchored edit the agent makes from the example's quote: its live markup and its snippet.
+  const pageId = page.url().split('/').pop()!;
+  await page.evaluate((id) => {
+    const fixture = (
+      window as unknown as {
+        designFixture: { patch(id: string, find: string, replace: string): void };
+      }
+    ).designFixture;
+    fixture.patch(
+      id,
+      '<acme-button variant="secondary">Draft</acme-button>',
+      '<acme-button variant="outline">Draft</acme-button>',
+    );
+    fixture.patch(
+      id,
+      '&lt;acme-button variant=&quot;secondary&quot;&gt;Draft',
+      '&lt;acme-button variant=&quot;outline&quot;&gt;Draft',
+    );
+  }, pageId);
+  await expect(example.getByRole('button', { name: 'Draft', exact: true })).toHaveClass(
+    /tmt-ui-button-outline/,
+  );
+  await expect(example.locator('pre')).toContainText(
+    '<acme-button variant="outline">Draft</acme-button>',
+  );
+  // One place holds each example: the page's block keeps only what publish compiles.
+  const block = await page.evaluate((id) => {
+    const source = (
+      window as unknown as { designFixture: { pages: Map<string, { source: string }> } }
+    ).designFixture.pages.get(id)!.source;
+    return JSON.parse(/data-tmt-ds="component">([\s\S]*?)<\/script>/.exec(source)![1]);
+  }, pageId);
+  expect(Object.keys(block)).not.toContain('examples');
+  expect(Object.keys(block)).not.toContain('notes');
+});

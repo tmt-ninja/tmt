@@ -161,6 +161,15 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
     pages,
     counts,
     anchors,
+    // What an agent's `page patch --find --replace` does to the page's draft: one exact match, as
+    // the owner applies it, then the live update every open view receives.
+    patch(pageId: string, find: string, replace: string) {
+      const page = pages.get(pageId)!;
+      if (page.source.split(find).length !== 2) throw new Error('find must match exactly once');
+      page.source = page.source.replace(find, () => replace);
+      counts.edits++;
+      notify(page);
+    },
     controls,
     initial,
     home,

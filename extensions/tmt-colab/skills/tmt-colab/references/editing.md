@@ -89,6 +89,15 @@ patch is evaluated again on the new page. A `--lines` anchor is the line numbers
 so an edit that shifts those lines conflicts; read the range again.
 `--expected-revision REVISION` instead refuses any change anywhere (`COLAB_STALE_BASE`) and retries nothing; use it only when you need that fence.
 
+### A design-system example
+
+A comment on a Design example quotes the example's rendered text, which starts with its label,
+such as `button:secondary`. That text is not in the source as written. Find the example by its root
+instead: `page read PAGE --grep 'data-ds-example="button:secondary"' --context 6`. Patch its
+live markup and its escaped `<pre>` snippet together, as two pairs in one patch. The component's
+`data-tmt-ds` block holds only what publish compiles (props, slots, source, CSS). A change there
+reaches the examples only after the system publishes a version, which stays the person's step.
+
 ## When it conflicts
 
 `COLAB_PATCH_CONFLICT` means the text you addressed is missing, ambiguous or changed;
