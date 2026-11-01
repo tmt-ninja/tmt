@@ -460,8 +460,9 @@ async function markDesignPages(transport: PageTransport, ids: readonly string[])
   }
   const home = await transport.spaceHome();
   const projects = new Map(home.pages.map((page) => [page.id, page.projects ?? []]));
+  // The request lists its pages in ID order.
   await management.setProjects(
-    ids.map((pageId) => ({
+    [...ids].sort().map((pageId) => ({
       pageId,
       projects: [...new Set([...(projects.get(pageId) ?? []), DESIGN_PROJECT])],
     })),

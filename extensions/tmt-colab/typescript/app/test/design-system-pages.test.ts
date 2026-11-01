@@ -103,6 +103,10 @@ function space({ kinds = false }: { kinds?: boolean } = {}) {
     }),
     management: {
       setProjects: async (changes: { pageId: string; projects: string[] }[]) => {
+        // As the real client refuses: one request lists its pages in ID order.
+        const order = changes.map((change) => change.pageId);
+        if (order.join() !== [...order].sort().join())
+          throw new Error('Invalid colab-v1 value or proof');
         for (const change of changes) pages.get(change.pageId)!.projects = [...change.projects];
       },
       // A serve with page kinds (#5866) takes `page.kind`; an older one has no such request.
