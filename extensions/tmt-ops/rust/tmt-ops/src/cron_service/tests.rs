@@ -735,3 +735,83 @@ fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
     assert_eq!(next.owner_id.as_deref(), Some(WORKER));
     assert_eq!(next.room_id, job.room_id);
 }
+
+#[test]
+fn deferred_legacy_reads_keep_jobs_and_holder_without_core_adoption() {
+    for version in [1, 2] {
+        let f = Fixture::new();
+        let mut document = json!({"version":2,"counters":{ROOM:1},"jobs":[{
+            "id":"c1","roomId":ROOM,"ownerId":WORKER,"message":"legacy exact text",
+            "revision":1,"state":"on","pause":null,
+            "schedule":{"kind":"every","seconds":60,"anchorMs":0,"from":null,"zone":"UTC"}
+        }]});
+        if version == 1 {
+            document["version"] = json!(1);
+            document["counters"] = json!({"product":1});
+            document["jobs"][0]["squad"] = json!("product");
+        }
+        let source = document.to_string().into_bytes();
+        crate::migration::paths(&f.core, None).unwrap();
+        f.seed_legacy(&source);
+        fs::rename(f.directory.join("ops"), f.directory.join("squad")).unwrap();
+        fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
+        for name in [".ops-paths-v1", ".ops-paths-cutover-v1"] {
+            fs::remove_file(f.directory.join(name)).unwrap();
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let lease = tmt_ops::cron::Clock::new(&f.directory.join("squad"))
+            .unwrap()
+            .acquire(now, 123, Some("%41".into()), "0.1.0")
+            .unwrap()
+            .unwrap();
+        let held = fs::read(f.directory.join("squad/cron/clock.json")).unwrap();
+        let core = Core::at(f.core.executable().into());
+        let config = Config::load(&core).unwrap();
+        let listed = list_jobs(&core, &config, Some("product"), now + 1)
+            .expect("a deferred legacy list remains readable without adoption");
+        assert_eq!(listed.jobs.len(), 1);
+        assert_eq!(listed.jobs[0].job.message, "legacy exact text");
+        let shown = show_job(
+            &core,
+            &config,
+            &JobKey {
+                room_id: ROOM.into(),
+                id: "c1".into(),
+            },
+            now + 1,
+        )
+        .unwrap();
+        assert_eq!(shown.job, listed.jobs[0].job);
+        assert_eq!(
+            fs::read(f.directory.join("squad/cron/clock.json")).unwrap(),
+            held
+        );
+        assert!(!f.directory.join("ops").exists());
+        assert!(
+            f.current_jobs().jobs().is_empty(),
+            "read-only legacy projection cannot import a job"
+        );
+        let old = Store::new(&f.directory.join("squad")).unwrap();
+        assert!(old.frozen_for_core().unwrap().is_none());
+        let db = rusqlite::Connection::open_with_flags(
+            f.directory.join("squad/ops.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let retained: Vec<u8> = db
+            .query_row(
+                "SELECT body FROM documents WHERE kind='cron' AND key=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            retained, source,
+            "deferred projection must preserve the exact source bytes"
+        );
+        lease.release().unwrap();
+    }
+}
