@@ -667,7 +667,6 @@ fn session(
                 Ok(answer)
             })())
         }
-        Some("devices") => Some(devices.visible().map(|rows| json!({"devices":rows}))),
         Some("remove-others") if request.as_object().is_some_and(|row| row.len() == 2) => Some(
             request
                 .get("keep")

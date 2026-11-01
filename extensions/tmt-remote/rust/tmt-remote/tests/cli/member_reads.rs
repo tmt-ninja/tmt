@@ -61,7 +61,6 @@ pub(super) fn assert_public_member_reads(pilot: &Pilot, client: &str, running: b
         );
         output
     };
-    let legacy_before = invoke(&["devices", "--json"]).stdout;
     let roster: Value = serde_json::from_slice(&invoke(&["members", "--json"]).stdout).unwrap();
     assert_eq!(roster["administrator"], true);
     let rows = roster["members"].as_array().unwrap();
@@ -91,9 +90,10 @@ pub(super) fn assert_public_member_reads(pilot: &Pilot, client: &str, running: b
     assert!(!missing.status.success());
     let missing: Value = serde_json::from_slice(&missing.stdout).unwrap();
     assert_eq!(missing["error"]["code"], "REMOTE_MEMBER_NOT_FOUND");
-    let legacy_after = invoke(&["devices", "--json"]).stdout;
+    let after: Value =
+        serde_json::from_slice(&invoke(&["members", "machines", member, "--json"]).stdout).unwrap();
     assert_eq!(
-        legacy_after, legacy_before,
-        "new reads preserve exact legacy device JSON bytes"
+        after, by_id,
+        "member reads preserve the exact machine projection"
     );
 }

@@ -1,6 +1,5 @@
-//! Local device management (`tmt remote devices`). Serve answers it over the
-//! control socket; without a running serve the command opens remote state
-//! under the serve lock itself, so remote.db keeps a single opener.
+//! Shared device grants, session cleanup and mounted-extension events.
+//! Members commands and signed browser management share this Store owner.
 use crate::{
     error::RemoteError,
     mount::Mounts,
@@ -304,7 +303,7 @@ fn observed_device(store: &Store, grant: &Grant) -> Result<Value, RemoteError> {
     Ok(row)
 }
 
-/// A device row as `tmt remote devices --json` reports it. The public key is
+/// An owner-local device row. The public key is
 /// identified by its four fingerprint words, never printed raw.
 pub fn device_json(grant: &Grant) -> Value {
     let words = crate::canonical::fingerprint_words(&grant.public_key)

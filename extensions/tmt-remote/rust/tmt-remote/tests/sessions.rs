@@ -810,14 +810,17 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     let second = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
     let second_cookie = pair_of(&second.cookie().unwrap());
     let mut second_tunnel = tunnel_for(&h, &second_cookie, None);
-    let listed = control(&h, json!({"op":"devices"}));
-    assert_eq!(listed["devices"][0]["clientId"], client_id);
-    assert_eq!(listed["devices"][0]["revoked"], false);
-    assert_eq!(
-        listed["devices"][0]["words"],
-        canonical::fingerprint_words(&device.public())
-            .unwrap()
-            .join(" ")
+    let roster = control(&h, json!({"op":"members.list","cursor":null,"limit":50}));
+    let member = roster["members"][0]["memberId"].as_str().unwrap();
+    let listed = control(
+        &h,
+        json!({"op":"members.machines","memberId":member,"cursor":null,"limit":50}),
+    );
+    assert_eq!(listed["machines"][0]["clientId"], client_id);
+    assert_eq!(listed["machines"][0]["revoked"], false);
+    assert!(
+        listed["machines"][0].get("words").is_none(),
+        "member projections do not disclose key fingerprints"
     );
     let revoked = control(&h, json!({"op":"revoke","clientId":client_id}));
     assert_eq!(revoked["device"]["revoked"], true);
