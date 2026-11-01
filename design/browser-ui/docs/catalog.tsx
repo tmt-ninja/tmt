@@ -1,3 +1,4 @@
+import { moreComponents, moreVariants } from './catalog-more.js';
 import { useState, type ReactNode } from 'react';
 import { Info, Search } from 'lucide-react';
 import {
@@ -97,7 +98,7 @@ function SwitchDemo() {
   );
 }
 
-export const components: ComponentDoc[] = [
+const baseComponents: ComponentDoc[] = [
   {
     slug: 'button',
     name: 'Button',
@@ -578,4 +579,13 @@ export const components: ComponentDoc[] = [
     usage: `${importLine('Empty', 'EmptyHeader', 'EmptyTitle', 'EmptyDescription')}<Empty>\n  <EmptyHeader><EmptyTitle>No timers yet</EmptyTitle></EmptyHeader>\n</Empty>`,
     variants: [],
   },
+];
+
+/** The catalog: each entry with its composition variants (catalog-more.tsx), then the newer parts. */
+export const components: ComponentDoc[] = [
+  ...baseComponents.map((doc) => ({
+    ...doc,
+    variants: [...doc.variants, ...(moreVariants[doc.slug] ?? [])],
+  })),
+  ...moreComponents,
 ];

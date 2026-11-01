@@ -625,3 +625,50 @@ code {
   align-items: center;
   gap: var(--tmt-ui-ref-space-3);
 }
+
+/* A Browser entry shows the gallery's section; its own heading repeats the page title. */
+.docs-browser-demo > .gallery-section > h2 {
+  display: none;
+}
+.docs-browser-demo .gallery-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* The floating dock demo: the dock sits in this stage instead of the viewport corner. */
+.docs-floating-stage {
+  position: relative;
+  /* Its only child is the absolutely placed dock, so it takes the canvas width itself. */
+  align-self: stretch;
+  width: 100%;
+  min-height: 380px;
+  overflow: hidden;
+}
+.docs-counter {
+  padding: 0 var(--tmt-ui-ref-space-1);
+  font-variant-numeric: tabular-nums;
+}
+.docs-grow {
+  flex: 1;
+}
+.docs-surface-sample {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 64px;
+}
+.docs-list {
+  margin: 0;
+  padding-left: var(--tmt-ui-ref-space-5);
+}
+.docs-stack {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-3);
+  justify-items: start;
+}
+.docs-code {
+  margin: 0;
+  font: var(--tmt-ui-ref-size-2) / 1.5 var(--tmt-ui-font-mono);
+  white-space: pre-wrap;
+}

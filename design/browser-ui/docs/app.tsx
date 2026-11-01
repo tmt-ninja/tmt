@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { BrandMark } from '../src/brand-mark.js';
 import { UiTheme } from '../src/ui/index.js';
+import { browserDocs, browserExports, type BrowserDoc } from './browser-catalog.js';
 import { components, type ComponentDoc } from './catalog.js';
 import { patterns } from './patterns.js';
 import { motionNotes, Replay } from './motion.js';
@@ -42,6 +43,16 @@ const sections: { title: string; pages: Page[] }[] = [
         href: `/docs/components/${doc.slug}`,
         title: doc.name,
         render: () => <ComponentPage doc={doc} />,
+      })),
+  },
+  {
+    title: 'Browser components',
+    pages: [...browserDocs]
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+      .map((doc) => ({
+        href: `/docs/browser/${doc.slug}`,
+        title: doc.name,
+        render: () => <BrowserPage doc={doc} />,
       })),
   },
   {
@@ -313,6 +324,28 @@ function ComponentPage({ doc }: { doc: ComponentDoc }) {
           </div>
         </>
       )}
+    </Article>
+  );
+}
+
+/** A Browser component: the gallery's section for it, every demo in light and dark side by side. */
+function BrowserPage({ doc }: { doc: BrowserDoc }) {
+  const names = browserExports(doc);
+  return (
+    <Article title={doc.name} lead={doc.description}>
+      {names.length > 0 && (
+        <>
+          <h2>Usage</h2>
+          <Snippet code={`import { ${names.join(', ')} } from '@tmt/browser-ui/react';`} />
+        </>
+      )}
+      <p className="docs-muted">
+        Styles: {doc.css.map((name) => `src/${name}.css`).join(', ')}, in the shared static.css.
+      </p>
+      <h2>Variants and states</h2>
+      <div className="docs-browser-demo">
+        <doc.Demo />
+      </div>
     </Article>
   );
 }
