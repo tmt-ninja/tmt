@@ -32,6 +32,7 @@ pub struct LineChannel {
     stdout: Option<File>,
     stderr: Option<File>,
     stderr_bytes: Vec<u8>,
+    pending: Vec<u8>,
     limit: usize,
 }
 
@@ -83,6 +84,7 @@ impl LineChannel {
             stdout: Some(stdout),
             stderr: Some(stderr),
             stderr_bytes: Vec::new(),
+            pending: Vec::new(),
             limit: options.max_frame_bytes,
         })
     }
@@ -96,6 +98,12 @@ impl LineChannel {
         stopped: impl Fn() -> bool,
     ) -> Result<Vec<u8>, InvokeError> {
         process::budget(deadline, stopped())?;
+        if !self.pending.is_empty() {
+            return Err(io_failure(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "read pending stream frames before sending a request",
+            )));
+        }
         if payload.len() > self.limit || payload.contains(&b'\n') {
             return Err(io_failure(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -108,7 +116,7 @@ impl LineChannel {
                 "channel is closed",
             )));
         }
-        let result = self.communicate(payload, deadline, &stopped);
+        let result = self.communicate(Some(payload), deadline, &stopped);
         if let Err(mut error) = result {
             self.stdin.take();
             self.stdout.take();
@@ -123,15 +131,36 @@ impl LineChannel {
 
     fn communicate(
         &mut self,
-        payload: &[u8],
+        payload: Option<&[u8]>,
         deadline: Instant,
         stopped: &impl Fn() -> bool,
     ) -> Result<Vec<u8>, InvokeError> {
-        let mut input = Vec::with_capacity(payload.len() + 1);
-        input.extend_from_slice(payload);
-        input.push(b'\n');
+        let streaming = payload.is_none();
+        let mut input = payload.unwrap_or_default().to_vec();
+        if !streaming {
+            input.push(b'\n');
+        }
         let mut written = 0;
         let mut output = Vec::new();
+        if streaming && !self.pending.is_empty() {
+            if let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
+                if end > self.limit {
+                    return Err(process::failure(
+                        FailureKind::OutputLimit(Stream::Stdout),
+                        None,
+                    ));
+                }
+                let frame = self.pending.drain(..=end).collect::<Vec<_>>();
+                return Ok(frame[..end].to_vec());
+            }
+            output = std::mem::take(&mut self.pending);
+            if output.len() > self.limit {
+                return Err(process::failure(
+                    FailureKind::OutputLimit(Stream::Stdout),
+                    None,
+                ));
+            }
+        }
         loop {
             let left = process::budget(deadline, stopped())?.min(process::PULSE);
             let (readable, error_ready, writable) = {
@@ -220,11 +249,14 @@ impl LineChannel {
                         }
                         output.extend_from_slice(payload);
                         if let Some(end) = newline {
-                            if end + 1 != count || written != input.len() {
+                            if written != input.len() || !streaming && end + 1 != count {
                                 return Err(io_failure(io::Error::new(
                                     io::ErrorKind::InvalidData,
                                     "unexpected output outside the response frame",
                                 )));
+                            }
+                            if streaming {
+                                self.pending.extend_from_slice(&frame[end + 1..]);
                             }
                             return Ok(output);
                         }
@@ -236,6 +268,43 @@ impl LineChannel {
                         ) => {}
                     Err(error) => return Err(io_failure(error)),
                 }
+            }
+        }
+    }
+
+    /// Read one bounded unsolicited newline frame without writing stdin.
+    /// Unlike a request exchange, a stream failure leaves shutdown to its owner,
+    /// which can terminate a supervising child gracefully before forced cleanup.
+    pub fn receive(
+        &mut self,
+        deadline: Instant,
+        stopped: impl Fn() -> bool,
+    ) -> Result<Vec<u8>, InvokeError> {
+        process::budget(deadline, stopped())?;
+        if self.child.is_none() {
+            return Err(io_failure(io::ErrorKind::BrokenPipe.into()));
+        }
+        self.communicate(None, deadline, &stopped)
+    }
+
+    /// Signal only this channel's owned group, then drain/reap within the caller's
+    /// existing cleanup allowance. Failure falls through the same forced owner.
+    pub fn terminate(mut self, deadline: Instant) -> Result<Output, InvokeError> {
+        let signal = self
+            .child
+            .as_ref()
+            .map(|child| child.terminate_owned())
+            .transpose();
+        let result = self.close_inner(deadline, || false);
+        match result {
+            Ok(output) => Ok(output), // A child already gone also confirms shutdown.
+            Err(mut error) => {
+                if error.cause.is_none()
+                    && let Err(cause) = signal
+                {
+                    error.cause = Some(cause);
+                }
+                Err(error)
             }
         }
     }
