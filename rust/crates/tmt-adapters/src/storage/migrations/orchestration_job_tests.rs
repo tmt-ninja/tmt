@@ -4,6 +4,12 @@ use crate::{storage::Storage, test_support::TestDirectory};
 #[test]
 fn canonical_jobs_migrate_after_plain_program_without_rewriting_existing_records() {
     let d = TestDirectory::new();
+    // The real predecessor includes migration 084's owner-only queue admission.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&d.path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let path = d.path.join("predecessor.db");
     let mut old = Connection::open(&path).unwrap();
     apply_through(&mut old, 86).unwrap();
