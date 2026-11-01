@@ -13,7 +13,7 @@ use std::time::Duration;
 use tmt_core::{
     binding::{
         BindingEntry, BindingRepository,
-        session::{RuntimeState, activity::ActivityPhase},
+        session::{RuntimeState, activity::ActivityPhase, launch::SessionLearningDigestEmpty},
     },
     driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus},
     request::{
@@ -371,6 +371,35 @@ pub fn fitting_through(
     // Zero lets the launch-fenced owner try a count-only claim without granting
     // a full checklist an unmeasured prefix when that summary must defer.
     Ok(through.or_else(|| pending.then_some(0)))
+}
+
+/// Names an empty turn boundary after [`fitting_through`] (`after_claim` false) or the
+/// launch's claim (`after_claim` true) found nothing (#5459). `None` unless references are
+/// due: nothing held, or held but not yet due under the receiving policy, is ordinary
+/// holding and names nothing, so the caller writes nothing for it.
+pub fn empty_boundary(
+    storage: &mut Storage,
+    identity: &str,
+    after_claim: bool,
+) -> Result<Option<SessionLearningDigestEmpty>, RequestError<StorageError>> {
+    let ids = [identity.to_owned()];
+    let view = RequestService::new(&mut *storage, wall_time_ms)
+        .digest_policies(&ids)?
+        .remove(0);
+    if view.held_count == 0 {
+        return Ok(None);
+    }
+    if view.active_checklist.is_some() {
+        return Ok(Some(SessionLearningDigestEmpty::ActiveClaim));
+    }
+    let stats = RequestService::new(&mut *storage, wall_time_ms)
+        .digest_stats(&ids)?
+        .remove(0);
+    Ok((stats.due_count > 0).then_some(if after_claim {
+        SessionLearningDigestEmpty::ClaimNothing
+    } else {
+        SessionLearningDigestEmpty::DueUnclaimable
+    }))
 }
 
 /// Claims the next checklist and renders it. A failed render releases the claim

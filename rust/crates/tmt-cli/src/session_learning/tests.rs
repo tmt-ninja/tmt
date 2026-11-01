@@ -706,6 +706,68 @@ fn a_digest_stop_names_its_refusal_on_an_admitted_launch_until_one_delivers() {
     assert!(launch.diagnostic().is_none());
 }
 
+/// The stored detail itself, which identity status does not show for empty-boundary evidence.
+fn stored_detail(launch: &mut Launch) -> Option<&'static str> {
+    let (binding, owner) = (launch.binding.id.clone(), launch.owner.clone());
+    launch
+        .storage
+        .with_binding_transaction(|records| {
+            Ok::<_, StorageError>(
+                records
+                    .launch_observation(&binding, &owner)?
+                    .and_then(|observed| observed.diagnostic)
+                    .and_then(|diagnostic| diagnostic.detail)
+                    .map(SessionLearningDetail::as_str),
+            )
+        })
+        .unwrap()
+}
+
+#[test]
+fn empty_boundary_evidence_is_stored_unshown_and_never_replaces_a_refusal() {
+    use tmt_core::binding::session::launch::SessionLearningDigestEmpty as Empty;
+    let mut launch = launch(HostKind::pty(), "claude");
+    admit(&mut launch);
+    let (learning, deadline) = (&launch.learning, launch.deadline);
+    learning
+        .digest_empty(Empty::DueUnclaimable, deadline)
+        .unwrap();
+    // Evidence, not a refusal: status still shows an admitted launch with nothing wrong.
+    assert!(launch.diagnostic().is_none());
+    // Another hook run on the admitted launch neither replaces nor clears it.
+    learning
+        .stage(SessionLearningStep::Input, deadline)
+        .unwrap();
+    learning.succeeded(deadline).unwrap();
+    assert_eq!(
+        stored_detail(&mut launch),
+        Some("digest_empty:due_unclaimable")
+    );
+    // A refusal replaces it, and later evidence never hides that refusal.
+    let (learning, deadline) = (&launch.learning, launch.deadline);
+    learning
+        .digest_stop(SessionLearningDigestStop::WorkerTimeout, deadline)
+        .unwrap();
+    learning.digest_empty(Empty::ActiveClaim, deadline).unwrap();
+    assert_eq!(
+        launch.diagnostic().unwrap().detail,
+        Some("digest_stop:worker_timeout")
+    );
+    // A delivering Digest Stop clears either.
+    launch.learning.digest_delivered(launch.deadline).unwrap();
+    assert_eq!(stored_detail(&mut launch), None);
+    launch
+        .learning
+        .digest_empty(Empty::ClaimNothing, launch.deadline)
+        .unwrap();
+    assert_eq!(
+        stored_detail(&mut launch),
+        Some("digest_empty:claim_nothing")
+    );
+    launch.learning.digest_delivered(launch.deadline).unwrap();
+    assert_eq!(stored_detail(&mut launch), None);
+}
+
 #[test]
 fn a_digest_stop_never_writes_to_a_launch_that_is_not_admitted() {
     let launch = launch(HostKind::pty(), "codex");

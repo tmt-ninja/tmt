@@ -329,6 +329,16 @@ refused (#4871). Its `<reason>` is one of `worker_spawn`, `worker_timeout`,
   where operation is `open | write | close | read` and cause is `busy | error`,
   for the separate awaiting-session continuation.
 
+`digest_empty:<path>` is evidence, not a refusal (#5459). An admitted launch's Digest Stop
+stores it when references were due but the turn boundary handed off nothing:
+`active_claim` (another checklist was still claimed), `due_unclaimable` (references were
+due, but none was claimable at this boundary) or `claim_nothing` (the launch's claim sealed
+nothing). Its step is `context` and its reason `in_progress`, which carry no admission
+meaning. Identity status never shows it, and the Stop's output and exit are unchanged.
+References held but not yet due under the receiving policy are ordinary holding and store
+nothing. It never replaces a stored `digest_stop:` refusal, and the next delivering
+Digest Stop clears it.
+
 These labels change no hook budget or admission decision. Every `launch:*` detail uses
 step `provider_verification`, `capture_failed` uses `storage`, and other names use `context`.
 Its `reason` is `spawn_failed` for `worker_spawn`,

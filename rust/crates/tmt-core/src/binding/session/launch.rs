@@ -429,6 +429,43 @@ impl SessionLearningDigestStop {
     }
 }
 
+/// Why an admitted launch's Digest turn boundary handed off nothing while Digest references
+/// were due (#5459). Evidence, never a refusal: identity status does not show it, and the
+/// Stop's output and exit are unchanged. Held references that are not due name nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLearningDigestEmpty {
+    /// Another checklist was still claimed.
+    ActiveClaim,
+    /// References were due, but none was claimable at this boundary.
+    DueUnclaimable,
+    /// Due references fitted the boundary, but the launch's claim sealed nothing.
+    ClaimNothing,
+}
+impl SessionLearningDigestEmpty {
+    pub const ALL: [Self; 3] = [Self::ActiveClaim, Self::DueUnclaimable, Self::ClaimNothing];
+    /// The name without the `digest_empty:` family prefix. A worker reports it to its
+    /// supervisor with this name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ActiveClaim => "active_claim",
+            Self::DueUnclaimable => "due_unclaimable",
+            Self::ClaimNothing => "claim_nothing",
+        }
+    }
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|empty| empty.name() == name)
+    }
+    /// The stored evidence. The step and reason only satisfy the row's shape: an admitted
+    /// launch with this detail is still admitted and not in a failed state.
+    pub fn diagnostic(self) -> SessionLearningDiagnostic {
+        SessionLearningDiagnostic {
+            step: SessionLearningStep::Context,
+            reason: SessionLearningReason::InProgress,
+            detail: Some(SessionLearningDetail::DigestEmpty(self)),
+        }
+    }
+}
+
 /// What a stage stopped on, beyond its step and reason. Fixed tokens only:
 /// never a payload body, path or identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,6 +478,8 @@ pub enum SessionLearningDetail {
     Stopped(SessionLearningEvent, SessionLearningStop),
     /// A Digest Stop hook on an admitted launch refused, for this reason.
     DigestStop(SessionLearningDigestStop),
+    /// An admitted launch's turn boundary handed off nothing while references were due.
+    DigestEmpty(SessionLearningDigestEmpty),
 }
 impl SessionLearningDetail {
     /// Every `Stopped` pair a hook path can produce, with its stored token. Nothing else is
@@ -566,9 +605,11 @@ impl SessionLearningDetail {
     };
 
     /// Every detail admitted by the current diagnostic constraint (`schema/085.sql`).
-    pub const ALL: [Self; 35 + SessionLearningDigestStop::ALL.len()] = {
+    pub const ALL: [Self;
+        35 + SessionLearningDigestStop::ALL.len() + SessionLearningDigestEmpty::ALL.len()] = {
         use SessionLearningEvent as E;
-        let mut all = [Self::HostUnsupported; 35 + SessionLearningDigestStop::ALL.len()];
+        let mut all = [Self::HostUnsupported;
+            35 + SessionLearningDigestStop::ALL.len() + SessionLearningDigestEmpty::ALL.len()];
         let head = [
             Self::Refused(E::SessionStart),
             Self::Refused(E::SessionEnd),
@@ -597,6 +638,12 @@ impl SessionLearningDetail {
         while digest < SessionLearningDigestStop::ALL.len() {
             all[index + digest] = Self::DigestStop(SessionLearningDigestStop::ALL[digest]);
             digest += 1;
+        }
+        index += digest;
+        let mut empty = 0;
+        while empty < SessionLearningDigestEmpty::ALL.len() {
+            all[index + empty] = Self::DigestEmpty(SessionLearningDigestEmpty::ALL[empty]);
+            empty += 1;
         }
         all
     };
@@ -635,6 +682,7 @@ impl SessionLearningDetail {
                 .find(|(known_event, known_stop, _)| *known_event == event && *known_stop == stop)
                 .map_or("stopped:invalid", |(_, _, token)| token),
             Self::DigestStop(stop) => DIGEST_STOP_TOKENS[stop as usize],
+            Self::DigestEmpty(empty) => DIGEST_EMPTY_TOKENS[empty as usize],
         }
     }
     pub fn parse(value: &str) -> Option<Self> {
@@ -643,6 +691,13 @@ impl SessionLearningDetail {
             .find(|detail| detail.as_str() == value)
     }
 }
+
+/// `digest_empty:` and the name, in `SessionLearningDigestEmpty` order.
+const DIGEST_EMPTY_TOKENS: [&str; 3] = [
+    "digest_empty:active_claim",
+    "digest_empty:due_unclaimable",
+    "digest_empty:claim_nothing",
+];
 
 /// `digest_stop:` and the name, in `SessionLearningDigestStop` order.
 const DIGEST_STOP_TOKENS: [&str; 55] = [
@@ -822,6 +877,17 @@ mod tests {
             if let SessionLearningDetail::DigestStop(stop) = detail {
                 assert_eq!(detail.as_str(), format!("digest_stop:{}", stop.name()));
                 assert_eq!(stop.diagnostic().detail, Some(detail));
+                continue;
+            }
+            if let SessionLearningDetail::DigestEmpty(empty) = detail {
+                assert_eq!(detail.as_str(), format!("digest_empty:{}", empty.name()));
+                assert_eq!(empty.diagnostic().detail, Some(detail));
+                assert_eq!(
+                    SessionLearningDigestEmpty::from_name(empty.name()),
+                    Some(empty)
+                );
+                // Never a refusal the worker can name on stderr.
+                assert_eq!(SessionLearningDigestStop::from_worker(empty.name()), None);
                 continue;
             }
             let SessionLearningDetail::Refused(event) = detail else {
