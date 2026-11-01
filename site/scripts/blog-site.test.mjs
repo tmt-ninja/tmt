@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, cp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, cp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generate } from "../src/blog/build.mjs";
@@ -20,7 +20,11 @@ const meta = {
   date: "2026-10-16",
   language: "en",
 };
-const site = { title: "TMT Journal", description: "Notes" };
+const site = {
+  title: "TMT Journal",
+  description: "Notes",
+  published: { product: false, journal: true, colab: false, github: true },
+};
 const origin = "https://example.com";
 test("blog URLs derive from the site base and escape metadata", () => {
   for (const base of ["/", "/tmt/", "/custom/path/"]) {
@@ -61,7 +65,7 @@ test("the origin is the caller's; a local run without one gets a neutral default
 test("generation renders articles; production removes demo inputs without touching approved sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-build-"));
   try {
-    for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     const demo = await generate({ root, demo: true, base: "/nested/" });
     const html = await readFile(
@@ -113,4 +117,54 @@ test("repository configuration accepts a build-owned repository and rejects URLs
     "owner/repo?x",
   ])
     assert.throws(() => repositoryUrl(value), /must name owner\/repository/);
+});
+
+test("index snapshot and optional key number render escaped; tag pages retain their intro", () => {
+  const location = locationConfig({ base: "/tmt/" });
+  const post = { meta: { ...meta, keyNumber: { value: "2.9× <x>", label: "tokens & lines" } } };
+  const html = indexBody([post], site, location);
+  assert.match(html, /We run a team of agents\.<br>These are the numbers\./);
+  assert.match(html, /never reads the code/);
+  assert.match(html, /2\.9× &lt;x&gt;/);
+  assert.match(html, /tokens &amp; lines/);
+  assert.doesNotMatch(html, /article-number|article-arrow|Field notes/);
+  assert.match(indexBody([{ meta }], site, location), /class="article-key-number"><\/div>/);
+  const topic = indexBody([post], site, location, "en", false, { tag: "engineering" });
+  assert.match(topic, /Articles tagged #engineering/);
+  assert.doesNotMatch(topic, /index-stats|index-contact/);
+});
+
+test("generation validates the actual root's committed stats before writing output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tmt-blog-stats-"));
+  try {
+    for (const path of ["src/blog", "src/shared", "src/posts"])
+      await cp(path, join(root, path), { recursive: true });
+    const path = join(root, "src/blog/stats.json");
+    const snapshot = JSON.parse(await readFile(path, "utf8"));
+    snapshot.metrics[0].value = "$123";
+    await writeFile(path, JSON.stringify(snapshot));
+    await generate({ root, base: "/" });
+    assert.match(await readFile(join(root, "blog/index.html"), "utf8"), /\$123/);
+    snapshot.asOf = "2026-02-30";
+    await writeFile(path, JSON.stringify(snapshot));
+    await assert.rejects(generate({ root, base: "/" }), /Invalid blog stats/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("blog chrome requires explicit publication decisions from build configuration", () => {
+  const location = locationConfig({ base: "/" });
+  for (const published of [undefined, {}, { ...site.published, colab: "false" }])
+    assert.throws(
+      () =>
+        layout({
+          site: { ...site, published },
+          location,
+          title: "Journal",
+          description: "Notes",
+          body: "",
+        }),
+      /explicit published/,
+    );
 });

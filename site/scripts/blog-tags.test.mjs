@@ -75,7 +75,7 @@ test("listing and article tags are separate links and RSS categories", async () 
 async function taggedWorld(run) {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-tags-"));
   try {
-    for (const path of ["src/blog", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     await writeFile(
       join(root, "index.html"),

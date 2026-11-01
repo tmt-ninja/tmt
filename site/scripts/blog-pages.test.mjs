@@ -97,6 +97,30 @@ test("Pages retains language/topic routes and transitive assets while pruning Ho
     });
 });
 
+test("Pages accepts optional X chrome links but still rejects unpublished destinations", async () =>
+  world("/tmt/", async ({ source, output, files }) => {
+    await prunePages(source, output, options);
+    const path = join(output, "blog/index.html");
+    const html = files["blog/index.html"]
+      .replaceAll("</a></header>", '</a><a href="https://x.com/tmt_ninja">Follow on X</a></header>')
+      .replaceAll(
+        "</a></footer>",
+        '</a><a href="https://x.com/tmt_ninja">Follow on X</a></footer>',
+      );
+    await writeFile(path, html);
+    await verifyDist(output, options);
+    for (const link of ["https://example.com/unapproved", "/tmt/colab/"]) {
+      await writeFile(
+        path,
+        html.replace("</header>", `<a href="${link}">Unpublished</a></header>`),
+      );
+      await assert.rejects(
+        verifyDist(output, options),
+        /header\/footer|Missing target|Missing Pages target/,
+      );
+    }
+  }));
+
 test("Pages rejects leaked HTML/assets, broken dependency closure, wrong repository and broken entry links", async () =>
   world("/tmt/", async ({ source, output, files }) => {
     await prunePages(source, output, options);

@@ -19,7 +19,7 @@ async function world(run) {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-languages-"));
   try {
     // Copy only the fixture post so page and feed counts do not depend on later posts.
-    for (const path of ["src/blog", `src/posts/${slug}`, "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", `src/posts/${slug}`, "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     const english = join(root, "src/posts", slug);
     const original = await readFile(join(english, "article.html"));
