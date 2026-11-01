@@ -41,11 +41,11 @@ fn record_hold(f: &mut Fixture, target: &str, owner: &str, revision: u64, hold: 
 }
 
 /// A bound session of `identity` whose driver last reported `state` at `since_ms`.
-fn bind_with_activity(f: &Fixture, identity: &str, state: &str, since_ms: u64) {
+pub(super) fn bind_with_activity(f: &Fixture, identity: &str, state: &str, since_ms: u64) {
     bind_driver_with_activity(f, identity, "claude", state, since_ms);
 }
 
-fn bind_driver_with_activity(
+pub(super) fn bind_driver_with_activity(
     f: &Fixture,
     identity: &str,
     driver: &str,
@@ -106,6 +106,37 @@ fn a_held_message_counts_down_to_the_oldest_held_plus_the_recorded_hold() {
     }
     f.set_now(NOW_MS + 400_000);
     assert_eq!(view(&mut f, "first").remaining_ms, Some(0));
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn the_oldest_held_counts_a_claimed_checklist_and_never_a_delivered_backlog() {
+    let (mut f, target, owner, sender) = start();
+    record_hold(&mut f, &target, &owner, 1, Some(300_000));
+    held(&mut f, &target, &sender, "sealed");
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute(
+        "INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms)
+         VALUES('typing',?1,'token',1,'claimed',?2)",
+        rusqlite::params![target, NOW_MS as i64],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE focus_items SET checklist_id='typing' WHERE request_id='sealed'",
+        [],
+    )
+    .unwrap();
+    f.set_now(NOW_MS + 100_000);
+    held(&mut f, &target, &sender, "open");
+    // A checklist still being typed holds its items, so they set the shared deadline.
+    assert_eq!(view(&mut f, "open").latest_ms, Some(NOW_MS + 300_000));
+    // Once delivered they are no longer held; only the open message counts.
+    db.execute(
+        "UPDATE focus_checklists SET state='delivered' WHERE id='typing'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(view(&mut f, "open").latest_ms, Some(NOW_MS + 400_000));
     f.storage.close().unwrap();
 }
 

@@ -57,6 +57,16 @@ pub(super) fn facts(
         })
         .transpose()?
         .unwrap_or_default();
+    let hold = recipient
+        .map(|id| hold(db, id, &attempt.request_id))
+        .transpose()?
+        .flatten();
+    // Only a request still held reads the recipient's oldest held item; it bounds that hold's
+    // latest send (#5862).
+    let oldest_held_at_ms = match (recipient, &hold) {
+        (Some(id), Some(DigestHold::Open { .. })) => digest::oldest_held(db, id, now)?,
+        _ => None,
+    };
     Ok(DeliveryFacts {
         recipient_is_user: recipient
             .map(|id| RequestRows(db, None, None).identity_is_user(id))
@@ -72,19 +82,13 @@ pub(super) fn facts(
             .unwrap_or(WakeState::NotAttempted),
         prepared_at_ms: attempt.prepared_at_ms,
         settled_at_ms: attempt.settled_at_ms,
-        hold: recipient
-            .map(|id| hold(db, id, &attempt.request_id))
-            .transpose()?
-            .flatten(),
+        hold,
         max_hold_ms: recipient
             .map(|id| digest::policy(db, id))
             .transpose()?
             .flatten()
             .and_then(|policy| policy.max_hold_ms),
-        oldest_held_at_ms: recipient
-            .map(|id| digest::oldest_held(db, id, now))
-            .transpose()?
-            .flatten(),
+        oldest_held_at_ms,
         recipient: recipient.map(|id| activity(db, id)).transpose()?.flatten(),
         turn: super::turns::read(db, &attempt.request_id)?,
         answer: answer(db, attempt, now)?,
@@ -165,6 +169,19 @@ pub(super) fn activity(
             since_ms: activity.since_ms,
         }),
     )
+}
+
+/// Whether text typed into the recipient's pane now reaches the model without a prompt of its own:
+/// its driver folds typed text into a running turn, and a turn runs or a Stop-hook continuation is
+/// still open (it reads idle until its own Stop). Such a paste is carried, not lost (#5869).
+pub(super) fn folds_typed_text_now(db: &Connection, identity: &str) -> Result<bool, StorageError> {
+    let Some((driver, activity)) = verified_activity(db, identity)? else {
+        return Ok(false);
+    };
+    if !tmt_core::driver::descriptor::named(&driver).is_some_and(|d| d.folds_queued_text) {
+        return Ok(false);
+    }
+    Ok(activity.phase == ActivityPhase::Working || digest::continuation_open(db, identity)?)
 }
 
 /// The turn that [`activity`] shows running, with the session and turn id it can be bound by, when
