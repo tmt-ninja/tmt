@@ -15,6 +15,8 @@ import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
 import { TuiMock } from './tui-nav.js';
 import { usePath } from './router.js';
+import { previewRoot } from './preview.js';
+import { applyStoredTheme } from '../src/theme.js';
 import { frameFor } from '../gallery/frames.js';
 import { PatternFrame } from './patterns-more.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
@@ -41,14 +43,15 @@ function Root() {
 }
 
 // A gallery frame (`?frame=`): the iframe demos of the Browser entries, in palette B and the theme
-// the frame names, not the viewer's stored one.
+// the frame names. Any other page takes the browser-ui theme stored for this browser, else the device.
 const params = new URLSearchParams(location.search);
 const frame = params.get('frame');
 if (frame) {
   document.documentElement.dataset.frame = frame;
   const theme = params.get('theme');
   if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-}
+} else applyStoredTheme();
+previewRoot(document.documentElement);
 setPaletteBFavicon();
 createRoot(document.querySelector('#root')!).render(
   <StrictMode>

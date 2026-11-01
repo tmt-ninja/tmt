@@ -81,7 +81,7 @@ for (const width of [1440, 390])
     for (const route of ['roles', 'glyphs', 'list', 'patterns', 'agents']) {
       test(`${route}, ${width}, ${theme}`, async ({ page }) => {
         await page.setViewportSize({ width, height: 1000 });
-        await page.addInitScript((value) => localStorage.setItem('tmt-docs-theme', value), theme);
+        await page.addInitScript((value) => localStorage.setItem('tmt-ui-theme', value), theme);
         const look = theme === 'light' ? 'tmt-light' : 'tmt';
         await page.goto(
           route === 'agents'
@@ -216,7 +216,7 @@ for (const doc of componentDocs)
     for (const width of [1440, 390])
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width, height: 1000 });
-        await page.addInitScript((value) => localStorage.setItem('tmt-docs-theme', value), theme);
+        await page.addInitScript((value) => localStorage.setItem('tmt-ui-theme', value), theme);
         await page.goto(`${tuiRoot}/${doc.slug}`);
         const body = page.locator(`[data-tui-component="${doc.slug}"]`);
         for (const title of ['Anatomy', 'Variants', 'States', 'Missing frames', 'Keys', 'Roles'])
@@ -258,7 +258,7 @@ for (const doc of patternDocs)
     for (const width of [1440, 390])
       for (const theme of ['light', 'dark']) {
         await page.setViewportSize({ width, height: 1000 });
-        await page.addInitScript((value) => localStorage.setItem('tmt-docs-theme', value), theme);
+        await page.addInitScript((value) => localStorage.setItem('tmt-ui-theme', value), theme);
         await page.goto(`${tuiRoot}/${doc.slug}`);
         const body = page.locator(`[data-tui-pattern="${doc.slug}"]`);
         for (const title of ['Problem', 'Anatomy', 'Rules', 'Variants and states', 'Links'])
