@@ -178,7 +178,6 @@ remain independent of storage access.
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)), `paused`, `ended` and `foreground` as for `terminal.stream`                    |
 | `extensions.uses`        | `extension`, `feature`                                                                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                                                                            |
 
-
 `storage.root` reports the data directory selected by the invoking core, including
 its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
 rather than infer configuration paths, and keep their files under
