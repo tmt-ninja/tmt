@@ -1,7 +1,9 @@
 import { commentsRegion } from '../test/comments-region.js';
 import { pageAction, commentsAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import fs, { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { text } from '../src/strings.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
@@ -330,5 +332,73 @@ test('a held annotation closes; a second one opens, keeps its text and sends, an
       .map((call) => call.operationId);
     expect(dispatched).toHaveLength(4);
     expect(new Set(dispatched).size).toBe(4);
+  });
+});
+
+test('Resolve all writes the fewest own updates that fit: 1, 10 and 50 open comments (#5871)', async () => {
+  test.setTimeout(1_500_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'scale-author');
+    const measured: { threads: number; ownUpdates: number; ms: number }[] = [];
+    for (const count of [1, 10, 50]) {
+      const created = createPage(
+        world,
+        `Resolve all ${count}`,
+        // Short inline passages keep every selection, and its control, inside the viewport.
+        `<p>${Array.from({ length: count }, (_, i) => `<span id="q${i}">P${i}.</span>`).join(' ')}</p>`,
+      );
+      const page = await openPage(door, author, created);
+      for (let i = 0; i < count; i++) await annotate(page, `Comment ${i}.`, `#q${i}`);
+      const database = fs
+        .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
+        .filter((entry) => entry.endsWith('/space.db'));
+      expect(database).toHaveLength(1);
+      // Read-only durable evidence: the own updates this page's receipts carry.
+      const ownUpdates = () =>
+        Number(
+          execFileSync(
+            'sqlite3',
+            [
+              '-readonly',
+              path.join(world.dataRoot, database[0]!),
+              `SELECT count(*) FROM receipts WHERE page='${created.pageId}' AND namespace='own'`,
+            ],
+            { encoding: 'utf8' },
+          ).trim(),
+        );
+      await comments(page);
+      const panel = commentsRegion(page);
+      const action = panel.getByRole('button', {
+        name: `Resolve all open (${count})`,
+        exact: true,
+      });
+      await action.click();
+      const before = ownUpdates();
+      const started = Date.now();
+      await page
+        .getByRole('dialog', { name: text.threadResolveAllConfirm(count) })
+        .getByRole('button', { name: 'Resolve all', exact: true })
+        .click();
+      await expect(
+        panel.getByRole('button', { name: text.threadResolveAll(0), exact: true }),
+      ).toBeVisible({ timeout: 120_000 });
+      const ms = Date.now() - started;
+      const listing = JSON.parse(
+        run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
+      ) as { threads: { resolved: boolean }[] };
+      expect(listing.threads).toHaveLength(count);
+      expect(listing.threads.every((thread) => thread.resolved)).toBe(true);
+      measured.push({ threads: count, ownUpdates: ownUpdates() - before, ms });
+      test
+        .info()
+        .annotations.push({ type: 'resolve-all', description: JSON.stringify(measured.at(-1)) });
+      await page.close();
+    }
+    expect(measured.map(({ threads, ownUpdates }) => ({ threads, ownUpdates }))).toEqual([
+      { threads: 1, ownUpdates: 1 },
+      { threads: 10, ownUpdates: 1 },
+      { threads: 50, ownUpdates: 2 },
+    ]);
   });
 });
