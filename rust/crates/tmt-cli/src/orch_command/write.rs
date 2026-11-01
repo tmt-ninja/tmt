@@ -209,14 +209,20 @@ pub(super) fn execute(
             let terminal = out.terminal();
             let mut fields = match saved["released"].as_array() {
                 Some(released) => vec![("released requests", released.len().to_string())],
-                None => vec![("configuration revision",text(&saved["configurationRevision"]))],
+                None => vec![(
+                    "configuration revision",
+                    text(&saved["configurationRevision"]),
+                )],
             };
             if let Some(job) = saved.get("job").filter(|job| !job.is_null()) {
                 fields.push(("job", text(&job["displayId"])));
                 fields.push(("revision", text(&job["revision"])));
             }
             tmt_cli_style::detail::write(&mut out, terminal, "Orchestration saved", &fields)
-                .map_err(|e| Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1).caused_by(e))?;
+                .map_err(|e| {
+                    Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1)
+                        .caused_by(e)
+                })?;
         }
         Ok(result)
     })();
