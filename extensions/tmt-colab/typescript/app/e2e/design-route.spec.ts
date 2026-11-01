@@ -13,7 +13,7 @@ async function capture(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: join(captures, name), fullPage: true });
 }
-async function open(page: Page, owner = true) {
+async function open(page: Page, owner = true, routeBase = base) {
   // Match the native door's renderer entry; Vite otherwise returns the parent SPA.
   await page.route('**/colab/renderer.html', async (route) =>
     route.fulfill({
@@ -42,10 +42,10 @@ async function open(page: Page, owner = true) {
   await page.route('**/src/main.tsx', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${base}/',${owner});`,
+      body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${routeBase}/',${owner});`,
     }),
   );
-  await page.goto(`${base}/`);
+  await page.goto(`${routeBase}/`);
   await expect(
     page
       .getByRole('combobox', { name: 'Design system', exact: true })
@@ -134,15 +134,19 @@ for (const width of [1440, 390])
           .getByRole('combobox', { name: 'Design system', exact: true })
           .getByRole('option', { name: 'Brio', exact: true }),
       ).toHaveCount(1);
-      const source = page.locator('.design-page iframe').contentFrame();
-      await expect(source.getByRole('heading', { name: 'Brio', exact: true })).toBeVisible();
+      await expect(
+        page.locator('.docs-article').getByRole('heading', { name: 'Brio', exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.locator('.docs-article').getByRole('heading', { name: 'Components', exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.locator('.docs-cards').getByRole('link', { name: /brio-button/ }),
+      ).toBeVisible();
       const pickerBox = await page
         .getByRole('combobox', { name: 'Design system', exact: true })
         .boundingBox();
       expect(pickerBox!.width).toBeGreaterThan(60);
-      const frameBox = await page.locator('.design-page iframe').boundingBox();
-      const hostBox = await page.locator('.design-page-renderer').boundingBox();
-      expect(frameBox!.width).toBeCloseTo(hostBox!.width, 0);
       await capture(page, `design-user-home-${width}-${theme}.png`);
       await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
       await expect(page.locator('.design-feedback[role="status"]')).toContainText(
@@ -155,14 +159,59 @@ for (const width of [1440, 390])
         .getByRole('link', { name: 'brio-button', exact: true })
         .click();
       await expect(
-        page
-          .locator('.design-page iframe')
-          .contentFrame()
-          .getByRole('heading', { name: '<brio-button>', exact: true }),
+        page.locator('.docs-article').getByRole('heading', { name: '<brio-button>', exact: true }),
       ).toBeVisible();
       await expect(
-        page.locator('.design-page iframe').contentFrame().getByRole('button').first(),
+        page
+          .locator('.design-live-frame[aria-label="Component preview"] iframe')
+          .contentFrame()
+          .getByRole('button', { name: 'Save', exact: true }),
       ).toBeVisible();
+      await expect(
+        page.locator('.docs-article').getByRole('heading', { name: 'Props', exact: true }),
+      ).toBeVisible();
+      await expect(page.locator('.docs-props')).toContainText('variant');
+      await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
+        'href',
+        /\/colab\/pages\/[0-9a-f-]+$/,
+      );
+      await expect(page.locator('.docs-snippet button').first()).toHaveText('Copy');
+      const bundlePaint = await page
+        .locator('.design-live-frame[aria-label="Component preview"] iframe')
+        .contentFrame()
+        .getByRole('button', { name: 'Save', exact: true })
+        .evaluate((element) => {
+          const style = getComputedStyle(element);
+          const swatch = document.createElement('span');
+          swatch.style.color = 'var(--tmt-ui-color-accent-fill)';
+          document.body.append(swatch);
+          const accentPaint = getComputedStyle(swatch).color;
+          swatch.remove();
+          return {
+            accentPaint,
+            display: style.display,
+            height: style.height,
+            background: style.backgroundColor,
+            classes: element.className,
+            controlSize: style.getPropertyValue('--tmt-ui-control-size-l'),
+            accent: style.getPropertyValue('--tmt-ui-color-accent-fill'),
+            layers: [...document.styleSheets].map((sheet) => {
+              try {
+                return [...sheet.cssRules].map((rule) => rule.cssText.slice(0, 200));
+              } catch {
+                return [];
+              }
+            }),
+          };
+        });
+      await test.info().attach('published-bundle-computed-style', {
+        body: JSON.stringify(bundlePaint, null, 2),
+        contentType: 'application/json',
+      });
+      expect(bundlePaint.display).toBe('flex');
+      expect(bundlePaint.height).toBe(bundlePaint.controlSize.trim());
+      expect(bundlePaint.background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
       await capture(page, `design-user-component-${width}-${theme}.png`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(
         false,
@@ -196,10 +245,7 @@ for (const width of [1440, 390])
         .toBe(0);
       await page.goBack();
       await expect(
-        page
-          .locator('.design-page iframe')
-          .contentFrame()
-          .getByRole('heading', { name: '<brio-button>', exact: true }),
+        page.locator('.docs-article').getByRole('heading', { name: '<brio-button>', exact: true }),
       ).toBeVisible();
       expect(errors).toEqual([]);
       expect(
@@ -217,10 +263,7 @@ test('read-only Design viewers can select a tree but cannot create or publish', 
   const id = await picker.getByRole('option', { name: 'Acme', exact: true }).getAttribute('value');
   await picker.selectOption(id!);
   await expect(
-    page
-      .locator('.design-page iframe')
-      .contentFrame()
-      .getByRole('heading', { name: 'Acme', exact: true }),
+    page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: /^Publish / })).toHaveCount(0);
 });
@@ -255,4 +298,32 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
   await expect(page.locator('.design-feedback[role="status"]')).toContainText('Published 0.1.1.');
   await expect(page.getByRole('button', { name: 'Publish 0.1.2', exact: true })).toBeEnabled();
+});
+
+test('standalone Design keeps its docs, system cards and editing links on their owning mounts', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page, true, '/design');
+  await expect(page).toHaveURL(/\/design\/ds\/gui$/);
+  await page.locator('.docs-nav').getByRole('link', { name: 'Button', exact: true }).click();
+  await expect(page).toHaveURL(/\/design\/ds\/gui\/components\/button$/);
+  const picker = page.getByRole('combobox', { name: 'Design system', exact: true });
+  await picker.selectOption(
+    (await picker.getByRole('option', { name: 'Acme', exact: true }).getAttribute('value'))!,
+  );
+  await expect(
+    page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
+  ).toBeVisible();
+  const card = page.locator('.docs-cards').getByRole('link', { name: /acme-button/ });
+  await expect(card).toHaveAttribute('href', /^\/design\/systems\//);
+  await card.click();
+  await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
+  await expect(
+    page.locator('.docs-article').getByRole('heading', { name: '<acme-button>', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
+    'href',
+    /^http:\/\/127\.0\.0\.1:[0-9]+\/colab\/pages\/[0-9a-f-]+$/,
+  );
 });
