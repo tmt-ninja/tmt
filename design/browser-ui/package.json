@@ -20,15 +20,19 @@
     "./search": "./src/search.ts",
     "./gallery/frames": "./gallery/frames.tsx",
     "./test-fixtures/*": "./test/fixtures/*",
-    "./list-table": "./src/list-table-host.ts"
+    "./list-table": "./src/list-table-host.ts",
+    "./rich-input": "./src/rich-input/index.ts",
+    "./data-table": "./src/data-table/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write",
     "check:generated": "node scripts/generate-static-css.mjs --check && node scripts/generate-ui-css.mjs --check && node scripts/generate-brand.mjs --check",
-    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test gallery e2e playwright.config.ts scripts/generate-ui-css.mjs scripts/ui-source-policy.mjs && vp fmt --config vitest.config.ts --check .",
+    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test gallery docs e2e playwright.config.ts scripts/generate-ui-css.mjs scripts/ui-source-policy.mjs && vp fmt --config vitest.config.ts --check .",
     "test": "vp test run --config vitest.config.ts",
     "gallery": "vp dev --config vite.gallery.config.ts",
-    "test:browser": "vp exec playwright test"
+    "design-docs": "vp dev --config vite.docs.config.ts",
+    "test:browser": "vp exec playwright test",
+    "test:tui-docs": "vp exec playwright test --config docs/tui/playwright.config.ts"
   },
   "peerDependencies": {
     "react": "19.2.8",
@@ -62,6 +66,10 @@
     "cmdk": "1.1.1",
     "radix-ui": "1.8.1",
     "tailwind-merge": "3.7.0",
-    "class-variance-authority": "0.7.1"
+    "class-variance-authority": "0.7.1",
+    "@lexical/history": "0.52.0",
+    "@lexical/plain-text": "0.52.0",
+    "@lexical/react": "0.52.0",
+    "lexical": "0.52.0"
   }
 }

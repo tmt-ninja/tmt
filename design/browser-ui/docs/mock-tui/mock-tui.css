@@ -1,0 +1,30 @@
+.tui-mock {
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--tmt-ui-ref-space-5);
+}
+.tui-mock-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-ref-space-4);
+}
+.tui-mock-heading h1 {
+  margin: 0;
+  font-size: var(--tmt-ui-ref-size-7);
+  font-weight: 500;
+}
+.tui-mock-heading p {
+  margin: 0;
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-mock .tui-controls {
+  padding: var(--tmt-ui-ref-space-4);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+}
+
+.tui-mock .tui-states-toggle {
+  border-radius: var(--tmt-ui-radius-pill);
+}

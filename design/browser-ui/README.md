@@ -70,6 +70,40 @@ text fields and select triggers keep the soft rule by decision (see
 [browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
 retain their stronger roles.
 
+### Palette B and the ref tier
+
+`tokens.json` holds `browser.ref`, the primitive tier, which `static.css` projects as `--tmt-ui-ref-*`.
+It also holds `browser.palette-b`, which maps each listed colour, surface and radius role onto refs
+(`{name}`). The generator emits that mapping only under `[data-tmt-palette='b']`, in three blocks:
+light; the system dark unless a light theme is set on the scope or around it; and an explicit dark
+theme. Chart series and seats keep their values.
+
+The radius roles read one knob: `radius-s`, `radius` and `radius-badge` are `ref-radius`, and
+`radius-l` is `ref-radius + ref-radius-step`. Setting `--tmt-ui-ref-radius` on the scope moves the
+whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots. Inside the scope,
+`ui.css`'s foundation roles read the semantic roles by name, so the shadcn set follows B, the viewer
+theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
+there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
+once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
+its theme and radius switches. Under the scope the brand mark's roles (`palette-b.brand-mark`) turn
+it red, black and white.
+
+Shadows form one elevation scale, `browser.shadow.elevation-0` to `elevation-3`; `overlay` is level 2.
+The `ui` set reads them as `shadow-elevation-1` (Card), `shadow-overlay` (Popover, menus, Select,
+Tooltip) and `shadow-elevation-3` (Dialog, Sheet), and the `Surface` part names the levels: paper,
+sheet, raised, overlay and modal. The source policy rejects any other shadow. Select, the menus and
+Command share one row (`src/ui/item.ts`): a neutral highlighted fill inset from the list edge, the
+small radius and the `ui.item-padding` inline padding, never an accent ring.
+
+Motion reads the motion tokens only, and the source policy rejects a literal duration, delay or
+easing. Floating layers fade and rise from their Radix `data-side` on fast and leave in two thirds
+of it; a dialog pops in on base and leaves on fast; a sheet slides in on base and out on fast. The
+line Tabs underline slides between triggers; Switch, Checkbox and Alert move on press or entry, and
+Button changes colour only (a press never shrinks its hit area); Skeleton pulses calmly. Reduced motion zeroes every duration, the pulse included.
+
+`pnpm design-docs` serves the dev-only design-system docs and the Colab mock (`docs/`,
+`vite.docs.config.ts`) on `http://127.0.0.1:5100`.
+
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
 fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.
@@ -1226,13 +1260,19 @@ migration or Select revival is included.
 From `typescript/`, install the frozen leaf tools with
 `pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
 `pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
-only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
-It never attaches to an existing server or opens a product/host fixture.
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it),
+and the /docs site one port above it for the docs preview layout sweep. It never
+attaches to an existing server or opens a product/host fixture.
 
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
 border-only control contrast and the named soft-edge field exception, plus overlay exit
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
-repair. CI selection and gate ownership live in the
+repair.
+
+`pnpm --filter @tmt/browser-ui test:tui-docs` runs the TUI docs suite
+(`docs/tui/playwright.config.ts`) against its own docs server on port 15835
+(`TUI_DOCS_TEST_PORT` overrides it); the same CI job runs it after the gallery audits.
+CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
 
 ### List table and page subheader

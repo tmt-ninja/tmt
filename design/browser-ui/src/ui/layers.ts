@@ -50,3 +50,21 @@ export {
 // Provisional until integrated real-component qualification and UX acceptance.
 export { useLayerController, useMenuLayerHandoff } from './layer.js';
 export type { LayerCloseReason, LayerCloseRequest, LayerControllerOptions } from './layer.js';
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from './select.js';
+export {
+  FloatingDock,
+  FloatingActions,
+  FloatingAction,
+  FloatingWindow,
+  FloatingWindowAction,
+} from './floating.js';
+export type { FloatingWindowCloseReason } from './floating.js';

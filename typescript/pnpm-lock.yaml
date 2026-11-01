@@ -45,6 +45,15 @@ importers:
 
   ../design/browser-ui:
     dependencies:
+      '@lexical/history':
+        specifier: 0.52.0
+        version: 0.52.0(typescript@5.9.3)
+      '@lexical/plain-text':
+        specifier: 0.52.0
+        version: 0.52.0(typescript@5.9.3)
+      '@lexical/react':
+        specifier: 0.52.0
+        version: 0.52.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)(yjs@13.6.32)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -54,6 +63,9 @@ importers:
       cmdk:
         specifier: 1.1.1
         version: 1.1.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lexical:
+        specifier: 0.52.0
+        version: 0.52.0(typescript@5.9.3)
       lucide-react:
         specifier: 1.52.0
         version: 1.52.0(@types/react@19.2.18)(react@19.2.8)

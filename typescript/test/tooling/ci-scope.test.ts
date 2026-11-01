@@ -4855,7 +4855,13 @@ describe('browser UI gallery gate', () => {
     expect(browser).toContain("needs.changes.outputs.browser_ui == 'true'");
     expect(browser).toContain('runs-on: ubuntu-24.04');
     expect(browser).toContain('timeout-minutes: 15');
-    expect(browser).toContain('test:browser --workers=2');
+    expect(browser).toContain('test:browser --workers=2 --shard=${{ matrix.shard }}/3');
+    // Three gallery shards and one TUI docs entry; every entry runs under the same gate result.
+    for (const shard of [1, 2, 3])
+      expect(browser).toContain(`- { suite: gallery, shard: ${shard} }`);
+    expect(browser).toContain('- { suite: tui-docs, shard: 4 }');
+    expect(browser).toContain("if: matrix.suite == 'tui-docs'");
+    expect(browser).toContain('fail-fast: false');
     expect(browser).toContain('retention-days: 7');
     expect(browser).not.toContain('continue-on-error');
     const browserSteps = browser.slice(

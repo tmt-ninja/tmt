@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { pinState, type ForcedState } from './force-states.js';
 import type { SectionId } from './covered.js';
 import { sections } from './covered.js';
@@ -87,15 +87,68 @@ export function Frame({
   height: number;
   params?: Record<string, string>;
 }) {
-  const query = new URLSearchParams({ frame, theme, ...params });
+  const page = new URLSearchParams(location.search);
+  const preview = Object.fromEntries(
+    ['palette', 'radius'].flatMap((key) => (page.get(key) ? [[key, page.get(key)!]] : [])),
+  );
+  const query = new URLSearchParams({ frame, theme, ...preview, ...params });
   return (
-    <iframe
-      className="gallery-frame"
-      loading="lazy"
-      title={`${frame} ${theme}`}
-      src={`?${query}`}
-      style={{ width: width ?? '100%', height }}
-    />
+    <ScaledFrame title={`${frame} ${theme}`} src={`?${query}`} width={width} height={height} />
+  );
+}
+
+/**
+ * An iframe preview that keeps its true layout width and scales down to fit its cell, so a wide
+ * viewport never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
+ * docs e2e holds it inside its parent cell.
+ */
+export function ScaledFrame({
+  title,
+  src,
+  width,
+  height,
+}: {
+  title: string;
+  src: string;
+  width?: number;
+  height: number;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element || !width) return;
+    const fit = () => setScale(Math.min(1, element.clientWidth / width));
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [width]);
+  return (
+    <div
+      ref={box}
+      className="scaled-frame"
+      data-preview-frame=""
+      style={{ maxWidth: width, height: height * scale }}
+      data-scaled={scale < 1 || undefined}
+    >
+      {scale < 1 && (
+        <a className="scaled-frame-open" href={src} target="_blank" rel="noopener">
+          Open at 100%
+        </a>
+      )}
+      <iframe
+        className="gallery-frame"
+        loading="lazy"
+        title={title}
+        src={src}
+        style={{
+          width: width ?? '100%',
+          height,
+          transform: scale < 1 ? `scale(${scale})` : undefined,
+        }}
+      />
+    </div>
   );
 }
 

@@ -360,6 +360,10 @@
 .tmt-ui-rail-sub-group {
   padding-inline-start: var(--tmt-ui-rail-sub-padding-inline);
 }
+/* A settings row with an icon starts at the icon column like the rows above it, and so does its rule. */
+.tmt-ui-rail-settings:has(> a > .tmt-ui-shell-icon)::before {
+  left: var(--tmt-ui-rail-sub-padding-inline);
+}
 .tmt-ui-rail-sub-group > span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -384,7 +388,7 @@ a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
 }
 .tmt-ui-rail-group-text-action {
   width: auto;
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
   font: inherit;
   font-weight: var(--tmt-ui-type-h3-weight);
 }
@@ -418,7 +422,7 @@ a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
 }
 .tmt-ui-rail-settings::before {
   position: absolute;
-  inset: 0 0 auto 36px;
+  inset: 0 0 auto var(--tmt-ui-rail-sub-label-start);
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   content: '';
 }

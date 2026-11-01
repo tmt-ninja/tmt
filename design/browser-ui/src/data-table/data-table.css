@@ -1,0 +1,359 @@
+/* The dense data table (#5821 A6), shipped with its own entry. Token-only: it reads the ui
+   foundation, so it sits inside a UiTheme island. Rows share the grid's tracks through subgrid;
+   every cell aligns to the first line, so a sub-line never moves another cell or the menu. */
+.tmt-data-table {
+  --tmt-data-table-row: var(--tmt-foundation-table-row-compact);
+  --tmt-data-table-pad: calc(var(--tmt-foundation-spacing-unit) * 2);
+  --tmt-data-table-gap: var(--tmt-foundation-spacing-unit);
+  --tmt-data-table-line-gap: calc(var(--tmt-foundation-spacing-unit) * 2);
+  --tmt-data-table-lead: 16px;
+  --tmt-data-table-select: calc(var(--tmt-foundation-control-size) + var(--tmt-data-table-pad));
+  container: tmt-data-table / inline-size;
+  min-width: 0;
+  border: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-border);
+  border-radius: var(--tmt-foundation-radius);
+  background: var(--tmt-foundation-background);
+  color: var(--tmt-foundation-foreground);
+  font: var(--tmt-foundation-command-size) / 1.4 var(--tmt-foundation-font-body);
+}
+.tmt-data-table[data-density='comfortable'] {
+  --tmt-data-table-row: var(--tmt-foundation-table-row-comfortable);
+}
+.tmt-data-table-grid {
+  display: grid;
+  grid-template-columns: var(--tmt-data-table-columns);
+}
+.tmt-data-table-head,
+.tmt-data-table-body,
+.tmt-data-table-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.tmt-data-table-head {
+  position: sticky;
+  top: var(--tmt-data-table-sticky-top, 0);
+  z-index: 1;
+  border-bottom: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-border);
+  border-radius: var(--tmt-foundation-radius) var(--tmt-foundation-radius) 0 0;
+  background: var(--tmt-foundation-background);
+  color: var(--tmt-foundation-muted-foreground);
+  font-size: var(--tmt-foundation-caption-size);
+}
+.tmt-data-table-row {
+  align-items: start;
+}
+.tmt-data-table-body > .tmt-data-table-row + .tmt-data-table-row {
+  border-top: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-border);
+}
+.tmt-data-table-body > .tmt-data-table-row:hover,
+.tmt-data-table-body > .tmt-data-table-row:focus-within {
+  background: var(--tmt-foundation-secondary);
+}
+.tmt-data-table-body > .tmt-data-table-row[data-selected] {
+  background: var(--tmt-foundation-accent);
+}
+.tmt-data-table-body > .tmt-data-table-row:focus-visible {
+  outline: var(--tmt-foundation-focus-width) solid var(--tmt-foundation-ring);
+  outline-offset: calc(var(--tmt-foundation-focus-width) * -1);
+}
+
+/* Every cell is one first line high; only the primary cell grows, for its sub-line. */
+.tmt-data-table-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-data-table-gap);
+  box-sizing: border-box;
+  min-width: 0;
+  height: var(--tmt-data-table-row);
+  padding: 0 var(--tmt-data-table-pad);
+  overflow: hidden;
+}
+.tmt-data-table-cell[data-align='end'] {
+  justify-content: flex-end;
+}
+.tmt-data-table-cell[data-align='center'] {
+  justify-content: center;
+}
+.tmt-data-table-cell > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.tmt-data-table-body .tmt-data-table-cell[data-role='primary'] {
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  min-height: var(--tmt-data-table-row);
+}
+.tmt-data-table-line {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-data-table-line-gap);
+  min-width: 0;
+  height: var(--tmt-data-table-row);
+  font-weight: 600;
+}
+.tmt-data-table-lead {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: var(--tmt-data-table-lead);
+  color: var(--tmt-foundation-muted-foreground);
+}
+.tmt-data-table-lead > svg {
+  width: var(--tmt-data-table-lead);
+  height: var(--tmt-data-table-lead);
+}
+/* The sub-line starts under the title text, after the lead slot and its gap. */
+.tmt-data-table-line:has(> .tmt-data-table-lead) + .tmt-data-table-sub {
+  padding-inline-start: calc(var(--tmt-data-table-lead) + var(--tmt-data-table-line-gap));
+}
+.tmt-data-table-sub {
+  margin-top: calc(var(--tmt-foundation-spacing-unit) * -1.5);
+  padding-bottom: calc(var(--tmt-foundation-spacing-unit) * 2);
+  overflow: hidden;
+  color: var(--tmt-foundation-muted-foreground);
+  font-size: var(--tmt-foundation-caption-size);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tmt-data-table-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tmt-data-table-cell[data-role='time'],
+.tmt-data-table-cell[data-role='person'],
+.tmt-data-table-cell[data-role='access'] {
+  color: var(--tmt-foundation-muted-foreground);
+}
+.tmt-data-table-cell[data-role='select'] {
+  justify-content: center;
+  padding-inline-end: 0;
+}
+.tmt-data-table-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Chips: the first few, then a +N chip that opens the full list. */
+.tmt-data-table-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-data-table-gap);
+  min-width: 0;
+}
+.tmt-data-table-chip {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.tmt-data-table-chip > * {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tmt-data-table-chip ~ .tmt-data-table-chip {
+  flex: none;
+  max-width: 50%;
+}
+.tmt-data-table-more {
+  flex: none;
+  box-sizing: border-box;
+  height: var(--tmt-foundation-chip-height);
+  padding: 0 calc(var(--tmt-foundation-spacing-unit) * 2);
+  border: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-border);
+  border-radius: var(--tmt-foundation-radius-pill);
+  background: transparent;
+  color: var(--tmt-foundation-muted-foreground);
+  font: inherit;
+  font-size: var(--tmt-foundation-caption-size);
+  cursor: pointer;
+}
+.tmt-data-table-more:focus-visible {
+  border-color: var(--tmt-foundation-ring);
+  outline: none;
+}
+.tmt-data-table-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-data-table-gap);
+  width: auto;
+  max-width: 320px;
+}
+
+/* The reserved actions column: hover and focus actions appear inside it, the menu is last. */
+.tmt-data-table-cell[data-role='actions'] {
+  justify-content: flex-end;
+  overflow: visible;
+}
+.tmt-data-table-actions {
+  display: flex;
+  gap: var(--tmt-data-table-gap);
+  opacity: 0;
+}
+.tmt-data-table-row:hover .tmt-data-table-actions,
+.tmt-data-table-row:focus-within .tmt-data-table-actions {
+  opacity: 1;
+}
+
+/* Header: sort affordance, the sorted column marked. */
+.tmt-data-table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tmt-data-table-gap);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-data-table-sort svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.tmt-data-table-sort svg[data-idle] {
+  opacity: 0;
+}
+.tmt-data-table-sort:hover svg[data-idle],
+.tmt-data-table-sort:focus-visible svg[data-idle] {
+  opacity: 1;
+}
+.tmt-data-table-sort[data-sorted] {
+  color: var(--tmt-foundation-foreground);
+}
+.tmt-data-table-sort:focus-visible {
+  outline: var(--tmt-foundation-focus-width) solid var(--tmt-foundation-ring);
+}
+.tmt-data-table-bulk {
+  grid-column: 2 / -1;
+}
+.tmt-data-table-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--tmt-foundation-spacing-unit) * 2);
+  min-width: 0;
+  color: var(--tmt-foundation-foreground);
+}
+.tmt-data-table-bulk-count {
+  margin-inline-end: auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Loading, empty and error rows. */
+.tmt-data-table-skeleton {
+  width: 70%;
+  height: 10px;
+}
+.tmt-data-table-cell[data-role='span'] {
+  grid-column: 1 / -1;
+  display: block;
+  height: auto;
+  padding: calc(var(--tmt-foundation-spacing-unit) * 4);
+}
+
+/* Under 760px each row is a two-line card: select, primary and menu, then the other values. */
+@container tmt-data-table (max-width: 759px) {
+  .tmt-data-table-grid,
+  .tmt-data-table-head,
+  .tmt-data-table-body {
+    display: block;
+  }
+  .tmt-data-table-head > .tmt-data-table-row:not([data-bulk]) {
+    display: none;
+  }
+  .tmt-data-table-head:has(> .tmt-data-table-row:not([data-bulk])) {
+    border-bottom: 0;
+  }
+  .tmt-data-table-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-bottom: var(--tmt-data-table-pad);
+  }
+  .tmt-data-table-row[data-head] {
+    padding-bottom: 0;
+  }
+  .tmt-data-table-cell {
+    order: 3;
+    height: auto;
+    padding: 0 var(--tmt-data-table-pad) 0 0;
+  }
+  .tmt-data-table-cell[data-role='select'] {
+    order: 0;
+    width: var(--tmt-data-table-select);
+    height: var(--tmt-data-table-row);
+    padding: 0;
+  }
+  .tmt-data-table-cell[data-role='primary'] {
+    order: 1;
+    flex: 1 1 0;
+    padding-inline-start: 0;
+  }
+  .tmt-data-table:not([data-selectable]) .tmt-data-table-cell[data-role='primary'] {
+    padding-inline-start: var(--tmt-data-table-pad);
+  }
+  .tmt-data-table-cell[data-role='actions'] {
+    order: 2;
+    height: var(--tmt-data-table-row);
+  }
+  .tmt-data-table-actions,
+  .tmt-data-table-cell[data-phone='menu'] {
+    display: none;
+  }
+  /* A line break after the menu; the row's start padding indents every later line under the
+     text, and the first line's leading cell pulls back into it. */
+  .tmt-data-table-row::after {
+    content: '';
+    order: 2;
+    flex-basis: 100%;
+  }
+  .tmt-data-table-body > .tmt-data-table-row {
+    --tmt-data-table-indent: var(--tmt-data-table-pad);
+    column-gap: calc(var(--tmt-foundation-spacing-unit) * 2);
+    row-gap: var(--tmt-foundation-spacing-unit);
+    padding-inline-start: var(--tmt-data-table-indent);
+    font-size: var(--tmt-foundation-caption-size);
+  }
+  .tmt-data-table[data-selectable] .tmt-data-table-body > .tmt-data-table-row {
+    --tmt-data-table-indent: var(--tmt-data-table-select);
+  }
+  .tmt-data-table-body > .tmt-data-table-row > :first-child {
+    margin-inline-start: calc(var(--tmt-data-table-indent) * -1);
+  }
+  .tmt-data-table-body .tmt-data-table-cell[data-role='primary'] {
+    font-size: var(--tmt-foundation-command-size);
+  }
+  .tmt-data-table-body
+    > .tmt-data-table-row
+    > .tmt-data-table-cell:not([data-role='select'], [data-role='primary'], [data-role='actions']) {
+    height: var(--tmt-foundation-chip-height);
+    padding: 0;
+  }
+  .tmt-data-table-bulk {
+    order: 1;
+    flex: 1 1 0;
+    min-height: var(--tmt-data-table-row);
+    padding-block: var(--tmt-foundation-spacing-unit);
+  }
+  .tmt-data-table-bulk-bar {
+    flex-wrap: wrap;
+  }
+  .tmt-data-table-sub {
+    padding-bottom: 0;
+  }
+  .tmt-data-table-cell[data-role='span'] {
+    flex: 1 1 100%;
+  }
+}

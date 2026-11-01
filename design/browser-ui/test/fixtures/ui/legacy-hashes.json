@@ -1,7 +1,7 @@
 {
   "baseline": "a5c85cb407003632dc9a5b3ac51ca2f6d92be355",
   "sha256": {
-    "generated/static.css": "5e8e65a37327ca4d36148bf36c2c265c9eb01bad05e9b9a6e80882e5342cefed",
+    "generated/static.css": "401d0da4ff142927a8723b6c46f15d347728a5d58f53457a739348ee5fc0973c",
     "src/action.css": "c6d89fbc0ee8a8ed004783f0079408d06a0b8215fbccabd196b7f4f4e5b80e0d",
     "src/action.tsx": "b9406611c1519fa806ac226f5b1a7665e4c2e0a65d25d36de6692947f5342934",
     "src/chips.css": "46ee249714c41bf206c7d8202835ac0b6014492222d3de0d35aa632e8ec61d19",
@@ -141,6 +141,14 @@
         "link": {
           "dark": "#77B9E7",
           "light": "#2D72A6"
+        },
+        "text-action": {
+          "dark": "#78EDC8",
+          "light": "#147F67"
+        },
+        "accent-fill": {
+          "dark": "#78EDC8",
+          "light": "#147F67"
         },
         "annotation-on-action": {
           "light": "#FFFFFF",
@@ -350,6 +358,7 @@
         "radius-s": "6px",
         "radius-l": "12px",
         "radius-pill": "999px",
+        "radius-badge": "999px",
         "rail-padding-top": "22px",
         "rail-padding-inline": "12px",
         "rail-padding-bottom": "17px",

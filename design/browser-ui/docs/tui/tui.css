@@ -1,0 +1,179 @@
+/* Docs chrome follows GUI tokens. Terminal cell ink comes exclusively from the frozen style table. */
+.tui-figure {
+  margin: var(--tmt-ui-ref-space-5) 0;
+  min-width: 0;
+}
+.tui-figure figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-ref-space-2);
+  margin-bottom: var(--tmt-ui-ref-space-2);
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-frame-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.tui-frame-scroll:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-ref-space-1);
+}
+tmt-tui-frame,
+.tui-metrics {
+  display: block;
+  padding: var(--tmt-ui-ref-space-2);
+  box-sizing: content-box;
+  font: var(--tmt-ui-ref-size-2)/1.4 var(--tmt-ui-font-mono);
+  font-variant-ligatures: none;
+  white-space: pre;
+}
+.tui-frame-row {
+  display: flex;
+  height: 1.4em;
+}
+.tui-frame-row > span {
+  flex: 0 0 1ch;
+  width: 1ch;
+  height: 1.4em;
+}
+.tui-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--tmt-ui-ref-space-3);
+  margin-block: var(--tmt-ui-ref-space-4);
+}
+.tui-controls label {
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  gap: var(--tmt-ui-ref-space-1);
+  font-size: var(--tmt-ui-ref-size-2);
+  color: var(--tmt-ui-color-secondary);
+}
+.tui-controls select {
+  min-width: 0;
+  box-sizing: border-box;
+  max-width: 100%;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  padding: var(--tmt-ui-ref-space-2);
+  background: var(--tmt-ui-surface-paper);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+}
+.tui-controls select:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.tui-reference {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-reference th,
+.tui-reference td {
+  text-align: left;
+  padding: var(--tmt-ui-ref-space-2);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  vertical-align: top;
+}
+.tui-reference th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 500;
+}
+.tui-reference-scroll {
+  overflow-x: auto;
+}
+.tui-swatch {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: var(--tmt-ui-ref-space-2);
+  vertical-align: middle;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.tui-provenance {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-ref-size-2);
+  overflow-wrap: anywhere;
+}
+.tui-section {
+  min-width: 0;
+}
+
+.tui-sample {
+  margin: var(--tmt-ui-ref-space-4) 0;
+  min-width: 0;
+}
+.tui-sample > figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--tmt-ui-ref-space-2);
+  margin-bottom: var(--tmt-ui-ref-space-2);
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-preview-cell {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+.tui-metrics {
+  position: absolute;
+  display: inline-block;
+  visibility: hidden;
+  pointer-events: none;
+}
+.tui-source-link {
+  display: inline-block;
+  margin-top: var(--tmt-ui-ref-space-2);
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-frame-page {
+  margin: 0;
+  overflow: auto;
+}
+.tui-frame-page .tui-figure {
+  margin: 0;
+}
+.tui-frame-page figcaption {
+  display: none;
+}
+.tui-frame-page .tui-frame-scroll {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.tui-component {
+  min-width: 0;
+}
+.tui-part-list {
+  display: grid;
+  gap: var(--tmt-ui-ref-space-2);
+  padding-left: var(--tmt-ui-ref-space-5);
+  font-size: var(--tmt-ui-ref-size-2);
+}
+.tui-part-list code {
+  white-space: nowrap;
+}
+.tui-key-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-ref-space-3);
+  padding: 0;
+  list-style: none;
+}
+.tui-role-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-ref-space-3);
+  padding: 0;
+  list-style: none;
+}
+.tui-missing {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-ref-size-2);
+}
