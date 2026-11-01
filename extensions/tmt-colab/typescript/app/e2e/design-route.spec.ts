@@ -94,6 +94,8 @@ async function docsMenu(page: Page) {
     await expect(page.locator('.docs-nav')).toBeVisible();
   }
 }
+/** The reader frame of the open Design page. */
+const designFrame = (page: Page) => page.locator('.design-workspace iframe').first().contentFrame();
 async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
@@ -138,15 +140,16 @@ for (const width of [1440, 390])
       await dialog.getByRole('button', { name: 'Create', exact: true }).click();
       await expect(dialog).toHaveCount(0);
       await expect.poll(() => systemNames(page)).toContain('Brio');
+      // A Design page is the Colab page in its reader frame, with Chat and the discussion (#5866).
       await expect(
-        page.locator('.docs-article').getByRole('heading', { name: 'Brio', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Brio', exact: true }),
       ).toBeVisible();
       await expect(
-        page.locator('.docs-article').getByRole('heading', { name: 'Components', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Components', exact: true }),
       ).toBeVisible();
-      await expect(
-        page.locator('.docs-cards').getByRole('link', { name: /brio-button/ }),
-      ).toBeVisible();
+      await expect(designFrame(page).getByRole('link', { name: /brio-button/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Chat', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Comments/ })).toBeVisible();
       // The crumb shows the whole system name, not a clipped stub.
       await expect(systemMenu(page)).toContainText('Brio');
       expect(
@@ -164,32 +167,18 @@ for (const width of [1440, 390])
         .getByRole('link', { name: 'brio-button', exact: true })
         .click();
       await expect(
-        page.locator('.docs-article').getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
       ).toBeVisible();
       await expect(
-        page
-          .locator('.design-live-frame[aria-label="Component preview"] iframe')
-          .contentFrame()
-          .getByRole('button', { name: 'Save', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Props', exact: true }),
       ).toBeVisible();
-      await expect(
-        page.locator('.docs-article').getByRole('heading', { name: 'Props', exact: true }),
-      ).toBeVisible();
-      await expect(page.locator('.docs-props')).toContainText('variant');
-      const previewGeometry = await page.locator('.docs-canvas-hero').evaluate((canvas) => ({
-        minimum: parseFloat(getComputedStyle(canvas).minHeight),
-        frameHeight: canvas.querySelector('iframe')!.getBoundingClientRect().height,
-      }));
-      expect(previewGeometry.frameHeight).toBeLessThanOrEqual(previewGeometry.minimum);
-
+      await expect(designFrame(page).locator('table')).toContainText('variant');
       await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
         'href',
         /\/colab\/pages\/[0-9a-f-]+$/,
       );
-      await expect(page.locator('.docs-snippet button').first()).toHaveText('Copy');
-      const bundlePaint = await page
-        .locator('.design-live-frame[aria-label="Component preview"] iframe')
-        .contentFrame()
+      const bundlePaint = await designFrame(page)
+        .locator('[data-ds-example="button:primary"]')
         .getByRole('button', { name: 'Save', exact: true })
         .evaluate((element) => {
           const style = getComputedStyle(element);
@@ -219,35 +208,31 @@ for (const width of [1440, 390])
         body: JSON.stringify(bundlePaint, null, 2),
         contentType: 'application/json',
       });
-      expect(bundlePaint.display).toBe('flex');
+      expect(bundlePaint.display).toMatch(/^(inline-)?flex$/);
       expect(bundlePaint.height).toBe(bundlePaint.controlSize.trim());
       expect(bundlePaint.background).not.toBe('rgba(0, 0, 0, 0)');
       expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
-      const variants = page.locator('.docs-variant');
-      await expect(variants).toHaveCount(7);
+      // Each example is a live element of the page, anchored by `<component>:<example id>`.
+      const examples = designFrame(page).locator('[data-ds-example]');
+      await expect(examples).toHaveCount(7);
+      expect(
+        await examples.evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute('data-ds-example')),
+        ),
+      ).toEqual([
+        'button:primary',
+        'button:secondary',
+        'button:outline',
+        'button:ghost',
+        'button:sizes',
+        'button:with-an-icon',
+        'button:disabled',
+      ]);
       for (let index = 0; index < 7; index++) {
-        const variant = variants.nth(index);
-        await variant.scrollIntoViewIfNeeded();
-        const button = variant.locator('iframe').contentFrame().getByRole('button').first();
-        await expect(button).toBeVisible();
+        const button = examples.nth(index).getByRole('button').first();
         await expect(button).toHaveClass(/tmt-ui-button/);
-        await expect(button).toHaveCSS('display', 'flex');
-        const buttonHeight = (await button.boundingBox())!.height;
-        await expect
-          .poll(() => variant.locator('iframe').evaluate((frame) => frame.clientHeight))
-          .toBeGreaterThanOrEqual(buttonHeight);
+        await expect(button).toHaveCSS('display', /^(inline-)?flex$/);
         if (index === 6) await expect(button).toBeDisabled();
-        await expect(variant.locator('.docs-snippet button')).toHaveText('Copy');
-      }
-      if (captures) {
-        await variants.first().scrollIntoViewIfNeeded();
-        await variants
-          .first()
-          .screenshot({ path: join(captures, `design-user-variant-${width}-${theme}.png`) });
-        await page.locator('.docs-props').scrollIntoViewIfNeeded();
-        await page
-          .locator('.docs-props')
-          .screenshot({ path: join(captures, `design-user-props-${width}-${theme}.png`) });
       }
       await page.locator('.design-workspace').evaluate((element) => element.scrollTo({ top: 0 }));
       await capture(page, `design-user-component-${width}-${theme}.png`);
@@ -283,7 +268,7 @@ for (const width of [1440, 390])
         .toBe(0);
       await page.goBack();
       await expect(
-        page.locator('.docs-article').getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
       ).toBeVisible();
       expect(errors).toEqual([]);
       expect(
@@ -298,9 +283,7 @@ test('read-only Design viewers can select a tree but cannot create or publish', 
   await open(page, false);
   await expect(page.getByRole('button', { name: 'New design system', exact: true })).toHaveCount(0);
   await pickSystem(page, 'Acme');
-  await expect(
-    page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
-  ).toBeVisible();
+  await expect(designFrame(page).getByRole('heading', { name: 'Acme', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Publish / })).toHaveCount(0);
 });
 
@@ -319,7 +302,7 @@ test('a refused Publish remains visible, keeps the version and supports an expli
   await page.getByRole('button', { name: 'Publish 0.1.1', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Fixture upload refused');
   await expect(page.getByRole('button', { name: 'Publish 0.1.1', exact: true })).toBeDisabled();
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page.locator('.design-feedback[role="status"]')).toHaveCount(0);
   await page.evaluate(
     () =>
       ((
@@ -342,15 +325,14 @@ test('standalone Design keeps its docs, system cards and editing links on their 
   await page.locator('.docs-nav').getByRole('link', { name: 'Button', exact: true }).click();
   await expect(page).toHaveURL(/\/design\/ds\/gui\/components\/button$/);
   await pickSystem(page, 'Acme');
-  await expect(
-    page.locator('.docs-article').getByRole('heading', { name: 'Acme', exact: true }),
-  ).toBeVisible();
-  const card = page.locator('.docs-cards').getByRole('link', { name: /acme-button/ });
-  await expect(card).toHaveAttribute('href', /^\/design\/systems\//);
-  await card.click();
+  await expect(designFrame(page).getByRole('heading', { name: 'Acme', exact: true })).toBeVisible();
+  // A link in the system's home page to one of its pages stays in Design.
+  await designFrame(page)
+    .getByRole('link', { name: /acme-button/ })
+    .click();
   await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
   await expect(
-    page.locator('.docs-article').getByRole('heading', { name: '<acme-button>', exact: true }),
+    designFrame(page).getByRole('heading', { name: '<acme-button>', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
     'href',

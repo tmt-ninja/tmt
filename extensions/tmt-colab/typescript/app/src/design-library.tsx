@@ -279,9 +279,9 @@ export function DesignLibrary({
                 {page ? (
                   <DesignPage
                     key={page.id}
-                    transport={transport}
                     pageId={page.id}
                     system={selected}
+                    base={base}
                     navigate={go}
                   />
                 ) : (

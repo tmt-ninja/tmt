@@ -1242,10 +1242,17 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   };
 }
 
-/** A chapter's page hosted in the shell's panel: it opens the page through the transport as the
- * route would, and gives its live connection up when the panel leaves it (back to the summary, the
- * full page, Esc), so one page never holds two. */
-function EmbeddedPage({ pageId }: { pageId: string }) {
+/** A page hosted inside another view: a chapter in the shell's panel, or a Design page (#5866). It
+ * opens the page through the transport as the route would, and gives its live connection up when the
+ * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
+ * route the page's own links (Design keeps its tree's pages in Design). */
+export function EmbeddedPage({
+  pageId,
+  routing: hostRouting,
+}: {
+  pageId: string;
+  routing?(base: PageRouting): PageRouting;
+}) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
@@ -1271,10 +1278,14 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
       opened?.binding?.close();
     };
   }, [transport, pageId]);
-  const routing = useMemo<PageRouting>(
-    () => ({ ...routePageRouting(router), home: (brand) => brand, scopeCrumb: () => null }),
-    [router],
-  );
+  const routing = useMemo<PageRouting>(() => {
+    const base: PageRouting = {
+      ...routePageRouting(router),
+      home: (brand) => brand,
+      scopeCrumb: () => null,
+    };
+    return hostRouting ? hostRouting(base) : base;
+  }, [router, hostRouting]);
   const wrap = useRef<HTMLDivElement>(null);
   const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (

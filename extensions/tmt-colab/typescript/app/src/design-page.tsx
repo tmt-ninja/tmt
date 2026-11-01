@@ -1,60 +1,50 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import type { DesignSystemEntry } from './design-system-pages.js';
-const DesignPageDocs = lazy(() =>
-  import('./design-page-docs.js').then((module) => ({ default: module.DesignPageDocs })),
-);
-import type { PageSnapshot, PageTransport, PageView } from './transport.js';
+import { useCallback, useRef } from 'react';
+import type { DesignSystemEntry, DesignTreeNode } from './design-system-pages.js';
+import type { PageRouting } from './page-routing.js';
+import { EmbeddedPage } from './router.js';
 
-/** Selected Design pages use Colab's existing opaque renderer and pinned-bundle resolver. */
+const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
+
+/** A Design page is a Colab page (#5866): the same reader frame, annotations, discussion and Chat
+ * with @agent, hosted in the Design workspace. Links to pages of the selected tree stay in Design;
+ * any other link opens as it would in Colab. */
 export function DesignPage({
-  transport,
   pageId,
   system,
+  base,
   navigate,
 }: {
-  transport: PageTransport;
   pageId: string;
   system: DesignSystemEntry;
+  base: string;
   navigate(href: string): void;
 }) {
-  const [page, setPage] = useState<PageSnapshot & Pick<PageView, 'attachments'>>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    const controller = new AbortController();
-    let close: (() => void) | undefined;
-    setPage(undefined);
-    setError(undefined);
-    void transport
-      .page(pageId, controller.signal)
-      .then((snapshot) => {
-        if (controller.signal.aborted) {
-          snapshot.binding?.close();
-          return;
-        }
-        setPage(snapshot);
-        const unsubscribe = snapshot.binding?.subscribe(
-          (view) => setPage({ ...snapshot, ...view }),
-          (failure) => setError(failure.message),
-        );
-        close = () => {
-          unsubscribe?.();
-          snapshot.binding?.close();
-        };
-      })
-      .catch((failure) => {
-        if (!controller.signal.aborted)
-          setError(failure instanceof Error ? failure.message : String(failure));
-      });
-    return () => {
-      controller.abort();
-      close?.();
-    };
-  }, [transport, pageId]);
-  if (error) return <p role="alert">{error}</p>;
-  if (!page) return <p role="status">Loading design page…</p>;
-  return (
-    <Suspense fallback={<p role="status">Loading design documentation…</p>}>
-      <DesignPageDocs transport={transport} page={page} system={system} navigate={navigate} />
-    </Suspense>
+  const go = useRef(navigate);
+  go.current = navigate;
+  const routing = useCallback(
+    (colab: PageRouting): PageRouting => {
+      const ids = treeIds(system.tree);
+      // A page route names the whole id; a `/p/<prefix>` link in the page names its start.
+      const design = (route: string) => {
+        const [, kind, key] = /^\/(pages|short)\/([^/?#]+)$/.exec(route) ?? [];
+        const id =
+          key && ids.find((entry) => (kind === 'pages' ? entry === key : entry.startsWith(key)));
+        return id
+          ? `${base}/systems/${encodeURIComponent(system.id)}/${encodeURIComponent(id)}`
+          : undefined;
+      };
+      return {
+        ...colab,
+        open(route, anchor) {
+          const href = design(route);
+          if (href) go.current(anchor ? `${href}#${encodeURIComponent(anchor)}` : href);
+          else colab.open(route, anchor);
+        },
+        pageHref: (id, hint) =>
+          (!hint && design(`/pages/${encodeURIComponent(id)}`)) || colab.pageHref(id, hint),
+      };
+    },
+    [system, base],
   );
+  return <EmbeddedPage key={pageId} pageId={pageId} routing={routing} />;
 }

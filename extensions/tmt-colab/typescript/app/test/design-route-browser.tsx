@@ -160,7 +160,7 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   const load = async () => ({
     mount: (slot: import('@tmt/browser-ui/shell-host').ShellSlot) => {
       const root = createRoot(slot.main);
-      const router = createAppRouter(transport);
+      const router = createAppRouter(transport, '10000000-0000-4000-8000-00000000d351');
       root.render(
         <ShellHostSlot value={slot}>
           <RouterProvider router={router} />
