@@ -1,7 +1,6 @@
 import {
   binary,
   decodeHeader,
-  Envelope,
   equal,
   exactKeys,
   MAX_ENVELOPE_JSON,
@@ -12,11 +11,12 @@ import {
   text,
 } from '@tmt/colab-client';
 import type { Admission } from './admission.js';
+import { receivedEnvelope, type JoinedEnvelope } from './objects.js';
 import { BASELINE_UPDATE_BYTES, SOURCE_BYTES, validateProjection } from './fold-protocol.js';
 
 export interface BaselineObject {
   envelopeHash: string;
-  envelope: string;
+  envelope: string | JoinedEnvelope;
 }
 export interface BaselineInput {
   source: string;
@@ -37,7 +37,7 @@ export async function openBaseline(
   const key = a.baseline(d, epoch),
     root = a.readRoot(epoch);
   exactKeys(object, ['envelopeHash', 'envelope']);
-  const env = Envelope.fromJson(binary(object.envelope, MAX_ENVELOPE_JSON));
+  const env = receivedEnvelope(object.envelope, MAX_ENVELOPE_JSON);
   const h = decodeHeader(env.header()).context;
   requireValue(
     a.head !== null &&
