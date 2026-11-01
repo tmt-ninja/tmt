@@ -6704,7 +6704,7 @@ test('Design uses a described Colab entry after owner pairing and keeps one acti
     await expect(
       page.getByRole('heading', { name: 'Design', exact: true, level: 1 }),
     ).toBeVisible();
-    await expect(page.locator('main')).toContainText('Pair this browser with Remote');
+    await expect(page.locator('.tmt-ui-shell-main')).toContainText('Pair this browser with Remote');
     expect(imports).toBe(0);
     await captureState(
       page,
