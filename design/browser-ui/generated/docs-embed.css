@@ -2657,3 +2657,20 @@ tmt-tui-frame,
 }
 
 }
+
+/* docs/hosted.css */
+
+@scope (.tmt-design-docs) {
+
+@media (max-width: 760px) {
+  :scope[data-chrome='hosted'] .docs-nav {
+    position: sticky;
+    inset: auto;
+    top: 56px;
+    max-height: 70dvh;
+    overflow-y: auto;
+    border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  }
+}
+
+}
