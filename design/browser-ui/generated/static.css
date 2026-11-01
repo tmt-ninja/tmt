@@ -187,7 +187,6 @@
   --tmt-ui-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --tmt-ui-motion-scale: 0.96;
   --tmt-ui-motion-rise: 6px;
-  --tmt-ui-motion-press-scale: 0.98;
   --tmt-ui-motion-pulse: 1600ms;
   --tmt-ui-type-display-size: var(--tmt-ui-page-title-size);
   --tmt-ui-type-display-line-height: var(--tmt-ui-page-title-line-height);

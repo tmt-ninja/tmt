@@ -6,7 +6,8 @@ import { setReducedMotion, usePreview } from './preview.js';
 /** What each component does when it moves (#5821), shown on its page with a replay. */
 export const motionNotes: Record<string, string> = {
   alert: 'Enters with a short rise on the base duration.',
-  button: 'Hover changes colour on fast; a press scales to 0.98 on fast.',
+  button:
+    'Hover changes colour on fast; a press keeps its size, so a click released near the edge still lands.',
   checkbox: 'The tick draws in from left to right on base.',
   command: 'Rows change colour only; in a dialog it opens with the dialog.',
   dialog: 'The scrim fades; the dialog pops from 0.96 with a fade on base and leaves on fast.',
@@ -96,7 +97,7 @@ export function MotionPage() {
           Floating layers fade and rise 6px from the side they open toward; a dialog pops from 0.96;
           a sheet slides from its edge.
         </li>
-        <li>Controls answer at once: colour on fast, a press at most 0.98.</li>
+        <li>Controls answer at once: colour on fast; nothing shrinks on press.</li>
         <li>
           Nothing moves on its own except a skeleton&apos;s calm pulse. Rows, links and lists change
           colour only.

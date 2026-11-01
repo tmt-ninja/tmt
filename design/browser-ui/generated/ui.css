@@ -19,7 +19,6 @@
   --tmt-foundation-motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --tmt-foundation-motion-scale: 0.96;
   --tmt-foundation-motion-rise: 6px;
-  --tmt-foundation-motion-press-scale: 0.98;
   --tmt-foundation-motion-pulse: 1600ms;
   --tmt-foundation-font-display: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
   --tmt-foundation-font-body: Inter, -apple-system, system-ui, 'Segoe UI', sans-serif;
@@ -927,8 +926,8 @@
   .tmt\:outline-ring {
     outline-color: var(--tmt-foundation-ring);
   }
-  .tmt\:transition-\[color\,background-color\,border-color\,scale\] {
-    transition-property: color, background-color, border-color, scale;
+  .tmt\:transition-\[color\,background-color\,border-color\] {
+    transition-property: color, background-color, border-color;
     transition-timing-function: var(--tmt-foundation-tw-ease, ease);
     transition-duration: var(--tmt-foundation-tw-duration, 0s);
   }
@@ -1122,9 +1121,6 @@
   .tmt\:focus-visible\:outline-solid:focus-visible {
     --tmt-foundation-tw-outline-style: solid;
     outline-style: solid;
-  }
-  .tmt\:enabled\:active\:scale-\(--tmt-foundation-motion-press-scale\):enabled:active {
-    scale: var(--tmt-foundation-motion-press-scale);
   }
   .tmt\:disabled\:pointer-events-none:disabled {
     pointer-events: none;
