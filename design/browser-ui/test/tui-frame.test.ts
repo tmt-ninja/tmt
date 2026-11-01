@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { cells, color, oracle, selectFrame, states, styleFor } from '../docs/tui/model.js';
 
 const root = new URL('../../../', import.meta.url);
 describe('real TUI oracle rendering', () => {
   it('keeps source hashes and extracted cells equal to the frozen painter', () => {
-    for (const source of oracle.provenance)
-      expect(
-        createHash('sha256')
-          .update(readFileSync(new URL(source.path, root)))
-          .digest('hex'),
-        source.path,
-      ).toBe(source.sha256);
+    for (const source of oracle.provenance) {
+      const raw = readFileSync(new URL(source.path, root), 'utf8');
+      const input =
+        'fields' in source && source.fields
+          ? JSON.stringify(
+              Object.fromEntries(source.fields.map((field) => [field, JSON.parse(raw)[field]])),
+            )
+          : raw;
+      expect(createHash('sha256').update(input).digest('hex'), source.path).toBe(source.sha256);
+    }
     const raw = JSON.parse(readFileSync(new URL(oracle.provenance[0]!.path, root), 'utf8'));
     for (const frame of oracle.frames) {
       const source = raw.frames.find(
@@ -27,6 +32,29 @@ describe('real TUI oracle rendering', () => {
       expect(frame.styles).toEqual(source.styles.map((id: number) => raw.style_row_dictionary[id]));
     }
     for (const [id, value] of Object.entries(oracle.styles)) expect(value).toBe(raw.styles[id]);
+  });
+  it('ignores browser-only token changes but detects changes to every consumed TUI group', () => {
+    const result = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+      import {tokenInput} from './docs/tui/generate.mjs';
+      import {readFileSync} from 'node:fs';
+      const tokens=JSON.parse(readFileSync('../tokens/tokens.json','utf8'));
+      const baseline=tokenInput(tokens);
+      const gui=structuredClone(tokens);gui.browser={'changed-for-regression':true};
+      const changes=['color','mark','surface'].map((group) => {
+        const next=structuredClone(tokens);next[group]={'changed-for-regression':true};
+        return tokenInput(next)!==baseline;
+      });
+      console.log(JSON.stringify({guiUnchanged:tokenInput(gui)===baseline,changes}));
+    `,
+      ],
+      { cwd: fileURLToPath(new URL('../', import.meta.url)), encoding: 'utf8' },
+    );
+    expect(JSON.parse(result)).toEqual({ guiUnchanged: true, changes: [true, true, true] });
   });
   it('renders every source cell with contiguous styles and complete geometry', () => {
     for (const frame of oracle.frames) {

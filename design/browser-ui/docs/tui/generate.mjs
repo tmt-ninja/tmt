@@ -50,6 +50,10 @@ export const scenes = [
   'bindings-preview',
   'bindings-unavailable',
 ];
+/** Only TUI-owned token inputs participate; GUI foundation edits are independent. */
+export function tokenInput(tokens) {
+  return JSON.stringify({ color: tokens.color, mark: tokens.mark, surface: tokens.surface });
+}
 export function extract() {
   const raw = read(oraclePath);
   const oracle = JSON.parse(raw);
@@ -80,7 +84,8 @@ export function extract() {
   return {
     provenance: [oraclePath, themePath, stylePath, 'design/tokens/tokens.json'].map((path) => ({
       path,
-      sha256: hash(read(path)),
+      sha256: hash(path === 'design/tokens/tokens.json' ? tokenInput(tokens) : read(path)),
+      ...(path === 'design/tokens/tokens.json' ? { fields: ['color', 'mark', 'surface'] } : {}),
     })),
     ansiRgb,
     roles: tokens.color,

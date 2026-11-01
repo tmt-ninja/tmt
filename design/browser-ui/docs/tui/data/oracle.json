@@ -14,7 +14,8 @@
     },
     {
       "path": "design/tokens/tokens.json",
-      "sha256": "a4e425868aacd641e31f0c852ad459bd9ad05fd84ae04571153bb7de8b0da506"
+      "sha256": "6f5903d9c6658b91c2e0e32f2806acfb35b3b3119ff76c392c25f906dc946cf2",
+      "fields": ["color", "mark", "surface"]
     }
   ],
   "ansiRgb": [
