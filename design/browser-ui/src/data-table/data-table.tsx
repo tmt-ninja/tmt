@@ -53,7 +53,7 @@ export interface DataTableColumn<Row> {
   /** chips: every chip in order; the cell shows `maxChips` of them and a +N overflow chip. */
   chips?: (row: Row) => DataTableChip[];
   maxChips?: number;
-  /** primary: a leading icon on the first line. */
+  /** primary: a leading icon on the first line, in a 16px slot; the sub-line starts after it. */
   lead?: (row: Row) => ReactNode;
   /** primary: a second line under the text, such as progress, that never moves the other cells. */
   sub?: (row: Row) => ReactNode;
@@ -471,7 +471,11 @@ export function DataTable<Row>({
                               {column.role === 'primary' ? (
                                 <>
                                   <span className="tmt-data-table-line">
-                                    {column.lead?.(row)}
+                                    {column.lead && (
+                                      <span className="tmt-data-table-lead">
+                                        {column.lead(row)}
+                                      </span>
+                                    )}
                                     {cellFor(column, row)}
                                   </span>
                                   {column.sub && (

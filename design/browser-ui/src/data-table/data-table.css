@@ -5,6 +5,8 @@
   --tmt-data-table-row: var(--tmt-foundation-table-row-compact);
   --tmt-data-table-pad: calc(var(--tmt-foundation-spacing-unit) * 2);
   --tmt-data-table-gap: var(--tmt-foundation-spacing-unit);
+  --tmt-data-table-line-gap: calc(var(--tmt-foundation-spacing-unit) * 2);
+  --tmt-data-table-lead: 16px;
   --tmt-data-table-select: calc(var(--tmt-foundation-control-size) + var(--tmt-data-table-pad));
   container: tmt-data-table / inline-size;
   min-width: 0;
@@ -87,16 +89,25 @@
 .tmt-data-table-line {
   display: flex;
   align-items: center;
-  gap: calc(var(--tmt-foundation-spacing-unit) * 2);
+  gap: var(--tmt-data-table-line-gap);
   min-width: 0;
   height: var(--tmt-data-table-row);
   font-weight: 600;
 }
-.tmt-data-table-line > svg {
+.tmt-data-table-lead {
+  display: flex;
   flex: none;
-  width: 16px;
-  height: 16px;
+  justify-content: center;
+  width: var(--tmt-data-table-lead);
   color: var(--tmt-foundation-muted-foreground);
+}
+.tmt-data-table-lead > svg {
+  width: var(--tmt-data-table-lead);
+  height: var(--tmt-data-table-lead);
+}
+/* The sub-line starts under the title text, after the lead slot and its gap. */
+.tmt-data-table-line:has(> .tmt-data-table-lead) + .tmt-data-table-sub {
+  padding-inline-start: calc(var(--tmt-data-table-lead) + var(--tmt-data-table-line-gap));
 }
 .tmt-data-table-sub {
   margin-top: calc(var(--tmt-foundation-spacing-unit) * -1.5);

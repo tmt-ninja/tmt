@@ -82,6 +82,26 @@ test('the row menu sits at the same height with and without a sub-line', async (
   expect(Math.abs(centreY(stage) - centreY((await menu(withSub).boundingBox())!))).toBeLessThan(1);
 });
 
+test('the sub-line starts under the title text in both densities and on the card', async ({
+  page,
+}) => {
+  for (const [width, query] of [
+    [1440, ''],
+    [1440, 'density=comfortable'],
+    [390, ''],
+  ] as const) {
+    await open(page, width, query);
+    const row = rows(page).filter({ hasText: 'sub-pages done' }).first();
+    const title = (await row.locator('.tmt-data-table-line .tmt-data-table-text').boundingBox())!;
+    const sub = await row.locator('.tmt-data-table-sub').evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect().x;
+    });
+    expect(Math.abs(sub - title.x)).toBeLessThan(1);
+  }
+});
+
 test('a cut title shows its full text on hover, and +N lists every chip', async ({ page }) => {
   await open(page, 1440);
   const long = page.locator('.tmt-data-table-line .tmt-data-table-text', {
