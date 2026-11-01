@@ -5,7 +5,6 @@ use tmt_core::{
     identity::{Lifetime, create_or_resolve},
     request::{
         PreparedRequest, RequestRoute, ResponseProof, SubmitResponse,
-        digest::DeliveryPolicy,
         history::{
             ChangedSince, ConversationDirection, ConversationPage, ConversationQuery,
             ConversationSince, HistoryCursor,
@@ -40,13 +39,7 @@ fn world() -> World {
 fn send(w: &mut World, from: &str, to: &str, id: &str, at: u64) -> PreparedRequest {
     w.f.set_now(at);
     service(&mut w.f)
-        .prepare_delivery(
-            request(to, Some(from), id),
-            format!("attempt-{id}"),
-            7,
-            DeliveryPolicy::default(),
-            None,
-        )
+        .enqueue(request(to, Some(from), id), format!("attempt-{id}"), 7)
         .unwrap()
 }
 
@@ -132,15 +125,16 @@ fn a_late_final_on_an_old_request_moves_the_position_and_counts() {
     let (viewer, member) = (w.viewer.clone(), w.member.clone());
     let old = send(&mut w, &member, &viewer, "req_old", NOW_MS + 1);
     for i in 0..3 {
-        send(&mut w, &viewer, &member, &format!("req_n{i}"), NOW_MS + 2 + i);
+        send(
+            &mut w,
+            &viewer,
+            &member,
+            &format!("req_n{i}"),
+            NOW_MS + 2 + i,
+        );
     }
     let before = read(&mut w, 1, None, None).position;
-    let unchanged = read(
-        &mut w,
-        1,
-        None,
-        Some(ConversationSince::Position(before)),
-    );
+    let unchanged = read(&mut w, 1, None, Some(ConversationSince::Position(before)));
     assert_eq!(
         unchanged.changed_since,
         Some(ChangedSince::Count {
@@ -176,7 +170,13 @@ fn the_count_caps_and_stale_or_foreign_positions_are_unknown() {
     let (viewer, member) = (w.viewer.clone(), w.member.clone());
     let start = read(&mut w, 1, None, None).position;
     for i in 0..52 {
-        send(&mut w, &viewer, &member, &format!("req_{i:02}"), NOW_MS + 1 + i);
+        send(
+            &mut w,
+            &viewer,
+            &member,
+            &format!("req_{i:02}"),
+            NOW_MS + 1 + i,
+        );
     }
     let capped = read(&mut w, 1, None, Some(ConversationSince::Position(start)));
     assert_eq!(

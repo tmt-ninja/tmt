@@ -77,7 +77,11 @@ impl Drop for Fixture {
 #[test]
 fn the_person_reads_one_member_conversation_and_nothing_is_created() {
     let mut f = Fixture::new();
-    assert!(f.run(&["config", "set", "user.name", "ben"], None).status.success());
+    assert!(
+        f.run(&["config", "set", "user.name", "ben", "--global"], None)
+            .status
+            .success()
+    );
     let mut storage = Storage::open(f.db()).unwrap();
     let member = create_or_resolve(&mut storage, "worker-a", Lifetime::Saved)
         .unwrap()
@@ -95,9 +99,21 @@ fn the_person_reads_one_member_conversation_and_nothing_is_created() {
         .as_str()
         .unwrap()
         .to_owned();
-    for (to, from) in [("worker-a", "ben"), ("worker-b", "ben"), ("ben", "worker-a")] {
+    for (to, from) in [
+        ("worker-a", "ben"),
+        ("worker-b", "ben"),
+        ("ben", "worker-a"),
+    ] {
         let o = f.run(
-            &["talk", to, "hello", "--identity", from, "--detach", "--json"],
+            &[
+                "talk",
+                to,
+                "hello",
+                "--identity",
+                from,
+                "--detach",
+                "--json",
+            ],
             None,
         );
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stdout));

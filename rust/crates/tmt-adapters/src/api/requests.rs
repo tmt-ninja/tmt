@@ -54,10 +54,14 @@ fn conversation(
     input: request_history::ConversationInput,
     settings: &tmt_core::settings::Settings,
 ) -> Result<Vec<u8>, Fault> {
-    let viewer = super::user::configured_person(storage, settings, crate::user::login_name().as_deref())?
-        .ok_or_else(Fault::unavailable)?;
+    let viewer =
+        super::user::configured_person(storage, settings, crate::user::login_name().as_deref())?
+            .ok_or_else(Fault::unavailable)?;
     let member_id = input.member_id.clone();
-    let member = match storage.identity_retired(&member_id).map_err(|_| Fault::unavailable())? {
+    let member = match storage
+        .identity_retired(&member_id)
+        .map_err(|_| Fault::unavailable())?
+    {
         Some(false) => "active",
         Some(true) => "retired",
         None => "unknown",
@@ -71,15 +75,24 @@ fn conversation(
         tmt_core::request::history::ConversationPage {
             items: Vec::new(),
             next_before: None,
-            position: tmt_core::request::history::ConversationPosition { viewer: 0, member: 0, retained: 0 },
-            changed_since: query.since.as_ref().map(|_| tmt_core::request::history::ChangedSince::Unknown),
+            position: tmt_core::request::history::ConversationPosition {
+                viewer: 0,
+                member: 0,
+                retained: 0,
+            },
+            changed_since: query
+                .since
+                .as_ref()
+                .map(|_| tmt_core::request::history::ChangedSince::Unknown),
         }
     } else {
         RequestService::new(storage, wall_time_ms)
             .request_conversation(query)
             .map_err(request_error)?
     };
-    Ok(request_history::encode_conversation_page(&page, &viewer, &member_id, member))
+    Ok(request_history::encode_conversation_page(
+        &page, &viewer, &member_id, member,
+    ))
 }
 
 pub(super) fn show_request(storage: &mut Storage, id: String) -> Result<Vec<u8>, Fault> {

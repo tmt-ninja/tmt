@@ -332,6 +332,9 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        assert_eq!(configured_person(&storage, &settings, None).unwrap(), Some(id));
+        assert_eq!(
+            configured_person(&storage, &settings, None).unwrap(),
+            Some(id)
+        );
     }
 }

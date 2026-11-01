@@ -322,7 +322,6 @@ pub(super) fn prepare(
         delivery,
         notification,
     );
-    drop(service);
     let prepared = prepared.map_err(|error| match error {
         RequestError::RouteRestricted(refusal) => route_restricted(storage, &correlation, &refusal),
         error => correlation.state_error(error, false),

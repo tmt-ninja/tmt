@@ -176,7 +176,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let more = rows.len() as u64 > query.limit;
             rows.truncate(query.limit as usize);
             let next_before = more.then(|| {
-                let row = &rows.last().expect("positive page limit").history.attention.attempt;
+                let row = &rows
+                    .last()
+                    .expect("positive page limit")
+                    .history
+                    .attention
+                    .attempt;
                 HistoryCursor::Prepared {
                     prepared_at_ms: row.prepared_at_ms,
                     request_id: row.request_id.clone(),

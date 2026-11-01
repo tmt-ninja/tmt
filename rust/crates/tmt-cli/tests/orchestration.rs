@@ -414,7 +414,15 @@ fn talk_refuses_a_restricted_route_holds_at_the_limit_and_resume_releases() {
     storage.close().unwrap();
     let talk = |f: &mut Fixture| {
         f.run(
-            &["talk", "worker-b", "hi", "--identity", "worker-a", "--detach", "--json"],
+            &[
+                "talk",
+                "worker-b",
+                "hi",
+                "--identity",
+                "worker-a",
+                "--detach",
+                "--json",
+            ],
             None,
         )
     };
@@ -433,7 +441,9 @@ fn talk_refuses_a_restricted_route_holds_at_the_limit_and_resume_releases() {
     assert_eq!(error["error"]["code"], "ORCH_ROUTE_RESTRICTED");
     assert_eq!(attempts(&f), 0);
     let allowed = f.json(
-        &["orch", "route", "allow", "worker-a", "worker-b", "--until", "1h", "--yes", "--json"],
+        &[
+            "orch", "route", "allow", "worker-a", "worker-b", "--until", "1h", "--yes", "--json",
+        ],
         None,
     );
     assert_eq!(allowed["changed"], true);
@@ -450,20 +460,34 @@ fn talk_refuses_a_restricted_route_holds_at_the_limit_and_resume_releases() {
     let held = talk(&mut f);
     assert!(held.status.success());
     let held: Value = serde_json::from_slice(&held.stdout).unwrap();
-    assert_eq!((held["status"].clone(), held["waitingFor"].clone()), (json!("held"), json!("person")));
+    assert_eq!(
+        (held["status"].clone(), held["waitingFor"].clone()),
+        (json!("held"), json!("person"))
+    );
     let talks = f.json(&["orch", "talks", "--json"], None);
     assert_eq!(talks["pairs"][0]["state"], "held");
     assert_eq!(talks["pairs"][0]["heldCount"], 1);
     assert_eq!(talks["pairs"][0]["held"][0]["fromName"], "worker-a");
     let routes = f.json(&["orch", "routes", "--member", "worker", "--json"], None);
-    assert!(routes["routes"].as_array().unwrap().iter().any(|r| r["fromName"] == "worker-a"
-        && r["toName"] == "worker-b"
-        && r["verdict"] == "needs_person"));
-    let preview = f.json(&["orch", "talks", "resume", "worker-a", "worker-b", "--json"], None);
+    assert!(
+        routes["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["fromName"] == "worker-a"
+                && r["toName"] == "worker-b"
+                && r["verdict"] == "needs_person")
+    );
+    let preview = f.json(
+        &["orch", "talks", "resume", "worker-a", "worker-b", "--json"],
+        None,
+    );
     assert_eq!(preview["releases"], 1);
     assert_eq!(preview["requiresConsent"], true);
     let resumed = f.json(
-        &["orch", "talks", "resume", "worker-a", "worker-b", "--yes", "--json"],
+        &[
+            "orch", "talks", "resume", "worker-a", "worker-b", "--yes", "--json",
+        ],
         None,
     );
     assert_eq!(resumed["released"].as_array().unwrap().len(), 1);

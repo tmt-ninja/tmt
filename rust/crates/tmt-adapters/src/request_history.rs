@@ -116,7 +116,9 @@ fn conversation_query(input: QueryWire) -> Option<ConversationInput> {
         return None;
     }
     let limit = input.limit.unwrap_or(CONVERSATION_LIMIT);
-    if !(1..=HISTORY_MAX_LIMIT).contains(&limit) || input.since.as_deref().is_some_and(|s| !valid_position(s)) {
+    if !(1..=HISTORY_MAX_LIMIT).contains(&limit)
+        || input.since.as_deref().is_some_and(|s| !valid_position(s))
+    {
         return None;
     }
     let before = match input.before {
@@ -382,27 +384,78 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
 
 /// The conversation page (#5807): the `results` item fields, plus `direction`,
 /// `changePosition` and `responseId` when the request has one; no room, receipt or pane.
-pub fn encode_conversation_page(page: &ConversationPage, viewer_id: &str, member_id: &str, member: &str) -> Vec<u8> {
-    let items: Vec<_> = page.items.iter().map(|row| {
-        let full = item_document(&row.summary.item, |_| None);
-        let mut value = serde_json::Map::new();
-        for key in ["requestId","recipientId","sender","kind","origin","preparedAtMs","delivery","messageState","final"] {
-            value.insert(key.into(), full[key].clone());
-        }
-        value.insert("preview".into(), json!(row.summary.preview));
-        value.insert("responsePreview".into(), json!(row.summary.response_preview.as_ref().map(|p| &p.text)));
-        value.insert("previewTruncated".into(), json!(row.summary.response_preview.as_ref().is_some_and(|p| p.truncated)));
-        value.insert("direction".into(), json!(match row.direction {
-            ConversationDirection::ToMember => "toMember",
-            ConversationDirection::FromMember => "fromMember",
-        }));
-        let (viewer, member) = row.position;
-        value.insert("changePosition".into(), json!(encode_position(viewer_id, member_id, &ConversationPosition { viewer, member, retained: 0 })));
-        if let Some(response) = row.summary.item.capture.as_ref().and_then(|c| c.answer.as_ref()).and_then(|a| a.response_id.as_ref()) {
-            value.insert("responseId".into(), json!(response));
-        }
-        Value::Object(value)
-    }).collect();
+pub fn encode_conversation_page(
+    page: &ConversationPage,
+    viewer_id: &str,
+    member_id: &str,
+    member: &str,
+) -> Vec<u8> {
+    let items: Vec<_> = page
+        .items
+        .iter()
+        .map(|row| {
+            let full = item_document(&row.summary.item, |_| None);
+            let mut value = serde_json::Map::new();
+            for key in [
+                "requestId",
+                "recipientId",
+                "sender",
+                "kind",
+                "origin",
+                "preparedAtMs",
+                "delivery",
+                "messageState",
+                "final",
+            ] {
+                value.insert(key.into(), full[key].clone());
+            }
+            value.insert("preview".into(), json!(row.summary.preview));
+            value.insert(
+                "responsePreview".into(),
+                json!(row.summary.response_preview.as_ref().map(|p| &p.text)),
+            );
+            value.insert(
+                "previewTruncated".into(),
+                json!(
+                    row.summary
+                        .response_preview
+                        .as_ref()
+                        .is_some_and(|p| p.truncated)
+                ),
+            );
+            value.insert(
+                "direction".into(),
+                json!(match row.direction {
+                    ConversationDirection::ToMember => "toMember",
+                    ConversationDirection::FromMember => "fromMember",
+                }),
+            );
+            let (viewer, member) = row.position;
+            value.insert(
+                "changePosition".into(),
+                json!(encode_position(
+                    viewer_id,
+                    member_id,
+                    &ConversationPosition {
+                        viewer,
+                        member,
+                        retained: 0
+                    }
+                )),
+            );
+            if let Some(response) = row
+                .summary
+                .item
+                .capture
+                .as_ref()
+                .and_then(|c| c.answer.as_ref())
+                .and_then(|a| a.response_id.as_ref())
+            {
+                value.insert("responseId".into(), json!(response));
+            }
+            Value::Object(value)
+        })
+        .collect();
     let mut value = json!({
         "viewerId": viewer_id,
         "member": member,
