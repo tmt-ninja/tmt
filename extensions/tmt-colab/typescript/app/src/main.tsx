@@ -1,5 +1,5 @@
 import { moduleMount } from '@tmt/browser-ui/shell';
-import { publicEntry } from './entry.js';
+import { hostInShell, publicEntry } from './entry.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
@@ -41,6 +41,8 @@ async function start() {
     location.replace(`/colab/${location.search}${location.hash}`);
     return;
   }
+  if (location.pathname === '/colab/design' || location.pathname.startsWith('/colab/design/'))
+    hostInShell(null);
   if (!location.pathname.startsWith('/r/') && !publicEntry()) {
     root.render(
       <StrictMode>

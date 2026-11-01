@@ -31,7 +31,7 @@ export function DesignHeader({
           </select>
         </div>
       }
-      actions={actions}
+      actions={actions ? <div className="design-header-actions">{actions}</div> : undefined}
     />
   );
 }

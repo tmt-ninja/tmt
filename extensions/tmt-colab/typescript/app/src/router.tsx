@@ -67,6 +67,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Link,
   redirect,
   Outlet,
@@ -1100,6 +1101,17 @@ function ShortPageChoice() {
   );
 }
 
+// The Design pack is lazy: ordinary Colab pages do not load its catalog or styles.
+const design = createRoute({
+  getParentRoute: () => root,
+  path: '/design',
+  component: lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute'),
+});
+const designPage = createRoute({
+  getParentRoute: () => root,
+  path: '/design/$',
+  component: lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute'),
+});
 const colabSettings = createRoute({
   getParentRoute: () => root,
   path: '/settings',
@@ -1123,6 +1135,8 @@ function Shell() {
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
   const sharedSearch = ownShell || hostSlot.topBarReady();
+  // Design owns its docs navigation and header rather than the Colab page/list chrome.
+  if (pathname === '/design' || pathname.startsWith('/design/')) return <Outlet />;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -2880,7 +2894,16 @@ export function createAppRouter(
       : createHashHistory();
   if (space) keepListSearch(history);
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, colabSettings, blocked]),
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      page,
+      shortPage,
+      colabSettings,
+      blocked,
+      design,
+      designPage,
+    ]),
     history,
     ...(inShell() ? { basepath: '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },

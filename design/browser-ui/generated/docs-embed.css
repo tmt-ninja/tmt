@@ -705,6 +705,26 @@ code {
 .docs-variant + .docs-variant {
   margin-top: var(--tmt-ui-ref-space-4);
 }
+.docs-variant > .docs-snippet {
+  margin-top: var(--tmt-ui-ref-space-2);
+}
+
+.docs-props {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--tmt-ui-ref-size-3);
+}
+.docs-props th,
+.docs-props td {
+  padding: var(--tmt-ui-ref-space-2) var(--tmt-ui-ref-space-3);
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  text-align: start;
+  vertical-align: top;
+}
+.docs-props th {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 600;
+}
 .docs-snippet {
   position: relative;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
