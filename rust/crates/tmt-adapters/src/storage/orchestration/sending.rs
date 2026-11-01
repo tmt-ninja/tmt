@@ -3,6 +3,7 @@
 //! transaction's captured instant and records holds. No counter table: the pair count is
 //! read from the stored requests.
 use super::{ReceivingCalendar, StorageError, append, classify, corrupt, read_snapshot};
+use crate::storage::Storage;
 use rusqlite::{Connection, OptionalExtension, params};
 use tmt_core::orchestration::{sending::*, *};
 
@@ -116,6 +117,53 @@ impl ReceivingCalendar {
     }
 }
 
+impl ReceivingCalendar {
+    /// One journal entry when a held request expires unsent (#4892 ruling). The hold row
+    /// stays so `talks` and `x show` report it; resume skips it by its expiry.
+    pub(in crate::storage) fn expire_person_hold(
+        &self,
+        db: &Connection,
+        request_id: &str,
+        now: u64,
+    ) -> Result<(), StorageError> {
+        let Some(to) = db
+            .query_row(
+                "SELECT to_id FROM orchestration_talk_holds WHERE request_id=?",
+                [request_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| classify(e, "Read expiring hold"))?
+        else {
+            return Ok(());
+        };
+        let stored = read_snapshot(db, None, None)?;
+        // Expiry must not depend on a resolvable zone; the name is only attribution.
+        let time_zone = match (&self.zone, &self.configured_zone) {
+            (Some(zone), _) => zone.name().to_owned(),
+            (None, Some(name)) => name.clone(),
+            (None, None) => "UTC".to_owned(),
+        };
+        append(
+            db,
+            &OrchDecision {
+                recorded_at_ms: now,
+                subject_kind: OrchSubjectKind::Request,
+                subject_id: request_id.into(),
+                actor_id: None,
+                recipient_id: Some(to),
+                action: OrchDecisionAction::Delay,
+                outcome: OrchDecisionOutcome::Failed,
+                reason: "talk_hold_expired".into(),
+                configuration_revision: stored.snapshot.revision,
+                time_zone,
+                sources: Vec::new(),
+            },
+        )?;
+        Ok(())
+    }
+}
+
 /// Requests held at the talk limit between `a` and `b`, both directions, oldest first.
 pub(in crate::storage) fn held_for_person(
     db: &Connection,
@@ -211,6 +259,80 @@ impl ReceivingCalendar {
             )?;
         }
         Ok(())
+    }
+}
+
+/// One agent pair's talk facts at an instant, for the `talks` and `routes` views. The two
+/// members are in canonical order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrchTalkPair {
+    pub first_id: String,
+    pub second_id: String,
+    /// Counted requests since `window_start_ms` (the same count admission uses).
+    pub count: u64,
+    pub last_at_ms: Option<u64>,
+    pub window_start_ms: u64,
+    pub held: Vec<OrchHeld>,
+}
+
+impl Storage {
+    /// Every pair with a request in the last window or a held request, ordered by pair.
+    pub fn orchestration_talks(&self, now: u64) -> Result<Vec<OrchTalkPair>, StorageError> {
+        let tx = self
+            .connection()?
+            .unchecked_transaction()
+            .map_err(|e| classify(e, "Read talk pairs"))?;
+        let pairs = {
+            let mut query = tx
+                .prepare(
+                    "SELECT MIN(originator_identity_id,recipient_identity_id),\
+                       MAX(originator_identity_id,recipient_identity_id) FROM request_attempts \
+                     WHERE request_kind='request' AND prepared_at_ms >= ?1 \
+                       AND originator_identity_id IS NOT NULL AND recipient_identity_id IS NOT NULL \
+                       AND originator_identity_id <> recipient_identity_id \
+                     UNION SELECT MIN(from_id,to_id),MAX(from_id,to_id) FROM orchestration_talk_holds \
+                     ORDER BY 1,2",
+                )
+                .map_err(|e| classify(e, "Prepare talk pairs"))?;
+            query
+                .query_map(
+                    params![now.saturating_sub(ORCH_TALK_WINDOW_MS) as i64],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                )
+                .map_err(|e| classify(e, "Read talk pairs"))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|e| classify(e, "Decode talk pairs"))?
+        };
+        let mut out = Vec::with_capacity(pairs.len());
+        for (first_id, second_id) in pairs {
+            let window_start_ms = talk_window_start(now, resumed_at(&tx, &first_id, &second_id)?);
+            let last_at_ms = tx
+                .query_row(
+                    "SELECT MAX(prepared_at_ms) FROM request_attempts WHERE request_kind='request' \
+                     AND ((originator_identity_id=?1 AND recipient_identity_id=?2) \
+                       OR (originator_identity_id=?2 AND recipient_identity_id=?1))",
+                    params![first_id, second_id],
+                    |r| r.get::<_, Option<i64>>(0),
+                )
+                .map_err(|e| classify(e, "Read last pair request"))?
+                .map(|ms| u64::try_from(ms).map_err(|_| corrupt()))
+                .transpose()?;
+            out.push(OrchTalkPair {
+                count: pair_count(&tx, &first_id, &second_id, window_start_ms)?,
+                held: held_for_person(&tx, &first_id, &second_id)?,
+                last_at_ms,
+                window_start_ms,
+                first_id,
+                second_id,
+            });
+        }
+        tx.commit().map_err(|e| classify(e, "Finish talk pairs"))?;
+        Ok(out)
+    }
+
+    /// Requests held at the talk limit between `a` and `b`, oldest first.
+    pub fn orchestration_held(&self, a: &str, b: &str) -> Result<Vec<OrchHeld>, StorageError> {
+        held_for_person(self.connection()?, a, b)
     }
 }
 

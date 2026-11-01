@@ -19,6 +19,11 @@ tmt orch plan rm NAME_OR_UUID [--yes] [--json]
 tmt orch focus MEMBER DURATION|off [--yes] [--json]
 tmt orch preview --file PLAN_JSON [--range 1d|7d|30d] [--at TIME] [--member TEXT] [--json]
 tmt orch why SUBJECT [--before EVENT_ID] [--limit 1..100] [--json]
+tmt orch leads set [NAME...] [--yes] [--json]
+tmt orch route allow FROM TO [--until DURATION] [--yes] [--json]
+tmt orch talks [--member TEXT] [--limit 1..256] [--after CURSOR] [--json]
+tmt orch talks resume MEMBER OTHER [--yes] [--json]
+tmt orch routes [--member TEXT] [--limit 1..256] [--after CURSOR] [--json]
 ```
 
 The default range is one local day containing the selected instant. `TIME` is
@@ -302,8 +307,10 @@ request, no paste. The refusal is journaled (subject = sender, action `block`,
 reason `route_restricted`, source = the sending field) in its own transaction
 after the preparation rolls back. `--urgent` does not bypass it.
 `route.allow` (`fromId`, `toId`, `untilMs`, optional `actorId`) or
-`tmt orch route allow FROM TO [--until TIME]` lets that ordered pair pass its rule
-until `untilMs`, at most 24 hours ahead; a later allow replaces it.
+`tmt orch route allow FROM TO [--until DURATION]` lets that ordered pair pass its
+rule until `untilMs`, at most 24 hours ahead; a later allow replaces it. The CLI
+default ends with the sender's current slot (its next policy change), capped at
+24 hours.
 
 The pair limit is the smaller effective `talkLimit` of the two members; `null`
 is unlimited, the default. The count is the new requests between them, both
@@ -311,7 +318,8 @@ directions, prepared in the last 60 minutes or since the pair's last resume,
 whichever is later; requests from a current lead and held requests are not
 counted, and a lead's own requests are never held. At the limit the request is
 stored and held, never dropped: no wake and no Digest item. Talk returns
-`status:"held"`, `waitingFor:"person"`, and `x show` reports the same. The hold
+`status:"held"`, `waitingFor:"person"`; its `messageState` reason is
+`held_at_talk_limit` ([request/response](request-response-v1.md)). The hold
 is journaled (action `delay`, outcome `held`, reason `talk_limit`).
 A held attempt's expiry becomes the earlier of the hold instant plus 7 days and
 its prompt-retention horizon; it is never extended past the retained text.
@@ -319,25 +327,35 @@ its prompt-retention horizon; it is never extended past the retained text.
 of the pair through normal delivery, gives each a fresh normal expiry from the
 release instant, and restarts the pair's window at that instant. A held request
 left unresumed past its expiry expires unsent (never sent, never retried) with
-one journal entry; `talks` and `x show` show it as expired-unsent and resume
-skips it.
+one journal entry (action `delay`, outcome `failed`, reason `talk_hold_expired`);
+`talks` shows it as `expired_unsent`, its `messageState` reason is
+`talk_hold_expired`, and resume skips it.
 `--urgent` does not bypass the limit.
 
 `route.allow` and `talks.resume` use the same preview, consent and CAS as other
-writes. A caller attributed as a verified agent that is not a current lead is
-refused with `ORCH_NOT_PERMITTED` (exit 1); a person at a terminal (no verified
-agent caller) may always. This is local attribution, not authentication.
+writes. `talks.resume` (`aId`, `bId`, optional `actorId`) changes requests, not
+the configuration: its preview lists the pair's `held` entries and the number of
+`releases`, and its digest fences their IDs and the configuration revision. Apply
+returns the `released` request IDs; a changed held set is `ORCH_CONFLICT` (exit 5).
+A caller attributed as a verified agent (the CLI's `--identity` or verified pane
+caller) that is not a current lead is refused with `ORCH_NOT_PERMITTED` (exit 1);
+a person at a terminal (no agent caller) may always. This is local attribution,
+not authentication.
 
 `orchestration.read` adds `talks` and `routes` views, both with optional
 `memberQuery` and a page cursor (`limit` 1..256, opaque `after`). `talks` lists
 pairs with counted or held requests in the window: members with their effective
 `talkLimit`, `count`, `limit`, `lastAtMs`, `windowStartMs`, `state` (`open` or
-`held`), `heldCount` and up to 20 `held` entries (request ID, sender/recipient
-UUIDs and names, time; no bodies or receipts), plus `leads` (with `retired`) and
-live `routeGrants`. `routes` returns, for each ordered pair among at most 256
-selected members, the verdict `allowed`, `blocked` or `needs_person` and its
-source (`base`, `plan`, `member` or `grant`). An unknown or missing view is not
-available, so an older Core degrades cleanly.
+`held`), `heldCount` and up to 20 `held` entries (`requestId`, `from`/`fromName`,
+`to`/`toName`, `createdAtMs`, `expiresAtMs`, `state` `held` or `expired_unsent`;
+no bodies or receipts), plus `leads` (with `retired`; a retired lead's `name` is
+null) and live `routeGrants`. `routes` returns, for each ordered pair among at
+most 256 selected members (more is `ORCH_LIMIT`), the verdict `allowed`, `blocked`
+or `needs_person` and its `source` (`base`, `plan`, `member` or `grant` with
+`grantUntilMs`). Both return `nextAfter`, the cursor of the next page or null. An
+older Core refuses an unknown view as `ORCH_INPUT_INVALID`; a client reads that as
+"not available", so it degrades cleanly. CLI: `tmt orch talks`, `tmt orch routes`
+(`--member`, `--limit`, `--after`).
 
 ## Calendar
 

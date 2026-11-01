@@ -3,6 +3,7 @@ use crate::request::WakeState;
 
 fn facts(status: AttemptStatus) -> DeliveryFacts {
     DeliveryFacts {
+        talk_held: false,
         status,
         inbox: false,
         recipient_is_user: false,
@@ -499,4 +500,30 @@ fn a_person_waits_for_their_reply_not_an_agent_turn_or_stale_digest() {
     person.status = AttemptStatus::DefinitelyFailed;
     person.inbox = false;
     assert_eq!(shown(&person), ("not_sent", "refused", false));
+}
+
+#[test]
+fn a_talk_limit_hold_waits_for_a_person_and_expires_unsent() {
+    let held = DeliveryFacts {
+        talk_held: true,
+        ..facts(AttemptStatus::Prepared)
+    };
+    let view = delivery_view(&held, 0);
+    assert_eq!(
+        (view.state, view.reason, view.can_send_now),
+        (
+            DeliveryState::Batched,
+            DeliveryReason::HeldAtTalkLimit,
+            false
+        )
+    );
+    let expired = DeliveryFacts {
+        status: AttemptStatus::DefinitelyFailed,
+        ..held
+    };
+    let view = delivery_view(&expired, 0);
+    assert_eq!(
+        (view.state, view.reason),
+        (DeliveryState::NotSent, DeliveryReason::TalkHoldExpired)
+    );
 }

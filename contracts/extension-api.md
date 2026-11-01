@@ -141,7 +141,7 @@ remain independent of storage access.
 | `digest.receiving.sync`  | `expectedRevision`, `enabled`, `defaultReceiving`, `members`                                        | [Orchestration v1](orchestration-v1.md#commands-and-api): typed configured Digest input, CAS publication and current resolved projection; additive at API version 1                                                                     |
 | `storage.root`           | `{}`                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                                                                                         |
 | `changes.cursor`         | `{}`                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below)                                                             |
-| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`; `limit`, `before`  | `items`, `nextBefore`                                                                                                                                                                                                                   |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`/`"answers"`, or `view:"conversation"` + `memberId` (`since`); `limit`, `before`  | `items`, `nextBefore` (conversation: also `viewerId`, `member`, `changePosition`, `changedSince`)                                                                                                                                                                                                                   |
 | `requests.show`          | `requestId`                                                                                         | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))                                                                                    |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                 | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                                                                                      |
 | `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                         | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                                                                                                  |
@@ -1403,6 +1403,40 @@ follow the results view (default 8, `limit` 1 through 50). One cursor orders bot
 `{answeredAtMs, requestId}`, passed unchanged as `before`; any other cursor field is
 invalid. An older core answers `API_INPUT_INVALID`. The `results` view and reply
 collection are unchanged and never include captured turns.
+
+The person's conversation with one member is `requests.list` with
+`{"view":"conversation","memberId":"<canonical UUID>"}`, plus optional `limit` (1 through
+50, default 20), `before` and `since`; `originatorId`, `recipientId` and `roomId` are refused.
+The viewer is the configured person: the identity `user.identity` resolves, read-only and
+only when it already exists and is marked a person. The read never creates, marks or renames
+an identity; without a configured person it is `API_UNAVAILABLE`, never wider history. The
+caller cannot choose the viewer. Scope is the requests whose originator is the viewer and
+recipient the member, or the reverse, outside rooms; the filter runs before the limit, so a
+room message, a name or a membership grants nothing.
+
+The response is `{viewerId, member, items, nextBefore, changePosition, changedSince?}`.
+`viewerId` is the person's canonical UUID; a consumer keys its seen state on it and forwards
+it nowhere. `member` is `active`, `unknown` or `retired`; the last two return no items.
+Items are newest first by `(preparedAtMs, requestId)` and copy the results item fields
+unchanged (`requestId`, `recipientId`, `sender`, `kind`, `origin`, `preparedAtMs`, `delivery`,
+`messageState`, `final`, `preview`, `responsePreview`, `previewTruncated`), plus `direction`
+(`toMember` or `fromMember`), `changePosition`, and `responseId` when the request has one.
+There is no `roomId`, receipt, pane, cwd or provider data. `nextBefore` is null at the end or
+`{preparedAtMs, requestId}`, passed unchanged as `before`; any other cursor shape is
+`API_INPUT_INVALID`.
+
+`changePosition` (on the response and on each item) and `since` are opaque strings matching
+`^[A-Za-z0-9_-]{1,64}$`; anything else is `API_INPUT_INVALID`. A consumer stores and returns
+them unchanged and never compares them. The position comes from the viewer's and member's
+attention counters, the durable source behind the X `--after` cursor; no new counter exists.
+A new in-scope request or a first final (a submitted reply or an answered passthrough turn)
+moves it past every earlier value, including on a request older than the loaded pages. A
+withdrawal does not move it yet. With `since`, `changedSince` is
+`{count, more}`: the exact number of in-scope requests moved past `since`, capped at 50 with
+`more:true`. A position from another viewer or member, one ahead of the counters, or one from
+before in-scope requests left retention gives `changedSince:"unknown"`, never 0. A final
+that expires with time is a read-time state, not a change. The read uses one observation
+snapshot and never acknowledges, renews retention or runs housekeeping.
 
 A submitted final means a reply exists, not that the work succeeded. Core does
 not classify historical replies as question or blocked, or infer those categories

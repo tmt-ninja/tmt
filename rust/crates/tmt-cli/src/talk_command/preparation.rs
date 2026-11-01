@@ -409,6 +409,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &["`"],
         &[],
     ),
+    crate::cli_style_tests::HintSpec::core(
+        "Ask a lead instead, or a person or lead allows this route once: tmt orch route allow <sender> {}",
+        &[""],
+        &[],
+    ),
 ];
 
 /// `RECIPIENT_NOT_AGENT`: the binding runs a plain program, so nothing is stored or pasted.

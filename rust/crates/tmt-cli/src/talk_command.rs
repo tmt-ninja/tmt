@@ -777,6 +777,11 @@ fn warn_unattributed_record(record: &std::path::Path) {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
+        "A person or a lead releases it with 'tmt orch talks resume <sender> {}'; 'tmt orch talks' lists held pairs.",
+        &["';", "' lists"],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
         "The recipient must pull with tmt inbox --identity {} --json. In the recipient's pane, start a new turn or session, or run tmt resume {} there to repair live delivery.",
         &[". In", " there to repair"],
         &[],

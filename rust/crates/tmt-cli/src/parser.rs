@@ -469,6 +469,42 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["orch","plan","add"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::AddPlan {file:required(m,"file").into()},yes:flag(m,"yes") }),
         ["orch","plan","set"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::SetPlan {plan:required(m,"plan-name"),file:required(m,"file").into()},yes:flag(m,"yes") }),
         ["orch","plan","rm"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::RemovePlan {plan:required(m,"plan-name")},yes:flag(m,"yes") }),
+        ["orch", "leads", "set"] => Invocation::Orch(OrchOperation::Write {
+            operation: OrchWriteOperation::SetLeads {
+                members: m
+                    .get_many::<String>("member-name")
+                    .map(|v| v.cloned().collect())
+                    .unwrap_or_default(),
+            },
+            yes: flag(m, "yes"),
+        }),
+        ["orch", "route", "allow"] => Invocation::Orch(OrchOperation::Write {
+            operation: OrchWriteOperation::AllowRoute {
+                from: required(m, "from-name"),
+                to: required(m, "to-name"),
+                duration_ms: text(m, "until").map(|v| grant_duration(&v)).transpose()?,
+                identity: text(m, "identity"),
+            },
+            yes: flag(m, "yes"),
+        }),
+        ["orch", "talks"] => Invocation::Orch(OrchOperation::Talks {
+            member_query: text(m, "member"),
+            limit: m.get_one::<u16>("limit").copied(),
+            after: text(m, "after"),
+        }),
+        ["orch", "talks", "resume"] => Invocation::Orch(OrchOperation::Write {
+            operation: OrchWriteOperation::ResumeTalks {
+                first: required(m, "member-name"),
+                second: required(m, "other-name"),
+                identity: text(m, "identity"),
+            },
+            yes: flag(m, "yes"),
+        }),
+        ["orch", "routes"] => Invocation::Orch(OrchOperation::Routes {
+            member_query: text(m, "member"),
+            limit: m.get_one::<u16>("limit").copied(),
+            after: text(m, "after"),
+        }),
         ["orch","focus"] => Invocation::Orch(OrchOperation::Write { operation:OrchWriteOperation::Focus {member:required(m,"member-name"),duration_ms:focus_duration(&required(m,"focus-duration"))?},yes:flag(m,"yes") }),
         ["orch", "preview"] => Invocation::Orch(OrchOperation::Preview {
             file: required(m, "file").into(),
@@ -1055,6 +1091,13 @@ fn duration(value: &str) -> Result<f64, String> {
 
 /// Focus accepts exact milliseconds through days; no floating-point rounding
 /// can turn a sub-millisecond or overflowing duration into consent to another end.
+/// A route grant lasts a positive duration of at most 24 hours.
+fn grant_duration(value: &str) -> Result<u64, String> {
+    match focus_duration(value) {
+        Ok(Some(ms)) if ms <= tmt_core::orchestration::sending::ORCH_MAX_GRANT_MS => Ok(ms),
+        _ => Err("--until needs a positive ms/s/m/h duration of at most 24 hours.".to_owned()),
+    }
+}
 fn focus_duration(value: &str) -> Result<Option<u64>, String> {
     if value == "off" {
         return Ok(None);

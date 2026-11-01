@@ -91,7 +91,126 @@ fn item<T>(
     }
 }
 
+fn summary<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    row: HistoryRecord,
+    now: u64,
+) -> Result<HistorySummary, RequestError<E>> {
+    let delivery_policy = records.delivery_policy(&row.attention.attempt.request_id)?;
+    let final_state = attention::final_state(&row.attention, now, Some(()), delivery_policy.mode)?;
+    let capture = capture(
+        records,
+        &row.attention.attempt.request_id,
+        delivery_policy.mode,
+        now,
+    )?;
+    let delivery_view =
+        delivery::delivery_view(&records.delivery_facts(&row.attention.attempt, now)?, now);
+    Ok(HistorySummary {
+        item: item(
+            row.attention,
+            final_state,
+            delivery_policy,
+            capture,
+            delivery_view,
+        ),
+        preview: row.preview,
+        response_preview: row.response_preview,
+    })
+}
+
+/// A stale, foreign or pruned-past `since` is unknown, never a count of 0.
+fn changed_since(
+    since: &ConversationSince,
+    now: &ConversationPosition,
+    counts: &ConversationCounts,
+) -> ChangedSince {
+    match since {
+        ConversationSince::Position(since)
+            if since.viewer <= now.viewer
+                && since.member <= now.member
+                && counts.retained_at_since >= since.retained =>
+        {
+            ChangedSince::Count {
+                count: counts.changed.min(CHANGED_SINCE_CAP),
+                more: counts.changed > CHANGED_SINCE_CAP,
+            }
+        }
+        _ => ChangedSince::Unknown,
+    }
+}
+
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    /// The person's conversation with one member (#5807). Storage-only: it never renews
+    /// retention, acknowledges or cleans up.
+    pub fn request_conversation(
+        &mut self,
+        query: ConversationQuery,
+    ) -> Result<ConversationPage, RequestError<R::Error>> {
+        if !(canonical_id(&query.viewer_id)
+            && canonical_id(&query.member_id)
+            && query.viewer_id != query.member_id
+            && (1..=HISTORY_MAX_LIMIT).contains(&query.limit)
+            && query.before.as_ref().is_none_or(|cursor| {
+                matches!(cursor, HistoryCursor::Prepared { .. })
+                    && valid_cursor(cursor.timestamp(), cursor.request_id())
+            }))
+        {
+            return Err(RequestError::Invalid("Invalid conversation query."));
+        }
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            let since = match &query.since {
+                Some(ConversationSince::Position(position)) => Some(position),
+                _ => None,
+            };
+            let counts =
+                records.conversation_counts(&query.viewer_id, &query.member_id, since, now)?;
+            let position = ConversationPosition {
+                viewer: records.attention_counter(&query.viewer_id)?.unwrap_or(0),
+                member: records.attention_counter(&query.member_id)?.unwrap_or(0),
+                retained: counts.retained,
+            };
+            let mut rows = records.list_conversation(&query, query.limit + 1, now)?;
+            let more = rows.len() as u64 > query.limit;
+            rows.truncate(query.limit as usize);
+            let next_before = more.then(|| {
+                let row = &rows.last().expect("positive page limit").history.attention.attempt;
+                HistoryCursor::Prepared {
+                    prepared_at_ms: row.prepared_at_ms,
+                    request_id: row.request_id.clone(),
+                }
+            });
+            let items = rows
+                .into_iter()
+                .map(|row| {
+                    let direction = if row.history.attention.attempt.originator.identity_id()
+                        == Some(query.viewer_id.as_str())
+                    {
+                        ConversationDirection::ToMember
+                    } else {
+                        ConversationDirection::FromMember
+                    };
+                    Ok(ConversationSummary {
+                        position: row.position,
+                        direction,
+                        summary: summary(records, row.history, now)?,
+                    })
+                })
+                .collect::<Result<_, RequestError<R::Error>>>()?;
+            Ok(ConversationPage {
+                changed_since: query
+                    .since
+                    .as_ref()
+                    .map(|since| changed_since(since, &position, &counts)),
+                items,
+                next_before,
+                position,
+            })
+        })
+    }
+
     /// Includes acknowledged work and unknown-owner sends. Reading never acknowledges.
     pub fn request_history(
         &mut self,
@@ -123,37 +242,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             });
             let items = rows
                 .into_iter()
-                .map(|row| {
-                    let delivery_policy =
-                        records.delivery_policy(&row.attention.attempt.request_id)?;
-                    let final_state = attention::final_state(
-                        &row.attention,
-                        now,
-                        Some(()),
-                        delivery_policy.mode,
-                    )?;
-                    let capture = capture(
-                        records,
-                        &row.attention.attempt.request_id,
-                        delivery_policy.mode,
-                        now,
-                    )?;
-                    let delivery_view = delivery::delivery_view(
-                        &records.delivery_facts(&row.attention.attempt, now)?,
-                        now,
-                    );
-                    Ok(HistorySummary {
-                        item: item(
-                            row.attention,
-                            final_state,
-                            delivery_policy,
-                            capture,
-                            delivery_view,
-                        ),
-                        preview: row.preview,
-                        response_preview: row.response_preview,
-                    })
-                })
+                .map(|row| summary(records, row, now))
                 .collect::<Result<_, RequestError<R::Error>>>()?;
             Ok(HistoryPage { items, next_before })
         };

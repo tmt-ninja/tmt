@@ -581,7 +581,10 @@ impl Session {
         // do not depend on unrelated config.
         let settings = if matches!(
             request,
-            Request::Dispatch { .. } | Request::SendNow { .. } | Request::UserIdentity
+            Request::Dispatch { .. }
+                | Request::SendNow { .. }
+                | Request::UserIdentity
+                | Request::History(crate::request_history::ListQuery::Conversation(_))
         ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
         {
             Some(
@@ -693,7 +696,7 @@ impl Session {
             }
             Request::HookAttempt(hook) => identity_hooks::attempt(storage, hook),
             Request::HookAck(hook) => identity_hooks::ack(storage, hook),
-            Request::History(query) => requests::list_history(storage, query),
+            Request::History(query) => requests::list_history(storage, query, settings.as_ref()),
             Request::Detail(id) => requests::show_request(storage, id),
             Request::SendNow {
                 identity: selector,

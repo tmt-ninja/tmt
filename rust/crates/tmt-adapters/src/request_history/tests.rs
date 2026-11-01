@@ -23,6 +23,7 @@ fn sent_view() -> tmt_core::request::delivery::DeliveryView {
             recipient_name: None,
             turn: tmt_core::request::delivery::HandoverTurn::Unrecorded,
             answer: tmt_core::request::delivery::ReturnedAnswer::None,
+            talk_held: false,
         },
         0,
     )

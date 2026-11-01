@@ -561,6 +561,7 @@ fn cleanup_records<E>(
         }
         match attempt.status {
             AttemptStatus::Prepared => {
+                records.expire_person_hold(&attempt.request_id, now)?;
                 fail_unsent(records, &attempt, now, None)?;
             }
             AttemptStatus::Sending => {

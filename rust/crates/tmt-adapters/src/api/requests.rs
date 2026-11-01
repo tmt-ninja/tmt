@@ -23,9 +23,17 @@ pub(super) fn decode_show(input: &[u8]) -> Result<String, Fault> {
     request_history::decode_history_request(input).ok_or_else(invalid)
 }
 
-pub(super) fn list_history(storage: &mut Storage, query: ListQuery) -> Result<Vec<u8>, Fault> {
+pub(super) fn list_history(
+    storage: &mut Storage,
+    query: ListQuery,
+    settings: Option<&tmt_core::settings::Settings>,
+) -> Result<Vec<u8>, Fault> {
+    if let ListQuery::Conversation(input) = query {
+        return conversation(storage, input, settings.expect("conversation settings"));
+    }
     let mut service = RequestService::new(storage, wall_time_ms);
     match query {
+        ListQuery::Conversation(_) => unreachable!("handled above"),
         ListQuery::History(query) => {
             let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
             service
@@ -37,6 +45,41 @@ pub(super) fn list_history(storage: &mut Storage, query: ListQuery) -> Result<Ve
             .map(|value| request_history::encode_answers_page(&value)),
     }
     .map_err(request_error)
+}
+
+/// `requests.list` `view:"conversation"` (#5807): the configured person's two-party history
+/// with one member. Without a configured person it refuses, never reading wider history.
+fn conversation(
+    storage: &mut Storage,
+    input: request_history::ConversationInput,
+    settings: &tmt_core::settings::Settings,
+) -> Result<Vec<u8>, Fault> {
+    let viewer = super::user::configured_person(storage, settings, crate::user::login_name().as_deref())?
+        .ok_or_else(Fault::unavailable)?;
+    let member_id = input.member_id.clone();
+    let member = match storage.identity_retired(&member_id).map_err(|_| Fault::unavailable())? {
+        Some(false) => "active",
+        Some(true) => "retired",
+        None => "unknown",
+    };
+    let mut query = input.query(viewer.clone());
+    if member != "active" {
+        // Never another member's rows: an unknown or retired member reads an empty page.
+        query.limit = 0;
+    }
+    let page = if query.limit == 0 {
+        tmt_core::request::history::ConversationPage {
+            items: Vec::new(),
+            next_before: None,
+            position: tmt_core::request::history::ConversationPosition { viewer: 0, member: 0, retained: 0 },
+            changed_since: query.since.as_ref().map(|_| tmt_core::request::history::ChangedSince::Unknown),
+        }
+    } else {
+        RequestService::new(storage, wall_time_ms)
+            .request_conversation(query)
+            .map_err(request_error)?
+    };
+    Ok(request_history::encode_conversation_page(&page, &viewer, &member_id, member))
 }
 
 pub(super) fn show_request(storage: &mut Storage, id: String) -> Result<Vec<u8>, Fault> {

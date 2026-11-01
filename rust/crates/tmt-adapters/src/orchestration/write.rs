@@ -60,6 +60,17 @@ pub enum OrchMutationDocument {
         #[serde(rename = "actorId", default, skip_serializing_if = "Option::is_none")]
         actor_id: Option<String>,
     },
+    /// Release every request held at the pair's talk limit and restart its window. It
+    /// changes requests, not the configuration; `actorId` is checked as for `route.allow`.
+    #[serde(rename = "talks.resume")]
+    ResumeTalks {
+        #[serde(rename = "aId")]
+        a_id: String,
+        #[serde(rename = "bId")]
+        b_id: String,
+        #[serde(rename = "actorId", default, skip_serializing_if = "Option::is_none")]
+        actor_id: Option<String>,
+    },
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "phase", rename_all = "camelCase", deny_unknown_fields)]
@@ -158,6 +169,20 @@ fn validate_mutation(mutation: &OrchMutationDocument) -> Result<(), OrchError> {
             if !canonical_id(from_id)
                 || !canonical_id(to_id)
                 || !wire::valid_ms(*until_ms)
+                || actor_id.as_deref().is_some_and(|id| !canonical_id(id))
+            {
+                return Err(OrchError::Invalid);
+            }
+            None
+        }
+        OrchMutationDocument::ResumeTalks {
+            a_id,
+            b_id,
+            actor_id,
+        } => {
+            if !canonical_id(a_id)
+                || !canonical_id(b_id)
+                || a_id == b_id
                 || actor_id.as_deref().is_some_and(|id| !canonical_id(id))
             {
                 return Err(OrchError::Invalid);
@@ -265,13 +290,7 @@ fn normalized(
             until_ms,
             actor_id,
         } => {
-            // A verified agent may allow a route only as a current lead; a person (no
-            // verified caller) may always. Local attribution, not authentication.
-            if let Some(actor) = actor_id
-                && !crate::storage::orchestration_active_leads(snapshot).contains(&actor.as_str())
-            {
-                return Err(OrchError::NotPermitted);
-            }
+            permitted(snapshot, actor_id.as_deref())?;
             (
                 doc.clone(),
                 OrchMutation::AllowRoute {
@@ -285,7 +304,95 @@ fn normalized(
                 },
             )
         }
+        // Not a configuration change: `orchestration_write` routes it to `resume`.
+        OrchMutationDocument::ResumeTalks { .. } => return Err(OrchError::Invalid),
     })
+}
+
+/// A verified agent may allow a route or resume a pair only as a current lead; a person
+/// (no verified caller) may always. Local attribution, not authentication.
+fn permitted(snapshot: &OrchSnapshot, actor: Option<&str>) -> Result<(), OrchError> {
+    match actor {
+        Some(actor) if !crate::storage::orchestration_active_leads(snapshot).contains(&actor) => {
+            Err(OrchError::NotPermitted)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The resume preview lists the pair's held requests at `at`; its digest fences their IDs
+/// and the configuration revision, so apply refuses a changed set.
+fn resume_preview(
+    storage: &Storage,
+    doc: &OrchMutationDocument,
+    at: u64,
+) -> Result<(Value, String, Vec<String>), OrchReadFailure> {
+    let OrchMutationDocument::ResumeTalks {
+        a_id,
+        b_id,
+        actor_id,
+    } = doc
+    else {
+        return Err(OrchError::Invalid.into());
+    };
+    if !wire::valid_ms(at) {
+        return Err(OrchError::Invalid.into());
+    }
+    let state = storage.orchestration_snapshot(None)?;
+    permitted(&state.snapshot, actor_id.as_deref())?;
+    let known = |id: &str| state.snapshot.identities.iter().any(|i| i.id == id);
+    if !known(a_id) || !known(b_id) {
+        return Err(OrchError::MemberNotFound.into());
+    }
+    let held = storage.orchestration_held(a_id, b_id)?;
+    let ids: Vec<_> = held.iter().map(|h| h.request_id.clone()).collect();
+    let rows: Vec<_> = held.iter().map(|h| json!({"requestId":h.request_id,"from":h.from_id,"to":h.to_id,"createdAtMs":h.held_ms,"expiresAtMs":h.expires_at_ms,"state":if at < h.expires_at_ms {"held"} else {"expired_unsent"}})).collect();
+    let releases = held.iter().filter(|h| at < h.expires_at_ms).count();
+    let mut value = json!({"schemaVersion":1,"configurationRevision":state.snapshot.revision,"previewAtMs":at,"mutation":doc,"held":rows,"releases":releases,"requiresConsent":true});
+    let digest = content_digest::framed_sha256(
+        b"tmt-orchestration-resume-v1",
+        &serde_json::to_vec(&value).map_err(|_| OrchError::Invalid)?,
+    );
+    value["previewDigest"] = json!(digest);
+    Ok((value, digest, ids))
+}
+
+fn resume(
+    storage: &mut Storage,
+    doc: &OrchMutationDocument,
+    expected_configuration_revision: u64,
+    preview_at_ms: u64,
+    preview_digest: &str,
+    clock: impl Fn() -> u64,
+) -> Result<Vec<u8>, OrchReadFailure> {
+    let OrchMutationDocument::ResumeTalks {
+        a_id,
+        b_id,
+        actor_id,
+    } = doc
+    else {
+        return Err(OrchError::Invalid.into());
+    };
+    if preview_at_ms > clock() {
+        return Err(OrchError::Invalid.into());
+    }
+    let (preview, digest, expected) = resume_preview(storage, doc, preview_at_ms)?;
+    if digest != preview_digest
+        || preview["configurationRevision"] != expected_configuration_revision
+    {
+        return Err(OrchError::Conflict.into());
+    }
+    // The service re-reads the holds in its own transaction and refuses a changed set.
+    let released = tmt_core::request::RequestService::new(&mut *storage, clock)
+        .resume_pair(a_id, b_id, actor_id.as_deref(), &expected)
+        .map_err(|e| match e {
+            tmt_core::request::RequestError::HeldChanged => OrchError::Conflict.into(),
+            tmt_core::request::RequestError::Repository(e) => OrchReadFailure::Storage(e),
+            _ => OrchReadFailure::Policy(OrchError::Invalid),
+        })?;
+    encode(
+        &json!({"schemaVersion":1,"changed":!released.is_empty(),"configurationRevision":expected_configuration_revision,"released":released,"requiresConsent":false,"preview":preview}),
+    )
 }
 
 struct Preview {
@@ -363,6 +470,28 @@ pub fn orchestration_write(
     clock: impl Fn() -> u64,
 ) -> Result<Vec<u8>, OrchReadFailure> {
     match query {
+        OrchWriteQuery::Preview {
+            mutation: mutation @ OrchMutationDocument::ResumeTalks { .. },
+        } => encode(&resume_preview(storage, &mutation, clock())?.0),
+        OrchWriteQuery::Apply {
+            mutation: mutation @ OrchMutationDocument::ResumeTalks { .. },
+            expected_configuration_revision,
+            preview_at_ms,
+            preview_digest,
+            consent,
+        } => {
+            if !consent || !content_digest::is_sha256(&preview_digest) {
+                return Err(OrchError::Invalid.into());
+            }
+            resume(
+                storage,
+                &mutation,
+                expected_configuration_revision,
+                preview_at_ms,
+                &preview_digest,
+                clock,
+            )
+        }
         OrchWriteQuery::Preview { mutation } => {
             let state = storage.orchestration_snapshot(None)?;
             let zone = OrchZone::load(state.time_zone.as_deref())?;
