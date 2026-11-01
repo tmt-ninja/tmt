@@ -278,6 +278,15 @@ Tracker rules:
 - [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
   daily reports, event-driven lead updates and the GraphQL budget.
 
+## Waiting on CI and the merge queue
+
+```sh
+scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
+```
+
+Start it, end the turn and let its one message wake you; the script's header owns
+its final states, bounds, log and exit codes.
+
 ## Review and evidence
 
 Report the reviewed revision, commands and results per
