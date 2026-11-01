@@ -35,6 +35,10 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   (Ultra, formerly Max 20x, $26–35; Max 5x ~$17; Codex Pro 200 $9.7; Pro 100 $9.5)
   in the same palette.
   SHA-256: `356b46f2f0749757269e8c6fb83cf0c159f8685f76c69a1161cec38c05956658`.
+  `half-the-token-price.png` charts that article's high-effort Terra ÷ Sol ratios for
+  23–30 October 2026 (2.9× tokens per line, 3.9× lead fixes, 1.0× dollars per
+  1,000 lines) in the same palette.
+  SHA-256: `3a504e07330556580e3d3b76d51788c1f6264bbe85424453233645476f5c74f5`.
 
 The landing loads canonical design tokens but uses its own layout CSS. The blog
 retains its editorial structure with an independent black-only treatment.
