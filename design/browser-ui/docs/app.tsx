@@ -7,7 +7,7 @@ import { patterns } from './patterns.js';
 import { morePatterns, PatternViewports } from './patterns-more.js';
 import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
-import { tuiPages } from './tui-nav.js';
+import { TuiPackControls, tuiPages } from './tui-nav.js';
 import { radiusLabel, setRadius, setTheme, usePreview, type Radius } from './preview.js';
 import { follow } from './router.js';
 import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
@@ -267,9 +267,16 @@ function GuiControls() {
   );
 }
 
-/** The TUI system's header controls: the viewer theme; the 16-colour fallback joins from #5835. */
+/** The TUI system's header controls: the TUI pack's own (16-colour fallback), then the theme. */
 function TuiControls() {
-  return <ThemeSwitch />;
+  return (
+    <>
+      <span className="docs-pack-controls">
+        <TuiPackControls />
+      </span>
+      <ThemeSwitch />
+    </>
+  );
 }
 
 function TuiIntroduction() {

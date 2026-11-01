@@ -84,6 +84,15 @@ code {
   border-radius: var(--tmt-ui-radius);
   color: var(--tmt-ui-color-text);
 }
+/* A design system's own header controls, beside the shared theme switch. */
+.docs-pack-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-ref-space-2);
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-ref-size-2) var(--tmt-ui-font-body);
+  white-space: nowrap;
+}
 .docs-menu-button {
   display: none;
   font-size: var(--tmt-ui-ref-size-6);
