@@ -60,11 +60,18 @@ struct Row {
     detail: String,
 }
 
+/// The running mark's frames, stepped like the Ops board's loading spinner.
+pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// How long each spinner frame shows.
+pub const SPINNER_TICK: Duration = Duration::from_millis(80);
+
 pub struct Progress {
     title: String,
     rows: [Row; 3],
     live: bool,
     drawn: bool,
+    /// The caller's spinner frame; without one the running mark stays still.
+    frame: Option<usize>,
 }
 
 impl Progress {
@@ -80,7 +87,19 @@ impl Progress {
             }),
             live,
             drawn: false,
+            frame: None,
         }
+    }
+
+    /// Selects the running mark's spinner frame. The caller owns the clock and decides
+    /// whether this output may animate at all.
+    pub fn frame(&mut self, frame: usize) {
+        self.frame = Some(frame % SPINNER.len());
+    }
+
+    /// Whether a step is still running, so a spinner has something to turn for.
+    pub fn running(&self) -> bool {
+        self.rows.iter().any(|row| row.state == State::Running)
     }
 
     pub fn title(&mut self, title: &str) {
@@ -104,7 +123,7 @@ impl Progress {
             let row = &self.rows[step.index()];
             let (mark, token) = match row.state {
                 State::Waiting => ("·", Token::Dim),
-                State::Running => ("⠹", Token::Accent),
+                State::Running => (self.frame.map_or("⠹", |f| SPINNER[f]), Token::Accent),
                 State::Done => (Mark::Done.symbol(), Mark::Done.token()),
                 State::Failed => (Mark::Failed.symbol(), Mark::Failed.token()),
                 State::Warning => (Mark::Warning.symbol(), Mark::Warning.token()),
