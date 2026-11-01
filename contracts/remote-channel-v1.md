@@ -108,8 +108,9 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
 `/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
-`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
-`/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
+`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
+`/design`, `/design/` and `/design/<segments>` (each segment `[A-Za-z0-9_-]+`,
+at most 160 bytes after `/colab/` or `/design/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
 and the document reads no cookie or session. Its policy is the pairing page policy below plus only
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
@@ -120,8 +121,8 @@ plain query: unreserved bytes, `=` and `&`, with no escape and no `tmt-session`;
 its own keys (`open`, `read`, `anchor`) there. Any other query is a malformed target (400). The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
-always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules and
-TMT settings, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
+Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
+TMT settings last, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
 its reason. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
@@ -184,7 +185,8 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table or a web app route named for the extension (`/colab/…`), or null. It
+entry in the same Remote-owned table or a mapped app family (`/colab/…` and `/design/…`
+both map to Colab), or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.
@@ -2088,6 +2090,13 @@ headers are stripped. Only the door sets these headers: `tmt-mount` identifies t
 `tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
 is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
+Design uses Colab's existing mounted path `/r/<prefix>/x/colab/design/…`, forwarded
+as `/design/…` to the same admitted Colab socket. There is no `/x/design/` extension
+alias, additional public-reader entry or new socket. Root Design app documents use
+the same static shell/pair bootstrap as Colab; content remains behind the existing
+mounted owner context and Colab admission. Cookie scope, pairing, session framing,
+forwarded-header filtering and CSP are unchanged.
+
 ### Module descriptions and composed shell
 
 `-` is reserved and can never be an extension or mount name. The door handles
@@ -2133,16 +2142,21 @@ or bidi controls and are text, never markup. Icons are names from `house`, `file
 `monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`, `palette`; an unknown
 lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
-escape. The door resolves every path inside that module's own mount, never another module.
+escape. The door resolves paths inside that module's own mount, never another module,
+with one navigation exception: a Colab extra's rail, menu or settings path matching the
+bounded `/design` app family resolves at the door root. Every script `entry` remains
+inside Colab's own mount; this exception grants no script, session or content authority.
 
 The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
 needsYou?, home?, entry?}]}`. The primary has no `module` field; an extra has the
 same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
 its own primary and sorts by rail order, extension name, then primary before extra.
-All paths stay inside the same extension mount. Extras share their extension's
+Only the Design navigation exception above leaves the same extension mount. Extras share their extension's
 one callback, cache age and socket-incarnation fence; removal or expiry removes
 both. Primary-only composition stays byte-identical. Extension-wide consumers
-(Needs-you, Home cards and the Colab loader) select the primary, never an extra.
+(Needs-you, Home cards, search transport and primary Colab discovery) select the primary,
+never an extra. The Design route loads only its described extra's script, confined using
+the primary Colab mount, without a primary-script fallback.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good

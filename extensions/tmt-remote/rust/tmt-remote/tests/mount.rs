@@ -1496,3 +1496,47 @@ fn a_hyphen_extension_cannot_shadow_the_reserved_shell_segment() {
     assert_eq!(body["modules"].as_array().unwrap().len(), 1);
     assert_eq!(body["modules"][0]["extension"], "remote");
 }
+
+#[test]
+fn design_mount_retains_colab_owner_context_and_policy() {
+    let door = Mounted::new(Arc::new(OneOwner));
+    let extension = door.extension(Arc::new(|mut stream, seen| {
+        let bytes = request(&mut stream);
+        let head = String::from_utf8_lossy(&bytes);
+        assert!(head.starts_with("GET /design/library HTTP/1.1\r\n"));
+        let owner = head.contains("tmt-device-context: ");
+        seen.push(bytes);
+        // The extension remains the owner-policy authority, exactly as Colab is.
+        let reply: &[u8] = if owner {
+            PAGE
+        } else {
+            b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"
+        };
+        stream.write_all(reply).unwrap();
+    }));
+    let path = door.at("/x/colab/design/library");
+    let owner = door.send(door.get(&path, &format!("Cookie: {OWNER}\r\n")).as_bytes());
+    assert!(owner.starts_with("HTTP/1.1 200"));
+    assert!(owner.contains("content-security-policy: default-src 'self'\r\n"));
+    assert!(!owner.to_ascii_lowercase().contains("set-cookie:"));
+    let other = door.get(
+        &path,
+        "Cookie: tmt_door=other\r\nTMT-Device-Context: forged\r\n",
+    );
+    assert_eq!(door.status(&other), 403);
+    let seen = extension.seen.all();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].contains(&format!("tmt-mount: {}/x/colab/\r\n", door.prefix)));
+    assert!(seen[0].contains("tmt-device-context: "));
+    assert!(!seen[1].contains("tmt-device-context:"));
+    let foreign = door.get(
+        &path,
+        &format!("Cookie: {OWNER}\r\nOrigin: https://foreign.example\r\n"),
+    );
+    assert_eq!(door.status(&foreign), 403);
+    assert_eq!(
+        extension.seen.all().len(),
+        2,
+        "foreign origin must stop before Colab"
+    );
+}

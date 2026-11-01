@@ -1145,6 +1145,13 @@ fn remote_tabs_have_exact_public_admission_and_obsolete_views_have_no_redirects(
 #[test]
 fn design_routes_use_the_owner_app_and_the_existing_colab_mount() {
     let h = Harness::new(FAST);
+    let existing_head = exchange(
+        &h,
+        &format!("HEAD /colab/ HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+    );
+    assert_eq!(existing_head.status, 200);
+    // Match the existing app response; changing the door's HEAD writer is a separate concern.
+    assert_eq!(existing_head.body, include_str!("../assets/shell.html"));
     for path in [
         "/design",
         "/design/",
@@ -1152,6 +1159,16 @@ fn design_routes_use_the_owner_app_and_the_existing_colab_mount() {
         "/design/tokens/a-1_b?open=one",
     ] {
         app_page(&h, path, include_str!("../assets/shell.html"));
+        let head = exchange(
+            &h,
+            &format!("HEAD {path} HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+        );
+        assert_eq!(head.status, 200);
+        assert_eq!(
+            head.body, existing_head.body,
+            "Design must retain the existing Colab HEAD behavior"
+        );
+        assert_eq!(head.header("content-security-policy"), Some(SHELL_CSP));
         let reply = mount(&h, &json!({"path":path}).to_string(), Some(&h.origin));
         assert_eq!(reply.status, 200, "{path}");
         let value: Value = serde_json::from_str(&reply.body).unwrap();
