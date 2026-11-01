@@ -977,8 +977,6 @@
   .page-stage-tabs .tmt-ui-tab-list {
     flex-wrap: nowrap;
     overflow-x: auto;
-    /* An alpha mask, not a colour: the scrolling tabs fade out before the fixed actions. */
-    mask-image: linear-gradient(to right, black calc(100% - var(--tmt-ui-space-xl)), transparent);
   }
 }
 @media (max-width: 760px) {
