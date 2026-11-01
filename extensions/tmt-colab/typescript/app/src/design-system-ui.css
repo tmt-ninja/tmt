@@ -1,26 +1,8 @@
-/* The owner's design-system controls (#5821, epic #5866). */
+/* The Design header's New design system dialog (#5821, epic #5866). */
 .design-system-dialog {
   display: grid;
   gap: var(--tmt-ui-space-m);
 }
 .design-system-dialog p {
   margin: 0;
-}
-.design-system-band {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
-  margin: 0 auto var(--tmt-ui-space-m);
-  padding: var(--tmt-ui-space-s) var(--tmt-ui-space-m);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius);
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  font-size: var(--tmt-ui-command-size);
-}
-.design-system-pin {
-  overflow-wrap: anywhere;
-  color: var(--tmt-ui-color-secondary);
-  font-size: var(--tmt-ui-caption-size);
 }

@@ -7,16 +7,50 @@ import {
 } from '../../../../../design/systems/compiler.mjs';
 import template from '../../../../../design/systems/tmt-gui/generated/template.json';
 import type { DesignSystemBundle, DesignSystemSource } from './design-system.js';
-import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
+import type {
+  PageBinding,
+  PageSnapshot,
+  PageSummary,
+  PageTransport,
+  SpaceHome,
+} from './transport.js';
+import { DESIGN_SYSTEM_PROJECT } from './projects.js';
+import { subpages } from './work.js';
 
 /*
  * Design systems as ordinary pages (#5821, epic #5866): the root page holds the
- * DesignSystemConfig and each component page its definition, in a JSON data block; the page body
- * is the docs. A release is an ordinary attachment of the root page. Nothing here needs a new
- * record kind or serve route.
+ * DesignSystemConfig and each component page its definition, in a JSON data block whose
+ * `data-tmt-ds` names the page's kind; the page body is the docs. A release is an ordinary
+ * attachment of the root page. Nothing here needs a new record kind or serve route.
+ *
+ * Each system is its own top-level page tree that the Design tab shows. Its pages also hold the
+ * reserved display-only project `tmt:design-system`, so the Colab list hides them without reading
+ * sources; Colab never shows that project or lets a person name one so. Local-test marking only:
+ * the PR replaces it with a native page kind (#5866).
  */
 
 export type BlockKind = 'design-system' | 'component';
+/** The reserved owner-store project every design-system page holds (contract: Projects). */
+export const DESIGN_PROJECT = DESIGN_SYSTEM_PROJECT;
+export const isDesignSystemPage = (page: Pick<PageSummary, 'projects'>) =>
+  !!page.projects?.includes(DESIGN_PROJECT);
+/** The space as Colab lists it: design-system pages and their project belong to the Design tab. */
+export function withoutDesignSystems(home: SpaceHome): SpaceHome {
+  if (!home.pages.some(isDesignSystemPage) && !home.projects?.includes(DESIGN_PROJECT)) return home;
+  const hidden = new Set(home.pages.filter(isDesignSystemPage).map((page) => page.id));
+  return {
+    ...home,
+    pages: home.pages.filter((page) => !hidden.has(page.id)),
+    ...(home.pageIds && { pageIds: home.pageIds.filter((row) => !hidden.has(row.pageId)) }),
+    ...(home.projects && { projects: home.projects.filter((name) => name !== DESIGN_PROJECT) }),
+    ...(home.projectPins && {
+      projectPins: {
+        ...home.projectPins,
+        names: home.projectPins.names.filter((name) => name !== DESIGN_PROJECT),
+      },
+    }),
+  };
+}
 const blockPattern = (kind: BlockKind) =>
   new RegExp(`<script type="application/json" data-tmt-ds="${kind}">([\\s\\S]*?)</script>`, 'i');
 /** The page's data block of one kind, parsed, or undefined. */
@@ -227,7 +261,7 @@ export function rootPageSource(config: DesignSystemConfig) {
  * Copy the TMT template into the space under the open page: a root page with its own name and
  * prefix, a page per component, then publish the first version so every page draws.
  */
-export async function createFromTemplate(
+async function createFromTemplate(
   transport: PageTransport,
   parent: PageBinding,
   name: string,
@@ -267,4 +301,145 @@ export async function createFromTemplate(
     await publishDesignSystem(transport, rootId, root.binding!, root.source, nextVersion(config));
   });
   return rootId;
+}
+
+/** One page of a system's tree, as the Design tab's left nav lists it. */
+export interface DesignTreeNode {
+  id: string;
+  title: string;
+  /** The page's data-block kind; `page` for a docs page with no block. */
+  kind: BlockKind | 'page';
+  children: DesignTreeNode[];
+}
+/** A design system as the Design tab's switcher and header show it. */
+export interface DesignSystemEntry {
+  id: string;
+  name: string;
+  prefix: string;
+  /** The latest published version; absent before the first publish. */
+  version?: string;
+  /** The version the next Publish makes. */
+  next: string;
+  config: DesignSystemConfig;
+  /** The root page and the pages under it, in the root's sub-page order. */
+  tree: DesignTreeNode;
+}
+const TREE_DEPTH = 4;
+async function treeOf(
+  transport: PageTransport,
+  page: Snapshot,
+  titles: ReadonlyMap<string, string>,
+  depth: number,
+): Promise<DesignTreeNode> {
+  const kind: DesignTreeNode['kind'] = readBlock(page.source, 'design-system')
+    ? 'design-system'
+    : readBlock(page.source, 'component')
+      ? 'component'
+      : 'page';
+  const children =
+    depth >= TREE_DEPTH
+      ? []
+      : await Promise.all(
+          subpages(page.work).map((child) =>
+            withPage(transport, child, (sub) => treeOf(transport, sub, titles, depth + 1)),
+          ),
+        );
+  return { id: page.id, title: titles.get(page.id) ?? page.title, kind, children };
+}
+function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): DesignSystemEntry {
+  return {
+    id,
+    name: config.name,
+    prefix: config.prefix,
+    ...(config.releases.at(-1) && { version: config.releases.at(-1)!.version }),
+    next: nextVersion(config),
+    config,
+    tree,
+  };
+}
+
+/** The space's design systems: the `Design systems` pages whose block is a config. */
+export async function listDesignSystems(
+  transport: PageTransport,
+  signal?: AbortSignal,
+): Promise<DesignSystemEntry[]> {
+  const home = await transport.spaceHome(signal);
+  const titles = new Map(home.pages.map((page) => [page.id, page.title]));
+  const found = await Promise.all(
+    home.pages
+      .filter((page) => isDesignSystemPage(page) && !page.archived)
+      .map((page) =>
+        withPage(transport, page.id, async (root) => {
+          const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
+          return config && entryOf(root.id, config, await treeOf(transport, root, titles, 0));
+        }).catch(() => undefined),
+      ),
+  );
+  return found.filter((entry): entry is DesignSystemEntry => !!entry);
+}
+
+/** Mark a system's pages as design-system pages, keeping each page's other projects. */
+async function markDesignPages(transport: PageTransport, ids: readonly string[]) {
+  if (!transport.management) throw new Error('Only the owner can make a design system.');
+  const home = await transport.spaceHome();
+  const projects = new Map(home.pages.map((page) => [page.id, page.projects ?? []]));
+  await transport.management.setProjects(
+    ids.map((pageId) => ({
+      pageId,
+      projects: [...new Set([...(projects.get(pageId) ?? []), DESIGN_PROJECT])],
+    })),
+  );
+}
+const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
+
+/**
+ * Make a design system from the TMT template as its own top-level tree. The browser can make a page
+ * only as a sub-page, so the root is made under an existing system (or the first page, for the
+ * first system) and detached from it at once (#5866 known limit until a native page create).
+ */
+export async function createDesignSystem(
+  transport: PageTransport,
+  { name, prefix }: { name: string; prefix: string },
+): Promise<string> {
+  const home = await transport.spaceHome();
+  const live = home.pages.filter((page) => !page.archived);
+  const parent = live.find(isDesignSystemPage) ?? live[0];
+  if (!parent) throw new Error('Make a page first: the space has none to start from.');
+  const rootId = await withPage(transport, parent.id, async (page) => {
+    if (!page.binding?.work) throw new Error('Pages cannot be made here.');
+    const id = await createFromTemplate(transport, page.binding, name, prefix);
+    await page.binding.work('subpage.detach', { pageId: id });
+    return id;
+  });
+  const tree = await withPage(transport, rootId, (root) => treeOf(transport, root, new Map(), 0));
+  await markDesignPages(transport, treeIds(tree));
+  return rootId;
+}
+
+/** Bring an existing system root (one made before the Design tab) into the Design tab. Its pages
+ * keep their place; only the project is added. */
+export async function adoptDesignSystem(transport: PageTransport, rootId: string): Promise<void> {
+  const tree = await withPage(transport, rootId, async (root) => {
+    if (!readBlock(root.source, 'design-system'))
+      throw new Error('This page is not a design system.');
+    return treeOf(transport, root, new Map(), 0);
+  });
+  await markDesignPages(transport, treeIds(tree));
+}
+
+/** Publish the system's next version from the Design header. */
+export async function publishNext(
+  transport: PageTransport,
+  rootId: string,
+): Promise<PublishResult & { version: string }> {
+  return withPage(transport, rootId, async (root) => {
+    const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
+    if (!config) throw new Error('This page is not a design system.');
+    if (!root.binding) throw new Error('This design system cannot be published here.');
+    const version = nextVersion(config);
+    return {
+      ...(await publishDesignSystem(transport, rootId, root.binding, root.source, version)),
+      version,
+    };
+  });
 }

@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
 import { bundleHash } from '../src/design-system.js';
 import {
-  createFromTemplate,
+  adoptDesignSystem,
+  createDesignSystem,
+  DESIGN_PROJECT,
+  listDesignSystems,
   nextVersion,
   pageDesignSystems,
   publishDesignSystem,
+  publishNext,
   readBlock,
+  withoutDesignSystems,
   writeBlock,
   writePin,
 } from '../src/design-system-pages.js';
@@ -17,12 +22,18 @@ import type { PageBinding, PageTransport } from '../src/transport.js';
 function space() {
   const pages = new Map<
     string,
-    { source: string; attachments: { id: string; bytes: Uint8Array }[] }
+    {
+      title: string;
+      source: string;
+      order: string[];
+      projects: string[];
+      attachments: { id: string; bytes: Uint8Array }[];
+    }
   >();
   let next = 0;
   const make = (title: string) => {
     const id = `page-${++next}`;
-    pages.set(id, { source: `<h1>${title}</h1>`, attachments: [] });
+    pages.set(id, { title, source: `<h1>${title}</h1>`, order: [], projects: [], attachments: [] });
     return id;
   };
   const binding = (id: string): PageBinding => {
@@ -35,8 +46,14 @@ function space() {
         return { merged: false };
       },
       work: async (action: string, body: Record<string, unknown>) => {
+        if (action === 'subpage.detach') {
+          page().order = page().order.filter((child) => child !== body.pageId);
+          return {};
+        }
         if (action !== 'subpage.create') throw new Error(action);
-        return { childPage: make(String(body.title)) };
+        const child = make(String(body.title));
+        page().order.push(child);
+        return { childPage: child };
       },
       files: {
         target: () => ({ kind: 'document', source: page().source }),
@@ -65,10 +82,27 @@ function space() {
       if (!page) throw new Error('Page unavailable');
       return {
         id,
+        title: page.title,
         source: page.source,
+        work: { version: 2, order: [...page.order] },
         binding: binding(id),
         attachments: page.attachments.map((entry) => ({ attachmentId: entry.id })),
       };
+    },
+    spaceHome: async () => ({
+      title: 'Space',
+      projects: [...new Set([...pages.values()].flatMap((page) => page.projects))],
+      pages: [...pages].map(([id, page]) => ({
+        id,
+        title: page.title,
+        sharing: 'private',
+        projects: [...page.projects],
+      })),
+    }),
+    management: {
+      setProjects: async (changes: { pageId: string; projects: string[] }[]) => {
+        for (const change of changes) pages.get(change.pageId)!.projects = [...change.projects];
+      },
     },
   } as unknown as PageTransport;
   return { pages, make, binding, transport };
@@ -99,10 +133,14 @@ describe('data blocks', () => {
 });
 
 describe('template, publish and the renderer source', () => {
-  it('copies the template under a page, publishes, pins every page and serves the bundle', async () => {
-    const { pages, make, binding, transport } = space();
+  it('makes a top-level system from the template, publishes, pins every page and serves the bundle', async () => {
+    const { pages, make, transport } = space();
     const home = make('Home');
-    const rootId = await createFromTemplate(transport, binding(home), 'Acme', 'acme');
+    pages.get(home)!.projects = ['Notes'];
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    // The borrowed parent keeps no row: the system is its own tree.
+    expect(pages.get(home)!.order).toEqual([]);
+    expect(pages.get(home)!.projects).toEqual(['Notes']);
     const root = pages.get(rootId)!;
     const config = readBlock<DesignSystemConfig>(root.source, 'design-system')!;
     expect(config).toMatchObject({ name: 'Acme', prefix: 'acme', id: rootId, version: '0.1.0' });
@@ -110,10 +148,12 @@ describe('template, publish and the renderer source', () => {
     const [release] = config.releases;
     const pin = `${rootId}@0.1.0#${release!.bundle}`;
     expect(root.source).toContain(`<meta name="tmt-ds" content="${pin}">`);
-    const button = pages.get(config.components[0]!.page!)!;
+    const buttonId = config.components[0]!.page!;
+    const button = pages.get(buttonId)!;
     expect(button.source).toContain(`content="${pin}"`);
     expect(button.source).toContain('<acme-button variant="outline">');
     expect(readBlock(button.source, 'component')).toMatchObject({ tag: 'button' });
+    for (const id of [rootId, buttonId]) expect(pages.get(id)!.projects).toEqual([DESIGN_PROJECT]);
     // The renderer reads the release attachment and the bundle verifies against its pin.
     const bundle = await pageDesignSystems(transport)({
       system: rootId,
@@ -122,21 +162,57 @@ describe('template, publish and the renderer source', () => {
     });
     expect(bundle!.components.map((component) => component.tag)).toEqual(['acme-button']);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
-    // A second publish adds a version and moves the pins.
-    const second = await publishDesignSystem(
-      transport,
-      rootId,
-      binding(rootId),
-      root.source,
-      '0.1.1',
-    );
+    // Publish from the Design header adds a version and moves the pins.
+    const second = await publishNext(transport, rootId);
+    expect(second.version).toBe('0.1.1');
     expect(readBlock<DesignSystemConfig>(root.source, 'design-system')!.releases).toHaveLength(2);
     expect(button.source).toContain(second.pin);
   });
 
+  it('lists systems with their tree for Design and hides them from the Colab list', async () => {
+    const { make, transport } = space();
+    const note = make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    // A second system starts from the first, never from an ordinary page.
+    await createDesignSystem(transport, { name: 'Beta', prefix: 'beta' });
+    const systems = await listDesignSystems(transport);
+    expect(systems.map((system) => [system.name, system.version, system.next])).toEqual([
+      ['Acme', '0.1.0', '0.1.1'],
+      ['Beta', '0.1.0', '0.1.1'],
+    ]);
+    expect(systems[0]!.tree).toMatchObject({
+      id: rootId,
+      title: 'Acme',
+      kind: 'design-system',
+      children: [{ title: 'acme-button', kind: 'component', children: [] }],
+    });
+    const listed = withoutDesignSystems(await transport.spaceHome());
+    expect(listed.pages.map((page) => page.id)).toEqual([note]);
+    expect(listed.projects).toEqual([]);
+  });
+
+  it('adopts an older system only when asked', async () => {
+    const { pages, make, binding, transport } = space();
+    const holder = make('Holder');
+    const created = await binding(holder).work!('subpage.create', { title: 'Old' });
+    const old = created.childPage!;
+    pages.get(old)!.source = writeBlock('<p>docs</p>', 'design-system', {
+      name: 'Old',
+      prefix: 'old',
+      version: '0.1.0',
+      components: [],
+      releases: [],
+    });
+    expect(await listDesignSystems(transport)).toEqual([]);
+    await adoptDesignSystem(transport, old);
+    expect((await listDesignSystems(transport)).map((system) => system.id)).toEqual([old]);
+    await expect(adoptDesignSystem(transport, holder)).rejects.toThrow('not a design system');
+  });
+
   it('refuses to publish when a component page lost its block', async () => {
     const { pages, make, binding, transport } = space();
-    const rootId = await createFromTemplate(transport, binding(make('Home')), 'Acme', 'acme');
+    make('Home');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
     const root = pages.get(rootId)!;
     const config = readBlock<DesignSystemConfig>(root.source, 'design-system')!;
     pages.get(config.components[0]!.page!)!.source = '<p>edited away</p>';

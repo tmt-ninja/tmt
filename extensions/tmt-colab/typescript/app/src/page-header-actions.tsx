@@ -14,7 +14,6 @@ import {
   Settings,
   Info,
   Pin,
-  Palette,
 } from 'lucide-react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -32,8 +31,7 @@ export type PageHeaderAction =
   | 'manage'
   | 'about'
   | 'questions'
-  | 'creator'
-  | 'design-system';
+  | 'creator';
 
 /** The More trigger's decorative icon; hosts retain each action's authority. */
 function MoreIcon() {
@@ -112,7 +110,6 @@ export function PageHeaderActions({
       ? [{ key: 'files', label: `${text.files} (${files})`, disabled: !canFiles }]
       : []),
     { key: 'source', label: text.source },
-    ...(!readOnly ? [{ key: 'design-system', label: 'New design system…' }] : []),
     ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
     { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
     ...(sharedBar
@@ -164,9 +161,6 @@ export function PageHeaderActions({
           : []),
         { key: 'source', label: text.source, leadingIcon: <Code2 /> },
         ...(!readOnly
-          ? [{ key: 'design-system', label: 'New design system…', leadingIcon: <Palette /> }]
-          : []),
-        ...(!readOnly
           ? [{ key: 'export', label: text.export, leadingIcon: <Download />, disabled: !canExport }]
           : []),
       ],
@@ -199,8 +193,7 @@ export function PageHeaderActions({
         key === 'about' ||
         key === 'files' ||
         key === 'source' ||
-        key === 'export' ||
-        key === 'design-system'
+        key === 'export'
       )
         onSelect(key);
       else setThemeChoice(key as ThemeChoice);

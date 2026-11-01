@@ -3,8 +3,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
-import { pageDesignSystems } from './design-system-pages.js';
-import { DesignSystemBand, DesignSystemDialog } from './design-system-ui.js';
+import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -905,7 +904,8 @@ const root = createRootRouteWithContext<AppContext>()({
   ),
 });
 async function loadSpaceHome({ context }: { context: AppContext }) {
-  const home = await context.transport.spaceHome();
+  // Design-system pages belong to the Design tab, not the Colab list (#5866).
+  const home = withoutDesignSystems(await context.transport.spaceHome());
   context.rememberPages?.(
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
@@ -1794,7 +1794,6 @@ function OpenPage({
     admitted: !discussionPending && !liveError && !archived,
   });
   const designSystems = useMemo(() => pageDesignSystems(transport), [transport]);
-  const [designSystemDialog, setDesignSystemDialog] = useState(false);
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -2151,9 +2150,6 @@ function OpenPage({
               if (action === 'creator' || action === 'questions') {
                 close();
                 setMetadataDialog(action);
-              } else if (action === 'design-system') {
-                close();
-                setDesignSystemDialog(true);
               } else if (action === 'projects') openProjects(moreButtonRect());
               else if (action === 'pin') requestPin('toggle');
               else toggle(action);
@@ -2231,23 +2227,6 @@ function OpenPage({
           pageHref={routing.pageHref}
           openPage={(id) => routing.open(`/pages/${id}`)}
         />
-        <DesignSystemBand
-          transport={transport}
-          pageId={snapshot.id}
-          binding={archived ? undefined : snapshot.binding}
-          source={view.source}
-        />
-        {designSystemDialog && snapshot.binding && (
-          <DesignSystemDialog
-            transport={transport}
-            binding={snapshot.binding}
-            onDismiss={() => setDesignSystemDialog(false)}
-            onCreated={(id) => {
-              setDesignSystemDialog(false);
-              routing.open(`/pages/${id}`);
-            }}
-          />
-        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
