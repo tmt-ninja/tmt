@@ -221,6 +221,15 @@ pub(crate) struct Child {
 }
 
 impl Child {
+    pub(crate) fn terminate_owned(&self) -> io::Result<()> {
+        if self.group != ProcessGroup::New {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "termination requires an invocation-owned group",
+            ));
+        }
+        self.job.send_signal_group(nix::libc::SIGTERM)
+    }
     pub(crate) fn cleanup(&mut self) -> Cleanup {
         if self.group == ProcessGroup::InheritCaller {
             // No signal, wait or group inspection: this group belongs to the caller.
