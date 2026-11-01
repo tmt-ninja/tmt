@@ -9,8 +9,7 @@ use crate::{
     limits,
     objects::IoBudget,
     sealed_sync::{
-        DiscoveryContinuation, DiscoveryPage, DiscoveryQuery, SyncError, Target,
-        validate_discovery, validate_fields,
+        DiscoveryContinuation, DiscoveryPage, DiscoveryQuery, SyncError, Target, validate_discovery,
     },
     wire,
 };
@@ -208,7 +207,7 @@ pub(super) async fn query(
             return Err(SyncError::CatchUpRequired);
         }
         let document = consumer.parse_document(value, &query.resource)?;
-        let fields = validate_fields(&document.bytes)?;
+        let fields = consumer.context.validate_fields(&document.bytes)?;
         if query
             .scope
             .iter()

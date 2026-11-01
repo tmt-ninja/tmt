@@ -667,3 +667,27 @@ fn idle_next_deadlines_keep_the_interest_but_a_closed_probe_surfaces_unavailable
         assert_eq!(fake.subscription.closed.load(Ordering::SeqCst), 1);
     }
 }
+
+#[test]
+fn registration_factory_refuses_unsupported_backend_before_factory_or_auth() {
+    let original = include_bytes!("../../../tests/fixtures/declarations/colab-firestore.json");
+    for backend in ["local", "cloudflare"] {
+        let mut value: Value = serde_json::from_slice(original).unwrap();
+        value["backend"] = json!(backend);
+        let declaration = serde_json::to_vec(&value).unwrap();
+        crate::declaration::parse(&declaration).unwrap();
+        let digest = crate::deploy_plan::sha256_hex(&declaration);
+        let result = Registration::new(
+            json!({"projectId":"demo-remote-1"}),
+            declaration,
+            digest,
+            Arc::new(Auth),
+            Arc::new(|_| {
+                panic!(
+                    "unsupported backend must refuse before invoking the selected client factory"
+                )
+            }),
+        );
+        assert!(matches!(result, Err(SyncError::Invalid)));
+    }
+}

@@ -26,6 +26,7 @@ use crate::{
     state::{Layout, MachineKey},
     store::Store,
 };
+#[cfg(test)]
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::{

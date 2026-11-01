@@ -7,3 +7,6 @@ pub(crate) use carrier::stamp;
 pub use pairing::{EnrollmentDocument, EnrollmentProof};
 
 mod port;
+
+mod sealed_fields;
+pub(crate) use sealed_fields::SealedFieldsCodec as SealedFields;
