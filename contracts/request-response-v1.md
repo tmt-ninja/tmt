@@ -1084,12 +1084,16 @@ final, and any notice, to the held pool to be offered again by request id. An id
 claim is never taken over. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
 A checklist typed at an idle opportunity settles `delivered` but stays _unconfirmed_ until the
 recipient's next admitted prompt submission names one of its requests: the hook compares the prompt
-text with the checklist's request ids in the transaction that admits the turn start. The typed text
-can land in a turn the provider never announced (a background-task wake, a scheduled wake, a
-continuation), where it never becomes a prompt. The next turn-boundary claim returns the
+text with the checklist's request ids in the transaction that admits the turn start. A checklist
+typed while the recipient's driver folds typed text into a running turn (`folds_queued_text`) and its
+activity reads working, or while a Stop-hook continuation is open, reaches the model in that turn with
+no prompt of its own: it is confirmed when it settles `delivered`. Otherwise the typed text
+can land in a turn the provider never announced (a background-task wake, a scheduled wake), where it
+never becomes a prompt. The next turn-boundary claim returns the
 unconfirmed items to the held pool and seals them again, in sequence order, in that Stop-hook
 checklist, keyed by the same request ids so the receipt reply stays idempotent. A request that no longer admits
-a first final (answered, withdrawn or expired) is not offered again; a result or timeout notice is. A
+a first final (answered, withdrawn or expired) is not offered again, nor is a result or timeout notice
+its originator already acknowledged; an unacknowledged notice is. A
 typed checklist with no such item left is confirmed by the claim that skips it, so it is not looked at again.
 An idle opportunity never offers them again and nothing is typed twice. A checklist handed to a Stop hook starts a
 continuation the activity record cannot see: the provider carries on with no new prompt while its

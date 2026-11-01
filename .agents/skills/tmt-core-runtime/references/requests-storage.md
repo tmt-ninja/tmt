@@ -114,7 +114,8 @@ carry one oversized first item, while provider hooks leave it held.
   history, exchange, incoming and inbox read transactions from rows only: `storage/requests/delivery.rs::facts` reads the attempt's
   route and status, the wake state (an identified recipient's request stays `queued`; its paste is the
   wake), the `focus_items`/`focus_checklists` hold, `focus_policies.max_hold_ms` plus the oldest held
-  arrival (the latest send time), the driver activity of the exact bound session and process (a
+  arrival (the latest send time; read only for a message still held, by two index lookups that never
+  scan the delivered backlog), the driver activity of the exact bound session and process (a
   stored event, no host call), and what came back (`ReturnedAnswer`: a submitted final, or the
   passthrough capture as `state_at` reads it, so a capture past its window already reads
   `no_answer`). A returned answer outranks every other fact: `answered` is terminal, and an ended capture
