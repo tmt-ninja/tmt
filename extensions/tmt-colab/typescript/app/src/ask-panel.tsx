@@ -115,7 +115,9 @@ export function AskPanel({
   readOnly?: boolean;
   inline?: boolean;
   dayHeadings?: readonly ReactNode[];
-  renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
+  /** Inline only: draws the person's message once, in the first exchange. It is drawn even before
+   * any Ask records, in the same element, so a first record never remounts it (#5911). */
+  renderUser?(status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskRetryInput;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
@@ -409,6 +411,11 @@ export function AskPanel({
     );
     return { record, status, delivery, reply };
   });
+  // A person's message shows one status per recipient: Ask again replaces that recipient's line in
+  // place, keyed by the recipient, instead of adding a line (#5911).
+  const recipientKey = (record: PageAsk) => `${record.writer}:${record.machine}:${record.agent}`;
+  const latest = new Map(turns.map((turn) => [recipientKey(turn.record), turn]));
+  const current = turns.filter((turn) => latest.get(recipientKey(turn.record)) === turn);
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
       {!inline && (
@@ -418,52 +425,63 @@ export function AskPanel({
         </>
       )}
       {!inline && records.length === 0 && <p>{text.askEmpty}</p>}
-      {turns.map(({ record, status, delivery, reply }, index) => {
-        return (
-          <div
-            className="conversation-exchange"
-            data-testid="ask-entry"
-            data-operation-id={record.operationId}
-            data-ledger-state={record.state}
-            data-writer={record.writer}
-            tabIndex={-1}
-            key={`${record.writer}:${record.operationId}`}
-            aria-label={`${text.ask} ${record.operationId}`}
-          >
-            {dayHeadings?.[index]}
-            {renderUser ? (
-              index === 0 &&
-              renderUser(
-                record,
-                turns.some((turn) => turn.status) ? (
-                  <>
-                    {turns.map((turn) =>
-                      turn.status ? <span key={turn.record.operationId}>{turn.status}</span> : null,
-                    )}
-                  </>
-                ) : undefined,
-                <>
-                  {turns.map((turn) => (
-                    <div key={turn.record.operationId}>{turn.delivery}</div>
-                  ))}
-                </>,
-              )
-            ) : (
-              <ConversationTurn
-                role="user"
-                author={record.deviceName || text.commentDevice}
-                at={record.issuedAt}
-                authorTitle={record.writer}
-                status={status}
-                delivery={delivery}
+      {/* One list, so the person's message keeps its element (key `user`) when a record arrives. */}
+      {renderUser && turns.length === 0
+        ? [
+            // The same child positions as an exchange with records: day heading, message, reply.
+            <div className="conversation-exchange" key="user">
+              {null}
+              {renderUser(undefined, undefined)}
+              {null}
+            </div>,
+          ]
+        : turns.map(({ record, status, delivery, reply }, index) => {
+            return (
+              <div
+                className="conversation-exchange"
+                data-testid="ask-entry"
+                data-operation-id={record.operationId}
+                data-ledger-state={record.state}
+                data-writer={record.writer}
+                tabIndex={-1}
+                key={renderUser && index === 0 ? 'user' : `${record.writer}:${record.operationId}`}
+                aria-label={`${text.ask} ${record.operationId}`}
               >
-                <MarkdownText value={record.message} names={[record.agentName]} />
-              </ConversationTurn>
-            )}
-            {reply}
-          </div>
-        );
-      })}
+                {dayHeadings?.[index]}
+                {renderUser ? (
+                  index === 0 &&
+                  renderUser(
+                    current.some((turn) => turn.status) ? (
+                      <>
+                        {current.map((turn) =>
+                          turn.status ? (
+                            <span key={recipientKey(turn.record)}>{turn.status}</span>
+                          ) : null,
+                        )}
+                      </>
+                    ) : undefined,
+                    <>
+                      {current.map((turn) => (
+                        <div key={recipientKey(turn.record)}>{turn.delivery}</div>
+                      ))}
+                    </>,
+                  )
+                ) : (
+                  <ConversationTurn
+                    role="user"
+                    author={record.deviceName || text.commentDevice}
+                    at={record.issuedAt}
+                    authorTitle={record.writer}
+                    status={status}
+                    delivery={delivery}
+                  >
+                    <MarkdownText value={record.message} names={[record.agentName]} />
+                  </ConversationTurn>
+                )}
+                {reply}
+              </div>
+            );
+          })}
     </section>
   );
 }

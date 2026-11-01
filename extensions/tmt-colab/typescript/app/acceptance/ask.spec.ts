@@ -400,10 +400,11 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             const noticeBox = await notice.boundingBox();
             expect(fieldBox).not.toBeNull();
             expect(noticeBox).not.toBeNull();
-            // The notice sits inside the composer's box, under the text and aligned with it: 12px in.
+            // The notice fills the composer's reserved slot above the field (#5911), its words
+            // aligned with the field's text: 12px in.
             expect(Math.abs(noticeBox!.x - (fieldBox!.x + 12))).toBeLessThanOrEqual(1);
-            expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeGreaterThanOrEqual(0);
-            expect(noticeBox!.y - (fieldBox!.y + fieldBox!.height)).toBeLessThanOrEqual(12);
+            expect(fieldBox!.y - (noticeBox!.y + noticeBox!.height)).toBeGreaterThanOrEqual(0);
+            expect(fieldBox!.y - (noticeBox!.y + noticeBox!.height)).toBeLessThanOrEqual(16);
             await s.askerPage.screenshot({
               path: testInfo.outputPath(`send-refusal-${surface}-${width}-${theme}.png`),
             });

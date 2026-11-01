@@ -1063,9 +1063,11 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin-left: auto;
 }
 .conversation-turn-status {
+  min-height: 22px;
   margin-top: 4px;
   color: var(--c-muted);
   font-size: 12px;
+  line-height: 22px;
 }
 .conversation-status {
   min-width: 0;
@@ -1080,7 +1082,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     --tmt-ui-host-icon-action-size: 44px;
     --tmt-ui-host-action-min-height: 44px;
   }
-  .conversation-turn-status,
   .conversation-status[data-message-state] {
     line-height: 22px;
   }
@@ -2321,7 +2322,14 @@ button.discussion-quote:focus-visible {
   color: var(--tmt-ui-color-working);
 }
 .comment-echo-failure {
-  margin: 0;
+  margin-right: 8px;
+}
+/* Retry and Edit sit on the 22px status line: their taller hit boxes overflow it instead of
+   opening it up, and they keep the text actions' 12px label gap. */
+.comment-echo-failure + .conversation-status-actions {
+  height: 22px;
+  gap: 4px;
+  vertical-align: top;
 }
 
 .storage-usage {

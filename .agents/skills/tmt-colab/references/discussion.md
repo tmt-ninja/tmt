@@ -147,7 +147,10 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `annotation-number.css` owns the shared circle metrics; the renderer-style generator
   projects that checked CSS alongside its paint roles into the opaque frame.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
-  editor, recipient and Send ownership stays unchanged. The [GUI rule](../../../../design/gui-style.md#conversation-turn)
+  editor, recipient and Send ownership stays unchanged. Its notices (a refusal, a recipient
+  not reached, a recorded message's next step) share one reserved one-line slot, `RichInput`'s
+  `header` row inside the input above the text, so neither the history nor the field moves (#5911).
+  The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
   composer slot, as in the anchored dialog) and Chat provide `MessageEchoContext`; inside it,
@@ -155,7 +158,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   frame. The echo captures attachment labels and bounded local preview promises before upload;
   `message-attachments.tsx` shares the final tile layout with preview/download disabled.
   These copies live only with the echo; the replacement record still reads through the admitted
-  attachment opener and never receives local bytes or read authority from the echo.
+  attachment opener and never receives read authority from the echo. Only its drawn `<img>`
+  element passes to the record's tile (`TileImage`, keyed by the echo's `local` through
+  `rememberEchoMessage`), so the row neither blanks nor reloads (#5911); the record's own read then
+  replaces its source, and a failed read drops it. A new read lifetime never takes the old one's
+  image.
   A send that fails before it is recorded turns its echo into the failed row, which
   holds the full draft (text, recipient chips, attachments) and is the one place the failure is
   reported (`✗ Not sent.` with its reference). Retry re-sends that exact draft once; Edit moves

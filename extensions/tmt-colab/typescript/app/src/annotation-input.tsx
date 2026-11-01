@@ -34,6 +34,8 @@ import {
 } from './message-send-refusal.js';
 import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
+import { NoticeLine } from './components/notice-line.js';
+import { rememberEchoMessage } from './message-attachments.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
@@ -62,6 +64,7 @@ export function AnnotationInput({
   onBusy,
   onFailure,
   onRecorded,
+  onUnsent,
   blocked,
   recoveryRequired = false,
   connectionPresentation,
@@ -88,6 +91,8 @@ export function AnnotationInput({
   onBusy?(busy: boolean): void;
   /** The message is recorded; its delivery may still be running (recovery is on the thread). */
   onRecorded?(): void;
+  /** Whether this composer holds a failed row: a send that failed before it was recorded. */
+  onUnsent?(unsent: boolean): void;
   /** A closing owner retains delivery recovery outside the composer. */
   onFailure?(failure: MessageSendFailure): void;
   blocked: boolean;
@@ -164,6 +169,9 @@ export function AnnotationInput({
   const [unsent, setUnsent] = useState<{ edit: ComposerEdit; echo: MessageEcho }>();
   const unsentRef = useRef(unsent);
   unsentRef.current = unsent;
+  const reportUnsent = useRef(onUnsent);
+  reportUnsent.current = onUnsent;
+  useEffect(() => reportUnsent.current?.(!!unsent), [unsent]);
   const focusAfterEdit = useRef(false);
   const sending = useRef(false);
   const [error, setError] = useState<{
@@ -349,11 +357,11 @@ export function AnnotationInput({
       if (echoHost) {
         const retried = unsentRef.current;
         if (retried) {
-          echoHost.remove(retried.echo.local);
           unsentRef.current = undefined;
           setUnsent(undefined);
         }
-        // The echo and the cleared composer appear in the same frame.
+        // The echo and the cleared composer appear in the same frame. A retry is the same message:
+        // it keeps its echo's ID and time, so its row stays where it is (#5911).
         echoed = messageEcho(
           captured.value,
           files.getSnapshot().chips.map(({ id, filename, mediaType, size }) => ({
@@ -365,6 +373,7 @@ export function AnnotationInput({
           })),
           captured.destinations.map((destination) => destination.agentName),
         );
+        if (retried) echoed = { ...echoed, local: retried.echo.local, at: retried.echo.at };
         echoHost.show(echoed);
         setEchoing(true);
         if (current.value === latestEdit.current.value) clearDraft();
@@ -384,7 +393,10 @@ export function AnnotationInput({
           : await discussion!.create(captured.value, captured.anchor, attach);
       onRecorded?.();
       stage = 'dispatch';
-      if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
+      if (echoed) {
+        rememberEchoMessage(echoed.local, origin.message);
+        echoHost?.show((echoed = { ...echoed, message: origin.message }));
+      }
       files.committed();
       const deliveries: MessageEcho['deliveries'][number][] = [];
       const failures = await sendCommentAsks(
@@ -492,7 +504,7 @@ export function AnnotationInput({
     </div>
   );
   const sendFailureNotice = error && (
-    <p
+    <NoticeLine
       key={error.occurrence}
       ref={failureNotice}
       role="alert"
@@ -506,7 +518,7 @@ export function AnnotationInput({
       )}
       {messageSendCopy(error.reference, decision.agents[0]?.agentName)}{' '}
       {text.messageSendReference(error.reference)}
-    </p>
+    </NoticeLine>
   );
   if (archived)
     return (
@@ -577,9 +589,48 @@ export function AnnotationInput({
               }
             : undefined
         }
+        // One reserved slot in the composer, above the text: a refusal, a recipient that was not
+        // reached, or a recorded message's next step fills it, so neither the history nor the
+        // field moves (#5911).
+        header={
+          <div className="annotation-notice-slot">
+            {sendFailureNotice}
+            <CommentSendFailures
+              failures={failures}
+              binding={binding}
+              blocked={blocked || busy || !!recorded}
+              settled={(failure, outcome) =>
+                setFailures((previous) =>
+                  outcome.adopted === true
+                    ? previous.filter((value) => value !== failure)
+                    : outcome.adopted === false
+                      ? previous
+                      : previous.map((value) =>
+                          value === failure ? { ...value, uncertain: true } : value,
+                        ),
+                )
+              }
+            />
+            {recorded && (chat || !thread) && (
+              <BrowserAction
+                type="button"
+                label={chat ? text.messageAnother : text.messageOpenRecorded}
+                variant="text"
+                onActivate={(event) => {
+                  if (event.isTrusted) {
+                    if (chat) {
+                      setRecorded(undefined);
+                      setError(undefined);
+                      clearDraft();
+                    } else committed(recorded);
+                  }
+                }}
+              />
+            )}
+          </div>
+        }
         accessory={
           <>
-            {sendFailureNotice}
             {/* Sent files leave with the echo; a failed row holds them until Edit. */}
             {discussion?.attachments && !echoing && !unsent && (
               <PendingAttachments
@@ -630,7 +681,8 @@ export function AnnotationInput({
             !event.ctrlKey &&
             !event.metaKey &&
             !event.shiftKey &&
-            !sending.current
+            // Chat's Escape closes Chat, which keeps the send (#5870); elsewhere it cancels.
+            (!sending.current || chat)
           )
             cancel();
         }}
@@ -669,38 +721,6 @@ export function AnnotationInput({
           />
         )}
       </div>
-      <CommentSendFailures
-        failures={failures}
-        binding={binding}
-        blocked={blocked || busy || !!recorded}
-        settled={(failure, outcome) =>
-          setFailures((previous) =>
-            outcome.adopted === true
-              ? previous.filter((value) => value !== failure)
-              : outcome.adopted === false
-                ? previous
-                : previous.map((value) =>
-                    value === failure ? { ...value, uncertain: true } : value,
-                  ),
-          )
-        }
-      />
-      {recorded && (chat || !thread) && (
-        <BrowserAction
-          type="button"
-          label={chat ? text.messageAnother : text.messageOpenRecorded}
-          variant="text"
-          onActivate={(event) => {
-            if (event.isTrusted) {
-              if (chat) {
-                setRecorded(undefined);
-                setError(undefined);
-                clearDraft();
-              } else committed(recorded);
-            }
-          }}
-        />
-      )}
     </section>
   );
 }
