@@ -411,6 +411,11 @@ export function AskPanel({
     );
     return { record, status, delivery, reply };
   });
+  // A person's message shows one status per recipient: Ask again replaces that recipient's line in
+  // place, keyed by the recipient, instead of adding a line (#5911).
+  const recipientKey = (record: PageAsk) => `${record.writer}:${record.machine}:${record.agent}`;
+  const latest = new Map(turns.map((turn) => [recipientKey(turn.record), turn]));
+  const current = turns.filter((turn) => latest.get(recipientKey(turn.record)) === turn);
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
       {!inline && (
@@ -446,18 +451,18 @@ export function AskPanel({
                 {renderUser ? (
                   index === 0 &&
                   renderUser(
-                    turns.some((turn) => turn.status) ? (
+                    current.some((turn) => turn.status) ? (
                       <>
-                        {turns.map((turn) =>
+                        {current.map((turn) =>
                           turn.status ? (
-                            <span key={turn.record.operationId}>{turn.status}</span>
+                            <span key={recipientKey(turn.record)}>{turn.status}</span>
                           ) : null,
                         )}
                       </>
                     ) : undefined,
                     <>
-                      {turns.map((turn) => (
-                        <div key={turn.record.operationId}>{turn.delivery}</div>
+                      {current.map((turn) => (
+                        <div key={recipientKey(turn.record)}>{turn.delivery}</div>
                       ))}
                     </>,
                   )
