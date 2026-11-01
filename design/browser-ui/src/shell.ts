@@ -848,8 +848,8 @@ export function mountShell(
     return list;
   };
 
-  // Hosts repaint on every data refresh; an unchanged view keeps its nodes, so a press in
-  // progress and keyboard focus survive.
+  // Hosts repaint on every data refresh. An unchanged view keeps its nodes, and a view with the same
+  // rows patches them in place, so a press in progress, hover, keyboard focus and an open tip survive.
   let shown = '';
   let latest = view;
   const render = (next: ShellView) => {
