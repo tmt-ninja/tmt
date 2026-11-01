@@ -697,7 +697,16 @@ pub enum OrchWriteOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickTimerAction {
+    Preview,
+    Status,
+    Install,
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TickOperation {
+    Timer { action: TickTimerAction, yes: bool },
     Once,
     Run,
     Status,

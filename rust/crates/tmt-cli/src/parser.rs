@@ -223,6 +223,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["tick"] => Invocation::Tick(TickOperation::Once),
         ["tick", "run"] => Invocation::Tick(TickOperation::Run),
         ["tick", "status"] => Invocation::Tick(TickOperation::Status),
+        ["tick", "timer"] | ["tick", "timer", "preview"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Preview,yes:false}),
+        ["tick", "timer", "status"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Status,yes:false}),
+        ["tick", "timer", "install"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Install,yes:flag(m,"yes")}),
+        ["tick", "timer", "remove"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Remove,yes:flag(m,"yes")}),
         ["api"] => if flag(m, "session") { Invocation::ApiSession } else { Invocation::Api },
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
