@@ -132,7 +132,7 @@ fn owner_retirement_or_failed_configuration_commit_leaves_no_job() {
     let db = rusqlite::Connection::open(d.path.join("state.db")).unwrap();
     db.execute(
         "UPDATE identities SET retired_at_ms=? WHERE id=?",
-        rusqlite::params![NOW, owner],
+        rusqlite::params![NOW as i64, owner],
     )
     .unwrap();
     let e = orchestration_write(&mut s, apply_query(&p), || NOW).unwrap_err();

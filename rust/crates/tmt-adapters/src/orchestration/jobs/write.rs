@@ -69,10 +69,10 @@ fn selector(m: &Mutation) -> Option<(&str, u64)> {
     }
 }
 pub(crate) fn validate(m: &Mutation) -> Result<(), JobError> {
-    if let Some((id, revision)) = selector(m) {
-        if !canonical_id(id) || revision == 0 || revision >= MAX_JS_SAFE_INTEGER {
-            return Err(JobError::Invalid);
-        }
+    if let Some((id, revision)) = selector(m)
+        && (!canonical_id(id) || revision == 0 || revision >= MAX_JS_SAFE_INTEGER)
+    {
+        return Err(JobError::Invalid);
     }
     match m {
         Mutation::AddJob { candidate } | Mutation::SetJob { candidate, .. } => {
