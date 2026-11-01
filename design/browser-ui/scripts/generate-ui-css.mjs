@@ -35,6 +35,7 @@ const roles = {
   input: ['surface', 'rule'],
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
+  waiting: ['color', 'waiting'],
   scrim: ['surface', 'scrim'],
   // Not colour utilities: the elevation scale (#5821). `shadow-overlay` is the floating layers' level.
   'shadow-overlay': ['shadow', 'overlay'],
@@ -81,6 +82,10 @@ const fixed = [
     'command-size',
     'caption-size',
     'eyebrow-weight',
+    'floating-action-size',
+    'dock-width',
+    'attention-dot-size',
+    'attention-dot-ring-width',
   ].map((key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`),
   ...motion(),
   ...Object.entries(tokens.font).map(

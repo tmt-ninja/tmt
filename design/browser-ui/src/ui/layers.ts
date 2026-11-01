@@ -60,3 +60,11 @@ export {
   SelectTrigger,
   SelectValue,
 } from './select.js';
+export {
+  FloatingDock,
+  FloatingActions,
+  FloatingAction,
+  FloatingWindow,
+  FloatingWindowAction,
+} from './floating.js';
+export type { FloatingWindowCloseReason } from './floating.js';
