@@ -274,7 +274,7 @@ closure IDs/digests. Schema 2 separates producer from actual execution attempt;
 result names contain both. Cargo-built runtime examples are archive inputs and
 consumers verify restored executable paths before testing.
 
-Recovery admits K=2 or 3; collection selects each partition's latest actual success
+`ci.yml` runs K=3 partitions (#3284). Recovery admits K=2 or 3; collection selects each partition's latest actual success
 within three attempts of one producer generation. Newer failed/cancelled/incomplete executions refuse,
 never falling back. Attempt start time plus exact earlier-success fingerprint
 identifies copied retained jobs with new IDs. Ambiguous/unavailable metadata,
