@@ -200,6 +200,45 @@ fn oldest_held_cost_does_not_grow_with_the_delivered_backlog() {
     assert_eq!(small, large, "work is independent of the delivered backlog");
 }
 
+/// Each direction of a two-party conversation is one seek on its own index, merged in order:
+/// no table scan and no sort, however many requests either identity has elsewhere (#5862).
+#[test]
+fn conversation_plan_seeks_each_direction_without_sort() {
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("requests.db")).unwrap();
+    for paged in [false, true] {
+        let plan = format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::history::conversation_sql(paged)
+        );
+        let details = {
+            let mut statement = storage.connection().unwrap().prepare(&plan).unwrap();
+            statement
+                .query_map(
+                    rusqlite::params!["a", "b", 1_i64, "r", 5_i64, 1_i64],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let seeks = details
+            .iter()
+            .filter(|detail| detail.contains("request_history_pair"))
+            .count();
+        assert_eq!(seeks, 2, "{details:?}");
+        assert!(
+            !details.iter().any(|detail| detail.contains("TEMP B-TREE")),
+            "{details:?}"
+        );
+        assert!(
+            !details.iter().any(|detail| detail.starts_with("SCAN a")),
+            "{details:?}"
+        );
+    }
+    storage.close().unwrap();
+}
+
 #[test]
 fn retained_cleanup_plan_uses_horizon_index_without_sort() {
     let directory = TestDirectory::new();

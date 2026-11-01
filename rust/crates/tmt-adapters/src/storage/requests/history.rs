@@ -198,32 +198,32 @@ pub(super) fn list_request_history(
         .map_err(|error| classify(error, "Decode request history"))
 }
 
-/// The two-party scope of a conversation (#5807): ?1 is the viewer, ?2 the member. A room
-/// message is out of scope, whoever sent it.
-const CONVERSATION_SCOPE: &str = "a.room_id IS NULL AND ((a.originator_identity_id=?1 AND a.recipient_identity_id=?2) \
-     OR (a.originator_identity_id=?2 AND a.recipient_identity_id=?1))";
+/// The two-party scope of a conversation (#5807), one direction each: ?1 is the viewer, ?2 the
+/// member. A room message is out of scope, whoever sent it. Each direction is one ordered seek on
+/// `request_history_pair`, so a read never scans every two-party request (#5862).
+const CONVERSATION_DIRECTIONS: [&str; 2] = [
+    "a.room_id IS NULL AND a.recipient_identity_id=?2 AND a.originator_identity_id=?1",
+    // A person's note to themself is one direction, never counted twice.
+    "a.room_id IS NULL AND a.recipient_identity_id=?1 AND a.originator_identity_id=?2 AND ?1 <> ?2",
+];
 
 /// A request's (viewer, member) revisions: the originator's attention revision and the
 /// recipient's, each from that identity's one counter.
 const CONVERSATION_SIDES: &str = "CASE WHEN a.originator_identity_id=?1 THEN a.attention_revision ELSE a.recipient_attention_revision END AS viewer_side, \
      CASE WHEN a.originator_identity_id=?1 THEN a.recipient_attention_revision ELSE a.attention_revision END AS member_side";
 
-pub(super) fn list_conversation(
-    connection: &Connection,
-    query: &ConversationQuery,
-    limit: u64,
-    now_ms: u64,
-) -> Result<Vec<ConversationRecord>, StorageError> {
-    let cursor = if query.before.is_some() {
+/// One conversation page: each direction is its own seek on `request_history_pair`, merged in
+/// order without a sort (#5862).
+pub(super) fn conversation_sql(paged: bool) -> String {
+    let cursor = if paged {
         "(a.prepared_at_ms,a.request_id) < (?3,?4)"
     } else {
         "?3 IS NULL AND ?4 IS NULL"
     };
-    let sql = format!(
-        "{} ORDER BY a.prepared_at_ms DESC,a.request_id DESC LIMIT ?5",
+    let direction = |scope: &str| {
         history_select_with(
             "request_attempts AS a",
-            &format!("{CONVERSATION_SCOPE} AND a.retention_expires_at_ms > ?6 AND {cursor}"),
+            &format!("{scope} AND a.retention_expires_at_ms > ?6 AND {cursor}"),
             &format!(
                 "CASE WHEN a.message_expires_at_ms > ?6 THEN substr(CAST(a.message_text AS BLOB),1,{PREVIEW_BYTES}) ELSE NULL END"
             ),
@@ -232,7 +232,21 @@ pub(super) fn list_conversation(
             ),
             &format!(", {CONVERSATION_SIDES}"),
         )
-    );
+    };
+    format!(
+        "SELECT * FROM ({} UNION ALL {}) ORDER BY prepared_at_ms DESC,request_id DESC LIMIT ?5",
+        direction(CONVERSATION_DIRECTIONS[0]),
+        direction(CONVERSATION_DIRECTIONS[1]),
+    )
+}
+
+pub(super) fn list_conversation(
+    connection: &Connection,
+    query: &ConversationQuery,
+    limit: u64,
+    now_ms: u64,
+) -> Result<Vec<ConversationRecord>, StorageError> {
+    let sql = conversation_sql(query.before.is_some());
     let before = query
         .before
         .as_ref()
@@ -291,7 +305,10 @@ pub(super) fn conversation_counts(
              (CASE WHEN a.originator_identity_id=?1 THEN ?4 ELSE ?3 END) THEN 1 ELSE 0 END),0), \
            COALESCE(SUM(CASE WHEN viewer_side > ?3 OR member_side > ?4 THEN 1 ELSE 0 END),0) \
          FROM (SELECT a.*, {CONVERSATION_SIDES} FROM request_attempts AS a \
-           WHERE {CONVERSATION_SCOPE} AND a.retention_expires_at_ms > ?5) AS a"
+           WHERE {} AND a.retention_expires_at_ms > ?5 \
+           UNION ALL SELECT a.*, {CONVERSATION_SIDES} FROM request_attempts AS a \
+           WHERE {} AND a.retention_expires_at_ms > ?5) AS a",
+        CONVERSATION_DIRECTIONS[0], CONVERSATION_DIRECTIONS[1],
     );
     connection
         .query_row(

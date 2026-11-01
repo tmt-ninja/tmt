@@ -920,6 +920,8 @@ fn run(
         );
     }
     if matches!(command, "ls" | "ui") {
+        // One `tmt api --session` serves the listing's API reads, not a process each (#5862).
+        let core = core.with_api_session()?;
         let refresh_fields = command == "ls" && matches.get_flag("refresh-fields");
         if command == "ls"
             && let Some(tab) = text("tab")
