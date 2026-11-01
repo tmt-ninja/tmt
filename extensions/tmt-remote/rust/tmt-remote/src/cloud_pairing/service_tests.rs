@@ -2631,7 +2631,7 @@ fn provider_port_factory_preserves_pairing_purpose_and_pin_before_descriptor() {
             .lock()
             .unwrap()
             .iter()
-            .map(|c| c.0.as_str())
+            .map(|c| c.operation)
             .collect::<Vec<_>>(),
         vec!["machine_metadata", "machine_metadata"]
     );

@@ -6,10 +6,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+pub(crate) struct RecordedCall {
+    pub operation: &'static str,
+    pub stream: Option<Stream>,
+    pub id: String,
+    pub bytes: Vec<u8>,
+}
 pub(crate) struct RecordingProvider {
     pub machine: String,
     pub now: u64,
-    pub calls: Mutex<Vec<(String, Stream, String, Vec<u8>)>>,
+    pub calls: Mutex<Vec<RecordedCall>>,
     pub stored: Mutex<Option<CarrierDocument>>,
     pub lose_ack: AtomicBool,
     pub conflict: AtomicBool,
@@ -83,10 +89,12 @@ impl Provider for RecordingProvider {
             assert!(
                 claim().map_err(|_| RemoteError::new("REMOTE_SCOPE_DENIED", "Claim refused."))?
             );
-            self.calls
-                .lock()
-                .unwrap()
-                .push(("create".into(), stream, id.into(), bytes.to_vec()));
+            self.calls.lock().unwrap().push(RecordedCall {
+                operation: "create",
+                stream: Some(stream),
+                id: id.into(),
+                bytes: bytes.to_vec(),
+            });
             *self.stored.lock().unwrap() = Some(CarrierDocument {
                 peer: peer.into(),
                 id: id.into(),
@@ -112,10 +120,12 @@ impl Provider for RecordingProvider {
     ) -> Pending<'a, Option<CarrierDocument>> {
         Box::pin(async move {
             Self::checked(io)?;
-            self.calls
-                .lock()
-                .unwrap()
-                .push(("observe".into(), stream, id.into(), vec![]));
+            self.calls.lock().unwrap().push(RecordedCall {
+                operation: "observe",
+                stream: Some(stream),
+                id: id.into(),
+                bytes: vec![],
+            });
             let stored = self.stored.lock().unwrap();
             Ok(stored.as_ref().map(|d| CarrierDocument {
                 peer: peer.into(),
@@ -139,10 +149,12 @@ impl Provider for RecordingProvider {
     ) -> Pending<'a, CarrierPage> {
         Box::pin(async move {
             Self::checked(io)?;
-            self.calls
-                .lock()
-                .unwrap()
-                .push(("inbox".into(), Stream::Inbox, String::new(), vec![]));
+            self.calls.lock().unwrap().push(RecordedCall {
+                operation: "inbox",
+                stream: Some(Stream::Inbox),
+                id: String::new(),
+                bytes: vec![],
+            });
             Ok(self
                 .pages
                 .lock()
@@ -221,12 +233,12 @@ impl Provider for RecordingProvider {
     ) -> Pending<'a, Option<MachineMetadata>> {
         Box::pin(async move {
             Self::checked(io)?;
-            self.calls.lock().unwrap().push((
-                "machine_metadata".into(),
-                Stream::Inbox,
-                self.machine.clone(),
-                vec![],
-            ));
+            self.calls.lock().unwrap().push(RecordedCall {
+                operation: "machine_metadata",
+                stream: None,
+                id: self.machine.clone(),
+                bytes: vec![],
+            });
             Ok(Some(MachineMetadata {
                 principal: "fixture".into(),
                 authentication_key: vec![0; 31],

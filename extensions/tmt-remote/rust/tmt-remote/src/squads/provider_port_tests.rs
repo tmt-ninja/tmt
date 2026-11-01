@@ -91,11 +91,16 @@ fn provider_port_summary_lost_ack_restart_never_replays_and_conflicts_refuse() {
                 Publication::Stored
             ));
             let calls = fake.calls.lock().unwrap();
-            assert_eq!(calls.iter().filter(|c| c.0 == "create").count(), 1);
-            assert_eq!(calls[0].2, pending.id);
-            assert_eq!(calls[0].3, exact);
-            assert_eq!(calls.last().unwrap().0, "observe");
-            assert_eq!(calls.last().unwrap().2, pending.id);
+            assert_eq!(calls.iter().filter(|c| c.operation == "create").count(), 1);
+            assert_eq!(calls[0].id, pending.id);
+            assert!(
+                calls
+                    .iter()
+                    .all(|c| c.stream == Some(crate::cloud_provider::Stream::Inbox))
+            );
+            assert_eq!(calls[0].bytes, exact);
+            assert_eq!(calls.last().unwrap().operation, "observe");
+            assert_eq!(calls.last().unwrap().id, pending.id);
             drop(calls);
             fake.conflict.store(true, Ordering::Release);
             assert_eq!(
@@ -163,7 +168,7 @@ fn provider_port_driver_empty_pages_commit_only_the_common_read_watermark() {
                     .lock()
                     .unwrap()
                     .iter()
-                    .map(|c| c.0.as_str())
+                    .map(|c| c.operation)
                     .collect::<Vec<_>>(),
                 vec!["inbox", "inbox"]
             );
