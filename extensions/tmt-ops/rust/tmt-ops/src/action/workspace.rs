@@ -5,6 +5,7 @@ pub enum OpsUiAction {
     ResizePane,
     Agents,
     DigestDashboard,
+    Orchestration,
     QuotaDetails,
     SavingsUnit,
     UsageControls,
@@ -60,6 +61,19 @@ pub enum OpsUiAction {
     ScrollPageDown,
     ScrollTop,
     ScrollBottom,
+    // Orchestration tab controls (#4893); they act only on that tab.
+    OrchestrationDay,
+    OrchestrationWeek,
+    OrchestrationMonth,
+    OrchestrationPlans,
+    OrchestrationNow,
+    OrchestrationEarlier,
+    OrchestrationLater,
+    AllowOnce,
+    FocusHour,
+    EndFocus,
+    ReleaseHeld,
+    Why,
 }
 
 pub struct OpsUiSpec {
@@ -231,6 +245,13 @@ const SPECS: &[OpsUiSpec] = &[
         20
     ),
     spec!(
+        Orchestration,
+        "orchestration",
+        "Orchestration",
+        "show plan and member policies at the selected time",
+        20
+    ),
+    spec!(
         UsageControls,
         "usage-controls",
         "usage chart",
@@ -397,6 +418,90 @@ const SPECS: &[OpsUiSpec] = &[
         8
     ),
     spec!(
+        OrchestrationDay,
+        "orchestration-day",
+        "day",
+        "show one day of plans and policies on the Orchestration tab",
+        14
+    ),
+    spec!(
+        OrchestrationWeek,
+        "orchestration-week",
+        "week",
+        "show seven days on the Orchestration tab",
+        14
+    ),
+    spec!(
+        OrchestrationMonth,
+        "orchestration-month",
+        "month",
+        "show thirty days on the Orchestration tab",
+        14
+    ),
+    spec!(
+        OrchestrationPlans,
+        "orchestration-plans",
+        "plans",
+        "switch the Orchestration tab between members and plans",
+        10
+    ),
+    spec!(
+        OrchestrationNow,
+        "orchestration-now",
+        "now",
+        "show the Orchestration tab at the current time",
+        12
+    ),
+    spec!(
+        OrchestrationEarlier,
+        "orchestration-earlier",
+        "earlier",
+        "move the Orchestration time to the previous change",
+        11
+    ),
+    spec!(
+        OrchestrationLater,
+        "orchestration-later",
+        "later",
+        "move the Orchestration time to the next change",
+        11
+    ),
+    spec!(
+        AllowOnce,
+        "allow-once",
+        "allow once",
+        "preview allowing the selected blocked route once",
+        7
+    ),
+    spec!(
+        FocusHour,
+        "focus-hour",
+        "focus",
+        "preview one hour of focus for the selected member",
+        7
+    ),
+    spec!(
+        EndFocus,
+        "end-focus",
+        "end focus",
+        "preview ending the selected member's focus",
+        8
+    ),
+    spec!(
+        ReleaseHeld,
+        "release-held",
+        "release held",
+        "preview releasing the selected pair's held messages",
+        8
+    ),
+    spec!(
+        Why,
+        "why",
+        "why",
+        "read the selected member's recorded decisions",
+        9
+    ),
+    spec!(
         MoveMembership,
         "move-membership",
         "move",
@@ -442,6 +547,24 @@ impl OpsUiAction {
             .iter()
             .map(|spec| spec.action)
             .filter(|action| action.menu_label().is_some())
+    }
+    /// Controls of the Orchestration tab, bound only in its key scope.
+    pub fn orchestration(self) -> bool {
+        matches!(
+            self,
+            Self::OrchestrationDay
+                | Self::OrchestrationWeek
+                | Self::OrchestrationMonth
+                | Self::OrchestrationPlans
+                | Self::OrchestrationNow
+                | Self::OrchestrationEarlier
+                | Self::OrchestrationLater
+                | Self::AllowOnce
+                | Self::FocusHour
+                | Self::EndFocus
+                | Self::ReleaseHeld
+                | Self::Why
+        )
     }
     pub fn acts_on_member(self) -> bool {
         matches!(

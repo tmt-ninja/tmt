@@ -193,7 +193,9 @@ pub(in crate::board) fn render_frame(
         let line = tabs::paint(app, summary);
         let used = line.width() as u16;
         strip::paint_left(frame.buffer_mut(), summary, line);
-        scope_chip(frame, app, summary, used);
+        if app.shell.tab != super::shell::OpsTab::Orchestration {
+            scope_chip(frame, app, summary, used);
+        }
     } else {
         strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     }
