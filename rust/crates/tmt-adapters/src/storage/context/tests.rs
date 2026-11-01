@@ -1,11 +1,16 @@
 use super::*;
-use crate::test_support::TestDirectory;
+use crate::{
+    storage::template_fixture::{TemplateLease, place_migrated_database},
+    test_support::TestDirectory,
+};
 use std::fs;
 use tmt_core::identity::{Lifetime, create_or_resolve};
 
-fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
+/// The case directory travels with the template lease that keeps its scope.
+fn fixture() -> ((TestDirectory, TemplateLease), std::path::PathBuf, String) {
     let directory = TestDirectory::new();
     let path = directory.path.join("context.db");
+    let template = place_migrated_database(&path);
     let mut storage = Storage::open(&path).unwrap();
     let identity = create_or_resolve(&mut storage, "Context agent", Lifetime::Saved)
         .unwrap()
@@ -22,7 +27,7 @@ fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
         )
         .unwrap();
     storage.close().unwrap();
-    (directory, path, identity.id)
+    ((directory, template), path, identity.id)
 }
 
 #[test]

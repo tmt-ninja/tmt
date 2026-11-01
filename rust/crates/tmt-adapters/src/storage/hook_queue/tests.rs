@@ -20,6 +20,7 @@ use tmt_core::{
 };
 struct World {
     _directory: TestDirectory,
+    _template: crate::storage::template_fixture::TemplateLease,
     path: std::path::PathBuf,
     storage: Storage,
     agent: String,
@@ -30,6 +31,7 @@ impl World {
     fn new() -> Self {
         let directory = TestDirectory::new();
         let path = directory.path.join("capture.db");
+        let template = crate::storage::template_fixture::place_migrated_database(&path);
         let mut storage = Storage::open(&path).unwrap();
         let agent = tmt_core::identity::create_or_resolve(&mut storage, "Agent", Lifetime::Saved)
             .unwrap()
@@ -71,6 +73,7 @@ impl World {
         .unwrap();
         Self {
             _directory: directory,
+            _template: template,
             path,
             storage,
             agent,
