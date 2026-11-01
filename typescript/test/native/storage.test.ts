@@ -165,6 +165,7 @@ function expectNativeSchema(
     { version: 84, name: 'receipt durable hook capture ingestion' },
     { version: 85, name: 'name bounded Digest worker and caller failure stages' },
     { version: 86, name: 'record a binding that runs a plain program, not an agent' },
+    { version: 87, name: 'record leads, route grants and talk-limit holds' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -231,6 +232,10 @@ function expectNativeSchema(
       'digest_receiving_settings',
       'orchestration_pending_wakes',
       'orchestration_wake_clock',
+      'orchestration_leads',
+      'orchestration_route_grants',
+      'orchestration_talk_resumes',
+      'orchestration_talk_holds',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
@@ -253,6 +258,10 @@ function expectNativeSchema(
     'orchestration_decisions',
     'orchestration_pending_wakes',
     'orchestration_wake_clock',
+    'orchestration_leads',
+    'orchestration_route_grants',
+    'orchestration_talk_resumes',
+    'orchestration_talk_holds',
   ]) {
     expect(table(migrated, name).rows).toEqual([]);
   }

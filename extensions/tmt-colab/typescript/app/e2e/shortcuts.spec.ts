@@ -39,7 +39,7 @@ test('Save current filters, edit the shortcut, retain drafts on failed storage a
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('My work');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const hero = page.locator('.page-list-hero:visible');
+  const hero = page.locator('.page-list-actions:visible');
   await expect(page.locator('#list-fixture header').first()).toContainText('My work');
   await expect(page.locator('#list-fixture .page-list-search-box')).toContainText(
     'Include archived',
@@ -657,7 +657,7 @@ for (const width of [390, 1440])
 
 test('shortcut save action and preview follow the page-list mock', async ({ page }) => {
   await mount(page);
-  const hero = page.locator('.page-list-hero:visible');
+  const hero = page.locator('.page-list-actions:visible');
   const save = hero.getByRole('button', { name: 'Save as shortcut', exact: true });
   await expect(hero.getByRole('heading')).toHaveCount(0);
   await expect(save.locator('svg.lucide-bookmark')).toBeVisible();
@@ -731,7 +731,7 @@ for (const width of [390, 1440])
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await mount(page);
-      const hero = page.locator('.page-list-hero:visible');
+      const hero = page.locator('.page-list-actions:visible');
       await expect(hero.getByRole('heading')).toHaveCount(0);
       await expect(hero).not.toContainText('Pages, decisions and conversations');
       await expect(

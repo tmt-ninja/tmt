@@ -175,9 +175,10 @@ shared-link reader keeps its existing Info surface: creator attribution and the 
 rows, with no metadata write callback or owner-store CLI guidance. Native and hosted readers derive
 those rows from their already-admitted own records; no extra read, pairing or Ask is introduced.
 
-Home keeps one vertical list viewport. Its hero contains only a right-aligned action row;
-pins and stage tabs follow it. After the full controls boundary passes the top, the sticky
-compact row retains condition chips, the same mounted search editor, Filter and New page.
+Home keeps one vertical list viewport. Pins come first, then the stage tabs row, which ends with
+Save as shortcut and New page; when the tabs overflow they scroll and the two actions stay at the
+right (on phones as square icon actions with accessible names). After the full controls boundary
+passes the top, the sticky compact row retains condition chips, the same mounted search editor, Filter and New page.
 On phones Sort is an icon action on the search row; at wider widths it scrolls away.
 A list-root IntersectionObserver derives this presentation without a stored preference;
 resize and instant scroll jumps sample the same boundary geometry. Observers and listeners

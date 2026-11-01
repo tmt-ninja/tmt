@@ -4,6 +4,8 @@
  * that shows them (Ops, Digest), and the refresh timer that runs only while the route is visible.
  */
 import { shellAddress } from '@tmt/browser-ui/shell';
+import { remoteShell } from './remote-shell.js';
+import type { Session } from './device.js';
 
 export type OwnerReadRange = '24h' | '7d' | '30d';
 export type OwnerReadName = 'ops' | 'limits' | `digest/${OwnerReadRange}`;
@@ -50,7 +52,7 @@ export function ownerAnswer<T>(document: unknown): OwnerReadAnswer<T> {
 
 let address: Promise<string | undefined> | undefined;
 
-type Reopened = 'reopened' | 'no-session' | 'unreachable';
+type Reopened = { state: 'reopened'; session?: Session } | { state: 'no-session' | 'unreachable' };
 
 /** Without an owner session, a pairing kept in this browser opens one again (a door restart ends
  * them); `no-session` when there is no pairing to use, else `unreachable` (try again later). */
@@ -58,13 +60,18 @@ async function reopenOnce(signal: AbortSignal): Promise<Reopened> {
   try {
     const { reopenSession } = await import('./browser.js');
     // With a signal, one attempt that fails with a typed reason.
-    await reopenSession(undefined, { signal });
-    return 'reopened';
+    signal.throwIfAborted();
+    const shell = remoteShell();
+    const session = shell?.session
+      ? await shell.session()
+      : await reopenSession(undefined, { signal });
+    signal.throwIfAborted();
+    return { state: 'reopened', session };
   } catch (error) {
     const reason = (error as { reason?: string } | undefined)?.reason;
     return reason === 'unpaired' || reason === 'revoked' || reason === 'expired'
-      ? 'no-session'
-      : 'unreachable';
+      ? { state: 'no-session' }
+      : { state: 'unreachable' };
   }
 }
 
@@ -91,7 +98,7 @@ function reopen(signal: AbortSignal): Promise<Reopened> {
         shared.stop.abort();
         if (reopening === shared) reopening = undefined;
       }
-      resolve('unreachable');
+      resolve({ state: 'unreachable' });
     };
     if (signal.aborted) return leave();
     signal.addEventListener('abort', leave, { once: true });
@@ -131,8 +138,10 @@ export async function ownerRead<T>(
   let response = await readOnce(url, signal);
   if (response?.status === 404) {
     const reopened = await reopen(signal);
-    if (reopened !== 'reopened') return { state: reopened };
+    if (reopened.state !== 'reopened') return reopened;
     response = await readOnce(url, signal);
+    if (response?.status === 404 && reopened.session)
+      remoteShell()?.forgetSession?.(reopened.session);
   }
   if (response?.status !== 200) return UNREACHABLE;
   try {

@@ -101,7 +101,7 @@ jobs:
           "$JAVA_HOME_21_X64/bin/java" -version
       - name: Install pinned native sync emulator tools
         if: inputs.scope == 'full' && inputs.native-sync
-        run: npm install --global firebase-tools@15.29.0
+        uses: ./.github/actions/setup-firebase-tools
       - name: Prove native Auth and sealed sync against Colab Rules
         if: inputs.scope == 'full' && inputs.native-sync
         timeout-minutes: 8

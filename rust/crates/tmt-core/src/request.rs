@@ -297,6 +297,8 @@ pub struct PreparedRequest {
     pub inject_preamble: bool,
     pub previous_request_id: Option<String>,
     pub digest_until_ms: Option<u64>,
+    /// Held at its pair's talk limit until a person resumes it: no wake, no Digest item.
+    pub held_for_person: bool,
 }
 
 pub struct SubmitResponse {
@@ -585,6 +587,22 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<history::HistoryRecord>, Self::Error>;
+    /// The viewer/member conversation, newest first, at most `limit` (#5807). Room
+    /// messages are out of scope; the filter runs before the limit.
+    fn list_conversation(
+        &self,
+        query: &history::ConversationQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<history::ConversationRecord>, Self::Error>;
+    /// Counts over the same scope; `since` `None` counts nothing as changed.
+    fn conversation_counts(
+        &self,
+        viewer_id: &str,
+        member_id: &str,
+        since: Option<&history::ConversationPosition>,
+        now_ms: u64,
+    ) -> Result<history::ConversationCounts, Self::Error>;
     /// The originator's answered requests, newest answer first, at most `limit`.
     fn list_answers(
         &self,
@@ -626,6 +644,42 @@ pub trait RequestRecords {
     fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error>;
     /// An active identity marked as a person by the reserved `user` metadata entry.
     fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error>;
+    /// Sending rules and talk limits for one agent-to-agent request, decided at the
+    /// preparation transaction's captured instant (#4892).
+    fn talk_admission(
+        &self,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<crate::orchestration::sending::OrchTalkAdmission, Self::Error>;
+    /// Requests held at the talk limit between `a` and `b`, both directions.
+    fn held_for_person(
+        &self,
+        a: &str,
+        b: &str,
+    ) -> Result<Vec<crate::orchestration::sending::OrchHeld>, Self::Error>;
+    /// Release the pair: drop the `released` holds (an expired hold stays), restart its
+    /// window at `now_ms`, give each released attempt a fresh normal expiry capped by its
+    /// retained text, and journal the release.
+    fn release_person_holds(
+        &mut self,
+        a: &str,
+        b: &str,
+        released: &[crate::orchestration::sending::OrchHeld],
+        actor: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    /// Journal once that a request held for a person expires unsent; a no-op for any
+    /// request the talk limit did not hold.
+    fn expire_person_hold(&mut self, request_id: &str, now_ms: u64) -> Result<(), Self::Error>;
+    /// Keep a prepared request waiting for a person: no wake and no Digest item.
+    fn hold_for_person(
+        &mut self,
+        request_id: &str,
+        from: &str,
+        to: &str,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     fn find_recipient_attention(
         &self,
         identity_id: &str,
@@ -816,6 +870,10 @@ pub enum RequestError<E> {
     ResultSelection(ResultSelectionRejection),
     Digest(digest::DigestRejection),
     SendNow(delivery::SendNowRejection),
+    /// The sender's sending rule refuses this recipient; nothing was stored.
+    RouteRestricted(Box<crate::orchestration::sending::OrchRouteRefusal>),
+    /// The pair's held requests changed since the preview; preview again.
+    HeldChanged,
     Repository(E),
 }
 
@@ -864,6 +922,8 @@ impl<E> fmt::Display for RequestError<E> {
             }
             Self::Digest(reason) => f.write_str(reason.code()),
             Self::SendNow(reason) => f.write_str(reason.code()),
+            Self::RouteRestricted(_) => f.write_str("ORCH_ROUTE_RESTRICTED"),
+            Self::HeldChanged => f.write_str("Held requests changed since the preview; preview again."),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

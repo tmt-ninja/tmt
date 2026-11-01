@@ -172,6 +172,7 @@ pub(super) fn prepare(
         unbound,
         delivery_uncertain: false,
         digest_until_ms: None,
+        held_for_person: false,
         passthrough: input.options.passthrough,
     };
     if let Some(room) = &room
@@ -314,17 +315,20 @@ pub(super) fn prepare(
             timeout_ms: (timeout * 1000.0).ceil() as u64,
             waiter: None,
         });
-    let prepared = service
-        .prepare_delivery(
-            request,
-            attempt_id.clone(),
-            settings.retention_days,
-            delivery,
-            notification,
-        )
-        .map_err(|error| correlation.state_error(error, false))?;
+    let prepared = service.prepare_delivery(
+        request,
+        attempt_id.clone(),
+        settings.retention_days,
+        delivery,
+        notification,
+    );
+    let prepared = prepared.map_err(|error| match error {
+        RequestError::RouteRestricted(refusal) => route_restricted(storage, &correlation, &refusal),
+        error => correlation.state_error(error, false),
+    })?;
     correlation.digest_until_ms = prepared.digest_until_ms;
-    if prepared.digest_until_ms.is_some() {
+    correlation.held_for_person = prepared.held_for_person;
+    if prepared.digest_until_ms.is_some() || prepared.held_for_person {
         correlation.inbox = true;
         correlation.offline = false;
         correlation.unbound = false;
@@ -404,6 +408,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &["`"],
         &[],
     ),
+    crate::cli_style_tests::HintSpec::core(
+        "Ask a lead instead, or a person or lead allows this route once: tmt orch route allow <sender> {}",
+        &[""],
+        &[],
+    ),
 ];
 
 /// `RECIPIENT_NOT_AGENT`: the binding runs a plain program, so nothing is stored or pasted.
@@ -418,4 +427,45 @@ pub(super) fn not_agent(name: &str, program: &str) -> Failure {
     .suggestion(format!(
         "{name} receives messages once an AI agent starts in that terminal; until then use its terminal directly."
     ))
+}
+
+/// The sender's sending rule refuses this recipient: nothing was stored. The decision is
+/// journaled in its own transaction, after the preparation transaction rolled back.
+fn route_restricted(
+    storage: &mut Storage,
+    correlation: &Correlation,
+    refusal: &tmt_core::orchestration::sending::OrchRouteRefusal,
+) -> Failure {
+    use tmt_core::orchestration::*;
+    let journaled = storage.append_orchestration_decision(
+        &tmt_adapters::storage::route_refusal_decision(refusal, wall_time_ms()),
+    );
+    let rule = match refusal.sending {
+        OrchSending::Leads => "may message only leads",
+        OrchSending::Paused => "may not message other agents",
+        OrchSending::Anyone => "may message anyone",
+    };
+    let set_by = match (&refusal.source.kind, &refusal.source.plan_id) {
+        (OrchSourceKind::Plan | OrchSourceKind::Member, Some(plan)) => format!(" (plan {plan})"),
+        _ => String::new(),
+    };
+    let mut failure = correlation
+        .error(
+            "ORCH_ROUTE_RESTRICTED",
+            format!(
+                "Not sent: the sender {rule} right now{set_by}. Nothing reached {} and nothing was stored.",
+                correlation.target
+            ),
+            5,
+        )
+        .suggestion(format!(
+            "Ask a lead instead, or a person or lead allows this route once: tmt orch route allow <sender> {}",
+            correlation.target
+        ));
+    if journaled.is_err() {
+        failure = failure.suggestion(
+            "The refusal could not be recorded in the decision log; nothing was sent.".into(),
+        );
+    }
+    failure
 }

@@ -91,6 +91,10 @@ A scratch tmux server runs only through `scripts/private-tmux.sh <scratch-dir> <
   Fixtures own their terminals and HOMEs; never use a real shell startup file. Run the CLI
   style and architecture guards with these checks.
 - Skill reminder hints: `cargo test --locked -p tmt-cli --bin tmt skill_reminder`.
+- CLI style: `cargo test --locked -p tmt-cli --bin tmt cli_style` and
+  `cargo test --locked -p tmt-ops cli_style`.
+- Process cleanup: the adapter `process::cleanup_policy_tests` must pass under both
+  `cargo test` and nextest.
 
 ## Local MCP
 

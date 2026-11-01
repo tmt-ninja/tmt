@@ -103,7 +103,11 @@ let root: Root | undefined;
  * the owner list follows them as the serve would. `tall` gives the page content taller than the
  * viewport, for the pinned-band checks.
  */
-export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree', tall = false) {
+export function mountWorkPage(
+  owner = false,
+  scenario: 'tree' | 'empty' | 'many' = 'tree',
+  tall = false,
+) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('work-page-fixture');
@@ -116,9 +120,17 @@ export function mountWorkPage(owner = false, scenario: 'tree' | 'empty' = 'tree'
   const hook: WorkPageHook = { calls: [] };
   window.__workPage = hook;
   const list = rows();
+  if (scenario === 'many')
+    list.push(
+      ...Array.from({ length: 60 }, (_, index): Row => ({
+        id: id(200 + index),
+        title: `Available page ${String(index + 1).padStart(2, '0')}`,
+        state: 'todo',
+      })),
+    );
   if (scenario === 'empty')
     for (const row of list) if (row.parent?.page === THIS) delete row.parent;
-  let current: StoredWork | undefined = scenario === 'tree' ? linked() : undefined;
+  let current: StoredWork | undefined = scenario !== 'empty' ? linked() : undefined;
   let manualState: PageState = 'in-progress';
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`

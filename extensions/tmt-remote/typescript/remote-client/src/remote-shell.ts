@@ -1,6 +1,7 @@
 /** Remote's routes inside the one TMT web app (design/browser-ui `shell-host.ts`). */
 import type { ShellAnswer, ShellMenu } from '@tmt/browser-ui/shell';
 import type { ShellSlot } from '@tmt/browser-ui/shell-host';
+import type { Session } from './device.js';
 
 type Select = (id: string, href: string) => boolean;
 export interface RemoteShell {
@@ -25,6 +26,10 @@ export interface RemoteShell {
   described(listener: (answer: ShellAnswer | undefined) => void): void;
   /** A verified Session replacement invalidates root-owned search state, never grants authority. */
   observedSession?(session: object): void;
+  /** Reuse the root's verified signed Session; one joined admission if it has none. */
+  session?(): Promise<Session>;
+  /** Retire only the failed handle, never a newer Session observed meanwhile. */
+  forgetSession?(session: Session): void;
   /** Reuse the settings model's existing hold reason for root search navigation. */
   holdNavigation?(reason: () => string): void;
   /** Aborted when the route unmounts: page code ends its listeners, checks and sessions on it. */
@@ -92,6 +97,7 @@ export function hostRemote(
   signal?: AbortSignal,
   observedSession?: (session: object) => void,
   holdNavigation?: (reason: () => string) => void,
+  connection?: { get(signal: AbortSignal): Promise<Session>; forget(session: Session): void },
 ): void {
   current = slot &&
     signal && {
@@ -104,6 +110,8 @@ export function hostRemote(
       observedSession: (session) => {
         if (!signal.aborted) observedSession?.(session);
       },
+      session: connection ? () => connection.get(signal) : undefined,
+      forgetSession: connection ? (session) => connection.forget(session) : undefined,
       holdNavigation: (reason) => {
         if (!signal.aborted) holdNavigation?.(reason);
       },

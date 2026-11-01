@@ -16,6 +16,8 @@ pub enum OrchError {
     MemberNotFound,
     ReceivingUnavailable,
     Ambiguous,
+    /// The caller is a verified agent that is not a lead (#4892).
+    NotPermitted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +121,9 @@ pub struct OrchSnapshot {
     /// Digest's explicit master switch is above all scheduled receiving.
     pub digest_enabled: bool,
     pub digest_revision: u64,
+    /// Stored leads in canonical order, including retired ones: readers drop those (#4892).
+    pub leads: Vec<String>,
+    pub route_grants: Vec<sending::OrchRouteGrant>,
 }
 impl Default for OrchSnapshot {
     fn default() -> Self {
@@ -130,6 +135,8 @@ impl Default for OrchSnapshot {
             base_receiving: BTreeMap::new(),
             digest_enabled: true,
             digest_revision: 0,
+            leads: Vec::new(),
+            route_grants: Vec::new(),
         }
     }
 }
@@ -609,5 +616,6 @@ pub fn orch_timeline(
 
 pub mod mutation;
 pub mod receiving;
+pub mod sending;
 #[cfg(test)]
 mod tests;

@@ -28,13 +28,123 @@ struct QueryWire {
     room_id: Option<String>,
     limit: Option<u64>,
     before: Option<CursorWire>,
+    member_id: Option<String>,
+    since: Option<String>,
 }
 
 /// What `requests.list` asks for: a history of one recipient or room, an originator's
-/// results, or an originator's answers.
+/// results, an originator's answers, or the person's conversation with one member.
 pub enum ListQuery {
     History(HistoryQuery),
     Answers(AnswersQuery),
+    Conversation(ConversationInput),
+}
+
+/// The conversation view before the server resolves its viewer (#5807).
+pub struct ConversationInput {
+    pub member_id: String,
+    pub limit: u64,
+    pub before: Option<HistoryCursor>,
+    pub since: Option<String>,
+}
+impl ConversationInput {
+    pub fn query(self, viewer_id: String) -> ConversationQuery {
+        let since = self
+            .since
+            .map(|since| decode_position(&since, &viewer_id, &self.member_id));
+        ConversationQuery {
+            since,
+            viewer_id,
+            member_id: self.member_id,
+            limit: self.limit,
+            before: self.before,
+        }
+    }
+}
+
+/// Positions are opaque to clients: `c1-<scope>-<viewer>-<member>-<retained>`, hex. The
+/// scope tag lets a well-formed position from another viewer or member read as foreign.
+fn scope_tag(viewer_id: &str, member_id: &str) -> String {
+    tmt_core::content_digest::framed_sha256(
+        b"tmt-conversation-position-v1",
+        format!("{viewer_id}\n{member_id}").as_bytes(),
+    )[..12]
+        .to_owned()
+}
+pub fn encode_position(viewer_id: &str, member_id: &str, p: &ConversationPosition) -> String {
+    format!(
+        "c1-{}-{:x}-{:x}-{:x}",
+        scope_tag(viewer_id, member_id),
+        p.viewer,
+        p.member,
+        p.retained
+    )
+}
+fn decode_position(text: &str, viewer_id: &str, member_id: &str) -> ConversationSince {
+    let parts: Vec<_> = text.split('-').collect();
+    let number = |s: &str| {
+        u64::from_str_radix(s, 16)
+            .ok()
+            .filter(|v| *v <= MAX_JS_SAFE_INTEGER)
+    };
+    match parts.as_slice() {
+        ["c1", tag, viewer, member, retained] if *tag == scope_tag(viewer_id, member_id) => {
+            match (number(viewer), number(member), number(retained)) {
+                (Some(viewer), Some(member), Some(retained)) => {
+                    ConversationSince::Position(ConversationPosition {
+                        viewer,
+                        member,
+                        retained,
+                    })
+                }
+                _ => ConversationSince::Foreign,
+            }
+        }
+        _ => ConversationSince::Foreign,
+    }
+}
+fn valid_position(text: &str) -> bool {
+    (1..=64).contains(&text.len())
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn conversation_query(input: QueryWire) -> Option<ConversationInput> {
+    let member_id = input.member_id.filter(|id| canonical_id(id))?;
+    if input.originator_id.is_some() || input.recipient_id.is_some() || input.room_id.is_some() {
+        return None;
+    }
+    let limit = input.limit.unwrap_or(CONVERSATION_LIMIT);
+    if !(1..=HISTORY_MAX_LIMIT).contains(&limit)
+        || input.since.as_deref().is_some_and(|s| !valid_position(s))
+    {
+        return None;
+    }
+    let before = match input.before {
+        None => None,
+        Some(CursorWire {
+            prepared_at_ms: Some(prepared_at_ms),
+            submitted_at_ms: None,
+            answered_at_ms: None,
+            request_id,
+        }) if prepared_at_ms > 0
+            && prepared_at_ms <= MAX_JS_SAFE_INTEGER
+            && valid_request_id(&request_id) =>
+        {
+            Some(HistoryCursor::Prepared {
+                prepared_at_ms,
+                request_id,
+            })
+        }
+        Some(_) => return None,
+    };
+    Some(ConversationInput {
+        member_id,
+        limit,
+        before,
+        since: input.since,
+    })
 }
 
 fn decode_wire(bytes: &[u8]) -> Option<QueryWire> {
@@ -46,10 +156,11 @@ fn decode_wire(bytes: &[u8]) -> Option<QueryWire> {
 
 pub fn decode_list_query(bytes: &[u8]) -> Option<ListQuery> {
     let input = decode_wire(bytes)?;
-    if input.view.as_deref() == Some("answers") {
-        answers_query(input).map(ListQuery::Answers)
-    } else {
-        history_query(input).map(ListQuery::History)
+    match input.view.as_deref() {
+        Some("answers") => answers_query(input).map(ListQuery::Answers),
+        Some("conversation") => conversation_query(input).map(ListQuery::Conversation),
+        _ if input.member_id.is_some() || input.since.is_some() => None,
+        _ => history_query(input).map(ListQuery::History),
     }
 }
 
@@ -269,6 +380,96 @@ pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
             HistoryCursor::Submitted { submitted_at_ms, request_id } => json!({"submittedAtMs":submitted_at_ms,"requestId":request_id}),
         }),
     })).expect("serializable request history")
+}
+
+/// The conversation page (#5807): the `results` item fields, plus `direction`,
+/// `changePosition` and `responseId` when the request has one; no room, receipt or pane.
+pub fn encode_conversation_page(
+    page: &ConversationPage,
+    viewer_id: &str,
+    member_id: &str,
+    member: &str,
+) -> Vec<u8> {
+    let items: Vec<_> = page
+        .items
+        .iter()
+        .map(|row| {
+            let full = item_document(&row.summary.item, |_| None);
+            let mut value = serde_json::Map::new();
+            for key in [
+                "requestId",
+                "recipientId",
+                "sender",
+                "kind",
+                "origin",
+                "preparedAtMs",
+                "delivery",
+                "messageState",
+                "final",
+            ] {
+                value.insert(key.into(), full[key].clone());
+            }
+            value.insert("preview".into(), json!(row.summary.preview));
+            value.insert(
+                "responsePreview".into(),
+                json!(row.summary.response_preview.as_ref().map(|p| &p.text)),
+            );
+            value.insert(
+                "previewTruncated".into(),
+                json!(
+                    row.summary
+                        .response_preview
+                        .as_ref()
+                        .is_some_and(|p| p.truncated)
+                ),
+            );
+            value.insert(
+                "direction".into(),
+                json!(match row.direction {
+                    ConversationDirection::ToMember => "toMember",
+                    ConversationDirection::FromMember => "fromMember",
+                }),
+            );
+            let (viewer, member) = row.position;
+            value.insert(
+                "changePosition".into(),
+                json!(encode_position(
+                    viewer_id,
+                    member_id,
+                    &ConversationPosition {
+                        viewer,
+                        member,
+                        retained: 0
+                    }
+                )),
+            );
+            if let Some(response) = row
+                .summary
+                .item
+                .capture
+                .as_ref()
+                .and_then(|c| c.answer.as_ref())
+                .and_then(|a| a.response_id.as_ref())
+            {
+                value.insert("responseId".into(), json!(response));
+            }
+            Value::Object(value)
+        })
+        .collect();
+    let mut value = json!({
+        "viewerId": viewer_id,
+        "member": member,
+        "items": items,
+        "nextBefore": page.next_before.as_ref().map(|cursor| json!({"preparedAtMs":cursor.timestamp(),"requestId":cursor.request_id()})),
+        "changePosition": encode_position(viewer_id, member_id, &page.position),
+    });
+    if let Some(changed) = page.changed_since {
+        value["changedSince"] = match changed {
+            ChangedSince::Count { count, more } => json!({"count":count,"more":more}),
+            ChangedSince::Unknown => json!("unknown"),
+        };
+    }
+    serde_json::to_vec(&value).expect("serializable conversation")
 }
 
 pub fn encode_answers_page(page: &AnswersPage) -> Vec<u8> {
