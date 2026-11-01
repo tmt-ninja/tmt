@@ -126,7 +126,11 @@ fn the_widened_detail_list_keeps_every_stored_detail_and_accepts_the_new_tokens(
     let kept: Vec<&str> = SessionLearningDetail::ALL
         .iter()
         .map(|detail| detail.as_str())
-        .filter(|token| !token.starts_with("stopped:") && !token.starts_with("digest_stop:"))
+        .filter(|token| {
+            !token.starts_with("stopped:")
+                && !token.starts_with("digest_stop:")
+                && !token.starts_with("digest_empty:")
+        })
         .collect();
     assert_eq!(kept.len(), 10);
     for (index, token) in kept.iter().enumerate() {
@@ -215,7 +219,11 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
     let kept: Vec<&str> = SessionLearningDetail::ALL
         .iter()
         .map(|detail| detail.as_str())
-        .filter(|token| !token.starts_with("digest_stop:") && *token != NO_ADMITTED_START)
+        .filter(|token| {
+            !token.starts_with("digest_stop:")
+                && !token.starts_with("digest_empty:")
+                && *token != NO_ADMITTED_START
+        })
         .collect();
     assert_eq!(kept.len(), 34);
     for (index, token) in kept.iter().enumerate() {
@@ -257,7 +265,7 @@ fn the_digest_stop_list_keeps_every_stored_detail_and_accepts_its_tokens() {
         .map(|detail| detail.as_str())
         .filter(|token| token.starts_with("digest_stop:"))
         .collect();
-    assert_eq!(digest.len(), 58);
+    assert_eq!(digest.len(), 55);
     for (index, token) in digest.iter().enumerate() {
         db.execute(
             &observation(1_000 + index as u32, &format!("'{token}'")),
@@ -405,7 +413,7 @@ fn diagnostic_stages_preserve_schema_84_rows_and_reject_unbounded_details() {
 }
 
 #[test]
-fn empty_boundary_names_preserve_schema_88_rows_and_stay_bounded() {
+fn empty_boundary_evidence_preserves_schema_88_rows_and_stays_bounded() {
     let directory = TestDirectory::new();
     let root = directory.path.join("store");
     crate::private_file::ensure_private_directory(&root).unwrap();
@@ -429,11 +437,8 @@ fn empty_boundary_names_preserve_schema_88_rows_and_stay_bounded() {
     }
     old.execute(&observation(500, "NULL"), []).unwrap();
     assert!(
-        old.execute(
-            &observation(501, "'digest_stop:worker:empty:active_claim'"),
-            []
-        )
-        .is_err(),
+        old.execute(&observation(501, "'digest_empty:active_claim'"), [])
+            .is_err(),
         "schema 88 does not know the empty-boundary names"
     );
     let cursor: i64 = old
@@ -477,9 +482,9 @@ fn empty_boundary_names_preserve_schema_88_rows_and_stay_bounded() {
         .query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
     assert_eq!(objects, after_objects);
     for (index, token) in [
-        "digest_stop:worker:empty:active_claim",
-        "digest_stop:worker:empty:not_eligible",
-        "digest_stop:worker:empty:claim_nothing",
+        "digest_empty:active_claim",
+        "digest_empty:due_unclaimable",
+        "digest_empty:claim_nothing",
     ]
     .iter()
     .enumerate()
@@ -491,8 +496,8 @@ fn empty_boundary_names_preserve_schema_88_rows_and_stay_bounded() {
         .unwrap();
     }
     for invalid in [
-        "digest_stop:worker:empty",
-        "digest_stop:worker:empty:other",
+        "digest_empty:",
+        "digest_empty:not_eligible",
         "digest_stop:none:no_claimable",
     ] {
         assert!(
@@ -507,7 +512,7 @@ fn empty_boundary_names_preserve_schema_88_rows_and_stay_bounded() {
         })
         .unwrap();
     db.execute(
-        "UPDATE launch_observations SET detail='digest_stop:worker:empty:not_eligible' WHERE owner_pid=500",
+        "UPDATE launch_observations SET detail='digest_empty:due_unclaimable' WHERE owner_pid=500",
         [],
     )
     .unwrap();

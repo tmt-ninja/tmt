@@ -328,19 +328,24 @@ refused (#4871). Its `<reason>` is one of `worker_spawn`, `worker_timeout`,
 - `launch:continuation:owner_probe` or `launch:continuation:<operation>:<cause>`,
   where operation is `open | write | close | read` and cause is `busy | error`,
   for the separate awaiting-session continuation.
-- `worker:empty:<path>` when the identity holds Digest references but the turn boundary
-  handed off nothing (#5459): `active_claim` (another checklist was still claimed),
-  `not_eligible` (no held reference was claimable at this boundary) or `claim_nothing`
-  (the launch's claim sealed nothing). A Stop with no Digest reference held stores nothing.
+
+`digest_empty:<path>` is evidence, not a refusal (#5459). An admitted launch's Digest Stop
+stores it when references were due but the turn boundary handed off nothing:
+`active_claim` (another checklist was still claimed), `due_unclaimable` (references were
+due, but none was claimable at this boundary) or `claim_nothing` (the launch's claim sealed
+nothing). Its step is `context` and its reason `in_progress`, which carry no admission
+meaning. Identity status never shows it, and the Stop's output and exit are unchanged.
+References held but not yet due under the receiving policy are ordinary holding and store
+nothing. It never replaces a stored `digest_stop:` refusal, and the next delivering
+Digest Stop clears it.
 
 These labels change no hook budget or admission decision. Every `launch:*` detail uses
 step `provider_verification`, `capture_failed` uses `storage`, and other names use `context`.
 Its `reason` is `spawn_failed` for `worker_spawn`,
 `budget_timeout` for `worker_timeout` and `launch:deadline`, `conflict` for
-`notice_unavailable`, `checklist_changed` and `worker:empty:active_claim`, `not_admitted`
-for the other `worker:empty:*` names, and `worker_error` otherwise. A Stop with no Digest
-reference held, or a restart notice an earlier Stop already showed, is not a refusal and
-stores nothing. A later step of the same
+`notice_unavailable` and `checklist_changed`, and `worker_error` otherwise. A Stop with no
+Digest due, a claim that finds nothing, or a restart notice an earlier Stop already
+showed is not a refusal and stores nothing. A later step of the same
 run drops it. A run that cannot bind (a turn, prompt or activity event, or a payload of
 no known event) never replaces the step, reason or detail an earlier run stored for a
 launch that is not admitted yet; it names its own reason only when no detail is stored.

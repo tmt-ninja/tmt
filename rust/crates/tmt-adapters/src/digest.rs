@@ -13,7 +13,7 @@ use std::time::Duration;
 use tmt_core::{
     binding::{
         BindingEntry, BindingRepository,
-        session::{RuntimeState, activity::ActivityPhase},
+        session::{RuntimeState, activity::ActivityPhase, launch::SessionLearningDigestEmpty},
     },
     driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus},
     request::{
@@ -373,34 +373,33 @@ pub fn fitting_through(
     Ok(through.or_else(|| pending.then_some(0)))
 }
 
-/// Why a turn boundary handed off nothing although the identity holds Digest references
-/// (#5459). Content-free: which path ended empty and whether another checklist is claimed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmptyBoundary {
-    /// Another checklist was still claimed.
-    ActiveClaim,
-    /// [`fitting_through`] found nothing claimable.
-    NotEligible,
-    /// The launch's claim sealed nothing.
-    ClaimNothing,
-}
-
 /// Names an empty turn boundary after [`fitting_through`] (`after_claim` false) or the
-/// launch's claim (`after_claim` true) found nothing. `None` when nothing is held: an
-/// ordinary Stop names nothing, so the caller writes nothing for it.
+/// launch's claim (`after_claim` true) found nothing (#5459). `None` unless references are
+/// due: nothing held, or held but not yet due under the receiving policy, is ordinary
+/// holding and names nothing, so the caller writes nothing for it.
 pub fn empty_boundary(
     storage: &mut Storage,
     identity: &str,
     after_claim: bool,
-) -> Result<Option<EmptyBoundary>, RequestError<StorageError>> {
-    let views =
-        RequestService::new(&mut *storage, wall_time_ms).digest_policies(&[identity.into()])?;
-    Ok(match &views[0] {
-        view if view.held_count == 0 => None,
-        view if view.active_checklist.is_some() => Some(EmptyBoundary::ActiveClaim),
-        _ if after_claim => Some(EmptyBoundary::ClaimNothing),
-        _ => Some(EmptyBoundary::NotEligible),
-    })
+) -> Result<Option<SessionLearningDigestEmpty>, RequestError<StorageError>> {
+    let ids = [identity.to_owned()];
+    let view = RequestService::new(&mut *storage, wall_time_ms)
+        .digest_policies(&ids)?
+        .remove(0);
+    if view.held_count == 0 {
+        return Ok(None);
+    }
+    if view.active_checklist.is_some() {
+        return Ok(Some(SessionLearningDigestEmpty::ActiveClaim));
+    }
+    let stats = RequestService::new(&mut *storage, wall_time_ms)
+        .digest_stats(&ids)?
+        .remove(0);
+    Ok((stats.due_count > 0).then_some(if after_claim {
+        SessionLearningDigestEmpty::ClaimNothing
+    } else {
+        SessionLearningDigestEmpty::DueUnclaimable
+    }))
 }
 
 /// Claims the next checklist and renders it. A failed render releases the claim

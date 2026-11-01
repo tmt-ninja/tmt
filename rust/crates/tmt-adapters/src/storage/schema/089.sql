@@ -1,5 +1,5 @@
--- Name an empty Digest turn boundary while references are held (#5459): three fixed
--- tokens. Widen the existing CHECK while preserving stored details and change-cursor triggers.
+-- Record an empty Digest turn boundary while references are due (#5459): three fixed
+-- evidence tokens, never a refusal. Widen the existing CHECK while preserving stored details and change-cursor triggers.
 DROP TRIGGER launch_observations_advances_change_cursor_on_update;
 ALTER TABLE launch_observations ADD COLUMN detail_next TEXT CHECK (detail_next IS NULL OR detail_next IN (
     'refused:lifecycle:SessionStart',
@@ -92,9 +92,9 @@ ALTER TABLE launch_observations ADD COLUMN detail_next TEXT CHECK (detail_next I
     'digest_stop:launch:continuation:close:busy',
     'digest_stop:launch:continuation:read:error',
     'digest_stop:launch:continuation:read:busy',
-    'digest_stop:worker:empty:active_claim',
-    'digest_stop:worker:empty:not_eligible',
-    'digest_stop:worker:empty:claim_nothing'
+    'digest_empty:active_claim',
+    'digest_empty:due_unclaimable',
+    'digest_empty:claim_nothing'
 ));
 UPDATE launch_observations SET detail_next = detail;
 ALTER TABLE launch_observations DROP COLUMN detail;

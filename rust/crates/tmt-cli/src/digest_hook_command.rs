@@ -15,12 +15,15 @@ use tmt_adapters::{
     response_input::read_stdin_bounded,
     runtime::{
         RuntimeRegistry,
-        hook_protocol::{DigestHandoff, HOOK_INPUT_LIMIT, HookLaunch},
+        hook_protocol::{DigestEmptyReport, DigestHandoff, HOOK_INPUT_LIMIT, HookLaunch},
     },
     storage::{Storage, StorageError, StorageErrorCode},
 };
 use tmt_core::{
-    binding::session::{HarnessId, launch::SessionLearningDigestStop as DigestStop},
+    binding::session::{
+        HarnessId,
+        launch::{SessionLearningDigestEmpty, SessionLearningDigestStop as DigestStop},
+    },
     request::{
         RequestService,
         digest::{DigestOpportunity, DigestState},
@@ -41,9 +44,11 @@ pub fn execute(
     let mut empty_hook_output = "";
     let mut wrote_stdout = false;
     let mut delivered = false;
-    // Why this Stop ends with no output: a check refused, or the boundary handed off
-    // nothing while Digest references are held. A Stop with nothing held names nothing.
+    // Why this Stop ends with no output, when a check refused. A Stop with no Digest due
+    // is not a refusal and names nothing.
     let mut refusal: Option<DigestStop> = None;
+    // Evidence, not a refusal: the boundary handed off nothing while references were due.
+    let mut empty: Option<SessionLearningDigestEmpty> = None;
     let mut refuse = |stop: DigestStop| {
         refusal.get_or_insert(stop);
     };
@@ -99,14 +104,11 @@ pub fn execute(
             )
             .map_err(|error| refuse(worker_request_failure(WorkerStorageStage::Fitting, &error)))?
             else {
-                let empty = empty_stop(&mut storage, &launch.identity_id, false);
+                let found = digest::empty_boundary(&mut storage, &launch.identity_id, false);
                 storage.close().map_err(|error| {
                     refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
                 })?;
-                if let Some(stop) = empty {
-                    refuse(stop);
-                    return Err(());
-                }
+                report_empty(found.ok().flatten());
                 return Ok(());
             };
             let claimed = storage
@@ -122,14 +124,11 @@ pub fn execute(
             let batch = match claim_refusal(claimed) {
                 Ok(Some(batch)) => batch,
                 Ok(None) => {
-                    let empty = empty_stop(&mut storage, &launch.identity_id, true);
+                    let found = digest::empty_boundary(&mut storage, &launch.identity_id, true);
                     storage.close().map_err(|error| {
                         refuse(worker_storage_failure(WorkerStorageStage::Close, &error))
                     })?;
-                    if let Some(stop) = empty {
-                        refuse(stop);
-                        return Err(());
-                    }
+                    report_empty(found.ok().flatten());
                     return Ok(());
                 }
                 Err(stop) => {
@@ -202,7 +201,8 @@ pub fn execute(
             refuse(stop);
             return Err(());
         }
-        if output.stdout.is_empty() {
+        empty = empty_report(&output.stdout);
+        if output.stdout.is_empty() || empty.is_some() {
             if legacy_name {
                 let supplied = scope
                     .map(serde_json::from_str::<HookLaunch>)
@@ -334,6 +334,7 @@ pub fn execute(
             provider,
             scope,
             (!wrote_stdout).then_some(refusal).flatten(),
+            (!wrote_stdout).then_some(empty).flatten(),
             delivered,
             deadline,
         );
@@ -356,18 +357,26 @@ fn claim_refusal(
     }
 }
 
-/// An empty turn boundary is named only while Digest references are held, so an ordinary
-/// Stop with nothing held stores nothing (#5459). A failed diagnostic read leaves the Stop
-/// as silent as before; it is never a refusal of its own.
-fn empty_stop(storage: &mut Storage, identity: &str, after_claim: bool) -> Option<DigestStop> {
-    use digest::EmptyBoundary;
-    Some(
-        match digest::empty_boundary(storage, identity, after_claim).ok()?? {
-            EmptyBoundary::ActiveClaim => DigestStop::WorkerEmptyActiveClaim,
-            EmptyBoundary::NotEligible => DigestStop::WorkerEmptyNotEligible,
-            EmptyBoundary::ClaimNothing => DigestStop::WorkerEmptyClaimNothing,
-        },
-    )
+/// The worker's private report of an empty boundary on its stdout, which the supervisor
+/// stores as evidence. It never refuses, exits nonzero or writes stderr, so the Stop behaves
+/// exactly as one with nothing due (#5459). Nothing due writes nothing. A lost report loses
+/// only this evidence.
+fn report_empty(empty: Option<SessionLearningDigestEmpty>) {
+    let Some(empty) = empty else {
+        return;
+    };
+    if let Ok(bytes) = serde_json::to_vec(&DigestEmptyReport {
+        digest_empty: empty.name().into(),
+    }) {
+        let _ = tmt_cli_style::stream::stdout(true).write_all(&bytes);
+    }
+}
+
+/// The supervisor's reading of a worker report: a known name, or `None` for anything else.
+fn empty_report(stdout: &[u8]) -> Option<SessionLearningDigestEmpty> {
+    serde_json::from_slice::<DigestEmptyReport>(stdout)
+        .ok()
+        .and_then(|report| SessionLearningDigestEmpty::from_name(&report.digest_empty))
 }
 
 /// Keep only an operation and a bounded cause class, never backend error text.
@@ -434,17 +443,18 @@ fn worker_refusal(failure: Option<CommandFailure>, stderr: &[u8]) -> Option<Dige
     })
 }
 
-/// Stores why this Stop refused, or that it delivered, in the launch's session-learning
-/// row. The launch coordinates select that row only; a hook supplied with other coordinates
+/// Stores why this Stop refused, that it handed off nothing while references were due, or
+/// that it delivered, in the launch's session-learning row. The launch coordinates select that row only; a hook supplied with other coordinates
 /// stores nothing. Best effort within the hook's own deadline: a Stop never fails on it.
 fn record_outcome(
     provider: &str,
     scope: Option<&str>,
     refusal: Option<DigestStop>,
+    empty: Option<SessionLearningDigestEmpty>,
     delivered: bool,
     deadline: Instant,
 ) {
-    if refusal.is_none() && !delivered {
+    if refusal.is_none() && empty.is_none() && !delivered {
         return;
     }
     let Some(learning) = crate::session_learning::Learning::capture(provider) else {
@@ -455,9 +465,10 @@ fn record_outcome(
     }) {
         return;
     }
-    let _ = match refusal {
-        Some(stop) => learning.digest_stop(stop, deadline),
-        None => learning.digest_delivered(deadline),
+    let _ = match (refusal, empty) {
+        (Some(stop), _) => learning.digest_stop(stop, deadline),
+        (None, Some(empty)) if !delivered => learning.digest_empty(empty, deadline),
+        _ => learning.digest_delivered(deadline),
     };
 }
 
@@ -679,6 +690,30 @@ mod tests {
             DigestState::Uncertain
         );
     }
+    #[test]
+    fn an_empty_boundary_report_is_evidence_and_never_a_refusal() {
+        use tmt_core::binding::session::launch::SessionLearningDigestEmpty as Empty;
+        for empty in Empty::ALL {
+            let bytes = serde_json::to_vec(&DigestEmptyReport {
+                digest_empty: empty.name().into(),
+            })
+            .unwrap();
+            assert_eq!(empty_report(&bytes), Some(empty));
+            // A finished worker that reports it writes no stderr, so it refuses nothing.
+            assert_eq!(worker_refusal(None, b""), None);
+            assert_eq!(DigestStop::from_worker(empty.name()), None);
+        }
+        for other in [
+            &b""[..],
+            br#"{"digest_empty":"not_eligible"}"#,
+            br#"{"digest_empty":"active_claim","extra":1}"#,
+            br#"{"launch":{},"checklist_id":"a","attempt_token":"b","digest":"c"}"#,
+            b"active_claim",
+        ] {
+            assert_eq!(empty_report(other), None, "{other:?}");
+        }
+    }
+
     #[test]
     fn the_supervisor_names_each_worker_refusal() {
         let exit = Some(CommandFailure::Exit {
