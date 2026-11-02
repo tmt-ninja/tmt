@@ -74,12 +74,15 @@ for (const surface of ['chat', 'thread'] as const)
           const body = input.querySelector('p')!.getBoundingClientRect();
           const attachment = row.firstElementChild!.getBoundingClientRect();
           const image = row.querySelector('img')!.getBoundingClientRect();
+          const file = row.querySelector('[data-kind="file"]')!.getBoundingClientRect();
           const turn = document.querySelector('.conversation-turn')!;
           return {
             outsideText: !input.contains(row),
             left: Math.abs(body.left - attachment.left),
+            tile: [attachment.width, attachment.height],
             imageWidth: image.width,
             imageHeight: image.height,
+            fileHeight: file.height,
             postedLeft: Math.abs(
               turn.querySelector('.comment-body')!.getBoundingClientRect().left -
                 turn.querySelector('.attachment-thumbnail')!.getBoundingClientRect().left,
@@ -107,8 +110,12 @@ for (const surface of ['chat', 'thread'] as const)
         ).toBeLessThanOrEqual(1);
         // Send ends the field's toolbar: 6px of toolbar padding and the box's 1px edge in.
         expect(Math.abs(geometry.rightToSend - 7)).toBeLessThanOrEqual(1);
-        expect(geometry.imageWidth).toBe(32);
-        expect(geometry.imageHeight).toBe(32);
+        // #5955: a pending image is a 96px tile it fills inside the tile's 1px edge; a file is a
+        // card of the same height.
+        expect(geometry.tile).toEqual([96, 96]);
+        expect(geometry.imageWidth).toBe(94);
+        expect(geometry.imageHeight).toBe(94);
+        expect(geometry.fileHeight).toBe(96);
         expect(geometry.documentOverflow).toBe(false);
         if (captures) {
           await page.mouse.move(0, 0);
@@ -135,7 +142,7 @@ for (const surface of ['chat', 'thread'] as const)
         expect(await actions(page)).toContain('message:Pending images follow this input text.:2');
       });
 
-test('many pending filenames stay in one horizontal row without page overflow', async ({
+test('many pending files wrap into rows that scroll inside the tray, never sideways', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
@@ -154,12 +161,13 @@ test('many pending filenames stay in one horizontal row without page overflow', 
   await expect(row.locator('li')).toHaveCount(16);
   expect(
     await row.evaluate((row) => ({
-      overflow: row.scrollWidth > row.clientWidth,
-      oneRow:
-        new Set([...row.children].map((child) => child.getBoundingClientRect().top)).size === 1,
+      sideways: row.scrollWidth > row.clientWidth,
+      rows: new Set([...row.children].map((child) => child.getBoundingClientRect().top)).size > 2,
+      scrollsDown: row.scrollHeight > row.clientHeight && row.clientHeight <= 200,
       pageFits: document.documentElement.scrollWidth <= innerWidth,
     })),
-  ).toEqual({ overflow: true, oneRow: true, pageFits: true });
+  ).toEqual({ sideways: false, rows: true, scrollsDown: true, pageFits: true });
+  await expect(send(page)).toBeInViewport();
   expect(await actions(page)).toEqual([]);
   await expect(input).toHaveText('Many local files', { useInnerText: true });
 });

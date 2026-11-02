@@ -644,8 +644,9 @@ while it asks someone) opens the agent list, then the round Send. The list has a
 agent with its presence and a check on those asked (an agent that cannot be asked cannot
 be added, only taken off), and a last row `Start new messages with @creator` for the
 device-local creator preference. Focus is a one-pixel focus-colour edge plus a ring that
-takes no room. The helper line under the box carries the state. The composer retains one
-editor and draft owner.
+takes no room. The helper line under the box carries the state. A refusal, a recipient not
+reached or a recorded message's next step floats as one line just above the box, over the
+history's end, and takes no room when absent. The composer retains one editor and draft owner.
 
 Annotation anchors and thread headers share the annotation action fill, semibold
 system font and grid-centered number: an anchor is a 16px circle with a 10px number
@@ -692,13 +693,12 @@ The real read, upload, refusal and stale states remain readable.
 
 ### Message attachments
 
-Annotation/thread attachments use flat metadata chips with a type mark, filename,
-type and size; previews sit below. Uploads show progress, refusals show `✗` with
-reason and Remove. Pending annotation/thread chips scroll within a viewport-bound
-area so Send stays reachable. Trusted Send starts staged uploads and stays busy until done.
-Chat pending attachments use one horizontally scrollable row of small raster
-thumbnails or filenames inside the input below its text, each with a named ×
-remove action. They share the text's left edge, with no cards or progress bar.
+Chat and thread pending attachments sit inside the input below its text as 96px rounded
+tiles: an image fills its tile, a file is a card of the same height (type mark, filename,
+type and size). Each has a named × remove action in its top corner; an upload draws a
+progress ring over its tile, and a refusal outlines the tile with its reason and action
+along the bottom. Tiles wrap; past two rows the tray scrolls vertically, never sideways.
+They share the text's left edge. Trusted Send starts staged uploads and stays busy until done.
 The message composer has a visible `Attach` action.
 Dragging files over Chat or an annotation/thread window shows that panel's
 inset 2 px dashed frame, naming `⤓ Drop to attach to Chat` or `to this thread`.
@@ -706,10 +706,11 @@ A refused batch shows `✗` and its reason and adds nothing. Crossing child
 controls keeps the overlay; leave, Escape or drop clears it without moving
 focus. Drop alone never uploads or sends.
 
-Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
-more images use a three-column square grid: up to six show in full; larger groups
+One image is a large preview in a 320 × 200 px frame showing the whole image. Two or
+more images use a two-column 4:3 grid: up to six show in full; larger groups
 show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
-image six. Thumbnails take `radius-s`. Non-images use compact filename/type/size chips with Download.
+image six. Thumbnails take `radius-s`. A failed image says so once, inside its tile,
+with Try again. Non-images use compact filename/type/size chips with Download.
 
 A modal viewer (`radius-l`) shows one image with Previous/Next (no wrapping), Download and
 Close; arrows navigate, Escape closes, and closing restores the opening tile's
