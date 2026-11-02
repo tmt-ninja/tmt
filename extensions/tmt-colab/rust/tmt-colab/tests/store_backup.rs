@@ -389,3 +389,50 @@ fn a_newer_store_names_the_newest_copy_this_build_can_open() {
     ));
     assert_eq!(version(&store), newer);
 }
+
+/// v1 JSON object envelopes (#5876) are parsed only where a v1 form is the stored or signed bytes:
+/// the store converter, legacy cloud rows, publication packets, attachments and the fold vectors.
+/// Every other reader takes v2 bytes; a new caller of the v1 parser must be named here.
+#[test]
+fn the_v1_object_parser_stays_inside_its_named_readers() {
+    const ALLOWED: &[&str] = &[
+        "src/store/schema.rs",
+        "src/object_channel/documents/originals.rs",
+        "src/publication.rs",
+        "src/page.rs",
+        "src/attachments/seal.rs",
+        "src/fold_vectors.rs",
+    ];
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk(&root.join("src"), &mut files);
+    let callers: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            !name.ends_with("tests.rs") && !path.components().any(|c| c.as_os_str() == "tests")
+        })
+        .filter(|path| fs::read_to_string(path).unwrap().contains("from_json_v1("))
+        .map(|path| {
+            path.strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|path| !ALLOWED.contains(&path.as_str()))
+        .collect();
+    assert!(
+        callers.is_empty(),
+        "v1 envelope parser outside its readers: {callers:?}"
+    );
+}

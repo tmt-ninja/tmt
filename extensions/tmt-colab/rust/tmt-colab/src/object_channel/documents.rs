@@ -32,7 +32,14 @@ impl Resource {
     fn fields(self) -> &'static [&'static str] {
         match self {
             Self::Spaces => &["space", "owner"],
-            Self::Pages => &["space", "page", "epoch", "state", "objectFormat", "expiresAt"],
+            Self::Pages => &[
+                "space",
+                "page",
+                "epoch",
+                "state",
+                "objectFormat",
+                "expiresAt",
+            ],
             Self::Links => &["space", "page", "link", "role", "token"],
             Self::Members => &["space", "page", "uid", "role", "link", "token", "seq"],
             Self::Log => &[

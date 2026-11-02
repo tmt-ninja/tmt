@@ -499,7 +499,10 @@ fn a_v2_log_row_carries_the_original_bytes() {
     let mut fields = decode(Resource::Log, &document).unwrap();
     fields.insert("envelope".into(), Field::bytes(&forged));
     let changed = encode(Resource::Log, fields).unwrap();
-    assert!(originals::log(&changed).is_err(), "the hash binds the bytes");
+    assert!(
+        originals::log(&changed).is_err(),
+        "the hash binds the bytes"
+    );
 }
 #[test]
 fn a_page_row_declares_the_object_format() {

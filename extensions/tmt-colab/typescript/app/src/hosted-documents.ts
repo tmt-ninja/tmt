@@ -364,7 +364,11 @@ function chunks(rows: readonly Fields[]): Cloud {
   if (legacy(rows[0], 'bytes')) {
     requireValue(rows.length <= LEGACY_CHUNKS);
     return {
-      bytes: pieces(rows, (row) => binary(string(row, 'bytes'), LEGACY_CHUNK_BYTES), LEGACY_CHUNK_BYTES),
+      bytes: pieces(
+        rows,
+        (row) => binary(string(row, 'bytes'), LEGACY_CHUNK_BYTES),
+        LEGACY_CHUNK_BYTES,
+      ),
       legacy: true,
     };
   }

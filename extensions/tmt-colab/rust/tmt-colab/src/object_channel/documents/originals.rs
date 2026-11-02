@@ -111,7 +111,11 @@ pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
 fn chunks(documents: &[sync::Document]) -> Result<(Fields, Cloud), Invalid> {
     let first = decode(Resource::Checkpoints, documents.first().ok_or(Invalid)?)?;
     let legacy = matches!(first.get("bytes"), Some(Field::String(_)));
-    let size = if legacy { LEGACY_CHUNK_BYTES } else { CHUNK_BYTES };
+    let size = if legacy {
+        LEGACY_CHUNK_BYTES
+    } else {
+        CHUNK_BYTES
+    };
     let count = integer(&first, "count")?;
     if count == 0 || count != documents.len() as u64 {
         return Err(Invalid);

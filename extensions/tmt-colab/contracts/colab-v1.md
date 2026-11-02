@@ -4908,15 +4908,27 @@ of that same space and page. The Rules text is identical for every tenant. An em
 that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
 IDs, a missing `space` field and queries that omit a filter.
 
-| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                   |
-| --------------- | ---------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                             |
-| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
-| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
-| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
-| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 513)                                   |
-| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
+| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                                                     |
+| --------------- | ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                                                               |
+| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `objectFormat` (the integer `2`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
+| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                                                      |
+| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                                                       |
+| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope` (the v2 bytes as a bytesValue, 1 to 264,192 bytes), `expiresAt`                                                                                  |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 256 KiB bytesValue chunk of an encrypted v2 object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 65)                                                       |
+| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                                                   |
+
+**Object rows (#5876).** A log `envelope` and a checkpoint chunk's `bytes` are bytesValue fields
+holding the binary envelope v2 bytes: REST carries them as padded standard base64, Firestore stores
+them at 1.0x. Every nonfinal chunk of an object is exactly 262,144 bytes, so a 3 MB checkpoint is
+12 documents; the REST form of a chunk fits the 393,216-byte sync document. `authority` pieces stay
+32 KiB base64url stringValues. The page row's `objectFormat: 2` makes a reader from before this
+format refuse the page as an unknown field instead of misreading a row. Readers still admit rows
+written before it, until they expire: a v1 JSON log envelope as an ASCII stringValue of at most
+354,304 bytes, and v1 JSON checkpoints in 32 KiB base64url stringValue chunks (at most 513). Each
+converts to the same v2 original under the same hash, and one object never mixes the two forms.
+Nothing writes them, and the Rules refuse them on create. This read path is removed with the
+store converter.
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the

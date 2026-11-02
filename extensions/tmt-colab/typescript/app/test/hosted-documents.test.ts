@@ -354,7 +354,9 @@ it('reads legacy v1 rows as the same v2 original under the same hash', async () 
   expect((await hostedCheckpoint(f.rows, scope)).bytes).toEqual(local(f.raw));
   // One object never mixes the two forms.
   const mixed = JSON.parse(c.decodeText(f.rows[1].bytes));
-  mixed.bytes = { bytesValue: Buffer.from(c.binary(mixed.bytes.stringValue, 32768)).toString('base64') };
+  mixed.bytes = {
+    bytesValue: Buffer.from(c.binary(mixed.bytes.stringValue, 32768)).toString('base64'),
+  };
   await expect(
     hostedCheckpoint([f.rows[0], document('checkpoints', f.rows[1].target.id, mixed)], scope),
   ).rejects.toThrow();

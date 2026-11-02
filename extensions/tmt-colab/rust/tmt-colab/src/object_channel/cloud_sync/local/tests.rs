@@ -247,10 +247,7 @@ fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail()
         .expect("fold publication");
     assert_eq!(data.documents[0].target.resource, "authority");
     assert_eq!(data.documents[1].target.resource, "log");
-    assert_eq!(
-        decode_envelope(&data.documents[1]),
-        cloud(&anchor)
-    );
+    assert_eq!(decode_envelope(&data.documents[1]), cloud(&anchor));
     let groups: Vec<_> = data.documents[2..]
         .chunks(1)
         .map(|group| originals::checkpoint(group).unwrap())
@@ -288,10 +285,7 @@ fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
     fixture.fold_pair(DEVICE, 2);
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
-    assert_eq!(
-        decode_envelope(&data.documents[1]),
-        cloud(&anchor)
-    );
+    assert_eq!(decode_envelope(&data.documents[1]), cloud(&anchor));
 }
 
 #[test]
