@@ -4743,11 +4743,13 @@ The door serves one TMT web app document for its routes
 the route `/colab/…`. Colab describes its module script as `entry`
 (`/assets/colab-module.js` under its mount); the app loads it only from an owner's composed
 shell and mounts it into the shared shell, using the shell's one Remote session for the tab. When
-another route opens, the app keeps Colab suspended in place: its timers and observers stop while
-its page bindings and renderer frame stay, and coming back shows the same page without opening,
-registering or discovering again (#5954). The app releases it (closing its page bindings) under
-the [route module lifecycle](../../../design/browser-ui/README.md#route-module-lifecycle) bounds. Without an owner session the route says, in plain words,
-to pair the browser and loads no Colab code; a module that cannot load says Colab could not start.
+another route opens, the app keeps Colab suspended in place, treated as a hidden document: its
+polling and observation pause while its page bindings and renderer frame stay, a live write still
+reaches the frame, and coming back shows the same page without opening, registering or
+discovering again (#5954). The app releases it (closing its page bindings) under the
+[route module lifecycle](../../../design/browser-ui/README.md#route-module-lifecycle) bounds.
+Without an owner session the route says, in plain words, to pair the browser and loads no Colab
+code; a module that cannot load says Colab could not start.
 The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
 (`/read/<id>`) and the hosted bundle stay outside the app.
 

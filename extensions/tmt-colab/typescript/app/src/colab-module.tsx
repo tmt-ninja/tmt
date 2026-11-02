@@ -4,7 +4,7 @@
  * into the host's slot and gives the host its module menu. Leaving the route suspends it (the
  * shell keeps it); releasing it closes the page bindings and the React root.
  */
-import { Activity, StrictMode } from 'react';
+import { StrictMode } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
@@ -19,6 +19,7 @@ import { hostInShell, mountOfModule } from './entry.js';
 import { previewTransport } from './local-pages.js';
 import { MountedView } from './mounted-app.js';
 import { startMounted } from './mounted-runtime.js';
+import { setSuspended } from './page-visibility.js';
 import { UnsupportedBrowserNotice } from './notice-card.js';
 import { createAppRouter, shellLocation } from './router.js';
 import {
@@ -141,10 +142,10 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
       })
     : null;
   const preview = paired ? null : createAppRouter(previewTransport);
-  // One tree for the module's whole life, over a slot that forwards to the host's latest one: a
-  // resume reveals the same elements, so React neither renders the tree again nor touches what it
-  // drew into the shell; revealing re-runs its effects, which adopt the shell's new top bar.
-  const live: ShellSlot = {
+  // Colab renders over a slot that forwards to the host's latest one. Suspended, the tree stays
+  // mounted in its hidden, inert area, so its renderer frames, page bindings and state stay; it
+  // is treated as a hidden document (`page-visibility.ts`), so its polling and observation pause.
+  const forward = (): ShellSlot => ({
     get main() {
       return latest.main;
     },
@@ -157,8 +158,8 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
     get basePath() {
       return latest.basePath;
     },
-    // While suspended the host's slot is no longer current and would answer false; a hidden tree
-    // that renders a late update must still choose the shared bar it was drawn with.
+    // While suspended the host's slot is no longer current and would answer false; an update
+    // drawn meanwhile must still choose the shared bar the tree was drawn with.
     topBarReady: () => readyWhenSuspended ?? latest.topBarReady(),
     setTopBar: () => latest.setTopBar(),
     answer: () => latest.answer(),
@@ -169,32 +170,30 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
     described: (listener) => latest.described(listener),
     session: (signal) => latest.session(signal),
     forgetSession: (previous) => latest.forgetSession(previous),
-  };
-  const shown = (
-    <ColabModuleBoundary slot={live}>
-      <ShellHostSlot value={live}>
-        {runtime ? <MountedView runtime={runtime} /> : <RouterProvider router={preview!} />}
-      </ShellHostSlot>
-    </ColabModuleBoundary>
-  );
-  const render = (mode: 'visible' | 'hidden') =>
+  });
+  // A new forwarding slot on resume is what makes the tree adopt the shell's new top bar and give
+  // it its menu again; nothing else in the tree changes.
+  const render = (current: ShellSlot) =>
     root.render(
       <StrictMode>
-        {/* Hidden, Colab's effects end (timers, observers, subscriptions) and nothing is drawn;
-            its state and the runtime's sockets stay. */}
-        <Activity mode={mode}>{shown}</Activity>
+        <ColabModuleBoundary slot={current}>
+          <ShellHostSlot value={current}>
+            {runtime ? <MountedView runtime={runtime} /> : <RouterProvider router={preview!} />}
+          </ShellHostSlot>
+        </ColabModuleBoundary>
       </StrictMode>,
     );
-  render('visible');
+  render(forward());
   return {
     release() {
+      setSuspended(false);
       root.unmount();
       runtime?.close();
       style.remove();
     },
     suspend() {
       readyWhenSuspended = latest.topBarReady();
-      flushSync(() => render('hidden'));
+      setSuspended(true);
       style.pause(true);
     },
     resume(next) {
@@ -203,10 +202,11 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
       readyWhenSuspended = undefined;
       hostInShell(paired);
       shellLocation();
-      flushSync(() => render('visible'));
-      // The rail may have brought Colab back at another of its pages: its router follows history
-      // through popstate, as on Back, now that its listeners are attached again.
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      setSuspended(false);
+      flushSync(() => render(forward()));
+      // The frame places its markers again by itself once it is drawn; what the app measured
+      // while hidden (frame height, popovers, lock overlays) runs the pass a window resize runs.
+      window.dispatchEvent(new Event('resize'));
     },
   };
 }

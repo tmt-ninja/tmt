@@ -58,9 +58,12 @@ export interface ShellSlot {
 /** What a mounted module gives back. `release` ends everything it started (sockets, timers,
  * listeners, React roots). A module that also gives `suspend` is kept when its route is left:
  * the host calls `suspend` and holds its main and header nodes aside, and on return puts them
- * back and calls `resume` with a fresh slot instead of mounting again. Suspended means quiet:
- * no timers, observers, visibility work or DOM writes; its sockets and state may stay. If
- * `suspend` or `resume` throws, the host releases it and the next visit mounts afresh. The host
+ * back and calls `resume` with a fresh slot instead of mounting again. Suspended means a hidden
+ * document: no module-started timers, polling, animation frames or visibility work, and no title,
+ * URL or focus changes; data-driven updates may still render into its hidden, inert area, and its
+ * sockets and state stay. Focus inside it moves to the new main area before it goes inert, and
+ * goes back only on a keyboard return through the rail. If `suspend` or `resume` throws, the host
+ * releases it and the next visit mounts afresh. The host
  * keeps one suspended instance per route and at most `KEPT` in all (least recently used goes
  * first), and releases one after `KEPT_FOR` ms, on `pagehide`, on a session change (before the
  * session is forgotten) and on `dispose`. */
@@ -230,6 +233,8 @@ export function startShellHost(
       mounted: ShellMounted;
       generation: number;
       area: HTMLElement;
+      /** What had focus in the module when it was left, for a keyboard return through the rail. */
+      focus?: HTMLElement;
       nodes: [HTMLElement, Node[]][];
       /** It had adopted the common top bar, which the host adopts again before its nodes return. */
       topBar: boolean;
@@ -364,8 +369,17 @@ export function startShellHost(
     // Its main area stays where it is, hidden and inert, so its frames never unload; a fresh
     // main, a shallow copy of it, takes its place.
     const area = main;
+    const active = document.activeElement;
+    const focus =
+      active instanceof window.HTMLElement && area.contains(active) ? active : undefined;
     showMain(area.cloneNode(false) as HTMLElement);
     area.after(main, loading);
+    // Focus inside the module moves to the new route's main area before the module goes inert,
+    // so it never falls to the page body.
+    if (focus) {
+      main.tabIndex = -1;
+      main.focus({ preventScroll: true });
+    }
     area.className = 'tmt-ui-shell-kept';
     area.hidden = true;
     area.inert = true;
@@ -375,6 +389,7 @@ export function startShellHost(
       mounted,
       generation: leaving.generation,
       area,
+      focus,
       // The common top bar is the shell's, not the module's: it is disposed now and adopted anew.
       nodes: areas().map((place) => [
         place,
@@ -409,6 +424,17 @@ export function startShellHost(
     showMain(held.area);
     spare.remove();
     main.dataset.route = route.id;
+    // Focus goes back into the module only when the user came back with the keyboard through the
+    // rail; a pointer return leaves it where the user put it.
+    const via = document.activeElement;
+    if (
+      held.focus?.isConnected &&
+      via instanceof window.HTMLElement &&
+      root.contains(via) &&
+      !via.closest('.tmt-ui-shell-content') &&
+      via.matches(':focus-visible')
+    )
+      held.focus.focus({ preventScroll: true });
     menu = held.menu;
     select = held.select;
     document.title = held.title;
@@ -517,6 +543,9 @@ export function startShellHost(
       if (url.hash !== here.hash) window.location.hash = url.hash;
       return true;
     }
+    // A module that is left is suspended or released before the URL changes, so its own router
+    // never follows a location that is not its own (#5954).
+    if (matchRoute(routes, url.pathname) !== current?.route) leave();
     if (url.href !== window.location.href)
       window.history[replace ? 'replaceState' : 'pushState'](null, '', url.href);
     // A module's own router (Colab's) follows history through popstate, as on Back.

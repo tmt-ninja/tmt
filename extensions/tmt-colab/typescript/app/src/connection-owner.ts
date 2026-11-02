@@ -1,3 +1,4 @@
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 /**
  * The one place that decides when a broken connection is tried again (#2572). A page whose
  * transport or Remote session ended while the device is still paired is reconnected here, silently,
@@ -67,15 +68,14 @@ const sleep = (ms: number, signal: AbortSignal) =>
 
 const untilVisible = (signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    if (signal.aborted || typeof document === 'undefined' || document.visibilityState !== 'hidden')
-      return resolve();
+    if (signal.aborted || !pageHidden()) return resolve();
     const done = () => {
-      document.removeEventListener('visibilitychange', check);
+      removeVisibilityListener(check);
       signal.removeEventListener('abort', done);
       resolve();
     };
-    const check = () => document.visibilityState !== 'hidden' && done();
-    document.addEventListener('visibilitychange', check);
+    const check = () => !pageHidden() && done();
+    addVisibilityListener(check);
     signal.addEventListener('abort', done, { once: true });
   });
 

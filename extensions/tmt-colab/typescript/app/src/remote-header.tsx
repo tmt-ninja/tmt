@@ -35,6 +35,7 @@ import type { RemotePresence, RemotePresenceSnapshot, RemoteDevice } from './rem
 import { getTheme, subscribeTheme } from './theme.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
 import { text } from './strings.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 const Context = createContext<RemotePresence | undefined>(undefined);
 const hidden: RemotePresenceSnapshot = { kind: 'hidden' };
@@ -51,10 +52,10 @@ export function RemotePresenceProvider({
     if (!owner) return;
     void owner.refresh();
     const visible = () => {
-      if (document.visibilityState === 'visible') void owner.refresh();
+      if (!pageHidden()) void owner.refresh();
     };
-    document.addEventListener('visibilitychange', visible);
-    return () => document.removeEventListener('visibilitychange', visible);
+    addVisibilityListener(visible);
+    return () => removeVisibilityListener(visible);
   }, [owner]);
   return <Context.Provider value={owner}>{children}</Context.Provider>;
 }

@@ -12,6 +12,8 @@ import { previewTransport } from '../src/local-pages.js';
 import { ColabModuleBoundary } from '../src/colab-module-boundary.js';
 import { localTransport } from '../src/transport.js';
 
+export { pageHidden } from '../src/page-visibility.js';
+
 export const space = '10000000-0000-4000-8000-000000000001';
 export const pageId = '12345678-0000-4000-8000-000000000001';
 export const readingId = '10000000-0000-4000-8000-000000000401';

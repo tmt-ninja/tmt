@@ -192,3 +192,29 @@ export async function pagehideReleases() {
     root.remove();
   }
 }
+
+/** Focus inside a module that is left moves to the new route's main area, never to the body. The
+ * page is left on route b with a rail link back to a, for the spec to return by key or pointer. */
+export async function focusMovesOut() {
+  const { root, go, slots } = harness({ keep: ['a'] });
+  await settle();
+  await settle();
+  const rail = document.createElement('a');
+  rail.className = 'test-rail';
+  rail.href = '/keep-a/';
+  rail.textContent = 'a';
+  // Above the shell's own rail, so a pointer can reach it.
+  rail.style.cssText = 'position: fixed; right: 0; bottom: 0; z-index: 1';
+  root.prepend(rail);
+  const button = document.createElement('button');
+  button.className = 'test-act';
+  button.textContent = 'act a';
+  slots.get('a')!.main.append(button);
+  button.focus();
+  await go('b');
+  const active = document.activeElement as HTMLElement;
+  return {
+    main: active.classList.contains('tmt-ui-shell-main') && active.dataset.route === 'b',
+    inert: !!active.closest('[inert]'),
+  };
+}

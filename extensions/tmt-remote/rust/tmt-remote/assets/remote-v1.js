@@ -6535,8 +6535,14 @@ function startShellHost(root, routes, options = {}) {
 			return release(mounted);
 		}
 		const area = main;
+		const active = document.activeElement;
+		const focus = active instanceof window.HTMLElement && area.contains(active) ? active : void 0;
 		showMain(area.cloneNode(false));
 		area.after(main, loading);
+		if (focus) {
+			main.tabIndex = -1;
+			main.focus({ preventScroll: true });
+		}
 		area.className = "tmt-ui-shell-kept";
 		area.hidden = true;
 		area.inert = true;
@@ -6546,6 +6552,7 @@ function startShellHost(root, routes, options = {}) {
 			mounted,
 			generation: leaving.generation,
 			area,
+			focus,
 			nodes: areas().map((place) => [place, [...place.childNodes].filter((node) => !node.matches?.(".tmt-ui-topbar"))]),
 			topBar: !!bar.querySelector(":scope > .tmt-ui-topbar"),
 			menu,
@@ -6576,6 +6583,8 @@ function startShellHost(root, routes, options = {}) {
 		showMain(held.area);
 		spare.remove();
 		main.dataset.route = route.id;
+		const via = document.activeElement;
+		if (held.focus?.isConnected && via instanceof window.HTMLElement && root.contains(via) && !via.closest(".tmt-ui-shell-content") && via.matches(":focus-visible")) held.focus.focus({ preventScroll: true });
 		menu = held.menu;
 		select = held.select;
 		document.title = held.title;
@@ -6675,6 +6684,7 @@ function startShellHost(root, routes, options = {}) {
 			if (url.hash !== here.hash) window.location.hash = url.hash;
 			return true;
 		}
+		if (matchRoute(routes, url.pathname) !== current?.route) leave();
 		if (url.href !== window.location.href) window.history[replace ? "replaceState" : "pushState"](null, "", url.href);
 		if (matchRoute(routes, url.pathname) === current?.route) window.dispatchEvent(new PopStateEvent("popstate"));
 		else show();

@@ -77,3 +77,24 @@ test('pagehide releases kept modules', async ({ page }) => {
     'release a',
   ]);
 });
+
+test('focus leaves a suspended module for the new main area and returns only by keyboard', async ({
+  page,
+}) => {
+  expect(await run(page, 'focusMovesOut')).toEqual({ main: true, inert: false });
+  // Back through the rail with the keyboard: focus goes back to where it was in the module.
+  // Shift+Tab reaches the shell's rail; the test link to route a then takes focus the same way.
+  await page.keyboard.press('Shift+Tab');
+  await page.locator('.test-rail').focus();
+  expect(await page.locator('.test-rail').evaluate((link) => link.matches(':focus-visible'))).toBe(
+    true,
+  );
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.test-act')).toBeFocused();
+
+  // Back with the pointer: focus stays where the user put it.
+  await run(page, 'focusMovesOut');
+  await page.locator('.test-rail').click();
+  await expect(page.locator('.tmt-ui-shell-main .test-act')).toBeVisible();
+  await expect(page.locator('.test-act')).not.toBeFocused();
+});

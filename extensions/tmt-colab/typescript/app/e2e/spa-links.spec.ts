@@ -2,6 +2,7 @@ import { expect, test, type Frame, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { showAllPages } from '../test/home-list.js';
+import { annotationInput } from '../acceptance/harness/ask.js';
 import {
   binariesBuilt,
   remoteBinary,
@@ -561,9 +562,14 @@ test.describe('the door serving the TMT app', () => {
         };
         (window as unknown as { __opened: WebSocket[] }).__opened = opened;
       });
-      const id = await door!.createPage('Kept page', '<h1>Kept content</h1>');
+      const id = await door!.createPage(
+        'Kept page',
+        `<h1>Kept content</h1><p id="lead">${'A lead paragraph that keeps the quote context. '.repeat(4)}</p>` +
+          '<p id="quote">The passage a thread is anchored to.</p>',
+      );
       await door!.pair(page);
-      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      const url = `${door!.origin}/colab/pages/${id}`;
+      await page.goto(url);
       const sockets = () =>
         page.evaluate(() => {
           const opened = (window as unknown as { __opened: WebSocket[] }).__opened;
@@ -584,37 +590,86 @@ test.describe('the door serving the TMT app', () => {
         page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
       ).toBeVisible();
       await expect.poll(async () => (await sockets()).live).toBeGreaterThan(0);
+      // An anchored thread, whose marker the frame places at its passage.
+      const view = page.frameLocator('.colab-route iframe');
+      await view.locator('#quote').evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+      const input = await annotationInput(page.locator('.annotation-new'));
+      await input.fill('Anchored note');
+      await input.press('Enter');
+      await expect(view.locator('[data-colab-thread]')).toHaveCount(1);
+      await page.keyboard.press('Escape');
       const before = await sockets();
       const registered = await sessions();
-      await frame.evaluate((node: HTMLIFrameElement) => {
-        (node.contentWindow as Window & { kept?: boolean }).kept = true;
-      });
+      // The renderer is an opaque-origin frame: mark its own window from inside it.
+      const renderer = (await (await frame.elementHandle())!.contentFrame())!;
+      await renderer.evaluate(() => ((window as Window & { kept?: boolean }).kept = true));
+      await frame.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
       const styles = page.locator('link[href$="/colab-module.css"]');
-      // In-document moves, as the rail and in-page links make them.
-      const go = (path: string) =>
-        page.evaluate((path) => {
-          history.pushState(null, '', path);
-          dispatchEvent(new PopStateEvent('popstate'));
-        }, path);
-      // Leaving Colab suspends it: its sockets stay open and its styles are off.
-      await go('/ops');
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      // Leaving Colab through the rail suspends it: its sockets stay open and its styles are off.
+      await rail.locator('a[data-id="ops"]').click();
       await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
       expect(await sockets()).toEqual(before);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(true);
+      // A suspended Colab is as quiet as a background tab: no request of its own for 10 s.
+      const requests: string[] = [];
+      const record = (request: { url(): string }) => {
+        if (new URL(request.url()).pathname.includes('/x/colab/')) requests.push(request.url());
+      };
+      page.on('request', record);
+      await page.waitForTimeout(10_000);
+      page.off('request', record);
+      expect(requests).toEqual([]);
+      // A live write while it is hidden still reaches the kept frame. It moves the passage down
+      // without touching the quote's own context.
+      await door!.patchPage(id, '<p id="lead">', '<p>Inserted while away.</p><p id="lead">');
+      await expect
+        .poll(() => renderer.evaluate(() => document.body.textContent ?? ''))
+        .toContain('Inserted while away.');
       // Coming back opens nothing: the same frame document, no new socket or registration.
-      await go(`/colab/pages/${id}`);
+      // Back returns to the same page.
+      await page.goBack();
       await expect(
         page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
       ).toBeVisible();
       await expect(page.getByText('Opening space')).toHaveCount(0);
-      expect(
-        await frame.evaluate(
-          (node: HTMLIFrameElement) => (node.contentWindow as Window & { kept?: boolean }).kept,
-        ),
-      ).toBe(true);
+      expect(await (await frame.elementHandle())!.contentFrame()).toBe(renderer);
+      expect(await renderer.evaluate(() => (window as Window & { kept?: boolean }).kept)).toBe(
+        true,
+      );
       expect(await sockets()).toEqual(before);
       expect(await sessions()).toBe(registered);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
+      // Resume measures again: the same frame element shows the new text, and the frame and the
+      // thread's marker sit where a fresh open puts them.
+      expect(await frame.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(
+        true,
+      );
+      const placed = async (target: Page) => {
+        const shown = target.locator('.colab-route iframe').first();
+        const inner = target.frameLocator('.colab-route iframe');
+        await expect(inner.locator('[data-colab-thread]')).toHaveCount(1);
+        await expect(inner.getByText('Inserted while away.')).toBeVisible();
+        const box = (await shown.boundingBox())!;
+        const marker = await inner.locator('[data-colab-thread]').evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { x: rect.left + scrollX, y: rect.top + scrollY };
+        });
+        return { width: box.width, height: box.height, ...marker };
+      };
+      const fresh = await page.context().newPage();
+      await fresh.goto(url);
+      const [kept, opened] = [await placed(page), await placed(fresh)];
+      for (const key of ['width', 'height', 'x', 'y'] as const)
+        expect(Math.abs(kept[key] - opened[key]), key).toBeLessThanOrEqual(1);
+      await fresh.close();
     });
   });
 });
@@ -654,6 +709,10 @@ test('a rail switch keeps Colab in place and brings it back without opening agai
     await go('/ops/');
     await expect(page.getByText('Ops board')).toBeVisible();
     await expect(route).toBeHidden();
+    // Suspended is a hidden document to Colab: its polling and observation pause.
+    expect(
+      await page.evaluate(async (fixture) => (await import(fixture)).pageHidden(), fixture),
+    ).toBe(true);
     expect(
       await route.evaluate((node) => node.closest<HTMLElement>('.tmt-ui-shell-kept')!.inert),
     ).toBe(true);
@@ -661,6 +720,9 @@ test('a rail switch keeps Colab in place and brings it back without opening agai
     await expect(route.locator('> *').first()).toBeVisible();
     await expect(page.getByText('Ops board')).toHaveCount(0);
     await expect(page.getByText('Opening space')).toHaveCount(0);
+    expect(
+      await page.evaluate(async (fixture) => (await import(fixture)).pageHidden(), fixture),
+    ).toBe(false);
     expect(
       await route.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept),
       `round ${round}`,

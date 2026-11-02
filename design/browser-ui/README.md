@@ -275,12 +275,14 @@ the function that releases everything the module started, or a `ShellMounted`
 - **Suspend.** The host calls `suspend()` while its slot is still current. The main element the
   module drew in stays where it is, renamed `.tmt-ui-shell-kept`, `hidden` and `inert`, so its
   frames never unload, and a fresh `.tmt-ui-shell-main` takes its place; header and tool nodes,
-  which hold no frames, are set aside. Suspended means quiet: no timers, observers, visibility work or DOM
-  writes; sockets and state may stay.
+  which hold no frames, are set aside. Suspended means a hidden document: no module-started
+  timers, polling, animation frames or visibility work, and no title, URL or focus changes;
+  data-driven updates may still render into the hidden, inert area, and sockets and state stay.
+  Focus inside the module moves to the new main area before it goes inert, never to the body.
 - **Resume.** Coming back, the host adopts the common top bar again, returns the header and tool
   nodes, the menu and the title, makes the kept element the main again and calls `resume(slot)`
-  with a fresh slot. It never
-  calls `mount` again.
+  with a fresh slot. It never calls `mount` again. Focus goes back to where it was in the module
+  only when the user returned with the keyboard through the rail.
 - **Release.** One suspended module per route and two in all; the least recently used goes
   first. The host also releases one after 10 minutes, on `pagehide`, on a session change and on
   `dispose`. A `suspend` or `resume` that throws releases the module, and the next visit mounts
