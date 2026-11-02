@@ -343,7 +343,7 @@ async function wire(
   const entry = async (env: c.Envelope) => ({
     seq: c.decodeHeader(env.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await env.hash()),
-    envelope: c.encodeBinary(env.toJson()),
+    envelope: c.encodeBinary(env.toBytes()),
   });
   const entries = [await entry(initial)],
     peers = new Set<WebSocketRoute>();
@@ -566,7 +566,7 @@ async function wire(
     fields: Record<string, unknown>,
   ) {
     const bytes = c.binary(row.envelope, 400 * 1024),
-      id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
+      id = c.decodeHeader(c.Envelope.fromBytes(bytes).header()).objectId;
     const envelope = bytes.length > 32768 ? { objectId: id } : row.envelope;
     send(socket, type, { ...fields, ...row, envelope });
     if (typeof envelope !== 'string') {
@@ -659,17 +659,17 @@ async function wire(
                   baselineObject: {
                     envelopeHash: baseline!.objectEnvelopeHash,
                     envelope:
-                      baselineEnvelope.toJson().length > 32768
+                      baselineEnvelope.toBytes().length > 32768
                         ? { objectId: c.decodeHeader(baselineEnvelope.header()).objectId }
-                        : c.encodeBinary(baselineEnvelope.toJson()),
+                        : c.encodeBinary(baselineEnvelope.toBytes()),
                   },
                 }
               : {}),
             streams: [],
             more: true,
           });
-          if (baselineEnvelope && baselineEnvelope.toJson().length > 32768) {
-            const bytes = baselineEnvelope.toJson(),
+          if (baselineEnvelope && baselineEnvelope.toBytes().length > 32768) {
+            const bytes = baselineEnvelope.toBytes(),
               count = Math.ceil(bytes.length / 32768);
             for (let index = 0; index < count; index++)
               send(socket, 'chunk', {
@@ -724,7 +724,7 @@ async function wire(
               row,
               streamId: v.device,
               namespace: c.decodeHeader(
-                c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)).header(),
+                c.Envelope.fromBytes(c.binary(row.envelope, 400 * 1024)).header(),
               ).context.namespace,
               checkpoint: false,
             })),
@@ -738,7 +738,7 @@ async function wire(
             });
           for (const { streamId, row, namespace, checkpoint } of objects) {
             const bytes = c.binary(row.envelope, 400 * 1024),
-              id = c.decodeHeader(c.Envelope.fromJson(bytes).header()).objectId;
+              id = c.decodeHeader(c.Envelope.fromBytes(bytes).header()).objectId;
             send(socket, 'catchup', {
               streams: [
                 {
@@ -900,7 +900,7 @@ async function wire(
             envelope: frame.envelope as string,
           },
           seq = Number(row.seq),
-          env = c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)),
+          env = c.Envelope.fromBytes(c.binary(row.envelope, 400 * 1024)),
           h = c.decodeHeader(env.header()).context;
         expect(c.encodeBinary(await env.hash())).toBe(row.envelopeHash);
         expect(
@@ -1241,7 +1241,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     const own = new Y.Doc();
     try {
       for (const row of f.entries.slice(1)) {
-        const envelope = c.Envelope.fromJson(c.binary(row.envelope, 400 * 1024)),
+        const envelope = c.Envelope.fromBytes(c.binary(row.envelope, 400 * 1024)),
           header = c.decodeHeader(envelope.header()).context;
         expect(header.namespace).toBe('own');
         expect(header.authorDevice).toBe(v.device);
