@@ -143,7 +143,7 @@ export function layout({
   const chrome = siteChrome({
     sectionPath: "~/journal",
     brandHref: languageIndex,
-    markUrl: location.base + "team-tmt.png",
+    markUrl: location.base + "mark.svg",
     links: [
       { label: "Product", url: location.siteBase, published: published.product },
       { label: "Journal", url: languageIndex, published: published.journal },

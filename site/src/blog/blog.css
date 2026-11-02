@@ -481,3 +481,31 @@ main {
   background: var(--c-red);
   color: var(--c-paper);
 }
+
+/* The journal's path types once; visitors who prefer reduced motion see it immediately. */
+@media (prefers-reduced-motion: no-preference) {
+  .site-chrome-path-text {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: bottom;
+    white-space: nowrap;
+    width: 9ch;
+    animation: journal-type 1.8s steps(9, end) both;
+  }
+  .site-chrome-cursor {
+    animation: journal-cursor 1s step-end infinite;
+  }
+}
+@keyframes journal-type {
+  from {
+    width: 0;
+  }
+  to {
+    width: 9ch;
+  }
+}
+@keyframes journal-cursor {
+  50% {
+    opacity: 0;
+  }
+}

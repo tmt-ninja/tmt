@@ -52,7 +52,7 @@ export function siteChrome({ sectionPath, brandHref, markUrl, links, rssUrl, xHa
     .map(({ href }) => `<a href="${href}">GitHub ↗</a>`)
     .join("");
   return {
-    header: `<header class="site-chrome-header" lang="en"><a class="site-chrome-brand" href="${linkUrl(brandHref)}"><img vite-ignore src="${linkUrl(markUrl)}" width="30" height="30" alt=""><b>tmt</b><span class="site-chrome-path">${escape(sectionPath)}<span class="site-chrome-cursor" aria-hidden="true"></span></span></a><nav class="site-chrome-nav" aria-label="Main">${nav}${x}</nav></header>`,
+    header: `<header class="site-chrome-header" lang="en"><a class="site-chrome-brand" href="${linkUrl(brandHref)}"><img vite-ignore src="${linkUrl(markUrl)}" width="30" height="30" alt=""><b>tmt</b><span class="site-chrome-path"><span class="site-chrome-path-text">${escape(sectionPath)}</span><span class="site-chrome-cursor" aria-hidden="true"></span></span></a><nav class="site-chrome-nav" aria-label="Main">${nav}${x}</nav></header>`,
     footer: `<footer class="site-chrome-footer" lang="en"><span><b>tmt</b> · Tools for people and agents.</span><nav aria-label="Footer"><a class="site-chrome-mail" href="mailto:tofu@tmt.ninja">tofu@tmt.ninja</a>${x}${github}<a href="${linkUrl(rssUrl)}">RSS ↗</a></nav></footer>`,
   };
 }
