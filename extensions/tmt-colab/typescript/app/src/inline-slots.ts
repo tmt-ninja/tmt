@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
   INLINE_SLOT_LIMIT,
+  INLINE_SLOT_HEIGHT,
   type AnchorPosition,
   type InlineSlot,
   type RenderState,
   type mountRenderer,
 } from './renderer.js';
 
-/** One measurement batch owns proposal and question spacers; layers cannot overwrite siblings. */
+/** One measurement batch owns inline block spacers; layers cannot overwrite siblings. */
 export function useInlineSlots({
   renderer,
   host,
@@ -93,16 +94,22 @@ export function useInlineSlots({
         if (chip)
           return {
             id: node.dataset.inlineSlot!,
-            height: Math.min(2000, Math.ceil(box.height)),
+            height: Math.min(INLINE_SLOT_HEIGHT, Math.ceil(box.height)),
             chip: { width: Math.ceil(chip.width), height: Math.ceil(chip.height) },
           };
         if (!gap)
-          return { id: node.dataset.inlineSlot!, height: Math.min(2000, Math.ceil(box.height)) };
+          return {
+            id: node.dataset.inlineSlot!,
+            height: Math.min(INLINE_SLOT_HEIGHT, Math.ceil(box.height)),
+          };
         const description = gap.getBoundingClientRect();
         return {
           id: node.dataset.inlineSlot!,
-          before: Math.min(2000, Math.max(0, Math.ceil(description.top - box.top))),
-          height: Math.min(2000, Math.max(0, Math.ceil(box.bottom - description.bottom))),
+          before: Math.min(INLINE_SLOT_HEIGHT, Math.max(0, Math.ceil(description.top - box.top))),
+          height: Math.min(
+            INLINE_SLOT_HEIGHT,
+            Math.max(0, Math.ceil(box.bottom - description.bottom)),
+          ),
         };
       });
       heights.forEach((slot) => measured.set(slot.id, slot));

@@ -30,24 +30,6 @@ for (const { width, scheme } of views) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
   };
 
-  test(`a proposal card has one primary, Approve, at ${width} ${scheme}`, async ({ page }) => {
-    await look(page);
-    await page.goto('/');
-    await run(page, 'mount');
-    await run(page, 'proposal', 'inline');
-    const card = page.locator('[data-inline-proposal]').first();
-    await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveAttribute(
-      'data-variant',
-      'primary',
-    );
-    await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveAttribute(
-      'data-variant',
-      'secondary',
-    );
-    await expectOnePrimaryPerGroup(page, 'proposal card');
-    await capture(page, 'proposal', width, scheme);
-  });
-
   test(`the export drawer keeps downloads secondary at ${width} ${scheme}`, async ({ page }) => {
     await look(page);
     await page.goto('/');

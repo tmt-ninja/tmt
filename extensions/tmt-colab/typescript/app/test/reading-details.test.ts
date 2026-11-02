@@ -64,11 +64,7 @@ it('admits the named passages and the latest excerpt, each optional field only w
   const review = { kind: 'review' as const, id: pageId, title: 'Plan', agent: 'Agent 2' };
   const value = {
     ...ready(),
-    needs: [
-      review,
-      need,
-      { kind: 'proposal' as const, id: '30000000-0000-4000-8000-000000000001', title: 'Pick one' },
-    ],
+    needs: [review, need],
     latest: { who: 'Agent', atMs: 1_700_000_000_000, text: 'A reply' },
   };
   expect(readingDetails(value, pageId)).toEqual(value);

@@ -16,7 +16,7 @@ export interface ReplySources {
 }
 export interface ReplyNotification {
   id: string;
-  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
+  destination: 'Chat' | 'Thread' | 'Answer';
   questionId?: string;
   firstLine: string;
   quote?: string;
@@ -49,7 +49,6 @@ export function projectReplyNotifications(
   const deferred = new Set<string>();
   const threads = sources.threads;
   const classify = (thread: ThreadView) => {
-    if (thread.proposal) return 'Proposal' as const;
     if (isChatThread(thread)) return 'Chat' as const;
     if (!thread.anchor) return;
     if (classification.questionThreads === undefined) return 'pending' as const;

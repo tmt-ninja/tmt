@@ -9,39 +9,6 @@ use tmt_colab_model::{Invalid, Result, attachment, bounded::List, values};
 pub mod status;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Proposer {
-    pub machine_id: String,
-    pub agent_id: String,
-    pub label: String,
-}
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Proposal {
-    pub proposal_id: String,
-    pub title: String,
-    pub body: String,
-    pub proposer: Proposer,
-}
-impl Proposal {
-    pub fn validate(&self) -> Result<()> {
-        values::generated_id(&self.proposal_id)?;
-        values::generated_id(&self.proposer.machine_id)?;
-        values::core_id(&self.proposer.agent_id)?;
-        require(
-            !self.title.is_empty()
-                && self.title.chars().count() <= crate::limits::PROPOSAL_TITLE_POINTS,
-        )?;
-        require(!self.body.is_empty() && self.body.len() <= crate::limits::PROPOSAL_BODY_BYTES)?;
-        require(
-            !self.proposer.label.is_empty()
-                && self.proposer.label.chars().count() <= crate::limits::PROPOSAL_LABEL_POINTS,
-        )?;
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct QuoteSelector {
     pub exact: String,
@@ -77,8 +44,6 @@ struct ThreadRecord {
     anchor: Option<QuoteSelector>,
     #[serde(rename = "resolved")]
     _resolved: bool,
-    #[serde(default)]
-    proposal: Option<Proposal>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -139,14 +104,13 @@ fn require(valid: bool) -> Result<()> {
 }
 pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()> {
     match value.get("kind").and_then(Value::as_str) {
-        Some("proposal-decision") => status::validate_decision(root, key, value)?,
         Some("thread-status" | "thread-notification") => status::validate(root, key, value)?,
         Some("thread") => {
-            require(value.as_object().is_some_and(|v| {
-                v.len() == 13 + usize::from(v.contains_key("proposal"))
-                    && v.contains_key("anchor")
-                    && (!v.contains_key("proposal") || v["proposal"].is_object())
-            }))?;
+            require(
+                value
+                    .as_object()
+                    .is_some_and(|v| v.len() == 13 && v.contains_key("anchor")),
+            )?;
             let v: ThreadRecord = serde_json::from_value(value.clone()).map_err(|_| Invalid)?;
             require(
                 root == "threads"
@@ -164,14 +128,6 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                 &v.device_name,
             )?;
             timestamp(&v.at)?;
-            if let Some(proposal) = &v.proposal {
-                proposal.validate()?;
-                require(
-                    proposal.proposal_id == v.thread_id
-                        && proposal.proposal_id != v.sender_device
-                        && v.anchor.is_none(),
-                )?;
-            }
             require(!v.deleted || v.anchor.is_none())?;
             if let Some(anchor) = v.anchor {
                 anchor.validate()?;
@@ -255,27 +211,6 @@ mod tests {
                 "{invalid}"
             );
         }
-    }
-    #[test]
-    fn proposal_bounds_are_unicode_points_and_utf8_bytes() {
-        let f: Value = serde_json::from_str(include_str!(
-            "../../../contracts/vectors/discussion-v1.json"
-        ))
-        .unwrap();
-        let mut value = f["proposal"].clone();
-        let key = format!("{}:1", value["threadId"].as_str().unwrap());
-        validate_record("threads", &key, &value).unwrap();
-        value["proposal"]["title"] = Value::String("🐈".repeat(200));
-        value["proposal"]["body"] = Value::String("é".repeat(2048));
-        value["proposal"]["proposer"]["label"] = Value::String("🐈".repeat(64));
-        validate_record("threads", &key, &value).unwrap();
-        for (field, invalid) in [("title", "🐈".repeat(201)), ("body", "é".repeat(2049))] {
-            let mut bad = value.clone();
-            bad["proposal"][field] = Value::String(invalid);
-            assert!(validate_record("threads", &key, &bad).is_err());
-        }
-        value["proposal"]["proposer"]["label"] = Value::String("🐈".repeat(65));
-        assert!(validate_record("threads", &key, &value).is_err());
     }
 }
 

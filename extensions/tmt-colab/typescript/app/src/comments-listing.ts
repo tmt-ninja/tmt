@@ -1,17 +1,13 @@
 import { isChatThread, type ThreadView } from './thread-records.js';
+import { isOpenThread } from './thread-status-view.js';
 import { presentationOf, type ThreadPresentation } from './thread-status-presentation.js';
 
 export const threadKey = (thread: ThreadView) => `${thread.ref.writer}:${thread.threadId}`;
 export type ThreadFilter = 'open' | 'needs' | 'all';
 
-/** Needs-you is the existing authenticated attention/proposal projection, never a new read. */
+/** Needs-you is the existing authenticated attention projection, never a new read. */
 export function threadNeedsYou(thread: ThreadView, presentations?: readonly ThreadPresentation[]) {
-  return (
-    !thread.deleted &&
-    !thread.resolved &&
-    ((!!thread.proposal && (!thread.decision || thread.decision.deleted)) ||
-      !!presentationOf(presentations, thread.ref)?.status.unseen)
-  );
+  return isOpenThread(thread) && !!presentationOf(presentations, thread.ref)?.status.unseen;
 }
 
 /** Needs-you retains the selected thread after acknowledgement; Open excludes resolved threads. */
@@ -30,7 +26,7 @@ export function listedThreads(
         (filter === 'all' ||
           (filter === 'needs'
             ? threadKey(thread) === viewed || threadNeedsYou(thread, presentations)
-            : !thread.resolved)),
+            : isOpenThread(thread))),
     )
     .sort(
       (a, b) => (numbers.get(threadKey(a)) ?? Infinity) - (numbers.get(threadKey(b)) ?? Infinity),

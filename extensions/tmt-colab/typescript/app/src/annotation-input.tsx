@@ -79,7 +79,7 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  /** Admitted page/proposal UUIDs select the recipient; an optional label is display only. */
+  /** Admitted page UUIDs select the recipient; an optional label is display only. */
   creationRecipient?: CreatorTarget & { label?: string };
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;

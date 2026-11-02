@@ -23,20 +23,16 @@ async function mount(page: Page, options = {}, session = {}) {
   return rows;
 }
 
-test('compact wrapper rows start closed, preserve drafts and keep one explicit batched Send', async ({
+test('grouped waiting questions preserve drafts and keep one explicit batched Send', async ({
   page,
 }) => {
   const rows = await mount(page);
   await expect(page.getByRole('tab')).toHaveCount(0);
-  await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
-  await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.locator('.question-compact-heading')).toHaveText(
-    'Questions from Agent 1 · 2 of 2 waiting',
-  );
+  await expect(page.getByLabel('Change it', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Your answer', { exact: true })).toBeVisible();
   await rows.first().click();
   await page.getByLabel('Change it', { exact: true }).check();
   await rows.nth(1).click();
-  await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
   await page.getByLabel('Your answer', { exact: true }).fill('Keep this introduction draft.');
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   const send = page.getByRole('button', { name: 'Send 2 answers · to @Agent 1', exact: true });
@@ -66,7 +62,7 @@ test('split Send publishes only its own question and keeps another passage draft
   await page.getByLabel('Your answer', { exact: true }).fill('Only this passage is sent.');
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
   await expectAnswered(rows.nth(1), 'Only this passage is sent.');
-  await expect(rows.first()).toContainText('Open');
+  await expect(rows.first()).toContainText('Waiting for your answer');
   const threads = await run(page, 'discussionProof');
   expect(threads).toHaveLength(1);
   expect(threads[0].anchor.exact).toBe('What should the introduction say?');
@@ -77,21 +73,16 @@ test('split Send publishes only its own question and keeps another passage draft
   expect(await run(page, 'discussionProof')).toHaveLength(1);
 });
 
-test('row keyboard navigation, opening and Escape are cosmetic and preserve the draft', async ({
+test('keyboard choice and text entry preserve local drafts without publishing', async ({
   page,
 }) => {
-  const rows = await mount(page);
-  await rows.first().focus();
-  await rows.first().press('ArrowDown');
-  await expect(rows.nth(1)).toBeFocused();
-  await rows.nth(1).press('Space');
+  await mount(page);
+  const choice = page.getByLabel('Change it', { exact: true });
+  await choice.focus();
+  await choice.press('Space');
   const input = page.getByLabel('Your answer', { exact: true });
-  await expect(input).toBeFocused();
   await input.fill('Still a local draft.');
-  await input.press('Escape');
-  await expect(rows.nth(1)).toBeFocused();
-  await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'false');
-  await rows.nth(1).press('Enter');
+  await expect(choice).toBeChecked();
   await expect(input).toHaveValue('Still a local draft.');
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -138,7 +129,7 @@ test('a split question cannot bypass the recipient read by pressing Enter', asyn
   ).toBeEnabled();
   await answer.press('Enter');
   await expectAnswered(rows.nth(1), 'Keep the directory admission fence.');
-  await expect(rows.first()).toContainText('Open');
+  await expect(rows.first()).toContainText('Waiting for your answer');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
@@ -152,30 +143,22 @@ for (const width of [1440, 390]) {
     });
     const row = rows.first();
     // The block is the page sheet (dark here) with a light rule, whatever the page paints.
-    await expect(page.locator('.question-compact-block')).toHaveCSS(
+    await expect(page.locator('.question-group-row').first()).toHaveCSS(
       'background-color',
       rgb(tokens.browser.surface.sheet.dark),
     );
-    await expect(page.locator('.question-compact-block')).toHaveCSS(
+    await expect(page.locator('.question-group-row').first()).toHaveCSS(
       'border-top-color',
       rgb(tokens.browser.surface.rule.dark),
     );
-    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '14px');
-    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '14px');
-    await row.focus();
-    await row.press('Enter');
+    await expect(row.locator('.question-line-title')).toBeVisible();
+    await expect(
+      page
+        .getByLabel('One column', { exact: true })
+        .or(page.getByLabel('Keep it', { exact: true })),
+    ).toBeVisible();
     await page.mouse.move(0, 0);
-    await row.focus();
-    await expect(row).toHaveAttribute('aria-expanded', 'true');
-    await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await expect(row).not.toHaveCSS('outline-style', 'none');
-    for (const surface of [
-      page.locator('.question-card:visible .question-controls'),
-      page.locator('.question-group-footer'),
-    ])
-      await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await row.hover();
-    await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(row).toHaveCSS('color', rgb(tokens.browser.color.text.dark));
     await page.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
     await expect(page.getByRole('menu').locator('.needs-you-header-row')).toHaveCount(2);
     const menuRow = page.getByRole('menu').locator('.needs-you-header-row').first();
@@ -227,7 +210,8 @@ for (const width of [1440, 390]) {
     await assertSpace();
     await rows.nth(2).click();
     await page
-      .locator('.question-card:visible')
+      .locator('.question-group-row')
+      .nth(2)
       .getByLabel('Your answer', { exact: true })
       .fill('Retain this expanded passage.');
     await assertSpace();

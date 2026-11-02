@@ -571,15 +571,9 @@ export function ThreadWindow({
   // The Discussion view's Resolve, or Reopen, stands in the panel's header; the window keeps its
   // state, its busy fence and its failure line, and only draws the control there.
   const resolveAction =
-    discussion &&
-    headerSlot &&
-    thread &&
-    !archived &&
-    onStatusChange &&
-    status?.controllable &&
-    !thread.deleted
+    discussion && headerSlot && thread && !archived && status && !thread.deleted
       ? createPortal(
-          <BrowserIconAction
+          <BrowserAction
             type="button"
             variant="text"
             label={
@@ -591,11 +585,17 @@ export function ThreadWindow({
                   ? text.threadReopen
                   : text.threadResolve
             }
-            disabled={blocked}
+            disabled={blocked || !status.controllable || !onStatusChange}
+            disabledReason={
+              !status.controllable
+                ? 'Only an owner device can resolve or reopen a thread.'
+                : undefined
+            }
+            disabledReasonId={!status.controllable ? 'discussion-status-owner-only' : undefined}
             busy={busy}
-            icon={thread.resolved ? <RotateCcw /> : <Check />}
+            leadingIcon={thread.resolved ? <RotateCcw /> : <Check />}
             onActivate={(event) => {
-              if (event.isTrusted) changeStatus(!thread.resolved);
+              if (event.isTrusted && onStatusChange) changeStatus(!thread.resolved);
             }}
           />,
           headerSlot,
@@ -833,7 +833,6 @@ export function ThreadWindow({
         {!archived &&
           binding &&
           thread &&
-          !thread.proposal &&
           !thread.deleted &&
           owned &&
           tracked &&
@@ -905,8 +904,6 @@ export function ThreadPanel({
   presentations,
   onStatusChange,
   onBusy,
-  renderProposal,
-  proposalStatusPending,
   showInPage,
   headerSlot,
   batchStatus,
@@ -932,8 +929,6 @@ export function ThreadPanel({
   presentations?: readonly ThreadPresentation[];
   onStatusChange?(thread: ThreadView, resolved: boolean): Promise<ThreadStatusOutcome>;
   onBusy?(busy: boolean): void;
-  renderProposal?(thread: ThreadView): ReactNode;
-  proposalStatusPending?: ReadonlyMap<string, boolean>;
   /** The Discussion view's anchor. */
   showInPage?(ref: DiscussionRef): void;
   /** Where the Discussion view puts its Resolve control: the Comments panel's header. */
@@ -949,7 +944,7 @@ export function ThreadPanel({
     const thread = discussed;
     const id = `${thread.ref.writer}:${thread.threadId}`;
     const status = presentationOf(presentations, thread.ref)?.status;
-    const pendingResolved = thread.proposal ? proposalStatusPending?.get(id) : pending[id];
+    const pendingResolved = pending[id];
     const shownResolved = pendingResolved ?? thread.resolved;
     const needsYou = threadNeedsYou({ ...thread, resolved: shownResolved }, presentations);
     return (
@@ -978,44 +973,40 @@ export function ThreadPanel({
             </span>
           )}
         </div>
-        {thread.proposal ? (
-          renderProposal?.(thread)
-        ) : (
-          <ConversationPresentation value="discussion">
-            <ThreadWindow
-              key={id}
-              layout="discussion"
-              connectionPresentation={connectionPresentation}
-              archived={archived}
-              creationRecipient={creationRecipient}
-              thread={thread}
-              number={numbers.get(id)}
-              attached={resolved.includes(id)}
-              anchorsChecked={anchorsChecked}
-              selection={selection}
-              binding={binding}
-              ask={ask}
-              asks={asks}
-              title={title}
-              close={close}
-              blocked={blocked}
-              initialEdit={draft?.(thread.ref)}
-              onDraft={(edit) => onDraft?.(thread.ref, edit)}
-              onBusy={onBusy}
-              status={status}
-              onStatusChange={onStatusChange && ((resolved) => onStatusChange(thread, resolved))}
-              pendingResolved={pending[id]}
-              onPendingResolved={(value) =>
-                setPending((previous) => {
-                  const { [id]: _, ...rest } = previous;
-                  return value === undefined ? rest : { ...rest, [id]: value };
-                })
-              }
-              onShowInPage={showInPage && thread.anchor ? () => showInPage(thread.ref) : undefined}
-              headerSlot={headerSlot}
-            />
-          </ConversationPresentation>
-        )}
+        <ConversationPresentation value="discussion">
+          <ThreadWindow
+            key={id}
+            layout="discussion"
+            connectionPresentation={connectionPresentation}
+            archived={archived}
+            creationRecipient={creationRecipient}
+            thread={thread}
+            number={numbers.get(id)}
+            attached={resolved.includes(id)}
+            anchorsChecked={anchorsChecked}
+            selection={selection}
+            binding={binding}
+            ask={ask}
+            asks={asks}
+            title={title}
+            close={close}
+            blocked={blocked}
+            initialEdit={draft?.(thread.ref)}
+            onDraft={(edit) => onDraft?.(thread.ref, edit)}
+            onBusy={onBusy}
+            status={status}
+            onStatusChange={onStatusChange && ((resolved) => onStatusChange(thread, resolved))}
+            pendingResolved={pending[id]}
+            onPendingResolved={(value) =>
+              setPending((previous) => {
+                const { [id]: _, ...rest } = previous;
+                return value === undefined ? rest : { ...rest, [id]: value };
+              })
+            }
+            onShowInPage={showInPage && thread.anchor ? () => showInPage(thread.ref) : undefined}
+            headerSlot={headerSlot}
+          />
+        </ConversationPresentation>
       </aside>
     );
   }

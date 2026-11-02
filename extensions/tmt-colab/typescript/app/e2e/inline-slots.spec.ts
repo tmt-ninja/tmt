@@ -99,7 +99,7 @@ for (const width of [1440, 390])
       await page.addInitScript((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      for (const kind of ['proposal', 'review', 'reading'] as const) {
+      for (const kind of ['review', 'reading'] as const) {
         await page.goto('/');
         await page.evaluate(() => {
           const post = MessagePort.prototype.postMessage;
@@ -149,10 +149,6 @@ for (const width of [1440, 390])
           await slot.getByRole('button', { name: 'Add a note', exact: true }).click();
           draft = slot.getByLabel('Note (optional)', { exact: true });
           await draft.fill('Keep this review draft');
-        } else if (kind === 'proposal') {
-          await slot.getByRole('button', { name: 'Follow up', exact: true }).click();
-          draft = slot.getByRole('combobox');
-          await draft.fill('Keep this proposal draft');
         }
         await expect
           .poll(async () => {
@@ -160,8 +156,8 @@ for (const width of [1440, 390])
             const tag = kind === 'reading' ? 'read' : kind;
             const spacer =
               kind === 'reading'
-                ? frame.locator('tmt-read > [data-colab-proposal-slot]')
-                : frame.locator(`tmt-${tag} + [data-colab-proposal-slot]`);
+                ? frame.locator('tmt-read > [data-colab-block-slot]')
+                : frame.locator(`tmt-${tag} + [data-colab-block-slot]`);
             const reserved = await spacer.boundingBox();
             return (
               !!box &&
@@ -191,8 +187,7 @@ for (const width of [1440, 390])
         await inner.locator(':scope > summary').click();
         await expect(slot).toBeVisible();
         if (draft) {
-          if (kind === 'proposal') await expect(draft).toHaveText('Keep this proposal draft');
-          else await expect(draft).toHaveValue('Keep this review draft');
+          await expect(draft).toHaveValue('Keep this review draft');
         }
         await outer.evaluate((node) => {
           (node as HTMLDetailsElement).open = false;
@@ -203,8 +198,7 @@ for (const width of [1440, 390])
         });
         await expect(slot).toBeVisible();
         if (draft) {
-          if (kind === 'proposal') await expect(draft).toHaveText('Keep this proposal draft');
-          else await expect(draft).toHaveValue('Keep this review draft');
+          await expect(draft).toHaveValue('Keep this review draft');
         }
         expect(await call('discussionProof')).toEqual(before);
         expect((await call('proof')).sends).toHaveLength(0);

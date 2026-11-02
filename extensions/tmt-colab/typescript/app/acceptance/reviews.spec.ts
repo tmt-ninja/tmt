@@ -256,46 +256,16 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
       undefined,
       agent.pane,
     );
-    const proposal = JSON.parse(
-      run(
-        world,
-        world.binaries.colab,
-        [
-          'proposal',
-          'add',
-          created.pageId,
-          '--title',
-          'A proposed change',
-          '--body',
-          'Keep this pending.',
-          '--json',
-        ],
-        undefined,
-        agent.pane,
-      ),
-    );
-    const withProposal = source + `<tmt-proposal data-id="${proposal.proposalId}"></tmt-proposal>`;
-    run(
-      world,
-      world.binaries.colab,
-      patchArgs(world, created.pageId, ['--file', '-', '--json']),
-      withProposal,
-      agent.pane,
-    );
-    const proposals = () =>
-      JSON.parse(run(world, world.binaries.colab, ['proposal', 'ls', created.pageId, '--json']))
-        .proposals;
-    const before = proposals();
     const page = await openPage(door, author, created);
     const other = await openPage(door, peer, created);
-    await expect(pending(page, 4)).toBeVisible();
-    await expect(pending(other, 4)).toBeVisible();
-    await pending(page, 4).click();
+    await expect(pending(page, 3)).toBeVisible();
+    await expect(pending(other, 3)).toBeVisible();
+    await pending(page, 3).click();
     const openMenu = async () => {
       if (
         (await page.locator('.needs-you-header-trigger').getAttribute('aria-expanded')) !== 'true'
       )
-        await pending(page, 4).click();
+        await pending(page, 3).click();
       await expect(page.getByRole('menu')).toBeVisible();
     };
     await captureResponsive(page, 'needs-you-current-menu', openMenu);
@@ -306,12 +276,11 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
     await confirm.getByRole('button', { name: 'Clear all', exact: true }).click();
     await expect(confirm).toBeHidden();
     await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
-    await expect(pending(other, 3)).toBeVisible();
-    expect(proposals()).toEqual(before);
+    await expect(pending(other, 2)).toBeVisible();
     const threads = JSON.parse(
       run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
     ).threads;
-    const ordinary = threads.filter((thread: { proposal?: unknown }) => !thread.proposal);
+    const ordinary = threads;
     expect(ordinary).toHaveLength(1);
     expect(ordinary[0].resolved).toBe(true);
     expect(ordinary[0].comments.map((comment: { body: string }) => comment.body)).toHaveLength(1);
@@ -331,8 +300,7 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
     await expect(page.getByLabel('✓ Nothing waits', { exact: true })).toHaveCount(1);
     await openChat(page);
     await expect(chat.getByTestId('comment-entry').filter({ hasText: note })).toHaveCount(1);
-    await expect(pending(other, 3)).toBeVisible();
-    expect(proposals()).toEqual(before);
+    await expect(pending(other, 2)).toBeVisible();
     const retained = JSON.parse(
       run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
     ).threads.find((thread: { id: string }) => thread.id === ordinary[0].id);
@@ -340,7 +308,7 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
     expect(retained.comments.map((comment: { body: string }) => comment.body)).toEqual(
       ordinary[0].comments.map((comment: { body: string }) => comment.body),
     );
-    const changed = withProposal.replace('Question one?', 'Changed question?');
+    const changed = source.replace('Question one?', 'Changed question?');
     run(
       world,
       world.binaries.colab,
@@ -357,7 +325,6 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
       agent.pane,
     );
     await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
-    expect(proposals()).toEqual(before);
     await captureResponsive(page, 'needs-you-unanchored-empty');
   });
 });

@@ -57,5 +57,3 @@ export const threadNotificationDestination = (writer: string, id: string) =>
   JSON.stringify(['Thread', writer, id]);
 
 export const answerNotificationDestination = (id: string) => JSON.stringify(['Answer', id]);
-export const proposalNotificationDestination = (writer: string, id: string) =>
-  JSON.stringify(['Proposal', writer, id]);

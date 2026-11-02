@@ -61,7 +61,7 @@ for (const width of [1440, 390])
     await expect(needsYou).toHaveCount(0);
     await expect(page.locator('#ask-page-fixture').getByText('Nothing waits')).toHaveCount(0);
     await expect(
-      page.locator('[data-inline-reading], [data-inline-review], .proposal-inline'),
+      page.locator('[data-inline-reading], [data-inline-review], .inline-block-layer'),
     ).toHaveCount(0);
     await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(0);
     await capture(page, 'pending', width);

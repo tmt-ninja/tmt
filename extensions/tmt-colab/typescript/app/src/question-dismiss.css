@@ -1,0 +1,17 @@
+.question-dismiss-notice {
+  position: fixed;
+  z-index: 20;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 12px;
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-surface-sheet);
+  font-size: 12px;
+}

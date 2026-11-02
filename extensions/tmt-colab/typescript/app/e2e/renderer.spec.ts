@@ -2046,7 +2046,7 @@ test('a measured page asked before the frame knows its blocks still gets every p
     .toEqual([lone, group, review].sort());
 });
 
-test('proposal slots admit only bounded current unique geometry and cap convergence', async ({
+test('inline slots admit only bounded current unique geometry and cap convergence', async ({
   page,
 }) => {
   await page.goto('/');
@@ -2075,7 +2075,7 @@ test('proposal slots admit only bounded current unique geometry and cap converge
       slotRequest: { renderId: string; requestId: string; slots: { height: number }[] };
     };
     const id = '80000000-0000-4000-8000-000000000001';
-    const reserve = () => w.probe.handle.slots([{ id, height: 99999 }]);
+    const reserve = () => w.probe.handle.slots([{ id, height: 99999999 }]);
     reserve();
     const stale = w.slotRequest;
     reserve();
@@ -2113,7 +2113,7 @@ test('proposal slots admit only bounded current unique geometry and cap converge
     return { rejected, clamped, stopped, detached: read() };
   });
   expect(result.rejected).toEqual(Array(9).fill('[]'));
-  expect(result.clamped).toBe(2000);
+  expect(result.clamped).toBe(1000000);
   expect(JSON.parse(result.stopped!)[0].top).toBe(30);
   expect(result.detached).toBe('[]');
 });
@@ -3558,14 +3558,14 @@ test('a reader who scrolled after a reveal is not pulled back when the frame gro
 });
 
 for (const admitted of [false, true])
-  test(`an ${admitted ? 'admitted' : 'unadmitted'} reading tag cannot steal an existing proposal slot`, async ({
+  test(`an ${admitted ? 'admitted' : 'unadmitted'} reading tag cannot steal an existing question slot`, async ({
     page,
   }) => {
     const id = '10000000-0000-4000-8000-000000000401';
     await page.goto('/');
     await mount(
       page,
-      `<tmt-proposal data-id="${id}"></tmt-proposal><tmt-read data-id="${id}" data-agent="Agent 1" data-why="Read this"><h2 data-title>Reading</h2></tmt-read>`,
+      `<tmt-question data-id="${id}" data-kind="short"><p data-question>Question</p></tmt-question><tmt-read data-id="${id}" data-agent="Agent 1" data-why="Read this"><h2 data-title>Reading</h2></tmt-read>`,
     );
     await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
     await page.evaluate(
@@ -3596,15 +3596,14 @@ test('all slot kinds including before-answer hide under closed and nested detail
   const question = id(91),
     group = id(92),
     review = id(93),
-    proposal = id(94),
     reading = id(95);
   await mount(
     page,
-    `<details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-questions data-id="${group}"><p data-title>Questions</p><tmt-question data-id="${question}" data-kind="short"><p data-question>Which heading?</p></tmt-question></tmt-questions><tmt-review data-id="${review}"><h2 data-title>Review</h2><p>Review body</p></tmt-review><tmt-proposal data-id="${proposal}"></tmt-proposal><tmt-read data-id="${reading}"><h2 data-title>Read</h2><p>Reading body</p></tmt-read></details></details>`,
+    `<details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-questions data-id="${group}"><p data-title>Questions</p><tmt-question data-id="${question}" data-kind="short"><p data-question>Which heading?</p></tmt-question></tmt-questions><tmt-review data-id="${review}"><h2 data-title>Review</h2><p>Review body</p></tmt-review><tmt-read data-id="${reading}"><h2 data-title>Read</h2><p>Reading body</p></tmt-read></details></details>`,
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   await page.evaluate(
-    ({ question, group, review, proposal, reading }) => {
+    ({ question, group, review, reading }) => {
       const w = window as unknown as {
         probe: {
           handle: Pick<
@@ -3623,17 +3622,16 @@ test('all slot kinds including before-answer hide under closed and nested detail
       w.probe.handle.slots([
         { id: group, height: 40, before: 12 },
         { id: review, height: 40 },
-        { id: proposal, height: 40 },
         { id: reading, height: 40 },
       ]);
     },
-    { question, group, review, proposal, reading },
+    { question, group, review, reading },
   );
   const slots = () =>
     page
       .locator('#probe')
       .evaluate((node) => JSON.parse((node as HTMLElement).dataset.slots ?? '[]'));
-  const hidden = [group, review, proposal, reading].map((id) => ({ id, top: 0, hidden: true }));
+  const hidden = [group, review, reading].map((id) => ({ id, top: 0, hidden: true }));
   await expect.poll(slots).toEqual(hidden);
   const frame = page.frameLocator('#probe iframe');
   await frame.locator('#outer > summary').click();
