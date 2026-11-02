@@ -653,6 +653,44 @@ test.describe('the door serving the TMT app', () => {
       expect((await proof()).aborted).toBe(true);
     });
 
+    test('disposing a real Colab route restores history methods', async ({ page }) => {
+      const id = await door!.createPage('Disposal page', '<h1>Disposal content</h1>');
+      await door!.pair(page);
+      await page.addInitScript(() => {
+        (window as unknown as { originalHistory: History['pushState'] }).originalHistory =
+          history.pushState;
+      });
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Disposal content' }),
+      ).toBeVisible();
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+      expect(
+        await page.evaluate(
+          () =>
+            history.pushState ===
+            (window as unknown as { originalHistory: History['pushState'] }).originalHistory,
+        ),
+      ).toBe(true);
+    });
+
+    test('the rail remembers a page when browser history leaves its module', async ({ page }) => {
+      const id = await door!.createPage('History page', '<h1>History content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/ops/`);
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await rail.locator('a[data-id="colab"]').click();
+      await showAllPages(page);
+      await page.locator(`[data-page-id="${id}"] a`).click();
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'History content' }),
+      ).toBeVisible();
+      await page.evaluate(() => history.go(-2));
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="colab"]').click();
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+    });
+
     for (const returnBy of ['rail', 'Back'] as const) {
       test(`a page keeps its frame when returning via ${returnBy}`, async ({ page }) => {
         const id = await door!.createPage('Return page', '<h1>Return content</h1>');

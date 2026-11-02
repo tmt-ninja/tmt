@@ -213,6 +213,7 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
       setSuspended(false);
       root.unmount();
       runtime?.close();
+      preview?.history.destroy();
       style.remove();
     },
     suspend() {

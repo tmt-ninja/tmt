@@ -30,6 +30,7 @@ export function startMounted(options: { session?: SharedSession } = {}) {
     closed = true;
     controller.abort();
     mounted?.close();
+    if (snapshot.state === 'ready') snapshot.router.history.destroy();
     window.removeEventListener('pagehide', close);
     window.removeEventListener('pageshow', restore);
   };

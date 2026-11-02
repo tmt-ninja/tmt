@@ -6426,6 +6426,24 @@ function startShellHost(root, routes, options = {}) {
 	let generation = 0;
 	let disposed = false;
 	const lastLocation = /* @__PURE__ */ new Map();
+	const history = window.history;
+	const originalPush = history.pushState;
+	const originalReplace = history.replaceState;
+	const rememberCurrent = () => {
+		if (current && matchRoute(routes, window.location.pathname) === current.route) lastLocation.set(current.route.id, window.location.href);
+	};
+	const push = (...args) => {
+		rememberCurrent();
+		originalPush.apply(history, args);
+		rememberCurrent();
+	};
+	const replace = (...args) => {
+		rememberCurrent();
+		originalReplace.apply(history, args);
+		rememberCurrent();
+	};
+	history.pushState = push;
+	history.replaceState = replace;
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
@@ -6644,8 +6662,12 @@ function startShellHost(root, routes, options = {}) {
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
-		if (current?.route === route) return paint();
+		if (current?.route === route) {
+			rememberCurrent();
+			return paint();
+		}
 		leave();
+		lastLocation.set(route.id, window.location.href);
 		controls.clearTopBar();
 		menu = void 0;
 		select = void 0;
@@ -6714,6 +6736,7 @@ function startShellHost(root, routes, options = {}) {
 	const popstate = () => void show();
 	document.addEventListener("click", click);
 	window.addEventListener("popstate", popstate);
+	window.addEventListener("hashchange", rememberCurrent);
 	show();
 	return {
 		setCommonControls: controls.setCommonControls,
@@ -6734,10 +6757,13 @@ function startShellHost(root, routes, options = {}) {
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
+			window.removeEventListener("hashchange", rememberCurrent);
 			window.removeEventListener("pagehide", pagehide);
 			release(current?.mounted);
 			current = void 0;
 			releaseKept();
+			if (history.pushState === push) history.pushState = originalPush;
+			if (history.replaceState === replace) history.replaceState = originalReplace;
 			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}

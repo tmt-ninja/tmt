@@ -252,6 +252,27 @@ export function startShellHost(
   let generation = 0;
   let disposed = false;
   const lastLocation = new Map<string, string>();
+  const history = window.history;
+  const originalPush = history.pushState;
+  const originalReplace = history.replaceState;
+  const rememberCurrent = () => {
+    if (current && matchRoute(routes, window.location.pathname) === current.route)
+      lastLocation.set(current.route.id, window.location.href);
+  };
+  // A module can change its own location without a popstate. Record both sides of a history
+  // write so a later Back/Forward traversal can leave it before the host sees the new URL.
+  const push: History['pushState'] = (...args) => {
+    rememberCurrent();
+    originalPush.apply(history, args);
+    rememberCurrent();
+  };
+  const replace: History['replaceState'] = (...args) => {
+    rememberCurrent();
+    originalReplace.apply(history, args);
+    rememberCurrent();
+  };
+  history.pushState = push;
+  history.replaceState = replace;
 
   const place = () => ({
     origin: window.location.origin,
@@ -499,8 +520,12 @@ export function startShellHost(
     const route = matchRoute(routes, window.location.pathname);
     if (!route) return elsewhere();
     remember(undefined);
-    if (current?.route === route) return paint();
+    if (current?.route === route) {
+      rememberCurrent();
+      return paint();
+    }
     leave();
+    lastLocation.set(route.id, window.location.href);
     controls.clearTopBar();
     menu = undefined;
     select = undefined;
@@ -587,6 +612,7 @@ export function startShellHost(
   const popstate = () => void show();
   document.addEventListener('click', click);
   window.addEventListener('popstate', popstate);
+  window.addEventListener('hashchange', rememberCurrent);
   void show();
   return {
     setCommonControls: controls.setCommonControls,
@@ -608,10 +634,13 @@ export function startShellHost(
       loading.remove();
       document.removeEventListener('click', click);
       window.removeEventListener('popstate', popstate);
+      window.removeEventListener('hashchange', rememberCurrent);
       window.removeEventListener('pagehide', pagehide);
       release(current?.mounted);
       current = undefined;
       releaseKept();
+      if (history.pushState === push) history.pushState = originalPush;
+      if (history.replaceState === replace) history.replaceState = originalReplace;
       for (const listener of listeners.splice(0)) listener(undefined);
       controls.dispose();
     },
