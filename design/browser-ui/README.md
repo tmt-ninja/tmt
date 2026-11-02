@@ -101,8 +101,9 @@ of it; a dialog pops in on base and leaves on fast; a sheet slides in on base an
 line Tabs underline slides between triggers; Switch, Checkbox and Alert move on press or entry, and
 Button changes colour only (a press never shrinks its hit area); Skeleton pulses calmly. Reduced motion zeroes every duration, the pulse included.
 
-`pnpm design-docs` serves the dev-only design-system docs and the Colab mock (`docs/`,
-`vite.docs.config.ts`) on `http://127.0.0.1:5100`.
+`pnpm design-docs` serves the design-system docs and the Colab mock (`docs/`,
+`vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` is the hosted
+entry Colab's Design route loads.
 
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a

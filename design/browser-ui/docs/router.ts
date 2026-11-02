@@ -46,7 +46,8 @@ function write(href: string, replace: boolean) {
 /** A history-backed path, so links inside the docs and the mock never reload the page. */
 export function navigate(href: string) {
   write(href, false);
-  scrollTo(0, 0);
+  // A host scrolls its own workspace; the window is not the docs' scroller there.
+  if (!host) scrollTo(0, 0);
 }
 /** Replace the current entry, for redirects. */
 export function replacePath(href: string) {

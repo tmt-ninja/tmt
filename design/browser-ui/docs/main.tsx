@@ -1,4 +1,5 @@
-// Dev-only design-system docs and the Colab mockup (#5821), in palette B. See vite.docs.config.ts.
+// The design-system docs and the Colab mockup (#5821) on the development server, in palette B.
+// See vite.docs.config.ts; docs/embed.tsx is the hosted entry Colab's Design route loads.
 import '../generated/static.css';
 import '../generated/ui.css';
 import '../generated/editorial.css';

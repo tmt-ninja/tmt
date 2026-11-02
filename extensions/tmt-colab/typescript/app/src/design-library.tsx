@@ -167,9 +167,14 @@ export function DesignLibrary({
       setPublishing(false);
     }
   };
+  // The workspace is the scroller here, so a new page starts at its top.
+  const open = (href: string) => {
+    navigate(href);
+    if (workspace.current) workspace.current.scrollTop = 0;
+  };
   const go = (href: string) => {
     setNavOpen(false);
-    navigate(href);
+    open(href);
   };
   return (
     <>
@@ -301,7 +306,7 @@ export function DesignLibrary({
           </>
         ) : (
           <Suspense fallback={<p role="status">Loading design library…</p>}>
-            <DesignDocs base={base} path={path} navigate={navigate} />
+            <DesignDocs base={base} path={path} navigate={open} />
           </Suspense>
         )}
       </section>
