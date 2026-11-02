@@ -271,7 +271,7 @@ export const routes: readonly ShellRoute[] = [
             async () => ({
               landing: async (lifetime, registry, connected) => {
                 const { landingPage } = await import('./browser.js');
-                await landingPage(lifetime, registry, connected);
+                await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
               },
               settings: async (shell, registry, initial) => {
                 const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
@@ -390,7 +390,9 @@ function observedSession(next: object): void {
 
 let sessionAdmission: { signal: AbortSignal; result: Promise<Session> } | undefined;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
-function rootSession(signal: AbortSignal): Promise<Session> {
+function rootSession(signal?: AbortSignal): Promise<Session> {
+  if (!signal && sessionAdmission) return sessionAdmission.result;
+  signal ??= new AbortController().signal;
   signal.throwIfAborted();
   if (session && channelFor(session as Session)?.ended === false)
     return Promise.resolve(session as Session);
@@ -438,6 +440,7 @@ export function shellApp(): ShellHost | undefined {
   status.hidden = true;
   root.append(status);
   search = new RootSearch({
+    session: { open: rootSession, forget: (previous) => forgetSession(previous as Session) },
     load: (entry) => import(/* @vite-ignore */ entry) as Promise<SearchModule>,
     container: () => document.body.appendChild(document.createElement('div')),
     failed: (message) => {
@@ -542,7 +545,7 @@ export function shellApp(): ShellHost | undefined {
   const host = startShellHost(root, ownedRoutes, {
     // Every module shares this tab's one session (#5954); none opens its own.
     sessions: {
-      open: (signal) => rootSession(signal ?? new AbortController().signal),
+      open: rootSession,
       forget: (previous) => forgetSession(previous as Session),
     },
     failed: (main) =>

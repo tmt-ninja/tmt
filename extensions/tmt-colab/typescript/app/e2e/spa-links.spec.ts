@@ -548,6 +548,111 @@ test.describe('the door serving the TMT app', () => {
       expect(await live()).toBeLessThanOrEqual(2);
     });
 
+    test('navigation retains root search until the session changes', async ({ page }) => {
+      await door!.pair(page);
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `
+            const proof = window.searchLifetime = { mounts: 0, closes: 0 };
+            export async function mount(slot) {
+              const session = await slot.session();
+              window.forgetTestSession = () => slot.forgetSession(session);
+              slot.setTopBar();
+              slot.main.textContent = 'Search route';
+              return { release() {}, suspend() {}, resume() {} };
+            }
+            export function mountSearchSession() {
+              proof.mounts++;
+              return { open() {}, dispose() { proof.closes++; } };
+            }
+          `,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('Search route')).toBeVisible();
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
+      const proof = () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { searchLifetime: { mounts: number; closes: number } })
+              .searchLifetime,
+        );
+      await expect.poll(proof).toEqual({ mounts: 1, closes: 0 });
+      await rail.locator('a[data-id="ops"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="colab"]').click();
+      await expect(page.getByText('Search route')).toBeVisible();
+      expect(await proof()).toEqual({ mounts: 1, closes: 0 });
+      await page.evaluate(() =>
+        (window as unknown as { forgetTestSession(): void }).forgetTestSession(),
+      );
+      await expect.poll(proof).toEqual({ mounts: 1, closes: 1 });
+    });
+
+    test('signal-less shell session calls join an in-flight admission', async ({ page }) => {
+      await door!.pair(page);
+      let admissions = 0;
+      page.on('request', (request) => {
+        try {
+          if (request.postDataJSON()?.operation === 'session.open') admissions++;
+        } catch {
+          // Other requests may carry non-JSON bodies.
+        }
+      });
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `export async function mount(slot) {
+            const [first, second] = await Promise.all([
+              slot.session(new AbortController().signal), slot.session()
+            ]);
+            slot.main.textContent = first === second ? 'One shared session' : 'Different sessions';
+            return () => {};
+          }`,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('One shared session')).toBeVisible();
+      expect(admissions).toBe(1);
+    });
+
+    test('a suspended route keeps its Remote signal until release', async ({ page }) => {
+      await door!.pair(page);
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `export function mount(slot) {
+            const signal = slot.routeSignal;
+            window.routeProof = { signal, mounts: 1, resumes: 0 };
+            slot.main.textContent = 'Kept route';
+            return { release() {}, suspend() {}, resume() { window.routeProof.resumes++; } };
+          }`,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('Kept route')).toBeVisible();
+      const proof = () =>
+        page.evaluate(() => {
+          const route = (
+            window as unknown as {
+              routeProof: { signal: AbortSignal; mounts: number; resumes: number };
+            }
+          ).routeProof;
+          return { aborted: route.signal.aborted, mounts: route.mounts, resumes: route.resumes };
+        });
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await rail.locator('a[data-id="ops"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      expect(await proof()).toEqual({ aborted: false, mounts: 1, resumes: 0 });
+      await rail.locator('a[data-id="colab"]').click();
+      await expect(page.getByText('Kept route')).toBeVisible();
+      expect(await proof()).toEqual({ aborted: false, mounts: 1, resumes: 1 });
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+      expect((await proof()).aborted).toBe(true);
+    });
+
     for (const returnBy of ['rail', 'Back'] as const) {
       test(`a page keeps its frame when returning via ${returnBy}`, async ({ page }) => {
         const id = await door!.createPage('Return page', '<h1>Return content</h1>');
@@ -603,8 +708,24 @@ test.describe('the door serving the TMT app', () => {
           '<p id="quote">The passage a thread is anchored to.</p>',
       );
       await door!.pair(page);
+      let admissions = 0;
+      let registrations = 0;
+      page.on('request', (request) => {
+        if (new URL(request.url()).pathname.endsWith('/api/devices/register')) registrations++;
+        try {
+          if (request.postDataJSON()?.operation === 'session.open') admissions++;
+        } catch {
+          // Other requests may carry non-JSON bodies.
+        }
+      });
       const url = `${door!.origin}/colab/pages/${id}`;
-      await page.goto(url);
+      await page.goto(`${door!.origin}/`);
+      await page
+        .getByRole('navigation', { name: 'TMT', exact: true })
+        .locator('a[data-id="colab"]')
+        .click();
+      await showAllPages(page);
+      await page.locator(`[data-page-id="${id}"] a`).click();
       const sockets = () =>
         page.evaluate(() => {
           const opened = (window as unknown as { __opened: WebSocket[] }).__opened;
@@ -674,6 +795,7 @@ test.describe('the door serving the TMT app', () => {
       await page.keyboard.press('ControlOrMeta+k');
       const search = page.getByRole('dialog', { name: 'Search TMT', exact: true });
       await expect(search).toBeVisible();
+      await expect(search.getByRole('option', { name: /Kept page/ })).toBeVisible();
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
       expect(
         await search
@@ -682,8 +804,8 @@ test.describe('the door serving the TMT app', () => {
       ).toBe('absolute');
       await page.keyboard.press('Escape');
       await expect(search).toHaveCount(0);
-      // The search keeps its own session until PR 2 of #5954 lends it the shell's; the walk back
-      // is measured from here.
+      // Search and the return share the original admission across the entire walk.
+      expect(await sessions()).toBe(registered);
       const searched = { sockets: await sockets(), sessions: await sessions() };
       // Coming back opens nothing: the same frame document, no new socket or registration.
       // Back returns to the same page.
@@ -698,6 +820,8 @@ test.describe('the door serving the TMT app', () => {
       );
       expect(await sockets()).toEqual(searched.sockets);
       expect(await sessions()).toBe(searched.sessions);
+      expect(admissions).toBe(1);
+      expect(registrations).toBe(1);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
       // Resume measures again: the same frame element shows the new text, and the frame and the
       // thread's marker sit where a fresh open puts them.

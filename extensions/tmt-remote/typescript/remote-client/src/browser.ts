@@ -468,6 +468,7 @@ export async function landingPage(
   lifetime?: AbortSignal,
   registry?: RemoteRegistryPage,
   connected?: (session: Session) => void,
+  sharedSession?: () => Promise<Session>,
 ): Promise<void> {
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
@@ -594,7 +595,7 @@ export async function landingPage(
       }
     });
   }
-  const check = async (): Promise<void> => {
+  const check = async (manual = false): Promise<void> => {
     const restoreFocus = document.activeElement === button;
     const currentAttempt = ++attempt;
     const currentPage = (): boolean => pageAlive() && attempt === currentAttempt;
@@ -614,6 +615,15 @@ export async function landingPage(
       byte.toString(16).padStart(2, '0'),
     ).join('');
     const step: { phase: 'open' | 'capabilities' } = { phase: 'open' };
+    if (!manual && sharedSession) {
+      try {
+        session = await sharedSession();
+      } catch {
+        if (currentPage()) render('unconfirmed');
+        return;
+      }
+      if (!currentPage()) return;
+    }
     const channel = session && channelFor(session);
     const reused =
       !!channel &&
@@ -624,6 +634,11 @@ export async function landingPage(
         (byte, index) => byte === local.record.paired.machinePublicKey[index],
       ) &&
       channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+    if (!manual && sharedSession && !reused) {
+      session = undefined;
+      render('unconfirmed');
+      return;
+    }
     const open = async (): Promise<boolean> => {
       step.phase = 'open';
       opaque = false;
@@ -722,7 +737,7 @@ export async function landingPage(
     }
   };
   button.addEventListener('click', () => {
-    if (!button.disabled) void check();
+    if (!button.disabled) void check(true);
   });
   await check();
 }

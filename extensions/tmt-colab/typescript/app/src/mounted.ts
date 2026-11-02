@@ -29,6 +29,51 @@ export interface SharedSession {
   forget(previous: unknown): void;
 }
 
+type Mounted = Awaited<ReturnType<typeof mountedTransport>>;
+let sharedMount:
+  | { controller: AbortController; users: number; ready: Promise<Mounted> }
+  | undefined;
+
+/** Share one mounted transport while a shell route or search holds it. */
+export async function sharedMountedTransport(
+  signal: AbortSignal,
+  options: { mount?: URL; session: SharedSession },
+): Promise<Mounted> {
+  signal.throwIfAborted();
+  if (!sharedMount) {
+    const controller = new AbortController();
+    const held = { controller, users: 0, ready: mountedTransport(controller.signal, options) };
+    sharedMount = held;
+    void held.ready.catch(() => {
+      if (sharedMount === held) sharedMount = undefined;
+    });
+  }
+  const held = sharedMount;
+  held.users++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    signal.removeEventListener('abort', release);
+    if (--held.users !== 0) return;
+    if (sharedMount === held) sharedMount = undefined;
+    held.controller.abort();
+    void held.ready.then(
+      (mounted) => mounted.close(),
+      () => {},
+    );
+  };
+  signal.addEventListener('abort', release, { once: true });
+  try {
+    const mounted = await held.ready;
+    signal.throwIfAborted();
+    return { ...mounted, close: release };
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
 /**
  * The paired mount's transport. Colab's own routes read the mount from the document's location;
  * a host whose document belongs to another module (the global search) names the mount, and

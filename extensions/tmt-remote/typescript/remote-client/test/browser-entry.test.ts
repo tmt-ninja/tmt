@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
-import { DeviceKey } from '../src/device.js';
+import { DeviceKey, openSession } from '../src/device.js';
 
 function pairingLabels() {
   return {
@@ -333,6 +333,45 @@ async function fixture(mode = 'success') {
     },
   };
 }
+test('landing observes the shell session without another admission', async () => {
+  const f = await fixture();
+  try {
+    const shared = await openSession(
+      f.device.result,
+      f.device.key,
+      f.door.descriptor.windowId,
+      fetch,
+    );
+    assert.equal(f.counts().admissions, 1);
+    await landingPage(f.lifetime, undefined, undefined, async () => shared);
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Connected');
+    assert.equal(f.counts().admissions, 1);
+    f.click();
+    await vi.waitFor(() => assert.equal(f.button.disabled, false));
+    assert.equal(f.counts().admissions, 1);
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('landing does not open a replacement when the shared admission fails', async () => {
+  const f = await fixture();
+  try {
+    await landingPage(f.lifetime, undefined, undefined, async () => {
+      throw new Error('offline');
+    });
+    assert.equal(f.nodes.get('state-label')!.textContent, "Can't reach Remote");
+    assert.equal(f.counts().admissions, 0);
+    f.click();
+    await vi.waitFor(() => assert.equal(f.nodes.get('state-label')!.textContent, 'Connected'));
+    assert.equal(f.counts().admissions, 1);
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
 test('entry automatically checks once, then manual checks reuse the verified session without effects', async () => {
   const f = await fixture();
   try {

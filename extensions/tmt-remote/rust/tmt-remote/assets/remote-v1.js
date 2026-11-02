@@ -12600,6 +12600,7 @@ var RootSearch = class {
 				const go = async (href) => this.options.navigate(href);
 				this.session = module.mountSearchSession(this.host, {
 					registry: this.registry,
+					session: this.options.session,
 					navigate: (id) => go(pageHref(id)),
 					pageHref,
 					go,
@@ -12804,7 +12805,7 @@ var routes = [
 			return remotePage((slot) => adoptRemote(slot, landing_default, settings_default, sheets), (slot) => remoteApp(remoteShell(), slot.main, slot.bar, () => sheets.load(), async () => ({
 				landing: async (lifetime, registry, connected) => {
 					const { landingPage } = await import("./remote-v1.js");
-					await landingPage(lifetime, registry, connected);
+					await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
 				},
 				settings: async (shell, registry, initial) => {
 					const { settingsPage } = await import(
@@ -12895,6 +12896,8 @@ function observedSession(next) {
 var sessionAdmission;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
 function rootSession(signal) {
+	if (!signal && sessionAdmission) return sessionAdmission.result;
+	signal ??= new AbortController().signal;
 	signal.throwIfAborted();
 	if (session && channelFor(session)?.ended === false) return Promise.resolve(session);
 	if (sessionAdmission?.signal === signal) return sessionAdmission.result;
@@ -12942,6 +12945,10 @@ function shellApp() {
 	status.hidden = true;
 	root.append(status);
 	search = new RootSearch({
+		session: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
 		load: (entry) => import(
 			/* @vite-ignore */
 			entry
@@ -13040,7 +13047,7 @@ function shellApp() {
 		}
 	})), {
 		sessions: {
-			open: (signal) => rootSession(signal ?? new AbortController().signal),
+			open: rootSession,
 			forget: (previous) => forgetSession(previous)
 		},
 		failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
@@ -14463,7 +14470,7 @@ async function entryPairing() {
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
 /** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more.
 * `registry` is the route's one controller of the remotes section, shared with the settings views. */
-async function landingPage(lifetime, registry, connected) {
+async function landingPage(lifetime, registry, connected, sharedSession) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
 	const button = element("check");
@@ -14571,7 +14578,7 @@ async function landingPage(lifetime, registry, connected) {
 			if (pageAlive()) element(`copy-feedback-guide-${command}`).textContent = "Copy failed. Select the command and copy it manually.";
 		}
 	});
-	const check = async () => {
+	const check = async (manual = false) => {
 		const restoreFocus = document.activeElement === button;
 		const currentAttempt = ++attempt;
 		const currentPage = () => pageAlive() && attempt === currentAttempt;
@@ -14589,8 +14596,22 @@ async function landingPage(lifetime, registry, connected) {
 		element("protocol-address").textContent = local.record.paired.address;
 		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
 		const step = { phase: "open" };
+		if (!manual && sharedSession) {
+			try {
+				session = await sharedSession();
+			} catch {
+				if (currentPage()) render("unconfirmed");
+				return;
+			}
+			if (!currentPage()) return;
+		}
 		const channel = session && channelFor(session);
 		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		if (!manual && sharedSession && !reused) {
+			session = void 0;
+			render("unconfirmed");
+			return;
+		}
 		const open = async () => {
 			step.phase = "open";
 			opaque = false;
@@ -14662,7 +14683,7 @@ async function landingPage(lifetime, registry, connected) {
 		}
 	};
 	button.addEventListener("click", () => {
-		if (!button.disabled) check();
+		if (!button.disabled) check(true);
 	});
 	await check();
 }

@@ -3,7 +3,7 @@ import type { LiveSessionOwner } from '../src/live.js';
 import type { PageView } from '../src/transport.js';
 import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
-import { mountedTransport } from '../src/mounted.js';
+import { mountedTransport, sharedMountedTransport } from '../src/mounted.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 import { AdmissionRefusedError } from '../src/registration.js';
 import { reopenWithBackoff, retryableReopen } from '../src/readmit.js';
@@ -175,6 +175,53 @@ vi.mock('../src/live.js', () => ({
     }
   },
 }));
+
+it('shares admission until the last route or search user leaves', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const session = { open: vi.fn(async () => setup.first.remoteSession), forget: vi.fn() };
+  const first = new AbortController();
+  const second = new AbortController();
+  const [route, search] = await Promise.all([
+    sharedMountedTransport(first.signal, { session }),
+    sharedMountedTransport(second.signal, { session }),
+  ]);
+  expect(setup.register).toHaveBeenCalledTimes(1);
+  expect(route.transport).toBe(search.transport);
+  first.abort();
+  await expect(search.transport.page('page')).resolves.toBeDefined();
+  second.abort();
+  const third = new AbortController();
+  const fresh = await sharedMountedTransport(third.signal, { session });
+  expect(setup.register).toHaveBeenCalledTimes(2);
+  expect(fresh.transport).not.toBe(search.transport);
+  third.abort();
+});
+
+it('does not publish a shared transport after its last user aborts', async () => {
+  let finish!: (value: typeof setup.first) => void;
+  setup.register
+    .mockReset()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue({});
+  const session = { open: vi.fn(async () => setup.first.remoteSession), forget: vi.fn() };
+  const controller = new AbortController();
+  const pending = sharedMountedTransport(controller.signal, { session });
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  controller.abort();
+  finish(setup.first);
+  await expect(pending).rejects.toBeDefined();
+  const next = new AbortController();
+  const fresh = await sharedMountedTransport(next.signal, { session });
+  expect(setup.register).toHaveBeenCalledTimes(2);
+  fresh.close();
+});
 
 it('opens archived pages through the same verified mounted read binding', async () => {
   setup.events.length = 0;
