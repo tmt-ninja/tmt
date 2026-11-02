@@ -81,3 +81,13 @@ it('maps every colour and surface role, so nothing under B falls back to the old
   ))
     expect(palette.shadow[role], `shadow.${role}`).toBeDefined();
 });
+
+it('keeps the docs and the Colab mock free of literal colours', () => {
+  for (const file of ['docs.css', 'mock-colab.css', 'mock-reader.css', 'mock-list.css']) {
+    const css = readFileSync(new URL(`../docs/${file}`, import.meta.url), 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    );
+    expect(css, file).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgb|hsl|oklch)a?\(/i);
+  }
+});
