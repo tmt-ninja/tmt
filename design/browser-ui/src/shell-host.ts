@@ -258,7 +258,7 @@ export function startShellHost(
     const url = linkTo(href);
     if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
     // Remote URLs can contain invitation or pairing material; its rail keeps only the route path.
-    lastLocation.set(route.id, route.rail === 'remote' ? url.pathname : url.href);
+    lastLocation.set(route.id, route.rail === 'remote' ? url.origin + url.pathname : url.href);
   };
 
   const place = () => ({
