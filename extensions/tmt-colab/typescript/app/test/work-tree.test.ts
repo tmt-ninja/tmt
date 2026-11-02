@@ -78,3 +78,31 @@ it('ends the ancestor walk on a stored loop', () => {
   ];
   expect(subpageTree('x', undefined, looped).refusal('y')).toEqual({ kind: 'loop' });
 });
+
+it('leaves archived sub-pages out of every level and every count, keeping the others in order', () => {
+  const archive = (ids: string[]) =>
+    pages.map((page) => (ids.includes(page.id) ? { ...page, archived: true } : page));
+  // A mix: the archived sub-page leaves its row and the count; its sibling keeps its place.
+  const mixed = subpageTree('a', work, archive(['b']));
+  expect(mixed.top.map(({ id }) => id)).toEqual(['c']);
+  expect(mixed.counts(mixed.top)).toEqual({
+    done: 0,
+    inProgress: 1,
+    todo: 0,
+    unknown: 0,
+    total: 1,
+  });
+  // Nested: an archived page below a sub-page leaves that level too.
+  expect(mixed.childrenOf('c').map(({ id }) => id)).toEqual(['c1', 'c2']);
+  expect(
+    subpageTree('a', work, archive(['c1']))
+      .childrenOf('c')
+      .map(({ id }) => id),
+  ).toEqual(['c2']);
+  // All archived: nothing to list or count.
+  const all = subpageTree('a', work, archive(['b', 'c']));
+  expect(all.top).toEqual([]);
+  expect(all.counts(all.top).total).toBe(0);
+  // Unarchiving brings the row back in its old position: the link was never removed.
+  expect(subpageTree('a', work, pages).top.map(({ id }) => id)).toEqual(['b', 'c']);
+});

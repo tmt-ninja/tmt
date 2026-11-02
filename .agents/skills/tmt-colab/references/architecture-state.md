@@ -1193,7 +1193,10 @@ Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and 
 under the nav on the signed-in and reader routes; dashboards do not draw it. It lists sub-pages
 only (#5820). `subpageTree` (`work-tree.ts`) derives the rows: direct sub-pages from the page's own
 `work.order`, deeper levels and titles/states from owner-list parent links, counts from direct
-sub-page manual states, and Add refusals (self, ancestor, already attached). The owner list comes
+sub-page manual states, and Add refusals (self, ancestor, already attached). Archived pages leave
+every level and count but keep their links; the serve's list `work` and the CLI's progress use the
+same rule (`Graph::progress` takes the archived set), while `subpage ls` still lists them marked
+`archived`. The owner list comes
 from `useLinkedPages` (`work-stages.ts`), without wider rows or child subscriptions; share readers
 make no owner reads and get no counts. The list is one CSS grid whose rows are subgrids, so the
 right-hand columns align at every depth. Its measured height participates in renderer viewport

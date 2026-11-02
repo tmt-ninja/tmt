@@ -28,7 +28,7 @@ export type AttachRefusal =
  * The sub-page tree as the owner list shows it. This page's own work names its direct sub-pages in
  * order; a deeper level comes from the list's parent links (`summary.parent`), in each parent's
  * own order. A page the list does not name has no title or state and no children here: nothing is
- * read to find them.
+ * read to find them. Archived pages are left out at every level.
  */
 export function subpageTree(
   pageId: string,
@@ -46,11 +46,14 @@ export function subpageTree(
     return { id, parent, title: page?.title, state: page?.state };
   };
   const listed = subpages(work);
-  const top = listed.map((child) => row(child, pageId));
+  // An archived sub-page keeps its link (unarchiving brings its row back in place), but the panel
+  // shows and counts only the pages in use (#5867).
+  const archived = (id: string) => byId.get(id)?.archived === true;
+  const top = listed.filter((child) => !archived(child)).map((child) => row(child, pageId));
   const below = new Map<string, { row: SubpageRow; index: number }[]>();
   for (const page of pages ?? []) {
     const link = page.summary?.parent;
-    if (!link || link.page === pageId) continue;
+    if (!link || link.page === pageId || page.archived) continue;
     const rows = below.get(link.page) ?? [];
     rows.push({ row: row(page.id, link.page), index: link.index });
     below.set(link.page, rows);

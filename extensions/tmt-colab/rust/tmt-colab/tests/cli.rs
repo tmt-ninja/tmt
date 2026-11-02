@@ -1529,6 +1529,23 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
 }
 
 #[test]
+fn serve_reports_a_page_whose_work_it_cannot_read_and_still_starts() {
+    let mut pilot = Pilot::new(None);
+    // No reader accepts this stored value, so the migration cannot tell what it holds (#5853).
+    seed_page_with(&pilot, "Unreadable work", Some(&json!({"version":9})));
+    let log = pilot.root.join("serve.log");
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    assert!(
+        said.contains(&format!(
+            "Page {PAGE}: its work could not be read, so it was not checked for task-era work"
+        )),
+        "{said}"
+    );
+}
+
+#[test]
 fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_could_not() {
     use std::os::unix::fs::DirBuilderExt;
     const CHILD: &str = "10000000-0000-4000-8000-0000000000c1";
@@ -1609,11 +1626,10 @@ fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_c
         vec!["subpage", "create", PAGE, "--title", "New part", "--json"],
     ] {
         let refused = failure(&pilot, &args, "COLAB_WORK_NOT_MIGRATED");
+        // The refusal reads right where a serve is already running too (#5853).
+        let message = refused["error"]["message"].as_str().unwrap();
         assert!(
-            refused["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("work-not-migrated"),
+            message.contains("work-not-migrated") && message.contains("Restart tmt colab serve"),
             "{refused}"
         );
         assert_eq!(stored(), Some(legacy.clone()), "{args:?}");
@@ -1634,7 +1650,8 @@ fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_c
     // The serve names the copy by its resolved path (macOS temp directories resolve via /private).
     assert!(
         said.contains("task-era work rewritten as sub-pages; its tasks are kept in /")
-            && said.contains(&format!("/selected/colab/migrations/5825/{PAGE}.json")),
+            && said.contains(&format!("/selected/colab/migrations/5825/{PAGE}.json"))
+            && said.contains("an unencrypted copy you may delete"),
         "{said}"
     );
     let kept: Value = serde_json::from_slice(&fs::read(&copy).unwrap()).unwrap();
@@ -12595,6 +12612,68 @@ fn subpage_refuses_cycle_without_writing() {
 #[test]
 fn subpage_refuses_self_without_writing() {
     check_subpage_refusal("self");
+}
+
+/// An archived sub-page keeps its link (#5867): `subpage ls` still lists it, marked archived, so an
+/// agent can see and detach it, but it leaves the page's progress and the list row's count.
+#[test]
+fn an_archived_sub_page_stays_listed_marked_archived_and_leaves_the_counts() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("archived-sub-page.html");
+    fs::write(&source, "<p>Source</p>").unwrap();
+    let pages: Vec<String> = ["Parent", "Kept", "Archived"]
+        .into_iter()
+        .map(|title| {
+            let made = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--layout",
+                "column",
+                "--file",
+                source.to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ]);
+            made["pageId"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    let (parent, kept, archived) = (&pages[0], &pages[1], &pages[2]);
+    pilot.call(&["subpage", "attach", parent, kept, "--json"]);
+    pilot.call(&["subpage", "attach", parent, archived, "--json"]);
+    pilot.call(&["archive", archived, "--json"]);
+    let listed = pilot.call(&["subpage", "ls", parent, "--json"]);
+    assert_eq!(listed["children"], json!([kept, archived]), "{listed}");
+    assert_eq!(
+        listed["subpages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["pageId"].clone(), row["archived"].clone()))
+            .collect::<Vec<_>>(),
+        vec![(json!(kept), json!(false)), (json!(archived), json!(true))],
+        "{listed}"
+    );
+    assert_eq!(listed["progress"]["total"], 1, "{listed}");
+    let text = pilot
+        .command()
+        .args(["subpage", "ls", parent])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(text.stdout).unwrap();
+    assert!(
+        text.contains(&format!("{archived}  archived  Archived")),
+        "{text}"
+    );
+    let row = pilot.call(&["ls", "--json"])["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|page| page["pageId"] == json!(parent))
+        .cloned()
+        .unwrap();
+    assert_eq!(row["work"]["total"], 1, "{row}");
 }
 
 /// Sub-pages nest without a depth limit (#5820): a page with a parent takes children, a page with

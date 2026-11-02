@@ -413,7 +413,11 @@ export function Listbox<Value extends string>({
         onKeyDown,
       })}
       {presentation === 'popup'
-        ? createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)
+        ? // Inside a modal window (a native dialog or the UI kit's), so the popup stays usable there.
+          createPortal(
+            optionList,
+            trigger.current?.closest('dialog, [role="dialog"]') ?? document.body,
+          )
         : optionList}
     </div>
   );

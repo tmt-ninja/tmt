@@ -308,42 +308,57 @@ a.work-row-title:hover {
   flex: none;
 }
 .work-add-command {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   gap: var(--tmt-ui-space-s);
 }
-/* The whole field (icon and input) is one bordered area and owns the focus ring. */
-.work-add-command [data-slot='command-input-wrapper'] {
+/* The list's own search field (#5868); the whole field, mark and chips, keeps the one focus ring. */
+.work-add-command .tmt-listbox-results {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.work-add-search {
+  position: relative;
   flex: none;
+}
+.work-add-search-mark {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  top: 50%;
+  left: var(--tmt-ui-space-m);
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--tmt-ui-color-secondary);
+}
+.work-add-search .page-list-search-field {
   box-sizing: border-box;
   height: var(--tmt-ui-control-size-l);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  margin: 0;
+  padding-left: 36px;
   border-radius: var(--tmt-ui-radius);
 }
-.work-add-command [data-slot='command-input-wrapper']:focus-within {
+.work-add-search .page-list-search-field:focus {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: calc(-1 * var(--tmt-ui-focus-width));
 }
-.work-add-command [cmdk-input],
-.work-add-command [cmdk-input]:focus-visible {
-  outline: none;
-}
-.work-add-command [cmdk-list] {
+/* Only the results scroll; the field stays at the top of the window. */
+.work-add-command .tmt-listbox-results-list {
   flex: 1 1 auto;
   min-height: 0;
+  max-height: none;
+  margin-top: var(--tmt-ui-space-s);
   overflow-y: auto;
-  overscroll-behavior: contain;
 }
-.work-add-command [cmdk-input] {
-  height: 100%;
-}
-.work-add-command [data-slot='command-item'] {
+.work-add-command .tmt-listbox-option {
   min-height: var(--tmt-ui-row-height);
   border-radius: var(--tmt-ui-radius);
-}
-.work-add-command [data-slot='command-separator'] {
-  margin-block: var(--tmt-ui-space-xs);
 }
 .work-add-title {
   min-width: 0;
