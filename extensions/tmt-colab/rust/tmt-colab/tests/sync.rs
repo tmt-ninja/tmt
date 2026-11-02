@@ -280,7 +280,7 @@ fn receive(peer: &mut Peer) -> Value {
     peer.0.get_mut().set_nonblocking(true).unwrap();
     for _ in 0..32 {
         match peer.0.read() {
-            Ok(message) => return serde_json::from_str(message.to_text().unwrap()).unwrap(),
+            Ok(message) => return frame_json(&message),
             Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 assert_ne!(peer.1.poll(), Progress::Closed);
             }
@@ -1380,7 +1380,7 @@ fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
 }
 
 fn ack(peer: &mut Peer, frame: &Value) {
-    let raw = json!({"version":1,"type":"ack","space":frame["space"],"page":frame["page"],"epoch":frame["epoch"],"cursors":[]});
+    let raw = json!({"version":1,"type":"ack","space":scope_of(frame, "space", 0),"page":scope_of(frame, "page", 1),"epoch":scope_of(frame, "epoch", 2),"cursors":[]});
     peer.0.send(Message::Text(raw.to_string().into())).unwrap();
 }
 
@@ -1689,11 +1689,9 @@ fn baseline_first_defers_large_statements_for_fresh_and_resumed_clients() {
             let mut joined = Vec::new();
             for index in 0..count {
                 let chunk = receive(&mut peer);
-                assert_eq!(chunk.as_object().unwrap().len(), 9);
+                // A binary chunk (#5876): kind, hash, index, count and bytes, no scope fields.
+                assert_eq!(chunk.as_object().unwrap().len(), 5);
                 assert_eq!(chunk["type"], "chunk");
-                assert_eq!(chunk["space"], f.space);
-                assert_eq!(chunk["page"], PAGE);
-                assert_eq!(chunk["epoch"], "1");
                 assert_eq!(chunk["statementHash"], hash);
                 assert_eq!(chunk["index"], index);
                 assert_eq!(chunk["count"], count);
@@ -2200,4 +2198,40 @@ fn zero_signature(bytes: &[u8]) -> Vec<u8> {
     let mut out = bytes.to_vec();
     out[at..at + 64].fill(0);
     out
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    let frame: serde_json::Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+    SCOPE.with(|scope| {
+        *scope.borrow_mut() = ["space", "page", "epoch"].map(|key| frame[key].clone());
+    });
+    frame
+}
+thread_local! {
+    /// The scope of the last text frame: a binary chunk continues that frame's transfer, so an
+    /// `ack` for it names the same scope.
+    static SCOPE: std::cell::RefCell<[serde_json::Value; 3]> = Default::default();
+}
+fn scope_of(frame: &serde_json::Value, key: &str, index: usize) -> serde_json::Value {
+    if frame[key].is_null() {
+        SCOPE.with(|scope| scope.borrow()[index].clone())
+    } else {
+        frame[key].clone()
+    }
 }

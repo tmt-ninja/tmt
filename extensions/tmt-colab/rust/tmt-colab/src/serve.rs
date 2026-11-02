@@ -139,7 +139,7 @@ impl Presentation {
             text.len() <= limit && !text.chars().any(|c| c.is_control() && c != '\n')
         };
         let status = presentation.status.as_object().ok_or_else(unconfirmed)?;
-        if status.get("profile").and_then(Value::as_str) != Some("colab-sync-v1")
+        if status.get("profile").and_then(Value::as_str) != Some("colab-sync-v2")
             || status.get("state").and_then(Value::as_str) != Some("mounted")
             || presentation.rows.len() > 16
             || presentation

@@ -117,7 +117,7 @@ impl Status<'_> {
         json!({
             "spaceId": self.space,
             "socket": self.socket,
-            "profile": "colab-sync-v1",
+            "profile": "colab-sync-v2",
             "state": "mounted",
             "door": self.state(),
             "origin": self.door().map(Door::origin),

@@ -1,5 +1,5 @@
 //! Colab's owner-only socket on real Unix sockets: framing bounds, the device
-//! context from the remote door, the colab-sync-v1 handshake, tunnel bounds,
+//! context from the remote door, the colab-sync-v2 handshake, tunnel bounds,
 //! capacity and shutdown.
 mod support;
 use std::{
@@ -64,7 +64,7 @@ fn registration_body(id: &str) -> Vec<u8> {
     serde_json::to_vec(&json!({"deviceId":id,"sign":cert("sign",signing(id).verifying_key().as_bytes()),"enc":cert("enc",&[7;32])})).unwrap()
 }
 
-const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v1\r\n";
+const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v2\r\n";
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 /// A test parks a save's preparation here, with the sync lock free, until it releases it.
@@ -930,7 +930,7 @@ fn owner_upgrades_are_accepted_capped_and_closed_when_idle() {
     assert!(head.starts_with("HTTP/1.1 101"));
     // RFC 6455 section 1.3 sample key and accept value.
     assert!(head.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"));
-    assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v1\r\n"));
+    assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v2\r\n"));
     let (_second, _) = server.tunnel();
     let owner_header = owner(DEVICE);
     let refused = server.request(&Running::get(
@@ -944,7 +944,7 @@ fn owner_upgrades_are_accepted_capped_and_closed_when_idle() {
         (
             format!(
                 "{owner_header}\r\n{}",
-                UPGRADE.replace("colab-sync-v1", "chat")
+                UPGRADE.replace("colab-sync-v2", "chat")
             ),
             400,
         ),
@@ -1107,6 +1107,7 @@ fn receive(peer: &mut WebSocket<UnixStream>) -> Value {
                     .unwrap_or_else(|_| panic!("not JSON: {message:?}"));
             }
             Message::Ping(_) | Message::Pong(_) => continue,
+            Message::Binary(_) => return frame_json(&message),
             _ => panic!("expected a JSON text frame: {message:?}"),
         }
     }
@@ -1126,19 +1127,6 @@ fn receive_skips_websocket_keepalive_frames_before_json() {
         .unwrap();
     let mut client = WebSocket::from_raw_socket(client, Role::Client, None);
     assert_eq!(receive(&mut client), expected);
-}
-
-#[test]
-#[should_panic(expected = "expected a JSON text frame")]
-fn receive_rejects_binary_frames_even_when_the_bytes_are_json() {
-    let (client, server) = UnixStream::pair().unwrap();
-    client
-        .set_read_timeout(Some(Duration::from_secs(3)))
-        .unwrap();
-    let mut server = WebSocket::from_raw_socket(server, Role::Server, None);
-    server.send(Message::Binary(b"{}".to_vec().into())).unwrap();
-    let mut client = WebSocket::from_raw_socket(client, Role::Client, None);
-    receive(&mut client);
 }
 
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
@@ -2362,10 +2350,8 @@ fn large_membership_statement_bootstraps_with_exact_chunks_and_frame_credit() {
         for index in 0..count {
             let chunk = receive(&mut peer);
             assert_eq!(chunk["type"], "chunk");
-            assert_eq!(chunk.as_object().unwrap().len(), 9);
-            assert_eq!(chunk["space"], server.space);
-            assert_eq!(chunk["page"], PAGE);
-            assert_eq!(chunk["epoch"], "1");
+            // A binary chunk (#5876): kind, hash, index, count and bytes, no scope fields.
+            assert_eq!(chunk.as_object().unwrap().len(), 5);
             assert_eq!(chunk["statementHash"], hash);
             assert_eq!(chunk["index"], index);
             assert_eq!(chunk["count"], count);
@@ -3538,10 +3524,8 @@ fn receive_batch(
             for index in 0..limits::OBJECT_BYTES.div_ceil(limits::CHUNK_BYTES) {
                 let chunk = credited(peer, cursor);
                 assert_eq!(chunk["type"], "chunk", "{chunk}");
-                for field in ["space", "page", "epoch", "envelopeHash"] {
-                    assert_eq!(chunk[field], broadcast[field]);
-                }
-                assert_eq!(chunk["objectId"], broadcast["envelope"]["objectId"]);
+                // A binary chunk (#5876) names its transfer by hash; the scope is the reference's.
+                assert_eq!(chunk["envelopeHash"], broadcast["envelopeHash"]);
                 assert_eq!(chunk["index"], index);
                 let n = *count.get_or_insert_with(|| chunk["count"].as_u64().unwrap() as usize);
                 assert!(n > 0 && n <= limits::OBJECT_BYTES.div_ceil(limits::CHUNK_BYTES));
@@ -4280,13 +4264,13 @@ impl Running {
     }
     fn reader_peer(&self, s: &Value) -> WebSocket<UnixStream> {
         let carrier = format!(
-            "Sec-WebSocket-Protocol: colab-reader-v1.{}, colab-sync-v1\r\n",
+            "Sec-WebSocket-Protocol: colab-reader-v1.{}, colab-sync-v2\r\n",
             s["token"].as_str().unwrap()
         );
-        let headers = UPGRADE.replace("Sec-WebSocket-Protocol: colab-sync-v1\r\n", &carrier);
+        let headers = UPGRADE.replace("Sec-WebSocket-Protocol: colab-sync-v2\r\n", &carrier);
         let (socket, head) = self.open_tunnel(&headers);
         assert!(head.starts_with("HTTP/1.1 101"), "{head}");
-        assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v1\r\n"));
+        assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v2\r\n"));
         assert!(!head.contains(s["token"].as_str().unwrap()));
         assert!(!head.contains("colab-reader-v1."));
         WebSocket::from_raw_socket(socket, Role::Client, None)
@@ -4596,14 +4580,14 @@ fn mounted_public_readers_catch_up_and_cannot_publish_or_claim_owner_context_twi
                 .starts_with("HTTP/1.1 403")
         );
         let wrong = UPGRADE.replace(
-            "colab-sync-v1",
-            "colab-sync-v1, colab-reader-v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "colab-sync-v2",
+            "colab-sync-v2, colab-reader-v1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         );
         assert!(server.open_tunnel(&wrong).1.starts_with("HTTP/1.1 403"));
         let replay = UPGRADE.replace(
-            "colab-sync-v1",
+            "colab-sync-v2",
             &format!(
-                "colab-sync-v1, colab-reader-v1.{}",
+                "colab-sync-v2, colab-reader-v1.{}",
                 s["token"].as_str().unwrap()
             ),
         );
@@ -7111,4 +7095,24 @@ fn browser_subpages_nest_and_refusals_have_reasons_and_create_makes_no_orphan() 
     // Detach stays available to repair the loop.
     let repaired = work(&mut peer, 108, "subpage.detach", json!({"pageId":other}));
     assert_eq!(repaired["state"], "committed", "{repaired}");
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    serde_json::from_str(message.to_text().unwrap()).unwrap()
 }

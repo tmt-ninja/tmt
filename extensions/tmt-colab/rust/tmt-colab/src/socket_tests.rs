@@ -138,7 +138,7 @@ impl ReaderMount {
         let token = session["token"].as_str().unwrap();
         let origin = origin.map_or_else(String::new, |origin| format!("tmt-origin: {origin}\r\n"));
         let mut socket = self.socket();
-        socket.write_all(format!("GET /sync HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-reader-v1.{token}, colab-sync-v1\r\n{origin}\r\n").as_bytes()).unwrap();
+        socket.write_all(format!("GET /sync HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-reader-v1.{token}, colab-sync-v2\r\n{origin}\r\n").as_bytes()).unwrap();
         let mut head = Vec::new();
         while !head.ends_with(b"\r\n\r\n") {
             assert!(head.len() < limits::HEADER_BYTES);
@@ -152,7 +152,7 @@ impl ReaderMount {
         if status != 101 {
             return Err(status);
         }
-        assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v1\r\n"));
+        assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v2\r\n"));
         Ok(WebSocket::from_raw_socket(socket, Role::Client, None))
     }
 }
@@ -412,6 +412,30 @@ fn reader_fixture(public: bool, short_cert: bool) -> Fixture {
     f
 }
 
+#[test]
+fn a_tab_from_before_the_binary_protocol_is_told_to_upgrade_and_closed() {
+    // #5876: a stale tab offers colab-sync-v1; it gets one upgradeRequired error and a close.
+    let mut f = reader_fixture(true, false);
+    let mount = ReaderMount::start(&mut f);
+    let mut socket = mount.socket();
+    socket.write_all(b"GET /sync HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v1\r\n\r\n").unwrap();
+    let mut head = Vec::new();
+    while !head.ends_with(b"\r\n\r\n") {
+        let mut b = [0];
+        socket.read_exact(&mut b).unwrap();
+        head.push(b[0]);
+    }
+    let head = String::from_utf8(head).unwrap();
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    assert!(head.contains("Sec-WebSocket-Protocol: colab-sync-v1\r\n"));
+    let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
+    let message = peer.read().unwrap();
+    assert_eq!(
+        message.to_text().unwrap(),
+        r#"{"type":"error","code":"upgradeRequired"}"#
+    );
+    assert!(matches!(peer.read(), Ok(Message::Close(_)) | Err(_)));
+}
 /// Real HTTP admission, mounted subscriptions and the root transition sync lock.
 #[test]
 fn only_an_upgrade_without_an_origin_names_the_missing_object_channel() {
@@ -757,7 +781,7 @@ fn read_controlled_reader(
         match peer.read() {
             Ok(message) => {
                 peer.get_mut().set_nonblocking(false).unwrap();
-                return serde_json::from_str(message.to_text().unwrap()).unwrap();
+                return frame_json(&message);
             }
             Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 assert_ne!(connection.poll(), Progress::Closed);
@@ -1046,4 +1070,24 @@ fn committed_archive_resyncs_only_its_page_and_fresh_reads_stay_read_only() {
         ),
     );
     assert_eq!(read_reader(&mut fresh_peer)["code"], "DENIED");
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    serde_json::from_str(message.to_text().unwrap()).unwrap()
 }

@@ -21,7 +21,7 @@ pub const OBJECT_CALLBACK_WORKERS: usize = 2;
 /// Matches Remote's callback bound, clipped to the pending request deadline.
 pub const OBJECT_CALLBACK: Duration = Duration::from_secs(5);
 
-/// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
+/// Live colab-sync-v2 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
 /// A tunnel that receives no inbound bytes for this long closes. The remote door applies the
 /// same 120 s to its splice, so an idle connection must keep bytes moving both ways.

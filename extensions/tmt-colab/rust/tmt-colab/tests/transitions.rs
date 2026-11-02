@@ -2303,7 +2303,7 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
         let mut done = false;
         for _ in 0..2048 {
             let frame: Value = match client.read() {
-                Ok(message) => serde_json::from_str(message.to_text().unwrap()).unwrap(),
+                Ok(message) => frame_json(&message),
                 Err(tungstenite::Error::Io(e)) if e.kind() == ErrorKind::WouldBlock => {
                     assert_ne!(connection.poll(), Progress::Closed);
                     continue;
@@ -3534,4 +3534,24 @@ fn zero_signature(bytes: &[u8]) -> Vec<u8> {
     let mut out = bytes.to_vec();
     out[at..at + 64].fill(0);
     out
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    serde_json::from_str(message.to_text().unwrap()).unwrap()
 }
