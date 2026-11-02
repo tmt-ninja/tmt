@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { BrowserShell } from '../src/react.js';
 import {
   shellCount,
@@ -213,9 +213,11 @@ export function ColabMock({ path }: { path: string }) {
   const globals = <GlobalSwitches screen={screen} />;
   const radius = radiusOf(query);
   const logo = logoOf(query);
-  // The ninja option swaps the shell's mark in this mock only: the shell draws its brand itself.
+  // The ninja option swaps the shell's mark in this mock only: the shell draws its brand itself, and
+  // inside Design the host's own shell has one too, so the search stays in the mock's scope.
+  const mock = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const brand = document.querySelector<HTMLElement>('.tmt-ui-shell-brand');
+    const brand = mock.current?.querySelector<HTMLElement>('.tmt-ui-shell-brand');
     if (!brand) return;
     brand.dataset.mockLogo = logo;
     let ninja = brand.querySelector('.mock-ninja-mark');
@@ -233,7 +235,7 @@ export function ColabMock({ path }: { path: string }) {
     '--tmt-ui-ref-radius-step': `${radius.step}px`,
   } as CSSProperties;
   return (
-    <div data-tmt-palette="b" data-mock-radius={radius.id} style={scope}>
+    <div ref={mock} data-tmt-palette="b" data-mock-radius={radius.id} style={scope}>
       <UiTheme theme={theme}>
         <BrowserShell
           view={view}
