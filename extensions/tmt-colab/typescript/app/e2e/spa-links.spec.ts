@@ -1,5 +1,6 @@
 import { expect, test, type Frame, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { showAllPages } from '../test/home-list.js';
 import { annotationInput } from '../acceptance/harness/ask.js';
@@ -547,6 +548,122 @@ test.describe('the door serving the TMT app', () => {
       await expect(thisDevice).toBeVisible();
       expect(await live()).toBeLessThanOrEqual(2);
     });
+
+    for (const width of [390, 1440]) {
+      test(`rail switch recording keeps shell geometry at ${width}`, async ({
+        browser,
+      }, testInfo) => {
+        const id = await door!.createPage(`Recording ${width}`, '<h1>Recording content</h1>');
+        const videoDir = testInfo.outputPath('video');
+        await mkdir(videoDir, { recursive: true });
+        const context = await browser.newContext({
+          viewport: { width, height: 900 },
+          reducedMotion: 'reduce',
+          recordVideo: { dir: videoDir, size: { width, height: 900 } },
+        });
+        try {
+          const pairing = await context.newPage();
+          await door!.pair(pairing);
+          await pairing.close();
+          const page = await context.newPage();
+          await page.goto(`${door!.origin}/colab/pages/${id}`);
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          const rail = page.locator('nav[aria-label="TMT"]');
+          const openRail = async () => {
+            if (width <= 900) await page.getByRole('button', { name: 'Open navigation' }).click();
+            await expect(rail).toBeVisible();
+          };
+          await openRail();
+          await page.evaluate(() => {
+            const state = {
+              active: true,
+              frames: [] as { rail: number[] | null; bar: number[]; opening: boolean }[],
+            };
+            (window as unknown as { switchRecording: typeof state }).switchRecording = state;
+            const box = (element: Element) => {
+              const rect = element.getBoundingClientRect();
+              return [rect.x, rect.y, rect.width, rect.height];
+            };
+            const sample = () => {
+              if (!state.active) return;
+              const nav = document.querySelector('nav[aria-label="TMT"]')!;
+              const bar = document.querySelector('.tmt-ui-shell-bar')!;
+              state.frames.push({
+                rail: nav.getClientRects().length ? box(nav) : null,
+                bar: box(bar),
+                opening: document.body.innerText.includes('Opening space'),
+              });
+              requestAnimationFrame(sample);
+            };
+            sample();
+          });
+          // Let the compositor present each state for the 25 fps recording before the next step.
+          const present = () =>
+            page.evaluate(
+              () =>
+                new Promise<void>((resolve) => {
+                  let frames = 0;
+                  const next = () => {
+                    if (++frames === 16) resolve();
+                    else requestAnimationFrame(next);
+                  };
+                  requestAnimationFrame(next);
+                }),
+            );
+          await present();
+          await rail.locator('a[data-id="ops"]').click();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await present();
+          await openRail();
+          await rail.locator('a[data-id="colab"]').click();
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          await present();
+          await page.goBack();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await present();
+          await page.goForward();
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          await present();
+          const frames = await page.evaluate(() => {
+            const state = (
+              window as unknown as {
+                switchRecording: {
+                  active: boolean;
+                  frames: { rail: number[] | null; bar: number[]; opening: boolean }[];
+                };
+              }
+            ).switchRecording;
+            state.active = false;
+            return state.frames;
+          });
+          expect(frames.length).toBeGreaterThan(1);
+          for (const frame of frames) {
+            if (frame.rail) expect(frame.rail).toEqual(frames[0]!.rail);
+            expect(frame.bar).toEqual(frames[0]!.bar);
+            expect(frame.opening).toBe(false);
+          }
+          const video = page.video()!;
+          await page.close();
+          const path = testInfo.outputPath(`rail-walk-${width}.webm`);
+          await video.saveAs(path);
+          await testInfo.attach(`rail-walk-${width}`, { path, contentType: 'video/webm' });
+        } finally {
+          await context.close();
+        }
+      });
+    }
 
     test('navigation retains root search until the session changes', async ({ page }) => {
       await door!.pair(page);
