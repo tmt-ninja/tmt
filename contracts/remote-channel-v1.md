@@ -3823,8 +3823,8 @@ rows omitted from a bounded query. `query_page_bytes(context,page)` measures the
 encoded result with the longest RPC ID reserved. It refuses an oversized page without
 trimming rows or advancing its cursor. Native object chunks remain 32,768 decoded bytes;
 the larger sync frame does not enable a new attachment transport. Colab's canonical
-REST fields preserve its 354,304-byte sealed update and 43,692-byte padded-base64 checkpoint
-envelopes. Authority/checkpoint mapping, retained unpublished originals and rebootstrap
+REST fields carry its sealed update (at most 264,192 bytes) and 262,144-byte checkpoint chunks
+as bytesValue, whose padded-base64 form fits the sync document. Authority/checkpoint mapping, retained unpublished originals and rebootstrap
 on missing history remain Colab decisions; discovery does not prove retained first payloads.
 
 **DTOs.** The leaf owns these wire types; consumers do not import Remote implementation
@@ -4051,7 +4051,7 @@ not only first-sequence documents;
 terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
 and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.
-There is no offline mutation queue. Envelope/checkpoint bounds are 354,304/43,692 encoded bytes.
+There is no offline mutation queue. Envelope/checkpoint chunk bounds are 264,192/262,144 bytes, carried as bytesValue.
 Provider pages hold at most 256 documents and fit one 397,312-byte carrier result, including
 metadata; never retain a larger page for later draining. Listener caps remain 3 per open page and
 12 per tab, one in-flight write per stream and 4 per tab. These are transport bounds, not a new

@@ -1161,11 +1161,9 @@ fn epoch_objects(
                     .unwrap()
                     .parse()
                     .unwrap();
-                let bytes = tmt_colab_model::values::binary(
-                    fields["bytes"]["stringValue"].as_str().unwrap(),
-                    32_768,
-                )
-                .unwrap();
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(fields["bytes"]["bytesValue"].as_str().unwrap())
+                    .unwrap();
                 let object = fields["object"]["stringValue"].as_str().unwrap().to_owned();
                 (object, index, id, bytes)
             })
@@ -1277,13 +1275,8 @@ fn a_new_epochs_baseline_reaches_the_cloud_before_its_wraps_and_a_link_holder_re
         })
         .unwrap()
         .expect("the owner holds the epoch's baseline");
-    // The cloud still carries the v1 JSON form (#5876 PR 2 moves it); it is the same original.
-    let cloud = tmt_colab_model::object::Envelope::from_json_v1(bytes)
-        .unwrap()
-        .to_bytes()
-        .unwrap();
     assert_eq!(
-        cloud, stored.envelope,
+        *bytes, stored.envelope,
         "the cloud holds the owner's exact sealed baseline"
     );
     let named = serde_json::from_slice::<Value>(&stored.descriptor).unwrap()["objectEnvelopeHash"]

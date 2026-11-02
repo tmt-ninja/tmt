@@ -60,10 +60,12 @@ export function sealedKind(entry: ObjectEntry): 'update' | 'checkpoint' {
   return kind;
 }
 
+/** The v1 JSON envelope of one update: base64 of the update and its framing, plus 2 KiB. */
+const LEGACY_UPDATE_JSON = 354_304;
 /** A sealed entry saved before #5876 holds a v1 JSON envelope: the one browser-side conversion,
  * lossless and under the same hash, so a write pending across the upgrade is still sent. */
 export function currentEntry(entry: ObjectEntry): ObjectEntry {
-  const bytes = binary(entry.envelope, UPDATE_ENVELOPE_BYTES * 2);
+  const bytes = binary(entry.envelope, LEGACY_UPDATE_JSON);
   if (bytes[0] !== 0x7b) return entry;
   return { ...entry, envelope: encodeBinary(Envelope.fromJson(bytes).toBytes()) };
 }

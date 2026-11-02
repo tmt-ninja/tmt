@@ -230,6 +230,21 @@ pub(super) fn convert_objects_v2(tx: &Connection) -> StoreResult<()> {
     }
     Ok(())
 }
+/// Stored object rows still in the v1 JSON form after `convert_objects_v2`: rows it could not
+/// parse or whose hash did not match. Their pages refuse to read them.
+pub(super) fn unconverted_objects(connection: &Connection) -> StoreResult<i64> {
+    let mut count = 0;
+    for (table, column, _) in OBJECT_COLUMNS {
+        count += connection.query_row(
+            &format!(
+                "SELECT count(*) FROM {table} WHERE {column} IS NOT NULL AND substr({column},1,1)=X'7B'"
+            ),
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+    }
+    Ok(count)
+}
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was
 /// taken at, so two upgrades in a row still leave a way back past the first.
 const COPIES_KEPT: usize = 2;

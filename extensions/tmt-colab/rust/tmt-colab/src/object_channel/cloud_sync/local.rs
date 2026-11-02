@@ -313,6 +313,10 @@ impl Local for StoreLocal {
                             "open"
                         }),
                     ),
+                    (
+                        "objectFormat",
+                        mapping(Field::number(documents::OBJECT_FORMAT))?,
+                    ),
                     ("expiresAt", mapping(Field::timestamp(expires_ms))?),
                 ],
             )?,
