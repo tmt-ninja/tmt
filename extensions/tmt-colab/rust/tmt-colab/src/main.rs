@@ -1,6 +1,7 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_dashboard;
+mod cli_design;
 mod cli_edit_hint;
 mod cli_edit_locks;
 mod cli_grammar;
@@ -26,6 +27,11 @@ mod status;
 mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
 const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
+/// The other skills installed with Colab, printed by name like a reference.
+const COMPANION_SKILLS: &[(&str, &str)] = &[(
+    "tmt-design-system",
+    include_str!("../../../skills/tmt-design-system/SKILL.md"),
+)];
 const SKILL_REFERENCES: &[(&str, &str)] = &[
     (
         "attachments",
@@ -145,7 +151,7 @@ fn grammar() -> Command {
             note: "Read the exact instructions shipped with this executable",
         }],
         outputs: OutputModes::Human,
-        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions. An optional reference name prints its exact bundled bytes.",
+        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions. An optional reference name prints its exact bundled bytes; tmt-design-system prints the companion skill for using design systems.",
     };
     const HOSTING_BUNDLE: CommandSpec = CommandSpec {
         name: "hosting-bundle",
@@ -335,7 +341,10 @@ fn grammar() -> Command {
                 Arg::new("reference")
                     .value_name("name")
                     .value_parser(clap::builder::PossibleValuesParser::new(
-                        SKILL_REFERENCES.iter().map(|(name, _)| *name),
+                        SKILL_REFERENCES
+                            .iter()
+                            .chain(COMPANION_SKILLS)
+                            .map(|(name, _)| *name),
                     )),
             ))
             .subcommand(
@@ -375,6 +384,7 @@ fn grammar() -> Command {
             .subcommand(cli_attachments::command())
             .subcommand(cli_storage::command())
             .subcommand(cli_projects::command())
+            .subcommand(cli_design::command())
             .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
             .subcommand(cli_work::subpage_command())
@@ -460,6 +470,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             Some(name) => {
                 SKILL_REFERENCES
                     .iter()
+                    .chain(COMPANION_SKILLS)
                     .find(|(key, _)| *key == name)
                     .expect("reference admitted by the command grammar")
                     .1
@@ -508,6 +519,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "attachment" {
         return cli_attachments::run(&root, args);
+    }
+    if command == "design" {
+        return cli_design::run(&root, args);
     }
     if command == "project" {
         return cli_projects::run(&root, args);

@@ -41,7 +41,15 @@ export interface Bundle {
   runtime: string;
   prefix: string;
   tokensCss: string;
-  components: { tag: string; props: Record<string, PropSpec>; slots: string[]; css: string; code: string }[];
+  principles: { summary: string; rules: string[] } | null;
+  components: {
+    tag: string;
+    props: Record<string, PropSpec>;
+    slots: string[];
+    examples: { title: string; markup: string }[];
+    css: string;
+    code: string;
+  }[];
   hash: string;
 }
 export interface Finding {

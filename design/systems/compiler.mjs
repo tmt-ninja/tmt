@@ -88,7 +88,11 @@ export function validateComponent(doc, where = 'component') {
     fail(`${where}: css must be text without <!-- or </style`);
 }
 
-/** The release bundle: the system's tokens and every component, named by its own SHA-256. */
+/**
+ * The release bundle: the system's tokens and every component, named by its own SHA-256. It also
+ * carries what an agent reads to use the release (`tmt colab design show`): the principles and
+ * each component's examples, with the system's own tags.
+ */
 export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
@@ -102,10 +106,15 @@ export async function buildBundle(system, config, components, sha256Hex) {
     runtime: RUNTIME,
     prefix: config.prefix,
     tokensCss: config.tokens.css,
+    principles: config.principles ?? null,
     components: components.map((doc) => ({
       tag: `${config.prefix}-${doc.tag}`,
       props: doc.props,
       slots: doc.slots,
+      examples: (doc.examples ?? []).map(({ title, markup }) => ({
+        title,
+        markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),
+      })),
       css: doc.css,
       code: doc.source.replace(/^export default /m, 'return '),
     })),

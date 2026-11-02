@@ -157,6 +157,24 @@ export function nextVersion(config: DesignSystemConfig): string {
   return `${major}.${minor}.${patch! + 1}`;
 }
 
+/** A component page's examples as its HTML holds them (their one place): each title and the markup
+ * its snippet shows. */
+export function pageExamples(source: string): { title: string; markup: string }[] {
+  const example =
+    /<h3>([\s\S]*?)<\/h3>\s*<div data-ds-example="[^"]*">[\s\S]*?<div class="docs-snippet"><pre><code>([\s\S]*?)<\/code><\/pre>/g;
+  const text = (html: string) =>
+    html
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .trim();
+  return [...source.matchAll(example)].map((match) => ({
+    title: text(match[1]!),
+    markup: text(match[2]!),
+  }));
+}
+
 export interface PublishResult {
   pin: string;
   bundle: Bundle;
@@ -177,9 +195,10 @@ export async function publishDesignSystem(
   const components: ComponentDoc[] = [];
   for (const entry of config.components) {
     if (!entry.page) throw new Error(`${entry.tag} has no page.`);
-    const doc = await withPage(transport, entry.page, async (page) =>
-      readBlock<ComponentDoc>(page.source, 'component'),
-    );
+    const doc = await withPage(transport, entry.page, async (page) => {
+      const block = readBlock<ComponentDoc>(page.source, 'component');
+      return block && { ...block, examples: pageExamples(page.source) };
+    });
     if (!doc) throw new Error(`The ${entry.tag} page has no component block.`);
     components.push(doc);
   }

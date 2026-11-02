@@ -129,6 +129,7 @@ Dashboards: [dashboard](references/dashboard.md) (`tmt colab skill dashboard`). 
 HTML: read [layout](references/layout.md) (`tmt colab skill layout`),
 [components](references/components.md) (`tmt colab skill components`) and
 [page-style](references/page-style.md) (`tmt colab skill page-style`).
+A page or mockup with a published design system: the tmt-design-system skill (`tmt colab skill tmt-design-system`).
 
 ## HTML that renders
 

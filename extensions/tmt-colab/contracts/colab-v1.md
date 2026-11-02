@@ -5523,6 +5523,22 @@ write/retry and receipt rules stay in the root, at most 10,000 bytes. Detail is
 bundled verbatim in the references. The release archive's full skill tree equals
 its source, and each archived reference equals the relocated executable's
 `skill <name>` output; guidance probes create no config, home or workspace state.
+The name `tmt-design-system` prints the companion skill installed beside the root one
+(`skills/tmt-design-system/SKILL.md`), which covers using a published design system (#5921).
+
+### Design systems from the command line (#5921)
+
+`tmt colab design ls [--json]` lists the space's design systems: pages in the reserved project
+`tmt:design-system` whose source holds the `data-tmt-ds="design-system"` config block. Each row
+gives the root page ID as `system`, `name`, `prefix`, the released `versions` and `latest` (null
+before the first release). It reads only the local store.
+`tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as the root page ID (unique
+prefix), the prefix or the name, and VERSION (default: the latest release) to the root page's
+release attachment, read through the running serve under current access. The bundle must match
+its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
+prints `pin`, the `meta` line to copy, `principles` and each component's `tag`, `props`, `slots` and
+`examples`, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
+release `COLAB_DESIGN_RELEASE_NOT_FOUND`. Both commands change nothing.
 
 ### Local management CLI (#1307)
 
