@@ -349,6 +349,15 @@ for (const surface of ['reply', 'chat']) {
     await expect(page.locator('.notice-line-tip').first()).toContainText(
       (await notice.textContent())!.trim(),
     );
+    // Its tip and focus ring follow Colab's theme, not the OS: light Colab on a dark OS.
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await expect(notice.locator('xpath=ancestor::*[@data-tmt-ui][1]')).toHaveAttribute(
+      'data-tmt-theme',
+      'light',
+    );
+    await page.evaluate(() => delete document.documentElement.dataset.theme);
+    await page.emulateMedia({ colorScheme: null });
     // Recorded: no Retry and no restored draft, which would send it twice.
     await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
     await expect(echo(page).getByRole('button', { name: 'Retry' })).toHaveCount(0);

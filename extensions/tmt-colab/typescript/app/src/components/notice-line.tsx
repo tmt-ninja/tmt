@@ -6,7 +6,8 @@ import {
   UiTheme,
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
-import type { ComponentPropsWithoutRef, ReactNode } from 'react';
+import { useSyncExternalStore, type ComponentPropsWithoutRef, type ReactNode } from 'react';
+import { getTheme, subscribeTheme } from '../theme.js';
 
 /**
  * One line of a reserved notice slot (#5911): a longer notice ends in an ellipsis instead of
@@ -20,8 +21,10 @@ export function NoticeLine({
   ref,
   ...attributes
 }: ComponentPropsWithoutRef<'p'> & { more?: ReactNode; ref?: React.Ref<HTMLParagraphElement> }) {
+  // The tip and focus ring follow the GUI theme, not the OS one.
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   return (
-    <UiTheme>
+    <UiTheme theme={theme}>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>

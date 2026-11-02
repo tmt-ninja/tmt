@@ -18,9 +18,9 @@ export type MessageComposerProps = {
   edit: ComposerEdit;
   onChange(edit: ComposerEdit): void;
   label: string;
-  /** Optional presentation below text inside the shared input. */
   /** The composer's notice row, inside the input above the text. */
   header?: ReactNode;
+  /** Optional presentation below text inside the shared input. */
   accessory?: ReactNode;
   placeholder?: string;
   disabled: boolean;
