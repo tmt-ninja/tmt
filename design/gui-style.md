@@ -761,60 +761,23 @@ An inline panel that expands under a row to show more without leaving the list
 full inner width, its own collapse action as the last line. One open at a time.
 Basis: own.
 
-### Question item
+### Questions and discussion
 
-A question is the concept website's question block (route `#/colab/page/ops-ui`, built from the
-numbered concept 40 where the website lacks it): one band, the page sheet between two 1px rules with
-no side rule and no radius. A line is a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
-title, the state (`◆` and `Needs your answer` in the waiting colour, or a check and `Answered` in the
-secondary colour) and a chevron; an answered line shows the recorded answer under the title. The open
-band's fields start in the heading's column: a kind line and an instruction over the choices in one
-wrapped row, the `Other` field under the row once Other is picked, then a rule and a `Goes to` row
-(recipient chips, add) that ends with the group's one primary action, `Send answer` / `Send answers`;
-`Retry`, `Change answer` and `Open reply` stay text actions. A group of several questions is one band
-with one heading, its rows separated by the same rule, and one Send. It differs from the website only
-where the product does more or the tokens decide: recipient chips replace plain text, the type scale
-and the opaque sheet follow the tokens, a multiple or text question has its own control, and the
-primary reads `Send answer` because the answer is sent at once (the website's `Review answer` has no
-shipped step).
+A waiting question uses the page sheet in a rounded card with the asking agent, title and answer
+controls. A group stacks its unanswered questions in one card with one Send footer; recipient chips
+and attachment controls use the existing components. An answered question is a 32px strip with a
+state mark, title, answer and disclosure. Its expanded view keeps the conversation in place and
+offers Change answer, Follow up and Remove from page as labelled icon actions. Removal uses an Undo
+notice. Blocks reserve their measured height and wrap within the page column.
 
-A question card's choices are the shared `BrowserChoice` rows in a `BrowserChoiceGroup` (legend
-`Choose one answer, or write your own.` or its multiple form, drawn under the kind line), the `Other` row
-last, in one wrapped line. The digit keys 1 to 9 pick a row from anywhere in the card except a text
-field, and the focus follows the pick when it starts on a choice; no row draws a key cap. Each control declares its key
-(`aria-keyshortcuts`) and shows it in its hint, and is named by its label alone. A row carries its
-own vertical spacing so the whole row is the tap target, with no gap between two rows. Shared row
-metrics stay owned by the [browser leaf](browser-ui/README.md).
-
-### Proposal item
-
-Colab renders authenticated proposals as parent-owned cards: title, body,
-proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
-the emphasized decision; Resolve is muted. Follow up opens a composer inside
-the card. Resolved proposals fold to a plain one-line row with a resolved mark,
-retained-history disclosure and Reopen. Comments lists the page's threads in
-views `Open` and `Needs you` (and `Proposals` when the page has one; resolved threads join `Open`
-only while `Show resolved` is on),
-a 1px rule under the view strip, as rows of number, title, quoted passage and
-`N comments · state`, each closed by a 1px rule with 18px of vertical padding; the title stays at
-14px (the compact body token) and the quote and meta take the caption size; the selected view tab uses the shared
-selection tint. Each view has an
-empty state; its header count combines unresolved ordinary threads and undecided unresolved
-proposals. Selecting a row opens that thread's Discussion view in the panel. Its header reads
-`Discussion`, the position (`n / m`, a quiet text button named `All comments` that returns to the
-list), the previous and next thread arrows (creation order, disabled at the ends), a small secondary
-`Resolve` (`Reopen` when resolved; in the 286px column its mark alone, named by its tooltip) and Close.
-Under it: one quiet line only when it says something (`◆ Needs you` or `Resolved by X`), the thread's
-title, which is its passage (the number badge at 18px and the quoted text, at most three lines under a
-2px accent rule; activating it, named `Show in the page`, scrolls the page to the passage), the turns
-(the first at the size of any other, the agent's mentions as the same chip as the composer, one quiet
-delivery line, `Retry` only on failure), and the shared reply composer. There is no footer. A resolved
-thread's badge is grey.
-
-The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
-owns decision states, placement, admission and failure behavior. Page HTML
-cannot supply these actions or grant authority. Shared component metrics remain
-owned by the [browser leaf](browser-ui/README.md).
+The Comments panel offers Open, Needs you and All filters over the authenticated thread projection.
+Open, the count and Resolve all share the unresolved-thread predicate; a thread leaves Open when
+resolved. Discussion shows the selected thread, its position, previous and next controls, visible
+Resolve or Reopen text and the reply composer. A resolution by an agent is announced when observed.
+Inline thread references show the admitted thread number and quote excerpt; activation opens its
+discussion and selects the passage. Missing, deleted and Chat references show "Thread not found".
+The [Colab contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427) owns the
+markup and behavior; shared component metrics remain owned by the [browser leaf](browser-ui/README.md).
 
 ## Interaction rules
 
