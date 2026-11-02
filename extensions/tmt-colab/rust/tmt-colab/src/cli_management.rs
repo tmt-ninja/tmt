@@ -1058,6 +1058,8 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     store.require_current_schema()?;
     let space_expiry = tmt_colab::settings::read_or_default(root).page_expiry();
     let mut catalog = inspection::catalog_for(&store, &key, space_expiry)?;
+    // Taken before `ls` drops archived rows: an archived sub-page is never counted (#5867).
+    let archived = inspection::catalog_archived_ids(&catalog);
     let ids = catalog_ids(&catalog);
     if command == "open" {
         let id = args
@@ -1159,7 +1161,6 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             // the list says it is part of another page's work.
             let graph = tmt_colab::work_links::Graph(&found);
             let parents = graph.parents();
-            let archived = inspection::archived_page_ids(&store, &key)?;
             for page in catalog["pages"].as_array_mut().into_iter().flatten() {
                 let id = page["pageId"].as_str().unwrap_or_default().to_owned();
                 if let Some(work) = graph.row(&id, &archived) {
@@ -1173,7 +1174,6 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let state_found = state_index(&layout, &store, &key, &ids).unwrap_or_default();
         let state_graph = tmt_colab::work_links::Graph(&state_found);
-        let archived = inspection::archived_page_ids(&store, &key)?;
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             attach_state_progress(page, &state_graph, &archived);
             page.as_object_mut()
@@ -1253,11 +1253,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         let found = state_index(&layout, &store, &key, &pages)?;
         let graph = tmt_colab::work_links::Graph(&found);
         attach_hierarchy_warnings(&graph, &mut page);
-        attach_state_progress(
-            &mut page,
-            &graph,
-            &inspection::archived_page_ids(&store, &key)?,
-        );
+        attach_state_progress(&mut page, &graph, &archived);
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
