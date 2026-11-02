@@ -15,8 +15,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { themeAtom } from "../state/theme";
-import { SiteHeader, SiteFooter } from "../shared/SiteChrome";
-import { landingChrome } from "../shared/landing-chrome";
+import { SiteHeader, SiteFooter } from "../shared/SiteChrome.js";
+import { landingChrome } from "../shared/landing-chrome.js";
 import "./colab-landing.css";
 
 const features = [

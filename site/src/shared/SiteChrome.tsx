@@ -19,11 +19,11 @@ export function SiteHeader({
     const element = root.current!;
     element.innerHTML = header;
     setControls(element.querySelector<HTMLElement>("[data-site-chrome-controls]"));
-    const container = element.parentElement!;
+    const documentRoot = document.documentElement;
     const chrome = element.querySelector<HTMLElement>(".site-chrome-header")!;
     const measure = () =>
-      container.style.setProperty(
-        "--site-chrome-header-height",
+      documentRoot.style.setProperty(
+        "--site-chrome-height",
         `${Math.ceil(chrome.getBoundingClientRect().height)}px`,
       );
     measure();
@@ -31,7 +31,7 @@ export function SiteHeader({
     observer.observe(chrome);
     return () => {
       observer.disconnect();
-      container.style.removeProperty("--site-chrome-header-height");
+      documentRoot.style.removeProperty("--site-chrome-height");
     };
   }, [header]);
   return (

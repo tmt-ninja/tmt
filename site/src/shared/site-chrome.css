@@ -1,10 +1,15 @@
 :root {
+  /* Static pages keep a conservative anchor offset; React hosts measure the header. */
+  --site-chrome-height: 128px;
   --site-paper: var(--c-paper, #0a0a0a);
   --site-text: var(--c-text, #f2efe9);
   --site-muted: var(--c-muted, #8f8b84);
   --site-rule: var(--c-rule, #262626);
   --site-red: var(--c-red, #e2452c);
   --site-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html {
+  scroll-padding-top: var(--site-chrome-height);
 }
 .site-chrome-header {
   position: sticky;

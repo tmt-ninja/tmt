@@ -21,7 +21,6 @@
   }
   & {
     scroll-behavior: smooth;
-    scroll-padding-top: 80px;
   }
   & {
     margin: 0;
@@ -29,9 +28,6 @@
     color: var(--fg);
     font-size: 15px;
     line-height: 1.5;
-  }
-  [id] {
-    scroll-margin-top: var(--site-chrome-header-height, 80px);
   }
   button,
   a {

@@ -1,5 +1,5 @@
-import { SiteHeader, SiteFooter } from "../shared/SiteChrome";
-import { landingChrome } from "../shared/landing-chrome";
+import { SiteHeader, SiteFooter } from "../shared/SiteChrome.js";
+import { landingChrome } from "../shared/landing-chrome.js";
 import { useState } from "react";
 import { useAtom } from "jotai";
 import { LocalLink } from "../components/LocalLink";

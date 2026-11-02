@@ -61,7 +61,9 @@ the blog and repository. Home, Colab and blog header/footer navigation share the
 [chrome renderer](src/shared/site-chrome.mjs) and `src/shared/site-chrome.css`.
 The React adapter preserves the existing language/theme controls in a dedicated slot;
 Home maps the paper/text/rule roles to its own theme. The adapter measures the
-wrapped header so existing section anchors stay below it. Phone navigation wraps so all
+wrapped header and feeds one root `html` scroll-padding rule, so in-page anchors
+on Home and Colab stay below it without per-anchor margins. Static Journal pages
+use the shared 128px fallback and load no additional observer script. Phone navigation wraps so all
 published destinations stay reachable. Callers provide the section path, mark URL,
 brand link, RSS URL, optional X handle, and navigation items (`label`, `url`, `published`,
 optional `external`). External items carry the arrow and appear in the footer; labels
