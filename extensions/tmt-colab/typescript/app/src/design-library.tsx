@@ -12,7 +12,7 @@ import { DesignSystemDialog } from './design-system-ui.js';
 import { DesignHeader } from './design-header.js';
 import { DesignPage } from './design-page.js';
 const DesignDocs = lazy(() =>
-  import('../../../../../design/browser-ui/docs/embed.js').then((module) => ({
+  import('@tmt/browser-ui/docs-embed').then((module) => ({
     default: module.DesignDocs,
   })),
 );

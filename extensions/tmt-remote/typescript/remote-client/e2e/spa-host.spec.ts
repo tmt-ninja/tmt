@@ -795,6 +795,7 @@ test.describe('the app in a browser', () => {
     expect(first.map((item) => item.id)).toEqual([
       'home',
       'colab',
+      'design',
       'remote',
       'ops',
       'digest',

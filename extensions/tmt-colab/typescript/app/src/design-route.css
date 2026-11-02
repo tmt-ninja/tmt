@@ -108,6 +108,16 @@
     grid-column: 3;
     grid-row: 1;
   }
+  /* A selected system adds Open in Colab and Publish, which do not fit beside the title on a
+   * phone: the actions take their own row, so they never cover the system menu. */
+  .tmt-ui-topbar:has(.design-header-actions > :nth-child(2)) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .tmt-ui-topbar:has(.design-header-actions > :nth-child(2)) .tmt-ui-topbar-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: end;
+  }
   /* Over the action's mark-and-label grid (browser-ui action.css), which keeps a label's width. */
   .design-new-system .tmt-ui-action.tmt-ui-action:has(> .tmt-ui-action-label) {
     display: inline-flex;

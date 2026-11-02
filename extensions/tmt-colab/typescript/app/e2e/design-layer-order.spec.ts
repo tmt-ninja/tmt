@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { servePageRuntime } from './page-runtime.js';
 
 const fixedOrder = '@layer colab-frame,tmt-starter,theme,base,tmt-ui;';
 const previousOrder = '@layer colab-frame,tmt-starter,tmt-ui;';
@@ -12,13 +13,7 @@ for (const kind of ['plain', 'tailwind'] as const) {
     const source = `${kind === 'tailwind' ? '<meta name="tmt-colab-runtime" content="react tailwind">' : ''}
 <h1>Existing author page</h1><p>A paragraph with <strong>emphasis</strong> and an ordinary link.</p>
 ${kind === 'tailwind' ? '<button id="ds" class="tmt-ui-action" data-variant="primary">Design action</button><button id="tw" class="rounded bg-focus px-4 py-2 text-white">Tailwind action</button>' : '<button id="plain">Plain action</button>'}`;
-    for (const name of ['colab-runtime.js', 'colab-runtime.css'])
-      await page.route(`**/assets/${name}`, (route) =>
-        route.fulfill({
-          contentType: name.endsWith('.js') ? 'text/javascript' : 'text/css',
-          body: readFileSync(new URL(`../dist/assets/${name}`, import.meta.url), 'utf8'),
-        }),
-      );
+    await servePageRuntime(page);
     await page.route('**/src/main.tsx', (route) =>
       route.fulfill({
         contentType: 'text/javascript',

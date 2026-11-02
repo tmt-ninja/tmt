@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { servePageRuntime } from './page-runtime.js';
 const nativePolicy = readFileSync(
   new URL('../../../rust/tmt-colab/src/browser_policy.rs', import.meta.url),
   'utf8',
@@ -20,14 +21,7 @@ async function open(page: Page, owner = true, routeBase = base) {
       response: await route.fetch({ url: new URL('/renderer.html', route.request().url()).href }),
     }),
   );
-  // The dev fixture serves the exact runtime built and pin-checked before this suite.
-  for (const name of ['colab-runtime.js', 'colab-runtime.css'])
-    await page.route(`**/assets/${name}`, (route) =>
-      route.fulfill({
-        contentType: name.endsWith('.js') ? 'text/javascript' : 'text/css',
-        body: readFileSync(new URL(`../dist/assets/${name}`, import.meta.url), 'utf8'),
-      }),
-    );
+  await servePageRuntime(page);
   await page.addInitScript((policy) => {
     (
       window as unknown as { designParentPolicy: string; designViolations: string[] }

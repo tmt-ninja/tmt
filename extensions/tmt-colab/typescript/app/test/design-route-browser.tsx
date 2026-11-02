@@ -157,7 +157,7 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   // Load development-only CSS before applying the exact parent policy, so the proof tests the
   // mounted embed rather than Vite's inline stylesheet loader (production uses self-hosted CSS).
   await import('../src/design-route.js');
-  await import('../../../../../design/browser-ui/docs/embed.js');
+  await import('@tmt/browser-ui/docs-embed');
   const home = make('Notes');
   const initial = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
   if (!owner) delete (transport as { management?: unknown }).management;
