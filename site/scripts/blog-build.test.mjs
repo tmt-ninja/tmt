@@ -113,7 +113,7 @@ test("dev serves the file-backed mark and favicon at exactly one site base on in
     for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     const mark = await readFile(join(root, "src/blog/team-tmt.png"));
-    const favicon = await readFile(join(root, "src/blog/mark.svg"), "utf8");
+    const favicon = await readFile(join(root, "src/blog/favicon.png"));
     for (const base of ["/", "/tmt/", "/custom/path/"]) {
       const blog = await blogBuild({ root, base, demo: true, development: true });
       const server = await createServer({
@@ -139,11 +139,11 @@ test("dev serves the file-backed mark and favicon at exactly one site base on in
           assert.equal(fetchedMark.status, 200);
           assert.match(fetchedMark.headers.get("content-type"), /image\/png/);
           assert.ok(Buffer.from(await fetchedMark.arrayBuffer()).equals(mark));
-          assert.equal(new URL(icon, url).pathname, `${base}blog/mark.svg`);
+          assert.equal(new URL(icon, url).pathname, `${base}blog/favicon.png`);
           const fetchedIcon = await fetch(new URL(icon, url));
           assert.equal(fetchedIcon.status, 200);
-          assert.match(fetchedIcon.headers.get("content-type"), /image\/svg\+xml/);
-          assert.equal(await fetchedIcon.text(), favicon);
+          assert.match(fetchedIcon.headers.get("content-type"), /image\/png/);
+          assert.ok(Buffer.from(await fetchedIcon.arrayBuffer()).equals(favicon));
         }
       } finally {
         await server.close();

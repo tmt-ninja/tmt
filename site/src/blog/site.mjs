@@ -198,7 +198,7 @@ export function layout({
 ${share}<meta name="twitter:card" content="summary_large_image">
 ${demo ? '<meta name="robots" content="noindex,nofollow">' : `${fallback ? '<meta name="robots" content="noindex,follow">' : ""}${canonical}${alternateLinks}${defaultAlternate}`}
 <link vite-ignore rel="alternate" type="application/rss+xml" title="${e(site.title)}" href="${e(languageIndex)}feed.xml">
-<link vite-ignore rel="icon" href="${e(location.base)}mark.svg" type="image/svg+xml">
+<link vite-ignore rel="icon" href="${e(location.base)}favicon.png" type="image/png">
 <link vite-ignore rel="apple-touch-icon" href="${e(location.base)}favicon.png">
 <link rel="stylesheet" href="/src/shared/site-chrome.css">
 <link rel="stylesheet" href="/src/blog/blog.css">
