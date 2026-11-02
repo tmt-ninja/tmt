@@ -2008,7 +2008,7 @@
               positions = [];
             try {
               // As in resolveQuestions: no text walk when there is nothing to match.
-              const map = batch.length || quiet ? collect() : null,
+              const map = batch.length || quiet || unsent.length ? collect() : null,
                 deadline = performance.now() + 20;
               for (const item of batch) {
                 if (performance.now() > deadline) throw new Error('match budget');
