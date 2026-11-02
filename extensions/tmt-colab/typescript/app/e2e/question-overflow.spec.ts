@@ -47,7 +47,10 @@ for (const width of [390, 1440]) {
         ).toBe(true);
       const captures = process.env.COLAB_CAPTURE_DIR ?? info.outputDir;
       mkdirSync(captures, { recursive: true });
-      await page.screenshot({ path: `${captures}/question-long-${width}-${theme}.png` });
+      await page.screenshot({
+        path: `${captures}/question-long-${width}-${theme}.png`,
+        fullPage: true,
+      });
     });
     test(`long answered block moves following text at ${width} ${theme}`, async ({
       page,
@@ -86,7 +89,10 @@ for (const width of [390, 1440]) {
         expect(await turn.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
       const captures = process.env.COLAB_CAPTURE_DIR ?? info.outputDir;
       mkdirSync(captures, { recursive: true });
-      await page.screenshot({ path: `${captures}/question-answer-long-${width}-${theme}.png` });
+      await page.screenshot({
+        path: `${captures}/question-answer-long-${width}-${theme}.png`,
+        fullPage: true,
+      });
       await strip.click();
       await expect
         .poll(async () => Math.abs((await after.boundingBox())!.y - collapsed))
