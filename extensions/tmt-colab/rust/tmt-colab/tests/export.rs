@@ -102,7 +102,7 @@ impl Fixture {
             &bytes,
         )
         .unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         self.store
             .append(&Envelope {
                 scope: StreamScope {

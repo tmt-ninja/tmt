@@ -159,7 +159,7 @@ impl StoreLocal {
                 // Compaction moved the cut between the position and this read: look again.
                 .ok_or(Fault::Retry)?;
             let envelope = mapping(
-                object::Envelope::from_json(&object.bytes).map_err(|_| documents::Invalid),
+                object::Envelope::from_bytes(&object.bytes).map_err(|_| documents::Invalid),
             )?;
             let header =
                 mapping(object::Header::decode(envelope.header()).map_err(|_| documents::Invalid))?;
@@ -464,7 +464,7 @@ impl Local for StoreLocal {
                 continue;
             };
             let envelope =
-                mapping(object::Envelope::from_json(&bytes).map_err(|_| documents::Invalid))?;
+                mapping(object::Envelope::from_bytes(&bytes).map_err(|_| documents::Invalid))?;
             let hash = mapping(envelope.hash().map_err(|_| documents::Invalid))?;
             let routing = self.routing(page, self.entry_expiry()?);
             return Ok(Some(Data {

@@ -402,7 +402,7 @@ impl Checked {
         } = request;
         let sequence = values::decimal(&seq, false)?;
         let hash = wire::hash(&envelope_hash)?;
-        let decoded = object::Envelope::from_json(&bytes)?;
+        let decoded = object::Envelope::from_bytes(&bytes)?;
         let header = object::Header::decode(decoded.header())?;
         let c = &header.context;
         if c.space != scope.space
@@ -542,7 +542,7 @@ fn delivery(
     if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
         return Err(Code::Capacity);
     }
-    let decoded = object::Envelope::from_json(&bytes)?;
+    let decoded = object::Envelope::from_bytes(&bytes)?;
     let header = object::Header::decode(decoded.header())?;
     if decoded.hash()? != hash
         || header.context.space != scope.space
@@ -898,7 +898,7 @@ impl<A: Admission> Server<A> {
         if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
             return Err(Code::Invalid);
         }
-        let decoded = object::Envelope::from_json(bytes)?;
+        let decoded = object::Envelope::from_bytes(bytes)?;
         let header = object::Header::decode(decoded.header())?;
         let principal = header.context.author_device.clone();
         let checked = Checked::new(
@@ -2011,7 +2011,7 @@ impl<A: Admission> State<A> {
                 return Err(Code::ResyncRequired);
             }
             let hash = wire::hash(&descriptor.object_envelope_hash)?;
-            let decoded = object::Envelope::from_json(&saved.envelope)?;
+            let decoded = object::Envelope::from_bytes(&saved.envelope)?;
             let header = object::Header::decode(decoded.header())?;
             if header.context.kind != "html"
                 || header.context.membership_revision != descriptor.membership_revision
@@ -2168,7 +2168,7 @@ impl<A: Admission> State<A> {
             }
         }
         if let Some(((stream, ns), object)) = next {
-            let decoded = object::Envelope::from_json(&object.bytes)?;
+            let decoded = object::Envelope::from_bytes(&object.bytes)?;
             let header = object::Header::decode(decoded.header())?;
             // A fold is the checkpoint of the stream it covers (colab-v1, "Owner fold"): another
             // owner-member device signed it, and it names the stream as its covered device.

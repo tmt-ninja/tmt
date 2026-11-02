@@ -62,7 +62,7 @@ struct Stored {
 }
 fn stored(frame: &Value, entry: &Value) -> Stored {
     let bytes = unb64(&entry["envelope"]);
-    let header = object::Header::decode(object::Envelope::from_json(&bytes).unwrap().header())
+    let header = object::Header::decode(object::Envelope::from_bytes(&bytes).unwrap().header())
         .unwrap()
         .context;
     Stored {

@@ -147,7 +147,8 @@ impl Envelope {
     pub fn signature(&self) -> &[u8; 64] {
         &self.signature
     }
-    pub fn to_json(&self) -> Result<Vec<u8>> {
+    /// The v1 JSON form: only the store converter and the Firestore boundary use it (#5876).
+    pub fn to_json_v1(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&Wire {
             header: values::encode_binary(&self.header),
             nonce: values::encode_binary(&[0; 12]),
@@ -191,7 +192,8 @@ impl Envelope {
         })
     }
     /// Syntax only: never establishes certificate, writer, epoch, role or stream authority.
-    pub fn from_json(bytes: &[u8]) -> Result<Self> {
+    /// The v1 JSON form: only the store converter and the Firestore boundary use it (#5876).
+    pub fn from_json_v1(bytes: &[u8]) -> Result<Self> {
         require(bytes.len() <= MAX_ENVELOPE_JSON)?;
         let wire: Wire = serde_json::from_slice(bytes).map_err(|_| Invalid)?;
         let header = values::binary(&wire.header, 1024)?;

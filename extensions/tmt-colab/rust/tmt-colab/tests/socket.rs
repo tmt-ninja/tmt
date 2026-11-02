@@ -1085,7 +1085,7 @@ impl Running {
         };
         let envelope = object::seal(&context, &[8; 32], &signing(id), payload).unwrap();
         let hash = envelope.hash().unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         (self.frame("append",json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})),bytes,hash)
     }
     fn event(&self, path: &str, header: &str, body: &str) -> String {
@@ -1484,7 +1484,7 @@ fn strict_device_events_close_live_and_prehello_tunnels_only_after_durable_revok
     let store = Store::open(&layout).unwrap();
     let saved = store.baseline(PAGE, 2).unwrap().unwrap();
     let descriptor: Value = serde_json::from_slice(&saved.descriptor).unwrap();
-    let baseline = object::Envelope::from_json(&saved.envelope).unwrap();
+    let baseline = object::Envelope::from_bytes(&saved.envelope).unwrap();
     let context = object::Header::decode(baseline.header()).unwrap().context;
     let secret: Vec<u8> = db
         .query_row(
@@ -1742,7 +1742,7 @@ fn mounted_sync_rechecks_epoch_revision_registered_key_and_live_owner_projection
             signing(DEVICE)
         };
         let envelope = object::seal(&context, &[8; 32], &key, b"not admitted").unwrap();
-        let mut frame = server.frame("append",json!({"streamId":DEVICE,"seq":"1","envelopeHash":values::encode_binary(&envelope.hash().unwrap()),"envelope":values::encode_binary(&envelope.to_json().unwrap())}));
+        let mut frame = server.frame("append",json!({"streamId":DEVICE,"seq":"1","envelopeHash":values::encode_binary(&envelope.hash().unwrap()),"envelope":values::encode_binary(&envelope.to_bytes().unwrap())}));
         frame["epoch"] = json!(epoch);
         send(&mut peer, frame);
         let error = receive(&mut peer);
@@ -2228,7 +2228,7 @@ fn revoked_author_chain_is_verifiable_but_signed_log_denies_its_objects() {
         .verify(&issuer.hash, &cert, &issuer.owner_member.signing_key)
         .unwrap();
     let entry = &page["streams"][0]["tail"][0];
-    let object = object::Envelope::from_json(
+    let object = object::Envelope::from_bytes(
         &values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap(),
     )
     .unwrap();
@@ -3243,7 +3243,7 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
             json!({
                 "streamId":DEVICE,"seq":"1",
                 "envelopeHash":values::encode_binary(&envelope.hash().unwrap()),
-                "envelope":values::encode_binary(&envelope.to_json().unwrap())
+                "envelope":values::encode_binary(&envelope.to_bytes().unwrap())
             }),
         ),
     );
@@ -3559,7 +3559,7 @@ fn receive_batch(
             assert!(bytes.len() > limits::CHUNK_BYTES && bytes.len() <= limits::OBJECT_BYTES);
             bytes
         };
-        let envelope = object::Envelope::from_json(&bytes).unwrap();
+        let envelope = object::Envelope::from_bytes(&bytes).unwrap();
         let hash = envelope.hash().unwrap();
         assert_eq!(broadcast["envelopeHash"], values::encode_binary(&hash));
         let header = object::Header::decode(envelope.header()).unwrap();
@@ -3994,7 +3994,7 @@ fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers(
         let sent =
             values::binary(frame["envelope"].as_str().unwrap(), limits::UPDATE_BYTES).unwrap();
         let header =
-            object::Header::decode(object::Envelope::from_json(&sent).unwrap().header()).unwrap();
+            object::Header::decode(object::Envelope::from_bytes(&sent).unwrap().header()).unwrap();
         assert_eq!(header.context.namespace, "own");
         entry.envelope.hash().unwrap()
     };
@@ -6199,7 +6199,7 @@ impl RequestStream {
             "append",
             json!({"streamId":self.device,"seq":seq.to_string(),
                 "envelopeHash":values::encode_binary(&self.previous),
-                "envelope":values::encode_binary(&envelope.to_json().unwrap())}),
+                "envelope":values::encode_binary(&envelope.to_bytes().unwrap())}),
         )
     }
 }

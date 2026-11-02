@@ -872,7 +872,7 @@ fn seed_page_with(pilot: &Pilot, title: &str, work: Option<&Value>) {
             seq: 1,
             hash: object.hash().unwrap(),
             previous: [0; 32],
-            bytes: &object.to_json().unwrap(),
+            bytes: &object.to_bytes().unwrap(),
         })
         .unwrap();
     store.close().unwrap();

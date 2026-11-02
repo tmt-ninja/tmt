@@ -230,7 +230,7 @@ impl Fixture {
         )
         .unwrap();
         let hash = envelope.hash().unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         (self.frame("append", json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})), hash, bytes)
     }
     fn payload(&self, id: &str, seq: u64) -> Option<Vec<u8>> {
@@ -536,7 +536,7 @@ fn gap_conflict_role_signature_and_epoch_denials_have_no_new_payload() {
     let mut envelope: Value = serde_json::from_slice(&bytes).unwrap();
     envelope["signature"] = json!(values::encode_binary(&[0; 64]));
     bytes = serde_json::to_vec(&envelope).unwrap();
-    let decoded = object::Envelope::from_json(&bytes).unwrap();
+    let decoded = object::Envelope::from_bytes(&bytes).unwrap();
     bad["envelopeHash"] = json!(values::encode_binary(&decoded.hash().unwrap()));
     bad["envelope"] = json!(values::encode_binary(&bytes));
     send(&mut a, bad);
@@ -966,7 +966,7 @@ fn blocked_frame_counts_toward_queue_cap_and_is_not_flushed_after_revocation() {
 }
 
 fn transfer(f: &Fixture, frame: Value, bytes: &[u8]) -> (Value, Vec<Value>) {
-    let envelope = object::Envelope::from_json(bytes).unwrap();
+    let envelope = object::Envelope::from_bytes(bytes).unwrap();
     let header = object::Header::decode(envelope.header()).unwrap();
     let hash = values::encode_binary(&envelope.hash().unwrap());
     let mut reference = frame;
@@ -1001,7 +1001,7 @@ fn assemble(peer: &mut Peer, expected: &[u8], paced: bool) {
         }
     }
     assert_eq!(bytes, expected);
-    let envelope = object::Envelope::from_json(&bytes).unwrap();
+    let envelope = object::Envelope::from_bytes(&bytes).unwrap();
     assert_eq!(
         values::encode_binary(&envelope.hash().unwrap()),
         identity.unwrap().1
@@ -1148,7 +1148,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         b"checkpoint",
     )
     .unwrap();
-    let bytes = checkpoint.to_json().unwrap();
+    let bytes = checkpoint.to_bytes().unwrap();
     Store::open(&Layout::open(&f.root).unwrap())
         .unwrap()
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1181,7 +1181,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         b"own checkpoint",
     )
     .unwrap();
-    let own_bytes = own_checkpoint.to_json().unwrap();
+    let own_bytes = own_checkpoint.to_bytes().unwrap();
     Store::open(&Layout::open(&f.root).unwrap())
         .unwrap()
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1288,7 +1288,10 @@ fn chunk_deadline_drop_revocation_and_signature_failure_never_persist_partial_by
             v["signature"] = json!(values::encode_binary(&[0; 64]));
             bytes = serde_json::to_vec(&v).unwrap();
             frame["envelopeHash"] = json!(values::encode_binary(
-                &object::Envelope::from_json(&bytes).unwrap().hash().unwrap()
+                &object::Envelope::from_bytes(&bytes)
+                    .unwrap()
+                    .hash()
+                    .unwrap()
             ));
         }
         let (mut reference, mut chunks) = transfer(&f, frame, &bytes);
@@ -1472,7 +1475,7 @@ fn twelve_chunk_transfer_stays_consecutive_across_credit_releases() {
         &vec![7; 270 * 1024],
     )
     .unwrap();
-    let bytes = envelope.to_json().unwrap();
+    let bytes = envelope.to_bytes().unwrap();
     assert_eq!(bytes.len().div_ceil(tmt_colab::limits::CHUNK_BYTES), 12);
     store
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1560,7 +1563,7 @@ fn baseline(f: &Fixture, size: usize) -> (Vec<u8>, Vec<u8>) {
     let envelope = object::seal(&context, &[9; 32], &f.alice, &vec![7; size]).unwrap();
     let bytes=serde_json::to_vec(&json!({"pageId":PAGE,"epoch":"1","sourceDigest":values::encode_binary(&[1;32]),
         "baselineCommitment":values::encode_binary(&[2;32]),"title":"Example","objectEnvelopeHash":values::encode_binary(&envelope.hash().unwrap()),"membershipRevision":"1"})).unwrap();
-    let envelope = envelope.to_json().unwrap();
+    let envelope = envelope.to_bytes().unwrap();
     let db = rusqlite::Connection::open(Layout::open(&f.root).unwrap().directory.join("space.db"))
         .unwrap();
     db.execute(
@@ -1786,7 +1789,7 @@ fn baseline_missing_mismatched_and_oversized_storage_never_discloses_an_object()
                         .update_admission(|p| p.baseline = Some(changed))
                         .unwrap();
                 }
-                let other = other.to_json().unwrap();
+                let other = other.to_bytes().unwrap();
                 db.execute("UPDATE baselines SET envelope=?", [other])
                     .unwrap();
                 "INVALID"
@@ -1880,7 +1883,7 @@ fn paired_checkpoints_then_both_namespace_tails_preserve_the_shared_signed_chain
                 b"rawmergedupdate-v1",
             )
             .unwrap();
-            let bytes = checkpoint.to_json().unwrap();
+            let bytes = checkpoint.to_bytes().unwrap();
             store
                 .checkpoint(&tmt_colab::store::Envelope {
                     scope,
@@ -1929,7 +1932,7 @@ fn paired_checkpoints_then_both_namespace_tails_preserve_the_shared_signed_chain
                 &stream["tail"][0]
             };
             let bytes = values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap();
-            let envelope = object::Envelope::from_json(&bytes).unwrap();
+            let envelope = object::Envelope::from_bytes(&bytes).unwrap();
             crypto::verify_signature(
                 f.alice.verifying_key().as_bytes(),
                 &envelope.signature_input().unwrap(),

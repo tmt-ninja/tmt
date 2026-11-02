@@ -71,7 +71,7 @@ struct Sealed {
     envelope: object::Envelope,
 }
 fn entry(seq: u64, hash: &[u8; 32], envelope: &object::Envelope) -> Value {
-    json!({"seq": seq.to_string(), "envelopeHash": b64(hash), "envelope": b64(&envelope.to_json().unwrap())})
+    json!({"seq": seq.to_string(), "envelopeHash": b64(hash), "envelope": b64(&envelope.to_bytes().unwrap())})
 }
 #[allow(clippy::too_many_arguments)]
 fn update(
@@ -449,7 +449,8 @@ fn regenerate() {
 }
 
 fn envelope(value: &Value) -> object::Envelope {
-    object::Envelope::from_json(&unb64(&value["envelope"])).unwrap()
+    // Frozen vectors keep the v1 JSON form (#5876).
+    object::Envelope::from_json_v1(&unb64(&value["envelope"])).unwrap()
 }
 fn key_of(v: &Value, device: &str) -> [u8; 32] {
     unb64(&v["keys"][device]).try_into().unwrap()
@@ -538,7 +539,7 @@ fn a_reader_of_today_refuses_a_fold_header_by_its_field_count() {
     // The same fold, read as the thirteen-field header an old reader expects, is not a header.
     assert!(
         object::open(
-            &object::Envelope::from_json(&unb64(
+            &object::Envelope::from_json_v1(&unb64(
                 &v["cases"][0]["frames"][1]["checkpoint"]["envelope"]
             ))
             .unwrap(),

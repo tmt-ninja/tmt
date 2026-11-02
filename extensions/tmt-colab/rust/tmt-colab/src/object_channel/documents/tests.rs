@@ -288,14 +288,16 @@ fn sealed_original_at(kind: &str, epoch: &str, plaintext: &[u8]) -> Vec<u8> {
         plaintext,
     )
     .unwrap()
-    .to_json()
+    .to_bytes()
     .unwrap()
 }
 #[test]
 fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash() {
-    let mut bytes = sealed_original("update", b"original update");
+    // The cloud carries v1 JSON (#5876 PR 2 moves it); the local original is its v2 form.
+    let local = sealed_original("update", b"original update");
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&local).unwrap();
+    let mut bytes = envelope.to_json_v1().unwrap();
     bytes.push(b'\n');
-    let envelope = tmt_colab_model::object::Envelope::from_json(&bytes).unwrap();
     let mut fields = log();
     fields.insert(
         "envelope".into(),
@@ -306,7 +308,7 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
         string(&values::encode_binary(&envelope.hash().unwrap())),
     );
     let document = encode(Resource::Log, fields.clone()).unwrap();
-    assert_eq!(originals::log(&document).unwrap().bytes, bytes);
+    assert_eq!(originals::log(&document).unwrap().bytes, local);
     for (key, value) in [
         ("page", string("10000000-0000-4000-8000-000000000002")),
         ("stream", string("20000000-0000-4000-8000-000000000002")),
@@ -324,7 +326,7 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
     let mut wire: Value = serde_json::from_slice(&bytes).unwrap();
     wire["signature"] = json!(values::encode_binary(&[0; 64]));
     let forged_bytes = serde_json::to_vec(&wire).unwrap();
-    let forged = tmt_colab_model::object::Envelope::from_json(&forged_bytes).unwrap();
+    let forged = tmt_colab_model::object::Envelope::from_json_v1(&forged_bytes).unwrap();
     fields.insert(
         "envelope".into(),
         string(std::str::from_utf8(&forged_bytes).unwrap()),
@@ -338,7 +340,7 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
 #[test]
 fn checkpoint_projection_requires_all_original_chunks_and_one_scope() {
     let bytes = sealed_original("checkpoint", &[17; 60_000]);
-    let envelope = tmt_colab_model::object::Envelope::from_json(&bytes).unwrap();
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&bytes).unwrap();
     let header = tmt_colab_model::object::Header::decode(envelope.header()).unwrap();
     let mut fields = checkpoint();
     fields.insert("object".into(), string(&header.object_id));
@@ -422,7 +424,7 @@ fn routing_at(epoch: u64) -> originals::Routing<'static> {
 fn a_baseline_publishes_as_chunks_under_its_own_hash_and_reads_back_whole() {
     let bytes = sealed_original_at("html", "2", &[7; 70_000]);
     let hash = tmt_extension_objects::Sha256Hex::from_bytes(
-        tmt_colab_model::object::Envelope::from_json(&bytes)
+        tmt_colab_model::object::Envelope::from_bytes(&bytes)
             .unwrap()
             .hash()
             .unwrap(),
@@ -549,9 +551,13 @@ fn frozen_cloud_fold_delivery_preserves_log_anchors_and_chunked_fold_originals()
             } else {
                 (&frame["checkpoint"], false)
             };
-            let bytes =
+            let cloud =
                 tmt_colab_model::values::binary(entry["envelope"].as_str().unwrap(), 354304)
                     .unwrap();
+            let bytes = tmt_colab_model::object::Envelope::from_json_v1(&cloud)
+                .unwrap()
+                .to_bytes()
+                .unwrap();
             if anchor {
                 let document = originals::log_document(&route, &bytes).unwrap();
                 assert_eq!(originals::log(&document).unwrap().bytes, bytes);

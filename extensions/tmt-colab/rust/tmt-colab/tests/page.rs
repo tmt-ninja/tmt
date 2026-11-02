@@ -108,7 +108,7 @@ impl OwnerDevice {
                 seq,
                 hash,
                 previous,
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         (seq, hash)
@@ -147,7 +147,7 @@ impl OwnerDevice {
                 namespace,
                 hash: envelope.hash().unwrap(),
                 previous: head,
-                bytes: envelope.to_json().unwrap(),
+                bytes: envelope.to_bytes().unwrap(),
                 signer: None,
             }
         })
@@ -290,7 +290,7 @@ impl Fixture {
                 seq: 1,
                 hash: envelope.hash().unwrap(),
                 previous: [0; 32],
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         Self {
@@ -1083,7 +1083,7 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
             |row| row.get(0),
         )
         .unwrap();
-    let previous = object::Envelope::from_json(&bytes).unwrap();
+    let previous = object::Envelope::from_bytes(&bytes).unwrap();
     let header = object::Header::decode(previous.header()).unwrap();
     let plain = object::open(
         &previous,
@@ -1123,7 +1123,7 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
             seq: 2,
             hash: envelope.hash().unwrap(),
             previous: context.prev_hash,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     assert_eq!(f.read().source, "browser old 🐈\r\n");
@@ -1191,7 +1191,7 @@ fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)
     let update = doc
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
-    let previous = object::Envelope::from_json(
+    let previous = object::Envelope::from_bytes(
         &f.store
             .payload(
                 StreamScope {
@@ -1235,7 +1235,7 @@ fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)
             seq: 2,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
 }
@@ -1558,7 +1558,7 @@ fn bridge_own_records_remain_visible_but_cannot_resolve_a_thread() {
             seq: 1,
             hash: envelope.hash().unwrap(),
             previous: [0; 32],
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
@@ -1842,7 +1842,7 @@ fn stored_usage(f: &Fixture) -> (usize, usize, usize) {
             .query_map([PAGE], |row| row.get::<_, Vec<u8>>(0))
             .unwrap()
             .map(|payload| {
-                object::Envelope::from_json(&payload.unwrap())
+                object::Envelope::from_bytes(&payload.unwrap())
                     .unwrap()
                     .ciphertext()
                     .len()
@@ -1922,7 +1922,7 @@ fn deleted_owner_history(history: &str, public: bool) -> (Fixture, usize) {
             seq: seq + 1,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     (f, removed.len())
@@ -2086,7 +2086,7 @@ fn reclaim_estimate_excludes_a_non_owner_stream_even_with_an_active_tail() {
             |r| r.get(0),
         )
         .unwrap();
-    let envelope = object::Envelope::from_json(&raw).unwrap();
+    let envelope = object::Envelope::from_bytes(&raw).unwrap();
     let header = object::Header::decode(envelope.header()).unwrap();
     let signing = SigningKey::from_bytes(&[9; 32]);
     let plain = object::open(
@@ -2259,7 +2259,7 @@ fn reclaim_reports_bytes_freed_before_a_later_stream_failure() {
             seq: seq + 1,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     let before = f.read().source;
@@ -3774,7 +3774,7 @@ mod native_publication {
             // Preserve legal unusual whitespace: the stored payload must be these bytes, not to_json().
             let bytes = format!(
                 " {}\n",
-                String::from_utf8(envelope.to_json().unwrap()).unwrap()
+                String::from_utf8(envelope.to_bytes().unwrap()).unwrap()
             )
             .into_bytes();
             entries.push(PublicationEntry {
@@ -4418,7 +4418,7 @@ mod native_publication {
             .verifying_key()
             .to_bytes();
         for (bytes, update) in stored.iter().zip(&updates) {
-            let envelope = object::Envelope::from_json(bytes).unwrap();
+            let envelope = object::Envelope::from_bytes(bytes).unwrap();
             let header = object::Header::decode(envelope.header()).unwrap();
             let raw = object::open(&envelope, &header.context, &[11; 32], &public).unwrap();
             assert_eq!(&raw, update);
@@ -4948,7 +4948,7 @@ mod native_preparation {
                 seq,
                 hash: envelope.hash().unwrap(),
                 previous,
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         envelope
@@ -4964,7 +4964,7 @@ mod native_preparation {
             .map(Result::unwrap)
             .collect::<Vec<_>>();
         for bytes in rows {
-            let e = object::Envelope::from_json(&bytes).unwrap();
+            let e = object::Envelope::from_bytes(&bytes).unwrap();
             let h = object::Header::decode(e.header()).unwrap();
             let sign = if h.context.author_device == DEVICE {
                 SigningKey::from_bytes(&[9; 32]).verifying_key().to_bytes()
@@ -5504,7 +5504,7 @@ mod native_preparation {
                 continue;
             }
             let envelope = sealed.unwrap();
-            let raw = envelope.to_json().unwrap();
+            let raw = envelope.to_bytes().unwrap();
             assert!(raw.len() < tmt_colab::limits::UPDATE_BYTES);
             let mut manifest = w.job().manifest.clone();
             manifest.entries = vec![tmt_colab::publication::PublicationEntry {
@@ -5627,7 +5627,7 @@ mod native_preparation {
                 seq,
                 hash: cp.hash().unwrap(),
                 previous,
-                bytes: &cp.to_json().unwrap(),
+                bytes: &cp.to_bytes().unwrap(),
             })
             .unwrap();
         update
@@ -5721,7 +5721,7 @@ mod native_preparation {
                 cp.hash().unwrap().as_slice(),
                 [0u8; 32].as_slice(),
                 prior.as_slice(),
-                cp.to_json().unwrap()
+                cp.to_bytes().unwrap()
             ],
         )
         .unwrap();
@@ -5803,7 +5803,7 @@ mod native_preparation {
                 |r| r.get(0),
             )
             .unwrap();
-        let envelope = object::Envelope::from_json(&bytes).unwrap();
+        let envelope = object::Envelope::from_bytes(&bytes).unwrap();
         let context = object::Header::decode(envelope.header()).unwrap().context;
         let raw = object::open(
             &envelope,
@@ -7201,7 +7201,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
     let chain = certificate::Chain::from_json(&device.chain).unwrap();
     let signing_key = chain.certificate().unwrap().signing_key;
     for held in checkpoints {
-        let envelope = object::Envelope::from_json(&held.bytes).unwrap();
+        let envelope = object::Envelope::from_bytes(&held.bytes).unwrap();
         let header = object::Header::decode(envelope.header()).unwrap();
         assert!(object::open(&envelope, &header.context, &[11; 32], signing_key).is_ok());
         assert!(object::open(&envelope, &header.context, &[11; 32], &[0; 32]).is_err());

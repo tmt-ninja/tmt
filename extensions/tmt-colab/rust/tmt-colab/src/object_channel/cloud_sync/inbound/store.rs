@@ -90,7 +90,7 @@ impl<A: Admission> StoreInbound<A> {
         stream: &str,
         bytes: &'a [u8],
     ) -> Result<Checkpoint<'a>, Reject> {
-        let envelope = object::Envelope::from_json(bytes).map_err(|_| Reject::Refused)?;
+        let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Reject::Refused)?;
         let header = object::Header::decode(envelope.header()).map_err(|_| Reject::Refused)?;
         let c = &header.context;
         let (namespace, name) = namespace_of(&c.namespace)?;
@@ -126,7 +126,7 @@ impl<A: Admission> StoreInbound<A> {
         bound: [u8; 32],
         bytes: &[u8],
     ) -> Result<Bootstrapped, Reject> {
-        let envelope = object::Envelope::from_json(bytes).map_err(|_| Reject::Refused)?;
+        let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Reject::Refused)?;
         let header = object::Header::decode(envelope.header()).map_err(|_| Reject::Refused)?;
         let c = &header.context;
         let (namespace, _) = namespace_of(&c.namespace)?;
@@ -416,7 +416,7 @@ impl<A: Admission> Inbound for StoreInbound<A> {
     }
     fn admit(&mut self, page: &PageRef, original: &[u8]) -> Result<Applied, Reject> {
         let admission = self.admission.as_ref().ok_or(Reject::Retry)?;
-        let envelope = object::Envelope::from_json(original).map_err(|_| Reject::Refused)?;
+        let envelope = object::Envelope::from_bytes(original).map_err(|_| Reject::Refused)?;
         let header = object::Header::decode(envelope.header()).map_err(|_| Reject::Refused)?;
         let c = &header.context;
         if c.space != self.space || c.page != page.page || c.epoch != page.epoch.to_string() {

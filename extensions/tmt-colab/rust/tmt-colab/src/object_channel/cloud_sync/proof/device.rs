@@ -118,7 +118,7 @@ impl Writer<'_> {
         )
         .unwrap();
         Sealed {
-            bytes: envelope.to_json().unwrap(),
+            bytes: envelope.to_bytes().unwrap(),
             hash: envelope.hash().unwrap(),
         }
     }

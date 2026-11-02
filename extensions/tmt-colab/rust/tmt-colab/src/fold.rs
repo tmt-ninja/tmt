@@ -533,7 +533,7 @@ impl Snapshot {
         namespace: &str,
         stored: &crate::store::owner::epoch::StoredObject,
     ) -> Result<OpenedObject> {
-        let envelope = object::Envelope::from_json(&stored.bytes)?;
+        let envelope = object::Envelope::from_bytes(&stored.bytes)?;
         let h = object::Header::decode(envelope.header())?;
         if h.covered_device.is_some() {
             return self.open_fold_object(key, page, stream, namespace, stored, &envelope, &h);
@@ -856,7 +856,7 @@ impl Snapshot {
             .anchors
             .get(&(stream.to_owned(), stored.seq))
             .ok_or(OwnerFault::Invalid)?;
-        object::check_anchor(h, &object::Envelope::from_json(anchor)?, &covered_key)?;
+        object::check_anchor(h, &object::Envelope::from_bytes(anchor)?, &covered_key)?;
         let plaintext = object::open_fold(envelope, c, stream, &self.secret, &signer_key)?;
         Ok(OpenedObject {
             namespace: c.namespace.clone(),
@@ -1158,7 +1158,7 @@ impl Snapshot {
             else {
                 return Err(OwnerFault::Invalid.into());
             };
-            let envelope = object::Envelope::from_json(&saved.envelope)?;
+            let envelope = object::Envelope::from_bytes(&saved.envelope)?;
             let h = object::Header::decode(envelope.header())?;
             let expected = &advance.baseline;
             if d.page_id != page

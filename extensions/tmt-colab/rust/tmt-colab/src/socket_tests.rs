@@ -307,7 +307,7 @@ fn no_removed_link_wraps(f: &Fixture, old_epoch: &str) {
         "narrowing/removal reused the exposed page key"
     );
     let baseline = f.store.baseline(PAGE, epoch).unwrap().unwrap();
-    let envelope = tmt_colab_model::object::Envelope::from_json(&baseline.envelope).unwrap();
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&baseline.envelope).unwrap();
     let header = tmt_colab_model::object::Header::decode(envelope.header()).unwrap();
     let signer = f.key.management_member().unwrap().signing_key;
     assert!(tmt_colab_model::object::open(&envelope, &header.context, &new_key, &signer).is_ok());
@@ -724,7 +724,7 @@ fn append_reader_fixture_object(f: &mut Fixture, size: usize) -> Vec<u8> {
         &update,
     )
     .unwrap();
-    let bytes = envelope.to_json().unwrap();
+    let bytes = envelope.to_bytes().unwrap();
     assert!(bytes.len() > limits::CHUNK_BYTES);
     assert_eq!(
         f.store
@@ -847,7 +847,7 @@ fn mounted_blocked_readers_drop_frames_and_chunk_continuations_twice() {
                         "no large-object reference before chunk transfer"
                     );
                     let bytes = object.as_ref().unwrap();
-                    let envelope = tmt_colab_model::object::Envelope::from_json(bytes).unwrap();
+                    let envelope = tmt_colab_model::object::Envelope::from_bytes(bytes).unwrap();
                     let header =
                         tmt_colab_model::object::Header::decode(envelope.header()).unwrap();
                     let expected = reader_frame(&session, "chunk", json!({

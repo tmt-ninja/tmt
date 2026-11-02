@@ -167,7 +167,7 @@ fn seal(
     Sealed {
         json: json!({
             "stream": stream, "namespace": namespace, "seq": seq.to_string(),
-            "previous": b64(&previous), "hash": b64(&hash), "envelope": b64(&envelope.to_json().unwrap()),
+            "previous": b64(&previous), "hash": b64(&hash), "envelope": b64(&envelope.to_bytes().unwrap()),
         }),
         hash,
     }

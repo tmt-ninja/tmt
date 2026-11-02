@@ -35,7 +35,7 @@ fn main() {
     assert!(!input.cases.is_empty() && input.cases.len() <= 6);
     let mut results = Vec::new();
     for case in input.cases {
-        let envelope = Envelope::from_json(&serde_json::to_vec(&case.envelope).unwrap()).unwrap();
+        let envelope = Envelope::from_bytes(&serde_json::to_vec(&case.envelope).unwrap()).unwrap();
         let context = Header::decode(envelope.header()).unwrap().context;
         let secret = hex(&case.secret).try_into().expect("secret width");
         let public = hex(&case.public).try_into().expect("public width");
@@ -49,7 +49,7 @@ fn main() {
             assert_eq!(signer.verifying_key().to_bytes(), public);
             let sealed = object::seal(&context, &secret, &signer, &plaintext).unwrap();
             results.push(
-                serde_json::from_slice::<serde_json::Value>(&sealed.to_json().unwrap()).unwrap(),
+                serde_json::from_slice::<serde_json::Value>(&sealed.to_bytes().unwrap()).unwrap(),
             );
         } else {
             assert_eq!(
