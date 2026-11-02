@@ -501,15 +501,6 @@ fn serve(
         fence(stop, detached)?;
         let keyring = Keyring::open(&layout)?;
         let store = Store::open(&layout)?;
-        // The open converted every stored object to envelope v2 (#5876); a row it could not is
-        // counted here, never silently skipped.
-        match store.unconverted_objects() {
-            Ok(0) => {}
-            Ok(count) => warn(&format!(
-                "{count} stored objects could not be converted to envelope v2; the pages that hold them refuse to read them"
-            )),
-            Err(error) => warn(&format!("Stored objects could not be counted: {error}")),
-        }
         // Task-era work values are rewritten once, before the serve reads any page (#5825). Every
         // failure is reported and tried again at the next open; the serve still starts.
         if let Err(error) = crate::cli_work::migrate_space(root, &lock, &warn) {
