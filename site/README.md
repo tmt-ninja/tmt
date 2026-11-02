@@ -149,8 +149,17 @@ and source note come from one committed [stats snapshot](src/blog/stats.json):
 `subscriptions`, `loop`, `agents`, `prs`, `code`, each with a display `value`
 (up to 64 characters) and `label` (up to 160); `note` is bounded to 2,000
 characters. The build validates the exact shape and rejects missing/extra fields,
-empty strings and control characters. Updates are deliberate data changes;
-builds never read host session logs or git history to refresh the snapshot.
+empty strings and control characters. Builds never read host session logs or
+git history; the snapshot changes only through committed data updates.
+
+`node src/blog/stats-update.mjs [--write]`, run from `site/` on the owner's host,
+recomputes the snapshot: loop hours and agent-hours from Codex and Claude session
+logs of this repository (activity gaps over five minutes end an interval), merged
+PRs from one GitHub search, and added lines from `origin/main` numstat minus the
+exclusion list in that file. Subscriptions add $400 on each 27th from 27 September
+2026. A per-file cache under `$XDG_CACHE_HOME/tmt-blog-stats/` (size and mtime)
+rescans only changed logs. The command refuses to write when any cumulative metric
+would go down. A daily tmt-mkt Squad cron commits the result as a data-only PR.
 
 Optional post metadata `keyNumber` is exactly `{ "value": "2.9×", "label": "tokens per line" }`.
 Both fields must be nonempty text without control characters; `value` is bounded

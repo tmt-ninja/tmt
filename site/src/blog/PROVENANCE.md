@@ -46,8 +46,8 @@ sticky header/footer, index questions, statistics and date/article/key-number ro
 team icon `favicon.png` remains the favicon. Product and Colab navigation is configured
 but hidden until those destinations are published, by the lead's explicit decision.
 The owner-supplied X handle links to `https://x.com/tmtTofu` as “Follow on X”.
-The committed `stats.json` snapshot carries the mock's as-of date, display values
-and source note; build-time validation does not query host activity.
+The committed `stats.json` snapshot is refreshed by `stats-update.mjs` (see the
+site README); build-time validation does not query host activity.
 
 The landing loads canonical design tokens but uses its own layout CSS. Shared
 site chrome exposes its own prefixed CSS tokens with site-color fallbacks; blog
