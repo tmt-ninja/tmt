@@ -45,6 +45,10 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     const agent = await world.startAgent('status-agent');
     const author = await pairBrowser(world, 'status-author');
     const viewer = await pairBrowser(world, 'status-viewer');
+    for (const browser of [author, viewer])
+      await browser.context.addInitScript(() =>
+        localStorage.setItem('colab.comments.filter', 'all'),
+      );
     const created = createPage(
       world,
       'Status acceptance',
@@ -127,6 +131,10 @@ test('status states captured for the UX look', async () => {
     const agent = await world.startAgent('status-agent');
     const author = await pairBrowser(world, 'status-author');
     const viewer = await pairBrowser(world, 'status-viewer');
+    for (const browser of [author, viewer])
+      await browser.context.addInitScript(() =>
+        localStorage.setItem('colab.comments.filter', 'all'),
+      );
     const created = createPage(
       world,
       'Status captures',
@@ -208,6 +216,7 @@ test('Resolve all commits two native statuses and notifies each agent once in th
     const alpha = await world.startAgent('batch-alpha');
     const beta = await world.startAgent('batch-beta');
     const author = await pairBrowser(world, 'batch-author', { talk: true });
+    await author.context.addInitScript(() => localStorage.setItem('colab.comments.filter', 'all'));
     const created = createPage(
       world,
       'Batch status acceptance',
@@ -380,9 +389,9 @@ test('Resolve all writes the fewest own updates that fit: 1, 10 and 50 open comm
         .getByRole('dialog', { name: text.threadResolveAllConfirm(count) })
         .getByRole('button', { name: 'Resolve all', exact: true })
         .click();
-      await expect(
-        panel.getByRole('button', { name: text.threadResolveAll(0), exact: true }),
-      ).toBeVisible({ timeout: 120_000 });
+      await expect(commentsAction(page)).toHaveAccessibleName('Comments (0)', {
+        timeout: 120_000,
+      });
       const ms = Date.now() - started;
       const listing = JSON.parse(
         run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
