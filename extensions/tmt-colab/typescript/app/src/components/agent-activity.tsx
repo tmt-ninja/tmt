@@ -13,6 +13,7 @@ import {
 } from '../message-state.js';
 import { text } from '../strings.js';
 import { AgentChip, AgentChipActivity } from './agent-chip.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from '../page-visibility.js';
 
 const ActivityPresentation = createContext<{
   observation?: ActivityObservation;
@@ -41,10 +42,10 @@ export function AgentActivityProvider({
   const [now, setNow] = useState(0);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
-    const visibility = () => setVisible(document.visibilityState !== 'hidden');
+    const visibility = () => setVisible(!pageHidden());
     visibility();
-    document.addEventListener('visibilitychange', visibility);
-    return () => document.removeEventListener('visibilitychange', visibility);
+    addVisibilityListener(visibility);
+    return () => removeVisibilityListener(visibility);
   }, []);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;

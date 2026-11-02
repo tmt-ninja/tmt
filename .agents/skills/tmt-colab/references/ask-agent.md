@@ -117,8 +117,10 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 
 ## Page wiring
 
-- **Session and client.** `registration.ts` keeps the exact Session returned by
-  `sdk.reopenSession()` as `remoteSession`. `mounted.ts` builds one shared `RemoteClient`
+- **Session and client.** `registration.ts` keeps the exact Session it is admitted with as
+  `remoteSession`: inside the TMT web app, the shell's one session for the tab (`ShellSlot.session`);
+  in a standalone tab, `sdk.reopenSession()`. An ended session is forgotten in the shell, and Colab
+  readmits through the SDK's bounded `reopenSession(previous, …)`. `mounted.ts` builds one shared `RemoteClient`
   from it before any sync `Connection` opens; an SDK without `operations` leaves Ask
   unavailable and source usable. On reconnect it coalesces re-registration, owner and
   same-device verification and a new client into one shared replacement.

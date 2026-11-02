@@ -304,6 +304,8 @@ export const routes: readonly ShellRoute[] = [
     id: 'colab',
     paths: ['/colab', '/colab/'],
     rail: 'colab',
+    // Colab is kept while another route shows: its session, pages and frames stay (#5954).
+    keep: true,
     async load(_remembered, settled) {
       // Colab loads only from what this page's own read describes: never unpaired.
       let answer = await settled();
@@ -379,6 +381,8 @@ let heldBy: (() => string) | undefined;
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next: object): void {
   if (session === next) return;
+  // Modules the shell keeps suspended hold the old session: release them before it changes.
+  if (session) started?.sessionChanging();
   session = next;
   search?.replace();
   publishSearch?.();
@@ -408,6 +412,7 @@ function rootSession(signal: AbortSignal): Promise<Session> {
 }
 function forgetSession(previous: Session): void {
   if (session !== previous) return;
+  started?.sessionChanging();
   session = undefined;
   search?.replace();
   publishSearch?.();
@@ -450,14 +455,16 @@ export function shellApp(): ShellHost | undefined {
       started?.navigate(href);
     },
   });
-  let currentRoute: AbortController | undefined;
+  /** The instance still loading or mounting: a later route load ends it before it draws. */
+  let mounting: AbortController | undefined;
   const ownedRoutes = routes.map((route): ShellRoute => ({
     ...route,
     async load(remembered, settled) {
-      currentRoute?.abort();
+      // Each mounted instance has its own lifetime, ended only by its release, so a module the
+      // shell keeps suspended keeps its signal (#5954); one superseded while it mounts ends here.
+      mounting?.abort();
       const lifetime = new AbortController();
-      currentRoute = lifetime;
-      search!.replace();
+      mounting = lifetime;
       status.hidden = true;
       // The first read is the live description, never a remembered answer used for the rail.
       void settled().then((read) => {
@@ -473,8 +480,9 @@ export function shellApp(): ShellHost | undefined {
           if (lifetime.signal.aborted) return;
           let active = true;
           let adopted = false;
+          let current = slot;
           const publish = () => {
-            if (!active || !adopted || !slot.topBarReady()) return;
+            if (!active || !adopted || !current.topBarReady()) return;
             const place = { origin: location.origin, href: location.href };
             const rail = appRail(answer, routes, place);
             search!.update(
@@ -484,8 +492,7 @@ export function shellApp(): ShellHost | undefined {
               ),
             );
           };
-          publishSearch = publish;
-          const hosted: RootSlot = {
+          const hosted = (slot: ShellSlot): RootSlot => ({
             ...slot,
             routeSignal: lifetime.signal,
             setTopBar() {
@@ -494,18 +501,50 @@ export function shellApp(): ShellHost | undefined {
               publish();
               return bar;
             },
-          };
-          const release = await module.mount(hosted);
-          return () => {
+          });
+          publishSearch = publish;
+          let given: Awaited<ReturnType<typeof module.mount>>;
+          try {
+            given = await module.mount(hosted(slot));
+          } finally {
+            if (mounting === lifetime) mounting = undefined;
+          }
+          const mounted = typeof given === 'function' ? { release: given } : given;
+          const quiet = () => {
             active = false;
             if (publishSearch === publish) publishSearch = undefined;
-            release?.();
+          };
+          const release = () => {
+            quiet();
+            lifetime.abort();
+            mounted?.release();
+          };
+          if (!mounted?.suspend) return release;
+          const { suspend, resume } = mounted;
+          return {
+            release,
+            suspend() {
+              quiet();
+              suspend.call(mounted);
+            },
+            resume(next) {
+              current = next;
+              active = true;
+              publishSearch = publish;
+              resume?.call(mounted, hosted(next));
+              publish();
+            },
           };
         },
       };
     },
   }));
   const host = startShellHost(root, ownedRoutes, {
+    // Every module shares this tab's one session (#5954); none opens its own.
+    sessions: {
+      open: (signal) => rootSession(signal ?? new AbortController().signal),
+      forget: (previous) => forgetSession(previous as Session),
+    },
     failed: (main) =>
       main.replaceChildren(
         Object.assign(document.createElement('p'), {
@@ -522,7 +561,6 @@ export function shellApp(): ShellHost | undefined {
     remote: { kind: 'unconfirmed', href: '/remote/' },
   });
   const dispose = () => {
-    currentRoute?.abort();
     session = undefined;
     search?.dispose();
     host.dispose();
@@ -532,8 +570,9 @@ export function shellApp(): ShellHost | undefined {
     window.removeEventListener('popstate', changed);
     window.removeEventListener('hashchange', changed);
   };
+  // Navigation only refreshes what search describes; its Colab transport is replaced only when
+  // the session changes or the shell is read again (#5954).
   const changed = () => {
-    search?.replace();
     publishSearch?.();
   };
   const restore = (event: PageTransitionEvent) => {

@@ -23,6 +23,12 @@ import { TitleCache } from './title-cache.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 
+/** A session lent by the host: `open` returns the tab's current one, `forget` drops an ended one. */
+export interface SharedSession {
+  open(signal?: AbortSignal): Promise<unknown>;
+  forget(previous: unknown): void;
+}
+
 /**
  * The paired mount's transport. Colab's own routes read the mount from the document's location;
  * a host whose document belongs to another module (the global search) names the mount, and
@@ -30,7 +36,11 @@ import { Connection } from './connection.js';
  */
 export async function mountedTransport(
   signal?: AbortSignal,
-  options: { mount?: URL } = {},
+  options: {
+    mount?: URL;
+    /** The shell's one session for this tab (#5954): opened and forgotten there, never here. */
+    session?: SharedSession;
+  } = {},
 ): Promise<{
   space: string;
   pageIds: { pageId: string; deleted: boolean }[];
@@ -51,9 +61,18 @@ export async function mountedTransport(
   const mount = options.mount ?? mountUrl(),
     pairedSdk = await remoteSdk();
   lifetime.signal.throwIfAborted();
+  const shared = options.session;
+  const reopen = (previous?: unknown, options?: { retry?: 'bounded'; signal?: AbortSignal }) => {
+    if (!shared) return pairedSdk.reopenSession(previous, options);
+    if (previous === undefined) return shared.open(lifetime.signal);
+    // An ended session is forgotten in the shell (only while still current), and Colab readmits
+    // through the SDK's bounded reopen, keeping its typed recovery reasons.
+    shared.forget(previous);
+    return pairedSdk.reopenSession(previous, options);
+  };
   const sdk = {
       reopenSession: (previous?: unknown, options?: { retry?: 'bounded'; signal?: AbortSignal }) =>
-        owned(() => pairedSdk.reopenSession(previous, options)),
+        owned(() => reopen(previous, options)),
       certifyKey: (purpose: 'sign' | 'enc', key: Uint8Array) =>
         owned(() => pairedSdk.certifyKey(purpose, key)),
       transportUrl: (session: unknown, url: string | URL) => pairedSdk.transportUrl(session, url),
@@ -266,7 +285,7 @@ export async function mountedTransport(
           explicit: true,
           mount,
           storage: sessionStorage,
-          reopen: () => pairedSdk.reopenSession(),
+          reopen: () => reopen(),
           reload: () => {
             lifetime.signal.throwIfAborted();
             location.reload();
