@@ -220,7 +220,8 @@ test('hidden questions stay out of header navigation and remain available in met
   await expect(page.locator('.needs-you-header-trigger')).toHaveCount(0);
   await (await pageAction(page, 'Questions…')).click();
   await expect(page.getByRole('dialog', { name: 'Questions', exact: true })).toBeVisible();
-  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  await expect(line).toHaveClass(/question-waiting-heading/);
+  await expect(line).toBeHidden();
   await expect(slot).toHaveCSS('display', 'none');
   expect((await call('proof')).sends).toHaveLength(0);
   expect((await call('proof')).actions).toEqual([]);

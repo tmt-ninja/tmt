@@ -1618,6 +1618,12 @@ button.discussion-quote:focus-visible {
   align-items: center;
   gap: 0;
 }
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header-actions .tmt-ui-action {
+  --tmt-ui-host-action-padding: 2px 4px;
+  --tmt-ui-host-action-gap: 2px;
+  --tmt-ui-host-action-size: 11px;
+  --tmt-ui-host-action-min-height: 26px;
+}
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-control {
   border-radius: 6px;
   color: var(--tmt-ui-color-secondary);

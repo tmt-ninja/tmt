@@ -187,15 +187,15 @@ test('the anchor title shows its passage in the page and an open thread has no s
 });
 
 for (const width of [1440, 800, 390])
-  test(`Resolve and Reopen are icon actions that fit the header at ${width}px`, async ({
+  test(`Resolve and Reopen are labelled actions that fit the header at ${width}px`, async ({
     page,
   }) => {
     const { panel } = await openFirst(page, width);
     const header = panel.locator('.tmt-ui-drawer-header');
     const resolve = panel.getByRole('button', { name: 'Resolve', exact: true });
     await expect(resolve).toBeVisible();
-    await expect(resolve).toHaveText('');
-    await expect(resolve).toHaveClass(/tmt-ui-icon-action-control/);
+    await expect(resolve).toHaveText('Resolve');
+    await expect(resolve).toHaveClass(/tmt-ui-action/);
     // The title follows the compact mock typography.
     const title = panel.getByRole('heading', { level: 2 });
     await expect(title).toHaveCSS('font-size', '13px');
@@ -225,7 +225,7 @@ for (const width of [1440, 800, 390])
     await chooseThreadFilter(page, 'All');
     await resolve.click();
     const reopen = panel.getByRole('button', { name: 'Reopen', exact: true });
-    await expect(reopen).toHaveText('');
+    await expect(reopen).toHaveText('Reopen');
     expect(await row()).toEqual({ fits: true, inside: true, apart: true });
     // Its turns' avatars are 24px.
     await expect(panel.locator('.tmt-ui-avatar').first()).toHaveCSS('width', '24px');
@@ -346,20 +346,14 @@ test('the All preference survives remount and does not depend on successful brow
   await expect(commentsRegion(page).locator('.discussion-position')).toHaveText('1 / 4');
 });
 
-test('resolving the final thread stays expanded until explicit filter navigation', async ({
-  page,
-}) => {
+test('resolving the final open thread removes it from Open immediately', async ({ page }) => {
   const { panel } = await openFirst(page);
   const resolve = panel.getByRole('button', { name: 'Resolve', exact: true });
   for (let left = 4; left > 0; left--) {
     await resolve.click();
-    await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
     await expect(commentsAction(page)).toHaveAccessibleName(`Comments (${left - 1})`);
-    await expect(panel.getByTestId('comment-entry').first()).toBeVisible();
-    if (left > 1) await panel.getByRole('button', { name: 'Next', exact: true }).click();
+    if (left > 1) await expect(panel.getByTestId('comment-entry').first()).toBeVisible();
   }
-  await expect(panel.getByTestId('comments-empty')).toHaveCount(0);
-  await chooseThreadFilter(page, 'Open');
   await expect(panel.getByTestId('comments-empty')).toContainText('Nothing waiting here.');
   await chooseThreadFilter(page, 'All');
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 5');
@@ -387,7 +381,7 @@ test('closing Discussion clears its selected passage by button and Escape from t
   await expect.poll(selected).toMatchObject({ selected: false });
 });
 
-test('Discussion header follows Mock 1 order and 26px icon geometry', async ({ page }) => {
+test('Discussion header keeps control order and icon geometry', async ({ page }) => {
   const { panel } = await openFirst(page, 1440);
   await expect(panel).toHaveAccessibleName('Discussion');
   const header = panel.locator('.tmt-ui-drawer-header');
@@ -412,7 +406,8 @@ test('Discussion header follows Mock 1 order and 26px icon geometry', async ({ p
   await expect(title).toHaveCSS('font-weight', '620');
   await expect(position).toHaveCSS('font-size', '11px');
   await expect(filter).toHaveCSS('border-top-width', '1px');
-  for (const action of [previous, next, resolve, all, close]) {
+  await expect(resolve).toHaveText('Resolve');
+  for (const action of [previous, next, all, close]) {
     await expect(action).toHaveCSS('width', '26px');
     await expect(action).toHaveCSS('height', '26px');
     await expect(action.locator('svg')).toHaveCSS('width', '16px');

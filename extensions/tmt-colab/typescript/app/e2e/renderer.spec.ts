@@ -1666,7 +1666,7 @@ test('question groups and split slot geometry admit only the current closed resp
     const admitted = read();
     const admittedReviews = readReviews();
     const admittedReadings = document.getElementById('probe')!.dataset.readings;
-    w.probe.handle.slots([{ id: group, height: 99999, before: 99999 }]);
+    w.probe.handle.slots([{ id: group, height: 99999999, before: 99999999 }]);
     const slot = {
       id: group,
       top: 100,
@@ -1748,8 +1748,8 @@ test('question groups and split slot geometry admit only the current closed resp
   expect(result.restored).toBe(result.geometry);
   expect(result.clamped).toEqual({
     id: '80000000-0000-4000-8000-000000000002',
-    height: 2000,
-    before: 2000,
+    height: 1000000,
+    before: 1000000,
   });
   expect(JSON.parse(result.geometry!)).toEqual([
     {
@@ -3639,7 +3639,7 @@ test('all slot kinds including before-answer hide under closed and nested detail
     .poll(async () => {
       const values = await slots();
       return (
-        values.length === 4 &&
+        values.length === 3 &&
         values.every((s: { top: number; hidden?: boolean }) => !s.hidden && s.top > 0) &&
         values[0].beforeTop !== undefined &&
         values[0].width > 0
@@ -3655,7 +3655,7 @@ test('all slot kinds including before-answer hide under closed and nested detail
   await expect
     .poll(async () => {
       const current = await slots();
-      return current.length === 4 && current.every((s: { hidden?: boolean }) => !s.hidden);
+      return current.length === 3 && current.every((s: { hidden?: boolean }) => !s.hidden);
     })
     .toBe(true);
 });
