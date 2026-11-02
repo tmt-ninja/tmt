@@ -140,6 +140,8 @@ test('the sticky header sorts, and the bulk bar replaces it while rows are selec
   await expect(page.getByRole('toolbar', { name: 'Selected rows' })).toContainText('40 selected');
   await page.getByRole('button', { name: 'Clear' }).click();
   await expect(page.getByRole('columnheader', { name: /Title/ })).toBeVisible();
+  // Clear unmounted with the bulk bar; focus lands on Select all, not the document.
+  await expect(page.getByRole('checkbox', { name: 'Select all rows' })).toBeFocused();
 });
 
 test('rows take the keyboard: arrows move, Space selects, Enter opens, the menu key opens the menu', async ({
@@ -160,7 +162,15 @@ test('rows take the keyboard: arrows move, Space selects, Enter opens, the menu 
   await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menuitem', { name: 'Rename' })).toHaveCount(0);
-  await expect(third.getByRole('button', { name: /^More for / })).toBeFocused();
+  // The menu hands focus back to its row, so the row keys keep working.
+  await expect(third).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(rows(page).nth(3)).toBeFocused();
+  await page.keyboard.press('ContextMenu');
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await expect(rows(page).nth(3)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(rows(page).first()).toBeFocused();
 });
 
 test('loading, empty and error rows', async ({ page }) => {
@@ -210,5 +220,24 @@ test('at 390 rows are two-line cards with no page scroll, and hidden columns mov
   await expect(row.locator('.tmt-data-table-actions')).toBeHidden();
   await row.getByRole('button', { name: /^More for / }).click();
   await expect(page.getByRole('menu')).toContainText('Author: sample-1');
+  // A column drawn by its cell renderer shows that rendering in the menu, its icon included.
+  const access = page
+    .getByRole('menu')
+    .locator('.tmt-data-table-menu-fact', { hasText: 'Access:' });
+  await expect(access).toContainText(/Access: (Private|Shared)/);
+  await expect(access.locator('svg')).toHaveCount(1);
   await expect(page.getByRole('menuitem', { name: /^Archive / })).toBeVisible();
+});
+
+test('at 390 a table with no actions or menu still has a menu for its menu columns', async ({
+  page,
+}) => {
+  await open(page, 390, 'plain');
+  const row = rows(page).nth(1);
+  await expect(row.locator('[data-role="person"]')).toBeHidden();
+  await row.getByRole('button', { name: /^More for / }).click();
+  await expect(page.getByRole('menu')).toContainText('Author: sample-1');
+  await expect(page.getByRole('menuitem')).toHaveCount(0);
+  await open(page, 1440, 'plain');
+  await expect(page.getByRole('button', { name: /^More for / })).toHaveCount(0);
 });

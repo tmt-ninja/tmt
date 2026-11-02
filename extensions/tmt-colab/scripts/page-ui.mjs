@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 // https://github.com/tmt-ninja/tmt/actions/runs/41228247377/job/124616827384.
 // #5821 palette B over #5840: its scope, ref tier, elevation scale, brand mark, and the text-action and
 // accent-fill roles, 127,214 -> 144,011 (exact), temporary until B becomes the default and deletes the current
-// blocks; pending GUI approval with the Linux CI measurement on its PR.
+// blocks once the palette is chosen (#5963).
 // Measured with Node v26.12.1: node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write
 // Stripping remains #5809.
 export const PAGE_UI_LIMIT = 144_011;
