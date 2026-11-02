@@ -14384,6 +14384,12 @@ function reopenSession(previous, options) {
 	}
 	return pending;
 }
+/** Keeps the landing's different-machine state distinct from other identity mismatches. */
+var DifferentMachineError = class extends ReopenSessionError {
+	constructor() {
+		super("mismatch", "identity-mismatch");
+	}
+};
 async function reopenOnce(previous, signal) {
 	active(signal);
 	const send = async (input, init) => {
@@ -14429,7 +14435,10 @@ async function reopenOnce(previous, signal) {
 	try {
 		validateDoor(current, record);
 	} catch (error) {
-		if (signal) throw new ReopenSessionError(current.machineId !== record.paired.machineId ? "mismatch" : "transient", current.machineId !== record.paired.machineId ? "identity-mismatch" : "unverifiable-response");
+		if (signal) {
+			if (current.machineId !== record.paired.machineId) throw new DifferentMachineError();
+			throw new ReopenSessionError("transient", "unverifiable-response");
+		}
 		throw error;
 	}
 	let refused = false;
@@ -14625,15 +14634,20 @@ async function landingPage(lifetime, registry, connected, sharedSession) {
 		if (!manual && sharedSession) {
 			try {
 				session = await sharedSession();
-			} catch {
-				if (currentPage()) render("unconfirmed");
+			} catch (error) {
+				if (currentPage()) {
+					if (error instanceof DifferentMachineError) render("different");
+					else if (error instanceof ReopenSessionError && error.cause) render("refused", false, error.cause.code);
+					else render("unconfirmed");
+				}
 				return;
 			}
 			if (!currentPage()) return;
 		}
 		const channel = session && channelFor(session);
-		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
-		if (!manual && sharedSession && !reused) {
+		const validSession = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const reused = manual && validSession;
+		if (!manual && sharedSession && !validSession) {
 			session = void 0;
 			render("unconfirmed");
 			return;
@@ -14677,7 +14691,7 @@ async function landingPage(lifetime, registry, connected, sharedSession) {
 		};
 		opaque = false;
 		try {
-			if (!reused && !await open()) return;
+			if (!validSession && !await open()) return;
 			if (!currentPage()) return;
 			try {
 				await observe();

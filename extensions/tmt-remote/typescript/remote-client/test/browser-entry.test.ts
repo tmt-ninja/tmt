@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
-import { landingPage, pairingPage } from '../src/browser.js';
+import { landingPage, pairingPage, reopenSession } from '../src/browser.js';
 import { Door, paired } from './door.js';
 import { DeviceKey, openSession } from '../src/device.js';
+import { RefusalError } from '../src/operations.js';
+import { ReopenSessionError } from '../src/session-reopen.js';
 
 function pairingLabels() {
   return {
@@ -349,6 +351,58 @@ test('landing observes the shell session without another admission', async () =>
     f.click();
     await vi.waitFor(() => assert.equal(f.button.disabled, false));
     assert.equal(f.counts().admissions, 1);
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('landing preserves the different-machine state from shared admission', async () => {
+  const f = await fixture('other-machine');
+  try {
+    await landingPage(f.lifetime, undefined, undefined, () =>
+      reopenSession(undefined, { signal: f.lifetime }),
+    );
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Different machine');
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('landing reports an eviction during its first shared-session observation', async () => {
+  const f = await fixture();
+  try {
+    const shared = await openSession(
+      f.device.result,
+      f.device.key,
+      f.door.descriptor.windowId,
+      fetch,
+    );
+    f.door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'Evicted', limit: 1 };
+    await landingPage(f.lifetime, undefined, undefined, async () => shared);
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
+    assert.equal(f.counts().admissions, 1);
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('landing preserves verified revocation from shared admission', async () => {
+  const f = await fixture();
+  try {
+    await landingPage(f.lifetime, undefined, undefined, async () => {
+      throw new ReopenSessionError(
+        'revoked',
+        'admission-refused',
+        new RefusalError('REMOTE_DEVICE_REVOKED'),
+      );
+    });
+    assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
+    assert.equal(f.nodes.get('status')!.textContent.includes('pair'), true);
+    assert.equal(f.counts().admissions, 0);
   } finally {
     f.unmount();
     vi.unstubAllGlobals();

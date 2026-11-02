@@ -746,12 +746,15 @@ test.describe('the app in a browser', () => {
       }
   });
 
-  test('the rail returns to My Remotes and a menu click on the shown row stays put', async () => {
+  test('the rail returns to the last Remote location and My Remotes remains explicit', async () => {
     const { page } = await openApp('/remote/settings');
     await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
-    await expectView(page, REMOTE_VIEWS[0]!);
+    await expectView(
+      page,
+      REMOTE_VIEWS.find((view) => view.id === 'settings')!,
+    );
     await modulePages(page).locator('a[data-id="remotes"]').click();
     await expectView(page, REMOTE_VIEWS[0]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
