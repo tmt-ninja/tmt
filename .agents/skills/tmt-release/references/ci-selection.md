@@ -131,7 +131,9 @@ Chromium package list through the bounded apt action; browser downloads stay sep
 The Colab three-engine safety net retains Playwright's own dependency installation.
 
 `browser-ui` runs the design gallery's six computed-style audits and overlay motion checks
-in Chromium, with seeded negative controls, then the TUI docs suite (`test:tui-docs`).
+in Chromium, with seeded negative controls. It is one matrix job under one gate: three gallery
+shards (`test:browser --shard N/3`) and a parallel TUI docs entry (`test:tui-docs`), each within
+the 15-minute limit, with fail-fast off.
 `browser_ui` selects `design/browser-ui/**`,
 `design/tokens/**` and the closed CI/tooling/workspace inputs in `ci-scope.mjs`; a tooling
 guard follows the gallery's local import graph and refuses inputs outside that selector.
@@ -141,7 +143,7 @@ same pinned Chromium cache and `install-chromium-deps` action as `colab-chrome`;
 the shared action owns the pinned package list and bounded apt installation.
 The existing `Native package matrix` requires selected success (unselected means skipped),
 and complete-main includes it; no required-check name changes. Only synthetic gallery
-failure traces are retained, for seven days. The leaf remains developer tooling, with no
+failure traces are retained, one artifact per matrix entry, for seven days. The leaf remains developer tooling, with no
 product or tmux fixture.
 
 ## Trusted main verification
