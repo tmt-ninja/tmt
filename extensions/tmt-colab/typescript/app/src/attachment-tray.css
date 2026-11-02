@@ -137,6 +137,10 @@
   overflow: hidden;
   font: inherit;
 }
+/* The tile's image host is no box of its own: the image fills the tile as before. */
+.attachment-image:not([hidden]) {
+  display: contents;
+}
 .attachment-thumbnail img {
   display: block;
   width: 100%;

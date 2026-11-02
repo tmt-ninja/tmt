@@ -685,6 +685,7 @@ export const text = {
     thisPage: (title: string) => `${title} (this page)`,
     subpages: (count: number) => (count === 1 ? '1 sub-page' : `${count} sub-pages`),
   },
+  chatUnsent: 'Your Chat message was not sent.',
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',

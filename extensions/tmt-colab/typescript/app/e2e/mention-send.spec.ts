@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { messageSendCopy } from '../src/message-send-refusal.js';
+import { capturePath } from './captures.js';
 import { destination, id } from '../test/ask-fixtures.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -200,12 +201,24 @@ test('comment write failure retains draft and prepares no Ask; preparation failu
   await input.pressSequentially('@alpha note');
   await input.press('Enter');
   await expect(page.getByRole('alert')).toContainText('Not sent. Your draft is kept; try again.');
+  // Failure notices in the composer's slot, in the danger tone (#5911).
+  const capture = async (state: string) => {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await page
+        .locator('.annotation-compose')
+        .screenshot({ path: capturePath(`composer-slot-${state}-${theme}.png`) });
+    }
+    await page.emulateMedia({ colorScheme: null });
+  };
+  await capture('not-sent');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   expect((await run(page, 'proof')).preparations).toBe(0);
   await run(page, 'mount', 'prepare-failure');
   await input.pressSequentially('@alpha @beta note');
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toHaveCount(2);
+  await capture('recipient-failed');
   expect(await run(page, 'proof')).toMatchObject({
     writes: 1,
     preparations: 2,
