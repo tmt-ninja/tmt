@@ -872,3 +872,75 @@ fn inventory_keeps_the_update_an_owner_fold_binds() {
         b"fold-5-content".len() as u64
     );
 }
+
+/// #5366 stage 3: the inventory of a supplied backup copy, never a live store. Run by hand only:
+/// `TMT_COLAB_INVENTORY_COPY=<dir holding space.db> cargo test inventory_of_a_backup_copy -- --ignored --nocapture`.
+/// The copy is opened read-only with `query_only`, a copy with a WAL or journal beside it is
+/// refused, and its bytes must be identical before and after. Only totals are printed.
+#[test]
+#[ignore]
+fn inventory_of_a_backup_copy() {
+    use sha2::{Digest, Sha256};
+    let dir = std::path::PathBuf::from(
+        std::env::var("TMT_COLAB_INVENTORY_COPY").expect("TMT_COLAB_INVENTORY_COPY"),
+    );
+    let path = dir.join("space.db");
+    for side in ["space.db-wal", "space.db-journal"] {
+        assert!(
+            !dir.join(side).exists(),
+            "{side} beside the copy: not a settled backup"
+        );
+    }
+    let digest = || Sha256::digest(fs::read(&path).unwrap());
+    let before = digest();
+    let connection = Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .unwrap();
+    connection.pragma_update(None, "query_only", true).unwrap();
+    let store = Store {
+        connection,
+        clock: std::sync::Arc::new(crate::store::now_ms),
+    };
+    let pages: Vec<String> = {
+        let mut query = store
+            .connection
+            .prepare("SELECT page FROM pages ORDER BY page")
+            .unwrap();
+        query
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    let mut reasons = std::collections::BTreeMap::<String, (u64, u64)>::new();
+    let (mut own, mut baselines, mut failed, mut top) = (0u64, 0u64, 0u64, Vec::new());
+    for page in &pages {
+        let Ok(inventory) = store.content_inventory(page) else {
+            failed += 1;
+            continue;
+        };
+        for (reason, tally) in &inventory.reasons {
+            let entry = reasons.entry(format!("{reason:?}")).or_default();
+            entry.0 += tally.rows;
+            entry.1 += tally.bytes;
+        }
+        own += inventory.own.bytes;
+        baselines += inventory.baseline_current.bytes + inventory.baseline_old.bytes;
+        top.push((
+            inventory.total(Reason::PruneableNow) + inventory.total(Reason::Superseded),
+            inventory.content_and_history().unwrap(),
+        ));
+    }
+    top.sort_unstable_by(|a, b| b.cmp(a));
+    top.truncate(10);
+    drop(store);
+    assert_eq!(digest(), before, "the copy changed");
+    println!(
+        "{}",
+        serde_json::json!({"pages":pages.len(),"failed":failed,"reasons":reasons,
+            "ownBytes":own,"baselineBytes":baselines,
+            "topPages(savableBytes,totalBytes)":top})
+    );
+}
