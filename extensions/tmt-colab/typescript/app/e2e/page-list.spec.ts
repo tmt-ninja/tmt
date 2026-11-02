@@ -1034,12 +1034,12 @@ test('the module menu opens Colab settings read-only and selects only its row', 
 }) => {
   await mount(page, 'shells');
   // The one rail: the same items as on every other TMT page.
-  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(6);
+  await expect(app(page).locator('.tmt-ui-rail .tmt-ui-rail-item')).toHaveCount(7);
   expect(
     await app(page)
       .locator('.tmt-ui-rail .tmt-ui-rail-item')
       .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.id)),
-  ).toEqual(['home', 'colab', 'remote', 'ops', 'digest', 'settings']);
+  ).toEqual(['home', 'colab', 'design', 'remote', 'ops', 'digest', 'settings']);
   await expect(moduleMenu(page).locator('a[data-id^="shell:"]')).toHaveText('Reading shell');
   await moduleMenu(page).getByRole('link', { name: 'Colab settings', exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
