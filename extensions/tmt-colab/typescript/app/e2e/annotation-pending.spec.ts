@@ -45,6 +45,27 @@ async function annotate(page: Page, [start, end]: readonly [number, number], bod
   await input(page).pressSequentially(body);
   await expect(input(page)).toHaveText(body, { useInnerText: true });
 }
+const paint = (page: Page, state: 'sending' | 'failed') =>
+  page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('body')
+    .evaluate((_body, state) => CSS.highlights.get(`colab-unsent-${state}`)?.size ?? 0, state);
+async function captureUnsent(page: Page, state: string) {
+  if ((await dialog(page).count()) === 0)
+    // Clear the fixture's native selection so it cannot obscure the underline comparison.
+    await page
+      .frameLocator('#ask-page-fixture iframe')
+      .locator('#selected')
+      .click({ position: { x: 180, y: 8 } });
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({
+        path: capturePath(`annotation-unsent-${state}-${width}-${theme}.png`),
+      });
+    }
+}
 const send = (page: Page) => dialog(page).getByRole('button', { name: /^Send(?: · to .+)?$/ });
 
 for (const close of ['×', 'Escape', 'outside'] as const)
@@ -65,6 +86,16 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     else if (close === 'Escape') await page.keyboard.press('Escape');
     else await page.mouse.click(4, 600);
     await expect(dialog(page)).toHaveCount(0);
+    // #5850: the hidden first send has no recorded thread yet, but its quote stays marked.
+    await expect
+      .poll(() =>
+        page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('body')
+          .evaluate(() => CSS.highlights.get('colab-unsent-sending')?.size ?? 0),
+      )
+      .toBe(1);
+    if (close === '×') await captureUnsent(page, 'sending');
     // The second annotation is not fenced by the first send: a fresh, enabled composer.
     await annotate(page, SECOND);
     await expect(input(page)).toBeEnabled();
@@ -75,6 +106,8 @@ for (const close of ['×', 'Escape', 'outside'] as const)
     await run(page, 'releaseReply');
     // Both sends finish, each once.
     await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(2);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
   });
 
 test('a send that fails after its window closed is said on the page; Open brings back its draft and Retry records it once', async ({
@@ -99,14 +132,9 @@ test('a send that fails after its window closed is said on the page; Open brings
   await expect(notice).toHaveText(/^Your comment on “Exact” was not sent\.\s*Open$/);
   await expect(dialog(page)).toHaveCount(0);
   expect(await run(page, 'discussionProof')).toHaveLength(0);
-  for (const width of [390, 1440])
-    for (const theme of ['light', 'dark'] as const) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.emulateMedia({ colorScheme: theme });
-      await page.screenshot({
-        path: capturePath(`annotation-unsent-notice-${width}-${theme}.png`),
-      });
-    }
+  await expect.poll(() => paint(page, 'failed')).toBe(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await captureUnsent(page, 'notice');
   // Open shows that window with the failed row, its exact draft and Retry.
   await notice.getByRole('button', { name: 'Open', exact: true }).click();
   const echo = dialog(page).getByTestId('comment-echo');
@@ -126,10 +154,21 @@ test('a send that fails after its window closed is said on the page; Open brings
   await expect(notice).toHaveCount(1);
   await annotate(page, FIRST);
   await expect(echo).toHaveAttribute('data-echo', 'failed');
+  await run(page, 'holdReply');
   await echo.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(1);
+  await captureUnsent(page, 'retry');
+  await run(page, 'releaseReply');
   await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(1);
   await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
   await expect(page.locator('.page-unsent')).toHaveCount(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect(
+    page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
+  ).toHaveCount(1);
+  await captureUnsent(page, 'recorded');
   // The other quote's draft is still its own.
   await page.keyboard.press('Escape');
   await annotate(page, SECOND);
@@ -148,6 +187,7 @@ test('discarding the kept draft of a send that failed after closing releases its
   await page.keyboard.press('Escape');
   await run(page, 'releaseReply');
   await expect(page.locator('.page-unsent').getByRole('listitem')).toHaveCount(1);
+  await expect.poll(() => paint(page, 'failed')).toBe(1);
   // The failed comment's draft is listed with the page's kept drafts; Discard there drops it all.
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   const saved = page.getByTestId('saved-draft');
@@ -156,7 +196,10 @@ test('discarding the kept draft of a send that failed after closing releases its
   await saved.getByRole('button', { name: text.savedDraftDiscard }).click();
   await expect(saved).toHaveCount(0);
   await expect(page.locator('.page-unsent')).toHaveCount(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
   await commentsClose(page, 'empty').click();
+  await captureUnsent(page, 'discarded');
   // The same quote opens a fresh composer: no failed row, no draft, nothing recorded.
   await annotate(page, FIRST);
   await expect(dialog(page).getByTestId('comment-echo')).toHaveCount(0);
@@ -164,3 +207,107 @@ test('discarding the kept draft of a send that failed after closing releases its
   await expect(input(page)).toHaveText('', { useInnerText: true });
   expect(await run(page, 'discussionProof')).toHaveLength(0);
 });
+
+test('leaving and reopening the page clears unsent paint and late completion cannot restore it', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await annotate(page, FIRST, 'Held across leaving.');
+  await run(page, 'holdReply');
+  await send(page).click();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => paint(page, 'sending')).toBe(1);
+  await run(page, 'navigateHome');
+  const host = page.locator('#ask-page-fixture');
+  await expect(host.locator('iframe')).toHaveCount(0);
+  // This fixture intentionally has an empty home list; browser Back re-enters its real route.
+  await page.goBack();
+  await expect(host.locator('iframe')).toHaveCount(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await run(page, 'releaseReply');
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  await expect.poll(() => paint(page, 'sending')).toBe(0);
+  await expect.poll(() => paint(page, 'failed')).toBe(0);
+  await expect(page.locator('.page-unsent')).toHaveCount(0);
+});
+
+for (const recovery of ['Retry', 'clear and close'] as const)
+  test(`a reply failing before its record after close keeps its failed row and file until ${recovery}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount', { attachments: true });
+    await annotate(page, FIRST, 'Recorded opening comment.');
+    await send(page).click();
+    await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(1);
+    await expect(input(page)).toHaveText('', { useInnerText: true });
+    const body = 'Keep this failed reply and its file.';
+    await input(page).pressSequentially(body);
+    await dialog(page)
+      .getByTestId('attachment-input')
+      .setInputFiles([
+        { name: 'reply.txt', mimeType: 'text/plain', buffer: Buffer.from('Retained reply file') },
+      ]);
+    await expect(dialog(page).getByTestId('attachment-chip')).toHaveCount(1);
+    await run(page, 'holdReply');
+    await run(page, 'failNextReply');
+    await send(page).click();
+    await expect(dialog(page).getByTestId('comment-echo')).toContainText(body);
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toHaveCount(0);
+    await run(page, 'releaseReply');
+    const notice = page.locator('.page-unsent').getByRole('listitem');
+    await expect(notice).toHaveCount(1);
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
+    if (recovery === 'Retry') await captureUnsent(page, 'reply-notice');
+    await notice.getByRole('button', { name: 'Open', exact: true }).click();
+    const echo = dialog(page).getByTestId('comment-echo');
+    await expect(echo).toHaveAttribute('data-echo', 'failed');
+    await expect(echo).toContainText(body);
+    await expect(echo).toContainText('reply.txt');
+    // Send's automatic empty field must not discard the retained failure on another close.
+    await page.keyboard.press('Escape');
+    await expect(notice).toHaveCount(1);
+    await notice.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(echo).toHaveAttribute('data-echo', 'failed');
+    await expect(echo).toContainText('reply.txt');
+    if (recovery === 'Retry') {
+      await captureUnsent(page, 'reply-recovered');
+      await echo.getByRole('button', { name: 'Retry', exact: true }).click();
+      await expect(dialog(page).getByTestId('comment-entry')).toHaveCount(2);
+      const threads = await run(page, 'discussionProof');
+      expect(threads).toHaveLength(1);
+      expect(threads[0].comments).toHaveLength(2);
+      expect(
+        threads[0].comments.filter((comment: { body: string }) => comment.body === body),
+      ).toHaveLength(1);
+      expect(threads[0].comments[1].attachments).toEqual([
+        expect.objectContaining({ filename: 'reply.txt' }),
+      ]);
+      await expect(notice).toHaveCount(0);
+      await captureUnsent(page, 'reply-recorded');
+      await page.keyboard.press('Escape');
+    } else {
+      await echo.getByRole('button', { name: 'Edit', exact: true }).click();
+      await expect(input(page)).toHaveText(body, { useInnerText: true });
+      await expect(dialog(page).getByTestId('attachment-chip')).toHaveCount(1);
+      await input(page).press('ControlOrMeta+A');
+      await input(page).press('Backspace');
+      await expect(input(page)).toHaveText('', { useInnerText: true });
+      await page.keyboard.press('Escape');
+      await expect(notice).toHaveCount(0);
+      const threads = await run(page, 'discussionProof');
+      expect(threads).toHaveLength(1);
+      expect(threads[0].comments).toHaveLength(1);
+      await captureUnsent(page, 'reply-cleared');
+    }
+    await expect(page.locator('.annotation-new')).toHaveCount(0);
+    await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+    await expect.poll(() => paint(page, 'sending')).toBe(0);
+    await expect.poll(() => paint(page, 'failed')).toBe(0);
+  });

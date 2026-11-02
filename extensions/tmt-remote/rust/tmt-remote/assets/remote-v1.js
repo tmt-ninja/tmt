@@ -5961,8 +5961,11 @@ function mountShell(root, view, select) {
 	tip.popover = "manual";
 	root.append(tip);
 	let release = () => {};
+	let tipAnchor;
+	let pressed;
 	const hideTip = () => {
 		release();
+		tipAnchor = void 0;
 		if (tip.matches(":popover-open")) tip.hidePopover();
 	};
 	const showTip = (anchor) => {
@@ -5970,18 +5973,37 @@ function mountShell(root, view, select) {
 		if (!text || root.dataset.drawer === "open") return hideTip();
 		release();
 		release = claimIconActionTooltip(document, hideTip);
+		tipAnchor = anchor;
 		tip.textContent = text;
 		if (!tip.matches(":popover-open")) tip.showPopover();
 		const box = anchor.getBoundingClientRect();
 		tip.style.left = `${box.right}px`;
 		tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
 	};
+	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
+	rail.addEventListener("pointerover", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
+	});
+	rail.addEventListener("pointerout", (event) => {
+		const from = noted(event.target);
+		if (from && from === noted(event.relatedTarget)) return;
+		if (from === pressed) pressed = void 0;
+		if (from && from === tipAnchor) hideTip();
+	});
+	rail.addEventListener("pointerdown", (event) => {
+		pressed = noted(event.target) ?? void 0;
+		hideTip();
+	});
+	rail.addEventListener("focusin", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor === event.target && anchor.matches(":focus-visible")) showTip(anchor);
+	});
+	rail.addEventListener("focusout", (event) => {
+		if (noted(event.target) === tipAnchor) hideTip();
+	});
 	const tipFor = (anchor, text) => {
 		anchor.dataset.note = text;
-		anchor.addEventListener("pointerenter", () => showTip(anchor));
-		anchor.addEventListener("focus", () => showTip(anchor));
-		anchor.addEventListener("pointerleave", hideTip);
-		anchor.addEventListener("blur", hideTip);
 	};
 	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
 	const close = (event) => {
@@ -6002,13 +6024,12 @@ function mountShell(root, view, select) {
 		anchor.href = item.href;
 		anchor.dataset.id = item.id;
 		if (selected) anchor.setAttribute("aria-current", "page");
-		const disabled = "disabled" in item && item.disabled;
-		if (disabled) anchor.setAttribute("aria-disabled", "true");
+		if ("disabled" in item && item.disabled) anchor.setAttribute("aria-disabled", "true");
 		anchor.onclick = (event) => {
-			if (disabled) return event.preventDefault();
+			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
 			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 			setDrawer(false);
-			if (select?.(item.id, item.href)) event.preventDefault();
+			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
 		};
 		return anchor;
 	};
@@ -6230,13 +6251,28 @@ function mountShell(root, view, select) {
 			group: owner.dataset.menuGroup,
 			part: focused?.dataset.railPart
 		} : void 0;
-		for (const controls of menuInteractions) controls.dispose();
+		const previous = menuInteractions;
 		menuInteractions = [];
-		hideTip();
-		const railTop = rail.scrollTop;
 		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
 		const selected = current ? visibleCurrent(next.menu) : void 0;
-		rail.replaceChildren(brand, railSearch, railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu));
+		const lists = [railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu)];
+		const live = [...rail.children].slice(2);
+		const pairs = lists.flatMap((list, index) => {
+			const shown = live[index];
+			return shown ? [[shown, list]] : [];
+		});
+		if (live.length === lists.length && pairs.length === lists.length && pairs.every(([shown, list]) => sameShape(shown, list))) {
+			for (const [shown, list] of pairs) patchShape(shown, list);
+			for (const controls of menuInteractions) controls.dispose();
+			menuInteractions = previous;
+			root.dataset.menu = next.menu ? "shown" : "none";
+			if (tipAnchor?.isConnected) showTip(tipAnchor);
+			return;
+		}
+		for (const controls of previous) controls.dispose();
+		hideTip();
+		const railTop = rail.scrollTop;
+		rail.replaceChildren(brand, railSearch, ...lists);
 		rail.scrollTop = railTop;
 		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
@@ -6282,6 +6318,38 @@ function mountShell(root, view, select) {
 			menu.remove();
 		}
 	};
+}
+/** What an update may change on a kept rail node; anything else is a different rail. */
+var PATCHED = /* @__PURE__ */ new Set([
+	"aria-current",
+	"aria-label",
+	"aria-disabled",
+	"data-module-current",
+	"data-note",
+	"data-emphasis",
+	"href",
+	"title"
+]);
+/** Build-local names: a kept node keeps its own, which its partner already points at. */
+var LOCAL = /* @__PURE__ */ new Set(["id", "aria-controls"]);
+var ownAttributes = (element) => element.getAttributeNames().filter((name) => !PATCHED.has(name) && !LOCAL.has(name)).map((name) => `${name}=${element.getAttribute(name)}`).join("\n");
+/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
+function sameShape(live, next) {
+	if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length) return false;
+	if (live instanceof Element && next instanceof Element) {
+		if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next)) return false;
+	}
+	return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]));
+}
+/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
+function patchShape(live, next) {
+	if (live instanceof Element && next instanceof Element) for (const name of PATCHED) {
+		const value = next.getAttribute(name);
+		if (value === null) live.removeAttribute(name);
+		else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+	}
+	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
+	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/shell-host.ts

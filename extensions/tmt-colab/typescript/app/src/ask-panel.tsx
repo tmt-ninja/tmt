@@ -137,7 +137,21 @@ export function AskPanel({
     setPending(new Set());
     setErrors(new Map());
   }, [binding]);
-  useEffect(() => setErrors(new Map()), [records]);
+  // An action's error stays until its record changes state or leaves; a re-render with the same
+  // records is no answer to it (#5911: it used to clear on every render).
+  const recordStates = records.map((record) => `${record.operationId}:${record.state}`).join('\n');
+  const errorStates = useRef(new Map<string, string>());
+  useEffect(() => {
+    const now = new Map(records.map((record) => [record.operationId, record.state as string]));
+    setErrors((previous) => {
+      const kept = [...previous].filter(
+        ([id]) => now.has(id) && now.get(id) === errorStates.current.get(id),
+      );
+      return kept.length === previous.size ? previous : new Map(kept);
+    });
+    // records changes identity on every render; its states are what this depends on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordStates]);
   async function action(record: PageAsk, kind: 'recheck' | 'abandon' | 'sendNow') {
     if (!binding || blocked || !record.canTrack || busy.current.has(record.operationId)) return;
     busy.current.add(record.operationId);
@@ -151,7 +165,10 @@ export function AskPanel({
           ? (refusals[error.code] ?? text.askActionFailed)
           : text.askActionFailed;
       if (active.current && currentBinding.current === binding)
-        setErrors((previous) => new Map(previous).set(record.operationId, copy));
+        setErrors((previous) => {
+          errorStates.current.set(record.operationId, record.state);
+          return new Map(previous).set(record.operationId, copy);
+        });
     } finally {
       if (active.current && currentBinding.current === binding) {
         busy.current.delete(record.operationId);

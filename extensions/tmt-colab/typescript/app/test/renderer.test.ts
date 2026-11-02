@@ -268,3 +268,29 @@ test('closed details hide body targets through every ancestor but preserve the f
   inner.children = [{ localName: 'summary', contains: () => false }, summary];
   expect(hidden(target)).toBe(true);
 });
+
+test('unsent paint admits only 64 exact selector/state pairs, never labels or identities', () => {
+  const owner = script.slice(script.indexOf('const validQuote ='), script.indexOf('let batch ='));
+  const admit = runInNewContext(`${owner}; validUnsent`, { utf8: new TextEncoder() }) as (
+    value: unknown,
+  ) => boolean;
+  const item = { selector: { exact: 'A quote', prefix: '', suffix: '' }, state: 'sending' };
+  expect(admit([])).toBe(true);
+  expect(admit([item, { ...item, state: 'failed' }])).toBe(true);
+  expect(admit(Array.from({ length: 64 }, () => item))).toBe(true);
+  for (const invalid of [
+    undefined,
+    null,
+    {},
+    [null],
+    Array.from({ length: 65 }, () => item),
+    [{ ...item, state: 'recorded' }],
+    [{ selector: item.selector }],
+    [{ ...item, label: 'Private text' }],
+    [{ ...item, id: 'thread' }],
+    [{ ...item, selector: { ...item.selector, extra: true } }],
+    [{ ...item, selector: { ...item.selector, exact: '' } }],
+    [{ ...item, selector: { ...item.selector, prefix: 'x'.repeat(33) } }],
+  ])
+    expect(admit(invalid)).toBe(false);
+});

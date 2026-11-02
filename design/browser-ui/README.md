@@ -140,6 +140,9 @@ rounded corners and no edge line. Its current module ancestor has bold text and 
 icon without a fill. Child rows, labelled group headings and group rows share a 36px
 indent. The phone drawer shows this same tree, without a separate module tab strip.
 Rows truncate to one line and retain their full labels on hover.
+An update with the same rows keeps them and patches only the selection, counts and labels; only a
+change of rows or controls rebuilds the rail (`e2e/rail-update.spec.ts`). A row's tip follows
+hover or keyboard focus, never a press.
 
 A child can carry `total` and `count`: one muted, right-aligned tabular total and a waiting-colour
 attention dot before it. The tooltip and accessible name retain the attention count. Zero and

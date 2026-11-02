@@ -16,6 +16,12 @@ import {
   type DocumentImageInput,
 } from './document-images.js';
 
+/** A first comment without a record: selector and paint state only, never a thread identity. */
+export interface UnsentHighlight {
+  selector: QuoteSelector;
+  state: 'sending' | 'failed';
+}
+
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
 export const MAX_SELECTION_BYTES = 16 * 1024;
@@ -218,6 +224,7 @@ export async function mountRenderer(
     threadCount?: number,
     /** The resolved thread open in the Discussion view; its passage is drawn quietly. */
     quiet?: { id: string; selector: QuoteSelector },
+    unsent?: UnsentHighlight[],
   ): void;
   slots(slots: InlineSlot[]): void;
   questions(
@@ -1003,8 +1010,19 @@ export async function mountRenderer(
     draft?: QuoteSelector,
     threadCount = input.length,
     quietThread?: { id: string; selector: QuoteSelector },
+    unsent: UnsentHighlight[] = [],
   ) => {
     if (stopped) return;
+    if (
+      !Array.isArray(unsent) ||
+      unsent.length > 64 ||
+      unsent.some((item) => !item || !['sending', 'failed'].includes(item.state))
+    )
+      return;
+    const pending = unsent.map(({ selector, state }) => {
+      validateSelector(selector);
+      return { selector: structuredClone(selector), state };
+    });
     // Author code can inspect everything delivered into its frame. Rebuild this
     // narrow view instead of forwarding caller objects or discussion labels.
     const next = input.map(({ id, selector, ordinal }) => ({
@@ -1042,6 +1060,7 @@ export async function mountRenderer(
       renderId: snapshot.renderId,
       requestId,
       anchors: next,
+      unsent: pending,
       threadCount,
       draft: draft ? structuredClone(draft) : null,
       quiet: quietThread
@@ -1052,7 +1071,7 @@ export async function mountRenderer(
       anchors = [];
       quiet = null;
       options.onAnchors?.([]);
-      channel.port1.postMessage({ ...message, anchors: [], quiet: null });
+      channel.port1.postMessage({ ...message, anchors: [], quiet: null, unsent: [] });
       return;
     }
     anchors = [...next, ...(draft ? [{ id: '', selector: structuredClone(draft) }] : [])];

@@ -152,6 +152,18 @@
             v.id.length > 0 &&
             v.id.length <= 73 &&
             validQuote(v.selector);
+          const validUnsent = (items) =>
+            Array.isArray(items) &&
+            items.length <= 64 &&
+            items.every(
+              (item) =>
+                item &&
+                typeof item === 'object' &&
+                !Array.isArray(item) &&
+                Object.keys(item).length === 2 &&
+                ['sending', 'failed'].includes(item.state) &&
+                validQuote(item.selector),
+            );
           function validHighlightAnchors(anchors, threadCount) {
             return (
               Array.isArray(anchors) &&
@@ -202,6 +214,8 @@
             frameNodes.add(node);
             return node;
           };
+          let unsent = [],
+            unsentLayer;
           let batch = [],
             requestId = '',
             stopped = false,
@@ -517,6 +531,8 @@
             // pointer's between, the open thread's the deepest under a solid 2 px rule; a resolved thread
             // that is open keeps only a quiet dashed rule.
             `::highlight(colab-edit-locks){background:${accentTint(20)};color:inherit}` +
+            '::highlight(colab-unsent-sending){color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-waiting);text-decoration-thickness:var(--tmt-ui-rule-width);text-decoration-skip-ink:none}' +
+            '::highlight(colab-unsent-failed){color:inherit;text-decoration:underline;text-decoration-color:var(--tmt-ui-color-blocked);text-decoration-thickness:var(--tmt-ui-rule-width);text-decoration-skip-ink:none}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             `::highlight(colab-comments){background:${accentTint(14)};color:inherit;text-decoration:underline;text-decoration-color:${accentTint(45)};text-decoration-thickness:1px;text-decoration-skip-ink:none}` +
             `::highlight(colab-selected){background:${accentTint(28)};color:inherit;text-decoration:underline;text-decoration-color:${accent};text-decoration-thickness:2px;text-decoration-skip-ink:none}` +
@@ -970,9 +986,13 @@
               CSS.highlights?.delete('colab-comments');
               CSS.highlights?.delete('colab-selected');
               CSS.highlights?.delete('colab-quiet');
+              CSS.highlights?.delete('colab-unsent-sending');
+              CSS.highlights?.delete('colab-unsent-failed');
             } catch {}
             layer?.remove();
             layer = undefined;
+            unsentLayer?.remove();
+            unsentLayer = undefined;
             quietLayer?.remove();
             quietLayer = undefined;
             quietEntry = null;
@@ -1776,6 +1796,38 @@
                   marker.style.left = `${Math.min(left, viewport - 2 - marker.offsetWidth) - origin.left}px`;
                 }
               }
+              // Unsent first comments are paint only: never add them to anchorRanges, marker
+              // hit tests, selected passages, resolved IDs or position feedback.
+              const pending = { sending: [], failed: [] };
+              let rectangles = 0;
+              for (const item of unsent) {
+                if (performance.now() > deadline) throw new Error('match budget');
+                const range = quoteRange(map, item.selector, deadline);
+                if (!range) continue;
+                if (typeof Highlight === 'function' && CSS.highlights) {
+                  pending[item.state].push(range);
+                } else {
+                  if (!unsentLayer) {
+                    unsentLayer = frameNode('div');
+                    unsentLayer.dataset.colabHighlight = '';
+                    unsentLayer.style.cssText =
+                      'position:absolute;top:0;left:0;pointer-events:none;z-index:-1';
+                    document.body.append(unsentLayer);
+                  }
+                  const origin = unsentLayer.getBoundingClientRect();
+                  for (const rect of range.getClientRects()) {
+                    if (++rectangles > 2048) throw new Error('highlight budget');
+                    const mark = document.createElement('div');
+                    mark.dataset.colabUnsent = item.state;
+                    const color = item.state === 'failed' ? 'blocked' : 'waiting';
+                    mark.style.cssText = `position:absolute;pointer-events:none;border-bottom:var(--tmt-ui-rule-width) solid var(--tmt-ui-color-${color});left:${rect.left - origin.left}px;top:${rect.top - origin.top}px;width:${rect.width}px;height:${rect.height}px`;
+                    unsentLayer.append(mark);
+                  }
+                }
+              }
+              for (const state of ['sending', 'failed'])
+                if (pending[state].length)
+                  CSS.highlights.set(`colab-unsent-${state}`, new Highlight(...pending[state]));
               paintSelected();
               if (focusedMarkerIds) {
                 const replacement = [...(markers?.children ?? [])].find((node) => {
@@ -2246,7 +2298,7 @@
               !v ||
               typeof v !== 'object' ||
               Array.isArray(v) ||
-              Object.keys(v).length !== 7 ||
+              Object.keys(v).length !== 8 ||
               v.type !== 'colab.render.highlight' ||
               v.renderId !== renderId ||
               typeof v.requestId !== 'string' ||
@@ -2256,7 +2308,8 @@
               !Number.isSafeInteger(v.threadCount) ||
               v.threadCount < 0 ||
               !(v.draft === null || validQuote(v.draft)) ||
-              !(v.quiet === null || validQuietAnchor(v.quiet))
+              !(v.quiet === null || validQuietAnchor(v.quiet)) ||
+              !validUnsent(v.unsent)
             )
               return;
             if (utf8.encode(JSON.stringify(v)).length > 256 * 1024) return;
@@ -2265,6 +2318,7 @@
             gesture = undefined;
             batch = [...v.anchors, ...(v.draft ? [{ id: '', selector: v.draft }] : [])];
             quiet = v.quiet;
+            unsent = v.unsent;
             requestId = v.requestId;
             resolve();
           };
@@ -2273,6 +2327,7 @@
               mutations.some(
                 (m) =>
                   !layer?.contains(m.target) &&
+                  !unsentLayer?.contains(m.target) &&
                   !markers?.contains(m.target) &&
                   !hover?.contains(m.target) &&
                   !(
