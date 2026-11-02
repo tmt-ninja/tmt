@@ -1578,6 +1578,26 @@ code {
   }
 }
 
+.tmt-ui-shell-brand[data-mock-logo='ninja'] > svg {
+  display: none;
+}
+.tmt-ui-shell-brand[data-mock-logo='tmt'] > .mock-ninja-mark {
+  display: none;
+}
+.mock-ninja-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--tmt-ui-radius-l);
+  background: var(--tmt-ui-ref-ink-900);
+}
+.mock-ninja-mark > svg {
+  width: 22px;
+  height: 22px;
+}
+
 }
 
 /* docs/mock-reader.css */
