@@ -224,6 +224,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     };
     let mut rows: Vec<(&str, String)> = Vec::new();
     let value = if mode == "ls" {
+        // Listed built-in first; matching above gives a space's own system the precedence.
+        let all: Vec<&System> = all
+            .iter()
+            .filter(|s| s.built_in.is_some())
+            .chain(all.iter().filter(|s| s.built_in.is_none()))
+            .collect();
         for system in &all {
             let row = system.row();
             rows.push((
@@ -240,7 +246,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         if all.is_empty() {
             rows.push(("systems", "none".into()));
         }
-        json!({"spaceId":space_id,"systems":all.iter().map(System::row).collect::<Vec<_>>()})
+        json!({"spaceId":space_id,"systems":all.iter().map(|s| s.row()).collect::<Vec<_>>()})
     } else {
         let system = chosen.ok_or_else(|| not_found(name))?;
         let (release, selector) = reference.expect("show resolves its release")?;
