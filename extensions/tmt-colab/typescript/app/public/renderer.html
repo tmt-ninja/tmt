@@ -368,11 +368,13 @@
           return spans;
         }
         // Whether `source` at `at` is a start tag that closes an open paragraph.
-        // `spans` when each one is the node a full parse made in its place (a tag's name, a comment,
-        // text), else null: the scan is only trusted where the parse agrees with it (#5891).
-        function placedSpans(source, spans, nodes) {
+        // `spans` when each one in [from, to) is the node a full parse made in its place (a tag's
+        // name, a comment, text), else null: the scan is only trusted where the parse agrees with it
+        // (#5891). An update checks only the spans it placed; the others were checked before.
+        function placedSpans(source, spans, nodes, from = 0, to = spans?.length) {
           if (spans?.length !== nodes.length) return null;
-          const fits = spans.every(([start, , kind], index) => {
+          const fits = spans.slice(from, to).every(([start, , kind], offset) => {
+            const index = from + offset;
             const node = nodes[index];
             if (kind === 'text') return node.nodeType === 3;
             if (source.startsWith('<!--', start)) return node.nodeType === 8;
@@ -2331,7 +2333,13 @@
               const parsed = boundBody.ownerDocument.createDocumentFragment();
               parsed.append(...doc.body.childNodes);
               boundBody.insertBefore(parsed, next);
-              boundSpans = placedSpans(source, plan.spans, boundBody.childNodes);
+              boundSpans = placedSpans(
+                source,
+                plan.spans,
+                boundBody.childNodes,
+                plan.from,
+                plan.from + plan.count,
+              );
             } else {
               morphPage(document.body, doc.body, owner);
               boundBody = doc.body;
