@@ -17,6 +17,7 @@ export function DataTableFrame({ params }: { params: URLSearchParams }) {
           error={<p>Could not load pages. They come back when this machine reconnects.</p>}
           initialSelected={params.get('selected')?.split(',') ?? []}
           onOpen={(page) => document.body.setAttribute('data-opened', page.id)}
+          {...(params.has('plain') ? { actions: undefined, menu: undefined } : {})}
         />
       </main>
     </UiTheme>

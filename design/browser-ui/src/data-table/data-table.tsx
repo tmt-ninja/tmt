@@ -220,11 +220,24 @@ export function DataTable<Row>({
   const [active, setActive] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const selectable = !!onSelectedChange;
-  const trailing = !!(actions || menu);
+  // A phone card moves `phone: 'menu'` columns into the row menu, so they need one even with no
+  // actions or menu of their own.
+  const menuFacts = narrow && columns.some((column) => column.phone === 'menu');
+  const trailing = !!(actions || menu || menuFacts);
   const slots = actions ? Math.max(0, ...rows.map((row) => actions(row).length)) : 0;
   const keys = state === 'ready' ? rows.map(rowKey) : [];
   const focusKey = active !== null && keys.includes(active) ? active : (keys[0] ?? null);
   const chosen = keys.filter((key) => selected.has(key));
+  const bulkShown = selectable && chosen.length > 0;
+  // When the selection empties, the header row replaces the bulk bar and its focused control (Clear,
+  // a bulk action) unmounts; focus moves to Select all instead of falling to the document.
+  const head = useRef<HTMLDivElement>(null);
+  const bulkFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (bulkShown || !bulkFocus.current) return;
+    bulkFocus.current = false;
+    head.current?.querySelector<HTMLElement>('[role="checkbox"], button')?.focus();
+  }, [bulkShown]);
   const template = [
     selectable && 'var(--tmt-data-table-select)',
     ...columns.map((column) =>
@@ -344,7 +357,14 @@ export function DataTable<Row>({
   );
 
   const bulk = (
-    <div role="row" className="tmt-data-table-row" data-head="" data-bulk="">
+    <div
+      role="row"
+      className="tmt-data-table-row"
+      data-head=""
+      data-bulk=""
+      onFocus={() => (bulkFocus.current = true)}
+      onBlur={(event) => (bulkFocus.current = event.currentTarget.contains(event.relatedTarget))}
+    >
       <div role="columnheader" className="tmt-data-table-cell" data-role="select">
         <Checkbox
           aria-label="Select all rows"
@@ -388,8 +408,8 @@ export function DataTable<Row>({
           aria-rowcount={keys.length + 1}
           className="tmt-data-table-grid"
         >
-          <div role="rowgroup" className="tmt-data-table-head">
-            {selectable && chosen.length > 0 ? bulk : header}
+          <div role="rowgroup" className="tmt-data-table-head" ref={head}>
+            {bulkShown ? bulk : header}
           </div>
           <div
             role="rowgroup"
@@ -528,13 +548,20 @@ export function DataTable<Row>({
                                     <MoreHorizontal aria-hidden="true" />
                                   </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
+                                <DropdownMenuContent
+                                  align="end"
+                                  returnFocus={() =>
+                                    body.current?.querySelectorAll<HTMLElement>('[data-table-row]')[
+                                      index
+                                    ] ?? null
+                                  }
+                                >
                                   {menuColumns.map((column) => (
                                     <DropdownMenuLabel
                                       key={column.id}
                                       className="tmt-data-table-menu-fact"
                                     >
-                                      {column.header}: {column.text?.(row) ?? ''}
+                                      {column.header}: {cellFor(column, row)}
                                     </DropdownMenuLabel>
                                   ))}
                                   {menuColumns.length > 0 && <DropdownMenuSeparator />}
