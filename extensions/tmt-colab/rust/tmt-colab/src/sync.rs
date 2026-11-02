@@ -316,10 +316,53 @@ enum ChunkIdentity {
         statement_hash: String,
     },
 }
-impl Delivery {
-    fn next(&mut self) -> Result<(String, bool), Code> {
+/// One frame out: control frames are JSON text; a live connection carries chunk bytes as binary
+/// messages (#5876), and the history channel, which wraps frames in JSON, keeps them as text.
+pub(crate) enum Out {
+    Text(String),
+    Binary(Vec<u8>),
+}
+impl Out {
+    pub(crate) fn text(self) -> Result<String, Code> {
         match self {
-            Self::Frame(text) => Ok((text.clone(), true)),
+            Self::Text(text) => Ok(text),
+            Self::Binary(_) => Err(Code::Invalid),
+        }
+    }
+}
+/// A binary chunk: kind (0 object, 2 statement), the 32-byte hash it belongs to, its index and
+/// the count as big-endian u32, then the bytes.
+fn binary_chunk(
+    kind: u8,
+    hash: &str,
+    index: usize,
+    count: usize,
+    bytes: &[u8],
+) -> Result<Vec<u8>, Code> {
+    let hash: [u8; 32] = values::binary(hash, 32)
+        .ok()
+        .and_then(|hash| hash.try_into().ok())
+        .ok_or(Code::Invalid)?;
+    let mut out = Vec::with_capacity(41 + bytes.len());
+    out.push(kind);
+    out.extend_from_slice(&hash);
+    out.extend_from_slice(
+        &u32::try_from(index)
+            .map_err(|_| Code::Invalid)?
+            .to_be_bytes(),
+    );
+    out.extend_from_slice(
+        &u32::try_from(count)
+            .map_err(|_| Code::Invalid)?
+            .to_be_bytes(),
+    );
+    out.extend_from_slice(bytes);
+    Ok(out)
+}
+impl Delivery {
+    fn next(&mut self, binary: bool) -> Result<(Out, bool), Code> {
+        match self {
+            Self::Frame(text) => Ok((Out::Text(text.clone()), true)),
             Self::Object {
                 text,
                 refused,
@@ -328,15 +371,17 @@ impl Delivery {
                 // No backend or decoder work runs here. Recheck captured native
                 // metadata under the same authority lock held through the write.
                 Ok((
-                    if Instant::now() < fence.deadline
-                        && fence.current().is_ok()
-                        && Instant::now() < fence.deadline
-                    {
-                        text
-                    } else {
-                        refused
-                    }
-                    .clone(),
+                    Out::Text(
+                        if Instant::now() < fence.deadline
+                            && fence.current().is_ok()
+                            && Instant::now() < fence.deadline
+                        {
+                            text
+                        } else {
+                            refused
+                        }
+                        .clone(),
+                    ),
                     true,
                 ))
             }
@@ -346,12 +391,12 @@ impl Delivery {
                 current,
             } => {
                 let delivery = current.get_or_insert_with(|| Box::new(deliveries[*index].clone()));
-                let (text, done) = delivery.next()?;
+                let (out, done) = delivery.next(binary)?;
                 if done {
                     *current = None;
                     *index += 1;
                 }
-                Ok((text, *index == deliveries.len()))
+                Ok((out, *index == deliveries.len()))
             }
             Self::Transfer {
                 scope,
@@ -362,13 +407,22 @@ impl Delivery {
                 let count = bytes.len().div_ceil(limits::CHUNK_BYTES);
                 let start = *index * limits::CHUNK_BYTES;
                 let end = (start + limits::CHUNK_BYTES).min(bytes.len());
+                if binary {
+                    let (kind, hash) = match identity {
+                        ChunkIdentity::Object { envelope_hash, .. } => (0, envelope_hash),
+                        ChunkIdentity::Statement { statement_hash } => (2, statement_hash),
+                    };
+                    let frame = binary_chunk(kind, hash, *index, count, &bytes[start..end])?;
+                    *index += 1;
+                    return Ok((Out::Binary(frame), *index == count));
+                }
                 let mut fields = serde_json::to_value(identity).map_err(|_| Code::Invalid)?;
                 fields["index"] = serde_json::json!(index);
                 fields["count"] = serde_json::json!(count);
                 fields["bytes"] = serde_json::json!(values::encode_binary(&bytes[start..end]));
                 let text = wire::output(scope, "chunk", fields)?;
                 *index += 1;
-                Ok((text, *index == count))
+                Ok((Out::Text(text), *index == count))
             }
         }
     }
@@ -402,7 +456,7 @@ impl Checked {
         } = request;
         let sequence = values::decimal(&seq, false)?;
         let hash = wire::hash(&envelope_hash)?;
-        let decoded = object::Envelope::from_json(&bytes)?;
+        let decoded = object::Envelope::from_bytes(&bytes)?;
         let header = object::Header::decode(decoded.header())?;
         let c = &header.context;
         if c.space != scope.space
@@ -542,7 +596,7 @@ fn delivery(
     if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
         return Err(Code::Capacity);
     }
-    let decoded = object::Envelope::from_json(&bytes)?;
+    let decoded = object::Envelope::from_bytes(&bytes)?;
     let header = object::Header::decode(decoded.header())?;
     if decoded.hash()? != hash
         || header.context.space != scope.space
@@ -898,7 +952,7 @@ impl<A: Admission> Server<A> {
         if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
             return Err(Code::Invalid);
         }
-        let decoded = object::Envelope::from_json(bytes)?;
+        let decoded = object::Envelope::from_bytes(bytes)?;
         let header = object::Header::decode(decoded.header())?;
         let principal = header.context.author_device.clone();
         let checked = Checked::new(
@@ -1113,6 +1167,7 @@ impl<A: Admission> DetachedCatchup<A> {
         Ok(Self { state })
     }
     pub(crate) fn next(&mut self) -> Result<Option<(String, bool)>, Code> {
+        // The history channel wraps each frame in JSON: its chunks stay text.
         self.state.recheck();
         if let Some(code) = self.state.peers[&0].terminal {
             return Err(code);
@@ -1124,12 +1179,12 @@ impl<A: Admission> DetachedCatchup<A> {
         let Some(mut delivery) = peer.queue.pop_front() else {
             return Ok(None);
         };
-        let (text, done) = delivery.next()?;
+        let (out, done) = delivery.next(false)?;
         if !done {
             peer.queue.push_front(delivery);
         }
         Ok(Some((
-            text,
+            out.text()?,
             peer.queue.is_empty() && peer.catchup.is_none(),
         )))
     }
@@ -2011,7 +2066,7 @@ impl<A: Admission> State<A> {
                 return Err(Code::ResyncRequired);
             }
             let hash = wire::hash(&descriptor.object_envelope_hash)?;
-            let decoded = object::Envelope::from_json(&saved.envelope)?;
+            let decoded = object::Envelope::from_bytes(&saved.envelope)?;
             let header = object::Header::decode(decoded.header())?;
             if header.context.kind != "html"
                 || header.context.membership_revision != descriptor.membership_revision
@@ -2168,7 +2223,7 @@ impl<A: Admission> State<A> {
             }
         }
         if let Some(((stream, ns), object)) = next {
-            let decoded = object::Envelope::from_json(&object.bytes)?;
+            let decoded = object::Envelope::from_bytes(&object.bytes)?;
             let header = object::Header::decode(decoded.header())?;
             // A fold is the checkpoint of the stream it covers (colab-v1, "Owner fold"): another
             // owner-member device signed it, and it names the stream as its covered device.
@@ -2702,7 +2757,7 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             let Some(mut delivery) = peer.queue.pop_front() else {
                 return Ok(false);
             };
-            let (text, done) = delivery.next()?;
+            let (out, done) = delivery.next(true)?;
             if peer.hello {
                 peer.in_flight += 1;
             }
@@ -2716,8 +2771,10 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
                 .socket
                 .as_mut()
                 .expect("checked socket")
-                .send(Message::Text(text.into()))
-            {
+                .send(match out {
+                    Out::Text(text) => Message::Text(text.into()),
+                    Out::Binary(bytes) => Message::Binary(bytes.into()),
+                }) {
                 Ok(()) => peer.buffered_slot = false,
                 Err(e) if would_block(&e) => {
                     self.blocked_since.get_or_insert(now);

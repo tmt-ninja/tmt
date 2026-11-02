@@ -167,7 +167,7 @@ fn seal(
     Sealed {
         json: json!({
             "stream": stream, "namespace": namespace, "seq": seq.to_string(),
-            "previous": b64(&previous), "hash": b64(&hash), "envelope": b64(&envelope.to_json().unwrap()),
+            "previous": b64(&previous), "hash": b64(&hash), "envelope": b64(&envelope.to_bytes().unwrap()),
         }),
         hash,
     }
@@ -531,7 +531,13 @@ fn read_case(v: &Value, case: &Value) -> tmt_colab::Result<page::Page> {
                 seq: e["seq"].as_str().unwrap().parse().unwrap(),
                 hash,
                 previous,
-                bytes: &unb64(&e["envelope"]),
+                // The frozen vector keeps v1 JSON; the store holds v2 (#5876).
+                bytes: &{
+                    let json = unb64(&e["envelope"]);
+                    tmt_colab_model::object::Envelope::from_json_v1(&json)
+                        .and_then(|envelope| envelope.to_bytes())
+                        .unwrap_or(json)
+                },
             })
             .unwrap();
     }

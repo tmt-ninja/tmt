@@ -223,7 +223,7 @@ export class ReaderSession {
             });
         },
         resolve,
-        ['colab-sync-v1', `colab-reader-v1.${encodeBinary(token)}`],
+        ['colab-sync-v2', `colab-reader-v1.${encodeBinary(token)}`],
       );
     });
     token.fill(0);

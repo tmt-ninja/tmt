@@ -253,7 +253,10 @@ pub struct SignedJob {
 }
 /// Borrows the original JSON slice: downstream persistence must not substitute to_json().
 pub struct VerifiedEntry<'a> {
-    pub bytes: &'a [u8],
+    /// The local v2 form (#5876). The signed packet keeps each envelope's v1 JSON bytes, which its
+    /// packet hash and frozen vectors bind; admission converts them under the same hash.
+    pub bytes: Vec<u8>,
+    pub packet: &'a [u8],
     pub envelope: Envelope,
     pub header: Header,
 }
@@ -310,8 +313,8 @@ impl SignedJob {
         let mut payload_bytes = 0usize;
         for entry in &m.entries {
             let end = offset.checked_add(entry.envelope_bytes).ok_or(Invalid)?;
-            let bytes = packet.get(offset..end).ok_or(Invalid)?;
-            let envelope = Envelope::from_json(bytes)?;
+            let original = packet.get(offset..end).ok_or(Invalid)?;
+            let envelope = Envelope::from_json_v1(original)?;
             let header = Header::decode(envelope.header())?;
             let c = &header.context;
             require(
@@ -338,7 +341,8 @@ impl SignedJob {
                 envelope.signature(),
             )?;
             out.push(VerifiedEntry {
-                bytes,
+                bytes: envelope.to_bytes()?,
+                packet: original,
                 envelope,
                 header,
             });

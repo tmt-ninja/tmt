@@ -368,7 +368,7 @@ impl OwnerTransaction<'_> {
         {
             return Err(OwnerFault::Invalid.into());
         }
-        let bytes = envelope.to_json()?;
+        let bytes = envelope.to_bytes()?;
         let epoch = values::decimal(&d.epoch, false)?;
         if let Some(old) = self.baseline(&d.page_id, epoch)? {
             return if old.descriptor == descriptor && old.envelope == bytes {

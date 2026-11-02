@@ -2,6 +2,7 @@ import {
   binary,
   concat,
   decodeText,
+  encodeBinary,
   decodeHeader,
   Envelope,
   MAX_ENVELOPE_JSON,
@@ -40,7 +41,57 @@ export class Frames {
       throw error;
     }
   }
+  /** A binary chunk (#5876): kind (0 object, 2 statement), the 32-byte hash, index and count as
+   * big-endian u32, then the bytes; it continues the pending transfer exactly as a text chunk. */
+  #binary(raw: Uint8Array): Record<string, unknown> | null {
+    const p = this.#pending;
+    requireValue(p !== null && raw.length > 41);
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    requireValue(
+      raw[0] === (p.identity.kind === 'object' ? 0 : 2) &&
+        encodeBinary(raw.subarray(1, 33)) === p.hash,
+    );
+    return this.#chunk(view.getUint32(33), view.getUint32(37), raw.subarray(41));
+  }
+  #chunk(index: unknown, count: unknown, bytes: Uint8Array): Record<string, unknown> | null {
+    const p = this.#pending;
+    requireValue(p !== null);
+    const identity = p.identity;
+    requireValue(
+      Number.isSafeInteger(count) &&
+        (count as number) > 0 &&
+        (count as number) <= Math.ceil(p.limit / (32 * 1024)) &&
+        index === p.parts.length &&
+        (index as number) < (count as number) &&
+        (p.count === null || p.count === count),
+    );
+    requireValue(
+      bytes.length > 0 &&
+        bytes.length <= 32 * 1024 &&
+        (index === (count as number) - 1 || bytes.length === 32 * 1024),
+    );
+    p.size += bytes.length;
+    requireValue(p.size <= p.limit);
+    p.count = count as number;
+    p.parts.push(bytes);
+    if (p.parts.length !== p.count) return null;
+    const joined = concat(...p.parts);
+    if (identity.kind === 'object') {
+      // Parsed once: admission takes this envelope as it is, never a re-encoded copy to decode.
+      const envelope = Envelope.fromBytes(joined);
+      requireValue(decodeHeader(envelope.header()).objectId === identity.id);
+      p.target.envelope = new JoinedEnvelope(envelope, joined.length);
+    } else {
+      // A statement stays JSON: valid UTF-8 is checked here, its JSON by the statement model.
+      decodeText(joined);
+      p.target.statements = [new StatementTransfer(joined, binary(p.hash, 32, 32))];
+    }
+    const complete = p.frame;
+    this.close();
+    return complete;
+  }
   #receive(raw: unknown): Record<string, unknown> | null {
+    if (raw instanceof Uint8Array) return this.#binary(raw);
     requireValue(typeof raw === 'string');
     const value = strictJson(text(raw), 64 * 1024, true);
     requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
@@ -68,40 +119,11 @@ export class Frames {
         'bytes',
       ]);
       requireValue(
-        (identity.kind === 'object'
+        identity.kind === 'object'
           ? frame.objectId === identity.id && frame.envelopeHash === p.hash
-          : frame.statementHash === p.hash) &&
-          Number.isSafeInteger(frame.count) &&
-          (frame.count as number) > 0 &&
-          (frame.count as number) <= Math.ceil(p.limit / (32 * 1024)) &&
-          frame.index === p.parts.length &&
-          (frame.index as number) < (frame.count as number) &&
-          (p.count === null || p.count === frame.count),
+          : frame.statementHash === p.hash,
       );
-      const bytes = binary(frame.bytes, 32 * 1024);
-      requireValue(
-        bytes.length > 0 &&
-          (frame.index === (frame.count as number) - 1 || bytes.length === 32 * 1024),
-      );
-      p.size += bytes.length;
-      requireValue(p.size <= p.limit);
-      p.count = frame.count as number;
-      p.parts.push(bytes);
-      if (p.parts.length !== p.count) return null;
-      const joined = concat(...p.parts);
-      // Valid UTF-8 and JSON are subsequently checked by the envelope model.
-      decodeText(joined);
-      if (identity.kind === 'object') {
-        // Parsed once: admission takes this envelope as it is, never a re-encoded copy to decode.
-        const envelope = Envelope.fromJson(joined);
-        requireValue(decodeHeader(envelope.header()).objectId === identity.id);
-        p.target.envelope = new JoinedEnvelope(envelope, joined.length);
-      } else {
-        p.target.statements = [new StatementTransfer(joined, binary(p.hash, 32, 32))];
-      }
-      const complete = p.frame;
-      this.close();
-      return complete;
+      return this.#chunk(frame.index, frame.count, binary(frame.bytes, 32 * 1024));
     }
     if (frame.type === 'error') {
       this.close();

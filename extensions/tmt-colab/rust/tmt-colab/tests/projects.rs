@@ -553,7 +553,7 @@ fn schema_18_adds_the_pin_tables_to_a_store_from_schema_17_and_the_list_starts_u
         .unwrap();
     // Reopening applies migration 18 and all later migrations. Keep the
     // current version pinned, updating it deliberately when another migration is added.
-    assert_eq!(version, 21);
+    assert_eq!(version, 22);
     assert_eq!(f.project_pins(), (false, vec![]));
     assert_eq!(f.names(), ["a"]);
 }

@@ -397,7 +397,17 @@ identify that stream.
 | `tmt-colab-hpke-info-v1`       | wrapHeader                                                                                                                    | HPKE info; wrapHeader also HPKE AAD                                                      |
 | `tmt-colab-wrap-signature-v1`  | version, wrapHeader, enc32, SHA256(wrappedCiphertextWithTag)                                                                  | Owner signature authenticates HPKE Base sender                                           |
 
-A transport object contains exactly `{header, nonce, ciphertext, signature}`
+Locally (the store, the sync socket and the browser), an object envelope is binary v2 (#5876):
+`TCOB`, version byte `2`, a big-endian u16 header length (1 to 1024), the header, the 64-byte
+signature, then the ciphertext with its tag (at least 16 bytes, within the kind's plaintext
+limit). The nonce is not stored: the suite fixes it at 12 zero bytes, and the signature input and
+envelope hash below still include them, so a v1 and a v2 envelope of one object have the same
+hash and signature. The v1 JSON form is used only where it is signed or not yet moved: Firestore
+rows, attachment objects, signed write packets (their packet hash binds the exact v1 bytes, and
+admission stores the v2 form) and frozen vectors. Schema 22 rewrites every stored v1 object
+envelope (receipts, checkpoints, baselines) as v2 when the serve opens the store, in the migration
+transaction and after the `.pre-v21.bak` copy; a row whose hash would change is left as it was.
+A v1 transport object contains exactly `{header, nonce, ciphertext, signature}`
 as binary fields. `header` is the exact framed input, not a JSON header rebuilt
 by the verifier. Decrypt only after syntax, signature, chain, stream order,
 epoch and role admission; plaintext shape validation still precedes application.
@@ -901,9 +911,9 @@ Known availability limitation: unauthenticated challenge requests can occupy all
 64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
 abuse budgets bound exposure; this seam adds no per-client challenge quota.
 
-Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
+Offer `colab-sync-v2` and `colab-reader-v1.<token>` to `/sync`. The server compares
 fixed-size token-hash confirmations through the existing constant-time HMAC
-verifier, consumes the ticket once, and selects only `colab-sync-v1`; it MUST
+verifier, consumes the ticket once, and selects only `colab-sync-v2`; it MUST
 NOT echo the reader subprotocol. Tokens MUST NOT enter URLs, logs, renderer
 messages, cookies or owner device context. Disconnection releases the capability;
 reconnect and restart require a fresh challenge/exchange. An owner context does
@@ -4141,7 +4151,10 @@ scoped sync cursor only, never core X acknowledgment, task completion, deletion
 permission or Send. Reconnect re-verifies the highest retained log head and
 current epoch before accepting data/writes. Index fields or a successful socket
 upgrade cannot establish authorship. Removed access terminates live subscriptions.
-`colab-sync-v1` uses strict typed JSON control frames with version `1`, type,
+An upgrade that offers only `colab-sync-v1` (a tab loaded before #5876) is accepted under that
+protocol only to send `{"type":"error","code":"upgradeRequired"}` and close; nothing of the space
+is read or sent, and reloading the tab loads the current app.
+`colab-sync-v2` uses strict typed JSON control frames with version `1`, type,
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
@@ -4518,8 +4531,12 @@ must serialize authority transitions and sync writes through that server owner.
 An empty-cursor subscribe remains live-only and makes no historical-data claim.
 
 Large catchup/broadcast envelopes reference `{objectId}` with their outer
-`envelopeHash`, followed by server `chunk` frames using the same common scope
-and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
+`envelopeHash`, followed by the server's chunks. On a live connection each chunk is one binary
+message (#5876): a kind byte (`0` object, `2` statement), the 32-byte envelope or statement hash,
+the index and count as big-endian u32, then the bytes; it continues the transfer the preceding
+text frame named, under that frame's scope. The history channel, which wraps frames in JSON, keeps
+text `chunk` frames using the same common scope
+and exactly `{objectId, envelopeHash, index, count, bytes}`. An envelope over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
@@ -4583,7 +4600,7 @@ subscriber is explicitly closed with RESYNC_REQUIRED and must catch up; accepted
 durable payloads/receipts survive. Firestore listeners implement the same scoped
 immutable-object/cursor semantics without pretending to be a WebSocket server.
 
-Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket. Colab's
+Local storage uses extension SQLite/files and `colab-sync-v2` WebSocket. Colab's
 local listener is only its owner-only socket `<dataRoot>/colab/door.sock`, which
 remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
 DNS-rebinding and cookie admission, and colab trusts the forwarded
@@ -4653,7 +4670,7 @@ A failed, malformed or incomplete lookup is unknown. It only reports. Running
 `tmt remote serve` separately keeps working and is the attach path.
 
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
-facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
+facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v2"`, `state:"mounted"`,
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
 `<origin>/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the

@@ -388,3 +388,27 @@ it('signs display-only label requests with an empty revision and log operations 
   }
   expect(() => c.managementOperation('page.labels')).toThrow();
 });
+
+describe('binary envelope v2 (#5876)', () => {
+  it('round-trips with the same hash and refuses a wrong magic, version or length', async () => {
+    const e = frozen();
+    const v2 = e.toBytes();
+    expect([...v2.subarray(0, 5)]).toEqual([...c.text('TCOB'), 2]);
+    expect(v2.length).toBe(7 + e.header().length + 64 + e.ciphertext().length);
+    const back = c.Envelope.fromBytes(v2);
+    expect([...(await back.hash())]).toEqual([...(await e.hash())]);
+    expect([...back.toJson()]).toEqual([...e.toJson()]);
+    expect(() => c.Envelope.fromBytes(e.toJson())).toThrow();
+    for (const [at, value] of [
+      [0, 0x58],
+      [4, 1],
+      [4, 3],
+      [5, 0xff],
+    ] as const) {
+      const changed = v2.slice();
+      changed[at] = value;
+      expect(() => c.Envelope.fromBytes(changed)).toThrow();
+    }
+    expect(() => c.Envelope.fromBytes(v2.subarray(0, 7 + e.header().length + 64 + 15))).toThrow();
+  });
+});

@@ -872,7 +872,7 @@ fn seed_page_with(pilot: &Pilot, title: &str, work: Option<&Value>) {
             seq: 1,
             hash: object.hash().unwrap(),
             previous: [0; 32],
-            bytes: &object.to_json().unwrap(),
+            bytes: &object.to_bytes().unwrap(),
         })
         .unwrap();
     store.close().unwrap();
@@ -1543,6 +1543,74 @@ fn serve_reports_a_page_whose_work_it_cannot_read_and_still_starts() {
         )),
         "{said}"
     );
+}
+
+#[test]
+fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
+    // #5876: a schema 21 store holds v1 JSON envelopes; the serve's open rewrites them once.
+    use tmt_colab_model::object::Envelope;
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let page = pilot.call(&["page", "read", PAGE, "--json"]);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let rows = |conn: &rusqlite::Connection| -> Vec<(Vec<u8>, Vec<u8>)> {
+        conn.prepare(
+            "SELECT hash,payload FROM receipts WHERE payload IS NOT NULL
+             UNION ALL SELECT hash,payload FROM checkpoints WHERE payload IS NOT NULL",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    };
+    let current = rows(&conn);
+    assert!(!current.is_empty());
+    for (_, bytes) in &current {
+        let v1 = Envelope::from_bytes(bytes).unwrap().to_json_v1().unwrap();
+        for table in ["receipts", "checkpoints"] {
+            conn.execute(
+                &format!("UPDATE {table} SET payload=?1 WHERE payload=?2"),
+                rusqlite::params![v1, bytes],
+            )
+            .unwrap();
+        }
+    }
+    conn.execute_batch("PRAGMA user_version=21").unwrap();
+    drop(conn);
+    failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
+    pilot.start();
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let converted = rows(&conn);
+    assert_eq!(converted.len(), current.len());
+    for (hash, bytes) in &converted {
+        assert_eq!(&bytes[..5], b"TCOB\x02");
+        assert_eq!(
+            Envelope::from_bytes(bytes)
+                .unwrap()
+                .hash()
+                .unwrap()
+                .as_slice(),
+            hash
+        );
+    }
+    assert_eq!(
+        conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .unwrap(),
+        22
+    );
+    drop(conn);
+    // A second open changes nothing.
+    let before = fs::read(&db).unwrap();
+    pilot.start();
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(rows(&conn), converted);
+    drop(conn);
+    assert!(fs::read(&db).unwrap().len() == before.len());
 }
 
 #[test]

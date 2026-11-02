@@ -108,7 +108,7 @@ impl OwnerDevice {
                 seq,
                 hash,
                 previous,
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         (seq, hash)
@@ -147,7 +147,7 @@ impl OwnerDevice {
                 namespace,
                 hash: envelope.hash().unwrap(),
                 previous: head,
-                bytes: envelope.to_json().unwrap(),
+                bytes: envelope.to_bytes().unwrap(),
                 signer: None,
             }
         })
@@ -290,7 +290,7 @@ impl Fixture {
                 seq: 1,
                 hash: envelope.hash().unwrap(),
                 previous: [0; 32],
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         Self {
@@ -1083,7 +1083,7 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
             |row| row.get(0),
         )
         .unwrap();
-    let previous = object::Envelope::from_json(&bytes).unwrap();
+    let previous = object::Envelope::from_bytes(&bytes).unwrap();
     let header = object::Header::decode(previous.header()).unwrap();
     let plain = object::open(
         &previous,
@@ -1123,7 +1123,7 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
             seq: 2,
             hash: envelope.hash().unwrap(),
             previous: context.prev_hash,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     assert_eq!(f.read().source, "browser old 🐈\r\n");
@@ -1191,7 +1191,7 @@ fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)
     let update = doc
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
-    let previous = object::Envelope::from_json(
+    let previous = object::Envelope::from_bytes(
         &f.store
             .payload(
                 StreamScope {
@@ -1235,7 +1235,7 @@ fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)
             seq: 2,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
 }
@@ -1558,7 +1558,7 @@ fn bridge_own_records_remain_visible_but_cannot_resolve_a_thread() {
             seq: 1,
             hash: envelope.hash().unwrap(),
             previous: [0; 32],
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
@@ -1842,7 +1842,7 @@ fn stored_usage(f: &Fixture) -> (usize, usize, usize) {
             .query_map([PAGE], |row| row.get::<_, Vec<u8>>(0))
             .unwrap()
             .map(|payload| {
-                object::Envelope::from_json(&payload.unwrap())
+                object::Envelope::from_bytes(&payload.unwrap())
                     .unwrap()
                     .ciphertext()
                     .len()
@@ -1922,7 +1922,7 @@ fn deleted_owner_history(history: &str, public: bool) -> (Fixture, usize) {
             seq: seq + 1,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     (f, removed.len())
@@ -2086,7 +2086,7 @@ fn reclaim_estimate_excludes_a_non_owner_stream_even_with_an_active_tail() {
             |r| r.get(0),
         )
         .unwrap();
-    let envelope = object::Envelope::from_json(&raw).unwrap();
+    let envelope = object::Envelope::from_bytes(&raw).unwrap();
     let header = object::Header::decode(envelope.header()).unwrap();
     let signing = SigningKey::from_bytes(&[9; 32]);
     let plain = object::open(
@@ -2259,7 +2259,7 @@ fn reclaim_reports_bytes_freed_before_a_later_stream_failure() {
             seq: seq + 1,
             hash: envelope.hash().unwrap(),
             previous,
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     let before = f.read().source;
@@ -3726,6 +3726,18 @@ mod native_publication {
         packet: Vec<u8>,
         chain: Vec<u8>,
     }
+    /// What the receipts hold for a job: each packet envelope in its v2 form (#5876).
+    fn stored_form(f: &Fixture, j: &Job) -> Vec<u8> {
+        let key = signer(f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        j.signed
+            .verify_packet(&j.packet, &key)
+            .unwrap()
+            .into_iter()
+            .flat_map(|entry| entry.bytes)
+            .collect()
+    }
     fn resign(f: &Fixture, manifest: Manifest) -> SignedJob {
         let signature = values::encode_binary(
             &signer(f, b"tmt-colab-cli-signing-seed-v1")
@@ -3771,10 +3783,10 @@ mod native_publication {
             )
             .unwrap();
             previous = envelope.hash().unwrap();
-            // Preserve legal unusual whitespace: the stored payload must be these bytes, not to_json().
+            // Legal unusual whitespace in the signed packet's v1 JSON envelope (#5876 stores v2).
             let bytes = format!(
                 " {}\n",
-                String::from_utf8(envelope.to_json().unwrap()).unwrap()
+                String::from_utf8(envelope.to_json_v1().unwrap()).unwrap()
             )
             .into_bytes();
             entries.push(PublicationEntry {
@@ -3905,7 +3917,7 @@ mod native_publication {
             .unwrap()
             .flat_map(|r| r.unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(bytes, j.packet);
+        assert_eq!(bytes, stored_form(&f, &j));
         assert!(
             matches!(&result.record.outcome,Outcome::Committed {count:2,committed_revision,..} if *committed_revision==revision(&f))
         );
@@ -4411,14 +4423,14 @@ mod native_publication {
             .unwrap()
             .map(|r| r.unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(stored.concat(), j.packet);
+        assert_eq!(stored.concat(), stored_form(&f, &j));
         let reader = Doc::new();
         reader.get_or_insert_text("html");
         let public = signer(&f, b"tmt-colab-cli-signing-seed-v1")
             .verifying_key()
             .to_bytes();
         for (bytes, update) in stored.iter().zip(&updates) {
-            let envelope = object::Envelope::from_json(bytes).unwrap();
+            let envelope = object::Envelope::from_bytes(bytes).unwrap();
             let header = object::Header::decode(envelope.header()).unwrap();
             let raw = object::open(&envelope, &header.context, &[11; 32], &public).unwrap();
             assert_eq!(&raw, update);
@@ -4948,7 +4960,7 @@ mod native_preparation {
                 seq,
                 hash: envelope.hash().unwrap(),
                 previous,
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         envelope
@@ -4964,7 +4976,7 @@ mod native_preparation {
             .map(Result::unwrap)
             .collect::<Vec<_>>();
         for bytes in rows {
-            let e = object::Envelope::from_json(&bytes).unwrap();
+            let e = object::Envelope::from_bytes(&bytes).unwrap();
             let h = object::Header::decode(e.header()).unwrap();
             let sign = if h.context.author_device == DEVICE {
                 SigningKey::from_bytes(&[9; 32]).verifying_key().to_bytes()
@@ -5083,8 +5095,8 @@ mod native_preparation {
         let verified = w.job().verify_packet(w.packet(), &key).unwrap();
         let mut offset = 0;
         for e in verified {
-            assert_eq!(e.bytes, &w.packet()[offset..offset + e.bytes.len()]);
-            offset += e.bytes.len();
+            assert_eq!(e.packet, &w.packet()[offset..offset + e.packet.len()]);
+            offset += e.packet.len();
             let raw = object::open(&e.envelope, &e.header.context, &[11; 32], &key).unwrap();
             doc.transact_mut()
                 .apply_update(Update::decode_v1(&raw).unwrap())
@@ -5504,7 +5516,7 @@ mod native_preparation {
                 continue;
             }
             let envelope = sealed.unwrap();
-            let raw = envelope.to_json().unwrap();
+            let raw = envelope.to_json_v1().unwrap();
             assert!(raw.len() < tmt_colab::limits::UPDATE_BYTES);
             let mut manifest = w.job().manifest.clone();
             manifest.entries = vec![tmt_colab::publication::PublicationEntry {
@@ -5627,7 +5639,7 @@ mod native_preparation {
                 seq,
                 hash: cp.hash().unwrap(),
                 previous,
-                bytes: &cp.to_json().unwrap(),
+                bytes: &cp.to_bytes().unwrap(),
             })
             .unwrap();
         update
@@ -5721,7 +5733,7 @@ mod native_preparation {
                 cp.hash().unwrap().as_slice(),
                 [0u8; 32].as_slice(),
                 prior.as_slice(),
-                cp.to_json().unwrap()
+                cp.to_bytes().unwrap()
             ],
         )
         .unwrap();
@@ -5803,7 +5815,7 @@ mod native_preparation {
                 |r| r.get(0),
             )
             .unwrap();
-        let envelope = object::Envelope::from_json(&bytes).unwrap();
+        let envelope = object::Envelope::from_bytes(&bytes).unwrap();
         let context = object::Header::decode(envelope.header()).unwrap().context;
         let raw = object::open(
             &envelope,
@@ -7201,7 +7213,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
     let chain = certificate::Chain::from_json(&device.chain).unwrap();
     let signing_key = chain.certificate().unwrap().signing_key;
     for held in checkpoints {
-        let envelope = object::Envelope::from_json(&held.bytes).unwrap();
+        let envelope = object::Envelope::from_bytes(&held.bytes).unwrap();
         let header = object::Header::decode(envelope.header()).unwrap();
         assert!(object::open(&envelope, &header.context, &[11; 32], signing_key).is_ok());
         assert!(object::open(&envelope, &header.context, &[11; 32], &[0; 32]).is_err());

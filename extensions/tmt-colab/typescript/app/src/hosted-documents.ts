@@ -37,8 +37,10 @@ export async function hostedOwnLog(
   uid: string,
   expiresAtMs: number,
 ): Promise<SealedDocument> {
-  const envelope = binary(entry.envelope, 354304),
-    header = decodeHeader(Envelope.fromJson(envelope).header());
+  // A local entry is v2; the cloud row keeps the v1 JSON form until #5876 PR 2.
+  const local = Envelope.fromBytes(binary(entry.envelope, 354304)),
+    envelope = local.toJson(),
+    header = decodeHeader(local.header());
   requireValue(header.context.namespace === 'own');
   const expiresAt = new Date(expiresAtMs).toISOString().replace('.000Z', 'Z');
   const row = {
@@ -333,5 +335,6 @@ async function original(
         ? header.context.kind === kind
         : kind.some((allowed) => allowed === header.context.kind)),
   );
-  return { bytes, envelope, header, hash: await envelope.hash() };
+  // The cloud carries v1 JSON until #5876 PR 2; the reader admits the local v2 form.
+  return { bytes: envelope.toBytes(), envelope, header, hash: await envelope.hash() };
 }

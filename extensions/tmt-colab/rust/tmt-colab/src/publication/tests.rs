@@ -75,7 +75,7 @@ fn build_packet(raw: &[Vec<u8>], template: &SignedJob) -> (SignedJob, Vec<u8>) {
     manifest.entries = raw
         .iter()
         .map(|bytes| {
-            let e = Envelope::from_json(bytes).unwrap();
+            let e = Envelope::from_json_v1(bytes).unwrap();
             PublicationEntry {
                 namespace: PublicationKind::Content,
                 seq: Header::decode(e.header()).unwrap().context.stream_seq,
@@ -90,7 +90,7 @@ fn build_packet(raw: &[Vec<u8>], template: &SignedJob) -> (SignedJob, Vec<u8>) {
 }
 fn synthetic(count: usize, payload: usize) -> (SignedJob, Vec<u8>) {
     let (template, original) = input(0);
-    let mut header = Header::decode(Envelope::from_json(&original).unwrap().header()).unwrap();
+    let mut header = Header::decode(Envelope::from_json_v1(&original).unwrap().header()).unwrap();
     let mut previous = [0; 32];
     let mut raw = Vec::new();
     for seq in 1..=count {
@@ -98,7 +98,7 @@ fn synthetic(count: usize, payload: usize) -> (SignedJob, Vec<u8>) {
         header.context.prev_hash = previous;
         header.object_id = format!("{seq:064x}");
         let item = envelope(header.clone(), payload, true);
-        previous = Envelope::from_json(&item).unwrap().hash().unwrap();
+        previous = Envelope::from_json_v1(&item).unwrap().hash().unwrap();
         raw.push(item);
     }
     build_packet(&raw, &template)
@@ -167,7 +167,8 @@ fn independent_vectors_pin_nested_lp_job_packet_envelope_signatures_and_outcomes
         let parsed = job.verify_packet(&packet, &public()).unwrap();
         assert_eq!(parsed.len(), f["envelopes"].as_array().unwrap().len());
         for (entry, e) in parsed.iter().zip(f["envelopes"].as_array().unwrap()) {
-            assert_eq!(entry.bytes, e["json"].as_str().unwrap().as_bytes());
+            assert_eq!(entry.packet, e["json"].as_str().unwrap().as_bytes());
+            assert_eq!(entry.bytes, entry.envelope.to_bytes().unwrap());
             assert_eq!(hex(entry.envelope.header()), e["headerHex"]);
             assert_eq!(
                 hex(&entry.envelope.signature_input().unwrap()),
@@ -262,18 +263,18 @@ fn an_own_job_binds_its_kind_to_every_entry_and_stream_namespace() {
 #[test]
 fn exact_packet_bytes_are_bound_independently_of_envelope_json_order_and_whitespace() {
     let (job, raw) = input(0);
-    let envelope = Envelope::from_json(&raw).unwrap();
+    let envelope = Envelope::from_json_v1(&raw).unwrap();
     let mut changed = b" \n".to_vec();
-    changed.extend(envelope.to_json().unwrap());
+    changed.extend(envelope.to_json_v1().unwrap());
     changed.push(b' ');
     assert_eq!(
         envelope.hash().unwrap(),
-        Envelope::from_json(&changed).unwrap().hash().unwrap()
+        Envelope::from_json_v1(&changed).unwrap().hash().unwrap()
     );
     assert!(job.verify_packet(&changed, &public()).is_err());
     let (resigned, packet) = build_packet(&[changed.clone()], &job);
     assert_eq!(
-        resigned.verify_packet(&packet, &public()).unwrap()[0].bytes,
+        resigned.verify_packet(&packet, &public()).unwrap()[0].packet,
         changed
     );
     assert_ne!(resigned.manifest.packet_hash, job.manifest.packet_hash);
@@ -446,7 +447,7 @@ fn signatures_digest_scope_and_causal_order_require_the_original_frozen_binding(
         assert!(altered.verify_packet(&native_packet, &public()).is_err());
     }
     let entries = job.verify_packet(&raw, &public()).unwrap();
-    let mut reverse: Vec<Vec<u8>> = entries.iter().rev().map(|e| e.bytes.to_vec()).collect();
+    let mut reverse: Vec<Vec<u8>> = entries.iter().rev().map(|e| e.packet.to_vec()).collect();
     let mut reordered = job.clone();
     reordered.manifest.entries.reverse();
     assert!(reordered.to_json().is_err());
@@ -464,7 +465,7 @@ fn signatures_digest_scope_and_causal_order_require_the_original_frozen_binding(
             _ => {}
         }
         let late = envelope(header, 1, change != 8);
-        reverse[0] = entries[0].bytes.to_vec();
+        reverse[0] = entries[0].packet.to_vec();
         reverse[1] = late;
         let (mutated, packet) = build_packet(&reverse, &job);
         assert!(
@@ -528,7 +529,7 @@ fn geometry_bounds_have_authenticated_positive_controls_and_checked_arithmetic()
     let (full, packet) = synthetic(16, decoder::UPDATE_BYTES);
     assert!(full.verify_packet(&packet, &public()).is_ok());
     let decoded = full.verify_packet(&packet, &public()).unwrap();
-    let mut raw: Vec<Vec<u8>> = decoded.iter().map(|e| e.bytes.to_vec()).collect();
+    let mut raw: Vec<Vec<u8>> = decoded.iter().map(|e| e.packet.to_vec()).collect();
     let mut h = decoded.last().unwrap().header.clone();
     h.context.stream_seq = "17".into();
     h.context.prev_hash = decoded.last().unwrap().envelope.hash().unwrap();
@@ -546,8 +547,8 @@ fn geometry_bounds_have_authenticated_positive_controls_and_checked_arithmetic()
     over_json.manifest.entries[0].envelope_bytes += 1;
     over_json.manifest.packet_bytes += 1;
     assert!(over_json.to_json().is_err());
-    let header = Header::decode(Envelope::from_json(&raw).unwrap().header()).unwrap();
-    assert!(Envelope::from_json(&envelope(header, decoder::UPDATE_BYTES + 1, true)).is_err());
+    let header = Header::decode(Envelope::from_json_v1(&raw).unwrap().header()).unwrap();
+    assert!(Envelope::from_json_v1(&envelope(header, decoder::UPDATE_BYTES + 1, true)).is_err());
 }
 
 #[test]

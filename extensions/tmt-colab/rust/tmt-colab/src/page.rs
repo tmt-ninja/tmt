@@ -1056,7 +1056,8 @@ fn freeze(
             &s.secret,
             delta,
         )?;
-        let bytes = envelope.to_json()?;
+        // A signed packet carries v1 JSON envelopes; admission stores their v2 form (#5876).
+        let bytes = envelope.to_json_v1()?;
         if bytes.len() > crate::limits::UPDATE_BYTES {
             return Err(Fault::Capacity.into());
         }
@@ -1301,7 +1302,7 @@ pub fn commit_publication(
                     seq: values::decimal(&context.stream_seq, false)?,
                     hash: entry.envelope.hash()?,
                     previous: context.prev_hash,
-                    bytes: entry.bytes,
+                    bytes: &entry.bytes,
                 })?;
                 // Only the original outcome row grants replay; a fresh identity cannot adopt old content.
                 if result != Accepted::New {

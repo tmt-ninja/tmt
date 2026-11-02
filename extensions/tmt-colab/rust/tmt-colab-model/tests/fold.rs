@@ -81,7 +81,10 @@ fn a_fold_header_has_one_trailing_field_and_other_kinds_keep_thirteen() {
     // A reader that knows only the thirteen-field header refuses a fold by its field count.
     assert!(framing::fields(fold.header(), 13, 1024).is_err());
     // The envelope round-trips through its JSON form.
-    assert_eq!(Envelope::from_json(&fold.to_json().unwrap()).unwrap(), fold);
+    assert_eq!(
+        Envelope::from_json_v1(&fold.to_json_v1().unwrap()).unwrap(),
+        fold
+    );
 }
 
 #[test]

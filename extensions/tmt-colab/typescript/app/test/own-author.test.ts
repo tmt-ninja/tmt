@@ -149,7 +149,7 @@ async function sealed(w: Awaited<ReturnType<typeof world>>) {
   return {
     seq: '5',
     envelopeHash: c.encodeBinary(await envelope.hash()),
-    envelope: c.encodeBinary(envelope.toJson()),
+    envelope: c.encodeBinary(envelope.toBytes()),
   };
 }
 
@@ -230,7 +230,7 @@ for (const kind of ['link', 'member'] as Kind[])
       // What was sealed is this device's stream entry, which the checker's key opens.
       const entry = appended[0] as { seq: string; envelope: string };
       const header = c.decodeHeader(
-        c.Envelope.fromJson(c.binary(entry.envelope, 1 << 20)).header(),
+        c.Envelope.fromBytes(c.binary(entry.envelope, 1 << 20)).header(),
       );
       expect(header.context).toMatchObject({ namespace: 'own', authorDevice: w.device.id });
       expect(entry.seq).toBe('5');
@@ -368,7 +368,7 @@ async function sealedCheckpoint(w: Awaited<ReturnType<typeof world>>) {
   return {
     seq: '5',
     envelopeHash: c.encodeBinary(await envelope.hash()),
-    envelope: c.encodeBinary(envelope.toJson()),
+    envelope: c.encodeBinary(envelope.toBytes()),
   };
 }
 

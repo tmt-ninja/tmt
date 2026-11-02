@@ -143,7 +143,7 @@ it('retains cut-admitted Ask and discussion history after revocation but never d
   const entry = async (envelope: c.Envelope) => ({
     seq: c.decodeHeader(envelope.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await envelope.hash()),
-    envelope: c.encodeBinary(envelope.toJson()),
+    envelope: c.encodeBinary(envelope.toBytes()),
   });
   const prior = new Objects(a);
   const admitted = (await prior.admit(v.page, await entry(first)))!;

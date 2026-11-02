@@ -11,7 +11,7 @@ import { Writer, memoryRecords } from '../src/writer.js';
 vi.mock('@tmt/colab-client', async (original) => ({
   ...(await original<typeof import('@tmt/colab-client')>()),
   Envelope: {
-    seal: async () => ({ hash: async () => new Uint8Array(32), toJson: () => ({}) }),
+    seal: async () => ({ hash: async () => new Uint8Array(32), toBytes: () => new Uint8Array() }),
   },
 }));
 vi.mock('../src/own-seal.js', () => ({
@@ -24,6 +24,7 @@ vi.mock('../src/own-seal.js', () => ({
   sealedRevision: () => 1,
   // The fixture entries carry their kind where a sealed envelope would.
   sealedKind: (entry: { envelope: string }) => entry.envelope,
+  currentEntry: <T>(entry: T) => entry,
 }));
 const device = '00000000-0000-4000-8000-000000000004';
 const stream = 'own-stream';

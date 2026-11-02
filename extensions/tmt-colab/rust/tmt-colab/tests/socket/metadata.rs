@@ -65,7 +65,7 @@ fn request_result(server: &Running, operation: &str) -> Value {
             let updates: Vec<Vec<u8>> = packets
                 .iter()
                 .map(|bytes| {
-                    let envelope = object::Envelope::from_json(bytes).unwrap();
+                    let envelope = object::Envelope::from_bytes(bytes).unwrap();
                     let header = object::Header::decode(envelope.header()).unwrap();
                     assert_eq!(header.context.author_device, writer);
                     assert_eq!(header.context.page, PAGE);
