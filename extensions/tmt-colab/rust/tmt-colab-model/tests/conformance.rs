@@ -22,7 +22,7 @@ fn context(v: &Value) -> Context {
     Header::decode(&field(v, "header")).unwrap().context
 }
 fn envelope(v: &Value) -> Envelope {
-    Envelope::from_bytes(&serde_json::to_vec(&json!({"header":values::encode_binary(&field(v,"header")),"nonce":values::encode_binary(&[0;12]),"ciphertext":values::encode_binary(&field(v,"ciphertext")),"signature":values::encode_binary(&field(v,"signature"))})).unwrap()).unwrap()
+    Envelope::from_json_v1(&serde_json::to_vec(&json!({"header":values::encode_binary(&field(v,"header")),"nonce":values::encode_binary(&[0;12]),"ciphertext":values::encode_binary(&field(v,"ciphertext")),"signature":values::encode_binary(&field(v,"signature"))})).unwrap()).unwrap()
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn namespace_object_matches_independent_python_ciphertext_signature_and_hash() {
         field(&v, "plaintext")
     );
     assert_eq!(e.hash().unwrap().as_slice(), field(&v, "envelopeHash"));
-    assert_eq!(Envelope::from_bytes(&e.to_bytes().unwrap()).unwrap(), e);
+    assert_eq!(Envelope::from_json_v1(&e.to_json_v1().unwrap()).unwrap(), e);
 }
 #[test]
 fn signin_and_management_match_independent_inputs_and_proofs() {
@@ -284,7 +284,7 @@ fn frozen_retries_and_fresh_seals_have_distinct_ids_and_keys() {
     assert_ne!(a.header(), b.header());
     assert_ne!(a.ciphertext(), b.ciphertext());
     assert_eq!(
-        Envelope::from_bytes(&a.to_bytes().unwrap())
+        Envelope::from_json_v1(&a.to_json_v1().unwrap())
             .unwrap()
             .hash()
             .unwrap(),
@@ -324,12 +324,12 @@ fn open_rejects_context_key_ciphertext_signature_and_namespace_substitution() {
         .is_err()
     );
     for name in ["ciphertext", "signature"] {
-        let mut wire: Value = serde_json::from_slice(&e.to_bytes().unwrap()).unwrap();
+        let mut wire: Value = serde_json::from_slice(&e.to_json_v1().unwrap()).unwrap();
         let mut raw =
             values::binary(wire[name].as_str().unwrap(), object::MAX_PLAINTEXT + 16).unwrap();
         raw[0] ^= 1;
         wire[name] = json!(values::encode_binary(&raw));
-        let changed = Envelope::from_bytes(&serde_json::to_vec(&wire).unwrap()).unwrap();
+        let changed = Envelope::from_json_v1(&serde_json::to_vec(&wire).unwrap()).unwrap();
         assert!(object::open(&changed, &ctx, &master, &public).is_err());
     }
 }
@@ -337,20 +337,20 @@ fn open_rejects_context_key_ciphertext_signature_and_namespace_substitution() {
 fn strict_wire_rejects_duplicate_unknown_noncanonical_and_trailing_fields() {
     let v = fixture();
     let e = envelope(&v);
-    let raw = e.to_bytes().unwrap();
+    let raw = e.to_json_v1().unwrap();
     let text = String::from_utf8(raw).unwrap();
     let duplicate = text.replacen('{', "{\"nonce\":\"AAAAAAAAAAAAAAAA\",", 1);
-    assert!(Envelope::from_bytes(duplicate.as_bytes()).is_err());
+    assert!(Envelope::from_json_v1(duplicate.as_bytes()).is_err());
     let unknown = text.replacen('{', "{\"unknown\":true,", 1);
-    assert!(Envelope::from_bytes(unknown.as_bytes()).is_err());
-    assert!(Envelope::from_bytes(format!("{text}x").as_bytes()).is_err());
+    assert!(Envelope::from_json_v1(unknown.as_bytes()).is_err());
+    assert!(Envelope::from_json_v1(format!("{text}x").as_bytes()).is_err());
     let mut wire: Value = serde_json::from_str(&text).unwrap();
     wire["nonce"] = json!("AAAAAAAAAAAAAAAB");
-    assert!(Envelope::from_bytes(&serde_json::to_vec(&wire).unwrap()).is_err());
+    assert!(Envelope::from_json_v1(&serde_json::to_vec(&wire).unwrap()).is_err());
     for key in ["header", "ciphertext", "signature"] {
         let mut wire: Value = serde_json::from_str(&text).unwrap();
         wire[key] = json!(format!("{}=", wire[key].as_str().unwrap()));
-        assert!(Envelope::from_bytes(&serde_json::to_vec(&wire).unwrap()).is_err());
+        assert!(Envelope::from_json_v1(&serde_json::to_vec(&wire).unwrap()).is_err());
     }
     assert!(values::binary("AB", 1).is_err());
     assert!(values::binary("AA", 1).is_ok());
@@ -384,7 +384,7 @@ fn namespace_relabeling_with_a_valid_signature_still_fails_aead() {
     .unwrap();
     let signature = signer.sign(&input).to_bytes();
     crypto::verify_signature(signer.verifying_key().as_bytes(), &input, &signature).unwrap();
-    let relabeled = Envelope::from_bytes(&serde_json::to_vec(&json!({"header":values::encode_binary(&header),"nonce":values::encode_binary(&[0;12]),"ciphertext":values::encode_binary(e.ciphertext()),"signature":values::encode_binary(&signature)})).unwrap()).unwrap();
+    let relabeled = Envelope::from_json_v1(&serde_json::to_vec(&json!({"header":values::encode_binary(&header),"nonce":values::encode_binary(&[0;12]),"ciphertext":values::encode_binary(e.ciphertext()),"signature":values::encode_binary(&signature)})).unwrap()).unwrap();
     assert!(
         object::open(
             &relabeled,
@@ -442,7 +442,7 @@ fn binary_envelope_v2_round_trips_with_the_same_hash_and_rejects_mutations() {
         e.signature_input().unwrap()
     );
     // v1 JSON is not v2, and a wrong magic, version or length is refused.
-    assert!(Envelope::from_bytes(&e.to_bytes().unwrap()).is_err());
+    assert!(Envelope::from_bytes(&e.to_json_v1().unwrap()).is_err());
     for (at, value) in [(0, b'X'), (4, 1), (4, 3), (5, 0xff)] {
         let mut changed = v2.clone();
         changed[at] = value;
