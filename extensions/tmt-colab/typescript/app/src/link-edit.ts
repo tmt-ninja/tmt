@@ -1,15 +1,14 @@
 import { editRequest, encodeBinary, text as bytesOf } from '@tmt/colab-client';
-import type { OwnRecord } from './fold-protocol.js';
-import { UPDATE_ENVELOPE_BYTES } from './objects.js';
+import { UPDATE_BYTES, type OwnRecord } from './fold-protocol.js';
 import { EditTooLarge } from './save.js';
 import { hunksOf } from './save-hunks.js';
 
-/** An edit request is one log row: its v2 envelope (the update and 2 KiB of overhead) fits the
- * row's envelope bound, so a request is never split across documents. The same bound holds for
- * the local door, which has no document of its own. Throws when a request would not fit. */
+/** An edit request is one log row: its v2 envelope is the update and 2 KiB of overhead, which
+ * fits the row's envelope bound exactly when the update fits one update, so a request is never
+ * split across documents. The same bound holds for the local door, which has no document of its
+ * own. Throws, naming the update's own size, when a request would not fit. */
 export function requestFitsDocument(update: number) {
-  const sealed = update + 2048;
-  if (sealed > UPDATE_ENVELOPE_BYTES) throw new EditTooLarge(sealed, UPDATE_ENVELOPE_BYTES);
+  if (update > UPDATE_BYTES) throw new EditTooLarge(update, UPDATE_BYTES);
 }
 
 /** The anchored hunks when they fit the request's bounds; otherwise the whole source travels

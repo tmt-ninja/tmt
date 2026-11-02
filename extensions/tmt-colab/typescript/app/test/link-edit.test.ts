@@ -92,7 +92,7 @@ it('refuses a request whose prepared update would not fit one document, before i
   const { sent, transport } = recording(300_000);
   const error = await sendEditRequest(transport, BASE, EDITED).catch((e) => e);
   expect(error).toBeInstanceOf(EditTooLarge);
-  expect(error).toMatchObject({ size: 300_000 + 2048, limit: UPDATE_ENVELOPE_BYTES });
+  expect(error).toMatchObject({ size: 300_000, limit: 256 * 1024 });
   expect(sent).toEqual([]);
 });
 
