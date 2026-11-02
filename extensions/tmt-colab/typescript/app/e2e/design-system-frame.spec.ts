@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { servePageRuntime } from './page-runtime.js';
 
 // #5821 / epic #5866: a page that pins a design system release gets its components as custom
 // elements in the frame. The bundle here is the repo template's, handed to mountRenderer through
@@ -12,19 +13,11 @@ const bundle = JSON.parse(
 ) as { hash: string };
 const pin = `tmt-gui@0.1.0#${bundle.hash}`;
 
-// The dev server has no built page runtime; serve the one the app build writes.
-const built = new URL('../dist/assets/', import.meta.url);
-async function mount(page: Page, source: string, served: unknown = bundle) {
-  for (const name of ['colab-runtime.js', 'colab-runtime.css'])
-    await page.route(`**/assets/${name}`, (route) =>
-      route.fulfill({
-        contentType: name.endsWith('.js') ? 'text/javascript' : 'text/css',
-        body: readFileSync(new URL(name, built), 'utf8'),
-      }),
-    );
+async function mount(page: Page, source: string, served: unknown = bundle, layout?: 'column') {
+  await servePageRuntime(page);
   await page.goto('/');
   await page.evaluate(
-    async ({ source, served }) => {
+    async ({ source, served, layout }) => {
       const path = '/src/renderer.ts';
       const { mountRenderer } = await import(path);
       const host = document.createElement('div');
@@ -36,9 +29,10 @@ async function mount(page: Page, source: string, served: unknown = bundle) {
           host.dataset.state = state;
         },
         designSystem: async () => served,
+        ...(layout ? { layout } : {}),
       });
     },
-    { source, served },
+    { source, served, layout },
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   return page.frameLocator('#probe iframe');
@@ -86,6 +80,25 @@ test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5
   // A page that opted into the runtime keeps its reset: its h1 is body text.
   const tailwind = await sizes('<meta name="tmt-colab-runtime" content="react tailwind">');
   expect(tailwind.h1).toBe(tailwind.p);
+});
+
+test('a top-level component stands on the column with the text', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}"><h1>Mockup</h1><p>Body text.</p>
+     <tmt-ui-card heading="Timer"><tmt-ui-button variant="outline">Stop</tmt-ui-button></tmt-ui-card>`,
+    bundle,
+    'column',
+  );
+  await expect(frame.getByRole('button', { name: 'Stop' })).toBeVisible();
+  const left = (selector: string) =>
+    frame
+      .locator(selector)
+      .first()
+      .evaluate((node) => node.getBoundingClientRect().left);
+  const text = await left('p');
+  expect(text).toBeGreaterThan(0);
+  expect(await left('tmt-ui-card > *')).toBe(text);
 });
 
 test('an attribute change re-renders the component', async ({ page }) => {

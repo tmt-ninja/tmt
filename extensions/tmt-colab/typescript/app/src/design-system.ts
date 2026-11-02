@@ -129,9 +129,10 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   const meta = JSON.stringify(
     bundle.components.map(({ tag, props, slots }) => ({ tag, props, slots })),
   ).replace(/</g, '\\u003c');
-  const style = `@layer tmt-ui{${bundle.tokensCss}\n${bundle.components
-    .map(({ tag }) => `${tag}{display:contents}`)
-    .join('')}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
+  // An element is only its rendered component's host, except at the top of the page: there it is
+  // the box the frame's column rules (width, inset) apply to, so it stands on the column with the text.
+  const tags = bundle.components.map(({ tag }) => tag).join(',');
+  const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
   const script = `(()=>{const t=window.tmt;const meta=${meta};
 const factories=[${bundle.components.map(({ code }) => `(function(){${code}})()`).join(',')}];
 if(!t||!t.React||!t.html||!t.createRoot)return;
