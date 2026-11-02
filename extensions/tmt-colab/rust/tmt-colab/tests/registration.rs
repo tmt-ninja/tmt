@@ -1497,7 +1497,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"original attachment bytes",
     )
     .unwrap();
-    let raw = asset.to_bytes().unwrap();
+    let raw = asset.to_json_v1().unwrap();
     let descriptor = Descriptor {
         version: 1,
         attachment_id: ATTACHMENT.into(),
@@ -1725,7 +1725,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"original attachment bytes",
     )
     .unwrap();
-    let local_raw = local_asset.to_bytes().unwrap();
+    let local_raw = local_asset.to_json_v1().unwrap();
     let local_descriptor = Descriptor {
         author_device: local_id,
         object_id: object::Header::decode(local_asset.header())
@@ -1849,7 +1849,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"message attachment bytes",
     )
     .unwrap();
-    let message_raw = message_asset.to_bytes().unwrap();
+    let message_raw = message_asset.to_json_v1().unwrap();
     let message_descriptor = Descriptor {
         namespace: "own".into(),
         object_id: object::Header::decode(message_asset.header())

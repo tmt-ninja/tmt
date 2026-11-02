@@ -4076,7 +4076,7 @@ fn checkpoint_rows(server: &Running) -> i64 {
 }
 /// A write whose own tail passes the combine trigger (1 MiB of updates).
 fn combinable_source() -> String {
-    "wide 🐈\r\n".repeat(110_000)
+    "wide 🐈\r\n".repeat(150_000)
 }
 
 #[test]

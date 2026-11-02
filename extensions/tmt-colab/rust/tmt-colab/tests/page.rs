@@ -3726,6 +3726,18 @@ mod native_publication {
         packet: Vec<u8>,
         chain: Vec<u8>,
     }
+    /// What the receipts hold for a job: each packet envelope in its v2 form (#5876).
+    fn stored_form(f: &Fixture, j: &Job) -> Vec<u8> {
+        let key = signer(f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        j.signed
+            .verify_packet(&j.packet, &key)
+            .unwrap()
+            .into_iter()
+            .flat_map(|entry| entry.bytes)
+            .collect()
+    }
     fn resign(f: &Fixture, manifest: Manifest) -> SignedJob {
         let signature = values::encode_binary(
             &signer(f, b"tmt-colab-cli-signing-seed-v1")
@@ -3771,10 +3783,10 @@ mod native_publication {
             )
             .unwrap();
             previous = envelope.hash().unwrap();
-            // Preserve legal unusual whitespace: the stored payload must be these bytes, not to_json().
+            // Legal unusual whitespace in the signed packet's v1 JSON envelope (#5876 stores v2).
             let bytes = format!(
                 " {}\n",
-                String::from_utf8(envelope.to_bytes().unwrap()).unwrap()
+                String::from_utf8(envelope.to_json_v1().unwrap()).unwrap()
             )
             .into_bytes();
             entries.push(PublicationEntry {
@@ -3905,7 +3917,7 @@ mod native_publication {
             .unwrap()
             .flat_map(|r| r.unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(bytes, j.packet);
+        assert_eq!(bytes, stored_form(&f, &j));
         assert!(
             matches!(&result.record.outcome,Outcome::Committed {count:2,committed_revision,..} if *committed_revision==revision(&f))
         );
@@ -4411,7 +4423,7 @@ mod native_publication {
             .unwrap()
             .map(|r| r.unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(stored.concat(), j.packet);
+        assert_eq!(stored.concat(), stored_form(&f, &j));
         let reader = Doc::new();
         reader.get_or_insert_text("html");
         let public = signer(&f, b"tmt-colab-cli-signing-seed-v1")
@@ -5083,8 +5095,8 @@ mod native_preparation {
         let verified = w.job().verify_packet(w.packet(), &key).unwrap();
         let mut offset = 0;
         for e in verified {
-            assert_eq!(e.bytes, &w.packet()[offset..offset + e.bytes.len()]);
-            offset += e.bytes.len();
+            assert_eq!(e.packet, &w.packet()[offset..offset + e.packet.len()]);
+            offset += e.packet.len();
             let raw = object::open(&e.envelope, &e.header.context, &[11; 32], &key).unwrap();
             doc.transact_mut()
                 .apply_update(Update::decode_v1(&raw).unwrap())
@@ -5504,7 +5516,7 @@ mod native_preparation {
                 continue;
             }
             let envelope = sealed.unwrap();
-            let raw = envelope.to_bytes().unwrap();
+            let raw = envelope.to_json_v1().unwrap();
             assert!(raw.len() < tmt_colab::limits::UPDATE_BYTES);
             let mut manifest = w.job().manifest.clone();
             manifest.entries = vec![tmt_colab::publication::PublicationEntry {

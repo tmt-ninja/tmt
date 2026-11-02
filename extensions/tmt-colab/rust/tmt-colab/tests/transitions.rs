@@ -380,9 +380,8 @@ fn forged_signature_or_device_chain_cannot_be_folded_or_signed() {
         let mut f = Fixture::new();
         let good = f.object(1, [0; 32], "update", "content", &source("verified"));
         if target == "object" {
-            let mut wire: Value = serde_json::from_slice(&good.to_bytes().unwrap()).unwrap();
-            wire["signature"] = json!(values::encode_binary(&[0; 64]));
-            let forged = object::Envelope::from_bytes(&serde_json::to_vec(&wire).unwrap()).unwrap();
+            let forged =
+                object::Envelope::from_bytes(&zero_signature(&good.to_bytes().unwrap())).unwrap();
             f.append(&forged);
         } else {
             f.append(&good);
@@ -3428,7 +3427,8 @@ fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset
     use tmt_colab_model::attachment::Descriptor;
     let mut f = Fixture::new();
     let asset = f.object(0, [0; 32], "asset", "content", b"fixture attachment");
-    let raw = asset.to_bytes().unwrap();
+    // Attachments keep the v1 form until #5876 PR 2.
+    let raw = asset.to_json_v1().unwrap();
     let corpus: Value = serde_json::from_str(include_str!(
         "../../../contracts/vectors/attachment-v1.json"
     ))
@@ -3526,4 +3526,12 @@ fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset
             descriptor["source"]
         );
     }
+}
+
+/// A v2 envelope with its signature zeroed (#5876): syntax still parses, admission must refuse it.
+fn zero_signature(bytes: &[u8]) -> Vec<u8> {
+    let at = 7 + usize::from(u16::from_be_bytes([bytes[5], bytes[6]]));
+    let mut out = bytes.to_vec();
+    out[at..at + 64].fill(0);
+    out
 }

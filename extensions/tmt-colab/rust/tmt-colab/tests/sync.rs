@@ -533,9 +533,7 @@ fn gap_conflict_role_signature_and_epoch_denials_have_no_new_payload() {
     error(&mut b, "DENIED");
     let (mut bad, _, _) = f.append(ALICE, 1, [0; 32], "content", 4);
     let mut bytes = values::binary(bad["envelope"].as_str().unwrap(), 65536).unwrap();
-    let mut envelope: Value = serde_json::from_slice(&bytes).unwrap();
-    envelope["signature"] = json!(values::encode_binary(&[0; 64]));
-    bytes = serde_json::to_vec(&envelope).unwrap();
+    bytes = zero_signature(&bytes);
     let decoded = object::Envelope::from_bytes(&bytes).unwrap();
     bad["envelopeHash"] = json!(values::encode_binary(&decoded.hash().unwrap()));
     bad["envelope"] = json!(values::encode_binary(&bytes));
@@ -1284,9 +1282,7 @@ fn chunk_deadline_drop_revocation_and_signature_failure_never_persist_partial_by
         let (frame, _, mut bytes) = f.append(ALICE, 1, [0; 32], "content", 60000);
         let mut frame = frame;
         if mode == "signature" {
-            let mut v: Value = serde_json::from_slice(&bytes).unwrap();
-            v["signature"] = json!(values::encode_binary(&[0; 64]));
-            bytes = serde_json::to_vec(&v).unwrap();
+            bytes = zero_signature(&bytes);
             frame["envelopeHash"] = json!(values::encode_binary(
                 &object::Envelope::from_bytes(&bytes)
                     .unwrap()
@@ -1472,7 +1468,8 @@ fn twelve_chunk_transfer_stays_consecutive_across_credit_releases() {
         },
         &[9; 32],
         &f.alice,
-        &vec![7; 270 * 1024],
+        // Binary v2 carries the ciphertext 1:1 (#5876), so twelve chunks need 11 and a bit.
+        &vec![7; 11 * tmt_colab::limits::CHUNK_BYTES + 1024],
     )
     .unwrap();
     let bytes = envelope.to_bytes().unwrap();
@@ -2195,4 +2192,12 @@ fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_
     assert_eq!(f.server.ingest(&moved, &next, &alice), Err(Code::Invalid));
     assert_eq!(f.payload(ALICE, 2), None);
     assert_eq!(bob.1.poll(), Progress::Pending);
+}
+
+/// A v2 envelope with its signature zeroed (#5876): syntax still parses, admission must refuse it.
+fn zero_signature(bytes: &[u8]) -> Vec<u8> {
+    let at = 7 + usize::from(u16::from_be_bytes([bytes[5], bytes[6]]));
+    let mut out = bytes.to_vec();
+    out[at..at + 64].fill(0);
+    out
 }
