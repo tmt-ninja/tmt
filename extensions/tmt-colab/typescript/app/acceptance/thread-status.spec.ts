@@ -1,5 +1,5 @@
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction, commentsAction } from '../test/page-actions.js';
+import { pageAction, commentsAction, selectDiscussion } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import fs, { mkdirSync } from 'node:fs';
@@ -246,16 +246,18 @@ test('Resolve all commits two native statuses and notifies each agent once in th
     await confirmation.getByRole('button', { name: 'Resolve all', exact: true }).click();
     await expect.poll(() => notices(alpha).length).toBe(1);
     await expect.poll(() => notices(beta).length).toBe(1);
-    for (const agent of [alpha, beta]) {
+    for (const agent of [alpha, beta])
       expect(notices(agent)[0].message).toContain('Thread resolved by batch-author.');
-      expect(notices(agent)[0].message).toContain('First batch comment.');
-    }
+    // Alpha belongs to both threads and is notified for whichever is first in the snapshot.
+    expect(notices(alpha)[0].message).toMatch(/(?:First|Second) batch comment\./);
+    expect(notices(beta)[0].message).toContain('First batch comment.');
     const listing = () =>
       JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])) as {
         threads: { resolved: boolean }[];
       };
     expect(listing().threads).toHaveLength(2);
     expect(listing().threads.every((thread) => thread.resolved)).toBe(true);
+    await selectDiscussion(page, 'Second batch comment.');
     await expect(panel.getByRole('status').filter({ hasText: 'Not notified' })).toContainText(
       'ghost-agent',
     );
