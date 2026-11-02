@@ -4,6 +4,7 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import type { PageTransport } from './transport.js';
 import {
   listDesignSystems,
+  pinDesignTree,
   publishNext,
   type DesignSystemEntry,
   type DesignTreeNode,
@@ -83,16 +84,20 @@ function Tree({
 export function DesignLibrary({
   transport,
   path,
+  anchor,
   navigate,
 }: {
   transport: PageTransport;
   path: string;
+  /** The open page's anchor, if the link named one. */
+  anchor?: string;
   navigate(href: string): void;
 }) {
   const base = designBase();
   const [systems, setSystems] = useState<DesignSystemEntry[]>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -121,9 +126,10 @@ export function DesignLibrary({
     setLoading(true);
     setError(undefined);
     try {
-      const entries = await listDesignSystems(transport, controller.signal);
+      const listed = await listDesignSystems(transport, controller.signal);
       if (controller.signal.aborted) return false;
-      setSystems(entries);
+      setSystems(listed.systems);
+      setUnreadable(listed.unreadable);
       return true;
     } catch (failure) {
       if (!controller.signal.aborted) setError(errorText(failure));
@@ -152,21 +158,38 @@ export function DesignLibrary({
     : undefined;
   const builtin = path.startsWith(`${base}/ds/tui`) ? 'tui' : 'gui';
   const current = selected ? `user:${selected.id}` : userPath ? 'unknown' : builtin;
-  const publish = async () => {
-    if (!selected || !transport.management) return;
+  // One publish at a time: a second activation before the first re-renders would upload a second
+  // bundle and then fail on a stale base, leaving an orphan attachment.
+  const publishingNow = useRef(false);
+  const [unpinned, setUnpinned] = useState<{ pin: string; pages: string[] }>();
+  const run = async (task: () => Promise<void>) => {
+    if (!selected || !transport.management || publishingNow.current) return;
+    publishingNow.current = true;
     setPublishing(true);
     setError(undefined);
     setNotice(undefined);
     try {
-      const result = await publishNext(transport, selected.id);
-      setNotice(`Published ${result.version}.`);
-      await refresh();
+      await task();
     } catch (failure) {
       setError(errorText(failure));
     } finally {
+      publishingNow.current = false;
       setPublishing(false);
     }
   };
+  const publish = () =>
+    run(async () => {
+      const result = await publishNext(transport, selected!.id);
+      setNotice(`Published ${result.version}.`);
+      setUnpinned(result.unpinned.length ? { pin: result.pin, pages: result.unpinned } : undefined);
+      await refresh();
+    });
+  const repin = () =>
+    run(async () => {
+      const pages = await pinDesignTree(transport, selected!.id, unpinned!.pin);
+      setUnpinned(pages.length ? { pin: unpinned!.pin, pages } : undefined);
+      if (!pages.length) setNotice('Every page now uses the published version.');
+    });
   // The workspace is the scroller here, so a new page starts at its top.
   const open = (href: string) => {
     navigate(href);
@@ -231,7 +254,7 @@ export function DesignLibrary({
                     type="button"
                     variant="primary"
                     label={`Publish ${selected.next}`}
-                    disabled={loading || error !== undefined}
+                    disabled={publishing || loading || error !== undefined}
                     busy={publishing}
                     onActivate={() => void publish()}
                   />
@@ -250,6 +273,29 @@ export function DesignLibrary({
               variant="text"
               label="Reload design systems"
               onActivate={() => void refresh()}
+            />
+          </p>
+        )}
+        {unreadable.length > 0 && (
+          <p className="design-feedback" role="alert">
+            {`Could not read ${unreadable.length === 1 ? 'this design system page' : 'these design system pages'}: ${unreadable.join(', ')}.`}{' '}
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Reload design systems"
+              onActivate={() => void refresh()}
+            />
+          </p>
+        )}
+        {unpinned && (
+          <p className="design-feedback" role="alert">
+            {`Published, but these pages still use the previous version: ${unpinned.pages.join(', ')}.`}{' '}
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Retry moving them"
+              disabled={publishing}
+              onActivate={() => void repin()}
             />
           </p>
         )}
@@ -296,6 +342,7 @@ export function DesignLibrary({
                     pageId={page.id}
                     system={selected}
                     base={base}
+                    anchor={anchor}
                     navigate={go}
                   />
                 ) : (

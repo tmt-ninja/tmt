@@ -3,6 +3,8 @@ import type { PageRouting } from './page-routing.js';
 
 export interface EmbeddedPageProps {
   pageId: string;
+  /** The anchor to open the page at (a heading or a Design example), as the page route's search. */
+  anchor?: string;
   /** The host's routing of the page's own links, over the page route's. */
   routing?(base: PageRouting): PageRouting;
 }

@@ -191,7 +191,7 @@ build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{pa
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
 entry in the same Remote-owned table or a mapped app family (`/colab/…` and `/design/…`
-both map to Colab), or null. It
+both map to Colab; #5965 moves the `/design/…` entry into Colab's module description), or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.

@@ -83,6 +83,7 @@ export async function bundleHash(bundle: DesignSystemBundle): Promise<string> {
 }
 
 export type DesignSystemFailure =
+  | 'unavailable'
   | 'unknown-release'
   | 'hash-mismatch'
   | 'newer-runtime'
@@ -105,6 +106,8 @@ export async function resolveDesignSystem(
 }
 
 const notices: Record<DesignSystemFailure, string> = {
+  unavailable:
+    'This page’s design system release could not be read in time. Reopen the page to try again.',
   'unknown-release': 'This page pins a design system release this TMT does not have.',
   'hash-mismatch': 'This page’s design system bundle does not match its pin.',
   'newer-runtime': 'This page needs a newer TMT to show its components.',
@@ -176,6 +179,21 @@ function findingsScript(findings: readonly Finding[]): string {
   return `addEventListener('DOMContentLoaded',()=>{const box=document.createElement('aside');box.setAttribute('data-tmt-ds-findings','');box.setAttribute('role','status');box.setAttribute('aria-label','Design system check');box.style.cssText='margin:0 0 12px;padding:8px 12px;border:1px solid var(--tmt-ui-color-waiting,#8a5a08);border-radius:6px;font:13px/1.4 system-ui,sans-serif;color:inherit';const list=document.createElement('ul');list.style.cssText='margin:0;padding-left:18px';for(const line of ${lines}){const item=document.createElement('li');item.textContent=line;list.append(item);}box.append(list);document.body.prepend(box);});`;
 }
 
+/** How long a page waits for its pinned release before it renders with a notice instead. */
+export const PIN_WAIT_MS = 4000;
+/** Each pin's outcome for the session, by the whole pin: a verified bundle or the failure. A release
+ * never changes under its pin, and a pin that failed is not fetched again until a reload, so one
+ * page's bad pin can never stand in for another release, and a dead pin costs one read. */
+const outcomes = new Map<string, Promise<DesignSystemBundle | DesignSystemFailure>>();
+function outcome(pin: DesignSystemPin, from: DesignSystemSource) {
+  const key = `${pin.system}@${pin.version}#${pin.hash}`;
+  let result = outcomes.get(key);
+  if (!result) outcomes.set(key, (result = resolveDesignSystem(pin, from)));
+  return result;
+}
+const deadline = () =>
+  new Promise<'unavailable'>((resolve) => setTimeout(() => resolve('unavailable'), PIN_WAIT_MS));
+
 /** The frame's design system for a page, or undefined when it needs none: the components of the
  * pinned release, the page check's findings, or the notice that the release cannot be used. */
 export async function loadDesignSystem(
@@ -188,7 +206,9 @@ export async function loadDesignSystem(
   const elements = pageElements(source);
   if (!named) return { style: '', script: findingsScript(checkElements(elements, null, null)) };
   if (!pin || !from) return noticeFrame('unknown-release');
-  const bundle = await resolveDesignSystem(pin, from);
+  // A slow or stuck read never blanks the page: past the deadline it renders with the notice, and
+  // the read goes on for the next open.
+  const bundle = await Promise.race([outcome(pin, from), deadline()]);
   if (typeof bundle === 'string') return noticeFrame(bundle);
   const frame = frameDesignSystem(bundle);
   const findings = findingsScript(checkElements(elements, pin, bundle as unknown as Bundle));

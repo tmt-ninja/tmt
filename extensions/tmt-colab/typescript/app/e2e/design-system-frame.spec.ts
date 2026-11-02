@@ -139,6 +139,53 @@ test('an unreadable release and a malformed pin both say so', async ({ page }) =
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
 });
 
+test('a bad pin never stands in for a real release, and a stuck read ends in a notice', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  // One document, as in the app: the outcome of one pin must not answer for another.
+  const states = await page.evaluate(
+    async ({ bundle, pin, wrong }) => {
+      const { mountRenderer } = await import('/src/renderer.ts' as string);
+      const mountOne = async (id: string, content: string, served: () => Promise<unknown>) => {
+        const host = document.createElement('div');
+        host.id = id;
+        document.body.append(host);
+        const started = performance.now();
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="${content}"><tmt-ui-button>Go</tmt-ui-button>`,
+          {
+            signal: new AbortController().signal,
+            onState: (state: string) => (host.dataset.state = state),
+            designSystem: served,
+          },
+        );
+        return performance.now() - started;
+      };
+      await mountOne('wrong', wrong, async () => bundle);
+      await mountOne('right', pin, async () => bundle);
+      const waited = await mountOne(
+        'stuck',
+        pin.replace('0.1.0', '0.1.1'),
+        () => new Promise(() => {}),
+      );
+      return { waited };
+    },
+    { bundle, pin, wrong: pin.replace('0.1.0', '9.9.9') },
+  );
+  await expect(page.frameLocator('#wrong iframe').locator('body')).toContainText(
+    'pins a design system release this TMT does not have',
+  );
+  await expect(
+    page.frameLocator('#right iframe').getByRole('button', { name: 'Go' }),
+  ).toBeVisible();
+  const stuck = page.frameLocator('#stuck iframe').locator('body');
+  await expect(stuck).toContainText('could not be read in time');
+  expect(states.waited).toBeLessThan(8000);
+});
+
 test('the page check shows its findings on the page', async ({ page }) => {
   let frame = await mount(
     page,

@@ -13,7 +13,6 @@ import type {
   PageTransport,
   SpaceHome,
 } from './transport.js';
-import { ManagementError } from './management.js';
 import { DESIGN_SYSTEM_PROJECT } from './projects.js';
 import { subpages } from './work.js';
 import { PROJECT_REQUEST_PAGES } from './projects.js';
@@ -24,18 +23,17 @@ import { PROJECT_REQUEST_PAGES } from './projects.js';
  * `data-tmt-ds` names the page's kind; the page body is the docs. A release is an ordinary
  * attachment of the root page. Nothing here needs a new record kind or serve route.
  *
- * Each system is its own top-level page tree that the Design tab shows; the serve makes its root
- * with `page.new`, and a serve from before that has it made under another page and detached. Its pages carry the owner's
- * display-only page kind `design-system`, so the Colab list hides them without reading sources. A
- * serve from before page kinds refuses `page.kind`; then the pages hold the reserved, never-shown
- * project `tmt:design-system` instead, which the next serve's schema turns into the kind.
+ * Each system is its own top-level page tree that the Design tab shows: its root is made under
+ * another page and detached at once. Every page of it holds the reserved, never-shown owner-store
+ * project `tmt:design-system` (colab-v1: Projects), which is how the Colab list, the Design tab and
+ * `tmt colab design` all find design-system pages without reading sources.
  */
 
 export type BlockKind = 'design-system' | 'component';
 /** The reserved owner-store project every design-system page holds (contract: Projects). */
 export const DESIGN_PROJECT = DESIGN_SYSTEM_PROJECT;
-export const isDesignSystemPage = (page: Pick<PageSummary, 'projects' | 'kind'>) =>
-  page.kind === 'design-system' || !!page.projects?.includes(DESIGN_PROJECT);
+export const isDesignSystemPage = (page: Pick<PageSummary, 'projects'>) =>
+  !!page.projects?.includes(DESIGN_PROJECT);
 /** The space as Colab lists it: design-system pages and their project belong to the Design tab. */
 export function withoutDesignSystems(home: SpaceHome): SpaceHome {
   if (!home.pages.some(isDesignSystemPage) && !home.projects?.includes(DESIGN_PROJECT)) return home;
@@ -122,39 +120,28 @@ async function readyFiles(page: Snapshot) {
 
 /** The built-in system's ID in a pin: `tmt-gui@<version>#<hash>`, no page behind it. */
 export const BUILT_IN_SYSTEM = 'tmt-gui';
-/** Bundles read from a root page's release attachment, cached by hash for the session. */
-const bundles = new Map<string, Promise<DesignSystemBundle | undefined>>();
-/** Where the renderer reads a pinned bundle: the system root page's release of that version. */
+/** Where the renderer reads a pinned bundle: the system root page's release of that version. The
+ * renderer verifies it and keeps each pin's outcome for the session (design-system.ts). */
 export function pageDesignSystems(transport: PageTransport): DesignSystemSource {
   return (pin) => {
-    let bundle = bundles.get(pin.hash);
-    if (!bundle && pin.system === BUILT_IN_SYSTEM) {
+    if (pin.system === BUILT_IN_SYSTEM)
       // The built-in tmt GUI release ships with the app: every install can pin it (#5921).
-      bundle = import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
+      return import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
         ({ default: builtIn }) => builtIn as unknown as DesignSystemBundle,
       );
-      bundles.set(pin.hash, bundle);
-    }
-    if (!bundle) {
-      bundle = withPage(transport, pin.system, async (root) => {
-        const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
-        const release = config?.releases.find(
-          (entry) => entry.version === pin.version && entry.bundle === pin.hash,
-        );
-        const descriptor = root.attachments?.find(
-          (entry) => entry.attachmentId === release?.attachment,
-        );
-        if (!descriptor) return undefined;
-        const files = await readyFiles(root);
-        const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
-        return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
-      });
-      bundle
-        .then((value) => value ?? bundles.delete(pin.hash))
-        .catch(() => bundles.delete(pin.hash));
-      bundles.set(pin.hash, bundle);
-    }
-    return bundle;
+    return withPage(transport, pin.system, async (root) => {
+      const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
+      const release = config?.releases.find(
+        (entry) => entry.version === pin.version && entry.bundle === pin.hash,
+      );
+      const descriptor = root.attachments?.find(
+        (entry) => entry.attachmentId === release?.attachment,
+      );
+      if (!descriptor) return undefined;
+      const files = await readyFiles(root);
+      const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
+      return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
+    });
   };
 }
 
@@ -187,6 +174,36 @@ export function pageExamples(source: string): { title: string; markup: string }[
 export interface PublishResult {
   pin: string;
   bundle: Bundle;
+  /** Pages of the tree still on an older pin; `pinDesignTree` retries them. */
+  unpinned: string[];
+}
+/** Move every page of a system's tree (but its root, which publish pins itself) to this pin. A
+ * page that cannot be opened or edited is reported, not fatal: the release is already recorded. */
+export async function pinDesignTree(
+  transport: PageTransport,
+  rootId: string,
+  pin: string,
+): Promise<string[]> {
+  const unpinned: string[] = [];
+  const visit = async (id: string, depth: number): Promise<void> => {
+    let children: string[] = [];
+    try {
+      children = await withPage(transport, id, async (page) => {
+        try {
+          if (id !== rootId && page.binding)
+            await page.binding.edit(writePin(page.source, pin), page.source);
+        } catch {
+          unpinned.push(page.title);
+        }
+        return depth >= TREE_DEPTH ? [] : subpages(page.work);
+      });
+    } catch {
+      unpinned.push(id);
+    }
+    for (const child of children) await visit(child, depth + 1);
+  };
+  await visit(rootId, 0);
+  return unpinned;
 }
 /**
  * Publish a version from the open root page: compile its component pages, attach the bundle to the
@@ -243,16 +260,7 @@ export async function publishDesignSystem(
   await binding.edit(writePin(writeBlock(source, 'design-system', next), pin), source);
   // Every page of the system's tree draws with this version: the components, the doc pages
   // (they take its CSS) and the section pages.
-  const pinTree = async (id: string, depth: number): Promise<void> => {
-    const children = await withPage(transport, id, async (page) => {
-      if (id !== rootId && page.binding)
-        await page.binding.edit(writePin(page.source, pin), page.source);
-      return depth >= TREE_DEPTH ? [] : subpages(page.work);
-    });
-    for (const child of children) await pinTree(child, depth + 1);
-  };
-  await pinTree(rootId, 0);
-  return { pin, bundle };
+  return { pin, bundle, unpinned: await pinDesignTree(transport, rootId, pin) };
 }
 
 const escape = (text: string) =>
@@ -300,9 +308,10 @@ export function componentPageSource(doc: ComponentDoc & { notes?: string }, pref
     .map(({ id, example }) => {
       const markup = example.markup.replaceAll('tmt-ui-', `${prefix}-`);
       // The example root holds its label, the live elements and their markup: a comment anywhere in
-      // it quotes all three, and the label keeps the quote unique when two examples share markup.
+      // it quotes all three, and the label keeps the quote unique when two examples share markup. Its
+      // id is the anchor a point-and-fix link opens the page at.
       const anchor = escape(`${doc.tag}:${id}`);
-      return `<section class="docs-variant"><h3>${escape(example.title)}</h3><div data-ds-example="${anchor}"><p class="${docs.label}">${anchor}</p><div class="docs-canvas">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+      return `<section class="docs-variant"><h3>${escape(example.title)}</h3><div id="${anchor}" data-ds-example="${anchor}"><p class="${docs.label}">${anchor}</p><div class="docs-canvas">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
     })
     .join('\n');
   // The block keeps what publish compiles; the notes and examples live only in the HTML below, so an
@@ -412,18 +421,9 @@ async function fillFromTemplate(
   });
 }
 
-/** The root page of a new system, top level. The serve makes it with `page.new` and its kind; a
- * serve from before that refuses the request (`INVALID`), and then the root is made under an
- * existing system (or the first page) and detached from it at once. */
+/** The root page of a new system, top level: made under an existing system (or the first page) and
+ * detached from it at once. */
 async function newRoot(transport: PageTransport, name: string): Promise<string> {
-  const management = transport.management;
-  if (management?.newPage) {
-    try {
-      return await management.newPage(name, 'design-system');
-    } catch (error) {
-      if (!(error instanceof ManagementError && error.code === 'INVALID')) throw error;
-    }
-  }
   const home = await transport.spaceHome();
   const live = home.pages.filter((page) => !page.archived);
   const parent = live.find(isDesignSystemPage) ?? live[0];
@@ -501,40 +501,53 @@ function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): 
   };
 }
 
-/** The space's design systems: the `Design systems` pages whose block is a config. */
+export interface DesignSystemList {
+  systems: DesignSystemEntry[];
+  /** Titles of design-system pages that could not be read, so a system is never silently missing. */
+  unreadable: string[];
+}
+/** The space's design systems: the design-system pages whose block is a config. Every page of a
+ * tree holds the project, so pages are opened one at a time and a page already read as part of a
+ * found tree is never opened again as a candidate root (a burst of opens is what a serve throttles). */
 export async function listDesignSystems(
   transport: PageTransport,
   signal?: AbortSignal,
-): Promise<DesignSystemEntry[]> {
+): Promise<DesignSystemList> {
   const home = await transport.spaceHome(signal);
   const titles = new Map(home.pages.map((page) => [page.id, page.title]));
-  const found = await Promise.all(
-    home.pages
-      .filter((page) => isDesignSystemPage(page) && !page.archived)
-      .map((page) =>
-        withPage(transport, page.id, async (root) => {
-          const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
-          return config && entryOf(root.id, config, await treeOf(transport, root, titles, 0));
-        }).catch(() => undefined),
-      ),
-  );
-  return found.filter((entry): entry is DesignSystemEntry => !!entry);
+  const seen = new Set<string>();
+  const systems: DesignSystemEntry[] = [];
+  const failed: { id: string; title: string }[] = [];
+  for (const page of home.pages.filter((page) => isDesignSystemPage(page) && !page.archived)) {
+    signal?.throwIfAborted();
+    if (seen.has(page.id)) continue;
+    try {
+      const entry = await withPage(transport, page.id, async (root) => {
+        const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
+        return config && entryOf(root.id, config, await treeOf(transport, root, titles, 0));
+      });
+      seen.add(page.id);
+      if (entry) {
+        for (const id of treeIds(entry.tree)) seen.add(id);
+        systems.push(entry);
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      failed.push(page);
+    }
+  }
+  // A page that failed as a candidate but was then read inside a found tree is not missing.
+  return {
+    systems,
+    unreadable: failed.filter((page) => !seen.has(page.id)).map((page) => page.title),
+  };
 }
 
-/** Mark a system's pages as design-system pages: the page kind, or on a serve from before page kinds
- * the reserved project, keeping each page's other projects. */
+/** Mark a system's pages as design-system pages with the reserved project, keeping each page's
+ * other projects. */
 async function markDesignPages(transport: PageTransport, ids: readonly string[]) {
   const management = transport.management;
   if (!management) throw new Error('Only the owner can make a design system.');
-  if (management.setKind) {
-    try {
-      for (const id of ids) await management.setKind(id, 'design-system');
-      return;
-    } catch (error) {
-      // An older serve refuses the operation as INVALID; anything else is a real failure.
-      if (!(error instanceof ManagementError && error.code === 'INVALID')) throw error;
-    }
-  }
   const home = await transport.spaceHome();
   const projects = new Map(home.pages.map((page) => [page.id, page.projects ?? []]));
   // A request lists at most PROJECT_REQUEST_PAGES pages, in ID order.

@@ -232,6 +232,21 @@ for (const width of [1440, 390])
         await expect(button).toHaveCSS('display', /^(inline-)?flex$/);
         if (index === 7) await expect(button).toBeDisabled();
       }
+      // A point-and-fix link opens the page at its example (#5961 review): the anchor reaches the page.
+      if (width === 1440 && theme === 'light') {
+        const last = designFrame(page).locator('[id="button:disabled"]');
+        // In page coordinates: whichever box scrolls (the frame or the workspace), it is on screen.
+        const inView = async () => {
+          const box = await last.boundingBox();
+          return !!box && box.y >= 0 && box.y < page.viewportSize()!.height;
+        };
+        const component = page.url();
+        await page.goto(`${component}#${encodeURIComponent('button:disabled')}`);
+        await expect.poll(inView).toBe(true);
+        // Back within the same document: the fixture space lives in this page.
+        await page.goBack();
+        await expect(page).toHaveURL(component);
+      }
       await page.locator('.design-workspace').evaluate((element) => element.scrollTo({ top: 0 }));
       await capture(page, `design-user-component-${width}-${theme}.png`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(

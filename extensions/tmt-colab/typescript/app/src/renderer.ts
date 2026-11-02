@@ -509,6 +509,17 @@ export async function mountRenderer(
         const now = performance.now();
         if (now - scrolledAt < HEIGHT_UPDATE_MS) return;
         scrolledAt = now;
+        // A host that scrolls its own box (Design's workspace) takes the scroll; else the window.
+        const box = scrollingAncestor(frame);
+        if (box) {
+          const within =
+            frame.getBoundingClientRect().top -
+            box.getBoundingClientRect().top +
+            box.scrollTop +
+            (innerScroll ? 0 : value.top);
+          box.scrollTo({ top: Math.max(0, within), behavior: 'instant' });
+          return;
+        }
         const top =
           frame.getBoundingClientRect().top +
           window.scrollY +
@@ -1460,4 +1471,14 @@ export async function mountRenderer(
     release,
     destroy,
   };
+}
+
+/** The frame's nearest ancestor that scrolls its content, if the host has one. */
+function scrollingAncestor(frame: HTMLElement): HTMLElement | null {
+  for (let node = frame.parentElement; node && node !== document.body; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight)
+      return node;
+  }
+  return null;
 }

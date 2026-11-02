@@ -8,6 +8,7 @@ import {
   listDesignSystems,
   nextVersion,
   pageDesignSystems,
+  pinDesignTree,
   publishDesignSystem,
   publishNext,
   readBlock,
@@ -19,7 +20,7 @@ import type { PageBinding, PageTransport } from '../src/transport.js';
 
 /** #5821 / epic #5866: design systems as ordinary pages, over an in-memory space whose pages
  * hold source, sub-pages and attachments the way the live bindings do. */
-function space({ kinds = false }: { kinds?: boolean } = {}) {
+function space() {
   const pages = new Map<
     string,
     {
@@ -27,7 +28,6 @@ function space({ kinds = false }: { kinds?: boolean } = {}) {
       source: string;
       order: string[];
       projects: string[];
-      kind?: 'design-system';
       attachments: { id: string; bytes: Uint8Array }[];
     }
   >();
@@ -98,7 +98,6 @@ function space({ kinds = false }: { kinds?: boolean } = {}) {
         title: page.title,
         sharing: 'private',
         projects: [...page.projects],
-        ...(page.kind && { kind: page.kind }),
       })),
     }),
     management: {
@@ -109,19 +108,6 @@ function space({ kinds = false }: { kinds?: boolean } = {}) {
           throw new Error('Invalid colab-v1 value or proof');
         for (const change of changes) pages.get(change.pageId)!.projects = [...change.projects];
       },
-      // A serve with page kinds (#5866) takes `page.kind`; an older one has no such request.
-      ...(kinds && {
-        setKind: async (pageId: string, kind: 'design-system' | null) => {
-          if (kind) pages.get(pageId)!.kind = kind;
-          else delete pages.get(pageId)!.kind;
-        },
-        // ... and `page.new`: a top-level page, attached nowhere.
-        newPage: async (title: string, kind: 'design-system' | null) => {
-          const id = make(title);
-          if (kind) pages.get(id)!.kind = kind;
-          return id;
-        },
-      }),
     },
   } as unknown as PageTransport;
   return { pages, make, binding, transport };
@@ -202,13 +188,77 @@ describe('template, publish and the renderer source', () => {
     expect(button.source).toContain(second.pin);
   });
 
+  it('reports the pages a publish could not move to the new pin, and retries them', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const stuck = config.components[0]!.page!;
+    let refuse = true;
+    const flaky = {
+      ...transport,
+      page: async (id: string) => {
+        const page = await transport.page(id);
+        if (id !== stuck || !refuse) return page;
+        const binding = page.binding!;
+        return {
+          ...page,
+          binding: {
+            ...binding,
+            edit: async () => {
+              throw new Error('stale base');
+            },
+          },
+        };
+      },
+    } as PageTransport;
+    const result = await publishNext(flaky, rootId);
+    expect(result.unpinned).toEqual([pages.get(stuck)!.title]);
+    expect(pages.get(stuck)!.source).not.toContain(result.pin);
+    refuse = false;
+    expect(await pinDesignTree(flaky, rootId, result.pin)).toEqual([]);
+    expect(pages.get(stuck)!.source).toContain(result.pin);
+  });
+
+  it('lists by opening one page at a time, each tree page once, and reports an unreadable root', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const acme = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const beta = await createDesignSystem(transport, { name: 'Beta', prefix: 'beta' });
+    const opens = new Map<string, number>();
+    let open = 0;
+    let most = 0;
+    const counted = {
+      ...transport,
+      page: async (id: string) => {
+        opens.set(id, (opens.get(id) ?? 0) + 1);
+        most = Math.max(most, ++open);
+        try {
+          if (id === beta) throw new Error('Page unavailable');
+          return await transport.page(id);
+        } finally {
+          open--;
+        }
+      },
+    } as PageTransport;
+    const listed = await listDesignSystems(counted);
+    expect(listed.systems.map((system) => system.id)).toEqual([acme]);
+    expect(listed.unreadable).toEqual(['Beta']);
+    expect(most).toBe(1);
+    // Every Acme page once: as a tree page, never again as a candidate root.
+    const acmeTree = [...pages.keys()].filter((id) => opens.has(id) && id !== beta);
+    expect(acmeTree.length).toBeGreaterThan(20);
+    for (const id of acmeTree) expect(opens.get(id), id).toBe(1);
+  });
+
   it('lists systems with their tree for Design and hides them from the Colab list', async () => {
     const { make, transport } = space();
     const note = make('Notes');
     const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
     // A second system starts from the first, never from an ordinary page.
     await createDesignSystem(transport, { name: 'Beta', prefix: 'beta' });
-    const systems = await listDesignSystems(transport);
+    const { systems, unreadable } = await listDesignSystems(transport);
+    expect(unreadable).toEqual([]);
     expect(systems.map((system) => [system.name, system.version, system.next])).toEqual([
       ['Acme', '0.1.0', '0.1.1'],
       ['Beta', '0.1.0', '0.1.1'],
@@ -250,9 +300,9 @@ describe('template, publish and the renderer source', () => {
       components: [],
       releases: [],
     });
-    expect(await listDesignSystems(transport)).toEqual([]);
+    expect(await listDesignSystems(transport)).toEqual({ systems: [], unreadable: [] });
     await adoptDesignSystem(transport, old);
-    expect((await listDesignSystems(transport)).map((system) => system.id)).toEqual([old]);
+    expect((await listDesignSystems(transport)).systems.map((system) => system.id)).toEqual([old]);
     await expect(adoptDesignSystem(transport, holder)).rejects.toThrow('not a design system');
   });
 
@@ -266,24 +316,5 @@ describe('template, publish and the renderer source', () => {
     await expect(
       publishDesignSystem(transport, rootId, binding(rootId), root.source, '0.1.1'),
     ).rejects.toThrow('has no component block');
-  });
-});
-
-describe('page kinds', () => {
-  it('makes a new system with page.new and the native page kind when the serve has them', async () => {
-    const { pages, make, transport } = space({ kinds: true });
-    const note = make('Notes');
-    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
-    // No page is borrowed: the ordinary page never lists the root, even for a moment.
-    expect(pages.get(note)!.order).toEqual([]);
-    expect(pages.get(rootId)!.title).toBe('Acme');
-    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
-    for (const id of [rootId, config.components[0]!.page!]) {
-      expect(pages.get(id)!.kind).toBe('design-system');
-      expect(pages.get(id)!.projects).toEqual([]);
-    }
-    expect((await listDesignSystems(transport)).map((system) => system.id)).toEqual([rootId]);
-    const listed = withoutDesignSystems(await transport.spaceHome());
-    expect(listed.pages.map((page) => page.id)).toEqual([note]);
   });
 });

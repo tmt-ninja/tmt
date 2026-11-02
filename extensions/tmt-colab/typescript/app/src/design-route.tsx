@@ -15,6 +15,10 @@ export function DesignRoute() {
   const route = useRouterState({
     select: (state) => `${state.location.pathname}${state.location.searchStr}`,
   });
+  // A point-and-fix link names its example as the hash (`#<component>:<id>`); the page reads it.
+  const anchor = useRouterState({
+    select: (state) => decodeURIComponent(state.location.hash.replace(/^#/, '')),
+  });
   const base = designBase();
   const path = `${base}${route.slice('/design'.length)}`;
   const navigate = (href: string) => {
@@ -28,7 +32,9 @@ export function DesignRoute() {
   // default-route redirect take ownership of a navigation leaving Design.
   if (route !== '/design' && !route.startsWith('/design/') && !route.startsWith('/design?'))
     return null;
-  const content = <DesignLibrary transport={transport} path={path} navigate={navigate} />;
+  const content = (
+    <DesignLibrary transport={transport} path={path} anchor={anchor} navigate={navigate} />
+  );
   if (slot)
     return (
       <HostedShell slot={slot} menu={undefined}>

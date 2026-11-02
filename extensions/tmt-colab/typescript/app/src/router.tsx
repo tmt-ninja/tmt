@@ -1270,7 +1270,7 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
  * opens the page through the transport as the route would, and gives its live connection up when the
  * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
  * route the page's own links (Design keeps its tree's pages in Design). */
-function EmbeddedPage({ pageId, routing: hostRouting }: EmbeddedPageProps) {
+function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
@@ -1324,7 +1324,7 @@ function EmbeddedPage({ pageId, routing: hostRouting }: EmbeddedPageProps) {
             transport={transport}
             space={space}
             loaded={loaded}
-            search={{}}
+            search={anchor ? { anchor } : {}}
             scope={undefined}
             routing={routing}
           />
