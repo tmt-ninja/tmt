@@ -14,7 +14,7 @@ export function threadNeedsYou(thread: ThreadView, presentations?: readonly Thre
   );
 }
 
-/** The selected thread stays until explicit navigation, even after resolution or acknowledgement. */
+/** Needs-you retains the selected thread after acknowledgement; Open excludes resolved threads. */
 export function listedThreads(
   threads: readonly ThreadView[],
   numbers: ReadonlyMap<string, number>,
@@ -27,9 +27,10 @@ export function listedThreads(
       (thread) =>
         !thread.deleted &&
         !isChatThread(thread) &&
-        (threadKey(thread) === viewed ||
-          filter === 'all' ||
-          (filter === 'needs' ? threadNeedsYou(thread, presentations) : !thread.resolved)),
+        (filter === 'all' ||
+          (filter === 'needs'
+            ? threadKey(thread) === viewed || threadNeedsYou(thread, presentations)
+            : !thread.resolved)),
     )
     .sort(
       (a, b) => (numbers.get(threadKey(a)) ?? Infinity) - (numbers.get(threadKey(b)) ?? Infinity),

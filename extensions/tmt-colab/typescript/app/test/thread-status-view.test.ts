@@ -137,7 +137,7 @@ it('combines undecided proposals and annotations once, independent of decision d
   expect(openThreadCount([{ ...approved, resolved: false }])).toBe(0);
 });
 
-it('walks filtered live threads by number, retaining the selected resolved thread until navigation', () => {
+it('removes a resolved thread from Open even when selected', () => {
   const base = thread();
   const open = { ...base, threadId: 'open', ref: { ...base.ref, id: 'open' }, resolved: false };
   const resolved = { ...base, threadId: 'resolved', ref: { ...base.ref, id: 'resolved' } };
@@ -154,7 +154,7 @@ it('walks filtered live threads by number, retaining the selected resolved threa
   ]);
   const all = [open, chat, deleted, resolved];
   expect(listedThreads(all, numbers, 'open', null)).toEqual([open]);
-  expect(listedThreads(all, numbers, 'open', threadKey(resolved))).toEqual([resolved, open]);
+  expect(listedThreads(all, numbers, 'open', threadKey(resolved))).toEqual([open]);
   expect(listedThreads(all, numbers, 'all', null)).toEqual([resolved, open]);
   expect(listedThreads(all, numbers, 'all', threadKey(deleted))).not.toContain(deleted);
 });
