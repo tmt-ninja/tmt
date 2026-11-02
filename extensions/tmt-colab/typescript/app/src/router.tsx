@@ -2864,6 +2864,30 @@ function OpenPage({
     </CreatorDefaultProvider>
   );
 }
+/**
+ * Colab's history inside the TMT web app. Another route's address (`/ops`, Home) is never Colab's
+ * location: the router keeps the last Colab one, so a module kept while another route shows never
+ * loads, unloads or rewrites a page for that address (#5954).
+ */
+function shellHistory() {
+  let last: ReturnType<typeof createBrowserHistory>['location'] | undefined;
+  return createBrowserHistory({
+    parseLocation: () => {
+      const own = location.pathname === '/colab' || location.pathname.startsWith('/colab/');
+      if (last && !own) return last;
+      const state = window.history.state;
+      last = {
+        href: location.pathname + location.search + location.hash,
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+        state: { ...state, __TSR_index: state?.__TSR_index ?? 0 },
+      };
+      return last;
+    },
+  });
+}
+
 /** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */
 let linkSpace: string | undefined;
 /**
@@ -2906,7 +2930,7 @@ export function createAppRouter(
     window.history.replaceState(window.history.state, '', '/colab/blocked');
   linkSpace = undefined;
   const history = inShell()
-    ? createBrowserHistory()
+    ? shellHistory()
     : space
       ? createBrowserHistory({
           parseLocation: () => {

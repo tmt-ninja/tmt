@@ -5995,10 +5995,12 @@ test('the root prefetches one confined search entry and owns one shortcut across
   await dialog.getByRole('button', { name: 'Home', exact: true }).click();
   await expect(page).toHaveURL(`${origin}/`);
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
-  expect((await proof()).closes).toBe(1);
+  // A route change keeps the search and its Colab transport; only a session change or a fresh
+  // read of the shell replaces them (#5954).
+  expect((await proof()).closes).toBe(0);
   expect(imports).toBe(1);
   await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
-  expect(await proof()).toEqual({ mounts: 2, opens: 3, closes: 1 });
+  expect(await proof()).toEqual({ mounts: 1, opens: 3, closes: 0 });
   await page.keyboard.press('Escape');
   await page.mouse.move(500, 500);
   await page.evaluate(() => {
@@ -6019,7 +6021,7 @@ test('the root prefetches one confined search entry and owns one shortcut across
     };
     sdk.shellApp()?.dispose();
   });
-  expect((await proof()).closes).toBe(2);
+  expect((await proof()).closes).toBe(1);
   await page.keyboard.press(shortcut);
   expect((await proof()).opens).toBe(3);
   await page.close();

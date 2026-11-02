@@ -27,6 +27,7 @@ import {
 import { AskRecordStore } from './ask-record-store.js';
 import { OwnRecordConflict } from './own-publication.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 const ACTIVATION_READ_LIMIT = 256;
 const ACTIVE_OBSERVATION_MS = 10 * 60 * 1000;
 const ACTIVE_READ_STEP_MS = 3000;
@@ -536,17 +537,17 @@ export class AskController {
         }
         // Capture before reads so a Send during a read also skips the stale sleep.
         const wakeSignal = wakeOwner.signal;
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        if (pageHidden()) {
           await new Promise<void>((resolve) => {
             const wake = () => {
               if (
                 !signal.aborted &&
-                document.visibilityState === 'hidden' &&
+                pageHidden() &&
                 performance.now() - started < ASK_OBSERVATION_MS
               )
                 return;
               clearTimeout(timer);
-              document.removeEventListener('visibilitychange', wake);
+              removeVisibilityListener(wake);
               signal.removeEventListener('abort', wake);
               resolve();
             };
@@ -554,7 +555,7 @@ export class AskController {
               wake,
               Math.max(0, ASK_OBSERVATION_MS - (performance.now() - started)),
             );
-            document.addEventListener('visibilitychange', wake);
+            addVisibilityListener(wake);
             signal.addEventListener('abort', wake, { once: true });
             wake();
           });
@@ -584,7 +585,7 @@ export class AskController {
             signal.aborted ||
             this.#ended ||
             performance.now() - started >= ASK_OBSERVATION_MS ||
-            (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+            pageHidden()
           )
             break;
           try {
@@ -594,11 +595,7 @@ export class AskController {
             unavailable = true;
           }
         }
-        if (
-          !signal.aborted &&
-          !this.#ended &&
-          (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-        )
+        if (!signal.aborted && !this.#ended && !pageHidden())
           this.options.observationUnavailable?.(unavailable);
         const remaining = (await this.options.store.views()).filter(withinHorizon);
         if (this.#ended || !remaining.length) return;
@@ -612,7 +609,7 @@ export class AskController {
           if (
             this.options.activityRead &&
             performance.now() >= this.#nextActivityReadAt &&
-            (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+            !pageHidden()
           ) {
             // Charge attempts before awaiting, including failures. A wake or re-observation
             // retains this controller's minimum acquisition interval.
@@ -620,11 +617,7 @@ export class AskController {
             const observation = await this.options.activityRead().catch(() => undefined);
             const current = (await this.options.store.views()).filter(withinHorizon);
             if (!current.length || performance.now() - started >= ASK_OBSERVATION_MS) return;
-            if (
-              !signal.aborted &&
-              !this.#ended &&
-              (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-            ) {
+            if (!signal.aborted && !this.#ended && !pageHidden()) {
               const snapshot = observation?.kind === 'ready' ? observation.snapshot : undefined;
               this.#activityObservation = {
                 active: true,
