@@ -409,8 +409,6 @@ describe('binary envelope v2 (#5876)', () => {
       changed[at] = value;
       expect(() => c.Envelope.fromBytes(changed)).toThrow();
     }
-    expect(() =>
-      c.Envelope.fromBytes(v2.subarray(0, 7 + e.header().length + 64 + 15)),
-    ).toThrow();
+    expect(() => c.Envelope.fromBytes(v2.subarray(0, 7 + e.header().length + 64 + 15))).toThrow();
   });
 });
