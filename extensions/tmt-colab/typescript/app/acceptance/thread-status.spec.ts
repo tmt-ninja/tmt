@@ -1,5 +1,5 @@
 import { commentsRegion } from '../test/comments-region.js';
-import { pageAction, commentsAction, selectDiscussion } from '../test/page-actions.js';
+import { pageAction, commentsAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import fs, { mkdirSync } from 'node:fs';
@@ -257,7 +257,6 @@ test('Resolve all commits two native statuses and notifies each agent once in th
       };
     expect(listing().threads).toHaveLength(2);
     expect(listing().threads.every((thread) => thread.resolved)).toBe(true);
-    await selectDiscussion(page, 'Second batch comment.');
     await expect(panel.getByRole('status').filter({ hasText: 'Not notified' })).toContainText(
       'ghost-agent',
     );
