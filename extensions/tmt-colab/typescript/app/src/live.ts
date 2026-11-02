@@ -426,7 +426,7 @@ export class Live implements PageBinding {
         (error) => {
           if (this.#owns(open) && open.connection === c) this.#failed(error);
         },
-        ['colab-sync-v1'],
+        ['colab-sync-v2'],
         true,
       );
       this.#connection = open.connection = c;

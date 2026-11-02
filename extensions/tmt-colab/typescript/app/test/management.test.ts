@@ -263,7 +263,7 @@ it('admits paged signed metadata without opening content; forged log, wrong scop
     closed = 0,
     sent: string[] = [];
   class Socket {
-    protocol = 'colab-sync-v1';
+    protocol = 'colab-sync-v2';
     onopen: (() => void) | null = null;
     onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
@@ -361,7 +361,7 @@ function serve(f: Awaited<ReturnType<typeof fixture>>) {
       ),
   );
   class Socket {
-    protocol = 'colab-sync-v1';
+    protocol = 'colab-sync-v2';
     onopen: (() => void) | null = null;
     onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
@@ -534,7 +534,7 @@ it('reads metadata after a baseline frame and verifies referenced statement chun
     let closed = 0,
       stage = 0;
     class Socket {
-      protocol = 'colab-sync-v1';
+      protocol = 'colab-sync-v2';
       onopen: (() => void) | null = null;
       onclose: (() => void) | null = null;
       onerror: (() => void) | null = null;

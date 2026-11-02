@@ -176,6 +176,27 @@ it('reassembles exact bounded chunks, binds referenced ID and waits as long as t
   let complete: Record<string, unknown> | null = null;
   for (let index = 0; index < count; index++) complete = frames.receive(part(index));
   expectJoined(complete?.envelope, row.envelope);
+  // colab-sync-v2 carries the same parts as binary messages (#5876): kind 0, the envelope hash,
+  // index and count as big-endian u32, then the bytes. A wrong hash or kind is refused.
+  const binaryPart = (index: number, kind = 0, hash = c.binary(row.envelopeHash, 32, 32)) => {
+    const chunk = bytes.slice(index * 32768, (index + 1) * 32768);
+    const out = new Uint8Array(41 + chunk.length);
+    const view = new DataView(out.buffer);
+    out[0] = kind;
+    out.set(hash, 1);
+    view.setUint32(33, index);
+    view.setUint32(37, count);
+    out.set(chunk, 41);
+    return out;
+  };
+  frames.receive(JSON.stringify(reference));
+  let viaBinary: Record<string, unknown> | null = null;
+  for (let index = 0; index < count; index++) viaBinary = frames.receive(binaryPart(index));
+  expectJoined(viaBinary?.envelope, row.envelope);
+  frames.receive(JSON.stringify(reference));
+  expect(() => frames.receive(binaryPart(0, 2))).toThrow();
+  frames.receive(JSON.stringify(reference));
+  expect(() => frames.receive(binaryPart(0, 0, new Uint8Array(32)))).toThrow();
   // There is no deadline: parts that arrive a minute apart still assemble.
   vi.useFakeTimers();
   try {

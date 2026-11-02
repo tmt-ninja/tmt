@@ -168,8 +168,8 @@ export class Connection {
     private readonly sharing: string | readonly string[],
     readonly publish: (value: PageView) => void,
     readonly failed: (error: Error) => void,
-    /** Offered subprotocols; the server selects only `colab-sync-v1`. A reader appends its ticket. */
-    protocols: readonly string[] = ['colab-sync-v1'],
+    /** Offered subprotocols; the server selects only `colab-sync-v2`. A reader appends its ticket. */
+    protocols: readonly string[] = ['colab-sync-v2'],
     /** Only the paired page owner enables archive-capable read catch-up. */
     reading = false,
     readonly readBudget?: TitleReadBudget,
@@ -186,9 +186,10 @@ export class Connection {
     const socket = (this.#socket = new WebSocket(admission.registration.syncUrl ?? url, [
       ...protocols,
     ]));
+    socket.binaryType = 'arraybuffer';
     socket.onopen = () => {
       try {
-        if (socket.protocol !== 'colab-sync-v1') throw new Error('Invalid sync protocol');
+        if (socket.protocol !== 'colab-sync-v2') throw new Error('Invalid sync protocol');
         this.send('hello', {
           device: admission.reader?.principal ?? admission.registration.deviceId,
           membershipRevision: admission.head?.revision.toString() ?? '0',
@@ -200,15 +201,18 @@ export class Connection {
     };
     socket.onmessage = (event) => {
       if (this.#stopped) return;
+      // Control frames are text; chunk bytes arrive as binary messages (#5876).
+      const raw: string | Uint8Array =
+        event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data;
+      const size = typeof raw === 'string' ? text(raw).length : raw.length;
       if (
-        typeof event.data !== 'string' ||
-        text(event.data).length > FRAME_BYTES ||
+        (typeof raw !== 'string' && !(raw instanceof Uint8Array)) ||
+        size > FRAME_BYTES ||
         ++this.#queued > 8
       )
         return this.close(new Error('Sync message capacity'));
-      const raw = event.data;
       if (this.readBudget) {
-        this.readBudget.remainingBytes -= text(raw).length;
+        this.readBudget.remainingBytes -= size;
         if (this.readBudget.remainingBytes < 0)
           return this.close(new Error('Title read byte budget exhausted'));
       }

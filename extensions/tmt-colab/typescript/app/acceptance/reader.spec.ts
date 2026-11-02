@@ -344,7 +344,7 @@ async function publicRead(
       });
       const url = new URL('sync', mount);
       url.protocol = 'ws:';
-      const socket = new WebSocket(url, ['colab-sync-v1', `colab-reader-v1.${session.token}`]);
+      const socket = new WebSocket(url, ['colab-sync-v2', `colab-reader-v1.${session.token}`]);
       const state = { closed: false, denial: '', socket, session };
       Object.assign(window, { publicReader: state });
       const frames: Record<string, unknown>[] = [];
