@@ -71,6 +71,7 @@ interface Started {
 }
 declare global {
   interface Window {
+    __colabMounts?: number;
     __started?: Started;
   }
 }
@@ -175,6 +176,8 @@ function newSlot(url: string): ShellSlot {
     navigate: () => {},
     describe: () => {},
     described: () => {},
+    session: () => Promise.reject(new Error('No session in the preview')),
+    forgetSession: () => {},
   };
 }
 
@@ -183,7 +186,8 @@ function newSlot(url: string): ShellSlot {
 export async function mountModule(url: string, crash = false) {
   restoreCrash?.();
   restoreCrash = crash ? crashHome() : undefined;
-  unmountColab = await mountColab(newSlot(url));
+  const mounted = await mountColab(newSlot(url));
+  unmountColab = typeof mounted === 'function' ? mounted : () => mounted.release();
 }
 
 let host: ShellHost | undefined;
@@ -220,7 +224,57 @@ export function mountHostApp(url: string, crash?: 'route' | 'boundary', shared =
     });
 }
 
+/** The TMT app with Colab kept across rail switches (#5954) and a plain Ops route beside it;
+ * `mounts` counts how often Colab mounted. */
+export function mountKeptHostApp(url: string) {
+  document.getElementById('root')?.setAttribute('hidden', '');
+  slotHost?.remove();
+  slotHost = document.createElement('div');
+  slotHost.id = 'spa-slot';
+  slotHost.className = 'tmt-ui-shell';
+  slotHost.innerHTML =
+    '<div class="tmt-ui-shell-content"><div class="tmt-ui-shell-bar"></div><div class="tmt-ui-shell-main"></div></div>';
+  document.body.append(slotHost);
+  history.replaceState(null, '', url);
+  window.__colabMounts = 0;
+  host = startShellHost(slotHost, [
+    {
+      id: 'colab',
+      paths: ['/colab', '/colab/'],
+      rail: 'colab',
+      keep: true,
+      load: async () => ({
+        mount: (slot: ShellSlot) => {
+          window.__colabMounts = (window.__colabMounts ?? 0) + 1;
+          return mountColab(slot);
+        },
+      }),
+    },
+    {
+      id: 'ops',
+      paths: ['/ops', '/ops/'],
+      rail: 'ops',
+      load: async () => ({
+        mount(slot: ShellSlot) {
+          slot.main.replaceChildren(
+            Object.assign(document.createElement('p'), { textContent: 'Ops board' }),
+          );
+        },
+      }),
+    },
+  ]);
+  host.setCommonControls({
+    openSearch: () => {},
+    remote: { kind: 'unconfirmed', href: '/remote/' },
+  });
+}
+
 let boundaryBroken = false;
+
+/** Go to `href` as the rail does. */
+export function navigateHost(href: string) {
+  host?.navigate(href);
+}
 
 /** Whatever the boundary guards stops throwing: the next Try again renders it. */
 export function healBoundary() {

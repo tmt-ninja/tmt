@@ -6351,8 +6351,7 @@ function patchShape(live, next) {
 	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
 	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
 }
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-host.ts
+var KEPT_FOR = 6e5;
 function matchRoute(routes, pathname) {
 	let best;
 	let length = -1;
@@ -6406,7 +6405,9 @@ function startShellHost(root, routes, options = {}) {
 	const document = root.ownerDocument;
 	const window = document.defaultView;
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
-	const main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
+	/** The shown main area. A kept module keeps the element it was drawn in, renamed
+	* `.tmt-ui-shell-kept` and hidden in place, and a fresh main takes its place. */
+	let main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
 	const loading = document.createElement("div");
 	loading.className = "tmt-ui-shell-loading";
 	loading.setAttribute("role", "status");
@@ -6415,6 +6416,8 @@ function startShellHost(root, routes, options = {}) {
 	main.after(loading);
 	let answer = rememberedShellAnswer();
 	let current;
+	/** Suspended modules by route, least recently used first. */
+	const kept = /* @__PURE__ */ new Map();
 	let menu;
 	let select;
 	let asked = false;
@@ -6475,8 +6478,124 @@ function startShellHost(root, routes, options = {}) {
 		described(listener) {
 			if (settled) listener(answer);
 			else listeners.push(listener);
+		},
+		session: (signal) => options.sessions ? options.sessions.open(signal) : Promise.reject(/* @__PURE__ */ new Error("This shell has no Remote session")),
+		forgetSession(previous) {
+			if (!options.sessions) return;
+			releaseKept();
+			options.sessions.forget(previous);
 		}
 	});
+	const release = (mounted) => {
+		try {
+			mounted?.release();
+		} catch {}
+	};
+	/** The header and tool nodes a kept module drew, held aside while it is suspended. They hold
+	* no frames; its main area, which may, never moves. */
+	const areas = () => [
+		bar,
+		controls.tools.search,
+		controls.tools.chip
+	];
+	/** Make `next` the shown main area, with the loading mark right after it (shell.css reads it). */
+	function showMain(next) {
+		main = next;
+		next.className = "tmt-ui-shell-main";
+		next.hidden = false;
+		next.inert = false;
+		next.after(loading);
+	}
+	function drop(id) {
+		const held = kept.get(id);
+		if (!held) return;
+		kept.delete(id);
+		window.clearTimeout(held.timer);
+		release(held.mounted);
+		held.area.remove();
+	}
+	function releaseKept() {
+		for (const id of kept.keys()) drop(id);
+	}
+	/** Leave the current module: suspend it when it can be kept, else release it. */
+	function leave() {
+		const leaving = current;
+		try {
+			if (leaving) keep(leaving);
+		} finally {
+			current = void 0;
+		}
+	}
+	function keep(leaving) {
+		const { mounted, route } = leaving;
+		if (!mounted?.suspend || !route.keep || disposed) return release(mounted);
+		try {
+			mounted.suspend();
+		} catch {
+			return release(mounted);
+		}
+		const area = main;
+		showMain(area.cloneNode(false));
+		area.after(main, loading);
+		area.className = "tmt-ui-shell-kept";
+		area.hidden = true;
+		area.inert = true;
+		drop(route.id);
+		kept.set(route.id, {
+			route,
+			mounted,
+			generation: leaving.generation,
+			area,
+			nodes: areas().map((place) => [place, [...place.childNodes].filter((node) => !node.matches?.(".tmt-ui-topbar"))]),
+			topBar: !!bar.querySelector(":scope > .tmt-ui-topbar"),
+			menu,
+			select,
+			title: document.title,
+			timer: window.setTimeout(() => drop(route.id), KEPT_FOR)
+		});
+		for (const place of areas().slice(1)) place.replaceChildren();
+		while (kept.size > 2) drop(kept.keys().next().value);
+	}
+	/** Put a suspended module back; false when it could not be resumed (it is then released). */
+	function revive(route) {
+		const held = kept.get(route.id);
+		if (!held) return false;
+		kept.delete(route.id);
+		window.clearTimeout(held.timer);
+		++generation;
+		current = {
+			route,
+			mounted: held.mounted,
+			generation: held.generation
+		};
+		if (held.topBar && controls.topBarReady()) controls.setTopBar();
+		else bar.replaceChildren();
+		for (const [place, nodes] of held.nodes) if (place === bar) bar.append(...nodes);
+		else place.replaceChildren(...nodes);
+		const spare = main;
+		showMain(held.area);
+		spare.remove();
+		main.dataset.route = route.id;
+		menu = held.menu;
+		select = held.select;
+		document.title = held.title;
+		paint();
+		try {
+			held.mounted.resume?.(slot(route, held.generation));
+			return true;
+		} catch {
+			current = void 0;
+			for (const place of areas().slice(1)) place.replaceChildren();
+			release(held.mounted);
+			const fresh = main.cloneNode(false);
+			main.after(fresh);
+			main.remove();
+			showMain(fresh);
+			return false;
+		}
+	}
+	const pagehide = () => releaseKept();
+	window.addEventListener("pagehide", pagehide);
 	/** The path a full load was last asked for, so a route the door serves but this app does not
 	* know reloads once, then lands on Home instead of reloading forever. */
 	const RELOADED = "tmt-shell-reloaded";
@@ -6508,15 +6627,16 @@ function startShellHost(root, routes, options = {}) {
 		if (!route) return elsewhere();
 		remember(void 0);
 		if (current?.route === route) return paint();
-		current?.release?.();
+		leave();
 		controls.clearTopBar();
+		menu = void 0;
+		select = void 0;
+		if (revive(route)) return;
 		const mine = ++generation;
 		current = {
 			route,
 			generation: mine
 		};
-		menu = void 0;
-		select = void 0;
 		const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
 		const placeholder = document.createElement("header");
 		placeholder.className = "tmt-ui-header";
@@ -6535,9 +6655,10 @@ function startShellHost(root, routes, options = {}) {
 		try {
 			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
 			if (current?.generation !== mine) return;
-			const release = await module.mount(slot(route, mine));
-			if (current?.generation !== mine) return release?.();
-			current.release = release ?? void 0;
+			const given = await module.mount(slot(route, mine));
+			const mounted = typeof given === "function" ? { release: given } : given ?? void 0;
+			if (current?.generation !== mine) return release(mounted);
+			current.mounted = mounted;
 		} catch (error) {
 			if (current?.generation !== mine) return;
 			main.replaceChildren();
@@ -6586,6 +6707,7 @@ function startShellHost(root, routes, options = {}) {
 			describe();
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
+		sessionChanging: releaseKept,
 		dispose() {
 			if (disposed) return;
 			disposed = true;
@@ -6593,8 +6715,10 @@ function startShellHost(root, routes, options = {}) {
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
-			current?.release?.();
+			window.removeEventListener("pagehide", pagehide);
+			release(current?.mounted);
 			current = void 0;
+			releaseKept();
 			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
@@ -12695,6 +12819,7 @@ var routes = [
 		id: "colab",
 		paths: ["/colab", "/colab/"],
 		rail: "colab",
+		keep: true,
 		async load(_remembered, settled) {
 			let answer = await settled();
 			if (!answer && await reopened()) answer = await started?.redescribe();
@@ -12743,6 +12868,7 @@ var heldBy;
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next) {
 	if (session === next) return;
+	if (session) started?.sessionChanging();
 	session = next;
 	search?.replace();
 	publishSearch?.();
@@ -12771,6 +12897,7 @@ function rootSession(signal) {
 }
 function forgetSession(previous) {
 	if (session !== previous) return;
+	started?.sessionChanging();
 	session = void 0;
 	search?.replace();
 	publishSearch?.();
@@ -12816,14 +12943,10 @@ function shellApp() {
 			started?.navigate(href);
 		}
 	});
-	let currentRoute;
 	const host = startShellHost(root, routes.map((route) => ({
 		...route,
 		async load(remembered, settled) {
-			currentRoute?.abort();
 			const lifetime = new AbortController();
-			currentRoute = lifetime;
-			search.replace();
 			status.hidden = true;
 			settled().then((read) => {
 				if (!observed) {
@@ -12837,8 +12960,9 @@ function shellApp() {
 				if (lifetime.signal.aborted) return;
 				let active = true;
 				let adopted = false;
+				let current = slot;
 				const publish = () => {
-					if (!active || !adopted || !slot.topBarReady()) return;
+					if (!active || !adopted || !current.topBarReady()) return;
 					const place = {
 						origin: location.origin,
 						href: location.href
@@ -12846,8 +12970,7 @@ function shellApp() {
 					const rail = appRail(answer, routes, place);
 					search.update(colabLoad(answer)?.entry, navigationSnapshot(answer, [...rail.main, ...rail.bottom], location.href, (path) => appHref(routes, path)));
 				};
-				publishSearch = publish;
-				const hosted = {
+				const hosted = (slot) => ({
 					...slot,
 					routeSignal: lifetime.signal,
 					setTopBar() {
@@ -12856,19 +12979,47 @@ function shellApp() {
 						publish();
 						return bar;
 					}
-				};
-				const release = await module.mount(hosted);
-				return () => {
+				});
+				publishSearch = publish;
+				const given = await module.mount(hosted(slot));
+				const mounted = typeof given === "function" ? { release: given } : given;
+				const quiet = () => {
 					active = false;
 					if (publishSearch === publish) publishSearch = void 0;
-					release?.();
+				};
+				const release = () => {
+					quiet();
+					lifetime.abort();
+					mounted?.release();
+				};
+				if (!mounted?.suspend) return release;
+				const { suspend, resume } = mounted;
+				return {
+					release,
+					suspend() {
+						quiet();
+						suspend.call(mounted);
+					},
+					resume(next) {
+						current = next;
+						active = true;
+						publishSearch = publish;
+						resume?.call(mounted, hosted(next));
+						publish();
+					}
 				};
 			} };
 		}
-	})), { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
-		className: "page",
-		textContent: "This page could not load. Reload to try again."
-	})) });
+	})), {
+		sessions: {
+			open: (signal) => rootSession(signal ?? new AbortController().signal),
+			forget: (previous) => forgetSession(previous)
+		},
+		failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
+			className: "page",
+			textContent: "This page could not load. Reload to try again."
+		}))
+	});
 	host.setCommonControls({
 		openSearch: (opener) => {
 			status.hidden = true;
@@ -12880,7 +13031,6 @@ function shellApp() {
 		}
 	});
 	const dispose = () => {
-		currentRoute?.abort();
 		session = void 0;
 		search?.dispose();
 		host.dispose();
@@ -12891,7 +13041,6 @@ function shellApp() {
 		window.removeEventListener("hashchange", changed);
 	};
 	const changed = () => {
-		search?.replace();
 		publishSearch?.();
 	};
 	const restore = (event) => {

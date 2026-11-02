@@ -547,7 +547,7 @@ test.describe('the door serving the TMT app', () => {
       expect(await live()).toBeLessThanOrEqual(2);
     });
 
-    test('a paired Colab closes its Remote session and page bindings on unmount', async ({
+    test('a paired Colab keeps its session, page bindings and frame across a rail switch', async ({
       page,
     }) => {
       await page.addInitScript(() => {
@@ -561,29 +561,114 @@ test.describe('the door serving the TMT app', () => {
         };
         (window as unknown as { __opened: WebSocket[] }).__opened = opened;
       });
-      const id = await door!.createPage('Unmount page', '<h1>Unmount content</h1>');
+      const id = await door!.createPage('Kept page', '<h1>Kept content</h1>');
       await door!.pair(page);
       await page.goto(`${door!.origin}/colab/pages/${id}`);
-      const live = () =>
+      const sockets = () =>
+        page.evaluate(() => {
+          const opened = (window as unknown as { __opened: WebSocket[] }).__opened;
+          return {
+            opened: opened.length,
+            live: opened.filter((socket) => socket.readyState < WebSocket.CLOSING).length,
+          };
+        });
+      const sessions = () =>
         page.evaluate(
           () =>
-            (window as unknown as { __opened: WebSocket[] }).__opened.filter(
-              (socket) => socket.readyState < WebSocket.CLOSING,
-            ).length,
+            performance
+              .getEntriesByType('resource')
+              .filter((entry) => new URL(entry.name).pathname.endsWith('/api/session')).length,
         );
-      // An open page holds its binding; leaving the route through the TMT rail must close it.
-      await expect.poll(live).toBeGreaterThan(0);
+      const frame = page.locator('.colab-route iframe').first();
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
+      ).toBeVisible();
+      await expect.poll(async () => (await sockets()).live).toBeGreaterThan(0);
+      const before = await sockets();
+      const registered = await sessions();
+      await frame.evaluate((node: HTMLIFrameElement) => {
+        (node.contentWindow as Window & { kept?: boolean }).kept = true;
+      });
       const styles = page.locator('link[href$="/colab-module.css"]');
-      await expect(styles).toHaveCount(1);
-      await page
-        .getByRole('navigation', { name: 'TMT', exact: true })
-        .getByRole('link', { name: 'Home' })
-        .click();
-      await expect.poll(live).toBe(0);
-      // Colab's stylesheet goes with its route.
-      await expect(styles).toHaveCount(0);
+      // In-document moves, as the rail and in-page links make them.
+      const go = (path: string) =>
+        page.evaluate((path) => {
+          history.pushState(null, '', path);
+          dispatchEvent(new PopStateEvent('popstate'));
+        }, path);
+      // Leaving Colab suspends it: its sockets stay open and its styles are off.
+      await go('/ops');
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      expect(await sockets()).toEqual(before);
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(true);
+      // Coming back opens nothing: the same frame document, no new socket or registration.
+      await go(`/colab/pages/${id}`);
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
+      ).toBeVisible();
+      await expect(page.getByText('Opening space')).toHaveCount(0);
+      expect(
+        await frame.evaluate(
+          (node: HTMLIFrameElement) => (node.contentWindow as Window & { kept?: boolean }).kept,
+        ),
+      ).toBe(true);
+      expect(await sockets()).toEqual(before);
+      expect(await sessions()).toBe(registered);
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
     });
   });
+});
+
+// #5954: leaving Colab through the rail suspends it in place; coming back resumes it, never mounts.
+test('a rail switch keeps Colab in place and brings it back without opening again', async ({
+  page,
+}) => {
+  // A resume that touched what the kept tree drew into the shell would fail in React's commit.
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    // The preview fixture has no door: its resource 404s are not the module's.
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource'))
+      errors.push(message.text());
+  });
+  await page.goto('/');
+  await serveRendererLikeTheDoor(page);
+  await page.evaluate(
+    async (fixture) => (await import(fixture)).mountKeptHostApp('/colab/'),
+    fixture,
+  );
+  const route = page.locator('#spa-slot .colab-route');
+  await expect(route.locator('> *').first()).toBeVisible();
+  const go = (path: string) =>
+    page.evaluate((path) => {
+      history.pushState(null, '', path);
+      dispatchEvent(new PopStateEvent('popstate'));
+    }, path);
+  const box = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((node) => node.getBoundingClientRect().toJSON());
+  const bar = await box('#spa-slot .tmt-ui-shell-bar');
+  await route.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+  for (const round of [1, 2]) {
+    await go('/ops/');
+    await expect(page.getByText('Ops board')).toBeVisible();
+    await expect(route).toBeHidden();
+    expect(
+      await route.evaluate((node) => node.closest<HTMLElement>('.tmt-ui-shell-kept')!.inert),
+    ).toBe(true);
+    await go('/colab/');
+    await expect(route.locator('> *').first()).toBeVisible();
+    await expect(page.getByText('Ops board')).toHaveCount(0);
+    await expect(page.getByText('Opening space')).toHaveCount(0);
+    expect(
+      await route.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept),
+      `round ${round}`,
+    ).toBe(true);
+    expect(await box('#spa-slot .tmt-ui-shell-bar'), `round ${round}`).toEqual(bar);
+  }
+  expect(await page.evaluate(() => window.__colabMounts)).toBe(1);
+  expect(errors).toEqual([]);
 });
 
 test('unmounting Colab closes what it started', async ({ page }) => {

@@ -1,74 +1,38 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
-import { mountUrl } from './bootstrap.js';
 import { AppHeader } from './app-header.js';
-import { createAppRouter } from './router.js';
-import { mountedTransport } from './mounted.js';
+import { inShell } from './entry.js';
+import { startMounted, type MountedRuntime } from './mounted-runtime.js';
 import { text } from './strings.js';
 import { NoticeCard } from './notice-card.js';
-import { buildWatch } from './app-build.js';
 import { SessionLimitError } from './session-limit-error.js';
 import { SessionLimitBody } from './session-limit.js';
 import { UpdateNotice } from './update-notice.js';
 
-/** Each tab owns its Remote session and mounted page bindings until unload. */
+/** A standalone tab (outside the TMT web app) owns its paired Colab until this unmounts. */
 export function MountedApp() {
-  const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading');
-  const [limit, setLimit] = useState<SessionLimitError>();
-  const [router, setRouter] = useState<ReturnType<typeof createAppRouter> | null>(null);
+  const [runtime, setRuntime] = useState<MountedRuntime | null>(null);
   useEffect(() => {
-    let disposed = false;
-    const controller = new AbortController();
-    let mounted: Awaited<ReturnType<typeof mountedTransport>> | null = null;
-    try {
-      mountUrl();
-    } catch {
-      setState('failed');
-      return;
-    }
-    async function activate() {
-      try {
-        const next = await mountedTransport(controller.signal);
-        if (disposed) {
-          next.close();
-          return;
-        }
-        mounted = next;
-        setRouter(createAppRouter(next.transport, next.space, next.pageIds));
-        setState('ready');
-      } catch (error) {
-        if (!disposed) {
-          // A device at its Remote session limit is refused with a reason a reload can clear.
-          if (error instanceof SessionLimitError) setLimit(error);
-          setState('failed');
-        }
-        void buildWatch.check();
-      }
-    }
-    const close = () => {
-      controller.abort();
-      mounted?.close();
-    };
-    const restore = (event: PageTransitionEvent) => {
-      if (event.persisted) location.reload();
-    };
-    window.addEventListener('pagehide', close);
-    window.addEventListener('pageshow', restore);
-    void activate();
-    return () => {
-      disposed = true;
-      window.removeEventListener('pagehide', close);
-      window.removeEventListener('pageshow', restore);
-      close();
-    };
+    const started = startMounted();
+    setRuntime(started);
+    return () => started.close();
   }, []);
+  return runtime ? <MountedView runtime={runtime} /> : <MountedNotice state="loading" />;
+}
+
+/** The paired Colab a runtime holds: its notice while it opens or fails, then its pages. */
+export function MountedView({ runtime }: { runtime: MountedRuntime }) {
+  const snapshot = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
   return (
     <>
-      {state === 'ready' && router ? (
-        <RouterProvider router={router} />
+      {snapshot.state === 'ready' ? (
+        <RouterProvider router={snapshot.router} />
       ) : (
-        <MountedNotice state={state} limit={limit} />
+        <MountedNotice
+          state={snapshot.state}
+          limit={snapshot.state === 'failed' ? snapshot.limit : undefined}
+        />
       )}
       <UpdateNotice />
     </>
@@ -85,9 +49,21 @@ export function MountedNotice({
   limit?: SessionLimitError;
 }) {
   const title = state !== 'failed' ? text.registering : limit ? text.sessionLimitTitle : text.error;
+  // Inside the TMT web app the shell's bar already names Colab while it opens, and a quick open
+  // shows no card at all: the card appears only after 400 ms (#5954).
+  const shell = inShell();
+  const [late, setLate] = useState(!shell);
+  useEffect(() => {
+    if (late || state !== 'loading') return;
+    const timer = setTimeout(() => setLate(true), 400);
+    return () => clearTimeout(timer);
+  }, [late, state]);
+  if (state === 'loading' && !late) return null;
   return (
     <>
-      <AppHeader linked={false} title={state === 'failed' ? title : 'Opening space'} />
+      {(state === 'failed' || !shell) && (
+        <AppHeader linked={false} title={state === 'failed' ? title : 'Opening space'} />
+      )}
       <main>
         <NoticeCard
           state={state === 'failed' ? 'blocked' : 'opening'}
