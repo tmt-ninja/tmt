@@ -40,6 +40,33 @@ test('at 390 the actions are equal squares named by their labels, and the tabs s
   await expect(scroller).toHaveAttribute('data-fade-start', 'true');
 });
 
+test('the end fade follows tabs added, removed or grown after mount', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.goto('/?frame=tabs-bar');
+  const scroller = page.locator('[data-slot="tabs-bar-scroller"]');
+  await expect(scroller).not.toHaveAttribute('data-fade-end', 'true');
+  await page.getByRole('button', { name: 'Add tabs' }).click();
+  await page.getByRole('button', { name: 'Add tabs' }).click();
+  await expect(scroller).toHaveAttribute('data-fade-end', 'true');
+  await page.getByRole('button', { name: 'Remove added tabs' }).click();
+  await expect(scroller).not.toHaveAttribute('data-fade-end', 'true');
+  // A label that grows in place (a count badge, say) changes no child list, only a trigger's size.
+  await page
+    .getByRole('tab', { name: /^Done/ })
+    .evaluate((tab) => tab.append(` ${'x'.repeat(400)}`));
+  await expect(scroller).toHaveAttribute('data-fade-end', 'true');
+});
+
+test('the line underline leaves with the line variant', async ({ page }) => {
+  await page.goto('/?frame=tabs-bar');
+  const indicator = page.locator('[data-slot="tabs-indicator"]');
+  await expect(indicator).toHaveCount(1);
+  await page.getByRole('button', { name: 'Toggle underline' }).click();
+  await expect(indicator).toHaveCount(0);
+  await page.getByRole('button', { name: 'Toggle underline' }).click();
+  await expect(indicator).toHaveCount(1);
+});
+
 test('a chip keeps its own size inside a host that sizes its controls', async ({ page }) => {
   await page.goto('/?frame=tabs-bar');
   const host = page.getByTestId('sized-host');
