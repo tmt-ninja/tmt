@@ -66,6 +66,7 @@ const entries: Record<string, string> = {
   './rich-input': 'Components entry rich-input',
   './data-table': 'Components entry data-table',
   './gallery/frames': 'the gallery itself',
+  './docs-embed': 'the docs site itself, hosted by Colab Design',
   './test-fixtures/*': 'test fixtures',
 };
 
