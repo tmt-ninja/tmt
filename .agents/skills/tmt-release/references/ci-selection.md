@@ -63,12 +63,13 @@ with the same pins and compiles first, so the qualifier step stays bounded at 10
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process
-and MSRV. In the full scope, the Clippy worker also lints every tmt-remote target with the
-default-off emulator feature through
+and MSRV. In the full scope, the Clippy worker also lints every tmt-remote target with
+the default-off emulator feature through
 [the Remote emulator lint script](../../../../typescript/scripts/remote-emulator-lint.mjs),
-so a stale caller in a feature-gated test fails a required check. It compiles only, with no
-emulator, credential or account, and the guard keeps the flag out of `.github/`. MSRV reads `rust/Cargo.toml` and checks every retained package target;
-process verification discovers every retained suite without a product blacklist.
+so a stale caller in a feature-gated test fails a required check. It compiles only,
+with no emulator, credential or account, and the guard keeps the flag out of `.github/`.
+MSRV reads `rust/Cargo.toml` and checks every retained package target; process
+verification discovers every retained suite without a product blacklist.
 Full/Ops scopes require every selected worker; `none` skips the aggregate. Invalid
 scope, missing/extra results, failure or unexpected skips fail closed; names stay stable.
 
