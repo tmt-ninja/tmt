@@ -174,6 +174,7 @@ fn usage_rechecks_the_exact_namespace_and_retains_all_accounting_fields() {
         comments_bytes: 5,
         attachments_bytes: None,
         unused_attachment_bytes: None,
+        unused_attachments_remove_at_ms: None,
         total_bytes: None,
         freeable: Default::default(),
         last_cleaned_automatically_at_ms: None,
@@ -299,4 +300,345 @@ fn removal_never_crosses_before_commit_or_for_another_page_and_unknown_is_not_su
         Storage::Unknown
     );
     backend.join().unwrap();
+}
+
+/// A source whose decoder is the built `tmt-colab`, for passes that materialize the page.
+fn decoding_source(state: &Fixture) -> crate::page::save::SourceOpener {
+    let root = state.root.clone();
+    let program = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tmt-colab");
+    let config = decoder_config(program);
+    Arc::new(move || crate::page::save::open_source(&root, config.clone()))
+}
+fn current_history(state: &mut Fixture) {
+    state.apply(OwnerAction::History {
+        page: PAGE,
+        mode: crate::transitions::HistoryMode::Current,
+    });
+}
+fn listed(byte: u8) -> tmt_extension_objects::Listed {
+    super::listed_object([byte; 32], 10)
+}
+
+#[test]
+fn a_listing_follows_next_and_is_admitted_only_for_the_page_namespace() {
+    let mut state = Fixture::new();
+    current_history(&mut state);
+    let source = source(&state);
+    let (channel, remote) = pair_version(true);
+    let owner = owner(channel);
+    let backend = thread::spawn(move || {
+        let mut ids = 0;
+        for (entries, next) in [(vec![listed(1), listed(2)], true), (vec![listed(3)], false)] {
+            let request = receive(&remote);
+            let Call::List(input) = &request.call else {
+                panic!("expected a listing, got {:?}", request.call)
+            };
+            assert_eq!(input.limit, tmt_extension_objects::LIST_ENTRIES);
+            assert_eq!(input.after.is_some(), ids > 0);
+            let count = entries.len() as u32;
+            for (boundary, disclosure) in [
+                (Checkpoint::Acquire, None),
+                (Checkpoint::Disclose, Some(Disclosure::Listed { count })),
+            ] {
+                ids += 1;
+                assert_eq!(
+                    admit(&remote, &request, ids, boundary, disclosure).decision,
+                    Decision::Allow
+                );
+            }
+            let next = next.then(|| entries.last().unwrap().opaque_key);
+            finish(
+                &remote,
+                request,
+                Outcome::Success(Success::Listed(tmt_extension_objects::Listing {
+                    entries,
+                    next,
+                })),
+            );
+        }
+    });
+    let client = owner.client().unwrap();
+    let all = client
+        .list_objects(PAGE, &source, 4, limit())
+        .unwrap()
+        .unwrap();
+    assert_eq!(all, vec![listed(1), listed(2), listed(3)]);
+    backend.join().unwrap();
+}
+
+#[test]
+fn a_removal_is_allowed_for_its_exact_object_and_fence_and_a_moved_fence_refuses_it() {
+    let mut state = Fixture::new();
+    current_history(&mut state);
+    let source = source(&state);
+    let (channel, remote) = pair_version(true);
+    let owner = owner(channel);
+    let client = owner.client().unwrap();
+    let fence = source().unwrap().store.page_fence(PAGE).unwrap();
+    let (asked, answered) = std::sync::mpsc::channel();
+    let backend = thread::spawn(move || {
+        // The first removal is allowed through effect and disclose.
+        let request = receive(&remote);
+        let Call::Remove(input) = &request.call else {
+            panic!("expected a removal")
+        };
+        assert_eq!(input.opaque_key, listed(7).opaque_key);
+        assert_eq!(input.payload_bytes, 10);
+        for (id, boundary, disclosure) in [
+            (1, Checkpoint::Acquire, None),
+            (2, Checkpoint::Effect, None),
+            (3, Checkpoint::Disclose, Some(Disclosure::Removed)),
+        ] {
+            assert_eq!(
+                admit(&remote, &request, id, boundary, disclosure).decision,
+                Decision::Allow
+            );
+        }
+        finish(&remote, request, Outcome::Success(Success::Removed));
+        // The second one arrives after a write moved the fence: refused before its effect.
+        asked.send(()).unwrap();
+        let request = receive(&remote);
+        assert_eq!(
+            admit(&remote, &request, 4, Checkpoint::Acquire, None).decision,
+            Decision::Deny
+        );
+        finish(
+            &remote,
+            request,
+            Outcome::Failure(tmt_extension_objects::ErrorCode::Denied),
+        );
+    });
+    assert_eq!(
+        client.remove_object(PAGE, &source, &listed(7), fence, limit()),
+        crate::object_channel::namespace::ObjectRemoval::Removed
+    );
+    answered.recv().unwrap();
+    state.apply(OwnerAction::Retention {
+        page: PAGE,
+        days: Some(7),
+    });
+    assert_ne!(source().unwrap().store.page_fence(PAGE).unwrap(), fence);
+    assert_eq!(
+        client.remove_object(PAGE, &source, &listed(7), fence, limit()),
+        crate::object_channel::namespace::ObjectRemoval::Refused
+    );
+    backend.join().unwrap();
+}
+
+#[test]
+fn only_current_history_writable_private_or_link_pages_are_eligible() {
+    use crate::object_channel::namespace::removal_eligible;
+    use crate::transitions::ShareMode;
+    let mut state = Fixture::new();
+    let source = source(&state);
+    assert!(
+        !removal_eligible(&source().unwrap(), PAGE).unwrap(),
+        "a page in the default shared history mode keeps every object"
+    );
+    current_history(&mut state);
+    assert!(removal_eligible(&source().unwrap(), PAGE).unwrap());
+    state.share(ShareMode::Public);
+    assert!(
+        !removal_eligible(&source().unwrap(), PAGE).unwrap(),
+        "public"
+    );
+    state.share(ShareMode::Private);
+    assert!(removal_eligible(&source().unwrap(), PAGE).unwrap());
+    state.apply(OwnerAction::Archive { page: PAGE });
+    assert!(
+        !removal_eligible(&source().unwrap(), PAGE).unwrap(),
+        "archived"
+    );
+    let mut deleted = Fixture::new();
+    current_history(&mut deleted);
+    deleted.apply(OwnerAction::Delete { page: PAGE });
+    assert!(
+        !removal_eligible(&self::source(&deleted)().unwrap(), PAGE).unwrap(),
+        "deleted"
+    );
+}
+
+#[test]
+fn a_version_three_link_neither_lists_nor_removes_and_writes_nothing() {
+    let mut state = Fixture::new();
+    current_history(&mut state);
+    let source = source(&state);
+    let (channel, remote) = pair();
+    let owner = owner(channel);
+    let client = owner.client().unwrap();
+    assert!(!owner.lists_objects());
+    assert_eq!(
+        client.list_objects(PAGE, &source, 4, limit()).unwrap(),
+        None
+    );
+    assert_eq!(
+        client.remove_object(PAGE, &source, &listed(1), [0; 32], limit()),
+        crate::object_channel::namespace::ObjectRemoval::Unavailable
+    );
+    let backend = thread::spawn(move || {
+        let request = receive(&remote);
+        assert_eq!(
+            request.request_id,
+            Counter::new(1).unwrap(),
+            "nothing was sent before"
+        );
+        finish(
+            &remote,
+            request,
+            Outcome::Failure(tmt_extension_objects::ErrorCode::Unavailable),
+        );
+    });
+    let admission = Arc::new(Current(AtomicBool::new(true), AtomicUsize::new(0)));
+    let _ = client.request(Origin::LocalExtension, config(), admission, limit());
+    backend.join().unwrap();
+}
+
+/// A scripted Remote that lists what it still holds and removes what it is asked to.
+fn scripted_store(
+    remote: Bus,
+    held: Vec<tmt_extension_objects::Listed>,
+) -> (thread::JoinHandle<()>, Arc<Mutex<Vec<Bytes32>>>) {
+    let removed = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&removed);
+    let worker = thread::spawn(move || {
+        let mut held = held;
+        let mut callback = 0;
+        while let Ok(Frame::Request(request)) = remote.recv(Some(limit())) {
+            let mut allow = |boundary, disclosure| {
+                callback += 1;
+                admit(&remote, &request, callback, boundary, disclosure).decision == Decision::Allow
+            };
+            let outcome = match &request.call {
+                Call::List(_) => {
+                    let count = held.len() as u32;
+                    if allow(Checkpoint::Acquire, None)
+                        && allow(Checkpoint::Disclose, Some(Disclosure::Listed { count }))
+                    {
+                        Outcome::Success(Success::Listed(tmt_extension_objects::Listing {
+                            entries: held.clone(),
+                            next: None,
+                        }))
+                    } else {
+                        Outcome::Failure(tmt_extension_objects::ErrorCode::Denied)
+                    }
+                }
+                Call::Remove(input) => {
+                    if allow(Checkpoint::Acquire, None) && allow(Checkpoint::Effect, None) {
+                        held.retain(|entry| entry.opaque_key != input.opaque_key);
+                        seen.lock().unwrap().push(input.opaque_key);
+                        allow(Checkpoint::Disclose, Some(Disclosure::Removed));
+                        Outcome::Success(Success::Removed)
+                    } else {
+                        Outcome::Failure(tmt_extension_objects::ErrorCode::Denied)
+                    }
+                }
+                other => panic!("unexpected {other:?}"),
+            };
+            finish(&remote, request, outcome);
+        }
+    });
+    (worker, removed)
+}
+
+#[test]
+fn a_visit_starts_clocks_removes_after_thirty_days_and_a_skipped_page_forgets_them() {
+    use crate::attachments::unreferenced::{Visit, visit};
+    const DAY: u64 = 24 * 60 * 60 * 1000;
+    let mut state = Fixture::new();
+    current_history(&mut state);
+    let source = decoding_source(&state);
+    let layout = crate::keyring::Layout::existing(&state.root)
+        .unwrap()
+        .unwrap();
+    let slots = crate::attachments::slots::StagingSlots::open(&layout).unwrap();
+    let (channel, remote) = pair_version(true);
+    let owner = owner(channel);
+    let (worker, removed) = scripted_store(remote, vec![listed(1), listed(2)]);
+    let clocks = || {
+        crate::store::Store::read(&layout)
+            .unwrap()
+            .unreferenced(PAGE)
+            .unwrap()
+    };
+    let at = 1_000_000;
+    let run = |now| visit(&owner, &slots, &source, &state.server, PAGE, now, limit()).unwrap();
+    // Nothing references either listed object: both clocks start, nothing is removed yet.
+    assert_eq!(run(at), Visit::default());
+    assert_eq!(
+        clocks(),
+        vec![("01".repeat(32), 10, at), ("02".repeat(32), 10, at)]
+    );
+    // A later pass inside the grace changes nothing, and keeps the first time seen.
+    assert_eq!(run(at + 29 * DAY), Visit::default());
+    assert_eq!(clocks()[0].2, at);
+    assert!(removed.lock().unwrap().is_empty());
+    // Day thirty: both are removed and their clocks forgotten.
+    assert_eq!(
+        run(at + 30 * DAY),
+        Visit {
+            removed: 2,
+            unfinished: false
+        }
+    );
+    assert_eq!(
+        *removed.lock().unwrap(),
+        vec![listed(1).opaque_key, listed(2).opaque_key]
+    );
+    assert!(clocks().is_empty());
+    drop(owner);
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_page_in_shared_history_mode_records_nothing_and_loses_any_clock() {
+    use crate::attachments::unreferenced::{Visit, visit};
+    let mut state = Fixture::new();
+    current_history(&mut state);
+    let source = decoding_source(&state);
+    let layout = crate::keyring::Layout::existing(&state.root)
+        .unwrap()
+        .unwrap();
+    let slots = crate::attachments::slots::StagingSlots::open(&layout).unwrap();
+    let (channel, remote) = pair_version(true);
+    let owner = owner(channel);
+    let (worker, removed) = scripted_store(remote, vec![listed(1)]);
+    let read = || {
+        crate::store::Store::read(&layout)
+            .unwrap()
+            .unreferenced(PAGE)
+            .unwrap()
+    };
+    assert_eq!(
+        visit(&owner, &slots, &source, &state.server, PAGE, 5, limit()).unwrap(),
+        Visit::default()
+    );
+    assert_eq!(read().len(), 1);
+    state.apply(OwnerAction::History {
+        page: PAGE,
+        mode: crate::transitions::HistoryMode::Shared,
+    });
+    // Even long past the grace, a shared-history page keeps its object and its clock is gone.
+    assert_eq!(
+        visit(
+            &owner,
+            &slots,
+            &source,
+            &state.server,
+            PAGE,
+            u64::MAX / 2,
+            limit()
+        )
+        .unwrap(),
+        Visit::default()
+    );
+    assert!(read().is_empty());
+    assert!(removed.lock().unwrap().is_empty());
+    drop(owner);
+    worker.join().unwrap();
 }

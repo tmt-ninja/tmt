@@ -48,7 +48,10 @@ const storage = params.has('storage')
           historyBytes: cleaned ? 300000 : 4200000,
           commentsBytes: 84000,
           attachmentsBytes: params.has('storage-known') ? 6100000 : null,
-          unusedAttachmentBytes: null,
+          unusedAttachmentBytes: params.has('storage-unused') ? 1200000 : null,
+          unusedAttachmentsRemoveAtMs: params.has('storage-unused')
+            ? Date.UTC(2026, 10, 30, 12)
+            : null,
           totalBytes: null,
           freeable: { history: cleaned || params.has('storage-skipped') ? 0 : 3900000, files: 0 },
           lastCleanedAutomaticallyAtMs: params.has('storage-time') ? Date.now() - 7200000 : null,

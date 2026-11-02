@@ -169,6 +169,19 @@ const MIGRATIONS: &[&str] = &[
         CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
         FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
     "#,
+    // Schema 21: when this machine first saw each listed attachment object unreferenced (#5284);
+    // local evidence only, never synced. A row is deleted as soon as the object is referenced
+    // again or gone, which restarts its grace period.
+    r#"
+    CREATE TABLE attachment_unreferenced(page TEXT NOT NULL,
+        object TEXT NOT NULL CHECK(length(object)=64 AND object NOT GLOB '*[^0-9a-f]*'),
+        payload_bytes INTEGER NOT NULL
+            CHECK(typeof(payload_bytes)='integer' AND payload_bytes>=0 AND payload_bytes<=9007199254740991),
+        since_ms INTEGER NOT NULL
+            CHECK(typeof(since_ms)='integer' AND since_ms>=0 AND since_ms<=9007199254740991),
+        PRIMARY KEY(page,object),
+        FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was

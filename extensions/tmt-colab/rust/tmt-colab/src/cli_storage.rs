@@ -170,6 +170,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             };
             if let Ok(remote) = tmt_colab::storage_ipc::read(&layout, &row.page_id, wait) {
                 row.apply_attachment_bytes(remote.attachments_bytes);
+                row.copy_unreferenced(&remote);
             }
         }
     }
@@ -204,6 +205,28 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 files,
                 human(row.freeable.history)
             )?;
+        }
+        // Files no page refers to any more, and when they go (#5284).
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| {
+                u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+            });
+        for row in &report.pages {
+            if let (Some(bytes), Some(at)) = (
+                row.unused_attachment_bytes,
+                row.unused_attachments_remove_at_ms,
+            ) && bytes > 0
+            {
+                let title = row.title.as_deref().unwrap_or(&row.page_id);
+                writeln!(
+                    out,
+                    "{}: {} not in use, removed {}",
+                    tmt_cli_style::table::escape(title),
+                    human(bytes),
+                    crate::cli_management::last_edit_text(at, now.min(at))
+                )?;
+            }
         }
     }
     Ok(())

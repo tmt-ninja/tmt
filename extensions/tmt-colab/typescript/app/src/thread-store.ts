@@ -378,7 +378,7 @@ export class ThreadStore implements ThreadBinding {
       requireValue(stored.kind === 'comment');
       const { attachments, ...record } = stored;
       // A descriptor binds its message revision, so an edit never carries one forward;
-      // deletion drops the references and the bytes stay unreachable.
+      // deletion adds no reference, and the earlier revisions keep their files.
       requireValue(deleted || !attachments?.length);
       await this.#write([{ ...record, revision: String(BigInt(revision) + 1n), body, deleted }]);
     });

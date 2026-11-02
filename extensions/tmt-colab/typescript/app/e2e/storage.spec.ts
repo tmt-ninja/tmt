@@ -70,7 +70,20 @@ test('known attachment allocation is shown without an unused or expiry claim', a
   await expect(section.getByText('6.1 MB', { exact: true })).toBeVisible();
   await expect(section.locator('.storage-bar')).toBeVisible();
   await expect(section.locator('.storage-dot')).toHaveCount(4);
-  await expect(section.getByText(/unused|removed after 30 days/)).toHaveCount(0);
+  await expect(section.getByText(/not in use|removed on/)).toHaveCount(0);
+});
+
+test('files no page uses are shown with the day they are removed', async ({ page }) => {
+  await page.goto(
+    '/test/command-browser.html?storage&history=current&storage-known&storage-unused',
+  );
+  const section = page.getByRole('region', { name: 'Storage on this Mac' });
+  await expect(
+    section.getByText(/6\.1 MB \(1\.2 MB not in use, removed on Nov 30\)/),
+  ).toBeVisible();
+  // No new chrome: the estimate sits in the existing Attachments row.
+  await expect(section.locator('.storage-dot')).toHaveCount(4);
+  await expect(section.getByRole('button')).toHaveCount(1);
 });
 
 test('known automatic cleanup time is shown', async ({ page }) => {

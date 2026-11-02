@@ -23,9 +23,10 @@ pub use codec::{decode_length, decode_length_for_version};
 pub use error::ErrorClass;
 pub use frame::{
     Admission, Admit, AdmitInput, BeginInput, Call, Checkpoint, Config, ConfigInput, Context,
-    Decision, Disclosure, ErrorCode, Frame, Limit, Limits, Method, NamespaceInput, Operation,
-    Origin, OriginPhase, OriginState, Outcome, PartAdmit, PartInput, Projection, ReadInput,
-    Request, ResultFrame, Retained, State, StatusInput, Success, TransferAdmit, TransferBounds,
-    TransferInput, Usage, UsageScope, decode, encode,
+    Decision, Disclosure, ErrorCode, Frame, LIST_ENTRIES, Limit, Limits, ListInput, Listed,
+    Listing, Method, NamespaceInput, Operation, Origin, OriginPhase, OriginState, Outcome,
+    PartAdmit, PartInput, Projection, ReadInput, RemoveInput, Request, ResultFrame, Retained,
+    State, StatusInput, Success, TransferAdmit, TransferBounds, TransferInput, Usage, UsageScope,
+    decode, encode,
 };
 pub use ids::{Bytes32, Chunk, Counter, Policy, Sha256Hex, Uuid4};

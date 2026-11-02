@@ -9,10 +9,12 @@
 //! Upgrade: tmt-object-channel-v1                    tmt-object-generation: <same>
 //! Content-Length: 0
 //! tmt-mount: <the selected mount>
-//! tmt-object-channel: <1, 2 or 3>
+//! tmt-object-channel: <1, 2, 3 or 4>
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
-use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, bounded, halves};
+use super::{
+    Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, VERSION_MAX, bounded, halves,
+};
 use crate::Uuid4;
 use std::{
     os::unix::net::UnixStream,
@@ -143,9 +145,25 @@ pub fn negotiate(
     unreachable!("two attempts always return")
 }
 
-/// Native activation only: offer the highest version once. A fault never re-offers.
-pub fn negotiate_sync(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Link, Fault> {
-    initiate_version(stream, offer, setup, 3).map_err(|(fault, _)| fault)
+/// Native activation only: offer the highest version, and offer version 3 once on a fresh
+/// stream only when the extension answered the typed unsupported-version refusal (an
+/// extension built before version 4). Any other fault never re-offers.
+pub fn negotiate_sync(
+    setup: Instant,
+    mut open: impl FnMut() -> Result<(UnixStream, Offer), Fault>,
+) -> Result<Link, Fault> {
+    for version in [VERSION_MAX, 3] {
+        if Instant::now() >= setup {
+            return Err(Fault::Timeout(Stage::Head));
+        }
+        let (stream, offer) = open()?;
+        match initiate_version(stream, &offer, setup, version) {
+            Ok(link) => return Ok(link),
+            Err((Fault::Handshake(Refusal::UnsupportedVersion), true)) if version > 3 => {}
+            Err((fault, _)) => return Err(fault),
+        }
+    }
+    Err(Fault::Handshake(Refusal::UnsupportedVersion))
 }
 
 /// Keep version-1 wire/refusal fixtures explicit without a public legacy entry point.
@@ -190,7 +208,7 @@ fn initiate_version(
         return Err(refused(Refusal::Version));
     }
     // Legacy refusal precedence is part of the existing outcome contract.
-    if version != 3 && (reply.code != Some(101) || reply.reason != Some("Switching Protocols")) {
+    if version < 3 && (reply.code != Some(101) || reply.reason != Some("Switching Protocols")) {
         return Err(refused(Refusal::Status));
     }
     let selected_fields = [
@@ -199,7 +217,7 @@ fn initiate_version(
         "tmt-object-channel",
         "tmt-object-generation",
     ];
-    if version == 3 && reply.code == Some(426) {
+    if version >= 3 && reply.code == Some(426) {
         if reply.reason != Some("Upgrade Required") || !first_bytes.is_empty() {
             return Err(refused(Refusal::Status));
         }
@@ -218,18 +236,20 @@ fn initiate_version(
     }
     let seen = fields(
         reply.headers,
-        if version == 3 {
+        if version >= 3 {
             &selected_fields
         } else {
             &REPLY_FIELDS
         },
     )
     .map_err(refused)?;
-    let selected = if version == 3 {
+    let selected = if version >= 3 {
+        // The extension selects at most what was offered.
         match value(&seen, "tmt-object-channel") {
             "1" => 1,
             "2" => 2,
             "3" => 3,
+            "4" if version >= 4 => 4,
             _ => return Err(refused(Refusal::BadValue("tmt-object-channel"))),
         }
     } else {
@@ -319,6 +339,7 @@ fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<(Uuid4, u8), Re
         "1" => 1,
         "2" => 2,
         "3" => 3,
+        "4" => 4,
         text => {
             let number = text
                 .parse::<u8>()
@@ -345,7 +366,7 @@ fn replied(
     budgets: &Budgets,
     setup: Instant,
 ) -> Result<Link, Fault> {
-    if version > 3 {
+    if version > VERSION_MAX {
         let reply = format!(
             "HTTP/1.1 426 Upgrade Required\r\ntmt-object-channel-error: unsupported-version\r\ntmt-object-generation: {generation}\r\nContent-Length: 0\r\n\r\n"
         );
@@ -356,10 +377,10 @@ fn replied(
         )?;
         return Err(Fault::Handshake(Refusal::UnsupportedVersion));
     }
-    let selected = if version == 3 {
-        "tmt-object-channel: 3\r\n"
+    let selected = if version >= 3 {
+        format!("tmt-object-channel: {version}\r\n")
     } else {
-        ""
+        String::new()
     };
     let reply = format!(
         "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\n{selected}tmt-object-generation: {generation}\r\n\r\n"

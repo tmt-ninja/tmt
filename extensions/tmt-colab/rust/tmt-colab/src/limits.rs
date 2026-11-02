@@ -232,6 +232,16 @@ pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
 pub const DATA_IMAGES_TOTAL_BYTES: usize = 256 * 1024;
 /// Unique `colab-attachment:` references one render resolves (`IMAGE_REFERENCES` in the app).
 pub const ATTACHMENT_REFS: usize = 128;
+/// An attachment object that no retained reference reaches is removed this long after this
+/// machine first saw it unreferenced (#5284); a new reference restarts the wait.
+pub const ATTACHMENT_UNREFERENCED_GRACE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+/// Listing pages one removal pass reads: Remote's 1,024-entry namespace cap in pages of 256. A
+/// namespace that does not fit decides nothing.
+pub const ATTACHMENT_LIST_PAGES: usize = 4;
+/// Removals one pass asks for; the rest wait for the page's next turn.
+pub const ATTACHMENT_REMOVE_BATCH: usize = 16;
+/// Each listing or removal request's own deadline.
+pub const ATTACHMENT_REQUEST: std::time::Duration = std::time::Duration::from_secs(5);
 /// Effective unreleased identity edit locks attributed to one writer.
 pub const EDIT_LOCKS_PER_WRITER: usize = 8;
 /// Current identity lock cells in one writer, including release tombstones.

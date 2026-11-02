@@ -277,8 +277,12 @@ impl RootWriteAdmission {
             | AdmitInput::Part(_)
             | AdmitInput::Commit(_)
             | AdmitInput::Discard(_) => self.input.as_ref() == Some(input),
-            // Namespace management uses its own native owner, not upload authority.
-            AdmitInput::Config(_) | AdmitInput::RemoveNamespace(_) | AdmitInput::Usage(_) => false,
+            // Namespace and object management use their own native owner, not upload authority.
+            AdmitInput::Config(_)
+            | AdmitInput::RemoveNamespace(_)
+            | AdmitInput::Usage(_)
+            | AdmitInput::Remove(_)
+            | AdmitInput::List(_) => false,
         }
     }
     /// The writer, page state and base must all still hold. A discard only cleans up the

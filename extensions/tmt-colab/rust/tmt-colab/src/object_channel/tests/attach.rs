@@ -760,3 +760,54 @@ fn a_denied_upload_is_a_stale_base_only_when_the_page_moved() {
     assert_eq!(flow.objects.discards.load(Ordering::SeqCst), 1);
     assert_eq!(flow.published(), 1, "only the edit");
 }
+
+/// The reference set sees an attached document file, an unfinished slot's object and nothing
+/// once the file is removed from the page (#5284).
+#[test]
+fn the_reference_set_keeps_a_listed_file_and_an_unfinished_attach_and_drops_a_removed_one() {
+    use crate::attachments::unreferenced::references;
+    let flow = Flow::new();
+    let deadline = || Instant::now() + Duration::from_secs(20);
+    let (mut slot, expected) = flow.staged();
+    let attached = flow.run(&mut slot, Some(expected)).unwrap();
+    let object = attached.descriptor.object_id.clone();
+    let mut view = flow.world.source.as_ref()().unwrap();
+    let found = references(&mut view, &flow.slots, PAGE, deadline()).unwrap();
+    assert!(found.contains(&object), "the page lists it");
+    drop(view);
+    // Unfinished: the slot still protects it even if the page did not list it yet.
+    assert!(
+        flow.slots
+            .in_flight_objects(PAGE)
+            .unwrap()
+            .contains(&object)
+    );
+    slot.finish(2000).unwrap();
+    assert!(flow.slots.in_flight_objects(PAGE).unwrap().is_empty());
+    // Remove the file from the page through an ordinary typed Save.
+    let mut view = flow.world.source.as_ref()().unwrap();
+    let current = page::read(&view.store, &view.keyring, PAGE, &mut view.decoder).unwrap();
+    drop(view);
+    let change: tmt_colab_model::attachment::DocumentChange =
+        serde_json::from_value(serde_json::json!({"remove": [attached.descriptor.attachment_id]}))
+            .unwrap();
+    let prepared = page::save::prepare(
+        &flow.world.source,
+        &page::save::Save {
+            page: PAGE.into(),
+            operation_id: page::fresh_id().unwrap(),
+            base_sha256: crypto::digest(current.source.as_bytes()),
+            source: current.source.clone(),
+            attachments: Some(change),
+        },
+        &|| Ok(crate::registration::now_ms().unwrap()),
+    )
+    .unwrap();
+    let page::save::Prepared::Write(frozen) = prepared else {
+        panic!("removing a file changes the page")
+    };
+    flow.writer.publish(&flow.world.state.key, &frozen).unwrap();
+    let mut view = flow.world.source.as_ref()().unwrap();
+    let found = references(&mut view, &flow.slots, PAGE, deadline()).unwrap();
+    assert!(!found.contains(&object), "a removed file is a candidate");
+}

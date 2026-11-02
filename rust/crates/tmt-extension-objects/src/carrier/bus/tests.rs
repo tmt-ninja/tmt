@@ -485,7 +485,12 @@ fn a_v3_bus_carries_sync_and_objects_with_shared_request_order() {
     let deadline = Instant::now() + Duration::from_secs(5);
     let accepted =
         thread::spawn(move || accept(b, &super::super::tests::expect(), &quick(), deadline));
-    let link = crate::negotiate_sync(a, &super::super::tests::offer(), deadline).unwrap();
+    let mut stream = Some(a);
+    let link = crate::negotiate_sync(deadline, || {
+        Ok((stream.take().unwrap(), super::super::tests::offer()))
+    })
+    .unwrap();
+    assert_eq!(link.version(), 4);
     let remote = Bus::start(link, quick(), Caps::contract(), None).unwrap();
     let extension = Bus::start(
         accepted.join().unwrap().unwrap(),

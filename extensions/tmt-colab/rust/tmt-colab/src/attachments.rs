@@ -14,6 +14,7 @@ pub mod media_type;
 pub(crate) mod rekey;
 pub(crate) mod seal;
 pub mod slots;
+pub(crate) mod unreferenced;
 use serde_json::Value;
 use std::time::Instant;
 use tmt_colab_model::{
