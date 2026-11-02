@@ -205,17 +205,18 @@ export function ColabMock({ path }: { path: string }) {
       ),
     };
   }, [screen, withShortcuts, needs]);
-  // The side-menu screen opens the drawer on a phone, where the menu otherwise waits behind its button.
-  useEffect(() => {
-    if (screen !== 'menu' || !matchMedia('(max-width: 900px)').matches) return;
-    document.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')?.click();
-  }, [screen]);
   const globals = <GlobalSwitches screen={screen} />;
   const radius = radiusOf(query);
   const logo = logoOf(query);
   // The ninja option swaps the shell's mark in this mock only: the shell draws its brand itself, and
   // inside Design the host's own shell has one too, so the search stays in the mock's scope.
   const mock = useRef<HTMLDivElement>(null);
+  // The side-menu screen opens the drawer on a phone, where the menu otherwise waits behind its button
+  // (the mock's own: inside Design the host's shell has one too).
+  useEffect(() => {
+    if (screen !== 'menu' || !matchMedia('(max-width: 900px)').matches) return;
+    mock.current?.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')?.click();
+  }, [screen]);
   useEffect(() => {
     const brand = mock.current?.querySelector<HTMLElement>('.tmt-ui-shell-brand');
     if (!brand) return;
