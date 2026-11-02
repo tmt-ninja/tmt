@@ -737,6 +737,20 @@ test.describe('the door serving the TMT app', () => {
 
     test('a suspended route keeps its Remote signal until release', async ({ page }) => {
       await door!.pair(page);
+      await page.addInitScript(() => {
+        (
+          window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          }
+        ).originalPush = history.pushState;
+        (
+          window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          }
+        ).originalReplace = history.replaceState;
+      });
       await page.route('**/x/colab/assets/colab-module.js*', (route) =>
         route.fulfill({
           contentType: 'text/javascript',
@@ -750,6 +764,18 @@ test.describe('the door serving the TMT app', () => {
       );
       await page.goto(`${door!.origin}/colab/`);
       await expect(page.getByText('Kept route')).toBeVisible();
+      expect(
+        await page.evaluate(() => {
+          const original = window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          };
+          return (
+            history.pushState === original.originalPush &&
+            history.replaceState === original.originalReplace
+          );
+        }),
+      ).toBe(true);
       const proof = () =>
         page.evaluate(() => {
           const route = (

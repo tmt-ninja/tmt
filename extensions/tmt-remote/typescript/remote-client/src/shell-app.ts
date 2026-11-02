@@ -506,6 +506,12 @@ export function shellApp(): ShellHost | undefined {
             },
           });
           publishSearch = publish;
+          let remotePath = location.pathname;
+          const rememberRemotePath = () => {
+            if (route.id === 'remote' && remoteItem(location.pathname))
+              remotePath = location.pathname;
+          };
+          window.addEventListener('popstate', rememberRemotePath, { signal: lifetime.signal });
           let given: Awaited<ReturnType<typeof module.mount>>;
           try {
             given = await module.mount(hosted(slot));
@@ -522,10 +528,14 @@ export function shellApp(): ShellHost | undefined {
             lifetime.abort();
             mounted?.release();
           };
-          if (!mounted?.suspend) return release;
+          const ownedLocation =
+            route.id === 'remote' ? () => remotePath : mounted?.location?.bind(mounted);
+          if (!mounted?.suspend)
+            return ownedLocation ? { release, location: ownedLocation } : release;
           const { suspend, resume } = mounted;
           return {
             release,
+            location: ownedLocation,
             suspend() {
               quiet();
               suspend.call(mounted);

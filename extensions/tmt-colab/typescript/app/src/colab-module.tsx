@@ -209,6 +209,12 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
     );
   render(forward());
   return {
+    location() {
+      const snapshot = runtime?.snapshot();
+      return snapshot?.state === 'ready'
+        ? snapshot.router.history.location.href
+        : (preview?.history.location.href ?? window.location.href);
+    },
     release() {
       setSuspended(false);
       root.unmount();

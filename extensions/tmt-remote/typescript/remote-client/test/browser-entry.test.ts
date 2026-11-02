@@ -208,6 +208,7 @@ async function fixture(mode = 'success') {
   });
   const button = {
     disabled: true,
+    hidden: false,
     isConnected: true,
     addEventListener: (_: string, listener: () => void | Promise<void>) => {
       click = listener;
@@ -433,6 +434,8 @@ test('landing does not open a replacement when the shared admission fails', asyn
       throw new Error('offline');
     });
     assert.equal(f.nodes.get('state-label')!.textContent, "Can't reach Remote");
+    assert.equal(f.button.disabled, false);
+    assert.equal(f.button.hidden, false);
     assert.equal(f.counts().admissions, 0);
     f.click();
     await vi.waitFor(() => assert.equal(f.nodes.get('state-label')!.textContent, 'Connected'));

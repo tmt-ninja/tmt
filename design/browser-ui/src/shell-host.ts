@@ -69,6 +69,8 @@ export interface ShellSlot {
  * session is forgotten) and on `dispose`. */
 export interface ShellMounted {
   release(): void;
+  /** The route-owned location to remember when leaving, including after a history traversal. */
+  location?(): string;
   suspend?(): void;
   resume?(slot: ShellSlot): void;
 }
@@ -252,27 +254,12 @@ export function startShellHost(
   let generation = 0;
   let disposed = false;
   const lastLocation = new Map<string, string>();
-  const history = window.history;
-  const originalPush = history.pushState;
-  const originalReplace = history.replaceState;
-  const rememberCurrent = () => {
-    if (current && matchRoute(routes, window.location.pathname) === current.route)
-      lastLocation.set(current.route.id, window.location.href);
+  const rememberLocation = (route: ShellRoute, href: string) => {
+    const url = linkTo(href);
+    if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+    // Remote URLs can contain invitation or pairing material; its rail keeps only the route path.
+    lastLocation.set(route.id, route.rail === 'remote' ? url.pathname : url.href);
   };
-  // A module can change its own location without a popstate. Record both sides of a history
-  // write so a later Back/Forward traversal can leave it before the host sees the new URL.
-  const push: History['pushState'] = (...args) => {
-    rememberCurrent();
-    originalPush.apply(history, args);
-    rememberCurrent();
-  };
-  const replace: History['replaceState'] = (...args) => {
-    rememberCurrent();
-    originalReplace.apply(history, args);
-    rememberCurrent();
-  };
-  history.pushState = push;
-  history.replaceState = replace;
 
   const place = () => ({
     origin: window.location.origin,
@@ -380,8 +367,15 @@ export function startShellHost(
   /** Leave the current module: suspend it when it can be kept, else release it. */
   function leave() {
     const leaving = current;
-    if (leaving && matchRoute(routes, window.location.pathname) === leaving.route)
-      lastLocation.set(leaving.route.id, window.location.href);
+    if (leaving) {
+      try {
+        const owned = leaving.mounted?.location?.();
+        if (owned) rememberLocation(leaving.route, owned);
+        else rememberLocation(leaving.route, window.location.href);
+      } catch {
+        // A location failure must not prevent the route from being released or suspended.
+      }
+    }
     try {
       // The module suspends while its slot is still current, so it sees the shell it was drawn in.
       if (leaving) keep(leaving);
@@ -521,11 +515,11 @@ export function startShellHost(
     if (!route) return elsewhere();
     remember(undefined);
     if (current?.route === route) {
-      rememberCurrent();
+      rememberLocation(route, window.location.href);
       return paint();
     }
     leave();
-    lastLocation.set(route.id, window.location.href);
+    rememberLocation(route, window.location.href);
     controls.clearTopBar();
     menu = undefined;
     select = undefined;
@@ -612,7 +606,6 @@ export function startShellHost(
   const popstate = () => void show();
   document.addEventListener('click', click);
   window.addEventListener('popstate', popstate);
-  window.addEventListener('hashchange', rememberCurrent);
   void show();
   return {
     setCommonControls: controls.setCommonControls,
@@ -634,13 +627,10 @@ export function startShellHost(
       loading.remove();
       document.removeEventListener('click', click);
       window.removeEventListener('popstate', popstate);
-      window.removeEventListener('hashchange', rememberCurrent);
       window.removeEventListener('pagehide', pagehide);
       release(current?.mounted);
       current = undefined;
       releaseKept();
-      if (history.pushState === push) history.pushState = originalPush;
-      if (history.replaceState === replace) history.replaceState = originalReplace;
       for (const listener of listeners.splice(0)) listener(undefined);
       controls.dispose();
     },

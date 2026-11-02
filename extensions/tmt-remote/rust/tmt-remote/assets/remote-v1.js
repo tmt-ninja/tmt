@@ -6426,24 +6426,11 @@ function startShellHost(root, routes, options = {}) {
 	let generation = 0;
 	let disposed = false;
 	const lastLocation = /* @__PURE__ */ new Map();
-	const history = window.history;
-	const originalPush = history.pushState;
-	const originalReplace = history.replaceState;
-	const rememberCurrent = () => {
-		if (current && matchRoute(routes, window.location.pathname) === current.route) lastLocation.set(current.route.id, window.location.href);
+	const rememberLocation = (route, href) => {
+		const url = linkTo(href);
+		if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+		lastLocation.set(route.id, route.rail === "remote" ? url.pathname : url.href);
 	};
-	const push = (...args) => {
-		rememberCurrent();
-		originalPush.apply(history, args);
-		rememberCurrent();
-	};
-	const replace = (...args) => {
-		rememberCurrent();
-		originalReplace.apply(history, args);
-		rememberCurrent();
-	};
-	history.pushState = push;
-	history.replaceState = replace;
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
@@ -6546,7 +6533,11 @@ function startShellHost(root, routes, options = {}) {
 	/** Leave the current module: suspend it when it can be kept, else release it. */
 	function leave() {
 		const leaving = current;
-		if (leaving && matchRoute(routes, window.location.pathname) === leaving.route) lastLocation.set(leaving.route.id, window.location.href);
+		if (leaving) try {
+			const owned = leaving.mounted?.location?.();
+			if (owned) rememberLocation(leaving.route, owned);
+			else rememberLocation(leaving.route, window.location.href);
+		} catch {}
 		try {
 			if (leaving) keep(leaving);
 		} finally {
@@ -6663,11 +6654,11 @@ function startShellHost(root, routes, options = {}) {
 		if (!route) return elsewhere();
 		remember(void 0);
 		if (current?.route === route) {
-			rememberCurrent();
+			rememberLocation(route, window.location.href);
 			return paint();
 		}
 		leave();
-		lastLocation.set(route.id, window.location.href);
+		rememberLocation(route, window.location.href);
 		controls.clearTopBar();
 		menu = void 0;
 		select = void 0;
@@ -6736,7 +6727,6 @@ function startShellHost(root, routes, options = {}) {
 	const popstate = () => void show();
 	document.addEventListener("click", click);
 	window.addEventListener("popstate", popstate);
-	window.addEventListener("hashchange", rememberCurrent);
 	show();
 	return {
 		setCommonControls: controls.setCommonControls,
@@ -6757,13 +6747,10 @@ function startShellHost(root, routes, options = {}) {
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
-			window.removeEventListener("hashchange", rememberCurrent);
 			window.removeEventListener("pagehide", pagehide);
 			release(current?.mounted);
 			current = void 0;
 			releaseKept();
-			if (history.pushState === push) history.pushState = originalPush;
-			if (history.replaceState === replace) history.replaceState = originalReplace;
 			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
@@ -13037,6 +13024,11 @@ function shellApp() {
 					}
 				});
 				publishSearch = publish;
+				let remotePath = location.pathname;
+				const rememberRemotePath = () => {
+					if (route.id === "remote" && remoteItem(location.pathname)) remotePath = location.pathname;
+				};
+				window.addEventListener("popstate", rememberRemotePath, { signal: lifetime.signal });
 				let given;
 				try {
 					given = await module.mount(hosted(slot));
@@ -13053,10 +13045,15 @@ function shellApp() {
 					lifetime.abort();
 					mounted?.release();
 				};
-				if (!mounted?.suspend) return release;
+				const ownedLocation = route.id === "remote" ? () => remotePath : mounted?.location?.bind(mounted);
+				if (!mounted?.suspend) return ownedLocation ? {
+					release,
+					location: ownedLocation
+				} : release;
 				const { suspend, resume } = mounted;
 				return {
 					release,
+					location: ownedLocation,
 					suspend() {
 						quiet();
 						suspend.call(mounted);
