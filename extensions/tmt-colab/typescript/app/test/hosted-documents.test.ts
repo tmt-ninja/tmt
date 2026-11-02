@@ -153,7 +153,7 @@ function authority(
 it('preserves the independent signed update bytes, header and envelope hash', async () => {
   const f = update(),
     result = await hostedLog(f.row, scope);
-  expect(result.bytes).toEqual(f.raw);
+  expect(result.bytes).toEqual(local(f.raw));
   expect(result.header).toEqual(header);
   expect(result.hash).toEqual(fromHex(v.envelopeHash));
   expect(
@@ -190,7 +190,7 @@ it('reassembles a complete ordered checkpoint to its exact original', async () =
   const f = await checkpoint();
   expect(f.rows.length).toBeGreaterThan(1);
   const result = await hostedCheckpoint(f.rows, scope);
-  expect(result.bytes).toEqual(f.raw);
+  expect(result.bytes).toEqual(local(f.raw));
   expect(result.header.objectId).toBe(f.object);
   expect(result.header.context.kind).toBe('checkpoint');
 });
@@ -257,7 +257,7 @@ it('assembles an unordered discovery set by validated authority subject and piec
 
 it('assembles every piece of the declared checkpoint discovery without inventing a seq=1 filter', async () => {
   const f = await checkpoint();
-  expect((await hostedCheckpointSet([...f.rows].reverse(), scope))[0].bytes).toEqual(f.raw);
+  expect((await hostedCheckpointSet([...f.rows].reverse(), scope))[0].bytes).toEqual(local(f.raw));
   await expect(hostedCheckpointSet([f.rows[0]], scope)).rejects.toThrow();
   await expect(
     hostedCheckpointSet(f.rows, { ...scope, page: '00000000-0000-4000-8000-000000000123' }),
@@ -276,7 +276,7 @@ it('partitions exactly the committed baseline original from the same complete ch
   expect(originals).toHaveLength(2);
   expect(originals.filter((value) => value.header.context.kind === 'html')).toHaveLength(1);
   expect(originals.find((value) => value.header.context.kind === 'html')?.bytes).toEqual(
-    baseline.raw,
+    local(baseline.raw),
   );
   expect(
     originals.find((value) => value.header.context.kind === 'checkpoint')?.header.objectId,
@@ -328,3 +328,9 @@ it('keeps ordinary checkpoint header-object admission beside the selected baseli
   });
   await expect(hostedCheckpointSet([...baseline.rows, ...rows], scope, expected)).rejects.toThrow();
 });
+
+/** The cloud keeps v1 JSON until #5876 PR 2; the reader returns the local v2 form, same hash. */
+function local(cloud: Uint8Array) {
+  const text = new TextDecoder().decode(cloud).trim();
+  return c.Envelope.fromJson(new TextEncoder().encode(text)).toBytes();
+}

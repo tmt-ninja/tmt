@@ -47,7 +47,7 @@ export interface ReceivedEntry extends Position {
 }
 /** The one parse of a received envelope, under the same byte bound either way. */
 export function receivedEnvelope(value: unknown, limit: number): Envelope {
-  if (!(value instanceof JoinedEnvelope)) return Envelope.fromJson(binary(value, limit));
+  if (!(value instanceof JoinedEnvelope)) return Envelope.fromBytes(binary(value, limit));
   requireValue(value.bytes <= limit);
   return value.envelope;
 }

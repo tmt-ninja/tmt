@@ -684,7 +684,7 @@ export class Connection {
     exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
     const a = this.admission,
       bytes = binary(entry.envelope, UPDATE_ENVELOPE_BYTES),
-      env = Envelope.fromJson(bytes),
+      env = Envelope.fromBytes(bytes),
       h = decodeHeader(env.header());
     const checkpoint = h.context.kind === 'checkpoint';
     requireValue(

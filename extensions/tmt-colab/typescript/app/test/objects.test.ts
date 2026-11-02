@@ -41,7 +41,7 @@ async function fixture() {
   const entry = async (envelope: c.Envelope): Promise<ObjectEntry> => ({
     seq: c.decodeHeader(envelope.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await envelope.hash()),
-    envelope: c.encodeBinary(envelope.toJson()),
+    envelope: c.encodeBinary(envelope.toBytes()),
   });
   return { context, admission, seal, entry };
 }
@@ -114,7 +114,7 @@ it('opens own ciphertext only after admission, and rejects author substitution a
 function expectJoined(value: unknown, envelope: string) {
   expect(value).toBeInstanceOf(JoinedEnvelope);
   const joined = value as JoinedEnvelope;
-  expect(c.encodeBinary(joined.envelope.toJson())).toBe(envelope);
+  expect(c.encodeBinary(joined.envelope.toBytes())).toBe(envelope);
   expect(joined.bytes).toBe(c.binary(envelope, Number.MAX_SAFE_INTEGER).length);
 }
 
@@ -122,8 +122,11 @@ it('admits a joined envelope as it admits the same envelope inline, under the sa
   const f = await fixture(),
     env = await f.seal(),
     row = await f.entry(env),
-    bytes = env.toJson();
-  const joined = { ...row, envelope: new JoinedEnvelope(c.Envelope.fromJson(bytes), bytes.length) };
+    bytes = env.toBytes();
+  const joined = {
+    ...row,
+    envelope: new JoinedEnvelope(c.Envelope.fromBytes(bytes), bytes.length),
+  };
   expect(await new Objects(f.admission).admit(f.context.authorDevice, joined)).toEqual(
     await new Objects(f.admission).admit(f.context.authorDevice, row),
   );
@@ -158,7 +161,7 @@ it('reassembles exact bounded chunks, binds referenced ID and waits as long as t
     envelope: { objectId: id },
   };
   expect(frames.receive(JSON.stringify(reference))).toBeNull();
-  const bytes = env.toJson(),
+  const bytes = env.toBytes(),
     count = Math.ceil(bytes.length / 32768);
   const part = (index: number) =>
     JSON.stringify({
@@ -228,7 +231,7 @@ it('reassembles an anchor frame as the single object it is, and refuses one that
   const small = await f.entry(await f.seal(f.context, new Uint8Array(100)));
   expect(frames.receive(anchor(small))).not.toBeNull();
   expect(frames.receive(anchor({ ...row, envelope: { objectId: id } }))).toBeNull();
-  const bytes = env.toJson(),
+  const bytes = env.toBytes(),
     count = Math.ceil(bytes.length / 32768);
   let complete: Record<string, unknown> | null = null;
   for (let index = 0; index < count; index++)

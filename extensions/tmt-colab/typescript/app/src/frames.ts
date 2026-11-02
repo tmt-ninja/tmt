@@ -89,14 +89,14 @@ export class Frames {
       p.parts.push(bytes);
       if (p.parts.length !== p.count) return null;
       const joined = concat(...p.parts);
-      // Valid UTF-8 and JSON are subsequently checked by the envelope model.
-      decodeText(joined);
       if (identity.kind === 'object') {
         // Parsed once: admission takes this envelope as it is, never a re-encoded copy to decode.
-        const envelope = Envelope.fromJson(joined);
+        const envelope = Envelope.fromBytes(joined);
         requireValue(decodeHeader(envelope.header()).objectId === identity.id);
         p.target.envelope = new JoinedEnvelope(envelope, joined.length);
       } else {
+        // A statement stays JSON: valid UTF-8 is checked here, its JSON by the statement model.
+        decodeText(joined);
         p.target.statements = [new StatementTransfer(joined, binary(p.hash, 32, 32))];
       }
       const complete = p.frame;

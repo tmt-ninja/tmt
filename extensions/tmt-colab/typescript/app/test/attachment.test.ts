@@ -51,7 +51,14 @@ it('matches native page tokens and object namespaces from independent signed pos
     for (const entry of vector.entries)
       await objects.admit(
         vector.writer,
-        { seq: entry.seq, envelopeHash: entry.envelopeHash, envelope: entry.envelope },
+        {
+          seq: entry.seq,
+          envelopeHash: entry.envelopeHash,
+          // The frozen vector keeps v1 JSON; the browser admits the v2 form (#5876).
+          envelope: c.encodeBinary(
+            c.Envelope.fromJson(c.binary(entry.envelope, 1 << 20)).toBytes(),
+          ),
+        },
         entry.kind,
         entry.namespace,
       );

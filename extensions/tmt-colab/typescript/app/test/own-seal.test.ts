@@ -109,7 +109,7 @@ it('does not project a content envelope into the own-log publisher', async () =>
       {
         seq: '1',
         envelopeHash: c.encodeBinary(await envelope.hash()),
-        envelope: c.encodeBinary(envelope.toJson()),
+        envelope: c.encodeBinary(envelope.toBytes()),
       },
       { space: a.space, page: a.page, epoch: '1' },
       'uid',
