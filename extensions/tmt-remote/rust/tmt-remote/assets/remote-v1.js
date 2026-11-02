@@ -6429,7 +6429,7 @@ function startShellHost(root, routes, options = {}) {
 	const rememberLocation = (route, href) => {
 		const url = linkTo(href);
 		if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
-		lastLocation.set(route.id, route.rail === "remote" ? url.origin + url.pathname : url.href);
+		lastLocation.set(route.id, url.href);
 	};
 	const place = () => ({
 		origin: window.location.origin,
