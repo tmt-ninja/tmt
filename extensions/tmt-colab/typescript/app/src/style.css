@@ -1573,6 +1573,11 @@ button.discussion-quote:focus-visible {
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header::after {
   display: none;
 }
+@media (max-height: 560px) {
+  .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header {
+    padding-block: 0;
+  }
+}
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   display: flex;
   flex: 1 1 180px;
