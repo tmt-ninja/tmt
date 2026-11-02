@@ -525,8 +525,10 @@ fn execute(
     };
     drop(view);
     let input = match &call {
-        // Browser peers cannot relay native namespace management purposes.
-        Call::RemoveNamespace(_) | Call::Usage(_) => return Err(page::Fault::Invalid.into()),
+        // Browser peers cannot relay native namespace or object management purposes.
+        Call::RemoveNamespace(_) | Call::Usage(_) | Call::Remove(_) | Call::List(_) => {
+            return Err(page::Fault::Invalid.into());
+        }
         Call::Config(input) => AdmitInput::Config(input.clone()),
         Call::Read(input) => AdmitInput::Read(input.clone()),
         Call::Begin(input) => AdmitInput::Begin(input.clone()),

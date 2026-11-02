@@ -107,7 +107,27 @@ fn log_refuses_missing_extra_wrong_type_and_noncanonical_numbers() {
     assert!(encode(Resource::Log, fields).is_err());
 }
 #[test]
-fn full_encoded_envelope_boundary_is_exact() {
+fn full_envelope_boundary_is_exact() {
+    let mut fields = log();
+    fields.insert(
+        "envelope".into(),
+        Field::bytes(&vec![1; super::LOG_ENVELOPE_BYTES]),
+    );
+    let doc = encode(Resource::Log, fields.clone()).unwrap();
+    assert_eq!(decode(Resource::Log, &doc).unwrap(), fields);
+    fields.insert(
+        "envelope".into(),
+        Field::bytes(&vec![1; super::LOG_ENVELOPE_BYTES + 1]),
+    );
+    assert!(encode(Resource::Log, fields.clone()).is_err());
+    fields.insert("envelope".into(), Field::bytes(&[]));
+    assert!(encode(Resource::Log, fields.clone()).is_err());
+    // Only the canonical padded spelling is a bytesValue.
+    fields.insert("envelope".into(), Field::Bytes("AQ".into()));
+    assert!(encode(Resource::Log, fields).is_err());
+}
+#[test]
+fn legacy_string_envelope_boundary_is_exact() {
     let mut fields = log();
     fields.insert("envelope".into(), string(&"e".repeat(354_304)));
     let doc = encode(Resource::Log, fields.clone()).unwrap();
@@ -288,14 +308,16 @@ fn sealed_original_at(kind: &str, epoch: &str, plaintext: &[u8]) -> Vec<u8> {
         plaintext,
     )
     .unwrap()
-    .to_json()
+    .to_bytes()
     .unwrap()
 }
 #[test]
 fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash() {
-    let mut bytes = sealed_original("update", b"original update");
+    // The cloud carries v1 JSON (#5876 PR 2 moves it); the local original is its v2 form.
+    let local = sealed_original("update", b"original update");
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&local).unwrap();
+    let mut bytes = envelope.to_json_v1().unwrap();
     bytes.push(b'\n');
-    let envelope = tmt_colab_model::object::Envelope::from_json(&bytes).unwrap();
     let mut fields = log();
     fields.insert(
         "envelope".into(),
@@ -306,7 +328,7 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
         string(&values::encode_binary(&envelope.hash().unwrap())),
     );
     let document = encode(Resource::Log, fields.clone()).unwrap();
-    assert_eq!(originals::log(&document).unwrap().bytes, bytes);
+    assert_eq!(originals::log(&document).unwrap().bytes, local);
     for (key, value) in [
         ("page", string("10000000-0000-4000-8000-000000000002")),
         ("stream", string("20000000-0000-4000-8000-000000000002")),
@@ -324,7 +346,7 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
     let mut wire: Value = serde_json::from_slice(&bytes).unwrap();
     wire["signature"] = json!(values::encode_binary(&[0; 64]));
     let forged_bytes = serde_json::to_vec(&wire).unwrap();
-    let forged = tmt_colab_model::object::Envelope::from_json(&forged_bytes).unwrap();
+    let forged = tmt_colab_model::object::Envelope::from_json_v1(&forged_bytes).unwrap();
     fields.insert(
         "envelope".into(),
         string(std::str::from_utf8(&forged_bytes).unwrap()),
@@ -337,8 +359,8 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
 }
 #[test]
 fn checkpoint_projection_requires_all_original_chunks_and_one_scope() {
-    let bytes = sealed_original("checkpoint", &[17; 60_000]);
-    let envelope = tmt_colab_model::object::Envelope::from_json(&bytes).unwrap();
+    let bytes = sealed_original("checkpoint", &[17; 300_000]);
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&bytes).unwrap();
     let header = tmt_colab_model::object::Header::decode(envelope.header()).unwrap();
     let mut fields = checkpoint();
     fields.insert("object".into(), string(&header.object_id));
@@ -407,9 +429,103 @@ fn a_stored_update_publishes_as_exactly_its_own_stream_sequence_hash_and_bytes()
     other.epoch = 2;
     assert!(originals::log_document(&other, &bytes).is_err());
 }
+/// #5876's cloud budget: a 3 MB checkpoint is 12 bytesValue documents (123 base64url
+/// stringValue chunks before), and its fields carry the raw bytes once plus REST base64.
+#[test]
+fn a_three_megabyte_checkpoint_is_twelve_documents() {
+    let bytes = sealed_original("checkpoint", &vec![5; 3_000_000]);
+    let base = originals::checkpoint_base(&routing(), &bytes).unwrap();
+    let documents = originals::checkpoint_documents(base, &bytes).unwrap();
+    assert_eq!(documents.len(), 12);
+    let wire: usize = documents
+        .iter()
+        .map(|document| serde_json::to_vec(&document.fields).unwrap().len())
+        .sum();
+    assert!(wire < bytes.len() * 4 / 3 + 12 * 1024, "{wire}");
+    assert_eq!(originals::checkpoint(&documents).unwrap().bytes, bytes);
+}
+/// A row written before #5876 PR 2 still reads: v1 JSON in 32 KiB base64url string chunks, or a
+/// v1 JSON log envelope, each converted to the same v2 original under the same hash.
+#[test]
+fn legacy_v1_rows_read_back_as_the_v2_original() {
+    let bytes = sealed_original("checkpoint", &[3; 50_000]);
+    let envelope = tmt_colab_model::object::Envelope::from_bytes(&bytes).unwrap();
+    let json = envelope.to_json_v1().unwrap();
+    let mut fields = originals::checkpoint_base(&routing(), &bytes).unwrap();
+    let count = json.len().div_ceil(super::LEGACY_CHUNK_BYTES);
+    fields.insert("count".into(), Field::number(count as u64).unwrap());
+    let legacy: Vec<_> = json
+        .chunks(super::LEGACY_CHUNK_BYTES)
+        .enumerate()
+        .map(|(index, chunk)| {
+            let mut row = fields.clone();
+            row.insert("index".into(), Field::number(index as u64).unwrap());
+            row.insert("seq".into(), Field::number(index as u64 + 1).unwrap());
+            row.insert("bytes".into(), string(&values::encode_binary(chunk)));
+            encode(Resource::Checkpoints, row).unwrap()
+        })
+        .collect();
+    assert!(legacy.len() > 1);
+    let read = originals::checkpoint(&legacy).unwrap();
+    assert_eq!(read.bytes, bytes);
+    assert_eq!(read.hash, envelope.hash().unwrap());
+    // One object never mixes the two forms.
+    let mut mixed = legacy.clone();
+    let mut row = decode(Resource::Checkpoints, &mixed[1]).unwrap();
+    let chunk = values::binary(row["bytes"].text().unwrap(), super::LEGACY_CHUNK_BYTES).unwrap();
+    row.insert("bytes".into(), Field::bytes(&chunk));
+    mixed[1] = encode(Resource::Checkpoints, row).unwrap();
+    assert!(originals::checkpoint(&mixed).is_err());
+    // A legacy row may not claim the v2 chunk count, nor a v2 row the legacy one.
+    let mut row = decode(Resource::Checkpoints, &legacy[0]).unwrap();
+    row.insert("count".into(), Field::number(514).unwrap());
+    assert!(encode(Resource::Checkpoints, row).is_err());
+    let mut row = decode(Resource::Checkpoints, &legacy[0]).unwrap();
+    row.insert("bytes".into(), Field::bytes(&[1; 10]));
+    row.insert("count".into(), Field::number(66).unwrap());
+    assert!(encode(Resource::Checkpoints, row).is_err());
+}
+#[test]
+fn a_v2_log_row_carries_the_original_bytes() {
+    let local = sealed_original("update", b"original update");
+    let document = originals::log_document(&routing(), &local).unwrap();
+    assert_eq!(
+        document.fields["envelope"],
+        json!({"bytesValue": base64::engine::general_purpose::STANDARD.encode(&local)})
+    );
+    assert_eq!(originals::log(&document).unwrap().bytes, local);
+    let mut forged = local.clone();
+    *forged.last_mut().unwrap() ^= 1;
+    let mut fields = decode(Resource::Log, &document).unwrap();
+    fields.insert("envelope".into(), Field::bytes(&forged));
+    let changed = encode(Resource::Log, fields).unwrap();
+    assert!(
+        originals::log(&changed).is_err(),
+        "the hash binds the bytes"
+    );
+}
+#[test]
+fn a_page_row_declares_the_object_format() {
+    let mut fields = Fields::from_iter([
+        ("space".into(), string(&"a".repeat(32))),
+        ("page".into(), string(PAGE)),
+        ("epoch".into(), Field::number(1).unwrap()),
+        ("state".into(), string("open")),
+        ("objectFormat".into(), Field::number(2).unwrap()),
+        (
+            "expiresAt".into(),
+            Field::Timestamp("2026-10-15T00:00:00Z".into()),
+        ),
+    ]);
+    assert!(encode(Resource::Pages, fields.clone()).is_ok());
+    fields.insert("objectFormat".into(), Field::number(1).unwrap());
+    assert!(encode(Resource::Pages, fields.clone()).is_err());
+    fields.remove("objectFormat");
+    assert!(encode(Resource::Pages, fields).is_err());
+}
 #[test]
 fn a_checkpoint_publishes_through_the_shared_base_and_reads_back_whole() {
-    let bytes = sealed_original("checkpoint", &[9; 70_000]);
+    let bytes = sealed_original("checkpoint", &[9; 600_000]);
     let base = originals::checkpoint_base(&routing(), &bytes).unwrap();
     let documents = originals::checkpoint_documents(base, &bytes).unwrap();
     assert_eq!(documents.len(), 3);
@@ -420,9 +536,9 @@ fn routing_at(epoch: u64) -> originals::Routing<'static> {
 }
 #[test]
 fn a_baseline_publishes_as_chunks_under_its_own_hash_and_reads_back_whole() {
-    let bytes = sealed_original_at("html", "2", &[7; 70_000]);
+    let bytes = sealed_original_at("html", "2", &[7; 600_000]);
     let hash = tmt_extension_objects::Sha256Hex::from_bytes(
-        tmt_colab_model::object::Envelope::from_json(&bytes)
+        tmt_colab_model::object::Envelope::from_bytes(&bytes)
             .unwrap()
             .hash()
             .unwrap(),
@@ -549,9 +665,13 @@ fn frozen_cloud_fold_delivery_preserves_log_anchors_and_chunked_fold_originals()
             } else {
                 (&frame["checkpoint"], false)
             };
-            let bytes =
+            let cloud =
                 tmt_colab_model::values::binary(entry["envelope"].as_str().unwrap(), 354304)
                     .unwrap();
+            let bytes = tmt_colab_model::object::Envelope::from_json_v1(&cloud)
+                .unwrap()
+                .to_bytes()
+                .unwrap();
             if anchor {
                 let document = originals::log_document(&route, &bytes).unwrap();
                 assert_eq!(originals::log(&document).unwrap().bytes, bytes);

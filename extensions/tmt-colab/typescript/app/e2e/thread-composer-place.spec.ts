@@ -190,6 +190,9 @@ test('a draft with an attachment stays fixed when a thread receives a message', 
     node.scrollTop = 150;
   });
   await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBe(150);
+  // The scroll event reaches the history before the next animation frame; an arrival sooner would
+  // still find the reader following the end.
+  await page.evaluate(() => new Promise(requestAnimationFrame));
   const before = (await composer.boundingBox())!;
   await run(page, 'scrollArrival');
   await expect(thread.getByTestId('comment-entry')).toHaveCount(41);

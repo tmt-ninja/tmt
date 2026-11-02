@@ -675,6 +675,17 @@ export const text = {
   anchorMissing: 'That passage is not on this page.',
   annotationUnsent: (quote: string) => `Your comment on “${quote}” was not sent.`,
   annotationUnsentOpen: 'Open',
+  pageHierarchy: {
+    parentMenu: (title: string, done: number, total: number) =>
+      `${title}, ${done} of ${total} sub-pages done`,
+    count: (done: number, total: number) => `${done}/${total}`,
+    back: (title: string) => `Back to ${title}`,
+    siblings: (title: string, count: number) =>
+      `${title} · ${count === 1 ? '1 sub-page' : `${count} sub-pages`}`,
+    thisPage: (title: string) => `${title} (this page)`,
+    subpages: (count: number) => (count === 1 ? '1 sub-page' : `${count} sub-pages`),
+  },
+  chatUnsent: 'Your Chat message was not sent.',
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',

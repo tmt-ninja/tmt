@@ -360,7 +360,7 @@ fn a_forged_original_stops_only_its_own_stream_and_is_reported_once() {
     let forged = rig
         .writer
         .seal_as(A, "update", "content", 1, [0; 32], 99, "1");
-    rig.publish(&forged.to_json().unwrap());
+    rig.publish(&forged.to_bytes().unwrap());
     assert!(rig.pass().is_ok());
     assert_eq!(rig.head(A), None);
     assert_eq!(rig.head(C).unwrap().0, 1);
@@ -432,7 +432,7 @@ fn admission_refuses_another_epoch_or_key_and_a_good_original_applies_once() {
     let seal = |signing, epoch| {
         rig.writer
             .seal_as(A, "update", "content", 1, [0; 32], signing, epoch)
-            .to_json()
+            .to_bytes()
             .unwrap()
     };
     assert_eq!(
@@ -467,7 +467,7 @@ fn admission_refuses_another_epoch_or_key_and_a_good_original_applies_once() {
     let unknown = rig
         .writer
         .seal(C, "update", "content", 1, [0; 32])
-        .to_json()
+        .to_bytes()
         .unwrap();
     assert_eq!(rig.inbound.admit(&page, &unknown), Err(Reject::Refused));
 }
@@ -544,7 +544,7 @@ fn a_writer_stopped_on_one_page_is_still_followed_on_another_and_stays_stopped_o
         };
         let original = object::seal(&context, &[9; 32], &signer, b"update")
             .unwrap()
-            .to_json()
+            .to_bytes()
             .unwrap();
         let routing = Routing {
             space: SPACE,
@@ -871,7 +871,7 @@ fn a_forged_pair_changes_nothing_and_is_said_once() {
         .map(|namespace| {
             rig.writer
                 .seal_as(A, "checkpoint", namespace, 4, [4; 32], 77, "1")
-                .to_json()
+                .to_bytes()
                 .unwrap()
         })
         .collect();
@@ -903,7 +903,7 @@ fn two_halves_that_bind_different_heads_are_malformed_and_change_nothing() {
         .map(|(namespace, previous)| {
             rig.writer
                 .seal(A, "checkpoint", namespace, 4, previous)
-                .to_json()
+                .to_bytes()
                 .unwrap()
         })
         .collect();

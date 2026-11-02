@@ -147,7 +147,10 @@ owns record fields, limits, revision semantics and trust boundaries.
 - `annotation-number.css` owns the shared circle metrics; the renderer-style generator
   projects that checked CSS alongside its paint roles into the opaque frame.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
-  editor, recipient and Send ownership stays unchanged. The [GUI rule](../../../../design/gui-style.md#conversation-turn)
+  editor, recipient and Send ownership stays unchanged. Its notices (a refusal, a recipient
+  not reached, a recorded message's next step) share one reserved one-line slot, `RichInput`'s
+  `header` row inside the input above the text, so neither the history nor the field moves (#5911).
+  The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
   composer slot, as in the anchored dialog) and Chat provide `MessageEchoContext`; inside it,
@@ -155,7 +158,11 @@ owns record fields, limits, revision semantics and trust boundaries.
   frame. The echo captures attachment labels and bounded local preview promises before upload;
   `message-attachments.tsx` shares the final tile layout with preview/download disabled.
   These copies live only with the echo; the replacement record still reads through the admitted
-  attachment opener and never receives local bytes or read authority from the echo.
+  attachment opener and never receives read authority from the echo. Only its drawn `<img>`
+  element passes to the record's tile (`TileImage`, keyed by the echo's `local` through
+  `rememberEchoMessage`), so the row neither blanks nor reloads (#5911); the record's own read then
+  replaces its source, and a failed read drops it. A new read lifetime never takes the old one's
+  image.
   A send that fails before it is recorded turns its echo into the failed row, which
   holds the full draft (text, recipient chips, attachments) and is the one place the failure is
   reported (`✗ Not sent.` with its reference). Retry re-sends that exact draft once; Edit moves
@@ -251,9 +258,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   marker until Reopen. Comments retains the expanded selected discussion and its
   Not-notified warning even in Open; only explicit navigation changes selection.
   The dock retains the canonical pending count as plain text; its accessible name carries
-  unseen New. Resolve all snapshots the current filter, confirms once and re-admits each
-  status write. The coordinator deduplicates recipients across successful commits and the
-  existing Discussion state line reports partial failures. Marker-opener focus is restored
+  unseen New. Resolve all snapshots the current filter, confirms once and hands every thread to
+  one `ThreadBinding.setStatuses`: one lock and admission, records chunked by `OWN_RECORDS` and
+  an estimated byte budget below `UPDATE_BYTES` (the worker's oversize refusal is not a split
+  signal). The store gives each recipient to its first committed status, so a refused update
+  returns its recipients to later threads; the existing Discussion state line reports partial
+  failures. Marker-opener focus is restored
   through the current renderer request; marker redraw retains focus without taking it from
   another surface.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
@@ -274,12 +284,19 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   resolution, highlights and creation-order numbered markers before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant
   no source truth or application capability. Known-thread marker messages open
-  only parent views. Highlight messages contain only IDs, quote selectors and paint-only ordinals, never
+  only parent views. Highlight messages contain only IDs, quote selectors, paint-only ordinals and
+  unsent paint states, never
   comment bodies or display labels; marker tooltips use quoted text and comment
   first-line labels stay in parent chrome. Selection rectangles, final-text anchor rectangles and navigation offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Highlight hover geometry uses the latest
   trusted pointer position once per animation frame; gesture movement stays synchronous.
   Clearing a target cancels pending hover work. Ports/observers clear on teardown.
+
+  The annotation owner retains a pre-record failure for replies as well as first comments: its
+  failed row, draft and files remain in the same composer, and the page alert's Open restores it.
+  Editing that failed row, deliberately clearing its text and closing releases it; the automatic
+  empty field after Send does not discard a failure. This recovery never puts a threaded reply
+  into the first-comment paint projection.
 
   Annotation numbers are derived from each admitted revision-1 author clock, with
   writer/thread UUID ties, over all non-deleted threads before presentation filters.
@@ -287,7 +304,12 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   The list, header and hover hint share that map. The renderer accepts only exact
   anchor keys (`id`, `selector`, `ordinal`), unique IDs/ordinals and positive safe
   ordinals bounded by the parent's admitted thread count; the unsaved quote is
-  separate. These values paint only and grant no routing or trust authority.
+  separate. A bounded `unsent` selector/state projection paints first comments that have no record
+  with a waiting or danger underline. It never contributes ordinals, marker targets, selected
+  passages or frame feedback. The parent chooses at most 64, failed first then oldest creation
+  order, while every failed send remains in its page notice. Recording, Retry, discard and page
+  reset follow the retained annotation owner. These values paint only and grant no routing or
+  trust authority.
 
 Verification: `test/reviews.test.ts` checks the section comments, the person-only closed rule and
 the derived states; `e2e/reviews.spec.ts` checks the bands, forged page claims and the answer-closes-section flow;

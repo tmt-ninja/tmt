@@ -135,7 +135,7 @@ impl Fixture {
     fn append_for(&mut self, object: &object::Envelope, epoch: u64, stream: &str) {
         let h = object::Header::decode(object.header()).unwrap();
         let c = &h.context;
-        let bytes = object.to_json().unwrap();
+        let bytes = object.to_bytes().unwrap();
         let envelope = Envelope {
             scope: StreamScope {
                 page: PAGE,
@@ -195,7 +195,7 @@ fn source(text: &str) -> Vec<u8> {
 fn baseline_source(f: &Fixture, epoch: u64) -> String {
     let saved = f.store.baseline(PAGE, epoch).unwrap().unwrap();
     let d: Value = serde_json::from_slice(&saved.descriptor).unwrap();
-    let envelope = object::Envelope::from_json(&saved.envelope).unwrap();
+    let envelope = object::Envelope::from_bytes(&saved.envelope).unwrap();
     assert_eq!(
         values::binary(d["objectEnvelopeHash"].as_str().unwrap(), 32).unwrap(),
         envelope.hash().unwrap()
@@ -292,7 +292,7 @@ fn authenticated_fold_rotates_exact_view_wraps_and_replays_after_reopen() {
     f.advance("40000000-0000-4000-8000-000000000003", 3)
         .unwrap();
     assert_eq!(baseline_source(&f, 3), "exact\r\nsource");
-    let bytes = update.to_json().unwrap();
+    let bytes = update.to_bytes().unwrap();
     assert!(matches!(
         f.store.append(&Envelope {
             scope: StreamScope {
@@ -380,9 +380,8 @@ fn forged_signature_or_device_chain_cannot_be_folded_or_signed() {
         let mut f = Fixture::new();
         let good = f.object(1, [0; 32], "update", "content", &source("verified"));
         if target == "object" {
-            let mut wire: Value = serde_json::from_slice(&good.to_json().unwrap()).unwrap();
-            wire["signature"] = json!(values::encode_binary(&[0; 64]));
-            let forged = object::Envelope::from_json(&serde_json::to_vec(&wire).unwrap()).unwrap();
+            let forged =
+                object::Envelope::from_bytes(&zero_signature(&good.to_bytes().unwrap())).unwrap();
             f.append(&forged);
         } else {
             f.append(&good);
@@ -659,7 +658,7 @@ fn reduction_cut_rejects_signed_forks_and_uncommitted_checkpoint_replacements() 
             .unwrap();
         if target == "fork" {
             let alternative = f.object(1, [0; 32], "update", "content", &source("valid fork"));
-            let bytes = alternative.to_json().unwrap();
+            let bytes = alternative.to_bytes().unwrap();
             f.db()
                 .execute(
                     "UPDATE receipts SET hash=?,digest=?,payload=? WHERE stream=?",
@@ -1083,7 +1082,7 @@ fn retained_history(f: &mut Fixture, pages: &[String], through: u64) {
                     "title":"retained title","objectEnvelopeHash":values::encode_binary(&object.hash()?),"membershipRevision":revision.to_string()});
                 tx.append_statement(&f.key.sign_statement(tx.head(),"epoch.advance",&serde_json::to_vec(&json!({"pageId":page,"epoch":epoch.to_string(),"cuts":[],"baseline":descriptor,"wraps":[]}))?)?)?;
                 tx.put_epoch_secret(page,epoch,&secret)?;tx.advance_epoch(page,epoch-1)?;
-                baselines.push((page.clone(),epoch,serde_json::to_vec(&descriptor)?,object.to_json()?));
+                baselines.push((page.clone(),epoch,serde_json::to_vec(&descriptor)?,object.to_bytes()?));
             }
         }
         Ok(b"retained history".to_vec())
@@ -2268,7 +2267,7 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
         f.advance(OP, 2).unwrap();
         let saved = f.store.baseline(PAGE, 2).unwrap().unwrap();
         assert_eq!(baseline_source(&f, 2), text);
-        let expected = object::Envelope::from_json(&saved.envelope).unwrap();
+        let expected = object::Envelope::from_bytes(&saved.envelope).unwrap();
         crypto::verify_signature(
             &f.key.management_member().unwrap().signing_key,
             &expected.signature_input().unwrap(),
@@ -2304,7 +2303,7 @@ fn rotated_epoch_bootstrap_delivers_the_real_stored_baseline_inline_and_chunked(
         let mut done = false;
         for _ in 0..2048 {
             let frame: Value = match client.read() {
-                Ok(message) => serde_json::from_str(message.to_text().unwrap()).unwrap(),
+                Ok(message) => frame_json(&message),
                 Err(tungstenite::Error::Io(e)) if e.kind() == ErrorKind::WouldBlock => {
                     assert_ne!(connection.poll(), Progress::Closed);
                     continue;
@@ -3282,7 +3281,7 @@ fn sharing_and_deletion_failures_roll_back_every_effect_and_allow_exact_retry() 
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(retained, update.to_json().unwrap());
+    assert_eq!(retained, update.to_bytes().unwrap());
     let pending: i64 = f
         .db()
         .query_row(
@@ -3428,7 +3427,8 @@ fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset
     use tmt_colab_model::attachment::Descriptor;
     let mut f = Fixture::new();
     let asset = f.object(0, [0; 32], "asset", "content", b"fixture attachment");
-    let raw = asset.to_json().unwrap();
+    // Attachments keep the v1 form until #5876 PR 2.
+    let raw = asset.to_json_v1().unwrap();
     let corpus: Value = serde_json::from_str(include_str!(
         "../../../contracts/vectors/attachment-v1.json"
     ))
@@ -3480,7 +3480,7 @@ fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset
         f.advance(operation, revision).unwrap();
         assert_eq!(baseline_source(&f, epoch), "original source");
         let saved = f.store.baseline(PAGE, epoch).unwrap().unwrap();
-        let envelope = object::Envelope::from_json(&saved.envelope).unwrap();
+        let envelope = object::Envelope::from_bytes(&saved.envelope).unwrap();
         let header = object::Header::decode(envelope.header()).unwrap();
         let secret: Vec<u8> = f
             .db()
@@ -3526,4 +3526,32 @@ fn epoch_rotation_preserves_authenticated_attachment_metadata_and_original_asset
             descriptor["source"]
         );
     }
+}
+
+/// A v2 envelope with its signature zeroed (#5876): syntax still parses, admission must refuse it.
+fn zero_signature(bytes: &[u8]) -> Vec<u8> {
+    let at = 7 + usize::from(u16::from_be_bytes([bytes[5], bytes[6]]));
+    let mut out = bytes.to_vec();
+    out[at..at + 64].fill(0);
+    out
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    serde_json::from_str(message.to_text().unwrap()).unwrap()
 }

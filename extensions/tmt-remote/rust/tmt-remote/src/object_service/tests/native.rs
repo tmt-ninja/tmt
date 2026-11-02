@@ -24,7 +24,7 @@ fn a_selected_legacy_version_is_a_typed_native_activation_refusal() {
             head.push(byte[0]);
         }
         let head = String::from_utf8(head).unwrap();
-        assert!(head.contains("tmt-object-channel: 3\r\n"));
+        assert!(head.contains("tmt-object-channel: 4\r\n"));
         let generation = head
             .lines()
             .find_map(|line| line.strip_prefix("tmt-object-generation: "))

@@ -607,7 +607,9 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   await run(page, 'mountBlocks');
   await page.locator('.question-line').click();
   const answer = page.locator('.question-card');
-  await answer.scrollIntoViewIfNeeded();
+  // The whole history in view, so the arrival lands in view too: a partly visible card's new
+  // record can fall below the window, and then it rightly notifies.
+  await answer.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await run(page, 'arrive', {
     destination: 'Answer',
     human: true,
@@ -616,7 +618,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   await expect(answer).toContainText('Visible answer follow-up');
   await expect(cards(page)).toHaveCount(0);
   const proposal = page.locator('.proposal-inline .proposal-card');
-  await proposal.scrollIntoViewIfNeeded();
+  await proposal.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await run(page, 'arrive', {
     destination: 'Proposal',
     human: true,

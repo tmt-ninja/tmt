@@ -101,7 +101,7 @@ async function fixture(
   return {
     a,
     descriptor,
-    object: { envelopeHash: hash, envelope: c.encodeBinary(env.toJson()) },
+    object: { envelopeHash: hash, envelope: c.encodeBinary(env.toBytes()) },
     env,
   };
 }
@@ -136,7 +136,7 @@ it('rejects descriptor substitutions, object substitutions and strict body error
   await expect(
     openBaseline(f.a, c.encodeBinary(json(f.descriptor)), {
       envelopeHash: hash,
-      envelope: c.encodeBinary(env.toJson()),
+      envelope: c.encodeBinary(env.toBytes()),
     }),
   ).rejects.toThrow();
   const malformed = await fixture({}, { source: b.source, update: b.update, extra: true } as {

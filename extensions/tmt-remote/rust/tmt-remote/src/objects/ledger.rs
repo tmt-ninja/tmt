@@ -439,8 +439,7 @@ impl Ledger {
             .query_row(
                 "SELECT COUNT(*) FROM intents i LEFT JOIN namespaces n \
                  ON n.extension=i.extension AND n.namespace=i.namespace \
-                 WHERE n.state IS NULL OR (n.state='removed' AND i.phase NOT IN ('discarded','expired','deleted')) \
-                 OR (n.state='open' AND i.phase IN ('removing','deleted'))",
+                 WHERE n.state IS NULL OR (n.state='removed' AND i.phase NOT IN ('discarded','expired','deleted'))",
                 [],
                 |r| r.get(0),
             )
@@ -1045,6 +1044,143 @@ impl Ledger {
             .map_err(db)?;
             Ok(())
         })
+    }
+    /// The live original at `key`, if any, without changing it.
+    pub fn live_at(
+        &self,
+        ext: &str,
+        key: &BlobKey,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Option<Row>> {
+        let connection = self.lock(io)?;
+        connection
+            .query_row(
+                &format!(
+                    "SELECT {COLUMNS} FROM intents WHERE extension=?1 AND namespace=?2 \
+                     AND object=?3 AND phase IN ({LIVE})"
+                ),
+                params![ext, key.namespace.0.as_slice(), key.object.0.as_slice()],
+                read_row,
+            )
+            .optional()
+            .map_err(db)
+    }
+    /// Begin removing the one committed original at `key` with exactly this digest and
+    /// length: it becomes `removing` and stays charged until [`Ledger::object_removed`].
+    /// `None` when there is nothing to remove here: no live original, or a namespace that
+    /// is not open (its own removal owns the rows). A `removing` row continues.
+    pub fn object_remove_adopt(
+        &self,
+        ext: &str,
+        key: &BlobKey,
+        payload_sha256: &[u8; 32],
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Option<Row>> {
+        self.run(io, |tx| {
+            if namespace_state(tx, ext, &key.namespace)?.as_deref() != Some("open") {
+                return Ok(None);
+            }
+            let Some(mut row) = tx
+                .query_row(
+                    &format!(
+                        "SELECT {COLUMNS} FROM intents WHERE extension=?1 AND namespace=?2 \
+                         AND object=?3 AND phase IN ({LIVE})"
+                    ),
+                    params![ext, key.namespace.0.as_slice(), key.object.0.as_slice()],
+                    read_row,
+                )
+                .optional()
+                .map_err(db)?
+            else {
+                return Ok(None);
+            };
+            if row.spec.payload_sha256 != *payload_sha256 || row.spec.payload_bytes != payload_bytes
+            {
+                return Err(BackendError::Conflict);
+            }
+            match row.phase {
+                Phase::Removing => {}
+                Phase::Committed => {
+                    transition(
+                        tx,
+                        ext,
+                        &row.spec.intent,
+                        &[Phase::Committed],
+                        Phase::Removing,
+                    )?;
+                    row.phase = Phase::Removing;
+                }
+                // Incomplete, closing or possibly published elsewhere: never unlinked here.
+                _ => return Err(BackendError::Conflict),
+            }
+            Ok(Some(row))
+        })
+    }
+    /// The payload names of a `removing` original in an open namespace are confirmed
+    /// gone: release its payload and entry. The original stays as a tombstone.
+    pub fn object_removed(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.run(io, |tx| {
+            let row = fetch(tx, ext, intent)?.ok_or(BackendError::Missing)?;
+            match row.phase {
+                Phase::Deleted => Ok(()),
+                Phase::Removing => {
+                    tx.execute(
+                        "UPDATE intents SET phase='deleted',payload_charged=0,entry_held=0,staged=0 \
+                         WHERE extension=?1 AND intent=?2 AND phase='removing'",
+                        params![ext, intent.0.as_slice()],
+                    )
+                    .map_err(db)?;
+                    Ok(())
+                }
+                _ => Err(BackendError::Conflict),
+            }
+        })
+    }
+    /// Whether `ns` is an open namespace (one with no fence).
+    pub fn namespace_open(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<bool> {
+        let connection = self.lock(io)?;
+        Ok(namespace_state(&connection, ext, ns)?.as_deref() == Some("open"))
+    }
+    /// At most `limit` committed originals of an open namespace, in ascending key order
+    /// strictly after `after`.
+    pub fn committed_after(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        after: Option<&OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<Row>> {
+        let connection = self.lock(io)?;
+        if namespace_state(&connection, ext, ns)?.as_deref() != Some("open") {
+            return Ok(Vec::new());
+        }
+        let after = after.map_or_else(Vec::new, |key| key.0.to_vec());
+        let mut query = connection
+            .prepare(&format!(
+                "SELECT {COLUMNS} FROM intents WHERE extension=?1 AND namespace=?2 \
+                 AND phase='committed' AND object>?3 ORDER BY object LIMIT ?4"
+            ))
+            .map_err(db)?;
+        query
+            .query_map(
+                params![ext, ns.0.as_slice(), after, i64::from(limit)],
+                read_row,
+            )
+            .map_err(db)?
+            .collect::<Result<_, _>>()
+            .map_err(db)
     }
     /// Work an interrupted run left behind, in a stable order.
     pub fn unsettled(&self, io: &IoBudget<'_>) -> BackendResult<Unsettled> {

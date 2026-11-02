@@ -414,7 +414,7 @@ export async function mountedTransport(
                 page.sharing,
                 () => {},
                 () => {},
-                ['colab-sync-v1'],
+                ['colab-sync-v2'],
                 true,
                 budget,
               );

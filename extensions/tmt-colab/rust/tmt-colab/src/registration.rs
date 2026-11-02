@@ -299,6 +299,7 @@ impl Registration {
             .collect();
         let graph = crate::work_links::Graph(&found);
         let parents = graph.parents();
+        let archived = crate::inspection::catalog_archived_ids(&catalog);
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let Some(id) = page["pageId"].as_str().map(str::to_owned) else {
                 continue;
@@ -310,7 +311,7 @@ impl Registration {
             };
             page["state"] = serde_json::json!(graph.page_state(&id));
             page["summary"] = summary.json();
-            if let Some(work) = graph.row(&id) {
+            if let Some(work) = graph.row(&id, &archived) {
                 page["summary"]["work"] = work;
             }
             if let Some((parent, index)) = parents.get(&id) {
@@ -362,9 +363,10 @@ impl Registration {
                     })
                     .collect();
                 let graph = crate::work_links::Graph(&found);
+                let archived = crate::inspection::catalog_archived_ids(&catalog);
                 let current = fingerprints.get(page) == Some(&fingerprint);
                 let state = current.then(|| graph.page_state(page)).flatten();
-                let progress = current.then(|| graph.progress(page)).flatten();
+                let progress = current.then(|| graph.progress(page, &archived)).flatten();
                 let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
                     "pageState":state,"progress":progress,
                     "summary":projection.summary.json(),"readings":projection.readings,

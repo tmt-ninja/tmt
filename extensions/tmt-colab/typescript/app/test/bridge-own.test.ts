@@ -53,7 +53,8 @@ async function admission(log: string, epoch: string = v.epoch): Promise<Admissio
 const entry = (e: Sealed): ObjectEntry => ({
   seq: e.seq,
   envelopeHash: e.hash,
-  envelope: e.envelope,
+  // The frozen vector keeps v1 JSON; the browser admits the v2 form (#5876).
+  envelope: c.encodeBinary(c.Envelope.fromJson(c.binary(e.envelope, 1 << 20)).toBytes()),
 });
 
 for (const row of v.cases as { name: string; log: string; envelopes: Sealed[]; expect: string }[]) {

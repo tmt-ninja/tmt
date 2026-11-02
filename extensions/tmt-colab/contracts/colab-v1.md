@@ -92,13 +92,14 @@ such reference; only `read` and `verify` answer it, mutations answer `unknown`),
 `unavailable` (everything else, including storage, the channel and a key epoch the
 reader does not hold).
 
-| Event                          | Existing attachment reads                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope. |
-| Archive                        | Native reads and catch-up still work; writes are denied. See below.             |
-| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.   |
-| Delete                         | Denied; the page's ciphertext is removed. See below.                            |
-| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
+| Event                          | Existing attachment reads                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope.        |
+| Archive                        | Native reads and catch-up still work; writes are denied. See below.                    |
+| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.          |
+| No reference for 30 days       | The object is removed; see [Unreferenced attachments](#unreferenced-attachments-5284). |
+| Delete                         | Denied; the page's ciphertext is removed. See below.                                   |
+| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.                     |
 
 Warning-only page expiry never deletes completed objects. After a committed page delete,
 Colab removes its derived object namespace through the negotiated object channel. The
@@ -200,9 +201,10 @@ fence to equal the base captured at seal time, so another device's or agent's wr
 files upload never stops the Send. If the membership head or epoch changed meanwhile,
 nothing is published, the affected chips show that the page changed and the next Send
 uploads them again from the retained local bytes under the same message ID, releasing
-the first original. Objects left unreferenced by a failed or abandoned Send stay in the
-backend; Colab runs no garbage collection, so reclaiming them belongs to Remote (#2294). A message that has attachments cannot be
-edited; deleting it removes its references.
+the first original. Objects left unreferenced by a failed or abandoned Send are removed 30 days
+after this machine first sees them unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
+A message that has attachments cannot be edited; deleting it adds a revision without references, and
+the earlier revisions keep their files.
 
 Visible message raster tiles read through the admitted path for that exact message
 revision, serially and without preloading hidden images. The header is parsed again with
@@ -237,7 +239,7 @@ publishes the `intents` proof records first and only then writes the references 
 existing Save path as a typed `{set}` change (see Browser Save). A changed page never
 attaches: a stale base or source digest makes the chips upload again from the retained local
 bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
-bytes stay unreferenced and unreclaimed (#2294). A page holds at most 128 files and one
+bytes are removed 30 days later unless a reference returns ([Unreferenced attachments](#unreferenced-attachments-5284)). A page holds at most 128 files and one
 batch at most 16. The `tmt colab` command line has no attach entry yet.
 
 ## Channel boundary
@@ -395,7 +397,17 @@ identify that stream.
 | `tmt-colab-hpke-info-v1`       | wrapHeader                                                                                                                    | HPKE info; wrapHeader also HPKE AAD                                                      |
 | `tmt-colab-wrap-signature-v1`  | version, wrapHeader, enc32, SHA256(wrappedCiphertextWithTag)                                                                  | Owner signature authenticates HPKE Base sender                                           |
 
-A transport object contains exactly `{header, nonce, ciphertext, signature}`
+Locally (the store, the sync socket and the browser), an object envelope is binary v2 (#5876):
+`TCOB`, version byte `2`, a big-endian u16 header length (1 to 1024), the header, the 64-byte
+signature, then the ciphertext with its tag (at least 16 bytes, within the kind's plaintext
+limit). The nonce is not stored: the suite fixes it at 12 zero bytes, and the signature input and
+envelope hash below still include them, so a v1 and a v2 envelope of one object have the same
+hash and signature. The v1 JSON form is used only where it is signed or not yet moved: Firestore
+rows, attachment objects, signed write packets (their packet hash binds the exact v1 bytes, and
+admission stores the v2 form) and frozen vectors. Schema 22 rewrites every stored v1 object
+envelope (receipts, checkpoints, baselines) as v2 when the serve opens the store, in the migration
+transaction and after the `.pre-v21.bak` copy; a row whose hash would change is left as it was.
+A v1 transport object contains exactly `{header, nonce, ciphertext, signature}`
 as binary fields. `header` is the exact framed input, not a JSON header rebuilt
 by the verifier. Decrypt only after syntax, signature, chain, stream order,
 epoch and role admission; plaintext shape validation still precedes application.
@@ -904,9 +916,9 @@ Known availability limitation: unauthenticated challenge requests can occupy all
 64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
 abuse budgets bound exposure; this seam adds no per-client challenge quota.
 
-Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
+Offer `colab-sync-v2` and `colab-reader-v1.<token>` to `/sync`. The server compares
 fixed-size token-hash confirmations through the existing constant-time HMAC
-verifier, consumes the ticket once, and selects only `colab-sync-v1`; it MUST
+verifier, consumes the ticket once, and selects only `colab-sync-v2`; it MUST
 NOT echo the reader subprotocol. Tokens MUST NOT enter URLs, logs, renderer
 messages, cookies or owner device context. Disconnection releases the capability;
 reconnect and restart require a fresh challenge/exchange. An owner context does
@@ -2705,7 +2717,11 @@ recomputes its own key from that parse: any `script` element, `on*` attribute or
 runtime marker, a different root attribute or a different design-system match
 answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
 reason:"remount"}`. Otherwise it changes its body in place to the new source,
-matching elements by `id` and then by kind and position. It keeps what it added
+matching elements by `id` and then by kind and position. When the change lies within whole
+top-level nodes and touches no `style`, `script`, document-level or table tag,
+question, review or read block, inline handler or design-system marker, it parses
+and changes only those nodes, and only where that gives the same nodes as parsing
+the whole source; otherwise it parses the whole source. It keeps what it added
 itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
 choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
 `checked`, `selected` and the matching live state stay until the source changes
@@ -2932,14 +2948,14 @@ show a temporary polite hint and create nothing. Starting a comment exits select
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
 Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat draft retained and busy sends uninterrupted; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure after closing is named in a page alert row whose Open action, like annotating the same quote, shows that window with its failed row and draft), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat closes even during a send, keeping its draft and the send, and a failure before recording after closing is named in the page alert row whose Open action reopens Chat with its failed row, draft and files; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure before recording after closing, whether a first comment or reply, is named in a page alert row whose Open action restores that same window with its failed row, draft and files), then selection mode. A failed first comment also reopens on the same quote. Editing a failed row, deliberately clearing its text and closing releases the retained failure and alert; Send's automatically cleared field never discards it. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
-`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft`,
+`quiet` and `unsent`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
 quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
 Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
 (see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
@@ -2950,7 +2966,18 @@ instead of forwarding caller records. Results contain `type:"colab.render.anchor
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
 nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
-Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
+`unsent` contains at most 64 entries, each exactly `{selector,state}` with the same quote
+validation as `draft` and state exactly `sending` or `failed`. The parent projects only first
+comments with no recorded thread, failed first then oldest creation order; the paint cap does
+not discard sends or limit the page's failure notices. Recording the first comment removes its
+unsent paint even while delivery continues; Retry changes failed to sending, and discard or
+leaving the page clears it. The frame resolves these quotes within the existing bounded batch
+and draws only a waiting or danger underline, using `color-waiting` or the existing danger treatment `color-blocked`, and the rule-width
+token. Missing or ambiguous quotes detach. Unsent passages have no ordinal, marker, hover target,
+selection, navigation or report-back: they never enter resolved IDs or position feedback. CSS
+Highlights and the pointer-inert fallback leave authored text and layout unchanged. The page's
+failure notice remains the primary signal; the underline only locates the passage.
+Batches are at most 1,000 anchors and 256 KiB UTF-8, including all unsent entries. Collection is bounded to 20,000
 text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
 per anchor with a 20 ms batch deadline. Over-budget, missing, changed or ambiguous
 matches detach. A unique exact quote must match every supplied prefix/suffix.
@@ -3168,7 +3195,9 @@ serve opens a space it runs `work.migrate` (body `{}`, which changes nothing els
 still at version 1, under the serve's own write lock. Plain tasks are never dropped without a copy:
 before rewriting a page the serve writes its whole version 1 value to
 `migrations/5825/<pageId>.json` in the space's directory (directories 0700, file 0600, never
-through a link) and logs that path; a page whose copy cannot be written is not rewritten. A page it
+through a link) and logs that path; a page whose copy cannot be written is not rewritten. The copy
+is unencrypted plain JSON; the owner may delete it once its tasks are no longer needed, and the
+log line says so. A page whose work cannot be read is reported and left alone. A page it
 cannot copy or rewrite keeps its value, the serve logs why, `tmt colab show` and `tmt colab ls` add
 the warning `work-not-migrated` to it, and the next open tries again; the
 serve still starts. Binaries from before #5825 cannot read a migrated value, so every device of a
@@ -3201,8 +3230,10 @@ Space) holding the independent manual page state chip, which is its own menu and
 then a segmented bar, `N of M done` (`N/M` on a phone) and a chevron. The bar and count are the
 direct sub-pages by their own manual states from the owner list (Done theme green, In progress
 review purple, To do empty, Unknown neutral), the same count as the list row's `work`, never
-recursive. With no sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens
-Add. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
+recursive. An archived sub-page keeps its link but is left out at every level: no row, and it
+counts toward no progress, head summary or attention dot; unarchiving brings its row back in its
+old place (#5867). With no sub-page in use the head shows `No sub-pages yet` and no bar, and for
+the owner opens Add, which never offers an archived page. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
 states or counts.
 
 Opening the panel animates with the motion tokens (instant under reduced motion) and shows one
@@ -3295,8 +3326,12 @@ and the commit's fences turn a page that moved meanwhile into `COLAB_STALE_BASE`
 on a refusal.
 
 The owner work panel has one Add window (#5820): a design-system dialog that searches the observed
-page list. Choosing a page sends one `subpage.attach`. When no listed page has exactly the typed
-title, the first row sends one `subpage.create` with the typed title. Pages the list shows cannot be
+page list with the list's own search field and matcher (#5868): `project:` and `by:` suggestions
+become the same removable chips, and the free text and every chip narrow the pages by the list's
+rules. Archived pages and dashboards are not offered. Arrows move through the results while focus
+stays in the field, and Enter picks. Choosing a page sends one `subpage.attach`. When no listed page
+has exactly the typed free text as its title, the first row sends one `subpage.create` with that
+free text, never a chip. Pages the list shows cannot be
 attached stay listed, dimmed, with why (this page, above this page, already under another page);
 the owner's admission still decides. A refusal shows its words and leaves nothing to clean up; a
 create that made its page but could not attach it says so, and the page can be chosen. An unsettled
@@ -3938,10 +3973,11 @@ In Discussion, Resolve and Reopen retain the conversation, quote, messages, comp
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;
 unknown or ambiguous recipients remain visible as Not notified. Resolve all confirms a
-snapshot of the open threads in the current filter, then re-admits each status write;
-partial failure leaves committed changes in place and is reported in the existing state
-line. A mentioned agent is assigned to its first successfully committed status in the
-batch and notified at most once. Reopen can supersede remaining attempts for its status.
+snapshot of the open threads in the current filter, then admits once and publishes their
+statuses in the fewest own updates that fit (at most 32 records each, within the update
+size); a refused thread or update leaves the other commits in place and is reported in the
+existing state line. A mentioned agent is assigned to its first successfully committed status
+in the batch and notified at most once. Reopen can supersede remaining attempts for its status.
 Agent replies join verified Ask records to comment IDs and remain attributed to their
 agent. Overlay geometry does not reflow page content.
 Shared Source, Agents, Files and Export drawers leave an 8 px
@@ -4129,7 +4165,10 @@ scoped sync cursor only, never core X acknowledgment, task completion, deletion
 permission or Send. Reconnect re-verifies the highest retained log head and
 current epoch before accepting data/writes. Index fields or a successful socket
 upgrade cannot establish authorship. Removed access terminates live subscriptions.
-`colab-sync-v1` uses strict typed JSON control frames with version `1`, type,
+An upgrade that offers only `colab-sync-v1` (a tab loaded before #5876) is accepted under that
+protocol only to send `{"type":"error","code":"upgradeRequired"}` and close; nothing of the space
+is read or sent, and reloading the tab loads the current app.
+`colab-sync-v2` uses strict typed JSON control frames with version `1`, type,
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
@@ -4506,8 +4545,12 @@ must serialize authority transitions and sync writes through that server owner.
 An empty-cursor subscribe remains live-only and makes no historical-data claim.
 
 Large catchup/broadcast envelopes reference `{objectId}` with their outer
-`envelopeHash`, followed by server `chunk` frames using the same common scope
-and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
+`envelopeHash`, followed by the server's chunks. On a live connection each chunk is one binary
+message (#5876): a kind byte (`0` object, `2` statement), the 32-byte envelope or statement hash,
+the index and count as big-endian u32, then the bytes; it continues the transfer the preceding
+text frame named, under that frame's scope. The history channel, which wraps frames in JSON, keeps
+text `chunk` frames using the same common scope
+and exactly `{objectId, envelopeHash, index, count, bytes}`. An envelope over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
@@ -4571,7 +4614,7 @@ subscriber is explicitly closed with RESYNC_REQUIRED and must catch up; accepted
 durable payloads/receipts survive. Firestore listeners implement the same scoped
 immutable-object/cursor semantics without pretending to be a WebSocket server.
 
-Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket. Colab's
+Local storage uses extension SQLite/files and `colab-sync-v2` WebSocket. Colab's
 local listener is only its owner-only socket `<dataRoot>/colab/door.sock`, which
 remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
 DNS-rebinding and cookie admission, and colab trusts the forwarded
@@ -4641,7 +4684,7 @@ A failed, malformed or incomplete lookup is unknown. It only reports. Running
 `tmt remote serve` separately keeps working and is the attach path.
 
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
-facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
+facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v2"`, `state:"mounted"`,
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
 `<origin>/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
@@ -4874,15 +4917,27 @@ of that same space and page. The Rules text is identical for every tenant. An em
 that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
 IDs, a missing `space` field and queries that omit a filter.
 
-| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                   |
-| --------------- | ---------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                             |
-| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
-| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
-| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
-| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 513)                                   |
-| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
+| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                                                     |
+| --------------- | ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                                                               |
+| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `objectFormat` (the integer `2`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
+| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                                                      |
+| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                                                       |
+| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope` (the v2 bytes as a bytesValue, 1 to 264,192 bytes), `expiresAt`                                                                                  |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 256 KiB bytesValue chunk of an encrypted v2 object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 65)                                                       |
+| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                                                   |
+
+**Object rows (#5876).** A log `envelope` and a checkpoint chunk's `bytes` are bytesValue fields
+holding the binary envelope v2 bytes: REST carries them as padded standard base64, Firestore stores
+them at 1.0x. Every nonfinal chunk of an object is exactly 262,144 bytes, so a 3 MB checkpoint is
+12 documents; the REST form of a chunk fits the 393,216-byte sync document. `authority` pieces stay
+32 KiB base64url stringValues. The page row's `objectFormat: 2` makes a reader from before this
+format refuse the page as an unknown field instead of misreading a row. Readers still admit rows
+written before it, until they expire: a v1 JSON log envelope as an ASCII stringValue of at most
+354,304 bytes, and v1 JSON checkpoints in 32 KiB base64url stringValue chunks (at most 513). Each
+converts to the same v2 original under the same hash, and one object never mixes the two forms.
+Nothing writes them, and the Rules refuse them on create. This read path is removed with the
+store converter.
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -5320,7 +5375,9 @@ Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts
 its existing positive day count or forever; this is separate from the finite
-cloud lifetime. Local data is never automatically deleted.
+cloud lifetime. Local page data (content, comments and their revisions, the receipt ledger) is never
+automatically deleted; an attachment object that no retained reference reaches is removed 30 days
+after this machine first saw it unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
 
 The space's page expiry (#2600) is the days a page may sit without activity before it is
 archived: 180 by default. `tmt colab settings page-expiry DAYS|off|default` sets it to a whole
@@ -5911,7 +5968,8 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
   `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted
-  by its own manual state, the same count the page's work panel shows. The stage agrees with the
+  by its own manual state and leaving archived sub-pages out, the same count the page's work panel
+  shows. The stage agrees with the
   counts: `total` 0 is never sent, `done == total` is `done`, and anything else is `in-progress`. A
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
@@ -6617,7 +6675,7 @@ contexts cannot request either route. Bodies are `{version:1,page,dryRun?}`; unk
 malformed page IDs refuse. No route starts another service or changes sharing.
 
 Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
-`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `totalBytes`, `freeable`,
+`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `unusedAttachmentsRemoveAtMs`, `totalBytes`, `freeable`,
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
 stream's latest paired content checkpoint, any required fold anchor, and active tail after that cut;
 other retained content payloads and earlier baselines are history. Every counted payload appears
@@ -6627,11 +6685,13 @@ and `dbFreeBytes` separately report physical DB size and SQLite free pages. The 
 includes `version`, `space`, those DB values and `pages`. When the active local object channel
 supports namespace usage, `attachmentsBytes` is its per-page `chargedBytes`: a conservative
 allocation that can include uploading and retained object identities, not an exact filesystem
-measurement. Unsupported, unavailable or timed-out usage is null. The object wire does not expose
-a complete per-object local inventory, so `unusedAttachmentBytes` is null; `totalBytes` sums known
-page payload bytes and the attachment allocation and is null when that allocation is unknown.
+measurement. Unsupported, unavailable or timed-out usage is null. `unusedAttachmentBytes` sums the
+listed objects this machine currently records as not in use, and `unusedAttachmentsRemoveAtMs` is
+when the earliest of them is removed; both are null when the active channel cannot list objects (a
+Remote before object channel version 4, or no serve), and the time is null when none waits. `totalBytes`
+sums known page payload bytes and the attachment allocation and is null when that allocation is unknown.
 Storage reads use a short bounded object-channel deadline without holding the sync lock. Reclaim
-never waits for object usage. No attachments are removed here (#5284).
+never waits for object usage. Reclaim removes no attachments; [Unreferenced attachments](#unreferenced-attachments-5284) does.
 
 `freeable:{history,files}` estimates the bytes the next cleanup is expected to remove; the result
 reports what was actually freed. It selects current prune candidates using the same paired,
@@ -6663,11 +6723,45 @@ The owner Manage page displays Page content, Edit history, Attachments and Comme
 machine. Cleanup is the only storage action and requires confirmation; its completion reports
 measured freed bytes and that the page is unchanged. On partial failure the error reports any
 known positive savings; unknown savings are not presented as zero. Unavailable attachment
-inventory is shown as unknown and no attachment expiry claim is made before #5284.
+inventory is shown as unknown. When files wait for removal the Attachments row adds
+`(<size> not in use, removed on <Mon D>)`, the earliest removal day in local time; human `storage`
+output adds `<title>: <size> not in use, removed in <interval>`. Nothing else in the section changes.
 
 `lastCleanedAutomaticallyAtMs` is a local Unix-millisecond timestamp recorded best-effort only
 after an automatic pass actually compacts the page; scans, no-ops, dry-runs and manual requests do
 not update it. Legacy and unrecorded results are null.
+
+### Unreferenced attachments (#5284)
+
+The serve's object-maintenance worker removes attachment objects that no retained reference reaches.
+It visits one page per minute, rotating through every page, and needs an established object channel
+at version 4 (`objects.list` and `objects.remove`); on an older Remote it records and removes nothing.
+
+- **Eligible pages.** Only writable pages in `current` history mode that are not public. Pages in the
+  default `shared` history mode, public pages, archived pages and deleted pages keep every object, and
+  a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
+  namespace is removed whole by the existing sweep.
+- **Reference set.** Every descriptor in the current page source, every message revision of every
+  readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
+  unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
+  old-epoch document lists are not references: no reader can address them, so a rekeyed object's old
+  copy is removed and its exposure window ends. A page with more than 64 epochs, an epoch that cannot
+  be read, a listing over 1,024 objects or a spent budget decides nothing that visit.
+- **Clock.** Each listed committed object outside the reference set gets a local
+  `attachment_unreferenced` row (space.db schema 21, never synced) holding its size and the time this
+  machine first saw it unreferenced. A visit that finds it referenced again, or no longer listed,
+  deletes the row; a new reference therefore restarts the full wait. A row whose time is in the future
+  is not due. Losing the table only restarts the wait.
+- **Removal.** An object is due 30 days after its row's time (`ATTACHMENT_UNREFERENCED_GRACE_MS`). At
+  most 16 are removed per visit, each its own request with a 5 s deadline. Before the listing, the
+  visit records a fence over the membership head, the page epoch and every stream's highest receipt
+  and checkpoint; each removal runs under the serve's write exclusion, rechecks the fence and the
+  page's eligibility, and the admission callbacks recheck them again. A moved fence refuses the
+  removal before its effect, and the next visit recomputes. Only `removed` deletes the row; `unknown`
+  keeps it and the next visit sees whether the object is still listed. Remote releases the charge
+  before it answers `removed`, so `attachmentsBytes` drops only after removal is confirmed. A removed
+  object keeps Remote's small retained record. Removal deletes the stored ciphertext; it is not secure
+  erasure.
 
 ### Content publication (#1908, #1928, #1934)
 
@@ -7191,8 +7285,9 @@ page and never remembered.
 
 **Window.** Between the advance and the swap the document references old-epoch objects. A holder
 of the revoked key can read those bytes only with raw access to the object store, and only until
-the swap and until the old object is deleted, which needs the Remote delete operation of #2294.
-Until then the old object stays and is charged; this contract makes no erasure claim.
+the swap and until the old object is removed, 30 days after the swap left it unreferenced
+([Unreferenced attachments](#unreferenced-attachments-5284)). Until then the old object stays and is
+charged; removal deletes the stored ciphertext and makes no secure-erasure claim.
 
 **Swap.** The serve reads the old attachment through the root-local read, stages the plaintext in
 a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under

@@ -1,6 +1,7 @@
 //! Namespace management through the actual channel and ledger.
 use super::observe::{seed, spec};
 use super::*;
+use crate::objects::BeginSpec;
 use tmt_extension_objects::{NamespaceInput, UsageScope};
 
 fn remove(tag: u8) -> Call {
@@ -10,7 +11,7 @@ fn remove(tag: u8) -> Call {
 }
 fn allowed(peer: &Peer, id: u64, call: Call) -> Outcome {
     request(peer, id, Origin::LocalExtension, call.clone());
-    let checkpoints: &[Checkpoint] = if matches!(call, Call::RemoveNamespace(_)) {
+    let checkpoints: &[Checkpoint] = if matches!(call, Call::RemoveNamespace(_) | Call::Remove(_)) {
         &[
             Checkpoint::Acquire,
             Checkpoint::Effect,
@@ -367,4 +368,159 @@ fn usage_disclose_refusal_preserves_denied_and_unavailable() {
         decide(&peer, admit.callback_id.get(), 1, decision);
         assert_eq!(result(&peer).outcome, Outcome::Failure(code));
     }
+}
+
+/// A native (version 4) channel to the `notes` fixture with one committed object.
+fn running_native(env: &Env) -> (ObjectService<'_>, Peer, BeginSpec, Vec<u8>) {
+    use super::native::{NOTES, registration};
+    let service = env.service(&NOTES, bounds()).unwrap();
+    let peer = Peer::start(env, "notes", Answer::Expect);
+    service
+        .register_native(
+            "notes",
+            registration(
+                Arc::new(super::super::sync::tests::Fake::new()),
+                Arc::new(AtomicUsize::new(0)),
+            ),
+        )
+        .unwrap();
+    service
+        .activate_native_until(
+            &env.mounts(&NOTES),
+            "notes",
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+    peer.ready.recv_timeout(Duration::from_secs(5)).unwrap();
+    let payload = b"attachment".to_vec();
+    let original = spec(Context::LocalExtension, 7, &payload);
+    let backend = service.handle("notes").unwrap();
+    backend.begin(&original, &io()).unwrap();
+    backend.append(original.intent, 0, &payload, &io()).unwrap();
+    backend.commit(original.intent, &io()).unwrap();
+    (service, peer, original, payload)
+}
+fn remove_object(original: &BeginSpec) -> Call {
+    Call::Remove(tmt_extension_objects::RemoveInput {
+        namespace: Bytes32::from_bytes(original.key.namespace.0),
+        opaque_key: Bytes32::from_bytes(original.key.object.0),
+        payload_sha256: tmt_extension_objects::Sha256Hex::from_bytes(original.payload_sha256),
+        payload_bytes: original.payload_bytes,
+    })
+}
+fn list_page(tag: u8) -> Call {
+    Call::List(tmt_extension_objects::ListInput {
+        namespace: Bytes32::from_bytes([tag; 32]),
+        after: None,
+        limit: 8,
+    })
+}
+
+#[test]
+fn a_native_channel_lists_and_removes_one_object_and_the_charge_drops_before_removed() {
+    let env = Env::new();
+    let (service, peer, original, payload) = running_native(&env);
+    assert!(peer.buses.lock().unwrap()[0].supports(Method::Remove));
+    let listing = match allowed(&peer, 1, list_page(7)) {
+        Outcome::Success(Success::Listed(listing)) => listing,
+        other => panic!("expected a listing, got {other:?}"),
+    };
+    assert_eq!(listing.next, None);
+    assert_eq!(listing.entries.len(), 1);
+    assert_eq!(
+        listing.entries[0].opaque_key,
+        Bytes32::from_bytes(original.key.object.0)
+    );
+    assert_eq!(listing.entries[0].payload_bytes, payload.len() as u64);
+    let namespace = UsageScope::Namespace(Bytes32::from_bytes([7; 32]));
+    let before = usage(&peer, 2, namespace);
+    // The disclose callback runs after the release committed: the backend already
+    // reports the lower charge when `removed` is about to leave.
+    let backend = service.handle("notes").unwrap();
+    request(&peer, 3, Origin::LocalExtension, remove_object(&original));
+    for boundary in [
+        Checkpoint::Acquire,
+        Checkpoint::Effect,
+        Checkpoint::Disclose,
+    ] {
+        let admit = callback(&peer);
+        assert_eq!(admit.boundary, boundary);
+        assert!(matches!(admit.operation.input, AdmitInput::Remove(_)));
+        if boundary == Checkpoint::Disclose {
+            assert_eq!(admit.operation.disclosure, Some(Disclosure::Removed));
+            assert_eq!(
+                backend
+                    .usage(Some(original.key.namespace), &io())
+                    .unwrap()
+                    .charged_bytes,
+                before.charged_bytes - crate::objects::payload_charge(payload.len() as u64)
+            );
+        }
+        decide(&peer, admit.callback_id.get(), 3, Decision::Allow);
+    }
+    assert_eq!(result(&peer).outcome, Outcome::Success(Success::Removed));
+    let after = usage(&peer, 4, namespace);
+    assert_eq!((after.entries, after.retained_identities), (0, 1));
+    match allowed(&peer, 5, list_page(7)) {
+        Outcome::Success(Success::Listed(listing)) => assert!(listing.entries.is_empty()),
+        other => panic!("expected a listing, got {other:?}"),
+    }
+    assert_eq!(
+        allowed(&peer, 6, remove_object(&original)),
+        Outcome::Success(Success::Removed),
+        "a repeat is idempotent"
+    );
+}
+
+#[test]
+fn mounted_listing_and_object_removal_are_denied_without_callbacks() {
+    let env = Env::new();
+    let (service, peer, original, payload) = running_native(&env);
+    let backend = service.handle("notes").unwrap();
+    let before = backend.usage(None, &io()).unwrap();
+    for (id, call) in [(1, remove_object(&original)), (2, list_page(7))] {
+        request(
+            &peer,
+            id,
+            Origin::Mounted(Uuid4::parse("d9f6456b-2951-4c1e-a130-cbac198e3a50").unwrap()),
+            call,
+        );
+        assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::Denied));
+    }
+    assert_eq!(backend.usage(None, &io()).unwrap(), before);
+    assert_eq!(
+        backend.read(original.key, 0, 4, &io()).unwrap().bytes,
+        payload[..4]
+    );
+}
+
+#[test]
+fn an_effect_refusal_keeps_the_object_and_a_changed_body_conflicts() {
+    let env = Env::new();
+    let (service, peer, original, payload) = running_native(&env);
+    request(&peer, 1, Origin::LocalExtension, remove_object(&original));
+    let admit = callback(&peer);
+    decide(&peer, admit.callback_id.get(), 1, Decision::Allow);
+    let admit = callback(&peer);
+    assert_eq!(admit.boundary, Checkpoint::Effect);
+    decide(&peer, admit.callback_id.get(), 1, Decision::Deny);
+    assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::Denied));
+    let backend = service.handle("notes").unwrap();
+    assert_eq!(
+        backend.read(original.key, 0, 4, &io()).unwrap().bytes,
+        payload[..4]
+    );
+    let mut changed = original.clone();
+    changed.payload_bytes += 1;
+    request(&peer, 2, Origin::LocalExtension, remove_object(&changed));
+    for boundary in [Checkpoint::Acquire, Checkpoint::Effect] {
+        let admit = callback(&peer);
+        assert_eq!(admit.boundary, boundary);
+        decide(&peer, admit.callback_id.get(), 2, Decision::Allow);
+    }
+    assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::Conflict));
+    assert_eq!(
+        backend.read(original.key, 0, 4, &io()).unwrap().bytes,
+        payload[..4]
+    );
 }

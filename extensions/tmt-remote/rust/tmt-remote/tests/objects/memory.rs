@@ -13,8 +13,8 @@ use tmt_remote::{
     limits,
     objects::{
         BackendCaps, BackendError, BackendResult, BeginResult, BeginSpec, BlobKey, IntentId,
-        IoBudget, Limit, NamespaceId, ObjectBackend, OriginalIntent, Progress, Quotas, ReadPart,
-        Receipt, Transfer, TransferState, Usage,
+        IoBudget, Limit, ListedObject, NamespaceId, ObjectBackend, OpaqueKey, OriginalIntent,
+        Progress, Quotas, ReadPart, Receipt, Transfer, TransferState, Usage,
     },
 };
 
@@ -470,6 +470,72 @@ impl ObjectBackend for Memory {
             }
         }
         Ok(())
+    }
+    fn remove_object(
+        &self,
+        key: BlobKey,
+        payload_sha256: [u8; 32],
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        io.check()?;
+        let mut model = self.model.lock().unwrap();
+        if model
+            .namespaces
+            .get(&(self.extension.clone(), key.namespace.0))
+            != Some(&true)
+        {
+            return Ok(());
+        }
+        let Some(row) = model
+            .rows
+            .iter_mut()
+            .find(|((e, _), row)| *e == self.extension && row.spec.key == key && row.live())
+            .map(|(_, row)| row)
+        else {
+            return Ok(());
+        };
+        if row.state != State::Committed
+            || row.spec.payload_sha256 != payload_sha256
+            || row.spec.payload_bytes != payload_bytes
+        {
+            return Err(BackendError::Conflict);
+        }
+        row.state = State::Deleted;
+        row.body.clear();
+        Ok(())
+    }
+    fn list(
+        &self,
+        namespace: NamespaceId,
+        after: Option<OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<ListedObject>> {
+        io.check()?;
+        let model = self.model.lock().unwrap();
+        if model.namespaces.get(&(self.extension.clone(), namespace.0)) != Some(&true) {
+            return Ok(Vec::new());
+        }
+        let mut listed: Vec<ListedObject> = model
+            .rows
+            .iter()
+            .filter(|((e, _), row)| {
+                *e == self.extension
+                    && row.spec.key.namespace == namespace
+                    && row.state == State::Committed
+                    && after.is_none_or(|after| row.spec.key.object.0 > after.0)
+            })
+            .map(|(_, row)| ListedObject {
+                key: row.spec.key.object,
+                payload_sha256: row.spec.payload_sha256,
+                payload_bytes: row.spec.payload_bytes,
+                adopted_at_ms: row.adopted,
+            })
+            .collect();
+        listed.sort_by_key(|entry| entry.key.0);
+        listed.truncate(limit as usize);
+        Ok(listed)
     }
 }
 

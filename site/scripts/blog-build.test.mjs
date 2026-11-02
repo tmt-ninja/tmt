@@ -10,7 +10,7 @@ import { verifyDist } from "../src/blog/verify-dist.mjs";
 test("Vite bundles complete article HTML and external modules at project and root bases", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-vite-"));
   try {
-    for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     await writeFile(
       join(root, "index.html"),
@@ -45,7 +45,7 @@ test("Vite bundles complete article HTML and external modules at project and roo
       const index = await readFile(join(dist, "blog/index.html"), "utf8");
       assert.ok(index.includes(`href="${base}blog/feed.xml"`));
       for (const page of [index, html]) {
-        assert.ok(page.includes(`src="${base}blog/mark.svg"`));
+        assert.ok(page.includes(`src="${base}blog/team-tmt.png"`));
         assert.ok(page.includes(`href="${base}blog/favicon.png"`));
         assert.ok(page.includes('<meta name="twitter:card" content="summary_large_image">'));
       }
@@ -110,9 +110,9 @@ test("Vite bundles complete article HTML and external modules at project and roo
 test("dev serves the file-backed mark and favicon at exactly one site base on index and post pages", async () => {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-dev-mark-"));
   try {
-    for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
-    const mark = await readFile(join(root, "src/blog/mark.svg"), "utf8");
+    const mark = await readFile(join(root, "src/blog/team-tmt.png"));
     const favicon = await readFile(join(root, "src/blog/favicon.png"));
     for (const base of ["/", "/tmt/", "/custom/path/"]) {
       const blog = await blogBuild({ root, base, demo: true, development: true });
@@ -134,11 +134,11 @@ test("dev serves the file-backed mark and favicon at exactly one site base on in
           const html = await response.text();
           const image = html.match(/<img[^>]+src="([^"]+)"/)[1];
           const icon = html.match(/<link[^>]+rel="icon"[^>]+href="([^"]+)"/)[1];
-          assert.equal(new URL(image, url).pathname, `${base}blog/mark.svg`);
+          assert.equal(new URL(image, url).pathname, `${base}blog/team-tmt.png`);
           const fetchedMark = await fetch(new URL(image, url));
           assert.equal(fetchedMark.status, 200);
-          assert.match(fetchedMark.headers.get("content-type"), /image\/svg\+xml/);
-          assert.equal(await fetchedMark.text(), mark);
+          assert.match(fetchedMark.headers.get("content-type"), /image\/png/);
+          assert.ok(Buffer.from(await fetchedMark.arrayBuffer()).equals(mark));
           assert.equal(new URL(icon, url).pathname, `${base}blog/favicon.png`);
           const fetchedIcon = await fetch(new URL(icon, url));
           assert.equal(fetchedIcon.status, 200);
@@ -158,7 +158,7 @@ test("a production build needs SITE_ORIGIN and its artifact names that origin, n
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-origin-"));
   const origin = "https://example.com";
   try {
-    for (const path of ["src/blog", "src/posts", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "src/posts", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     await writeFile(
       join(root, "index.html"),

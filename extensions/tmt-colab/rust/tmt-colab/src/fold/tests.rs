@@ -440,7 +440,13 @@ fn sealed_historical_receipts_use_the_owner_bound_before_later_revocation() {
                 .unwrap(),
             previous: [0; 32],
             checkpoint: case["kind"].as_str().unwrap() == "checkpoint",
-            bytes: serde_json::to_vec(&case["receipt"]).unwrap(),
+            // The frozen receipt is v1 JSON; stored objects are v2 (#5876). A malformed case stays as is.
+            bytes: {
+                let json = serde_json::to_vec(&case["receipt"]).unwrap();
+                object::Envelope::from_json_v1(&json)
+                    .and_then(|envelope| envelope.to_bytes())
+                    .unwrap_or(json)
+            },
         };
         let cut = Cut {
             page: page.into(),

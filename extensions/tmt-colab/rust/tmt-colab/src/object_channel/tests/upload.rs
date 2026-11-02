@@ -98,7 +98,7 @@ impl OwnerObjectFixture {
             b"original bytes",
         )
         .unwrap();
-        let raw = asset.to_json().unwrap();
+        let raw = asset.to_json_v1().unwrap();
         let descriptor = Descriptor {
             version: 1,
             attachment_id: GENERATION.into(),

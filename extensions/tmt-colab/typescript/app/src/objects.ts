@@ -13,7 +13,7 @@ import {
   exactKeys,
   FOLD,
   generatedId,
-  MAX_ENVELOPE_JSON,
+  MAX_ENVELOPE_BYTES,
   requireValue,
   signatureInput,
   strictVerify,
@@ -34,7 +34,9 @@ export interface ObjectEntry extends Position {
 }
 /** An object a peer sent in chunks, joined and parsed once by `Frames`: its JSON bytes are never
  * re-encoded to base64url only to be decoded again here. Only `Frames` makes one; no wire JSON
- * can, so an inline envelope is always a string. */
+ * can, so an inline envelope is always a string. It never crosses a clone or persist boundary: it
+ * lives only between `Frames` and admission on one connection, while the writer, IndexedDB and
+ * worker messages carry strings or bytes. */
 export class JoinedEnvelope {
   constructor(
     readonly envelope: Envelope,
@@ -47,7 +49,7 @@ export interface ReceivedEntry extends Position {
 }
 /** The one parse of a received envelope, under the same byte bound either way. */
 export function receivedEnvelope(value: unknown, limit: number): Envelope {
-  if (!(value instanceof JoinedEnvelope)) return Envelope.fromJson(binary(value, limit));
+  if (!(value instanceof JoinedEnvelope)) return Envelope.fromBytes(binary(value, limit));
   requireValue(value.bytes <= limit);
   return value.envelope;
 }
@@ -58,10 +60,9 @@ export function position(value: unknown): asserts value is Position {
   decimal(value.seq);
   binary(value.envelopeHash, 32, 32);
 }
-/** The most bytes a sealed envelope holds for an update of `update` bytes: base64 of the update
- * and its framing, plus the header and signature. */
-export const sealedBound = (update: number) => Math.floor(((update + 2048) * 4) / 3) + 2048;
-export const UPDATE_ENVELOPE_BYTES = sealedBound(UPDATE_BYTES);
+/** The most bytes a v2 envelope of one update holds: the update and the binary overhead (tag,
+ * header and signature). It is also a cloud log row's envelope bound (native `LOG_ENVELOPE_BYTES`). */
+export const UPDATE_ENVELOPE_BYTES = UPDATE_BYTES + 2048;
 type Namespace = 'content' | 'own';
 interface Head {
   seq: bigint;
@@ -247,7 +248,7 @@ export class Objects {
       hash = binary(entry.envelopeHash, 32, 32);
     const env = receivedEnvelope(
       entry.envelope,
-      kind === 'checkpoint' ? MAX_ENVELOPE_JSON : UPDATE_ENVELOPE_BYTES,
+      kind === 'checkpoint' ? MAX_ENVELOPE_BYTES : UPDATE_ENVELOPE_BYTES,
     );
     const { context: c, coveredDevice } = decodeHeader(env.header()),
       a = this.admission;

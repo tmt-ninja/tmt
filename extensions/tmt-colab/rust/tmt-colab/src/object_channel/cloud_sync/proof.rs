@@ -1161,11 +1161,9 @@ fn epoch_objects(
                     .unwrap()
                     .parse()
                     .unwrap();
-                let bytes = tmt_colab_model::values::binary(
-                    fields["bytes"]["stringValue"].as_str().unwrap(),
-                    32_768,
-                )
-                .unwrap();
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(fields["bytes"]["bytesValue"].as_str().unwrap())
+                    .unwrap();
                 let object = fields["object"]["stringValue"].as_str().unwrap().to_owned();
                 (object, index, id, bytes)
             })

@@ -28,10 +28,13 @@ import {
 } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 // Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
-// BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
+// BASELINE_UPDATE_BYTES, and limits.rs OWN_RECORDS. Read admission is wider; prepare/check still use
+// write limits.
 export const SOURCE_BYTES = 2 * 1024 * 1024;
 export const CONTENT_CHUNK_BYTES = 192 * 1024;
 export const UPDATE_BYTES = 256 * 1024;
+/** Records in one own update. */
+export const OWN_RECORDS = 32;
 export const WRITE_TAIL_UPDATES = 200;
 export const WRITE_TAIL_BYTES = 4 * 1024 * 1024;
 export const READ_TAIL_UPDATES = 5_000;

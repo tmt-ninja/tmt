@@ -1,6 +1,9 @@
 //! Exact original bytes behind the declared transport projection. Syntax and
 //! scope checks here never replace certificate, membership or epoch admission.
-use super::{Field, Fields, Invalid, Resource, decode, encode, integer, text};
+use super::{
+    CHUNK_BYTES, Field, Fields, Invalid, LEGACY_CHUNK_BYTES, LOG_ENVELOPE_BYTES, MAX_CHUNKS,
+    Resource, binary, decode, encode, integer, text,
+};
 use tmt_colab_model::{crypto, object, values};
 use tmt_extension_objects::{Sha256Hex, sync};
 
@@ -10,8 +13,25 @@ pub struct Original {
     pub header: object::Header,
     pub hash: [u8; 32],
 }
-fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
-    let envelope = object::Envelope::from_json(&bytes).map_err(|_| Invalid)?;
+/// How a row carries its original: v2 bytes, or the v1 JSON a row written before #5876 PR 2
+/// holds. A legacy row is converted under the same hash, as the store converter does.
+enum Cloud {
+    Bytes(Vec<u8>),
+    Legacy(Vec<u8>),
+}
+/// A cloud original, returned as the local v2 bytes.
+fn original(cloud: Cloud, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
+    let (envelope, bytes) = match cloud {
+        Cloud::Bytes(bytes) => (
+            object::Envelope::from_bytes(&bytes).map_err(|_| Invalid)?,
+            bytes,
+        ),
+        Cloud::Legacy(json) => {
+            let envelope = object::Envelope::from_json_v1(&json).map_err(|_| Invalid)?;
+            let bytes = envelope.to_bytes().map_err(|_| Invalid)?;
+            (envelope, bytes)
+        }
+    };
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != text(fields, "space")?
@@ -29,14 +49,14 @@ fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original,
     })
 }
 /// Compare unsigned routing fields with the sealed header/hash before admission.
-/// The returned bytes are exactly those received, including JSON whitespace.
+/// The returned bytes are the local v2 form of the original received.
 pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
     let fields = decode(Resource::Log, document)?;
-    let result = original(
-        text(&fields, "envelope")?.as_bytes().to_vec(),
-        &fields,
-        &["update"],
-    )?;
+    let cloud = match fields.get("envelope") {
+        Some(Field::String(legacy)) => Cloud::Legacy(legacy.as_bytes().to_vec()),
+        _ => Cloud::Bytes(binary(&fields, "envelope", LOG_ENVELOPE_BYTES)?),
+    };
+    let result = original(cloud, &fields, &["update"])?;
     if result.header.context.author_device != text(&fields, "stream")?
         || result.header.context.stream_seq != integer(&fields, "seq")?.to_string()
         || values::binary(text(&fields, "hash")?, 32).map_err(|_| Invalid)? != result.hash
@@ -47,7 +67,11 @@ pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
 }
 /// Split one already sealed checkpoint. No new seal, identity or payload store.
 pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
-    let parsed = original(bytes.to_vec(), &fields, &["checkpoint", object::FOLD])?;
+    let parsed = original(
+        Cloud::Bytes(bytes.to_vec()),
+        &fields,
+        &["checkpoint", object::FOLD],
+    )?;
     if parsed.header.object_id != text(&fields, "object")? || bytes.is_empty() {
         return Err(Invalid);
     }
@@ -55,19 +79,19 @@ pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Do
 }
 /// The chunk records of one exact object, each a whole-field create under the same routing.
 fn chunk_documents(mut fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
-    let count = bytes.len().div_ceil(32_768);
-    if count > 513 {
+    let count = bytes.len().div_ceil(CHUNK_BYTES);
+    if count > MAX_CHUNKS {
         return Err(Invalid);
     }
     fields.insert("count".into(), Field::number(count as u64)?);
     bytes
-        .chunks(32_768)
+        .chunks(CHUNK_BYTES)
         .enumerate()
         .map(|(index, chunk)| {
             let mut row = fields.clone();
             row.insert("index".into(), Field::number(index as u64)?);
             row.insert("seq".into(), Field::number(index as u64 + 1)?);
-            row.insert("bytes".into(), Field::String(values::encode_binary(chunk)));
+            row.insert("bytes".into(), Field::bytes(chunk));
             encode(Resource::Checkpoints, row)
         })
         .collect()
@@ -83,10 +107,17 @@ pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
     Ok(result)
 }
 /// The ordered, complete chunks of one object, reassembled, with the first chunk's routing.
-fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
+/// Every chunk of one object has the first chunk's form; a legacy object is v1 JSON.
+fn chunks(documents: &[sync::Document]) -> Result<(Fields, Cloud), Invalid> {
     let first = decode(Resource::Checkpoints, documents.first().ok_or(Invalid)?)?;
+    let legacy = matches!(first.get("bytes"), Some(Field::String(_)));
+    let size = if legacy {
+        LEGACY_CHUNK_BYTES
+    } else {
+        CHUNK_BYTES
+    };
     let count = integer(&first, "count")?;
-    if count == 0 || count > 513 || count != documents.len() as u64 {
+    if count == 0 || count != documents.len() as u64 {
         return Err(Invalid);
     }
     let mut bytes = Vec::new();
@@ -100,14 +131,25 @@ fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
         if integer(&fields, "index")? != index as u64 {
             return Err(Invalid);
         }
-        let chunk = values::binary(text(&fields, "bytes")?, 32_768).map_err(|_| Invalid)?;
+        let chunk = if legacy {
+            values::binary(text(&fields, "bytes")?, size).map_err(|_| Invalid)?
+        } else {
+            binary(&fields, "bytes", size)?
+        };
         // Only the final chunk may be short; the producer's partition is fixed.
-        if index + 1 < documents.len() && chunk.len() != 32_768 {
+        if index + 1 < documents.len() && chunk.len() != size {
             return Err(Invalid);
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok((first, bytes))
+    Ok((
+        first,
+        if legacy {
+            Cloud::Legacy(bytes)
+        } else {
+            Cloud::Bytes(bytes)
+        },
+    ))
 }
 /// The records that carry an epoch's baseline: the exact sealed `html` original the owner Store
 /// holds, in the checkpoints carrier, under its own hash. `object` is the lowercase hex of the
@@ -116,7 +158,7 @@ pub fn baseline_documents(
     routing: &Routing<'_>,
     bytes: &[u8],
 ) -> Result<Vec<sync::Document>, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if routing.epoch < 2
@@ -170,7 +212,7 @@ impl Routing<'_> {
 /// The record that carries one stored update, byte for byte. The stream and sequence come from
 /// the signed header, so an update can only be published under its own identity.
 pub fn log_document(routing: &Routing<'_>, bytes: &[u8]) -> Result<sync::Document, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != routing.space
@@ -195,16 +237,16 @@ pub fn log_document(routing: &Routing<'_>, bytes: &[u8]) -> Result<sync::Documen
             &envelope.hash().map_err(|_| Invalid)?,
         )),
     );
-    fields.insert(
-        "envelope".into(),
-        Field::String(String::from_utf8(bytes.to_vec()).map_err(|_| Invalid)?),
-    );
+    if bytes.len() > LOG_ENVELOPE_BYTES {
+        return Err(Invalid);
+    }
+    fields.insert("envelope".into(), Field::bytes(bytes));
     encode(Resource::Log, fields)
 }
 /// The create-only records of one paired checkpoint original: its fields without the chunk
 /// facts, which `checkpoint_documents` adds.
 pub fn checkpoint_base(routing: &Routing<'_>, bytes: &[u8]) -> Result<Fields, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let mut fields = routing.base()?;
     fields.insert("object".into(), Field::String(header.object_id));

@@ -20,7 +20,10 @@ tmt colab subpage ls PAGE --json
 tmt colab summary set PAGE --line1 'Release plan' --line2 'Read before the release' --json
 ```
 
-A sub-page's progress is its page state: set it with `page state` on the sub-page itself. The
+A sub-page's progress is its page state: set it with `page state` on the sub-page itself.
+Archiving a sub-page keeps its link: `subpage ls` still lists it with `"archived": true` (state
+column `archived`), so you can see and detach it, but it leaves the progress, the list row's count
+and the browser's work panel until it is unarchived. The
 summary's first line is at most 24 characters and says where the page stands; the second is at most
 60 and says what comes next.
 

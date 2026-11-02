@@ -303,7 +303,7 @@ impl Home {
             (Namespace::Content, "content")
         };
         let envelope = self.seal_as(stream, "update", name, seq, previous, signing, "1");
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         let hash = envelope.hash().unwrap();
         self.store
             .append(&Envelope {
@@ -332,7 +332,7 @@ impl Home {
             .enumerate()
         {
             let envelope = self.seal(stream, "checkpoint", name, seq, previous);
-            let bytes = envelope.to_json().unwrap();
+            let bytes = envelope.to_bytes().unwrap();
             self.store
                 .checkpoint(&Envelope {
                     scope: StreamScope {
@@ -380,7 +380,7 @@ impl Home {
                 format!("fold-{name}-{seq}").as_bytes(),
             )
             .unwrap();
-            let bytes = envelope.to_json().unwrap();
+            let bytes = envelope.to_bytes().unwrap();
             self.store
                 .fold(
                     &Envelope {

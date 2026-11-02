@@ -16,6 +16,11 @@ and `limits.rs`; do not restate them.
   never decrypts and never calls the decoder. Request admission remains fresh. Idle
   peers share a generation-fenced sweep for less than `limits::ADMISSION_RECHECK`;
   `update_admission`, management and a rekey pass invalidate it under the sync lock.
+  Read transactions reuse a page's folded `PagePolicy` and the page catalog's verified log
+  payloads (`store/owner/epoch.rs` `ReadCache`, #5882) while the membership head hash and
+  SQLite's `data_version` stay the same, so a sweep or an `api/pages` poll no longer decodes or
+  reverifies the whole log; a new head or another connection's commit refolds and reverifies,
+  and write transactions never use the cache.
   The supplied monotonic poll clock bounds expiry/external-store detection; queued
   and buffered delivery stays under that lock. An exact retry returns the same
   receipt without a rebroadcast; awareness is ephemeral.
@@ -192,7 +197,8 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   A browser device combines only its own stream (`writer.ts` `OwnCompaction`);
   its updates on other devices' streams stay in the tail (`otherDeviceUpdates`).
 - CLI create/patch obtains an optional caller display label from the fixed public
-  `identity show --json` command in `core.rs`; failures leave no label. The decoder's
+  `identity show --json` command in `core.rs`; failures leave no label. The label reuses the
+  caller this process already observed (#5882); edit-lock steps observe the caller themselves. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source and may carry a typed
   `DocumentChange` (model `attachment.rs`; set/remove by attachment ID, bound to the written source),
   which the parent, the sync frame and the child each re-validate before one atomic update. Browser

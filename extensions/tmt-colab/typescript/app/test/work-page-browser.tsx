@@ -44,6 +44,8 @@ export interface WorkPageHook {
   /** The next attach on this page has an outcome nobody knows. */
   unknownAttach?: boolean;
   metadataCaptures?: number;
+  /** Archives or unarchives a page as the owner list then reports it (#5867). */
+  setArchived?(page: string, archived: boolean): void;
 }
 declare global {
   interface Window {
@@ -56,6 +58,10 @@ type Row = {
   title: string;
   state: PageState;
   parent?: { page: string; index: number };
+  archived?: boolean;
+  /** For the Add window's `project:` and `by:` filters (#5868). */
+  projects?: string[];
+  author?: string;
 };
 function rows(): Row[] {
   const p = PAGES;
@@ -84,8 +90,14 @@ function rows(): Row[] {
       state: 'todo',
       parent: under(p.machines, 2),
     },
-    { id: p.dataPlan, title: 'Remote data plan design', state: 'todo' },
-    { id: p.adminPrototype, title: 'Remote admin prototype', state: 'todo' },
+    {
+      id: p.dataPlan,
+      title: 'Remote data plan design',
+      state: 'todo',
+      projects: ['pm'],
+      author: 'Atlas',
+    },
+    { id: p.adminPrototype, title: 'Remote admin prototype', state: 'todo', projects: ['pm'] },
     { id: p.launch, title: 'Remote launch', state: 'in-progress' },
     { id: p.elsewhere, title: 'Remote copy deck', state: 'todo', parent: under(p.launch, 1) },
   ];
@@ -96,16 +108,19 @@ const linked = (): StoredWork => ({
 });
 
 let root: Root | undefined;
+/** This page's title; the `filled` scenario gives it one that cannot fit. */
+let pageTitle = 'Release plan';
 
 /**
- * `scenario`: `tree` has four direct sub-pages and a three-level branch; `empty` has none.
+ * `scenario`: `tree` has four direct sub-pages and a three-level branch; `empty` has none;
+ * `filled` is `tree` with long titles, a parent two levels below the top and one archived sub-page.
  * `owner` true is the owner device: this page's binding and every other page's commit writes, and
  * the owner list follows them as the serve would. `tall` gives the page content taller than the
  * viewport, for the pinned-band checks.
  */
 export function mountWorkPage(
   owner = false,
-  scenario: 'tree' | 'empty' | 'many' = 'tree',
+  scenario: 'tree' | 'empty' | 'many' | 'filled' = 'tree',
   tall = false,
 ) {
   root?.unmount();
@@ -130,13 +145,35 @@ export function mountWorkPage(
     );
   if (scenario === 'empty')
     for (const row of list) if (row.parent?.page === THIS) delete row.parent;
+  pageTitle =
+    scenario === 'filled'
+      ? 'Release plan for the hosted reader, device pairing and the November sharing rollout'
+      : 'Release plan';
+  if (scenario === 'filled') {
+    const row = (page: string) => list.find((value) => value.id === page)!;
+    Object.assign(row(PAGES.launch), {
+      title: 'Remote launch and device pairing rollout for the November release',
+      parent: { page: id(55), index: 0 },
+    });
+    row(PAGES.remote).title = 'Remote pages v2 with the hosted reader and its sharing settings';
+    row(PAGES.draft).archived = true;
+    list.push(
+      {
+        id: id(55),
+        title: 'Q4 platform programme',
+        state: 'in-progress',
+        parent: { page: id(56), index: 0 },
+      },
+      { id: id(56), title: '2026 roadmap', state: 'in-progress' },
+    );
+  }
   let current: StoredWork | undefined = scenario !== 'empty' ? linked() : undefined;
   let manualState: PageState = 'in-progress';
   const source = tall
     ? `<h1>Release plan</h1>${'<p>Plan paragraph.</p>'.repeat(120)}`
     : '<h1>Release plan</h1>';
   const view = (): PageView => ({
-    title: 'Release plan',
+    title: pageTitle,
     source,
     state: manualState,
     pageState: manualState,
@@ -147,14 +184,24 @@ export function mountWorkPage(
     title: row.title,
     state: row.state,
     sharing: 'private',
-    ...(row.parent
-      ? { summary: { comments: 0, waiting: false, needsYou: 0, parent: row.parent } }
+    ...(row.archived ? { archived: true } : {}),
+    ...(row.projects ? { projects: row.projects } : {}),
+    ...(row.parent || row.author
+      ? {
+          summary: {
+            comments: 0,
+            waiting: false,
+            needsYou: 0,
+            ...(row.parent ? { parent: row.parent } : {}),
+            ...(row.author ? { author: row.author } : {}),
+          },
+        }
       : {}),
   });
   const listed = (): PageSummary[] => [
     {
       id: THIS,
-      title: 'Release plan',
+      title: pageTitle,
       state: manualState,
       sharing: 'private',
       summary: {
@@ -265,7 +312,7 @@ export function mountWorkPage(
     close() {},
   });
   const transport = localTransport('Review space', [
-    { id: THIS, title: 'Release plan', source, sharing: 'private', binding },
+    { id: THIS, title: pageTitle, source, sharing: 'private', binding },
   ]);
   const routed = {
     ...transport,
@@ -286,6 +333,12 @@ export function mountWorkPage(
     backendName: 'Studio Mac',
   };
   rememberPages(routed, undefined, listed());
+  hook.setArchived = (page, archived) => {
+    const row = list.find((value) => value.id === page)!;
+    row.archived = archived;
+    // Archiving never detaches: the parent link stays, and the owner list says archived.
+    rememberPages(routed, undefined, listed());
+  };
   root.render(<RouterProvider router={createAppRouter(routed)} />);
   location.hash = `/pages/${THIS}`;
 }

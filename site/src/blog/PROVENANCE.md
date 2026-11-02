@@ -23,7 +23,7 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   SVG file in development and production, never an inline data URL.
 - `site/src/blog/favicon.png` is the owner-supplied team icon (hooded ninja with
   a terminal prompt and red mask), padded to square on black and resized to
-  192×192. It is the blog's tab and touch icon; the header keeps `mark.svg`.
+  192×192. It is the blog's tab and touch icon.
   SHA-256: `ee71f53e5e4c98fd4307a4224aaccdedeafc82bca83259799f78b3004ed5914c`.
 - `site/src/blog/og.png` is the 1200×630 link-preview card for every blog page:
   the same team icon beside the journal title, description and `tmt.ninja/blog`,
@@ -35,9 +35,23 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   (Ultra, formerly Max 20x, $26–35; Max 5x ~$17; Codex Pro 200 $9.7; Pro 100 $9.5)
   in the same palette.
   SHA-256: `356b46f2f0749757269e8c6fb83cf0c159f8685f76c69a1161cec38c05956658`.
+  `half-the-token-price.png` charts that article's high-effort Terra ÷ Sol ratios for
+  23–30 October 2026 (2.9× tokens per line, 3.9× lead fixes, 1.0× dollars per
+  1,000 lines) in the same palette.
+  SHA-256: `3a504e07330556580e3d3b76d51788c1f6264bbe85424453233645476f5c74f5`.
 
-The landing loads canonical design tokens but uses its own layout CSS. The blog
-retains its editorial structure with an independent black-only treatment.
+The owner-approved blog home mock (1 November 2026, #5908) supplies the shared
+sticky header/footer, index questions, statistics and date/article/key-number rows.
+`team-tmt.png` is the supplied rounded team tile used by the shared header; the
+team icon `favicon.png` remains the favicon. Product and Colab navigation is configured
+but hidden until those destinations are published, by the lead's explicit decision.
+The owner-supplied X handle links to `https://x.com/tmtTofu` as “Follow on X”.
+The committed `stats.json` snapshot is refreshed by `stats-update.mjs` (see the
+site README); build-time validation does not query host activity.
+
+The landing loads canonical design tokens but uses its own layout CSS. Shared
+site chrome exposes its own prefixed CSS tokens with site-color fallbacks; blog
+article typography retains its independent black-only treatment.
 These are committed local adaptations; builds never fetch the product repository.
 
 Upstream TMT source is MIT licensed. See LICENSE for the retained notice.

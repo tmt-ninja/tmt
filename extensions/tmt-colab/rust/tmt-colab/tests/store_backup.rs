@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds page_auto_cleaned, so dropping that table and the version is that store.
+/// step adds attachment_unreferenced, so dropping that table and the version is that store.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -45,7 +45,8 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_auto_cleaned; PRAGMA user_version={previous}"
+            // Schema 22 (#5876) adds no table: the previous schema is the same tables.
+            "PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -236,7 +237,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_auto_cleaned; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
@@ -287,7 +288,7 @@ fn a_migration_that_fails_partway_keeps_its_copy_and_every_older_one() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(
-            "DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
+            "DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
         )
         .unwrap();
     for old in [3, 7] {
@@ -387,4 +388,51 @@ fn a_newer_store_names_the_newest_copy_this_build_can_open() {
         Some(Fault::UnsupportedSchema(_, Some(found))) if *found == copy
     ));
     assert_eq!(version(&store), newer);
+}
+
+/// v1 JSON object envelopes (#5876) are parsed only where a v1 form is the stored or signed bytes:
+/// the store converter, legacy cloud rows, publication packets, attachments and the fold vectors.
+/// Every other reader takes v2 bytes; a new caller of the v1 parser must be named here.
+#[test]
+fn the_v1_object_parser_stays_inside_its_named_readers() {
+    const ALLOWED: &[&str] = &[
+        "src/store/schema.rs",
+        "src/object_channel/documents/originals.rs",
+        "src/publication.rs",
+        "src/page.rs",
+        "src/attachments/seal.rs",
+        "src/fold_vectors.rs",
+    ];
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    walk(&root.join("src"), &mut files);
+    let callers: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            !name.ends_with("tests.rs") && !path.components().any(|c| c.as_os_str() == "tests")
+        })
+        .filter(|path| fs::read_to_string(path).unwrap().contains("from_json_v1("))
+        .map(|path| {
+            path.strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|path| !ALLOWED.contains(&path.as_str()))
+        .collect();
+    assert!(
+        callers.is_empty(),
+        "v1 envelope parser outside its readers: {callers:?}"
+    );
 }

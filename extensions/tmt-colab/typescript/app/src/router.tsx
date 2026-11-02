@@ -4,6 +4,7 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
+import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -51,6 +52,7 @@ import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
+  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -975,8 +977,15 @@ function markOpen(name: string, from?: string) {
  * renderer, frame or page action and fetches nothing. The open has no deadline: the spinner stays
  * while the open progresses and gives way only to the router's error state when it really fails.
  */
+/** Set while the opening frame is drawn: the shell then names the page being opened (#5911). */
+const OpeningFrame = createContext<(shown: boolean) => void>(() => {});
 function PageFrame() {
   const { transport, space } = root.useRouteContext();
+  const opening = useContext(OpeningFrame);
+  useLayoutEffect(() => {
+    opening(true);
+    return () => opening(false);
+  }, [opening]);
   const pageId = useParams({ strict: false }).pageId;
   // The list the space home last loaded, which the quick switcher also shows at once.
   const listed = new SwitcherSourceStore(transport, space).initial();
@@ -1150,7 +1159,14 @@ const blocked = createRoute({
 function Shell() {
   const { transport, space } = root.useRouteContext();
   const router = useRouter();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // The header, main and footer follow the screen that is drawn, not the location the router is
+  // loading: they switch with the new content, never over the old one (#5911). While a slow page
+  // draws its opening frame, that frame is the screen.
+  const [opening, setOpening] = useState(false);
+  const pathname = useRouterState({
+    select: (state) =>
+      opening ? state.location.pathname : (state.resolvedLocation ?? state.location).pathname,
+  });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
@@ -1189,7 +1205,9 @@ function Shell() {
             />
           )}
           <main className={isPage ? 'page-main' : undefined}>
-            <Outlet />
+            <OpeningFrame.Provider value={setOpening}>
+              <Outlet />
+            </OpeningFrame.Provider>
           </main>
           {!isPage && (
             <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
@@ -1556,6 +1574,8 @@ function OpenPage({
   const toggleSelectionMode = useRef<() => void>(() => {});
   const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
+  // Chat's composer holds a send that failed before it was recorded (#5870).
+  const [chatUnsent, setChatUnsent] = useState(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1570,6 +1590,7 @@ function OpenPage({
     annotation,
     annotations,
     unsentAnnotations,
+    unsentHighlights,
     openUnsent,
     discardDraft,
     annotationRef,
@@ -1732,9 +1753,10 @@ function OpenPage({
     return true;
   };
   escapeAnnotation.current = () => {
-    if (panel === 'chat') {
-      if (!chatBusy.current) closeChat();
-    } else if (panel === 'comments') {
+    // Chat closes during a send like an anchored window: its composer stays mounted and keeps the
+    // send (#5870).
+    if (panel === 'chat') closeChat();
+    else if (panel === 'comments') {
       if (!statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
@@ -1929,8 +1951,17 @@ function OpenPage({
       annotation?.selector ?? undefined,
       threadTotal,
       quietThread,
+      unsentHighlights,
     );
-  }, [state, contentRevision, anchoredThreads, annotation, threadTotal, quietThread]);
+  }, [
+    state,
+    contentRevision,
+    anchoredThreads,
+    annotation,
+    threadTotal,
+    quietThread,
+    unsentHighlights,
+  ]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
@@ -1979,8 +2010,7 @@ function OpenPage({
         ])
       : undefined,
     activate: (event) => {
-      if (panel || annotationRef.current?.thread || statusBusy.current || chatBusy.current)
-        return false;
+      if (panel || annotationRef.current?.thread || statusBusy.current) return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
         openChat();
@@ -2056,6 +2086,13 @@ function OpenPage({
       ? readNeedsYouAcknowledgements(view.own ?? {}, attentionScope, attentionBinding.deviceId)
       : new Set(),
   );
+  const hierarchy = usePageHierarchy({
+    transport,
+    space,
+    pageId: snapshot.id,
+    work: view.work,
+    pageHref: (pageId) => routing.pageHref(pageId),
+  });
   const content = (
     <section
       className="page"
@@ -2079,19 +2116,24 @@ function OpenPage({
         remoteMenu={false}
         remoteChip={false}
         headingSuffix={
-          <PageProjects
-            transport={transport}
-            space={space}
-            pageId={snapshot.id}
-            title={view.title || snapshot.title}
-            request={projects.request}
-            from={projects.from}
-            open={() => openProjects()}
-            pinRequest={pinRequest}
-            onPinState={setPin}
-          />
+          <>
+            {hierarchy.subpages}
+            <PageProjects
+              transport={transport}
+              space={space}
+              pageId={snapshot.id}
+              title={view.title || snapshot.title}
+              request={projects.request}
+              from={projects.from}
+              open={() => openProjects()}
+              pinRequest={pinRequest}
+              onPinState={setPin}
+            />
+          </>
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+        // A sub-page names its parent where the remembered scope would be (#5506).
+        lead={hierarchy.parent}
         barRef={toolbar}
         page
         title={view.title || snapshot.title || text.unknownPageTitle}
@@ -2276,8 +2318,23 @@ function OpenPage({
           )}
           {/* A first comment that failed after its window closed is said here, never only on the
               quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
-          {unsentAnnotations.length > 0 && (
+          {(unsentAnnotations.length > 0 || (chatUnsent && panel !== 'chat')) && (
             <ul className="page-unsent" role="alert">
+              {/* A Chat message that failed after Chat closed is said the same way (#5870). */}
+              {chatUnsent && panel !== 'chat' && (
+                <li key="chat">
+                  <X aria-hidden="true" className="page-unsent-mark" />
+                  <span>{text.chatUnsent}</span>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.annotationUnsentOpen}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openChat();
+                    }}
+                  />
+                </li>
+              )}
               {unsentAnnotations.map((item) => (
                 <li key={item.key}>
                   <X aria-hidden="true" className="page-unsent-mark" />
@@ -2730,6 +2787,7 @@ function OpenPage({
               onBusy={(busy) => {
                 chatBusy.current = busy;
               }}
+              onUnsent={setChatUnsent}
               onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
               unsaved={draftsUnsaved}
               observationUnavailable={view.askUnavailable}

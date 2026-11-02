@@ -180,7 +180,7 @@ test('Mock 5: Add attaches a chosen page and keeps unavailable pages listed with
       has: page.locator('.work-add-title', { hasText: new RegExp(`^${title}$`) }),
     });
     await expect(option).toContainText(why);
-    await expect(option).toHaveAttribute('aria-disabled', 'true');
+    await expect(option).toBeDisabled();
   }
   await search.fill('Release plan');
   await expect(options.filter({ hasText: 'Release plan' }).first()).toContainText('This page');
@@ -194,6 +194,70 @@ test('Mock 5: Add attaches a chosen page and keeps unavailable pages listed with
   ]);
   await expect(row(band, 'Remote data plan design')).toBeVisible();
   await expect(head(band)).toContainText('2 of 5 done');
+});
+
+// #5868: the Add window's field is the list's search input, with its tokens and its matcher.
+const addField = (dialog: Locator) => dialog.getByRole('combobox', { name: 'Search pages' });
+const results = (dialog: Locator) =>
+  dialog.getByRole('option').filter({ hasNot: dialog.page().getByText(/^Create /) });
+for (const [kind, typed, option, chip] of [
+  ['project', 'project:pm', /^pm \(2\)$/, 'Remove project filter pm'],
+  ['by', 'by:atl', /^Atlas \(1\)$/, 'Remove author filter Atlas'],
+] as const)
+  test(`Add: a ${kind}: chip narrows the pages as on the list, and its × brings them back`, async ({
+    page,
+  }) => {
+    const band = await mount(page);
+    await expand(band);
+    const dialog = await openAdd(page, band);
+    const all = await results(dialog).count();
+    await addField(dialog).focus();
+    await page.keyboard.type(typed);
+    await page.getByRole('option', { name: option }).click();
+    const chosen =
+      kind === 'project'
+        ? ['Remote data plan design', 'Remote admin prototype']
+        : ['Remote data plan design'];
+    await expect(results(dialog)).toHaveCount(chosen.length);
+    for (const title of chosen)
+      await expect(results(dialog).filter({ hasText: title })).toHaveCount(1);
+    await dialog.getByRole('button', { name: chip }).click();
+    await expect(results(dialog)).toHaveCount(all);
+    expect(await calls(page)).toEqual([]);
+  });
+
+test('Add: Create takes only the free text beside a chip; Backspace on an empty field drops the chip', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  await expand(band);
+  const dialog = await openAdd(page, band);
+  await addField(dialog).focus();
+  await page.keyboard.type('project:pm');
+  await page.getByRole('option', { name: /^pm \(2\)$/ }).click();
+  await expect(dialog.getByRole('button', { name: 'Remove project filter pm' })).toBeVisible();
+  // Picking a token adds the space after it; then Backspace on the empty rest removes the chip.
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await expect(dialog.getByRole('button', { name: 'Remove project filter pm' })).toHaveCount(0);
+  await page.keyboard.type('project:pm');
+  await page.getByRole('option', { name: /^pm \(2\)$/ }).click();
+  await page.keyboard.type('Launch notes');
+  await expect(results(dialog)).toHaveCount(0);
+  await expect(dialog.getByText('No page matches.')).toBeVisible();
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({ path: capturePath(`work-add-chip-${width}-${theme}.png`) });
+    }
+  // Arrows and Enter work from the field: the highlighted Create row is picked.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  expect(await calls(page)).toEqual([
+    { page: expect.any(String), action: 'subpage.create', body: { title: 'Launch notes' } },
+  ]);
 });
 
 test('Create makes a page named as typed; Enter picks the highlighted row, Esc closes', async ({
@@ -287,6 +351,25 @@ test("a sub-page's state chip changes that page's state, and progress follows", 
   expect(await calls(page)).toEqual([
     { page: PAGE.machines, action: 'page.state', body: { state: 'done' } },
   ]);
+});
+
+test('an archived sub-page leaves the panel and its counts; unarchived, it is back in place (#5867)', async ({
+  page,
+}) => {
+  const band = await mount(page);
+  await expand(band);
+  const titles = () => band.locator('.work-row-line').getByRole('link').allInnerTexts();
+  const before = await titles();
+  await expect(head(band)).toContainText('2 of 4 done');
+  await page.evaluate((id) => window.__workPage!.setArchived!(id, true), PAGE.invites);
+  await expect(row(band, 'Invites tab')).toHaveCount(0);
+  await expect(head(band)).toContainText('1 of 3 done');
+  await page.evaluate((id) => window.__workPage!.setArchived!(id, false), PAGE.invites);
+  await expect(row(band, 'Invites tab')).toHaveCount(1);
+  await expect(head(band)).toContainText('2 of 4 done');
+  expect(await titles()).toEqual(before);
+  // Archiving writes nothing: the link was never removed.
+  expect(await calls(page)).toEqual([]);
 });
 
 test('a viewer sees the same tree without write controls', async ({ page }) => {
@@ -428,7 +511,7 @@ test('measured spacing matches the mock table at 1440 and 390', async ({ page })
     if (width === 1440) expect((await content.boundingBox())!.width).toBe(440);
     await expect(content).toHaveCSS('padding', '16px');
     // The field is one control-size-l area: its rule border sits inside, around icon and input.
-    await expect(dialog.locator('[data-slot="command-input-wrapper"]')).toHaveCSS('height', '36px');
+    await expect(dialog.locator('.page-list-search-field')).toHaveCSS('height', '36px');
     expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(40);
   }
   writeFileSync(capturePath('work-panel-spacing.json'), JSON.stringify(measured, null, 2));
@@ -471,8 +554,9 @@ for (const width of [390, 1440])
       await expand(band);
       const dialog = await openAdd(page, band);
       const input = dialog.getByRole('combobox');
-      const wrapper = dialog.locator('[data-slot="command-input-wrapper"]');
-      const list = dialog.locator('[cmdk-list]');
+      // The list's search field is itself the bordered area around its mark and chips.
+      const wrapper = dialog.locator('.page-list-search-field');
+      const list = dialog.locator('.tmt-listbox-results-list');
       await expect(dialog.getByRole('option')).toHaveCount(78);
       // Bounded by the viewport minus space-l on each side.
       const inset = await page.evaluate(() =>
@@ -502,20 +586,27 @@ for (const width of [390, 1440])
       await input.focus();
       const focus = await wrapper.evaluate((node) => {
         const style = getComputedStyle(node);
-        const input = node.querySelector('input')!;
         return {
           radius: style.borderRadius,
           tokenRadius: style.getPropertyValue('--tmt-ui-radius').trim(),
           outline: style.outlineStyle,
           width: style.outlineWidth,
           tokenWidth: style.getPropertyValue('--tmt-ui-focus-width').trim(),
-          inputOutline: getComputedStyle(input).outlineStyle,
+          // The mark sits inside the ring: one area, not a ring around the text alone.
+          markInside: (() => {
+            const mark = node
+              .closest('.work-add-search')!
+              .querySelector('svg')!
+              .getBoundingClientRect();
+            const field = node.getBoundingClientRect();
+            return mark.left >= field.left && mark.right <= field.right;
+          })(),
         };
       });
       expect(focus.radius).toBe(focus.tokenRadius);
       expect(focus.outline).toBe('solid');
       expect(focus.width).toBe(focus.tokenWidth);
-      expect(focus.inputOutline).toBe('none');
+      expect(focus.markInside).toBe(true);
       await capture('focused');
       const top = (await input.boundingBox())!.y;
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight));

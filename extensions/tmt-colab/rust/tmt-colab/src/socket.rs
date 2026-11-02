@@ -49,7 +49,10 @@ const SOCKET_PATH_BYTES: usize = 103;
 const CONTEXT_HEADER: &str = "tmt-device-context";
 const EVENTS: &str = "/.tmt/remote/device-events";
 const DESCRIBE: &str = "/.tmt/remote/describe";
-const PROTOCOL: &str = "colab-sync-v1";
+const PROTOCOL: &str = "colab-sync-v2";
+/// The protocol a tab from before #5876 offers: it is answered once with `upgradeRequired`, which
+/// that tab already shows, and closed, so a reload picks up the current app.
+const STALE_PROTOCOL: &str = "colab-sync-v1";
 const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Tunnel bounds; colab caps its own tunnels even though the door does too.
@@ -57,7 +60,7 @@ const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none
 pub struct Tunnels {
     pub cap: usize,
     /// A tunnel that receives no inbound bytes for this long closes, until
-    /// colab-sync-v1 heartbeats exist.
+    /// colab-sync-v2 heartbeats exist.
     pub idle: Duration,
 }
 impl Tunnels {
@@ -592,6 +595,11 @@ fn serve(
                         &source,
                         deadline,
                     ));
+                    let clocks = objects
+                        .lists_objects()
+                        .then(|| source().ok()?.store.unreferenced(&input.page).ok())
+                        .flatten();
+                    row.apply_unreferenced(clocks.as_deref());
                 }
                 Ok((200, serde_json::to_vec(&row)?))
             }
@@ -959,6 +967,14 @@ fn serve(
             && request.version.as_deref() == Some("13")
             && request.key.as_deref().is_some_and(websocket_key)
             && request.protocols.iter().any(|p| p == PROTOCOL);
+        if !accepted
+            && request.path == "/sync"
+            && request.protocols.iter().any(|p| p == STALE_PROTOCOL)
+            && let Some(key) = request.key.as_deref().filter(|key| websocket_key(key))
+        {
+            upgrade_required(&mut socket, key);
+            return;
+        }
         let Some(key) = request.key.filter(|_| accepted) else {
             let _ = response(&mut socket, 400, b"INVALID", false);
             return;
@@ -1905,3 +1921,19 @@ fn read(
 #[cfg(test)]
 #[path = "socket_tests.rs"]
 mod tests;
+
+/// Completes a stale tab's handshake under its own protocol, then sends one `upgradeRequired`
+/// error and a normal close: nothing of the page is read or sent (#5876).
+fn upgrade_required(socket: &mut (impl Write + ?Sized), key: &str) {
+    let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+    let text = br#"{"type":"error","code":"upgradeRequired"}"#;
+    let mut out = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\nSec-WebSocket-Protocol: {STALE_PROTOCOL}\r\n\r\n"
+    )
+    .into_bytes();
+    // One unmasked server text frame, then a close frame with status 1000.
+    out.extend([0x81, text.len() as u8]);
+    out.extend_from_slice(text);
+    out.extend([0x88, 0x02, 0x03, 0xe8]);
+    let _ = socket.write_all(&out);
+}

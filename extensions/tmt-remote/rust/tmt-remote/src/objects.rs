@@ -77,6 +77,14 @@ pub struct Receipt {
     pub payload_bytes: u64,
     pub binding: Vec<u8>,
 }
+/// One committed object of a listing. Observation only: it grants no read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListedObject {
+    pub key: OpaqueKey,
+    pub payload_sha256: Digest,
+    pub payload_bytes: u64,
+    pub adopted_at_ms: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Progress {
     pub intent: IntentId,
@@ -256,6 +264,27 @@ pub trait ObjectBackend: Send + Sync {
     fn discard(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<()>;
     /// Fence the namespace, then remove its payloads; originals stay as tombstones.
     fn remove_namespace(&self, namespace: NamespaceId, io: &IoBudget<'_>) -> BackendResult<()>;
+    /// Remove the payload of the one committed original at `key` whose raw digest and
+    /// length are exactly these, then release its payload and entry; the original stays
+    /// as a tombstone and is never executable again. Idempotent: an absent, already
+    /// removed or terminal key, or a fenced namespace (whose removal owns it), succeeds.
+    /// Staging, committing or unknown originals, and a different body, conflict.
+    fn remove_object(
+        &self,
+        key: BlobKey,
+        payload_sha256: Digest,
+        payload_bytes: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()>;
+    /// At most `limit` committed objects of an open namespace in ascending key order,
+    /// strictly after `after`. A fenced or unknown namespace lists nothing.
+    fn list(
+        &self,
+        namespace: NamespaceId,
+        after: Option<OpaqueKey>,
+        limit: u32,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<ListedObject>>;
 }
 
 /// Bytes charged for a payload: rounded up to the physical block, zero for an empty payload.

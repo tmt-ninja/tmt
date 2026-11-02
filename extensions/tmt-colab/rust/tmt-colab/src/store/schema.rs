@@ -169,8 +169,82 @@ const MIGRATIONS: &[&str] = &[
         CHECK(typeof(at_ms)='integer' AND at_ms>=0 AND at_ms<=9007199254740991),
         FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
     "#,
+    // Schema 21: when this machine first saw each listed attachment object unreferenced (#5284);
+    // local evidence only, never synced. A row is deleted as soon as the object is referenced
+    // again or gone, which restarts its grace period.
+    r#"
+    CREATE TABLE attachment_unreferenced(page TEXT NOT NULL,
+        object TEXT NOT NULL CHECK(length(object)=64 AND object NOT GLOB '*[^0-9a-f]*'),
+        payload_bytes INTEGER NOT NULL
+            CHECK(typeof(payload_bytes)='integer' AND payload_bytes>=0 AND payload_bytes<=9007199254740991),
+        since_ms INTEGER NOT NULL
+            CHECK(typeof(since_ms)='integer' AND since_ms>=0 AND since_ms<=9007199254740991),
+        PRIMARY KEY(page,object),
+        FOREIGN KEY(page) REFERENCES pages(page) ON DELETE CASCADE) WITHOUT ROWID;
+    "#,
+    // Schema 22: every stored object envelope is binary v2 (#5876). The SQL changes nothing; the
+    // step's rows are rewritten by `convert_objects_v2` in the same transaction.
+    r#"
+    SELECT 1;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
+/// The schema whose step rewrites stored object envelopes as binary v2 (#5876).
+const OBJECTS_V2: usize = 22;
+/// The columns that hold object envelopes, each with the hash column that names the object.
+const OBJECT_COLUMNS: &[(&str, &str, Option<&str>)] = &[
+    ("receipts", "payload", Some("hash")),
+    ("checkpoints", "payload", Some("hash")),
+    ("baselines", "envelope", None),
+];
+
+/// Rewrites every v1 JSON object envelope as binary v2 under the same hash: lossless, since the
+/// signature and hash cover the raw fields, not their JSON. A row already v2 is left alone, so a
+/// rerun changes nothing; a row that is neither stays as it is and its page refuses to read it.
+pub(super) fn convert_objects_v2(tx: &Connection) -> StoreResult<()> {
+    use tmt_colab_model::object::Envelope;
+    for (table, column, hash) in OBJECT_COLUMNS {
+        let rows: Vec<(i64, Vec<u8>, Option<Vec<u8>>)> = {
+            let mut query = tx.prepare(&format!(
+                "SELECT rowid,{column},{} FROM {table} WHERE {column} IS NOT NULL AND substr({column},1,1)=X'7B'",
+                hash.unwrap_or("NULL")
+            ))?;
+            query
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<Result<_, _>>()?
+        };
+        let mut update = tx.prepare(&format!("UPDATE {table} SET {column}=? WHERE rowid=?"))?;
+        for (rowid, json, named) in rows {
+            let Ok(envelope) = Envelope::from_json_v1(&json) else {
+                continue;
+            };
+            let same = envelope.hash().map_err(|_| Fault::Invalid)?;
+            if named.is_some_and(|named| named != same) {
+                continue;
+            }
+            update.execute(rusqlite::params![
+                envelope.to_bytes().map_err(|_| Fault::Invalid)?,
+                rowid
+            ])?;
+        }
+    }
+    Ok(())
+}
+/// Stored object rows still in the v1 JSON form after `convert_objects_v2`: rows it could not
+/// parse or whose hash did not match. Their pages refuse to read them.
+pub(super) fn unconverted_objects(connection: &Connection) -> StoreResult<i64> {
+    let mut count = 0;
+    for (table, column, _) in OBJECT_COLUMNS {
+        count += connection.query_row(
+            &format!(
+                "SELECT count(*) FROM {table} WHERE {column} IS NOT NULL AND substr({column},1,1)=X'7B'"
+            ),
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+    }
+    Ok(count)
+}
 /// How many pre-update copies stay: the one just taken and the newest other by the schema it was
 /// taken at, so two upgrades in a row still leave a way back past the first.
 const COPIES_KEPT: usize = 2;
@@ -225,6 +299,9 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     };
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
         tx.execute_batch(sql)?;
+        if index + 1 == OBJECTS_V2 {
+            convert_objects_v2(&tx)?;
+        }
         tx.pragma_update(None, "user_version", (index + 1) as u32)?;
     }
     if version == CURRENT_VERSION {

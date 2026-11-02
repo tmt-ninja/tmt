@@ -3,7 +3,8 @@ import type { ComposerEdit } from './components/message-composer-edit.js';
 import { DraftSession } from './draft-store.js';
 import { usePageEnvironment } from './page-environment.js';
 import type { mountRenderer } from './renderer.js';
-import type { SelectionRect } from './renderer.js';
+import type { SelectionRect, UnsentHighlight } from './renderer.js';
+import { shareView } from './share-view.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
 
@@ -71,7 +72,7 @@ export function useAnnotations({
   const sending = useRef(new Set<string>());
   // The annotations whose send failed before a record: their composer holds the failed row.
   const unsent = useRef(new Set<string>());
-  const [, setUnsentVersion] = useState(0);
+  const [, setSendVersion] = useState(0);
   // The annotations whose last send recorded its message; recovery is on its thread from then on.
   const recorded = useRef(new Set<string>());
   const annotationRef = useRef(annotation);
@@ -187,6 +188,16 @@ export function useAnnotations({
    * its composer keeps the send, the failed row and the files. */
   function closeAnnotation(focusPage: boolean) {
     if (!annotation || statusBusy.current) return;
+    // Only a deliberate empty edit discards a failure. Send's automatically cleared field is not
+    // that action: its retained composer still owns the failed row, draft and files.
+    if (
+      unsent.current.has(annotation.key) &&
+      annotationDraft.current.edited === true &&
+      annotationDraft.current.value.trim() === ''
+    ) {
+      unsent.current.delete(annotation.key);
+      setSendVersion((n) => n + 1);
+    }
     if (!retained(annotation.key)) {
       const key = annotationKey(annotation);
       keepDraft(key, typed() || annotationDraft.current.edited ? annotationDraft.current : null);
@@ -202,18 +213,17 @@ export function useAnnotations({
   function annotationSending(key: string, busy: boolean) {
     if (busy) {
       sending.current.add(key);
-      if (unsent.current.delete(key)) setUnsentVersion((n) => n + 1);
+      unsent.current.delete(key);
       recorded.current.delete(key);
+      setSendVersion((n) => n + 1);
       return;
     }
     if (!sending.current.delete(key)) return;
-    // A new annotation whose send failed before a record keeps its failed row here; a reply's
-    // draft goes back to its thread's composer as before.
+    setSendVersion((n) => n + 1);
+    // Every pre-record failure stays with its composer, including a reply: its failed row and
+    // files cannot be reconstructed from the saved text draft alone.
     const value = annotationsRef.current.find((item) => item.key === key);
-    if (!recorded.current.has(key) && value && !value.thread) {
-      unsent.current.add(key);
-      setUnsentVersion((n) => n + 1);
-    }
+    if (!recorded.current.has(key) && value) unsent.current.add(key);
     if (key !== annotationRef.current?.key && !unsent.current.has(key))
       setAnnotations((all) => all.filter((item) => item.key !== key));
   }
@@ -230,7 +240,7 @@ export function useAnnotations({
     );
     if (!held) return;
     unsent.current.delete(held.key);
-    setUnsentVersion((n) => n + 1);
+    setSendVersion((n) => n + 1);
     setAnnotations((all) => all.filter((value) => value.key !== held.key));
   }
   /** Shows a hidden annotation whose send failed before a record: its failed row, draft and Retry. */
@@ -245,6 +255,7 @@ export function useAnnotations({
   /** An annotation's send recorded its message; its delivery may still be running. */
   function annotationRecorded(key: string) {
     recorded.current.add(key);
+    setSendVersion((n) => n + 1);
   }
   const closeRef = useRef(closeAnnotation);
   closeRef.current = closeAnnotation;
@@ -282,7 +293,7 @@ export function useAnnotations({
   function continueAnnotation(key: string, ref: DiscussionRef) {
     const value = annotationsRef.current.find((item) => item.key === key);
     if (!value) return;
-    if (unsent.current.delete(key)) setUnsentVersion((n) => n + 1);
+    if (unsent.current.delete(key)) setSendVersion((n) => n + 1);
     keepDraft(JSON.stringify(value.selector), null);
     setAnnotations((all) =>
       all.map((item) => (item.key === key ? { ...item, thread: ref, restored: undefined } : item)),
@@ -300,7 +311,16 @@ export function useAnnotations({
     if (!quote) selectionCleared.current();
   }
 
+  // Cosmetic paint only: failed quotes take priority, then creation order. No send is dropped
+  // when the bounded renderer projection fills; all failed windows stay in the page notice.
+  const unsentHighlights = useRef<UnsentHighlight[]>([]);
+  unsentHighlights.current = shareView(
+    unsentHighlights.current,
+    projectUnsentHighlights(annotations, sending.current, unsent.current, recorded.current),
+  );
+
   return {
+    unsentHighlights: unsentHighlights.current,
     selectionMode,
     setSelectionMode,
     selector,
@@ -309,7 +329,7 @@ export function useAnnotations({
     currentRectangle,
     annotation,
     annotations,
-    // The closed windows whose first comment was not sent; the page names each with an Open action.
+    // Closed windows whose current send failed before its record; each has an alert and Open.
     unsentAnnotations: annotations.filter(
       (value) => value.key !== visibleKey && unsent.current.has(value.key),
     ),
@@ -335,4 +355,26 @@ export function useAnnotations({
     openThread,
     continueAnnotation,
   };
+}
+
+/** Paint projection only; every retained composer and failure notice outlives this 64-quote cap. */
+export function projectUnsentHighlights(
+  annotations: readonly Annotation[],
+  sending: ReadonlySet<string>,
+  failed: ReadonlySet<string>,
+  recorded: ReadonlySet<string>,
+): UnsentHighlight[] {
+  const candidates = annotations.flatMap((value) => {
+    if (value.thread || !value.selector || recorded.has(value.key)) return [];
+    const state = failed.has(value.key)
+      ? ('failed' as const)
+      : sending.has(value.key)
+        ? ('sending' as const)
+        : undefined;
+    return state ? [{ selector: value.selector, state }] : [];
+  });
+  return [
+    ...candidates.filter((value) => value.state === 'failed'),
+    ...candidates.filter((value) => value.state === 'sending'),
+  ].slice(0, 64);
 }

@@ -245,7 +245,7 @@ it('reads only the exact revoked-device cut, not replacement checkpoints or offl
     const entry = async (e: c.Envelope) => ({
       seq: c.decodeHeader(e.header()).context.streamSeq,
       envelopeHash: c.encodeBinary(await e.hash()),
-      envelope: c.encodeBinary(e.toJson()),
+      envelope: c.encodeBinary(e.toBytes()),
     });
     const objects = new Objects(a);
     await objects.admit(v.page, await entry(cp), 'checkpoint', 'content');
@@ -595,7 +595,10 @@ it('uses the signed sealed epoch cut before a later revoke, never unsealed or be
       {
         seq: value.seq,
         envelopeHash: value.envelopeHash,
-        envelope: transport(value.receipt),
+        // The frozen receipt is v1 JSON; the browser admits the v2 form (#5876).
+        envelope: c.encodeBinary(
+          c.Envelope.fromJson(c.text(JSON.stringify(value.receipt))).toBytes(),
+        ),
       },
       value.kind,
       'own',

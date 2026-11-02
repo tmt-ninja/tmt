@@ -264,7 +264,15 @@ fn the_declaration_follows_the_contract_grammar() {
             }
         );
         if let Some(chunk) = limits.get("chunkBytes") {
-            assert_eq!(chunk, 32768);
+            // Checkpoint chunks are 256 KiB bytesValue rows (#5876); authority pieces stay 32 KiB.
+            assert_eq!(
+                chunk,
+                if name == "checkpoints" {
+                    262_144
+                } else {
+                    32_768
+                }
+            );
             assert!(chunk.as_u64().unwrap() <= limits["maxObjectBytes"].as_u64().unwrap());
         }
         let bound = |key: &str| limits[key].as_u64().unwrap();
@@ -454,6 +462,6 @@ fn the_sync_mapping_keeps_discovery_separate_from_stream_catchup_and_write_autho
     for name in ["spaces", "pages", "links"] {
         assert!(resource(name)["sync"]["query"].is_null());
     }
-    assert_eq!(resource("checkpoints")["limits"]["chunkBytes"], 32768);
+    assert_eq!(resource("checkpoints")["limits"]["chunkBytes"], 262_144);
     assert_eq!(resource("authority")["limits"]["chunkBytes"], 32768);
 }

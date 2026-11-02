@@ -189,7 +189,7 @@ fn admitted_candidates(
                 hash: probe.hash()?,
                 previous: candidate.head_hash,
                 checkpoint: true,
-                bytes: probe.to_json()?,
+                bytes: probe.to_bytes()?,
             };
             if s.open_stream_object(key, page, &candidate.stream, name, &stored)
                 .is_err()
@@ -373,7 +373,7 @@ pub fn fold_others(
                     seq: candidate.head,
                     hash: envelope.hash()?,
                     previous: candidate.head_hash,
-                    bytes: &envelope.to_json()?,
+                    bytes: &envelope.to_bytes()?,
                 },
                 &signer,
             );

@@ -339,7 +339,7 @@ impl Engine {
                         seq,
                         hash,
                         previous,
-                        bytes: &envelope.to_json()?,
+                        bytes: &envelope.to_bytes()?,
                     })?;
                     previous = hash;
                 }

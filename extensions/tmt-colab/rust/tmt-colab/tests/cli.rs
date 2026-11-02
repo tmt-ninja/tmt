@@ -872,7 +872,7 @@ fn seed_page_with(pilot: &Pilot, title: &str, work: Option<&Value>) {
             seq: 1,
             hash: object.hash().unwrap(),
             previous: [0; 32],
-            bytes: &object.to_json().unwrap(),
+            bytes: &object.to_bytes().unwrap(),
         })
         .unwrap();
     store.close().unwrap();
@@ -1473,7 +1473,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let stored_pages: Vec<(String, String)> = conn
@@ -1526,6 +1526,119 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     pilot.start();
     assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
     pilot.stop();
+}
+
+#[test]
+fn serve_reports_a_page_whose_work_it_cannot_read_and_still_starts() {
+    let mut pilot = Pilot::new(None);
+    // No reader accepts this stored value, so the migration cannot tell what it holds (#5853).
+    seed_page_with(&pilot, "Unreadable work", Some(&json!({"version":9})));
+    let log = pilot.root.join("serve.log");
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    assert!(
+        said.contains(&format!(
+            "Page {PAGE}: its work could not be read, so it was not checked for task-era work"
+        )),
+        "{said}"
+    );
+}
+
+#[test]
+fn serve_says_how_many_stored_objects_it_could_not_convert() {
+    // #5876: a row the converter cannot parse stays as it is, and the serve log counts it.
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let changed = conn
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE rowid=(SELECT min(rowid) FROM receipts WHERE payload IS NOT NULL)",
+            [b"{not an envelope".to_vec()],
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+    conn.execute_batch("PRAGMA user_version=21").unwrap();
+    drop(conn);
+    let log = pilot.root.join("serve.log");
+    pilot.start_logging(&log);
+    pilot.stop();
+    let said = fs::read_to_string(&log).unwrap();
+    assert!(
+        said.contains(
+            "1 stored objects could not be converted to envelope v2; the pages that hold them refuse to read them"
+        ),
+        "{said}"
+    );
+}
+
+#[test]
+fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
+    // #5876: a schema 21 store holds v1 JSON envelopes; the serve's open rewrites them once.
+    use tmt_colab_model::object::Envelope;
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let page = pilot.call(&["page", "read", PAGE, "--json"]);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let rows = |conn: &rusqlite::Connection| -> Vec<(Vec<u8>, Vec<u8>)> {
+        conn.prepare(
+            "SELECT hash,payload FROM receipts WHERE payload IS NOT NULL
+             UNION ALL SELECT hash,payload FROM checkpoints WHERE payload IS NOT NULL",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    };
+    let current = rows(&conn);
+    assert!(!current.is_empty());
+    for (_, bytes) in &current {
+        let v1 = Envelope::from_bytes(bytes).unwrap().to_json_v1().unwrap();
+        for table in ["receipts", "checkpoints"] {
+            conn.execute(
+                &format!("UPDATE {table} SET payload=?1 WHERE payload=?2"),
+                rusqlite::params![v1, bytes],
+            )
+            .unwrap();
+        }
+    }
+    conn.execute_batch("PRAGMA user_version=21").unwrap();
+    drop(conn);
+    failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
+    pilot.start();
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let converted = rows(&conn);
+    assert_eq!(converted.len(), current.len());
+    for (hash, bytes) in &converted {
+        assert_eq!(&bytes[..5], b"TCOB\x02");
+        assert_eq!(
+            Envelope::from_bytes(bytes)
+                .unwrap()
+                .hash()
+                .unwrap()
+                .as_slice(),
+            hash
+        );
+    }
+    assert_eq!(
+        conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .unwrap(),
+        22
+    );
+    drop(conn);
+    // A second open changes nothing.
+    let before = fs::read(&db).unwrap();
+    pilot.start();
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(rows(&conn), converted);
+    drop(conn);
+    assert!(fs::read(&db).unwrap().len() == before.len());
 }
 
 #[test]
@@ -1609,11 +1722,10 @@ fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_c
         vec!["subpage", "create", PAGE, "--title", "New part", "--json"],
     ] {
         let refused = failure(&pilot, &args, "COLAB_WORK_NOT_MIGRATED");
+        // The refusal reads right where a serve is already running too (#5853).
+        let message = refused["error"]["message"].as_str().unwrap();
         assert!(
-            refused["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("work-not-migrated"),
+            message.contains("work-not-migrated") && message.contains("Restart tmt colab serve"),
             "{refused}"
         );
         assert_eq!(stored(), Some(legacy.clone()), "{args:?}");
@@ -1634,7 +1746,8 @@ fn serve_migrates_task_era_work_after_an_owner_only_copy_and_retries_a_page_it_c
     // The serve names the copy by its resolved path (macOS temp directories resolve via /private).
     assert!(
         said.contains("task-era work rewritten as sub-pages; its tasks are kept in /")
-            && said.contains(&format!("/selected/colab/migrations/5825/{PAGE}.json")),
+            && said.contains(&format!("/selected/colab/migrations/5825/{PAGE}.json"))
+            && said.contains("an unencrypted copy you may delete"),
         "{said}"
     );
     let kept: Value = serde_json::from_slice(&fs::read(&copy).unwrap()).unwrap();
@@ -6114,7 +6227,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -6235,7 +6348,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6",
         )
         .unwrap();
     assert_eq!(
@@ -6745,6 +6858,45 @@ fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
         calls.lines().collect::<Vec<_>>(),
         vec!["identity show --json"; 5]
     );
+}
+
+#[test]
+fn an_agent_patch_labels_its_publication_with_the_caller_it_already_observed() {
+    // #5882: the automatic lock's acquisition and its release check each observe the caller
+    // (a lost observation keeps the lock); the display-only publisher label reuses the last one
+    // instead of a third Core lookup.
+    let pilot = Pilot::new(None);
+    fs::write(
+        pilot.root.join("publisher"),
+        json!({"identity":{"name":"patching-agent","id":"50000000-0000-1000-8000-000000000001"}})
+            .to_string(),
+    )
+    .unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Once", "--layout", "column", "--json",
+    ]);
+    let page = created["pageId"].as_str().unwrap();
+    let file = pilot.root.join("page.html");
+    fs::write(&file, "<p>Patched by an agent</p>").unwrap();
+    let calls = || {
+        fs::read_to_string(pilot.root.join("publisher-calls"))
+            .unwrap()
+            .lines()
+            .filter(|line| *line == "identity show --json")
+            .count()
+    };
+    let before = calls();
+    let output = pilot
+        .command()
+        .env("TMT_AGENT", "1")
+        .args(pilot.patch_args(page, &["--file", file.to_str().unwrap(), "--json"]))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(calls() - before, 2);
+    let read = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(read["source"], "<p>Patched by an agent</p>");
+    assert_eq!(read["publisherAgent"], "patching-agent");
 }
 
 #[test]
@@ -12595,6 +12747,68 @@ fn subpage_refuses_cycle_without_writing() {
 #[test]
 fn subpage_refuses_self_without_writing() {
     check_subpage_refusal("self");
+}
+
+/// An archived sub-page keeps its link (#5867): `subpage ls` still lists it, marked archived, so an
+/// agent can see and detach it, but it leaves the page's progress and the list row's count.
+#[test]
+fn an_archived_sub_page_stays_listed_marked_archived_and_leaves_the_counts() {
+    let pilot = Pilot::new(None);
+    let source = pilot.root.join("archived-sub-page.html");
+    fs::write(&source, "<p>Source</p>").unwrap();
+    let pages: Vec<String> = ["Parent", "Kept", "Archived"]
+        .into_iter()
+        .map(|title| {
+            let made = pilot.call(&[
+                "page",
+                "create",
+                "--title",
+                title,
+                "--layout",
+                "column",
+                "--file",
+                source.to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ]);
+            made["pageId"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    let (parent, kept, archived) = (&pages[0], &pages[1], &pages[2]);
+    pilot.call(&["subpage", "attach", parent, kept, "--json"]);
+    pilot.call(&["subpage", "attach", parent, archived, "--json"]);
+    pilot.call(&["archive", archived, "--json"]);
+    let listed = pilot.call(&["subpage", "ls", parent, "--json"]);
+    assert_eq!(listed["children"], json!([kept, archived]), "{listed}");
+    assert_eq!(
+        listed["subpages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["pageId"].clone(), row["archived"].clone()))
+            .collect::<Vec<_>>(),
+        vec![(json!(kept), json!(false)), (json!(archived), json!(true))],
+        "{listed}"
+    );
+    assert_eq!(listed["progress"]["total"], 1, "{listed}");
+    let text = pilot
+        .command()
+        .args(["subpage", "ls", parent])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(text.stdout).unwrap();
+    assert!(
+        text.contains(&format!("{archived}  archived  Archived")),
+        "{text}"
+    );
+    let row = pilot.call(&["ls", "--json"])["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|page| page["pageId"] == json!(parent))
+        .cloned()
+        .unwrap();
+    assert_eq!(row["work"]["total"], 1, "{row}");
 }
 
 /// Sub-pages nest without a depth limit (#5820): a page with a parent takes children, a page with

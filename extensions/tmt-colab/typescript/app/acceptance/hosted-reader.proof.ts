@@ -117,7 +117,10 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       return (await response.json()) as {
         documents?: Array<{
           name: string;
-          fields: Record<string, { stringValue?: string; integerValue?: string }>;
+          fields: Record<
+            string,
+            { stringValue?: string; integerValue?: string; bytesValue?: string }
+          >;
         }>;
       };
     };
@@ -170,9 +173,9 @@ test('a hosted editor verifies native content, publishes own edit requests and o
                     Number(a.fields.index.integerValue) - Number(b.fields.index.integerValue),
                 );
                 const bytes = Buffer.concat(
-                  parts.map((part) => Buffer.from(part.fields.bytes.stringValue!, 'base64url')),
+                  parts.map((part) => Buffer.from(part.fields.bytes.bytesValue!, 'base64')),
                 );
-                return Number(decodeHeader(Envelope.fromJson(bytes).header()).context.streamSeq);
+                return Number(decodeHeader(Envelope.fromBytes(bytes).header()).context.streamSeq);
               });
             return Math.max(...logs.map((row) => Number(row.fields.seq.integerValue)), ...cuts);
           },
@@ -470,7 +473,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       'stream',
       'uid',
     ]);
-    const ownOriginal = Envelope.fromJson(new TextEncoder().encode(ownFields.envelope.stringValue));
+    const ownOriginal = Envelope.fromBytes(Buffer.from(ownFields.envelope.bytesValue, 'base64'));
     expect(decodeHeader(ownOriginal.header()).context.namespace).toBe('own');
     const originalId = ownMutation[0].update.name.split('/').at(-1);
     const readbackOf = () =>

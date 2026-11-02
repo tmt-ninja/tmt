@@ -98,7 +98,7 @@ requests run outside its Worker executor; historical fetch uses a detached Worke
 Complete committed reads check every range and raw digest before Colab asset crypto.
 The root-local read is the serve's owner-only `attachment-read` route (`attachments/ipc.rs`,
 `socket.rs`): it requires an established channel, never activates storage or opens a backend, and
-answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one maintenance worker, woken after admitted management changes, membership-changing device revocations and new channel generations; it also runs a bounded rotating sweep of signed deletion tombstones through `object_channel/namespace.rs`, whose native-only callbacks recheck the committed deletion before namespace removal; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. A second ordinary owner Save repairs complete image `src` attachment references from the latest verified source, with the complete revision and source digest fenced; pending old-to-new mappings remain in the same 16-slot pool until settled. Maintenance reconciles a committed swap before age cleanup and before another replacement. Production Remote declares Colab Local;
+answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one maintenance worker, woken after admitted management changes, membership-changing device revocations and new channel generations; it also runs a bounded rotating sweep of signed deletion tombstones through `object_channel/namespace.rs`, whose native-only callbacks recheck the committed deletion before namespace removal, and one page per minute of `attachments/unreferenced.rs` (#5284): the reference set read from the page, local first-seen clocks in space.db `attachment_unreferenced`, and version-4 `objects.list`/`objects.remove` whose callbacks recheck the page fence (`Store::page_fence`) under `Server::exclusive`; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. A second ordinary owner Save repairs complete image `src` attachment references from the latest verified source, with the complete revision and source digest fenced; pending old-to-new mappings remain in the same 16-slot pool until settled. Maintenance reconciles a committed swap before age cleanup and before another replacement. Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #2299, not a new Store/schema here. Read failures are four reasons
 (`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps
@@ -240,9 +240,21 @@ immutable one-comment send capture. Echo turns reserve their recipients' status 
 remain until the original send settles and its admitted outcomes replace them, so an intent
 awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
 windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
-send runs. It is dropped once that send records. A first comment that failed stays hidden
-with its draft, and `unsentAnnotations` lists it for the page's alert row, whose Open (like the same
-quote) shows it again; discarding its kept draft (`discardDraft`) releases it. Only a status change fences opening,
+send runs. It is dropped once that send settles with a record. A comment that failed before recording, including a reply, stays hidden
+with its failed row, files and draft, and `unsentAnnotations` lists it for the page's alert row.
+Open restores that window; a failed first comment also opens on its same quote.
+Discarding a kept first-comment draft (`discardDraft`)
+releases its window. For any retained failure, Edit followed by deliberately clearing its text
+and Close releases that window and alert; Send's automatically cleared field does not. The same owner
+projects unrecorded first-comment selectors and sending/failed paint state to the renderer;
+send and record transitions trigger a render, and unchanged projections retain their identity.
+Chat follows the same model with its one composer: the panel stays mounted while closed, so Chat
+closes during a send (×, Escape or another panel) and the send keeps running. The composer
+reports whether it holds a failed row (`onUnsent`), and the page lists a closed Chat's failed
+send in the same alert row, whose Open reopens Chat on that row.
+The 64-entry paint cap prioritizes failed then oldest windows without dropping any composer or
+notice. Recording removes temporary paint before delivery settles. No comment text, send handle
+or annotation key crosses the frame port. Only a status change fences opening,
 closing and Resolve all. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
@@ -1185,7 +1197,10 @@ Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and 
 under the nav on the signed-in and reader routes; dashboards do not draw it. It lists sub-pages
 only (#5820). `subpageTree` (`work-tree.ts`) derives the rows: direct sub-pages from the page's own
 `work.order`, deeper levels and titles/states from owner-list parent links, counts from direct
-sub-page manual states, and Add refusals (self, ancestor, already attached). The owner list comes
+sub-page manual states, and Add refusals (self, ancestor, already attached). Archived pages leave
+every level and count but keep their links; the serve's list `work` and the CLI's progress use the
+same rule (`Graph::progress` takes the archived set), while `subpage ls` still lists them marked
+`archived`. The owner list comes
 from `useLinkedPages` (`work-stages.ts`), without wider rows or child subscriptions; share readers
 make no owner reads and get no counts. The list is one CSS grid whose rows are subgrids, so the
 right-hand columns align at every depth. Its measured height participates in renderer viewport

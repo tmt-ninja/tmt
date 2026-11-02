@@ -496,7 +496,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
+        DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE attachment_unreferenced; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; DROP TABLE page_pins; DROP TABLE page_titles; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
@@ -868,7 +868,7 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
         )
         .unwrap();
         let hash = envelope.hash().unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         sender.0.send(Message::Text(frame("append",json!({"streamId":DEVICE,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})).to_string().into())).unwrap();
         assert_eq!(sender.1.poll(), Progress::Advanced);
         let ack: Value = serde_json::from_str(sender.0.read().unwrap().to_text().unwrap()).unwrap();
@@ -924,7 +924,7 @@ fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delive
         b"must not persist",
     )
     .unwrap();
-    sender.0.send(Message::Text(frame("append",json!({"streamId":DEVICE,"seq":"3","envelopeHash":values::encode_binary(&denied.hash().unwrap()),"envelope":values::encode_binary(&denied.to_json().unwrap())})).to_string().into())).unwrap();
+    sender.0.send(Message::Text(frame("append",json!({"streamId":DEVICE,"seq":"3","envelopeHash":values::encode_binary(&denied.hash().unwrap()),"envelope":values::encode_binary(&denied.to_bytes().unwrap())})).to_string().into())).unwrap();
     assert_eq!(sender.1.poll(), Progress::Advanced);
     let error: Value = serde_json::from_str(sender.0.read().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(error["code"], "DENIED");
@@ -1068,7 +1068,7 @@ fn browser_reads_created_page(f: &Fixture, page: &str, device: &str) {
         .unwrap();
     let registered: tmt_colab::store::owner::Device = serde_json::from_slice(&record).unwrap();
     let chain = certificate::Chain::from_json(&registered.chain).unwrap();
-    let object = object::Envelope::from_json(&bytes).unwrap();
+    let object = object::Envelope::from_bytes(&bytes).unwrap();
     let header = object::Header::decode(object.header()).unwrap();
     let update = object::open(
         &object,
@@ -1497,7 +1497,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"original attachment bytes",
     )
     .unwrap();
-    let raw = asset.to_json().unwrap();
+    let raw = asset.to_json_v1().unwrap();
     let descriptor = Descriptor {
         version: 1,
         attachment_id: ATTACHMENT.into(),
@@ -1589,7 +1589,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
                 seq: (index + 1) as u64,
                 previous,
                 hash: envelope.hash().unwrap(),
-                bytes: &envelope.to_json().unwrap(),
+                bytes: &envelope.to_bytes().unwrap(),
             })
             .unwrap();
         previous = envelope.hash().unwrap();
@@ -1725,7 +1725,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"original attachment bytes",
     )
     .unwrap();
-    let local_raw = local_asset.to_json().unwrap();
+    let local_raw = local_asset.to_json_v1().unwrap();
     let local_descriptor = Descriptor {
         author_device: local_id,
         object_id: object::Header::decode(local_asset.header())
@@ -1849,7 +1849,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         b"message attachment bytes",
     )
     .unwrap();
-    let message_raw = message_asset.to_json().unwrap();
+    let message_raw = message_asset.to_json_v1().unwrap();
     let message_descriptor = Descriptor {
         namespace: "own".into(),
         object_id: object::Header::decode(message_asset.header())
@@ -1980,7 +1980,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
             seq: 3,
             previous,
             hash: write.hash().unwrap(),
-            bytes: &write.to_json().unwrap(),
+            bytes: &write.to_bytes().unwrap(),
         })
         .unwrap();
     assert_ne!(page::revision(&store, &key, PAGE).unwrap(), current);

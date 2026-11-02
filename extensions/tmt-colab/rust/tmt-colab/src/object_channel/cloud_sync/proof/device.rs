@@ -19,7 +19,7 @@ use tungstenite::{Message, WebSocket, protocol::Role};
 
 /// The seed of the Remote-paired owner browser whose key vouches for the fixture devices.
 const PAIRED: u8 = 9;
-const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v1\r\n";
+const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: colab-sync-v2\r\n";
 
 pub(super) fn now() -> u64 {
     std::time::SystemTime::now()
@@ -118,7 +118,7 @@ impl Writer<'_> {
         )
         .unwrap();
         Sealed {
-            bytes: envelope.to_json().unwrap(),
+            bytes: envelope.to_bytes().unwrap(),
             hash: envelope.hash().unwrap(),
         }
     }

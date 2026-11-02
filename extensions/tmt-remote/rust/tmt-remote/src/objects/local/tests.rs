@@ -1452,3 +1452,126 @@ fn every_successful_return_rechecks_the_budget_before_disclosing() {
         );
     }
 }
+
+#[test]
+fn every_object_removal_window_settles_to_a_released_tombstone_in_an_open_namespace() {
+    let payload = bytes(C + 3, 21);
+    for point in [Milestone::ObjectMarked, Milestone::ObjectUnlinked] {
+        let env = Env::new();
+        let (gone, kept) = (spec(1, 1, 1, &payload), spec(2, 1, 2, &payload));
+        {
+            let local = env.open();
+            let b = backend(&local);
+            for sp in [&gone, &kept] {
+                send_all(&b, sp, &payload);
+                b.commit(sp.intent, &io()).unwrap();
+            }
+            local.observe(halt(point));
+            assert_eq!(
+                b.remove_object(gone.key, gone.payload_sha256, gone.payload_bytes, &io()),
+                Err(BackendError::Unavailable),
+                "{point:?}"
+            );
+            // Durably `removing` from the first window: never readable again.
+            local.observe(Arc::new(|_| true));
+            assert_eq!(b.stat(gone.key, &io()), Err(BackendError::Missing));
+        }
+        assert_eq!(env.row(1).0, "removing", "{point:?}");
+        assert_eq!(env.row(1).2, 1, "{point:?}: the charge stays until release");
+        assert_eq!(env.blob(1, 1).exists(), point == Milestone::ObjectMarked);
+        let local = env.open();
+        let b = backend(&local);
+        assert!(!env.blob(1, 1).exists());
+        assert_eq!(env.row(1).0, "deleted");
+        assert_eq!((env.row(1).1, env.row(1).2), (0, 0));
+        // The namespace stays open and the neighbour is unchanged.
+        assert_eq!(b.read(kept.key, 0, 4, &io()).unwrap().bytes, payload[..4]);
+        assert_eq!(
+            b.usage(Some(NamespaceId([1; 32])), &io()).unwrap(),
+            Usage {
+                charged_bytes: 2 * limits::OBJECT_RECORD_BYTES
+                    + payload_charge(payload.len() as u64)
+                    + limits::OBJECT_FENCE_BYTES,
+                entries: 1,
+                active_uploads: 0,
+                retained_identities: 2,
+            }
+        );
+        // A later upload in the same namespace still works.
+        let next = spec(3, 1, 3, b"x");
+        send_all(&b, &next, b"x");
+        assert_eq!(b.commit(next.intent, &io()), Ok(receipt_of(&next)));
+    }
+}
+
+#[test]
+fn object_removal_also_unlinks_a_staging_name_left_by_a_commit() {
+    let env = Env::new();
+    let payload = bytes(40, 22);
+    let sp = commit_stopped_at(&env, Milestone::StagingUnlinked, &payload);
+    let local = env.open();
+    let b = backend(&local);
+    // Settlement may already have removed the staging name; plant one to prove removal
+    // owns both names either way.
+    if !env.stage(1).exists() {
+        fs::hard_link(env.blob(1, 1), env.stage(1)).unwrap();
+        env.ledger()
+            .execute(
+                "UPDATE intents SET staged=1 WHERE intent=?1",
+                [vec![1u8; 32]],
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        b.remove_object(sp.key, sp.payload_sha256, sp.payload_bytes, &io()),
+        Ok(())
+    );
+    assert!(!env.blob(1, 1).exists() && !env.stage(1).exists());
+    assert_eq!(
+        env.row(1),
+        ("deleted".into(), 0, 0, 0, payload.len() as i64)
+    );
+}
+
+#[test]
+fn a_read_that_races_an_object_removal_discloses_nothing() {
+    let env = Env::new();
+    let payload = bytes(64, 23);
+    let sp = spec(1, 1, 1, &payload);
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    b.commit(sp.intent, &io()).unwrap();
+    let ledger = env.root.join("remote/objects.db");
+    local.observe(Arc::new(move |point| {
+        if point == Milestone::ReadBytes {
+            Connection::open(&ledger)
+                .unwrap()
+                .execute("UPDATE intents SET phase='removing'", [])
+                .unwrap();
+        }
+        true
+    }));
+    assert_eq!(b.read(sp.key, 0, 16, &io()), Err(BackendError::Missing));
+}
+
+#[test]
+fn an_unknown_original_is_never_unlinked_or_released_by_object_removal() {
+    let env = Env::new();
+    let payload = bytes(64, 24);
+    let sp = spec(1, 1, 1, &payload);
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    b.commit(sp.intent, &io()).unwrap();
+    env.ledger()
+        .execute("UPDATE intents SET phase='unknown'", [])
+        .unwrap();
+    let before = env.row(1);
+    assert_eq!(
+        b.remove_object(sp.key, sp.payload_sha256, sp.payload_bytes, &io()),
+        Err(BackendError::Conflict)
+    );
+    assert_eq!(env.row(1), before);
+    assert!(env.blob(1, 1).exists());
+}

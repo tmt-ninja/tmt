@@ -211,6 +211,24 @@ test('read refusals show ephemeral copy without changing the admitted operation 
   });
 });
 
+test('an action error stays through a refresh of the same records and clears when the ask changes (#5911)', async ({
+  page,
+}) => {
+  await mount(page);
+  await run(page, 'syncRecords');
+  await run(page, 'refuseRead', 'REMOTE_CORE_UNAVAILABLE');
+  await page.getByRole('button', { name: 'Check again' }).click();
+  const alert = page.locator('.ask-panel [role=alert]');
+  await expect(alert).toContainText('The agent service is unavailable.');
+  // The page reads its records again and nothing changed: the error is still the answer.
+  await run(page, 'syncRecords');
+  await page.waitForTimeout(100);
+  await expect(alert).toContainText('The agent service is unavailable.');
+  // The ask itself moved on: its old error no longer describes it.
+  await run(page, 'syncRecords', 'accepted');
+  await expect(alert).toHaveCount(0);
+});
+
 test('mobile floating Chat keeps the shared autocomplete visible and clickable', async ({
   page,
 }) => {
@@ -1046,7 +1064,7 @@ for (const [width, height, theme] of [
 }
 
 for (const width of [1440, 390]) {
-  test(`Escape closes Chat after suggestions, keeps its draft and fences a busy send ${width}`, async ({
+  test(`Escape closes Chat after suggestions, keeps its draft and keeps a busy send running ${width}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -1077,11 +1095,14 @@ for (const width of [1440, 390]) {
       chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
     ).toBeDisabled();
     await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+    // #5870: Escape closes Chat during the send, which keeps running in its hidden composer.
     await page.keyboard.press('Escape');
-    await expect(chat).toBeVisible();
+    await expect(chat).toBeHidden();
     expect((await run(page, 'proof')).sends).toEqual([]);
     await run(page, 'resumePrepare');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+    await (await pageAction(page, 'Chat')).click();
+    await expect(chat).toBeVisible();
   });
 }
 

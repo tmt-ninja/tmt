@@ -317,8 +317,47 @@ for (const surface of ['reply', 'chat']) {
         throw new Error('post-record private failure');
       };
     });
+    // Where the field sits in its composer, and the composer's height: this fixture stacks the
+    // composer under the history, so the echo itself moves the whole composer.
+    const place = () =>
+      input.evaluate((field) => {
+        const composer = field.closest('.annotation-compose')!.getBoundingClientRect();
+        return [field.getBoundingClientRect().top - composer.top, composer.height];
+      });
+    const empty = await place();
+    const composer = page.locator('.annotation-compose');
+    const capture = async (state: string) => {
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await composer.screenshot({
+          path: capturePath(`composer-slot-${surface}-${state}-${theme}.png`),
+        });
+      }
+      await page.emulateMedia({ colorScheme: null });
+    };
+    await capture('empty');
     await input.press('Enter');
     await expect(page.locator('.annotation-send-notice')).toContainText('(ref S13)');
+    await capture('filled');
+    // The notice fills the composer's reserved slot: the field neither moves nor grows (#5911).
+    // In Chat's narrow composer this long notice and its next step stay on one line, the notice
+    // ending in an ellipsis, its whole text in its name and its tip.
+    expect(await place()).toEqual(empty);
+    const notice = page.locator('.annotation-send-notice');
+    await expect(notice).toHaveCSS('text-overflow', 'ellipsis');
+    await notice.focus();
+    await expect(page.locator('.notice-line-tip').first()).toContainText(
+      (await notice.textContent())!.trim(),
+    );
+    // Its tip and focus ring follow Colab's theme, not the OS: light Colab on a dark OS.
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await expect(notice.locator('xpath=ancestor::*[@data-tmt-ui][1]')).toHaveAttribute(
+      'data-tmt-theme',
+      'light',
+    );
+    await page.evaluate(() => delete document.documentElement.dataset.theme);
+    await page.emulateMedia({ colorScheme: null });
     // Recorded: no Retry and no restored draft, which would send it twice.
     await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
     await expect(echo(page).getByRole('button', { name: 'Retry' })).toHaveCount(0);
@@ -385,7 +424,7 @@ async function openAnchoredThread(page: Page) {
 }
 
 for (const width of [1440, 390])
-  test(`chat: a failed row's Retry and Edit start flush with the message text: ${width}px`, async ({
+  test(`chat: a failed row's words start flush with the message text and Retry and Edit follow them: ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -403,8 +442,13 @@ for (const width of [1440, 390])
       await page.mouse.move(2, 2);
       await page.screenshot({ path: capturePath(`failed-row-actions-${width}.png`) });
     }
-    // A text action starts where the text above it starts, not one padding in (#4452).
-    expect(Math.abs(retry.x - body.x)).toBeLessThanOrEqual(1);
+    // The failure sits on the message's one status line (#5911): its words start where the text
+    // above starts, and Retry follows them on that line rather than adding one.
+    const alert = (await echo(page).getByRole('alert').boundingBox())!;
+    expect(Math.abs(alert.x - body.x)).toBeLessThanOrEqual(1);
+    expect(retry.y).toBeLessThan(alert.y + alert.height);
+    expect(retry.y + retry.height).toBeGreaterThan(alert.y);
+    expect(retry.x).toBeGreaterThan(alert.x + alert.width);
     // The two keep a gap between their labels.
     expect(edit.x - (retry.x + retry.width)).toBeGreaterThanOrEqual(12);
   });
@@ -568,7 +612,7 @@ test('chat: a failed message survives closing and reopening Chat', async ({ page
   await expect(echo(page)).toHaveCount(0);
 });
 
-test('anchored dialog: a failed reply survives closing the thread as the composer draft', async ({
+test('anchored dialog: a failed reply keeps its row while Comments restores its text draft', async ({
   page,
 }) => {
   const { dialog, input, page_ } = await openAnchoredThread(page);
@@ -581,12 +625,24 @@ test('anchored dialog: a failed reply survives closing the thread as the compose
   await expect(dialog).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
 
-  // The thread's composer remounts, so the row's draft comes back in it.
+  // #5850: Comments restores the text draft, while the original keyed composer retains the
+  // failed row (and any files). The row is hidden here, not destroyed or copied into Comments.
   const reopened = commentsRegion(page);
   const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
   await expect(composer).toHaveText('Keep this unsent reply.', { useInnerText: true });
-  await expect(echo(page)).toHaveCount(0);
+  await expect(reopened.getByTestId('comment-echo')).toHaveCount(0);
   await expect(reopened.getByTestId('comment-entry')).toHaveCount(1);
+  await expect(echo(page)).toHaveCount(1);
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(echo(page)).toBeHidden();
+  const notice = page.locator('.page-unsent').getByRole('listitem');
+  await expect(notice).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(echo(page)).toBeVisible();
+  await expect(echo(page)).toContainText('Keep this unsent reply.');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
 });
 
 test('comments: a reply that fails after Comments closed mid-send still holds its draft', async ({

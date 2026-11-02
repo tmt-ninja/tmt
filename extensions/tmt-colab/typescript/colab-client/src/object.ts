@@ -131,6 +131,9 @@ export function decodeHeader(raw: Uint8Array): {
   requireValue(equal(header(context, objectId, coveredDevice), raw));
   return coveredDevice === undefined ? { context, objectId } : { context, objectId, coveredDevice };
 }
+const ENVELOPE_MAGIC = new TextEncoder().encode('TCOB');
+/** Mirror object.rs MAX_ENVELOPE_BYTES. */
+export const MAX_ENVELOPE_BYTES = MAX_PLAINTEXT + 2048;
 const ceiling = (h: Uint8Array) =>
   decodeHeader(h).context.kind === 'update' ? 256 * 1024 : MAX_PLAINTEXT;
 export async function signatureInput(h: Uint8Array, ct: Uint8Array): Promise<Bytes> {
@@ -157,6 +160,28 @@ export class Envelope {
     const ct = binary(value.ciphertext, max + 16);
     requireValue(ct.length >= 16);
     return new Envelope(h, ct, binary(value.signature, 64, 64));
+  }
+  /** Binary v2 (#5876): `TCOB`, 2, u16 BE header length, header, signature, ciphertext. */
+  static fromBytes(raw: Uint8Array): Envelope {
+    requireValue(raw.length <= MAX_ENVELOPE_BYTES && raw.length >= 7);
+    requireValue(equal(raw.subarray(0, 4), ENVELOPE_MAGIC) && raw[4] === 2);
+    const length = (raw[5]! << 8) | raw[6]!;
+    requireValue(length >= 1 && length <= 1024 && raw.length >= 7 + length + 64 + 16);
+    const h = raw.subarray(7, 7 + length);
+    const ct = raw.subarray(7 + length + 64);
+    requireValue(ct.length <= ceiling(h) + 16);
+    return new Envelope(h, ct, raw.subarray(7 + length, 7 + length + 64));
+  }
+  toBytes(): Bytes {
+    const out = new Uint8Array(7 + this.#header.length + 64 + this.#ciphertext.length);
+    out.set(ENVELOPE_MAGIC);
+    out[4] = 2;
+    out[5] = this.#header.length >> 8;
+    out[6] = this.#header.length & 0xff;
+    out.set(this.#header, 7);
+    out.set(this.#signature, 7 + this.#header.length);
+    out.set(this.#ciphertext, 7 + this.#header.length + 64);
+    return out;
   }
   toJson(): Bytes {
     return text(

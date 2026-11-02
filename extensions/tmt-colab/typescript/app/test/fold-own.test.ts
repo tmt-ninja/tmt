@@ -67,7 +67,7 @@ async function replay(row: Row) {
   let refused: unknown;
   for (const frame of row.frames) {
     try {
-      const { checkpoints } = await objects.streams([frame]);
+      const { checkpoints } = await objects.streams([local(frame)]);
       admitted.push(...checkpoints);
     } catch (error) {
       refused = error;
@@ -594,3 +594,19 @@ it('opens a folded prefix and a signed later edit through the real Worker decode
     vi.unstubAllGlobals();
   }
 });
+
+/** The frozen vector keeps v1 JSON envelopes; the browser receives their v2 form (#5876). */
+function local<T extends { anchor?: unknown; checkpoint?: unknown; tail?: unknown }>(frame: T): T {
+  const convert = (entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || !('envelope' in entry)) return entry;
+    const json = c.binary((entry as { envelope: string }).envelope, 1 << 22);
+    return { ...entry, envelope: c.encodeBinary(c.Envelope.fromJson(json).toBytes()) };
+  };
+  const tail = Array.isArray(frame.tail) ? frame.tail.map(convert) : frame.tail;
+  return {
+    ...frame,
+    ...('anchor' in frame ? { anchor: convert(frame.anchor) } : {}),
+    checkpoint: convert(frame.checkpoint),
+    tail,
+  };
+}

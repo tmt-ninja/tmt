@@ -199,7 +199,7 @@ async function fixture(expiredCreator = false) {
     const entry = {
       seq: sequence.toString(),
       envelopeHash: c.encodeBinary(hash),
-      envelope: c.encodeBinary(env.toJson()),
+      envelope: c.encodeBinary(env.toBytes()),
     };
     sealed.push(entry);
     const result = await objects.admit(creator, entry);
@@ -679,7 +679,7 @@ it('historical ciphertext uses a detached actual Worker and never substitutes or
           {
             streamId: f.creator,
             namespace: c.decodeHeader(
-              c.Envelope.fromJson(c.binary(entry.envelope, c.MAX_ENVELOPE_JSON)).header(),
+              c.Envelope.fromBytes(c.binary(entry.envelope, c.MAX_ENVELOPE_BYTES)).header(),
             ).context.namespace,
             checkpoint: null,
             tail: [entry],

@@ -715,7 +715,7 @@ it('fills an uncached title with a joined read binding and never opens Live or A
     );
     expect(setup.events).toEqual([]);
     const connection = setup.titleConnections[0];
-    expect(connection.args.slice(5)).toEqual([['colab-sync-v1'], true, budget]);
+    expect(connection.args.slice(5)).toEqual([['colab-sync-v2'], true, budget]);
     expect(connection.join).toHaveBeenCalledOnce();
     expect(setup.cachedTitles.get('page')).toBe('Verified title');
     setup.discover.mockClear();

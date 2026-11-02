@@ -48,5 +48,7 @@ export function DesignPage({
   );
   const EmbeddedPage = useContext(EmbeddedPageContext);
   if (!EmbeddedPage) throw new Error('Design pages need the Colab page view.');
+  // The context carries one module-level component, so nothing is created during render.
+  // eslint-disable-next-line react/static-components
   return <EmbeddedPage key={pageId} pageId={pageId} routing={routing} />;
 }
