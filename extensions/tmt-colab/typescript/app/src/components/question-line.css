@@ -328,7 +328,7 @@
     :has(.rich-input-accessory > :not(.message-toolbar))
   ) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, auto);
   align-items: center;
 }
 .question-compact-controls

@@ -175,6 +175,11 @@ for (const width of [390, 1440]) {
       await expect(editor).toBeVisible();
       const editorBox = (await editor.boundingBox())!;
       expect(editorBox.height).toBeLessThan(45);
+      const recipient = editor.locator('.agent-chip-name');
+      await expect(recipient).toHaveText('@Agent 1');
+      expect(await recipient.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(
+        true,
+      );
       const replySend = (await card.locator('.message-toolbar-end button').last().boundingBox())!;
       expect(
         Math.abs(editorBox.y + editorBox.height / 2 - (replySend.y + replySend.height / 2)),
