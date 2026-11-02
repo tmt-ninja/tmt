@@ -103,7 +103,8 @@ Button changes colour only (a press never shrinks its hit area); Skeleton pulses
 
 `pnpm design-docs` serves the design-system docs and the Colab mock (`docs/`,
 `vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` (export `./docs-embed`)
-is the hosted entry Colab's Design route loads.
+is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
+(`tuiOracle()`), which reads the Ops oracle at build time.
 
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a

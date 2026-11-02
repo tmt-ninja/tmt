@@ -67,6 +67,7 @@ const entries: Record<string, string> = {
   './data-table': 'Components entry data-table',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',
+  './docs-oracle': 'the build-time plugin the docs site needs in its host',
   './test-fixtures/*': 'test fixtures',
 };
 
