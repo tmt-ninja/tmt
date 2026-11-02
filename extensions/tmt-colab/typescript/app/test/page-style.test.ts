@@ -42,7 +42,8 @@ it('ships a compact starter that is only glue on the injected design system', ()
   run(new URL(generator, repository).pathname);
   expect(read(skillFile)).toBe(skill);
   expect(Buffer.byteLength(style)).toBeLessThanOrEqual(2_000);
-  expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_300);
+  // +100 for the one tmt-design-system pointer line (#5921); its guidance lives in that skill.
+  expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_400);
   expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(12_000);
   expect(skill.split('\n').length - 1).toBeLessThanOrEqual(500);
   expect(skill).toContain('## Page look');

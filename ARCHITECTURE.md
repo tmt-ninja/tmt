@@ -584,6 +584,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   This edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
+- **Design systems.** A system is a page tree in the reserved project `tmt:design-system`: config and component blocks, releases as root attachments; the built-in tmt GUI release (`design/systems/tmt-gui/generated/bundle.json`) ships in app and executable. `design/systems/compiler.mjs` is the one compiler and page check; the frame defines a pinned release's elements; `tmt colab design` only reads.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
