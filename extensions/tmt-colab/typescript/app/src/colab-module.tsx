@@ -38,22 +38,44 @@ function pairedMount(slot: ShellSlot): URL | null {
   return mount.origin === location.origin && moduleMount(mount.pathname) === 'colab' ? mount : null;
 }
 
+/** The stylesheet this module linked, and which of its users need it on now. */
+let shared: { link: HTMLLinkElement; owners: Map<object, boolean> } | undefined;
+
 /**
  * Link the built module's stylesheet, beside it under the mount (the dev server injects styles).
- * `remove` takes it away again (nothing when the page already had it before this mount); `pause`
- * turns it off while Colab is suspended, so its rules never reach another route, without reloading.
+ * Every user (the route and each search entry) holds it: `pause` marks this user idle while Colab
+ * is suspended, and the link is off only while no user needs it, so Colab's rules never reach
+ * another route but a search opened there keeps its styles. `remove` drops this user; the last one
+ * takes the link away. A link the page already had before this module is left alone.
  */
 function stylesheet(): { remove(): void; pause(paused: boolean): void } {
   const none = { remove() {}, pause() {} };
   if (import.meta.env.DEV) return none;
   const href = new URL('./colab-module.css', import.meta.url).href;
-  if (document.querySelector(`link[href="${href}"]`)) return none;
-  const link = document.head.appendChild(
-    Object.assign(document.createElement('link'), { rel: 'stylesheet', href }),
-  );
+  if (!shared && document.querySelector(`link[href="${href}"]`)) return none;
+  shared ??= {
+    link: document.head.appendChild(
+      Object.assign(document.createElement('link'), { rel: 'stylesheet', href }),
+    ),
+    owners: new Map(),
+  };
+  const owner = {};
+  const held = shared;
+  const apply = () => (held.link.disabled = ![...held.owners.values()].includes(true));
+  held.owners.set(owner, true);
+  apply();
   return {
-    remove: () => link.remove(),
-    pause: (paused) => (link.disabled = paused),
+    remove() {
+      if (!held.owners.delete(owner)) return;
+      if (held.owners.size) return apply();
+      held.link.remove();
+      if (shared === held) shared = undefined;
+    },
+    pause(paused) {
+      if (!held.owners.has(owner)) return;
+      held.owners.set(owner, !paused);
+      apply();
+    },
   };
 }
 

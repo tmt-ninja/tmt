@@ -617,6 +617,7 @@ test.describe('the door serving the TMT app', () => {
       await rail.locator('a[data-id="ops"]').click();
       await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
       expect(await sockets()).toEqual(before);
+      expect(await sessions()).toBe(registered);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(true);
       // A suspended Colab is as quiet as a background tab: no request of its own for 10 s.
       const requests: string[] = [];
@@ -633,6 +634,22 @@ test.describe('the door serving the TMT app', () => {
       await expect
         .poll(() => renderer.evaluate(() => document.body.textContent ?? ''))
         .toContain('Inserted while away.');
+      // The global search opened on the other route shares Colab's stylesheet: it keeps its styles
+      // while Colab is suspended.
+      await page.keyboard.press('ControlOrMeta+k');
+      const search = page.getByRole('dialog', { name: 'Search TMT', exact: true });
+      await expect(search).toBeVisible();
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
+      expect(
+        await search
+          .locator('.quick-switcher-search-mark')
+          .evaluate((mark) => getComputedStyle(mark).position),
+      ).toBe('absolute');
+      await page.keyboard.press('Escape');
+      await expect(search).toHaveCount(0);
+      // The search keeps its own session until PR 2 of #5954 lends it the shell's; the walk back
+      // is measured from here.
+      const searched = { sockets: await sockets(), sessions: await sessions() };
       // Coming back opens nothing: the same frame document, no new socket or registration.
       // Back returns to the same page.
       await page.goBack();
@@ -644,8 +661,8 @@ test.describe('the door serving the TMT app', () => {
       expect(await renderer.evaluate(() => (window as Window & { kept?: boolean }).kept)).toBe(
         true,
       );
-      expect(await sockets()).toEqual(before);
-      expect(await sessions()).toBe(registered);
+      expect(await sockets()).toEqual(searched.sockets);
+      expect(await sessions()).toBe(searched.sessions);
       expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
       // Resume measures again: the same frame element shows the new text, and the frame and the
       // thread's marker sit where a fresh open puts them.
