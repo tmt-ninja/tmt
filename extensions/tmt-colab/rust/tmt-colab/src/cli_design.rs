@@ -19,6 +19,9 @@ use tmt_colab::{
 /// The reserved project every design-system page holds (contract: Projects).
 const DESIGN_SYSTEM_PROJECT: &str = "tmt:design-system";
 const CONFIG_OPEN: &str = r#"<script type="application/json" data-tmt-ds="design-system">"#;
+/// The built-in tmt GUI release every install can pin; the app resolves the same bytes.
+const BUILT_IN_BUNDLE: &str =
+    include_str!("../../../../../design/systems/tmt-gui/generated/bundle.json");
 
 macro_rules! command_spec {
     ($name:literal,$summary:literal,$example:literal,$details:literal) => {
@@ -39,8 +42,8 @@ pub fn command() -> Command {
     command_spec!("design","Read the space's design systems","tmt colab design show tmt-ui --json","A design system is a tree of Colab pages in the Design tab; each published version is a release a page pins with <meta name=\"tmt-ds\">. These commands only read. The tmt-design-system skill says how to use them.")
         .mut_arg("json", |arg| arg.global(true))
         .subcommand_required(true)
-        .subcommand(command_spec!("ls","List design systems and their released versions","tmt colab design ls --json","Reads the local store; a system with no release yet is listed with latest none and cannot be pinned.").alias("list"))
-        .subcommand(command_spec!("show","Show what one release offers: its pin, principles and components","tmt colab design show tmt-ui@1.0.2 --json","SYSTEM is the root page ID (a unique prefix works), the tag prefix or the name; @VERSION picks a release (default: the latest). Prints the pin line to copy and each component's tag, props, slots and examples. Reads the release bundle through the running serve: run tmt colab serve first.").arg(Arg::new("system").required(true).index(1).value_name("SYSTEM[@VERSION]").help("The system, optionally with @version")))
+        .subcommand(command_spec!("ls","List design systems and their released versions","tmt colab design ls --json","Lists the built-in tmt GUI release, then the space's own systems from the local store. A system with no release yet is listed with latest none and cannot be pinned.").alias("list"))
+        .subcommand(command_spec!("show","Show what one release offers: its pin, principles and components","tmt colab design show tmt-ui@1.0.2 --json","SYSTEM is the system ID from ls (a root page ID, unique prefix or tmt-gui), the tag prefix or the name; a space's own system wins over the built-in one. @VERSION picks a release (default: the latest). Prints the pin line to copy and each component's tag, props, slots and examples. A space's release is read through the running serve (run tmt colab serve first); the built-in one ships in this executable.").arg(Arg::new("system").required(true).index(1).value_name("SYSTEM[@VERSION]").help("The system, optionally with @version")))
 }
 
 /// The root page's config block, parsed; the block's JSON never holds a raw `<`.
@@ -59,6 +62,17 @@ fn releases(config: &Value) -> Vec<&Value> {
 struct System {
     id: String,
     config: Value,
+    /// The release bundle when it ships with TMT rather than as a root page's attachment.
+    built_in: Option<Value>,
+}
+fn built_in() -> Result<System> {
+    let bundle: Value = serde_json::from_str(BUILT_IN_BUNDLE)?;
+    Ok(System {
+        id: bundle["system"].as_str().unwrap_or_default().to_owned(),
+        config: json!({"name":bundle["name"],"prefix":bundle["prefix"],"components":bundle["components"],
+            "releases":[{"version":bundle["version"],"bundle":bundle["hash"]}]}),
+        built_in: Some(bundle),
+    })
 }
 impl System {
     fn row(&self) -> Value {
@@ -68,7 +82,8 @@ impl System {
             .collect();
         json!({"system":self.id,"name":self.config["name"],"prefix":self.config["prefix"],
             "latest":versions.last(),"versions":versions,
-            "components":self.config["components"].as_array().map_or(0, Vec::len)})
+            "components":self.config["components"].as_array().map_or(0, Vec::len),
+            "builtIn":self.built_in.is_some()})
     }
     fn matches(&self, operand: &str) -> bool {
         self.config["prefix"].as_str() == Some(operand)
@@ -99,9 +114,11 @@ fn systems(store: &Store, key: &Keyring) -> Result<Vec<System>> {
             found.push(System {
                 id: id.to_owned(),
                 config,
+                built_in: None,
             });
         }
     }
+    found.push(built_in()?);
     Ok(found)
 }
 
@@ -114,28 +131,43 @@ fn not_found(operand: &str) -> Box<dyn std::error::Error + Send + Sync> {
 
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let (mode, args) = args.subcommand().expect("required subcommand");
-    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
-    let store = Store::read(&layout)?;
-    store.require_current_schema()?;
-    let all = match systems(&store, &key) {
+    // Before the first page there is no space yet; the built-in system is still there.
+    let space = match Layout::existing(root)? {
+        Some(layout) => {
+            let key = Keyring::read(&layout)?;
+            let store = Store::read(&layout)?;
+            store.require_current_schema()?;
+            Some((layout, key, store))
+        }
+        None => None,
+    };
+    let all = match &space {
+        Some((_, key, store)) => systems(store, key),
+        None => built_in().map(|system| vec![system]),
+    };
+    let all = match all {
         Ok(all) => all,
         Err(error) => {
-            store.close()?;
+            if let Some((_, _, store)) = space {
+                store.close()?;
+            }
             return Err(error);
         }
     };
-    let operand = args.get_one::<String>("system");
+    let operand = args.try_get_one::<String>("system").ok().flatten();
     let (name, version) = match operand.map(|o| o.split_once('@').unwrap_or((o, ""))) {
         Some((name, version)) => (name, (!version.is_empty()).then_some(version)),
         None => ("", None),
     };
     // A page ID (or its unique prefix) names the root directly; else the prefix or the name does.
-    let by_id = operand.and_then(|_| resolve_page(&store, &key, name).ok());
+    let by_id = match (&space, operand) {
+        (Some((_, key, store)), Some(_)) => resolve_page(store, key, name).ok(),
+        _ => None,
+    };
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let chosen = all
         .iter()
-        .find(|s| by_id.as_deref() == Some(s.id.as_str()))
+        .find(|s| by_id.as_deref() == Some(s.id.as_str()) || s.id == name)
         .or_else(|| all.iter().find(|s| s.matches(name)));
     let reference = match (mode, chosen) {
         ("show", Some(system)) => {
@@ -159,27 +191,37 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 ),
             });
             Some(release.and_then(|release| {
+                if system.built_in.is_some() {
+                    return Ok((release.clone(), None));
+                }
                 let attachment = release["attachment"].as_str().ok_or_else(|| {
                     fail(
                         "COLAB_DESIGN_RELEASE_NOT_FOUND",
                         "This release has no bundle attachment.",
                     )
                 })?;
+                let (_, key, store) = space.as_ref().ok_or(Fault::Missing)?;
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
                 let selector = tmt_colab::attachments::resolve(
-                    &store,
-                    &key,
+                    store,
+                    key,
                     &system.id,
                     attachment,
                     &mut decoder,
                     deadline,
                 )?;
-                Ok((release.clone(), selector))
+                Ok((release.clone(), Some(selector)))
             }))
         }
         _ => None,
     };
-    store.close()?;
+    let (layout, space_id) = match space {
+        Some((layout, key, store)) => {
+            store.close()?;
+            (Some(layout), Some(key.space_id))
+        }
+        None => (None, None),
+    };
     let mut rows: Vec<(&str, String)> = Vec::new();
     let value = if mode == "ls" {
         for system in &all {
@@ -198,18 +240,28 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         if all.is_empty() {
             rows.push(("systems", "none".into()));
         }
-        json!({"spaceId":key.space_id,"systems":all.iter().map(System::row).collect::<Vec<_>>()})
+        json!({"spaceId":space_id,"systems":all.iter().map(System::row).collect::<Vec<_>>()})
     } else {
         let system = chosen.ok_or_else(|| not_found(name))?;
         let (release, selector) = reference.expect("show resolves its release")?;
-        let tmt_colab::attachments::ipc::Verified { bytes, .. } =
-            tmt_colab::attachments::ipc::read(&layout, &system.id, &selector)?;
-        let bundle: Value = serde_json::from_slice(&bytes).map_err(|_| {
-            fail(
-                "COLAB_DESIGN_RELEASE_INVALID",
-                "The release bundle is not readable JSON.",
-            )
-        })?;
+        let bundle: Value = match (&system.built_in, selector) {
+            (Some(bundle), _) => bundle.clone(),
+            (None, selector) => {
+                let selector = selector.expect("a space's release has an attachment");
+                let tmt_colab::attachments::ipc::Verified { bytes, .. } =
+                    tmt_colab::attachments::ipc::read(
+                        layout.as_ref().expect("a space's release has its space"),
+                        &system.id,
+                        &selector,
+                    )?;
+                serde_json::from_slice(&bytes).map_err(|_| {
+                    fail(
+                        "COLAB_DESIGN_RELEASE_INVALID",
+                        "The release bundle is not readable JSON.",
+                    )
+                })?
+            }
+        };
         if bundle["hash"] != release["bundle"] || bundle["version"] != release["version"] {
             return Err(fail(
                 "COLAB_DESIGN_RELEASE_INVALID",
@@ -257,7 +309,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             ));
         }
         rows.push(("examples", "use --json".into()));
-        json!({"spaceId":key.space_id,"system":system.id,"name":bundle["name"],"prefix":bundle["prefix"],
+        json!({"spaceId":space_id,"system":system.id,"name":bundle["name"],"prefix":bundle["prefix"],
             "version":bundle["version"],"pin":pin,"meta":format!("<meta name=\"tmt-ds\" content=\"{pin}\">"),
             "principles":bundle["principles"],"components":components})
     };

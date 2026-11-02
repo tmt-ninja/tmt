@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
   buildBundle,
   checkElements,
@@ -14,16 +14,14 @@ import {
 const template = JSON.parse(
   readFileSync(new URL('../../systems/tmt-gui/generated/template.json', import.meta.url), 'utf8'),
 ) as { system: DesignSystemConfig; components: ComponentDoc[] };
-const dist = new URL('../../systems/tmt-gui/dist/', import.meta.url);
+const builtIn = new URL('../../systems/tmt-gui/generated/bundle.json', import.meta.url);
 const sha256Hex = async (text: string) => createHash('sha256').update(text).digest('hex');
 const button = template.components[0]!;
 
 describe('buildBundle', () => {
-  it('rebuilds the checked-in template bundle byte for byte, named by its hash', async () => {
+  it('rebuilds the checked-in built-in bundle from the template', async () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
-    const [file] = readdirSync(dist);
-    expect(file).toBe(`${bundle.hash}.json`);
-    expect(JSON.parse(readFileSync(new URL(file!, dist), 'utf8'))).toEqual(bundle);
+    expect(JSON.parse(readFileSync(builtIn, 'utf8'))).toEqual(bundle);
     expect(bundle.components.map((component) => component.tag)).toEqual([
       'tmt-ui-button',
       'tmt-ui-badge',

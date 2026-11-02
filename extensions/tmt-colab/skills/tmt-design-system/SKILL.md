@@ -22,9 +22,11 @@ tmt colab design ls --json                       # systems, prefixes, released v
 tmt colab design show <system>[@version] --json  # one release (default: latest)
 ```
 
-`<system>` is the root page ID, the tag prefix or the name. `show` needs a running
-`tmt colab serve`. It prints `meta` (the pin line to copy), `principles`, and every component's
-`tag`, `props` (enum values or type, default), `slots` and `examples`. Read it once per page;
+`<system>` is the `system` from `ls`, the tag prefix or the name. `tmt-gui` is the built-in
+tmt GUI system (tags `tmt-ui-*`): every install can pin it, and its `show` needs nothing running.
+It is the default for TMT product mockups. A space's own systems need a running
+`tmt colab serve` for `show`. `show` prints `meta` (the pin line to copy), `principles`, and
+every component's `tag`, `props` (enum values or type, default), `slots` and `examples`. Read it once per page;
 there is no per-system skill.
 
 A system whose `latest` is `none` has no release yet. You cannot pin it. Tell the person that
@@ -47,6 +49,8 @@ page over. `tmt colab page check` covers the HTML rules, not these.
 
 ## Versions
 
+- The built-in `tmt-gui` release comes with TMT. After a TMT upgrade it may be a new release;
+  pages keep their pin and show a notice when TMT no longer carries it. Upgrade them as below.
 - A pin never moves by itself. A page stays on its release until someone changes the pin.
 - Edits in the Design tab change the system's draft. Pages see them only after a new version is
   published and the page's pin is upgraded to it.

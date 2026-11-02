@@ -120,12 +120,21 @@ async function readyFiles(page: Snapshot) {
   return files;
 }
 
+/** The built-in system's ID in a pin: `tmt-gui@<version>#<hash>`, no page behind it. */
+export const BUILT_IN_SYSTEM = 'tmt-gui';
 /** Bundles read from a root page's release attachment, cached by hash for the session. */
 const bundles = new Map<string, Promise<DesignSystemBundle | undefined>>();
 /** Where the renderer reads a pinned bundle: the system root page's release of that version. */
 export function pageDesignSystems(transport: PageTransport): DesignSystemSource {
   return (pin) => {
     let bundle = bundles.get(pin.hash);
+    if (!bundle && pin.system === BUILT_IN_SYSTEM) {
+      // The built-in tmt GUI release ships with the app: every install can pin it (#5921).
+      bundle = import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
+        ({ default: builtIn }) => builtIn as unknown as DesignSystemBundle,
+      );
+      bundles.set(pin.hash, bundle);
+    }
     if (!bundle) {
       bundle = withPage(transport, pin.system, async (root) => {
         const config = readBlock<DesignSystemConfig>(root.source, 'design-system');

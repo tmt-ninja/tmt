@@ -4,8 +4,9 @@
 //   node design/systems/compile.mjs --write|--check [system-dir ...]
 //
 // Outputs, per system directory:
-//   dist/sha256-<hex>.json   the template's release bundle: tokens and every component's props,
-//                            slots, CSS and code (a function body that returns the factory); the
+//   generated/bundle.json    the template's release bundle, the built-in tmt GUI release every
+//                            install can pin (#5921): tokens and every component's props, slots,
+//                            examples, CSS and code (a function body that returns the factory); the
 //                            skeleton that runs it ships with each surface, not in the bundle
 //   generated/pages.json     the tmt GUI docs (foundations, components, patterns) as the static doc
 //                            pages a new system copies under its root, rendered from browser-ui/docs
@@ -15,7 +16,7 @@
 //   generated/index.d.ts     prop types generated from each props schema
 //   generated/style.css      the components' CSS, for the product build
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildBundle, propType } from './compiler.mjs';
@@ -156,7 +157,7 @@ async function compile(dir) {
   const bundle = await buildBundle(config.id, config, components, sha256Hex);
   const from = relative(repo, dir);
   const files = new Map([
-    [`dist/${bundle.hash}.json`, `${JSON.stringify(bundle, null, 1)}\n`],
+    ['generated/bundle.json', `${JSON.stringify(bundle, null, 1)}\n`],
     [
       'generated/template.json',
       `${JSON.stringify({ system: { ...config, components: components.map(({ tag }) => ({ tag, status: 'stable' })) }, components }, null, 1)}\n`,
@@ -200,10 +201,6 @@ async function compile(dir) {
     ]),
   ]);
   const drift = [];
-  const distDir = join(dir, 'dist');
-  const stale = existsSync(distDir)
-    ? readdirSync(distDir).filter((name) => name !== `${bundle.hash}.json`)
-    : [];
   for (const [name, text] of files) {
     const path = join(dir, name);
     if (existsSync(path) && readFileSync(path, 'utf8') === text) continue;
@@ -213,8 +210,6 @@ async function compile(dir) {
       writeFileSync(path, text);
     }
   }
-  if (mode === '--check') drift.push(...stale.map((name) => `dist/${name} (stale)`));
-  else for (const name of stale) rmSync(join(distDir, name));
   if (drift.length) throw new Error(`${from}: out of date: ${drift.join(', ')}; run --write`);
   console.log(`${from}: ${config.id}@${config.version}#${bundle.hash}`);
 }

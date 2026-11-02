@@ -5524,13 +5524,19 @@ The name `tmt-design-system` prints the companion skill installed beside the roo
 
 ### Design systems from the command line (#5921)
 
-`tmt colab design ls [--json]` lists the space's design systems: pages in the reserved project
-`tmt:design-system` whose source holds the `data-tmt-ds="design-system"` config block. Each row
-gives the root page ID as `system`, `name`, `prefix`, the released `versions` and `latest` (null
-before the first release). It reads only the local store.
-`tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as the root page ID (unique
-prefix), the prefix or the name, and VERSION (default: the latest release) to the root page's
-release attachment, read through the running serve under current access. The bundle must match
+`tmt colab design ls [--json]` lists the built-in tmt GUI system, then the space's design systems:
+pages in the reserved project `tmt:design-system` whose source holds the
+`data-tmt-ds="design-system"` config block. Each row gives `system` (`tmt-gui`, or the root page
+ID), `name`, `prefix`, the released `versions`, `latest` (null before the first release) and
+`builtIn`. It reads only the local store, and lists the built-in system even before a space exists
+(`spaceId` null). The built-in release is `design/systems/tmt-gui/generated/bundle.json`, embedded in
+both the executable and the app: a pin `tmt-gui@<version>#<hash>` resolves to it with no page behind
+it, and only while this build carries that exact version and hash.
+`tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
+or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
+built-in one, and VERSION (default: the latest release). A space's release is the root page's
+attachment, read through the running serve under current access; the built-in release is read
+from the executable. The bundle must match
 its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
 prints `pin`, the `meta` line to copy, `principles` and each component's `tag`, `props`, `slots` and
 `examples`, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
