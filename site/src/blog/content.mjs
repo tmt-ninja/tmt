@@ -42,10 +42,34 @@ export function metadata(value) {
   if (
     !value ||
     keys.some((key) => !Object.hasOwn(value, key)) ||
-    Object.keys(value).some((key) => ![...keys, "tags"].includes(key))
+    Object.keys(value).some((key) => ![...keys, "tags", "keyNumber"].includes(key))
   )
-    throw new Error("Metadata requires slug, title, summary, date, language and optional tags");
+    throw new Error(
+      "Metadata requires slug, title, summary, date, language and optional tags/keyNumber",
+    );
   if (Object.hasOwn(value, "tags")) validatePostTags(value.tags);
+  if (Object.hasOwn(value, "keyNumber")) {
+    const number = value.keyNumber;
+    if (
+      !number ||
+      Array.isArray(number) ||
+      typeof number !== "object" ||
+      Object.keys(number).length !== 2 ||
+      !["value", "label"].every((key) => Object.hasOwn(number, key))
+    )
+      throw new Error("Invalid keyNumber: requires value and label");
+    for (const [key, limit] of [
+      ["value", 32],
+      ["label", 100],
+    ])
+      if (
+        typeof number[key] !== "string" ||
+        !number[key].trim() ||
+        number[key].length > limit ||
+        [...number[key]].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+      )
+        throw new Error(`Invalid keyNumber ${key}`);
+  }
   if (!slugPattern.test(value.slug) || value.slug.length > 100)
     throw new Error("Invalid post slug");
   for (const [key, limit] of [
