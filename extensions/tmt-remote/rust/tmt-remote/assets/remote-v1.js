@@ -12943,10 +12943,14 @@ function shellApp() {
 			started?.navigate(href);
 		}
 	});
+	/** The instance still loading or mounting: a later route load ends it before it draws. */
+	let mounting;
 	const host = startShellHost(root, routes.map((route) => ({
 		...route,
 		async load(remembered, settled) {
+			mounting?.abort();
 			const lifetime = new AbortController();
+			mounting = lifetime;
 			status.hidden = true;
 			settled().then((read) => {
 				if (!observed) {
@@ -12981,7 +12985,12 @@ function shellApp() {
 					}
 				});
 				publishSearch = publish;
-				const given = await module.mount(hosted(slot));
+				let given;
+				try {
+					given = await module.mount(hosted(slot));
+				} finally {
+					if (mounting === lifetime) mounting = void 0;
+				}
 				const mounted = typeof given === "function" ? { release: given } : given;
 				const quiet = () => {
 					active = false;

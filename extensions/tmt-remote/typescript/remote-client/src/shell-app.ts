@@ -455,12 +455,16 @@ export function shellApp(): ShellHost | undefined {
       started?.navigate(href);
     },
   });
+  /** The instance still loading or mounting: a later route load ends it before it draws. */
+  let mounting: AbortController | undefined;
   const ownedRoutes = routes.map((route): ShellRoute => ({
     ...route,
     async load(remembered, settled) {
-      // Each module instance has its own lifetime, ended only by its release: a module the
-      // shell keeps suspended keeps its signal (#5954).
+      // Each mounted instance has its own lifetime, ended only by its release, so a module the
+      // shell keeps suspended keeps its signal (#5954); one superseded while it mounts ends here.
+      mounting?.abort();
       const lifetime = new AbortController();
+      mounting = lifetime;
       status.hidden = true;
       // The first read is the live description, never a remembered answer used for the rail.
       void settled().then((read) => {
@@ -499,7 +503,12 @@ export function shellApp(): ShellHost | undefined {
             },
           });
           publishSearch = publish;
-          const given = await module.mount(hosted(slot));
+          let given: Awaited<ReturnType<typeof module.mount>>;
+          try {
+            given = await module.mount(hosted(slot));
+          } finally {
+            if (mounting === lifetime) mounting = undefined;
+          }
           const mounted = typeof given === 'function' ? { release: given } : given;
           const quiet = () => {
             active = false;
