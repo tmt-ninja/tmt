@@ -1,12 +1,12 @@
-/** Read-only extraction of real Ops painter fixtures. Never records or changes the Rust oracle. */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-const root = new URL('../../../../', import.meta.url);
+/** Read-only extraction of real Ops painter fixtures, run at build time by oracle-module.mjs. Never
+ * records or changes the Rust oracle. */
+import { readFileSync } from 'node:fs';
+export const root = new URL('../../../../', import.meta.url);
 const oraclePath = 'extensions/tmt-ops/rust/tmt-ops/src/board/home/tests/oracle.json';
 const themePath = 'rust/crates/tmt-cli-style/src/theme.rs';
-const stylePath = 'rust/crates/tmt-tui/src/style.rs';
+/** Every file extract() reads. ci-scope.mjs selects the browser_ui audits for each of them. */
+export const sources = [oraclePath, themePath, 'design/tokens/tokens.json'];
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
-const hash = (text) => createHash('sha256').update(text).digest('hex');
 // These scenes select the real Agents workspace, including its overlays and retained data states.
 export const scenes = [
   'overview',
@@ -55,13 +55,12 @@ export const scenes = [
   'terminal-live',
   'terminal-connecting',
 ];
-/** Only TUI-owned token inputs participate; GUI foundation edits are independent. */
-export function tokenInput(tokens) {
-  return JSON.stringify({ color: tokens.color, mark: tokens.mark, surface: tokens.surface });
-}
-export function extract() {
-  const raw = read(oraclePath);
-  const oracle = JSON.parse(raw);
+/** The listed scenes from the Ops oracle. A listed scene the oracle no longer records fails here, so
+ * the Ops change that renames or drops it fails its own browser_ui audits. */
+export function extract(oracle = JSON.parse(read(oraclePath))) {
+  const missing = scenes.filter((scene) => !oracle.frames.some((frame) => frame.state === scene));
+  if (missing.length)
+    throw new Error(`The Ops oracle (${oraclePath}) has no frames for: ${missing.join(', ')}`);
   const frames = oracle.frames
     .filter((frame) => scenes.includes(frame.state))
     .map((frame) => ({
@@ -87,11 +86,7 @@ export function extract() {
   const lineDictionary = [...new Set(frames.flatMap((frame) => frame.lines))];
   const styleDictionary = [...new Set(frames.flatMap((frame) => frame.styles))];
   return {
-    provenance: [oraclePath, themePath, stylePath, 'design/tokens/tokens.json'].map((path) => ({
-      path,
-      sha256: hash(path === 'design/tokens/tokens.json' ? tokenInput(tokens) : read(path)),
-      ...(path === 'design/tokens/tokens.json' ? { fields: ['color', 'mark', 'surface'] } : {}),
-    })),
+    sources,
     ansiRgb,
     roles: tokens.color,
     marks: tokens.mark,
@@ -109,12 +104,4 @@ export function extract() {
       styles: frame.styles.map((line) => styleDictionary.indexOf(line)),
     })),
   };
-}
-if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  const target = new URL('./data/oracle.json', import.meta.url);
-  const text = JSON.stringify(extract()) + '\n';
-  if (process.argv.includes('--check')) {
-    if (JSON.stringify(JSON.parse(readFileSync(target, 'utf8'))) !== JSON.stringify(extract()))
-      throw new Error('TUI docs oracle is stale; run docs/tui/generate.mjs');
-  } else writeFileSync(target, text);
 }

@@ -623,6 +623,10 @@ const BROWSER_UI_INPUTS = new Set([
   'typescript/package.json',
   'typescript/pnpm-workspace.yaml',
   'typescript/pnpm-lock.yaml',
+  // The TUI docs read these at build time (design/browser-ui/docs/tui/generate.mjs `sources`), so
+  // an Ops change that drops a listed scene fails its own audits.
+  'extensions/tmt-ops/rust/tmt-ops/src/board/home/tests/oracle.json',
+  'rust/crates/tmt-cli-style/src/theme.rs',
 ]);
 
 /** Gallery-only Chromium audits: unrelated products and prose do not pay for a browser job. */
