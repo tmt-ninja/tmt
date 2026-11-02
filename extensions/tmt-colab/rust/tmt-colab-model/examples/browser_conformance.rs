@@ -35,7 +35,8 @@ fn main() {
     assert!(!input.cases.is_empty() && input.cases.len() <= 6);
     let mut results = Vec::new();
     for case in input.cases {
-        let envelope = Envelope::from_json_v1(&serde_json::to_vec(&case.envelope).unwrap()).unwrap();
+        let envelope =
+            Envelope::from_json_v1(&serde_json::to_vec(&case.envelope).unwrap()).unwrap();
         let context = Header::decode(envelope.header()).unwrap().context;
         let secret = hex(&case.secret).try_into().expect("secret width");
         let public = hex(&case.public).try_into().expect("public width");
