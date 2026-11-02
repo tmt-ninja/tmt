@@ -1,12 +1,15 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 // #5821 / epic #5866: a page that pins a design system release gets its components as custom
 // elements in the frame. The bundle here is the repo template's, handed to mountRenderer through
 // its designSystem source, as the app hands the attachment it reads.
-const dist = new URL('../../../../../design/systems/tmt-gui/dist/', import.meta.url);
-const file = readdirSync(dist)[0]!;
-const bundle = JSON.parse(readFileSync(new URL(file, dist), 'utf8')) as { hash: string };
+const bundle = JSON.parse(
+  readFileSync(
+    new URL('../../../../../design/systems/tmt-gui/generated/bundle.json', import.meta.url),
+    'utf8',
+  ),
+) as { hash: string };
 const pin = `tmt-gui@0.1.0#${bundle.hash}`;
 
 // The dev server has no built page runtime; serve the one the app build writes.
@@ -60,6 +63,29 @@ test('a pinned page draws its components with their props, slots and tokens', as
   await expect(create.locator('tmt-icon svg')).toBeVisible();
   await expect(frame.getByRole('button', { name: 'Send' })).toBeDisabled();
   await expect(frame.locator('[data-tmt-ds-notice]')).toHaveCount(0);
+});
+
+test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({
+  page,
+}) => {
+  const sizes = async (extra: string) => {
+    const frame = await mount(
+      page,
+      `<meta name="tmt-ds" content="${pin}">${extra}<h1>Mockup</h1><p>Body text.</p><tmt-ui-button>Save</tmt-ui-button>`,
+    );
+    await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+    const size = (selector: string) =>
+      frame
+        .locator(selector)
+        .first()
+        .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+    return { h1: await size('h1'), p: await size('p') };
+  };
+  const plain = await sizes('');
+  expect(plain.h1).toBeGreaterThan(plain.p * 1.4);
+  // A page that opted into the runtime keeps its reset: its h1 is body text.
+  const tailwind = await sizes('<meta name="tmt-colab-runtime" content="react tailwind">');
+  expect(tailwind.h1).toBe(tailwind.p);
 });
 
 test('an attribute change re-renders the component', async ({ page }) => {

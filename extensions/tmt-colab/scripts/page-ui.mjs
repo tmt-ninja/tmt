@@ -145,5 +145,11 @@ window.addEventListener('load', measure);`;
   ])
     if (text.includes('<!--') || text.toLowerCase().includes(end))
       throw new Error(`The page UI ${name} could end its own element or open a comment`);
-  return { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons, pageUiScript };
+  // A page that pins a design system loads the runtime for its components, and the runtime's reset
+  // sits above the starter's layer (#5917). Unless the page asked for the runtime itself, the frame
+  // adds this copy of the editorial layer for its body inside the design system's own layer.
+  const dsProseStyle = `@layer tmt-ui{${compactCss(
+    editorialCss.replaceAll(':where([data-colab-design] body)', ':where(body)'),
+  )}}`.replaceAll("'", '"');
+  return { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons, pageUiScript, dsProseStyle };
 }
