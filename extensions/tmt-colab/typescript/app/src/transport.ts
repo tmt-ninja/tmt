@@ -56,6 +56,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   /** `shell` for a shell page; absent on an ordinary page and where the list does not say (the
    * owner list does not carry it yet, so only fixtures fill it). */
   readonly pageType?: Projection['pageType'];
+  /** The owner's display-only page kind: `design-system` for a page of a design-system tree. */
+  readonly kind?: 'design-system';
 }
 export interface PageSnapshot extends PageSummary {
   /** The page's chosen layout (`meta.layout`); absent is `freeform`. */

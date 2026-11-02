@@ -40,6 +40,8 @@ export function useNeedsYouVersions(source: string, candidates: readonly NeedsYo
         const key = `${kinds[node.localName]}:${id}`;
         // Unlisted authored tags cannot expand version work or materialize nested HTML.
         if (!wanted.has(key)) continue;
+        // A duplicated data-id has no single version, so the header leaves it out: the page already
+        // reports it (question/review/reading-id-duplicate) and a duplicate proposal stays detached.
         fragments.set(key, fragments.has(key) ? undefined : node.outerHTML);
       }
     }

@@ -111,6 +111,8 @@ export interface PageInfo extends ExpiryInfo {
   /** Display-only pin (contract: Pins): present and true for a pinned page; the owner lists pinned
    * pages first, in pin order. */
   pinned?: true;
+  /** Display-only page kind (contract: Page kinds): present only on a design-system page (#5866). */
+  kind?: 'design-system';
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
   /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
@@ -260,12 +262,14 @@ export async function discover(
       'warnings',
       'projects',
       ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
+      ...(page !== null && typeof page === 'object' && 'kind' in page ? ['kind'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
       ...(page !== null && typeof page === 'object' && 'state' in page ? ['state'] : []),
       ...(page !== null && typeof page === 'object' && 'stateError' in page ? ['stateError'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
+    if ('kind' in page) requireValue(page.kind === 'design-system');
     if ('summary' in page) activity(page.summary);
     if ('state' in page)
       requireValue(

@@ -169,6 +169,7 @@ impl Description {
             &mut self.settings,
             &mut self.entry,
             base,
+            None,
         );
         for h in self.home.iter_mut().flatten() {
             h.path = format!("{}{}", base.trim_end_matches('/'), h.path);
@@ -245,27 +246,39 @@ fn resolve_module(
     settings: &mut [SettingsLink],
     entry: &mut Option<String>,
     base: &str,
+    extra: Option<(&str, &str)>,
 ) {
-    let resolve = |p: &mut String| *p = format!("{}{p}", base.trim_end_matches('/'));
-    resolve(&mut rail.path);
+    let mounted = |p: &mut String| *p = format!("{}{p}", base.trim_end_matches('/'));
+    let navigation = |p: &mut String| {
+        if let Some((extension, origin)) = extra
+            && crate::pages::extra_navigation(extension, p)
+        {
+            *p = format!("{origin}{p}");
+        } else {
+            mounted(p);
+        }
+    };
+    navigation(&mut rail.path);
     for m in menu {
-        resolve(&mut m.path);
+        navigation(&mut m.path);
     }
     for s in settings {
-        resolve(&mut s.path);
+        navigation(&mut s.path);
     }
+    // Script authority never follows the navigation exception.
     if let Some(entry) = entry {
-        resolve(entry);
+        mounted(entry);
     }
 }
 impl ExtraModule {
-    fn module(mut self, extension: &str, base: &str) -> Value {
+    fn module(mut self, extension: &str, base: &str, origin: &str) -> Value {
         resolve_module(
             &mut self.rail,
             &mut self.menu,
             &mut self.settings,
             &mut self.entry,
             base,
+            Some((extension, origin)),
         );
         let mut v = serde_json::to_value(self).expect("bounded display fields");
         let fields = v.as_object_mut().expect("module object");
@@ -425,7 +438,7 @@ impl Shell {
                         extra.rail.order,
                         *name,
                         Some(extra.id.clone()),
-                        extra.module(name, &base),
+                        extra.module(name, &base, origin),
                     ));
                 }
             }

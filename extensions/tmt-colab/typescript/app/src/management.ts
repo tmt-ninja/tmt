@@ -25,7 +25,12 @@ import {
   type ProjectChange,
   type ProjectManage,
 } from './projects.js';
-import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
+import {
+  jsonResponse,
+  responseBytes,
+  verifyRegistration,
+  type Registration,
+} from './registration.js';
 import { storagePort, type StoragePort } from './storage-usage.js';
 
 export interface Recipient {
@@ -101,7 +106,21 @@ export interface ManagementPort {
   manageProject(change: ProjectManage): Promise<void>;
   /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
   setPinned(pageId: string, pinned: boolean): Promise<void>;
+  /** One display-only `page.kind` request (contract: Page kinds); an older serve refuses it. */
+  setKind?(pageId: string, kind: 'design-system' | null): Promise<void>;
+  /** One `page.new` request (#5866): a new top-level page; an older serve refuses it. */
+  newPage?(title: string, kind: 'design-system' | null): Promise<string>;
 }
+/** A refused management request: the owner socket answers with the bare code as text (contract:
+ * the management socket's unsuccessful response body); a JSON `{code}` reads the same. */
+function refusal(bytes: Uint8Array): { code: string } {
+  const body = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (/^[A-Z_]{1,32}$/.test(body)) return { code: body };
+  const parsed = JSON.parse(body) as unknown;
+  exactKeys(parsed, ['code']);
+  return parsed as { code: string };
+}
+
 export class ManagementError extends Error {
   constructor(
     readonly code: string,
@@ -584,12 +603,40 @@ export class ManagementClient implements ManagementPort {
     generatedId(pageId);
     await this.displayOnly(pageId, 'page.pin', { pageId, pinned });
   }
+  /** A signed `page.kind` request: the owner sets or clears the page's kind (contract: Page kinds). */
+  async setKind(pageId: string, kind: 'design-system' | null): Promise<void> {
+    generatedId(pageId);
+    await this.displayOnly(pageId, 'page.kind', { pageId, kind });
+  }
+  /** A signed `page.new` request (#5866): the owner makes a top-level page with this title, and
+   * the kind when given; it returns the page's ID, derived from the operation. */
+  async newPage(title: string, kind: 'design-system' | null): Promise<string> {
+    requireValue(title.length > 0);
+    const reply = await this.unrevisioned(SPACE_SCOPE_PAGE, 'page.new', { title, kind }, [
+      'pageId',
+    ]);
+    try {
+      generatedId(reply.pageId as string);
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+    return reply.pageId as string;
+  }
   /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
   private async displayOnly(
     page: string,
-    operation: 'page.projects' | 'project.manage' | 'page.pin',
+    operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.kind',
     payload: object,
   ): Promise<void> {
+    await this.unrevisioned(page, operation, payload);
+  }
+  /** A request with an empty signed revision; `extra` names reply fields beside the head. */
+  private async unrevisioned(
+    page: string,
+    operation: 'page.projects' | 'project.manage' | 'page.pin' | 'page.kind' | 'page.new',
+    payload: object,
+    extra: readonly string[] = [],
+  ): Promise<Record<string, unknown>> {
     const bytes = text(JSON.stringify(payload));
     const id = crypto.randomUUID(),
       issuedAt = Date.now(),
@@ -617,12 +664,13 @@ export class ManagementClient implements ManagementPort {
       expiresAt,
     );
     try {
-      exactKeys(v, ['operationId', 'membershipHead']);
+      exactKeys(v, ['operationId', 'membershipHead', ...extra]);
       exactKeys(v.membershipHead, ['revision', 'statementHash']);
       requireValue(v.operationId === id && typeof v.membershipHead.revision === 'string');
     } catch {
       throw new ManagementError('UNKNOWN');
     }
+    return v as Record<string, unknown>;
   }
   async send(pending: Pending): Promise<Acknowledgment> {
     const v = await this.post(pending.body, pending.expiresAt);
@@ -672,7 +720,9 @@ export class ManagementClient implements ManagementPort {
     // Parse bounded error bodies as well; never expose server text or request secrets.
     let v;
     try {
-      v = await jsonResponse(new Response(response.body, { status: 200 }), 8192);
+      v = response.ok
+        ? await jsonResponse(new Response(response.body, { status: 200 }), 8192)
+        : refusal(await responseBytes(response, 8192));
     } catch {
       throw new ManagementError('UNKNOWN');
     }

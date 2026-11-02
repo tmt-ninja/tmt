@@ -159,6 +159,11 @@ export default defineConfig(({ mode }) => ({
               fileName: () => 'assets/colab-module.js',
               cssFileName: 'assets/colab-module',
             },
+            // Its lazy routes (Design, #5866) split into chunks. They go under assets/ beside it:
+            // the native app inventory admits no script at the build's root.
+            rollupOptions: {
+              output: { chunkFileNames: 'assets/colab-module-[name]-[hash].js' },
+            },
           }
         : mode === 'runtime'
           ? {

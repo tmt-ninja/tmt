@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "switch",
+  "source": "switch.js",
+  "props": {
+    "checked": {
+      "type": "boolean"
+    },
+    "size": {
+      "enum": [
+        "default",
+        "sm"
+      ],
+      "default": "default"
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "switch.css",
+  "ui": {
+    "module": "/src/ui/switch.tsx",
+    "component": "Switch",
+    "dims": {
+      "size": [
+        "default",
+        "sm"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "title": "On",
+      "markup": "<tmt-ui-switch checked label=\"Notify me\"></tmt-ui-switch>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Off",
+      "markup": "<tmt-ui-switch label=\"Quiet hours\"></tmt-ui-switch>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Small",
+      "markup": "<tmt-ui-switch size=\"sm\" checked label=\"Compact\"></tmt-ui-switch>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-switch disabled label=\"Locked\"></tmt-ui-switch>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -8,7 +8,7 @@ import {
 import { useEffect, useId, useRef, useState } from 'react';
 import { FileText, Plus } from 'lucide-react';
 import {
-  projectNameError,
+  userProjectNameError,
   withProject,
   type ProjectChange,
   type ProjectManage,
@@ -147,9 +147,9 @@ function NewProjectForm({
     saving.current = value;
     setBusyState(value);
   }
-  const nameError = name === '' ? undefined : projectNameError(name);
+  const nameError = name === '' ? undefined : userProjectNameError(name);
   async function create() {
-    const invalid = projectNameError(name);
+    const invalid = userProjectNameError(name);
     if (invalid) return setError(t.nameErrors[invalid]);
     if (existing.includes(name)) return setError(t.nameErrors.exists);
     const changes: ProjectChange[] = [];
@@ -475,7 +475,7 @@ function RenameStep({
   onConfirm(): void;
   onCancel(): void;
 }) {
-  const invalid = to === '' ? undefined : projectNameError(to);
+  const invalid = to === '' ? undefined : userProjectNameError(to);
   return (
     <form
       className="project-form"

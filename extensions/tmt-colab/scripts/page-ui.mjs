@@ -13,11 +13,12 @@ import { readFile } from 'node:fs/promises';
 // #5815 PR B over #5839: 125,199 -> 127,214 (+2,015), exact Linux measurement.
 // https://github.com/tmt-ninja/tmt/actions/runs/41228247377/job/124616827384.
 // #5821 palette B over #5840: its scope, ref tier, elevation scale, brand mark, and the text-action and
-// accent-fill roles, 127,214 -> 144,011 (exact), temporary until B becomes the default and deletes the current
+// accent-fill roles, 127,214 -> 144,011, temporary until B becomes the default and deletes the current
 // blocks; pending GUI approval with the Linux CI measurement on its PR.
+// #5866: baseline 144,011 + 11-byte theme/base layer order = 144,022, exact, no headroom.
 // Measured with Node v26.12.1: node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write
 // Stripping remains #5809.
-export const PAGE_UI_LIMIT = 144_011;
+export const PAGE_UI_LIMIT = 144_022;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
@@ -64,7 +65,7 @@ export async function buildPageUi() {
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
   if (quoted(compactCss(schemed)).join('\n') !== quoted(schemed).join('\n'))
     throw new Error('Compacting static.css would change a quoted string');
-  const pageUiStyle = `@layer colab-frame,tmt-starter,tmt-ui;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
+  const pageUiStyle = `@layer colab-frame,tmt-starter,theme,base,tmt-ui;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
     // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
     .replaceAll("'", '"');
   if (Buffer.byteLength(pageUiStyle) > PAGE_UI_LIMIT)

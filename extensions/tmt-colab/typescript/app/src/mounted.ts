@@ -175,6 +175,7 @@ export async function mountedTransport(
                 warnings: policy.warnings,
                 projects: page.projects,
                 ...(page.pinned ? { pinned: true } : {}),
+                ...(page.kind ? { kind: page.kind } : {}),
                 summary: page.summary,
                 state: page.state,
                 stateError: page.stateError,
@@ -248,6 +249,14 @@ export async function mountedTransport(
     setPinned(pageId, pinned) {
       const client = managementClient;
       return managed(client, () => client.setPinned(pageId, pinned));
+    },
+    setKind(pageId, kind) {
+      const client = managementClient;
+      return managed(client, () => client.setKind(pageId, kind));
+    },
+    newPage(title, kind) {
+      const client = managementClient;
+      return managed(client, () => client.newPage(title, kind));
     },
   };
   clearRecovery(mount);
