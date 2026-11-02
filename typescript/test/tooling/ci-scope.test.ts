@@ -24,6 +24,7 @@ import { COMPONENT_SHARDS } from '../../scripts/colab-acceptance-shards.mjs';
 import { UNIT_CONSUMER_NAMES } from '../../scripts/unit-test-consumers.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
+import { REMOTE_EMULATOR_LINT } from '../../scripts/remote-emulator-lint.mjs';
 import {
   PROCESS_JOBS,
   RUST_WORKERS,
@@ -4316,7 +4317,21 @@ describe('required CI gate', () => {
       steps(job(worker))
         .filter((step) => step.scope === `needs.changes.outputs.native_scope == '${scope}'`)
         .map((step) => step.name);
-    expect(scoped('native-clippy', 'full')).toEqual(['Lint workspace']);
+    expect(scoped('native-clippy', 'full')).toEqual([
+      'Lint workspace',
+      'Set up Node.js for the Remote emulator lint',
+      'Lint Remote emulator proof targets',
+    ]);
+    // The required clippy job compiles every Remote target with the emulator feature (#5003);
+    // the script holds the flag, because Remote's test_emulator_guard keeps it out of .github/.
+    expect(
+      steps(job('native-clippy')).find(({ name }) => name === 'Lint Remote emulator proof targets')
+        ?.body
+    ).toContain('        run: node typescript/scripts/remote-emulator-lint.mjs');
+    expect(job('native-clippy')).not.toMatch(/--features|--all-features|test-emulator/);
+    expect(REMOTE_EMULATOR_LINT.join(' ')).toBe(
+      'cargo clippy --locked -p tmt-remote --all-targets --features test-emulator -- -D warnings'
+    );
     expect(scoped('native-clippy', 'ops')).toEqual(['Lint Ops']);
     expect(job('native-workspace-tests')).toContain(
       'uses: ./.github/workflows/workspace-partitions.yml'
