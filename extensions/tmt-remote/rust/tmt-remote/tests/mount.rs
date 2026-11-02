@@ -1456,9 +1456,10 @@ fn shell_new_producer_omits_modules_for_old_remote_and_enables_them_only_with_ca
     assert_eq!(answer["modules"][0]["needsYou"], 7);
     assert!(answer["modules"][0].get("module").is_none());
     assert_eq!(answer["modules"][1]["module"], "design");
+    // Colab's Design extra navigates at the root /design/ route (#5873); its script stays mounted.
     assert_eq!(
         answer["modules"][1]["rail"]["path"],
-        format!("{}{}/x/colab/design/", door.origin, door.prefix)
+        format!("{}/design/", door.origin)
     );
     assert_eq!(
         extension.seen.all().len(),
