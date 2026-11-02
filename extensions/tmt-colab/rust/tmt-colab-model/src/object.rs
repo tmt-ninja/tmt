@@ -17,6 +17,13 @@ pub const MAX_PLAINTEXT: usize = 16 * 1024 * 1024;
 /// (tag, header, nonce and signature), base64 expansion, then 2 KiB JSON reserve.
 /// Includes whitespace/field syntax; this is a per-object cap, not a page quota.
 pub const MAX_ENVELOPE_JSON: usize = (MAX_PLAINTEXT + 2048) * 4 / 3 + 2048;
+/// Binary envelope v2 (#5876): `TCOB`, version 2, a big-endian u16 header length (1..=1024),
+/// the header, the 64-byte signature, then the ciphertext (at least the 16-byte tag). The nonce is
+/// the suite's fixed 12 zero bytes, so it is not stored; signature and hash are unchanged.
+pub const ENVELOPE_MAGIC: &[u8; 4] = b"TCOB";
+pub const ENVELOPE_VERSION: u8 = 2;
+/// The v2 cap: the v1 binary overhead reserve, with no base64 or JSON expansion.
+pub const MAX_ENVELOPE_BYTES: usize = MAX_PLAINTEXT + 2048;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Context {
@@ -148,6 +155,40 @@ impl Envelope {
             signature: values::encode_binary(&self.signature),
         })
         .map_err(|_| Invalid)
+    }
+    /// The binary v2 form; its hash and signature input equal the v1 form's.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let length = u16::try_from(self.header.len()).map_err(|_| Invalid)?;
+        let mut out = Vec::with_capacity(7 + self.header.len() + 64 + self.ciphertext.len());
+        out.extend_from_slice(ENVELOPE_MAGIC);
+        out.push(ENVELOPE_VERSION);
+        out.extend_from_slice(&length.to_be_bytes());
+        out.extend_from_slice(&self.header);
+        out.extend_from_slice(&self.signature);
+        out.extend_from_slice(&self.ciphertext);
+        Ok(out)
+    }
+    /// Syntax only, as `from_json`: exact magic and version, a decodable header, a full signature
+    /// and at least a tag of ciphertext within the kind's plaintext limit.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        require(bytes.len() <= MAX_ENVELOPE_BYTES)?;
+        let rest = bytes
+            .strip_prefix(ENVELOPE_MAGIC.as_slice())
+            .ok_or(Invalid)?;
+        let (&version, rest) = rest.split_first().ok_or(Invalid)?;
+        require(version == ENVELOPE_VERSION)?;
+        let (length, rest) = rest.split_first_chunk::<2>().ok_or(Invalid)?;
+        let length = usize::from(u16::from_be_bytes(*length));
+        require((1..=1024).contains(&length) && rest.len() >= length + 64 + 16)?;
+        let (header, rest) = rest.split_at(length);
+        let decoded = Header::decode(header)?;
+        let (signature, ciphertext) = rest.split_at(64);
+        require(ciphertext.len() <= plaintext_limit(&decoded.context.kind) + 16)?;
+        Ok(Self {
+            header: header.to_vec(),
+            ciphertext: ciphertext.to_vec(),
+            signature: signature.try_into().map_err(|_| Invalid)?,
+        })
     }
     /// Syntax only: never establishes certificate, writer, epoch, role or stream authority.
     pub fn from_json(bytes: &[u8]) -> Result<Self> {

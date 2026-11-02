@@ -427,3 +427,34 @@ fn deterministic_keys_match_rfc_and_829_public_fixtures() {
         }
     }
 }
+
+#[test]
+fn binary_envelope_v2_round_trips_with_the_same_hash_and_rejects_mutations() {
+    let e = envelope(&fixture());
+    let v2 = e.to_bytes().unwrap();
+    assert_eq!(&v2[..5], b"TCOB\x02");
+    assert_eq!(v2.len(), 7 + e.header().len() + 64 + e.ciphertext().len());
+    let back = Envelope::from_bytes(&v2).unwrap();
+    assert_eq!(back, e);
+    assert_eq!(back.hash().unwrap(), e.hash().unwrap());
+    assert_eq!(
+        back.signature_input().unwrap(),
+        e.signature_input().unwrap()
+    );
+    // v1 JSON is not v2, and a wrong magic, version or length is refused.
+    assert!(Envelope::from_bytes(&e.to_json().unwrap()).is_err());
+    for (at, value) in [(0, b'X'), (4, 1), (4, 3), (5, 0xff)] {
+        let mut changed = v2.clone();
+        changed[at] = value;
+        assert!(
+            Envelope::from_bytes(&changed).is_err(),
+            "byte {at} = {value}"
+        );
+    }
+    let mut zero = v2.clone();
+    zero[5..7].copy_from_slice(&[0, 0]);
+    assert!(Envelope::from_bytes(&zero).is_err());
+    // Too little ciphertext for the tag.
+    let short = &v2[..7 + e.header().len() + 64 + 15];
+    assert!(Envelope::from_bytes(short).is_err());
+}
