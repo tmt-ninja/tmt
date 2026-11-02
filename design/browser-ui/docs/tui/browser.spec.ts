@@ -194,27 +194,28 @@ test('TUI catalog groups variants by their owning module', async ({ page }) => {
     await expect(nav.locator(`a[href="${tuiRoot}/${slug}"]`)).toHaveCount(0);
 });
 for (const doc of componentDocs)
-  test(`TUI component library: ${doc.slug}`, async ({ page }) => {
-    // Data and DOM both prove that each page uses real anatomy/state records, not placeholders.
-    const anchors = [...cliSource.matchAll(/^#{2,3} (.+)$/gm)].map(([, heading]) =>
-      heading!
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s-]/gu, '')
-        .replace(/\s+/g, '-'),
-    );
-    expect(anchors).toContain(doc.section);
-    for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
-      const { frame, from, to } = resolveSample(doc.anatomy, look);
-      for (const part of doc.parts) {
-        expect(part.row).toBeGreaterThan(from);
-        expect(part.row).toBeLessThanOrEqual(to);
-        expect(locatePart(frame, part).column).toBeGreaterThan(0);
-      }
-      expect(doc.states.length).toBeGreaterThan(0);
-      for (const state of doc.states) expect(resolveSample(state.sample, look).frame).toBeDefined();
-    }
-    for (const width of [1440, 390])
-      for (const theme of ['light', 'dark']) {
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'])
+      test(`TUI component library: ${doc.slug}, ${width}, ${theme}`, async ({ page }) => {
+        // Data and DOM both prove that each page uses real anatomy/state records, not placeholders.
+        const anchors = [...cliSource.matchAll(/^#{2,3} (.+)$/gm)].map(([, heading]) =>
+          heading!
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}\s-]/gu, '')
+            .replace(/\s+/g, '-'),
+        );
+        expect(anchors).toContain(doc.section);
+        for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
+          const { frame, from, to } = resolveSample(doc.anatomy, look);
+          for (const part of doc.parts) {
+            expect(part.row).toBeGreaterThan(from);
+            expect(part.row).toBeLessThanOrEqual(to);
+            expect(locatePart(frame, part).column).toBeGreaterThan(0);
+          }
+          expect(doc.states.length).toBeGreaterThan(0);
+          for (const state of doc.states)
+            expect(resolveSample(state.sample, look).frame).toBeDefined();
+        }
         await page.setViewportSize({ width, height: 1000 });
         await page.addInitScript((value) => localStorage.setItem('tmt-ui-theme', value), theme);
         await page.goto(`${tuiRoot}/${doc.slug}`);
@@ -239,24 +240,23 @@ for (const doc of componentDocs)
           path: join(captures, `component-${doc.slug}-${width}-${theme}.png`),
           fullPage: true,
         });
-      }
-  });
+      });
 for (const doc of patternDocs)
-  test(`TUI guidance pattern: ${doc.slug}`, async ({ page }) => {
-    expect(doc.rules.length).toBeGreaterThanOrEqual(3);
-    expect(doc.links.length).toBeGreaterThanOrEqual(2);
-    for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
-      const { frame, from, to } = resolveSample(doc.anatomy.sample, look);
-      for (const part of doc.anatomy.parts) {
-        expect(part.row).toBeGreaterThan(from);
-        expect(part.row).toBeLessThanOrEqual(to);
-        expect(locatePart(frame, part).column).toBeGreaterThan(0);
-      }
-      for (const sample of doc.samples)
-        expect(resolveSample(sample.sample, look).frame).toBeDefined();
-    }
-    for (const width of [1440, 390])
-      for (const theme of ['light', 'dark']) {
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'])
+      test(`TUI guidance pattern: ${doc.slug}, ${width}, ${theme}`, async ({ page }) => {
+        expect(doc.rules.length).toBeGreaterThanOrEqual(3);
+        expect(doc.links.length).toBeGreaterThanOrEqual(2);
+        for (const look of ['tmt', 'tmt-light', 'terminal', 'NO_COLOR']) {
+          const { frame, from, to } = resolveSample(doc.anatomy.sample, look);
+          for (const part of doc.anatomy.parts) {
+            expect(part.row).toBeGreaterThan(from);
+            expect(part.row).toBeLessThanOrEqual(to);
+            expect(locatePart(frame, part).column).toBeGreaterThan(0);
+          }
+          for (const sample of doc.samples)
+            expect(resolveSample(sample.sample, look).frame).toBeDefined();
+        }
         await page.setViewportSize({ width, height: 1000 });
         await page.addInitScript((value) => localStorage.setItem('tmt-ui-theme', value), theme);
         await page.goto(`${tuiRoot}/${doc.slug}`);
@@ -283,8 +283,7 @@ for (const doc of patternDocs)
           path: join(captures, `pattern-${doc.slug}-${width}-${theme}.png`),
           fullPage: true,
         });
-      }
-  });
+      });
 test('Agents URL states persist without driving a real terminal', async ({ page }) => {
   await page.goto(`${tuiMockBase}/agents`);
   const frame = page.locator('tmt-tui-frame');
