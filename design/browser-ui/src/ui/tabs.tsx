@@ -54,7 +54,10 @@ function TabsList({
   // the active trigger's box; the motion tokens time it, so reduced motion makes it jump.
   React.useLayoutEffect(() => {
     const node = list.current;
-    if (variant !== 'line' || !node) return;
+    if (variant !== 'line' || !node) {
+      setBar(null);
+      return;
+    }
     const place = () => {
       const active = node.querySelector<HTMLElement>(
         '[data-slot="tabs-trigger"][data-state="active"]',
@@ -168,10 +171,26 @@ function TabsBar({
     };
     reveal();
     node.addEventListener('scroll', measure, { passive: true });
-    const states = new MutationObserver(reveal);
-    states.observe(node, { attributes: true, attributeFilter: ['data-state'], subtree: true });
+    // The scroller's own box never follows its content (flex-1, inline-size containment), so watch
+    // each trigger too: an added, removed or growing tab changes the overflow.
     const sizes = new ResizeObserver(reveal);
-    sizes.observe(node);
+    const watch = () => {
+      sizes.disconnect();
+      sizes.observe(node);
+      for (const trigger of node.querySelectorAll('[data-slot="tabs-trigger"]'))
+        sizes.observe(trigger);
+    };
+    watch();
+    const states = new MutationObserver((records) => {
+      if (records.some((record) => record.type === 'childList')) watch();
+      reveal();
+    });
+    states.observe(node, {
+      attributes: true,
+      attributeFilter: ['data-state'],
+      childList: true,
+      subtree: true,
+    });
     return () => {
       node.removeEventListener('scroll', measure);
       states.disconnect();
