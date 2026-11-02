@@ -237,9 +237,12 @@ async function fixture(mode = 'success') {
       if (mode === 'delayed') await blocked;
       if (mode === 'transport') throw new Error('private transport cause');
       return Response.json({
-        machineId: ['other-machine', 'mismatch'].includes(mode)
-          ? crypto.randomUUID()
-          : door.descriptor.machineId,
+        machineId:
+          mode === 'invalid-machine'
+            ? 'invalid'
+            : ['other-machine', 'mismatch'].includes(mode)
+              ? crypto.randomUUID()
+              : door.descriptor.machineId,
         address: door.descriptor.address,
         windowId: mode === 'stale' && mounts === 2 ? crypto.randomUUID() : door.descriptor.windowId,
         extension: null,
@@ -403,6 +406,20 @@ test('landing preserves verified revocation from shared admission', async () => 
     assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
     assert.equal(f.nodes.get('status')!.textContent.includes('pair'), true);
     assert.equal(f.counts().admissions, 0);
+  } finally {
+    f.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+test('landing leaves a malformed shared door descriptor unconfirmed', async () => {
+  const f = await fixture('invalid-machine');
+  try {
+    await landingPage(f.lifetime, undefined, undefined, () =>
+      reopenSession(undefined, { signal: f.lifetime }),
+    );
+    assert.equal(f.nodes.get('state-label')!.textContent, "Can't reach Remote");
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
   } finally {
     f.unmount();
     vi.unstubAllGlobals();

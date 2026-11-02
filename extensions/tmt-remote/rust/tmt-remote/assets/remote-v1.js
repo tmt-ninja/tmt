@@ -14436,7 +14436,7 @@ async function reopenOnce(previous, signal) {
 		validateDoor(current, record);
 	} catch (error) {
 		if (signal) {
-			if (current.machineId !== record.paired.machineId) throw new DifferentMachineError();
+			if (current.machineId !== record.paired.machineId && entryUuid(current.machineId) && entryUuid(current.windowId) && entryAddress(current.address)) throw new DifferentMachineError();
 			throw new ReopenSessionError("transient", "unverifiable-response");
 		}
 		throw error;
