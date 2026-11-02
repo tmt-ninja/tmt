@@ -1897,27 +1897,29 @@ function OpenPage({
   );
   const anchoredThreads = highlights.current,
     threadTotal = numbers.size;
+  const referenceEntries = useRef<readonly { id: string; number: number; excerpt: string }[]>([]);
+  referenceEntries.current = shareView(
+    referenceEntries.current,
+    (view.threads ?? []).flatMap((thread) => {
+      if (thread.deleted || isChatThread(thread) || !thread.anchor) return [];
+      const id = `${thread.ref.writer}:${thread.ref.id}`;
+      const number = numbers.get(id);
+      return number === undefined
+        ? []
+        : [
+            {
+              id,
+              number,
+              excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()].slice(0, 80).join(''),
+            },
+          ];
+    }),
+  );
+  const admittedReferences = referenceEntries.current;
   useEffect(() => {
     if (state !== 'ready') return;
-    renderer.current?.threadReferences(
-      (view.threads ?? []).flatMap((thread) => {
-        if (thread.deleted || isChatThread(thread) || !thread.anchor) return [];
-        const id = `${thread.ref.writer}:${thread.ref.id}`;
-        const number = numbers.get(id);
-        return number === undefined
-          ? []
-          : [
-              {
-                id,
-                number,
-                excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()]
-                  .slice(0, 80)
-                  .join(''),
-              },
-            ];
-      }),
-    );
-  }, [state, contentRevision, view.threads, numbers]);
+    renderer.current?.threadReferences([...admittedReferences]);
+  }, [state, contentRevision, admittedReferences]);
   // A resolved thread leaves the marker set, but while its Discussion view is open the page keeps a
   // quiet mark on its passage, so the person can see and scroll to what it was about.
   const quietCandidate =

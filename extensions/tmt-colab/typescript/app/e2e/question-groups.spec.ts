@@ -560,7 +560,7 @@ for (const width of [1440, 1024, 390])
       const group = await mount(page, { layout: 'centered', darkPage: theme === 'dark' });
       if (theme === 'dark')
         await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
-      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+      await group.getByLabel('Keep it', { exact: true }).check();
       const send = group.getByRole('button', { name: /^Send 1 answer/ });
       await expect(send).toBeEnabled();
       await send.evaluate((node) =>
@@ -600,9 +600,9 @@ for (const width of [1440, 1024, 390])
       const lastOption = group.locator('.tmt-ui-choice').last();
       const option = await lastOption.boundingBox();
       expect(option).not.toBeNull();
-      await lastOption.click({ position: { x: option!.width - 2, y: option!.height - 2 } });
-      await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
-      await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+      await lastOption.click({ position: { x: option!.width - 4, y: option!.height / 2 } });
+      await expect(group.getByLabel('Change it', { exact: true })).toBeChecked();
+      await group.getByLabel('Keep it', { exact: true }).check();
       // A trusted browser click must reach the recipient control, not chrome above it.
       await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
       await expect(page.getByRole('combobox', { name: 'Find an agent' })).toBeVisible();
