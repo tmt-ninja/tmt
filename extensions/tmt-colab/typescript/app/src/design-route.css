@@ -108,6 +108,10 @@
     grid-column: 3;
     grid-row: 1;
   }
+  /* Over the action's mark-and-label grid (browser-ui action.css), which keeps a label's width. */
+  .design-new-system .tmt-ui-action.tmt-ui-action:has(> .tmt-ui-action-label) {
+    display: inline-flex;
+  }
   .design-new-system .tmt-ui-action-label {
     position: absolute;
     width: 1px;
