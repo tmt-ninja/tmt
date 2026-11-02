@@ -4733,6 +4733,8 @@ describe('browser UI gallery gate', () => {
       '.github/actions/setup-tooling/action.yml',
       '.github/actions/apt-install/action.yml',
       '.github/actions/install-chromium-deps/action.yml',
+      'extensions/tmt-ops/rust/tmt-ops/src/board/home/tests/oracle.json',
+      'rust/crates/tmt-cli-style/src/theme.rs',
     ])
       expect(selectBrowserUi([input]), input).toBe(true);
     for (const input of [
@@ -4772,6 +4774,11 @@ describe('browser UI gallery gate', () => {
     expect(output('main-full').browser_ui).toBe('true');
     expect(output('full').browser_ui).toBe('true');
     expect(output('seed').browser_ui).toBe('false');
+  });
+
+  it('selects every file the TUI docs read at build time', async () => {
+    const { sources } = await import('../../../design/browser-ui/docs/tui/generate.mjs');
+    for (const source of sources) expect(selectBrowserUi([source]), source).toBe(true);
   });
 
   it('keeps every local non-test gallery import within the selector', () => {

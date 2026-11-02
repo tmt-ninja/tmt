@@ -61,20 +61,15 @@ function Rules({ section }: { section: string }) {
 function Source() {
   return (
     <details className="tui-provenance">
-      <summary>Frozen painter provenance</summary>
+      <summary>Painter sources</summary>
       <p>
-        Preview cells and styles come unchanged from the Ops oracle. Labels use original row and
-        cell coordinates. Missing recordings are listed explicitly.
+        Preview cells and styles come unchanged from the Ops oracle, read when the docs are built.
+        Labels use original row and cell coordinates. Missing recordings are listed explicitly.
       </p>
       <ul>
-        {oracle.provenance.map((source) => (
-          <li key={source.path}>
-            <code>{source.path}</code>
-            <br />
-            <code>sha256 {source.sha256}</code>
-            {'fields' in source && source.fields && (
-              <span> · {source.fields.join(', ')} subset</span>
-            )}
+        {oracle.sources.map((path) => (
+          <li key={path}>
+            <code>{path}</code>
           </li>
         ))}
       </ul>
