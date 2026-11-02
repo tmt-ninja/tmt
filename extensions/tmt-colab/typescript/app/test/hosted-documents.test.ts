@@ -24,15 +24,17 @@ const scope = {
   epoch: header.context.epoch,
 };
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-const scalar = (values: Record<string, string | number>) =>
+const scalar = (values: Record<string, string | number | Uint8Array>) =>
   Object.fromEntries(
     Object.entries(values).map(([key, value]) => [
       key,
       typeof value === 'number'
         ? { integerValue: String(value) }
-        : key === 'expiresAt'
-          ? { timestampValue: value }
-          : { stringValue: value },
+        : value instanceof Uint8Array
+          ? { bytesValue: Buffer.from(value).toString('base64') }
+          : key === 'expiresAt'
+            ? { timestampValue: value }
+            : { stringValue: value },
     ]),
   );
 const base = () => ({
@@ -49,9 +51,10 @@ function document(resource: string, id: string, fields: Record<string, unknown>)
   );
   return { target: { resource, id }, bytes, digest: hash(bytes) };
 }
-function update() {
-  // Whitespace is part of the stored original and must survive transport reconstruction.
-  const raw = c.text(
+/** A log row: v2 bytes, or (legacy) the v1 JSON a row written before #5876 PR 2 holds. */
+function update(legacy = false) {
+  // Whitespace is part of a legacy original and must survive transport reconstruction.
+  const json = c.text(
     ' \n' +
       JSON.stringify({
         header: c.encodeBinary(fromHex(v.header)),
@@ -61,12 +64,13 @@ function update() {
       }) +
       '\n',
   );
+  const raw = legacy ? json : local(json);
   const fields = scalar({
     ...base(),
     stream: header.context.authorDevice,
     seq: Number(header.context.streamSeq),
     hash: c.encodeBinary(fromHex(v.envelopeHash)),
-    envelope: c.decodeText(raw),
+    envelope: legacy ? c.decodeText(raw) : raw,
   });
   return {
     raw,
@@ -78,7 +82,8 @@ function update() {
     ),
   };
 }
-async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
+/** A checkpoint's rows: 256 KiB bytesValue chunks of v2, or (legacy) 32 KiB base64url v1 JSON. */
+async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint', legacy = false) {
   const signer = await crypto.subtle.importKey(
     'pkcs8',
     c.concat(fromHex('302e020100300506032b657004220420'), fromHex(v.seed)),
@@ -99,14 +104,15 @@ async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
     },
     root,
     signer,
-    new Uint8Array(50_000),
+    new Uint8Array(legacy ? 50_000 : 300_000),
   );
   const object =
     kind === 'html'
       ? Buffer.from(await envelope.hash()).toString('hex')
       : c.decodeHeader(envelope.header()).objectId;
-  const raw = envelope.toJson();
-  const count = Math.ceil(raw.length / 32768);
+  const raw = legacy ? envelope.toJson() : envelope.toBytes(),
+    size = legacy ? 32768 : 262144;
+  const count = Math.ceil(raw.length / size);
   const rows = Array.from({ length: count }, (_, index) =>
     document(
       'checkpoints',
@@ -117,7 +123,9 @@ async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
         index,
         seq: index + 1,
         count,
-        bytes: c.encodeBinary(raw.slice(index * 32768, (index + 1) * 32768)),
+        bytes: legacy
+          ? c.encodeBinary(raw.slice(index * size, (index + 1) * size))
+          : raw.slice(index * size, (index + 1) * size),
       }),
     ),
   );
@@ -329,8 +337,50 @@ it('keeps ordinary checkpoint header-object admission beside the selected baseli
   await expect(hostedCheckpointSet([...baseline.rows, ...rows], scope, expected)).rejects.toThrow();
 });
 
-/** The cloud keeps v1 JSON until #5876 PR 2; the reader returns the local v2 form, same hash. */
+/** The local v2 form of a cloud original: v2 as is, a legacy v1 JSON row converted. */
 function local(cloud: Uint8Array) {
+  if (c.decodeText(cloud.slice(0, 4)) === 'TCOB') return cloud;
   const text = new TextDecoder().decode(cloud).trim();
   return c.Envelope.fromJson(new TextEncoder().encode(text)).toBytes();
 }
+
+it('reads legacy v1 rows as the same v2 original under the same hash', async () => {
+  const log = update(true),
+    read = await hostedLog(log.row, scope);
+  expect(read.bytes).toEqual(local(log.raw));
+  expect(read.hash).toEqual(fromHex(v.envelopeHash));
+  const f = await checkpoint('checkpoint', true);
+  expect(f.rows.length).toBeGreaterThan(1);
+  expect((await hostedCheckpoint(f.rows, scope)).bytes).toEqual(local(f.raw));
+  // One object never mixes the two forms.
+  const mixed = JSON.parse(c.decodeText(f.rows[1].bytes));
+  mixed.bytes = { bytesValue: Buffer.from(c.binary(mixed.bytes.stringValue, 32768)).toString('base64') };
+  await expect(
+    hostedCheckpoint([f.rows[0], document('checkpoints', f.rows[1].target.id, mixed)], scope),
+  ).rejects.toThrow();
+});
+
+it('writes and reads v2 rows in bytesValue chunks of 256 KiB', async () => {
+  const f = await checkpoint();
+  expect(f.rows.length).toBe(2);
+  const first = JSON.parse(c.decodeText(f.rows[0].bytes));
+  expect(Buffer.from(first.bytes.bytesValue, 'base64').length).toBe(262144);
+  const log = JSON.parse(c.decodeText(update().row.bytes));
+  expect(Object.keys(log.envelope)).toEqual(['bytesValue']);
+});
+
+it.each([
+  ['unpadded', (value: string) => value.replace(/=+$/, '')],
+  ['base64url alphabet', (value: string) => value.replaceAll('+', '-').replaceAll('/', '_') + '-'],
+  ['non-canonical trailing bits', (value: string) => value.replace(/.=$/, 'B=')],
+])('refuses a %s bytesValue', async (_, change) => {
+  const f = update();
+  const value = (f.fields.envelope as { bytesValue: string }).bytesValue;
+  expect(value.endsWith('=')).toBe(true);
+  await expect(
+    hostedLog(
+      document('log', f.row.target.id, { ...f.fields, envelope: { bytesValue: change(value) } }),
+      scope,
+    ),
+  ).rejects.toThrow();
+});

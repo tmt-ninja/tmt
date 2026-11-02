@@ -5,7 +5,7 @@ import {
   encodeBinary,
   decodeHeader,
   Envelope,
-  MAX_ENVELOPE_JSON,
+  MAX_ENVELOPE_BYTES,
   exactKeys,
   requireValue,
   strictJson,
@@ -140,7 +140,7 @@ export class Frames {
         binary(frame.baseline, 8 * 1024);
         exactKeys(frame.baselineObject, ['envelopeHash', 'envelope']);
         target = frame.baselineObject;
-        limit = MAX_ENVELOPE_JSON;
+        limit = MAX_ENVELOPE_BYTES;
       }
       const membership = Object.hasOwn(frame, 'membershipHead')
         ? frame.membershipHead
@@ -192,7 +192,7 @@ export class Frames {
         if (stream.checkpoint !== null) {
           exactKeys(stream.checkpoint, ['seq', 'envelopeHash', 'envelope']);
           target = stream.checkpoint;
-          limit = MAX_ENVELOPE_JSON;
+          limit = MAX_ENVELOPE_BYTES;
         }
         if (stream.tail.length) target = stream.tail[0] as Record<string, unknown>;
       }

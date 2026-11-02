@@ -30,6 +30,7 @@ const typed = (value) =>
   : value instanceof Date ? { timestampValue: value.toISOString().replace(/\.000Z$/, "Z") }
   : typeof value === "boolean" ? { booleanValue: value }
   : typeof value === "number" ? { integerValue: String(value) }
+  : Buffer.isBuffer(value) ? { bytesValue: value.toString("base64") }
   : { stringValue: String(value) };
 const fields = (data) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, typed(v)]));
 const DAY = 86_400_000;
@@ -109,10 +110,10 @@ const HASH = "h".repeat(43);
 const sp = (t) => `${t.space}_${t.page}`;
 const logId = (t, epoch, stream, seq) => `${sp(t)}_${epoch}_${stream}_${seq}`;
 const entry = (t, seq, extra = {}) => ({
-  space: t.space, page: t.page, epoch: 1, stream: t.stream, seq, uid: t.writer, hash: HASH, envelope: "ZW52ZWxvcGU", expiresAt: sooner, ...extra,
+  space: t.space, page: t.page, epoch: 1, stream: t.stream, seq, uid: t.writer, hash: HASH, envelope: Buffer.from("envelope"), expiresAt: sooner, ...extra,
 });
 const chunk = (t, index, extra = {}) => ({
-  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, seq: index + 1, count: 513, uid: t.writer, bytes: "Ynl0ZXM", expiresAt: sooner, ...extra,
+  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, seq: index + 1, count: 65, uid: t.writer, bytes: Buffer.from("bytes"), expiresAt: sooner, ...extra,
 });
 const chunkId = (t, index) => `${sp(t)}_1_${"c".repeat(64)}_${index}`;
 
@@ -121,7 +122,7 @@ async function seedWorld() {
   await clear();
   for (const [name, t] of Object.entries(T)) {
     await seed(`spaces/${t.space}`, { space: t.space, owner: `owner${name}` });
-    await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: future });
+    await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: future });
     for (const [uid, role] of [[`owner${name}`, "editor"], [`writer${name}`, "commenter"], [`peer${name}`, "commenter"], [`viewer${name}`, "viewer"]]) {
       await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role, link: null, token: null, seq: 1 });
     }
@@ -169,7 +170,7 @@ test("spaces: first writer owns a space ID; no update, delete, transfer or forei
 test("pages: only the space owner admits a page; epoch never decreases; expiry and ID are bound", async () => {
   await boot();
   const fresh = "10000000-0000-4000-8000-0000000000aa";
-  const page = (over = {}) => ({ space: T.A.space, page: fresh, epoch: 1, state: "open", expiresAt: future, ...over });
+  const page = (over = {}) => ({ space: T.A.space, page: fresh, epoch: 1, state: "open", objectFormat: 2, expiresAt: future, ...over });
   const id = `${T.A.space}_${fresh}`;
   assert.equal(await set(`pages/${id}`, page(), as("ownerB")), 403, "another tenant's owner");
   assert.equal(await set(`pages/${id}`, page(), as("writerA")), 403, "a member");
@@ -177,6 +178,9 @@ test("pages: only the space owner admits a page; epoch never decreases; expiry a
   assert.equal(await set(`pages/${T.A.space}_${T.B.page}`, page({ page: fresh }), as("ownerA")), 403, "ID must be built from the fields");
   assert.equal(await set(`pages/${id}`, page({ expiresAt: past }), as("ownerA")), 403, "already expired");
   assert.equal(await set(`pages/${id}`, page({ state: "deleted" }), as("ownerA")), 403, "state");
+  assert.equal(await set(`pages/${id}`, page({ objectFormat: 1 }), as("ownerA")), 403, "object format");
+  const { objectFormat: _, ...unmarked } = page();
+  assert.equal(await set(`pages/${id}`, unmarked, as("ownerA")), 403, "an unmarked page row");
   assert.equal(await set(`pages/${id}`, page({ epoch: 0 }), as("ownerA")), 403, "epoch starts at 1");
   assert.equal(await set(`pages/${id}`, page({ extra: 1 }), as("ownerA")), 403, "exact field set");
   assert.equal(await set(`pages/${id}`, page(), as("ownerA")), 200);
@@ -202,7 +206,7 @@ test("pages: only the space owner admits a page; epoch never decreases; expiry a
 test("retention: owners may choose up to 365 days; members and other tenants cannot extend", async () => {
   await boot();
   const t = T.A;
-  const page = (expiry) => ({ space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: expiry });
+  const page = (expiry) => ({ space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: expiry });
   // The timestamp is taken just before the request; transport time leaves it within the server cap.
   const cap = () => new Date(Date.now() + 365 * DAY);
   assert.equal(await set(`pages/${sp(t)}`, page(cap()), as("writerA")), 403, "only the owner extends");
@@ -227,12 +231,12 @@ test("retention: a page refresh is one write and entries have an independent lif
     assert.equal(await set(path, data, as("writerA")), 200, "entry may outlive page within its own cap");
   }
   const before = await Promise.all(rows.map(async ([path]) => (await (await fetch(`${documents}/${ROOT}/${path}`, { headers: ADMIN })).json()).fields));
-  assert.equal(await set(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: deadline }, as("ownerA")), 200, "page-only activity refresh");
+  assert.equal(await set(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: deadline }, as("ownerA")), 200, "page-only activity refresh");
   for (const [index, [path]] of rows.entries()) {
     assert.equal(await get(path, as("viewerA")), 200, "old entry remains readable");
     assert.deepEqual((await (await fetch(`${documents}/${ROOT}/${path}`, { headers: ADMIN })).json()).fields, before[index], "entry was not rewritten");
   }
-  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: past });
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: past });
   for (const [path] of rows) {
     assert.equal(await get(path, as("viewerA")), 403, "entry outliving expired page is unreadable");
     assert.equal(await get(path, ADMIN), 200, "ciphertext still physically present");
@@ -279,7 +283,7 @@ test("retention: owner cleanup deletes expired entries or entries of expired/rem
     assert.equal(await get(path, ADMIN), 404, "physical deletion");
     await seed(path, data);
   }
-  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: past });
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: past });
   for (const [path, data] of rows) {
     assert.equal(await get(path, as("ownerA")), 403, "expired page unavailable");
     assert.equal(await remove(path, as("ownerA")), 200, "expired page cleanup");
@@ -369,7 +373,8 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await at(9007199254740992, undefined), 403, "beyond the safe-integer bound");
   assert.equal(await at(4, { extra: "x" }), 403, "exact field set");
   assert.equal(await at(4, { hash: "short" }), 403, "hash grammar");
-  assert.equal(await at(4, { envelope: "x".repeat(354_305) }), 403, "over the envelope cap");
+  assert.equal(await at(4, { envelope: Buffer.alloc(264_193, 1) }), 403, "over the envelope cap");
+  assert.equal(await at(4, { envelope: Buffer.alloc(0) }), 403, "an empty envelope");
   assert.equal(await at(4, { expiresAt: past }), 403, "already expired");
   assert.equal(await at(4, { expiresAt: new Date(Date.now() + 366 * DAY) }), 403, "beyond the entry ceiling");
   assert.equal(await at(4, { expiresAt: future }), 200, "within the entry ceiling");
@@ -534,7 +539,7 @@ test("log owner bootstrap: only the owner skips a pruned predecessor; other guar
   assert.equal(await at(4, "ownerA"), 200, "the owner publishes the original retained sequence");
   // PATCH also exercises the pre-existing owner expiry-update rule: an empty diff is legal.
   assert.equal(await at(4, "ownerA"), 200, "an unchanged owner PATCH is a no-op");
-  assert.equal(await at(4, "ownerA", { envelope: "Y2hhbmdlZA" }), 403, "an owner cannot replace retained ciphertext");
+  assert.equal(await at(4, "ownerA", { envelope: Buffer.from("changed") }), 403, "an owner cannot replace retained ciphertext");
   assert.equal(await at(5, "writerA"), 403, "a member cannot take the owner's next slot");
   assert.equal(await at(5, "ownerA"), 200, "the owner continues its own bootstrap");
 
@@ -551,7 +556,7 @@ test("log owner bootstrap: only the owner skips a pruned predecessor; other guar
   assert.equal(await at(7, "ownerA"), 403, "the owner's member role still gates writes");
   await seed(ownerMember, ownerRow("editor"));
   assert.equal(await at(7, "ownerA"), 200, "the admitted owner can bootstrap again");
-  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", expiresAt: future });
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", objectFormat: 2, expiresAt: future });
   assert.equal(await at(9, "ownerA"), 403, "even the owner cannot bootstrap an archived page");
 });
 
@@ -576,7 +581,7 @@ test("page lifecycle: archive freezes writes, epoch advance fences the old epoch
   await boot();
   const t = T.A;
   const writer = as("writerA");
-  const page = (over) => ({ space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: future, ...over });
+  const page = (over) => ({ space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: future, ...over });
   const next = (seq, epoch = 1) => set(`log/${logId(t, epoch, t.stream, seq)}`, entry(t, seq, { epoch }), writer);
 
   assert.equal(await next(2), 200);
@@ -626,7 +631,7 @@ test("reads: members only, one space and page per query; an expired entry is unr
   assert.equal((await list("log", { space: t.space, page: T.B.page }, as("writerA"))).status, 403, "a page the member was never admitted to");
 
   // An expired page is gone for every reader, even when its entries are not expired.
-  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: past });
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", objectFormat: 2, expiresAt: past });
   await seed(`log/${logId(t, 1, t.stream, 3)}`, entry(t, 3, { expiresAt: future }));
   assert.equal(await get(`log/${logId(t, 1, t.stream, 3)}`, as("ownerA")), 403, "expired page");
   assert.equal((await list("log", key, as("ownerA"))).status, 403);
@@ -653,7 +658,7 @@ test("tenants: owner A can neither read, list nor write owner B's space, and the
     assert.equal(await set(`log/${logId(theirs, 1, theirs.stream, 2)}`, entry(mine, 2), as(ally)), 403, "their ID, my fields");
     assert.equal(await set(`log/${logId(mine, 1, theirs.stream, 2)}`, entry(theirs, 2), as(ally)), 403, "my ID, their fields");
     assert.equal(await set(`log/${logId(mine, 1, mine.stream, 2)}`, entry(mine, 2, { space: theirs.space }), as(ally)), 403, "a space field that disagrees with the ID");
-    assert.equal(await set(`pages/${sp(theirs)}`, { space: theirs.space, page: theirs.page, epoch: 9, state: "open", expiresAt: future }, as(me)), 403, "page row");
+    assert.equal(await set(`pages/${sp(theirs)}`, { space: theirs.space, page: theirs.page, epoch: 9, state: "open", objectFormat: 2, expiresAt: future }, as(me)), 403, "page row");
     assert.equal(await set(`members/${sp(theirs)}_${me}`, { space: theirs.space, page: theirs.page, uid: me, role: "editor" }, as(me)), 403, "self-enrollment");
     assert.equal(await set(`members/${sp(theirs)}_${me}`, { space: theirs.space, page: theirs.page, uid: me, role: "viewer", link: mine.link, token: mine === T.A ? TOKEN_A : TOKEN_B, seq: 1 }, as(me)), 403, "my link's secret does not open their page");
   }
@@ -685,10 +690,11 @@ test("checkpoint chunks: create-only, bounded, indexed, current epoch and writer
   assert.equal(await at(1), 403, "a chunk cannot be overwritten");
   assert.equal(await at(2), 200, "chunks need not arrive in order beyond the writer's own chain");
   assert.equal(await at(3, { count: 3 }), 403, "index must be below count");
-  assert.equal(await at(4, { count: 514 }), 403, "over the largest object's chunk count");
+  assert.equal(await at(4, { count: 66 }), 403, "over the largest object's chunk count");
   assert.equal(await at(4), 200);
-  assert.equal(await at(5, { bytes: "x".repeat(43_693) }), 403, "over the chunk bound");
-  assert.equal(await at(5, { bytes: "x".repeat(43_692) }), 200);
+  assert.equal(await at(5, { bytes: Buffer.alloc(262_145, 1) }), 403, "over the chunk bound");
+  assert.equal(await at(5, { bytes: Buffer.alloc(0) }), 403, "an empty chunk");
+  assert.equal(await at(5, { bytes: Buffer.alloc(262_144, 1) }), 200);
   assert.equal(await at(6, { epoch: 2 }), 403, "ID must equal its epoch");
   assert.equal(await at(6, { object: "c".repeat(63) }), 403, "object grammar");
   assert.equal(await at(6, { expiresAt: new Date(Date.now() + 366 * DAY) }), 403, "beyond the entry ceiling");
@@ -711,14 +717,14 @@ test("the declaration lists exactly the collections the Rules read or write, and
 });
 
 // ASCII payloads keep the retained per-document character limits equal to byte limits.
-test("payload admission refuses multibyte ciphertext", async () => {
+test("payload admission refuses a string payload, the pre-#5876 row form", async () => {
   await boot();
   const t = T.A, writer = as(t.writer);
   const log = `log/${logId(t, 1, t.stream, 2)}`;
   const checkpoint = `checkpoints/${chunkId(t, 1)}`;
-  assert.equal(await set(log, entry(t, 2, { envelope: "é" }), writer), 403);
+  assert.equal(await set(log, entry(t, 2, { envelope: "ZW52ZWxvcGU" }), writer), 403);
   assert.equal(await set(log, entry(t, 2), writer), 200);
-  assert.equal(await set(checkpoint, chunk(t, 1, { bytes: "é" }), writer), 403);
+  assert.equal(await set(checkpoint, chunk(t, 1, { bytes: "Ynl0ZXM" }), writer), 403);
   assert.equal(await set(checkpoint, chunk(t, 1), writer), 200);
 });
 
@@ -801,7 +807,7 @@ test("authority: owner-only immutable records bind page, epoch, kind and subject
   assert.equal(await set(authorityPath(chain), { ...chain, recipient: "writerA" }, owner), 403, "chain uses the empty recipient");
   const wrap = authority(t, "wrap", { subject: "b".repeat(64), recipient: "" });
   assert.equal(await set(authorityPath(wrap), wrap, owner), 403, "wrap must name its recipient");
-  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", expiresAt: future });
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", objectFormat: 2, expiresAt: future });
   assert.equal(await set(authorityPath(row), row, owner), 403, "archive refuses new records");
 });
 

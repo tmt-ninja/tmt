@@ -13,7 +13,7 @@ import {
   exactKeys,
   FOLD,
   generatedId,
-  MAX_ENVELOPE_JSON,
+  MAX_ENVELOPE_BYTES,
   requireValue,
   signatureInput,
   strictVerify,
@@ -60,10 +60,9 @@ export function position(value: unknown): asserts value is Position {
   decimal(value.seq);
   binary(value.envelopeHash, 32, 32);
 }
-/** The most bytes a sealed envelope holds for an update of `update` bytes: base64 of the update
- * and its framing, plus the header and signature. */
-export const sealedBound = (update: number) => Math.floor(((update + 2048) * 4) / 3) + 2048;
-export const UPDATE_ENVELOPE_BYTES = sealedBound(UPDATE_BYTES);
+/** The most bytes a v2 envelope of one update holds: the update and the binary overhead (tag,
+ * header and signature). It is also a cloud log row's envelope bound (native `LOG_ENVELOPE_BYTES`). */
+export const UPDATE_ENVELOPE_BYTES = UPDATE_BYTES + 2048;
 type Namespace = 'content' | 'own';
 interface Head {
   seq: bigint;
@@ -249,7 +248,7 @@ export class Objects {
       hash = binary(entry.envelopeHash, 32, 32);
     const env = receivedEnvelope(
       entry.envelope,
-      kind === 'checkpoint' ? MAX_ENVELOPE_JSON : UPDATE_ENVELOPE_BYTES,
+      kind === 'checkpoint' ? MAX_ENVELOPE_BYTES : UPDATE_ENVELOPE_BYTES,
     );
     const { context: c, coveredDevice } = decodeHeader(env.header()),
       a = this.admission;

@@ -34,7 +34,7 @@
       "ttlField": null,
       "indexes": [],
       "sync": {
-        "fields": ["space", "page", "epoch", "state", "expiresAt"],
+        "fields": ["space", "page", "epoch", "state", "objectFormat", "expiresAt"],
         "spaceField": "space",
         "uidField": null,
         "query": null,
@@ -133,10 +133,10 @@
       "kind": "checkpoint",
       "path": "checkpoints",
       "limits": {
-        "maxObjectBytes": 65536,
+        "maxObjectBytes": 393216,
         "maxNamespaceBytes": 67108864,
         "maxEntries": 1024,
-        "chunkBytes": 32768
+        "chunkBytes": 262144
       },
       "ttlField": "expiresAt",
       "indexes": [],
@@ -214,7 +214,7 @@
   ],
   "admission": {
     "artifact": "firestore/admission.rules",
-    "digest": "8af39d34e2f05d9c93d0755e5491c11d945902f004c30999e19a2220225eeef5",
+    "digest": "0508c3727d77d0fabdf46b0873c8326eabcf8ecab544c02aa07ca8aeea2e2819",
     "entryPoint": "colabAdmitted"
   }
 }

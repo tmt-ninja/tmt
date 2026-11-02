@@ -4,13 +4,12 @@ import type { OwnRecord } from '../src/fold-protocol.js';
 import {
   EDIT_WAITING_MS,
   PageAnswer,
-  REQUEST_DOCUMENT_BYTES,
   buildEditRequest,
   requestFitsDocument,
   sendEditRequest,
   type RequestTransport,
 } from '../src/link-edit.js';
-import { UPDATE_ENVELOPE_BYTES, sealedBound } from '../src/objects.js';
+import { UPDATE_ENVELOPE_BYTES } from '../src/objects.js';
 import { EditTooLarge, saveMessage } from '../src/save.js';
 import { text } from '../src/strings.js';
 
@@ -93,15 +92,16 @@ it('refuses a request whose prepared update would not fit one document, before i
   const { sent, transport } = recording(300_000);
   const error = await sendEditRequest(transport, BASE, EDITED).catch((e) => e);
   expect(error).toBeInstanceOf(EditTooLarge);
-  expect(error).toMatchObject({ size: sealedBound(300_000), limit: REQUEST_DOCUMENT_BYTES });
+  expect(error).toMatchObject({ size: 300_000 + 2048, limit: UPDATE_ENVELOPE_BYTES });
   expect(sent).toEqual([]);
 });
 
-it('keeps the sealed update bound of every writer inside the one-document bound', () => {
-  expect(UPDATE_ENVELOPE_BYTES).toBeLessThanOrEqual(REQUEST_DOCUMENT_BYTES);
-  expect(REQUEST_DOCUMENT_BYTES).toBe(393_216);
+it('keeps the sealed update bound of every writer inside one log row', () => {
+  // A log row's bytesValue (REST base64) and its other fields fit Core's 393,216-byte document.
+  expect(Math.ceil(UPDATE_ENVELOPE_BYTES / 3) * 4 + 2048).toBeLessThanOrEqual(393_216);
+  expect(UPDATE_ENVELOPE_BYTES).toBe(264_192);
   expect(() => requestFitsDocument(256 * 1024)).not.toThrow();
-  expect(() => requestFitsDocument(295_000)).toThrow(EditTooLarge);
+  expect(() => requestFitsDocument(256 * 1024 + 1)).toThrow(EditTooLarge);
 });
 
 it('says the sizes of an edit and of a link in the too-large notice', () => {

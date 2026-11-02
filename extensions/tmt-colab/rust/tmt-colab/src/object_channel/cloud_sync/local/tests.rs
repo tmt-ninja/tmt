@@ -161,11 +161,11 @@ fn updates_are_due_in_order_and_only_a_confirmation_moves_the_position() {
     let [document] = &first.documents[..] else {
         panic!("one record per update")
     };
-    assert_eq!(decode_envelope(document).as_bytes(), cloud(&sent[0]));
+    assert_eq!(decode_envelope(document), cloud(&sent[0]));
     for (index, bytes) in sent.iter().enumerate() {
         let data = fixture.local.next(&page).ok().unwrap().unwrap();
         assert_eq!(update_seq(&data), index as u64 + 1);
-        assert_eq!(decode_envelope(&data.documents[0]).as_bytes(), cloud(bytes));
+        assert_eq!(decode_envelope(&data.documents[0]), cloud(bytes));
         fixture.local.confirm(&page, &data.confirm).ok().unwrap();
     }
     assert!(fixture.local.next(&page).ok().unwrap().is_none());
@@ -174,11 +174,12 @@ fn updates_are_due_in_order_and_only_a_confirmation_moves_the_position() {
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert_eq!(update_seq(&data), 4);
 }
-fn decode_envelope(document: &sync::Document) -> String {
+fn decode_envelope(document: &sync::Document) -> Vec<u8> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
     let fields = documents::decode(Resource::Log, document).unwrap();
     match fields.get("envelope") {
-        Some(Field::String(text)) => text.clone(),
-        _ => panic!("a log record carries its envelope"),
+        Some(Field::Bytes(text)) => STANDARD.decode(text).unwrap(),
+        _ => panic!("a log record carries its envelope as bytes"),
     }
 }
 
@@ -247,7 +248,7 @@ fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail()
     assert_eq!(data.documents[0].target.resource, "authority");
     assert_eq!(data.documents[1].target.resource, "log");
     assert_eq!(
-        decode_envelope(&data.documents[1]).as_bytes(),
+        decode_envelope(&data.documents[1]),
         cloud(&anchor)
     );
     let groups: Vec<_> = data.documents[2..]
@@ -288,7 +289,7 @@ fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
     assert_eq!(
-        decode_envelope(&data.documents[1]).as_bytes(),
+        decode_envelope(&data.documents[1]),
         cloud(&anchor)
     );
 }
@@ -837,10 +838,7 @@ fn a_fold_stored_under_a_different_covered_stream_stops_instead_of_retrying() {
         );
     }
 }
-/// The cloud's v1 JSON form of a local v2 original (#5876 PR 2 moves the cloud to v2).
+/// A log record carries the local v2 original byte for byte.
 fn cloud(bytes: &[u8]) -> Vec<u8> {
-    tmt_colab_model::object::Envelope::from_bytes(bytes)
-        .unwrap()
-        .to_json_v1()
-        .unwrap()
+    bytes.to_vec()
 }
