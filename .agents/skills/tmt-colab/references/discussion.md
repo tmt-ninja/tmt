@@ -69,8 +69,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   its independent Ask. `questionStates` consumes verified own comments for Open/Answered/Handled;
   source-removed registrations remain visible in Questions and pending counts stay per registration.
   Dismiss removes the source through the page edit path, then handles an open question;
-  Undo restores the source and reopens a question that was open before dismissal. Failed
-  metadata writes offer a retry without reversing the successful source edit.
+  Undo restores the source and reopens a question that was open before dismissal. Success notices
+  expire after six seconds; failed metadata writes keep Retry available without reversing the edit.
   Creator and Handle/Reopen use the owner-only conditional metadata port; no commenter writes an
   answered content value. Latest device provenance is projected by `readThreads`, never stored in a record;
   edits read admitted records rather than copying projection metadata. Agent replies

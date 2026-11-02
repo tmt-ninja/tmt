@@ -1563,7 +1563,7 @@ button.discussion-quote:focus-visible {
 }
 /* Mock 1: the Discussion header is one compact row with a bordered filter. */
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0;
   padding: 8px 6px 8px 14px;
@@ -1575,14 +1575,14 @@ button.discussion-quote:focus-visible {
 }
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   display: flex;
-  flex: 1;
+  flex: 1 1 180px;
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
   gap: 0;
 }
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading h2 {
-  flex: 0 1 auto;
+  flex: none;
   min-width: 0;
   overflow: hidden;
   font-size: 13px;

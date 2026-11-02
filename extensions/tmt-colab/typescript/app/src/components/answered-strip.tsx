@@ -61,7 +61,7 @@ export const AnsweredStrip = forwardRef<
         )}
       </button>
       {expanded && (
-        <>
+        <span className="answered-strip-actions">
           {onChangeAnswer && (
             <BrowserIconAction
               type="button"
@@ -104,7 +104,7 @@ export const AnsweredStrip = forwardRef<
               if (event.isTrusted) onToggle();
             }}
           />
-        </>
+        </span>
       )}
     </div>
   );

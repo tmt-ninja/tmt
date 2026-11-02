@@ -1,7 +1,7 @@
 .question-dismiss-notice {
   position: fixed;
   z-index: 20;
-  bottom: 16px;
+  bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -11,7 +11,14 @@
   max-width: calc(100vw - 32px);
   padding: 6px 12px;
   border-radius: var(--tmt-ui-radius);
-  background: var(--tmt-ui-color-text);
-  color: var(--tmt-ui-surface-sheet);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
   font-size: 12px;
+}
+
+.question-dismiss-notice .tmt-ui-action {
+  --tmt-ui-host-action-padding: 2px 4px;
+  --tmt-ui-host-action-min-height: 24px;
+  color: var(--tmt-ui-color-accent);
 }

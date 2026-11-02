@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { expectAvailableDockWindow } from '../test/floating-panel.js';
 import { expect, test, type Page } from '@playwright/test';
 import { commentsClose, commentsRegion } from '../test/comments-region.js';
@@ -27,7 +28,7 @@ for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`Discussion chevrons retain their icon box at ${width}px in ${theme}`, async ({
       page,
-    }) => {
+    }, info) => {
       await page.emulateMedia({ colorScheme: theme });
       const { panel } = await openFirst(page, width);
       for (const name of ['Previous', 'Next']) {
@@ -43,7 +44,9 @@ for (const width of [1440, 390])
       await expect(panel.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
       await panel.getByRole('button', { name: 'Next', exact: true }).click();
       await expect(panel.getByRole('button', { name: 'Previous', exact: true })).toBeEnabled();
-      await page.screenshot({ path: test.info().outputPath(`discussion-${width}-${theme}.png`) });
+      const captures = process.env.COLAB_CAPTURE_DIR ?? info.outputDir;
+      mkdirSync(captures, { recursive: true });
+      await page.screenshot({ path: `${captures}/discussion-${width}-${theme}.png` });
     });
 
 test('Discussion never offers page-level comment creation', async ({ page }) => {
@@ -200,6 +203,7 @@ for (const width of [1440, 800, 390])
     const title = panel.getByRole('heading', { level: 2 });
     await expect(title).toHaveCSS('font-size', '13px');
     await expect(title).toHaveCSS('font-weight', '620');
+    expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     // Nothing is cut or covered: every control sits inside the header and none overlaps another.
     const row = async () =>
       header.evaluate((node) => {
@@ -397,11 +401,13 @@ test('Discussion header keeps control order and icon geometry', async ({ page })
   const boxes = await Promise.all(items.map((item) => item.boundingBox()));
   for (const box of boxes) expect(box).not.toBeNull();
   for (let i = 1; i < boxes.length; i++) {
-    expect(boxes[i]!.x).toBeGreaterThanOrEqual(boxes[i - 1]!.x + boxes[i - 1]!.width - 1);
-    expect(
-      Math.abs(boxes[i]!.y + boxes[i]!.height / 2 - (boxes[0]!.y + boxes[0]!.height / 2)),
-    ).toBeLessThanOrEqual(1);
+    const previous = boxes[i - 1]!;
+    const current = boxes[i]!;
+    if (Math.abs(current.y - previous.y) < 5)
+      expect(current.x).toBeGreaterThanOrEqual(previous.x + previous.width - 1);
+    else expect(current.y).toBeGreaterThanOrEqual(previous.y + previous.height - 1);
   }
+  expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   await expect(title).toHaveCSS('font-size', '13px');
   await expect(title).toHaveCSS('font-weight', '620');
   await expect(position).toHaveCSS('font-size', '11px');

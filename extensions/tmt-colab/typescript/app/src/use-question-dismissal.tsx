@@ -1,5 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QuestionDismissal } from './question-dismiss.js';
 import { removeQuestion } from './question-source.js';
 import type { PageBinding, PageView } from './transport.js';
@@ -12,6 +12,7 @@ export function useQuestionDismissal(view: PageView, binding?: PageBinding) {
   const operation = useRef<QuestionDismissal | null>(null);
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [error, setError] = useState<string>();
   const refresh = () => setRevision((value) => value + 1);
   const unresolved =
@@ -23,6 +24,7 @@ export function useQuestionDismissal(view: PageView, binding?: PageBinding) {
     const entry = latest.current.questions?.find((question) => question.id === id);
     if (!entry) return;
     setBusy(true);
+    setHidden(false);
     setError(undefined);
     try {
       const before = latest.current.source;
@@ -53,6 +55,7 @@ export function useQuestionDismissal(view: PageView, binding?: PageBinding) {
   async function act(action: 'undo' | 'retry') {
     if (busy || !operation.current) return;
     setBusy(true);
+    setHidden(false);
     setError(undefined);
     try {
       await operation.current[action]();
@@ -63,15 +66,19 @@ export function useQuestionDismissal(view: PageView, binding?: PageBinding) {
       setBusy(false);
     }
   }
-  void revision;
   const state = operation.current?.state;
   const removed = state === 'removed' || state === 'handle-failed';
   const failed = state === 'handle-failed' || state === 'reopen-failed';
+  useEffect(() => {
+    if (!state || state === 'idle' || failed || error || busy) return;
+    const timer = window.setTimeout(() => setHidden(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [state, failed, error, busy, revision]);
   return {
     canDismiss,
     dismiss,
     notice:
-      (state && state !== 'idle') || error ? (
+      !hidden && ((state && state !== 'idle') || error) ? (
         <div className="question-dismiss-notice" role="status">
           <span>
             {error ??

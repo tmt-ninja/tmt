@@ -302,3 +302,48 @@
 .question-compact-controls .conversation-body {
   overflow-wrap: anywhere;
 }
+
+.question-compact-controls .question-history .question-history {
+  margin-top: 0;
+}
+.question-compact-controls .question-answer-record {
+  border-bottom: 0;
+}
+.question-answer-record .conversation-turn-status:empty {
+  display: none;
+}
+.question-compact-controls .message-composer-field {
+  min-height: 1.5em;
+}
+
+.question-answer-record .question-answer p {
+  margin: 0;
+}
+.question-compact-controls .annotation-notice-slot:empty {
+  display: none;
+}
+
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  ) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  )
+  .message-composer-field {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+}
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  )
+  .rich-input-accessory {
+  min-width: 0;
+}

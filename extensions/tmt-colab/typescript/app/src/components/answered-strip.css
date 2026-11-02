@@ -46,3 +46,16 @@
   min-height: 24px;
   padding: 0;
 }
+
+.answered-strip-row:has(.answered-strip[aria-expanded='true']) {
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+}
+.answered-strip[aria-expanded='true']:hover {
+  background: transparent;
+}
+.answered-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}

@@ -9,7 +9,7 @@ async function run(page: Page, method: string, argument?: unknown) {
 }
 for (const width of [390, 1440]) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`question blocks reflow without overlap at ${width} ${theme}`, async ({ page }) => {
+    test(`question blocks reflow without overlap at ${width} ${theme}`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await page.goto('/');
@@ -45,13 +45,13 @@ for (const width of [390, 1440]) {
             .locator(`[data-inline-question] ${selector}`)
             .evaluate((node) => node.scrollHeight <= node.clientHeight + 1),
         ).toBe(true);
-      const captures = process.env.COLAB_CAPTURE_DIR;
-      if (captures) {
-        mkdirSync(captures, { recursive: true });
-        await page.screenshot({ path: `${captures}/question-long-${width}-${theme}.png` });
-      }
+      const captures = process.env.COLAB_CAPTURE_DIR ?? info.outputDir;
+      mkdirSync(captures, { recursive: true });
+      await page.screenshot({ path: `${captures}/question-long-${width}-${theme}.png` });
     });
-    test(`long answered block moves following text at ${width} ${theme}`, async ({ page }) => {
+    test(`long answered block moves following text at ${width} ${theme}`, async ({
+      page,
+    }, info) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await page.goto('/');
@@ -84,11 +84,9 @@ for (const width of [390, 1440]) {
       ).toBe(true);
       for (const turn of await group.locator('.conversation-turn').all())
         expect(await turn.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-      const captures = process.env.COLAB_CAPTURE_DIR;
-      if (captures) {
-        mkdirSync(captures, { recursive: true });
-        await page.screenshot({ path: `${captures}/question-answer-long-${width}-${theme}.png` });
-      }
+      const captures = process.env.COLAB_CAPTURE_DIR ?? info.outputDir;
+      mkdirSync(captures, { recursive: true });
+      await page.screenshot({ path: `${captures}/question-answer-long-${width}-${theme}.png` });
       await strip.click();
       await expect
         .poll(async () => Math.abs((await after.boundingBox())!.y - collapsed))

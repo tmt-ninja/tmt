@@ -37,6 +37,17 @@ async function answered(page: import('@playwright/test').Page) {
   return card;
 }
 
+test('the one-line follow-up keeps its recipient and accepts typing', async ({ page }) => {
+  const card = await answered(page);
+  const editor = card.locator('.message-composer-field');
+  await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+  await expect(editor).toBeFocused();
+  await editor.press('End');
+  await page.keyboard.type('Please clarify');
+  await expect(editor).toContainText('Please clarify');
+  await expect(editor.locator('.agent-chip')).toContainText('Agent 1');
+});
+
 test('dismisses through page edit and handle, then Undo restores and reopens', async ({ page }) => {
   const card = await answered(page);
   await card.getByRole('button', { name: 'Remove from page' }).click();
@@ -50,6 +61,30 @@ test('dismisses through page edit and handle, then Undo restores and reopens', a
   expect(proof.source).toContain('<tmt-question data-id=');
   expect(proof.questions[0].state).toBe('open');
   expect(proof.actions).toEqual(['question.handle', 'question.reopen']);
+});
+
+test('success notices expire, while a failed handle retains Retry', async ({ page }) => {
+  await page.clock.install();
+  let card = await answered(page);
+  await card.getByRole('button', { name: 'Remove from page' }).click();
+  const notice = page.locator('.question-dismiss-notice');
+  await expect(notice.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+  await page.clock.fastForward(6001);
+  await expect(notice).toHaveCount(0);
+
+  card = await answered(page);
+  await card.getByRole('button', { name: 'Remove from page' }).click();
+  await notice.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(notice).toContainText('Restored to page');
+  await page.clock.fastForward(6001);
+  await expect(notice).toHaveCount(0);
+
+  card = await answered(page);
+  await run(page, 'failQuestionActionOnce', 'question.handle');
+  await card.getByRole('button', { name: 'Remove from page' }).click();
+  await expect(notice.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+  await page.clock.fastForward(12000);
+  await expect(notice.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
 });
 
 test('keeps removal when handle fails and retries only handle', async ({ page }) => {
@@ -132,9 +167,35 @@ for (const width of [390, 1440]) {
       await capture('answered');
       await strip.click();
       await expect(card.getByRole('button', { name: 'Remove from page' })).toBeVisible();
+      const header = card.locator('.answered-strip-row');
+      const entry = card.getByTestId('comment-entry');
+      await expect(entry).toHaveCount(1);
+      expect((await entry.boundingBox())!.height).toBeLessThan(90);
+      const editor = card.locator('.message-composer-field');
+      await expect(editor).toBeVisible();
+      const editorBox = (await editor.boundingBox())!;
+      expect(editorBox.height).toBeLessThan(45);
+      const replySend = (await card.locator('.message-toolbar-end button').last().boundingBox())!;
+      expect(
+        Math.abs(editorBox.y + editorBox.height / 2 - (replySend.y + replySend.height / 2)),
+      ).toBeLessThan(8);
+      await expect(card.locator('.annotation-notice-slot:empty')).toBeHidden();
+      const actions = await header.locator('.tmt-ui-icon-action-control').all();
+      let previousRight = 0;
+      for (const action of actions) {
+        const box = (await action.boundingBox())!;
+        expect(box.width).toBe(24);
+        expect(box.height).toBe(24);
+        if (previousRight) expect(box.x - previousRight).toBeGreaterThanOrEqual(2);
+        previousRight = box.x + box.width;
+      }
       await capture('expanded');
       await card.getByRole('button', { name: 'Remove from page' }).click();
-      await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+      const undo = page.getByRole('button', { name: 'Undo', exact: true });
+      await expect(undo).toBeVisible();
+      const box = (await undo.boundingBox())!;
+      const dock = (await page.locator('#ask-page-fixture .page-floating-actions').boundingBox())!;
+      expect(box.y + box.height).toBeLessThanOrEqual(dock.y);
       await capture('dismissed');
     });
   }
