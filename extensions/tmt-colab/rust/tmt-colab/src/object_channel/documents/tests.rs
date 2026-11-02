@@ -13,7 +13,7 @@ fn log() -> Fields {
         ("seq".into(), Field::number(1).unwrap()),
         ("uid".into(), string("owner")),
         ("hash".into(), string(&values::encode_binary(&[7; 32]))),
-        ("envelope".into(), string("{\"signed\":\"original\"}")),
+        ("envelope".into(), Field::bytes(b"signed original")),
         (
             "expiresAt".into(),
             Field::Timestamp("2026-10-15T00:00:00Z".into()),
@@ -30,13 +30,13 @@ fn log_roundtrip_keeps_exact_original_bytes_and_page_bound_id() {
     );
     assert_eq!(
         doc.fields["envelope"],
-        json!({"stringValue":"{\"signed\":\"original\"}"})
+        json!({"bytesValue":"c2lnbmVkIG9yaWdpbmFs"})
     );
     assert_eq!(decode(Resource::Log, &doc).unwrap(), fields);
     let mut forged = doc.clone();
     forged
         .fields
-        .insert("envelope".into(), json!({"stringValue":"changed"}));
+        .insert("envelope".into(), json!({"bytesValue":"Y2hhbmdlZA=="}));
     assert!(decode(Resource::Log, &forged).is_err());
     let mut wrong_page = doc.clone();
     wrong_page.target.id.push('a');
@@ -45,17 +45,17 @@ fn log_roundtrip_keeps_exact_original_bytes_and_page_bound_id() {
 }
 #[test]
 fn the_largest_sealed_update_the_decoder_admits_is_one_log_document() {
-    // A request is one own update of at most `UPDATE_BYTES` sealed; hosted, it is exactly one
-    // log create, because the document limit holds that envelope with its routing fields.
+    // A request is one own update of at most `decoder::UPDATE_BYTES` sealed; hosted, it is
+    // exactly one log create, because the document limit holds that envelope with its routing.
     let mut fields = log();
     fields.insert(
         "envelope".into(),
-        string(&"x".repeat(crate::limits::UPDATE_BYTES)),
+        Field::bytes(&vec![1; super::LOG_ENVELOPE_BYTES]),
     );
     assert!(encode(Resource::Log, fields.clone()).is_ok());
     fields.insert(
         "envelope".into(),
-        string(&"x".repeat(tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES)),
+        Field::bytes(&vec![1; tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES]),
     );
     assert!(encode(Resource::Log, fields).is_err());
 }
@@ -127,15 +127,6 @@ fn full_envelope_boundary_is_exact() {
     assert!(encode(Resource::Log, fields).is_err());
 }
 #[test]
-fn legacy_string_envelope_boundary_is_exact() {
-    let mut fields = log();
-    fields.insert("envelope".into(), string(&"e".repeat(354_304)));
-    let doc = encode(Resource::Log, fields.clone()).unwrap();
-    assert_eq!(decode(Resource::Log, &doc).unwrap(), fields);
-    fields.insert("envelope".into(), string(&"e".repeat(354_305)));
-    assert!(encode(Resource::Log, fields).is_err());
-}
-#[test]
 fn discovery_and_interest_do_not_carry_a_stream_or_cursor() {
     let scope = page_scope(&"a".repeat(32), PAGE, 1).unwrap();
     assert_eq!(scope.len(), 3);
@@ -159,10 +150,7 @@ fn checkpoint() -> Fields {
     fields.insert("object".into(), string(&"c".repeat(64)));
     fields.insert("index".into(), Field::number(0).unwrap());
     fields.insert("count".into(), Field::number(2).unwrap());
-    fields.insert(
-        "bytes".into(),
-        string(&values::encode_binary(&[11; 32_768])),
-    );
+    fields.insert("bytes".into(), Field::bytes(&[11; super::CHUNK_BYTES]));
     fields
 }
 #[test]
@@ -313,16 +301,10 @@ fn sealed_original_at(kind: &str, epoch: &str, plaintext: &[u8]) -> Vec<u8> {
 }
 #[test]
 fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash() {
-    // The cloud carries v1 JSON (#5876 PR 2 moves it); the local original is its v2 form.
     let local = sealed_original("update", b"original update");
     let envelope = tmt_colab_model::object::Envelope::from_bytes(&local).unwrap();
-    let mut bytes = envelope.to_json_v1().unwrap();
-    bytes.push(b'\n');
     let mut fields = log();
-    fields.insert(
-        "envelope".into(),
-        string(std::str::from_utf8(&bytes).unwrap()),
-    );
+    fields.insert("envelope".into(), Field::bytes(&local));
     fields.insert(
         "hash".into(),
         string(&values::encode_binary(&envelope.hash().unwrap())),
@@ -343,17 +325,15 @@ fn original_log_projection_preserves_bytes_but_cannot_substitute_scope_or_hash()
     }
     // Transport syntax accepts a validly framed signature mutation. Admission
     // must still verify it, rather than treating this projection as authority.
-    let mut wire: Value = serde_json::from_slice(&bytes).unwrap();
-    wire["signature"] = json!(values::encode_binary(&[0; 64]));
-    let forged_bytes = serde_json::to_vec(&wire).unwrap();
-    let forged = tmt_colab_model::object::Envelope::from_json_v1(&forged_bytes).unwrap();
-    fields.insert(
-        "envelope".into(),
-        string(std::str::from_utf8(&forged_bytes).unwrap()),
-    );
+    // v2: magic, version, a u16 header length, the header, then the 64-byte signature.
+    let mut forged = local.clone();
+    let signature = 7 + usize::from(u16::from_be_bytes([local[5], local[6]]));
+    forged[signature..signature + 64].fill(0);
+    let reparsed = tmt_colab_model::object::Envelope::from_bytes(&forged).unwrap();
+    fields.insert("envelope".into(), Field::bytes(&forged));
     fields.insert(
         "hash".into(),
-        string(&values::encode_binary(&forged.hash().unwrap())),
+        string(&values::encode_binary(&reparsed.hash().unwrap())),
     );
     assert!(originals::log(&encode(Resource::Log, fields).unwrap()).is_ok());
 }
@@ -443,47 +423,6 @@ fn a_three_megabyte_checkpoint_is_twelve_documents() {
         .sum();
     assert!(wire < bytes.len() * 4 / 3 + 12 * 1024, "{wire}");
     assert_eq!(originals::checkpoint(&documents).unwrap().bytes, bytes);
-}
-/// A row written before #5876 PR 2 still reads: v1 JSON in 32 KiB base64url string chunks, or a
-/// v1 JSON log envelope, each converted to the same v2 original under the same hash.
-#[test]
-fn legacy_v1_rows_read_back_as_the_v2_original() {
-    let bytes = sealed_original("checkpoint", &[3; 50_000]);
-    let envelope = tmt_colab_model::object::Envelope::from_bytes(&bytes).unwrap();
-    let json = envelope.to_json_v1().unwrap();
-    let mut fields = originals::checkpoint_base(&routing(), &bytes).unwrap();
-    let count = json.len().div_ceil(super::LEGACY_CHUNK_BYTES);
-    fields.insert("count".into(), Field::number(count as u64).unwrap());
-    let legacy: Vec<_> = json
-        .chunks(super::LEGACY_CHUNK_BYTES)
-        .enumerate()
-        .map(|(index, chunk)| {
-            let mut row = fields.clone();
-            row.insert("index".into(), Field::number(index as u64).unwrap());
-            row.insert("seq".into(), Field::number(index as u64 + 1).unwrap());
-            row.insert("bytes".into(), string(&values::encode_binary(chunk)));
-            encode(Resource::Checkpoints, row).unwrap()
-        })
-        .collect();
-    assert!(legacy.len() > 1);
-    let read = originals::checkpoint(&legacy).unwrap();
-    assert_eq!(read.bytes, bytes);
-    assert_eq!(read.hash, envelope.hash().unwrap());
-    // One object never mixes the two forms.
-    let mut mixed = legacy.clone();
-    let mut row = decode(Resource::Checkpoints, &mixed[1]).unwrap();
-    let chunk = values::binary(row["bytes"].text().unwrap(), super::LEGACY_CHUNK_BYTES).unwrap();
-    row.insert("bytes".into(), Field::bytes(&chunk));
-    mixed[1] = encode(Resource::Checkpoints, row).unwrap();
-    assert!(originals::checkpoint(&mixed).is_err());
-    // A legacy row may not claim the v2 chunk count, nor a v2 row the legacy one.
-    let mut row = decode(Resource::Checkpoints, &legacy[0]).unwrap();
-    row.insert("count".into(), Field::number(514).unwrap());
-    assert!(encode(Resource::Checkpoints, row).is_err());
-    let mut row = decode(Resource::Checkpoints, &legacy[0]).unwrap();
-    row.insert("bytes".into(), Field::bytes(&[1; 10]));
-    row.insert("count".into(), Field::number(66).unwrap());
-    assert!(encode(Resource::Checkpoints, row).is_err());
 }
 #[test]
 fn a_v2_log_row_carries_the_original_bytes() {

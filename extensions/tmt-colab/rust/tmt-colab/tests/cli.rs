@@ -1546,34 +1546,6 @@ fn serve_reports_a_page_whose_work_it_cannot_read_and_still_starts() {
 }
 
 #[test]
-fn serve_says_how_many_stored_objects_it_could_not_convert() {
-    // #5876: a row the converter cannot parse stays as it is, and the serve log counts it.
-    let mut pilot = Pilot::new(None);
-    seed_page(&pilot);
-    let db = pilot.root.join("selected/colab/space.db");
-    let conn = rusqlite::Connection::open(&db).unwrap();
-    let changed = conn
-        .execute(
-            "UPDATE receipts SET payload=?1 WHERE rowid=(SELECT min(rowid) FROM receipts WHERE payload IS NOT NULL)",
-            [b"{not an envelope".to_vec()],
-        )
-        .unwrap();
-    assert_eq!(changed, 1);
-    conn.execute_batch("PRAGMA user_version=21").unwrap();
-    drop(conn);
-    let log = pilot.root.join("serve.log");
-    pilot.start_logging(&log);
-    pilot.stop();
-    let said = fs::read_to_string(&log).unwrap();
-    assert!(
-        said.contains(
-            "1 stored objects could not be converted to envelope v2; the pages that hold them refuse to read them"
-        ),
-        "{said}"
-    );
-}
-
-#[test]
 fn serve_rewrites_v1_object_envelopes_as_v2_under_the_same_hash() {
     // #5876: a schema 21 store holds v1 JSON envelopes; the serve's open rewrites them once.
     use tmt_colab_model::object::Envelope;

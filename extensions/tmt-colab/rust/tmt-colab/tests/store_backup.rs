@@ -391,13 +391,12 @@ fn a_newer_store_names_the_newest_copy_this_build_can_open() {
 }
 
 /// v1 JSON object envelopes (#5876) are parsed only where a v1 form is the stored or signed bytes:
-/// the store converter, legacy cloud rows, publication packets, attachments and the fold vectors.
+/// the store converter, publication packets, attachments and the fold vectors. The cloud is v2 only.
 /// Every other reader takes v2 bytes; a new caller of the v1 parser must be named here.
 #[test]
 fn the_v1_object_parser_stays_inside_its_named_readers() {
     const ALLOWED: &[&str] = &[
         "src/store/schema.rs",
-        "src/object_channel/documents/originals.rs",
         "src/publication.rs",
         "src/page.rs",
         "src/attachments/seal.rs",

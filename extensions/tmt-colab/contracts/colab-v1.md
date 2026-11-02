@@ -4932,12 +4932,8 @@ holding the binary envelope v2 bytes: REST carries them as padded standard base6
 them at 1.0x. Every nonfinal chunk of an object is exactly 262,144 bytes, so a 3 MB checkpoint is
 12 documents; the REST form of a chunk fits the 393,216-byte sync document. `authority` pieces stay
 32 KiB base64url stringValues. The page row's `objectFormat: 2` makes a reader from before this
-format refuse the page as an unknown field instead of misreading a row. Readers still admit rows
-written before it, until they expire: a v1 JSON log envelope as an ASCII stringValue of at most
-354,304 bytes, and v1 JSON checkpoints in 32 KiB base64url stringValue chunks (at most 513). Each
-converts to the same v2 original under the same hash, and one object never mixes the two forms.
-Nothing writes them, and the Rules refuse them on create. This read path is removed with the
-store converter.
+format refuse the page as an unknown field instead of misreading a row. The cloud carries v2 only:
+a stringValue envelope or chunk is refused by readers and by the Rules.
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
