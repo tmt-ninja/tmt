@@ -399,6 +399,16 @@ jobs:
         working-directory: rust
         run: |
           cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Remote's emulator-gated targets compile in no other required job (#5003). The script
+      # holds the command, because Remote's test_emulator_guard keeps that feature out of .github/.
+      - name: Set up Node.js for the Remote emulator lint
+        if: needs.changes.outputs.native_scope == 'full'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+      - name: Lint Remote emulator proof targets
+        if: needs.changes.outputs.native_scope == 'full'
+        run: node typescript/scripts/remote-emulator-lint.mjs
       - name: Lint Ops
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
