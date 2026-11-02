@@ -188,6 +188,20 @@ describe('template, publish and the renderer source', () => {
     expect(button.source).toContain(second.pin);
   });
 
+  it('publishes each component with the examples its page shows', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = pages.get(config.components.find((entry) => entry.tag === 'button')!.page!)!;
+    // The example root carries its anchor as its id (point-and-fix links open the page there).
+    expect(button.source).toContain('<div id="button:primary" data-ds-example="button:primary">');
+    const { bundle } = await publishNext(transport, rootId);
+    const examples = bundle.components.map((component) => component.examples ?? []);
+    expect(examples.every((list) => list.length > 0)).toBe(true);
+    expect(examples.flat().length).toBeGreaterThan(30);
+  });
+
   it('reports the pages a publish could not move to the new pin, and retries them', async () => {
     const { pages, make, transport } = space();
     make('Notes');

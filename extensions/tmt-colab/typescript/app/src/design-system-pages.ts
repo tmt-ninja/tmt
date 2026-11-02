@@ -157,7 +157,7 @@ export function nextVersion(config: DesignSystemConfig): string {
  * its snippet shows. */
 export function pageExamples(source: string): { title: string; markup: string }[] {
   const example =
-    /<h3>([\s\S]*?)<\/h3>\s*<div data-ds-example="[^"]*">[\s\S]*?<div class="docs-snippet"><pre><code>([\s\S]*?)<\/code><\/pre>/g;
+    /<h3>([\s\S]*?)<\/h3>\s*<div [^>]*data-ds-example="[^"]*"[^>]*>[\s\S]*?<div class="docs-snippet"><pre><code>([\s\S]*?)<\/code><\/pre>/g;
   const text = (html: string) =>
     html
       .replace(/&lt;/g, '<')
