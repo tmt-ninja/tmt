@@ -256,6 +256,13 @@ test('Clear all persists exact viewer acknowledgements without answering or deci
       undefined,
       agent.pane,
     );
+    run(
+      world,
+      world.binaries.colab,
+      patchArgs(world, created.pageId, ['--file', '-', '--json']),
+      source,
+      agent.pane,
+    );
     const page = await openPage(door, author, created);
     const other = await openPage(door, peer, created);
     await expect(pending(page, 3)).toBeVisible();
