@@ -1397,6 +1397,8 @@ metadata UI and integrated door/hosted proofs belong to B, not this native slice
 
 ### Own-stream discussion records (#1427)
 
+Retired proposal thread and decision records are ignored on read; their stored bytes are retained.
+
 All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
 `senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.

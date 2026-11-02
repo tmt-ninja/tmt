@@ -134,6 +134,15 @@ export interface OwnProjection {
   replies: Record<string, JsonValue>;
 }
 export type OwnState = Record<string, OwnProjection>;
+/** Retired proposal records remain in the writer document but are not projected. */
+export function retiredDiscussionRecord(root: string, value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (root === 'threads' && record.kind === 'thread' && Object.hasOwn(record, 'proposal')) ||
+    (root === 'messages' && record.kind === 'proposal-decision')
+  );
+}
 export function validateOwn(value: unknown): asserts value is OwnState {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   requireValue(text(JSON.stringify(value)).length <= STATE_BYTES);

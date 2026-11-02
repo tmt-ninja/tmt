@@ -102,6 +102,14 @@ fn timestamp(at: &str) -> Result<()> {
 fn require(valid: bool) -> Result<()> {
     if valid { Ok(()) } else { Err(Invalid) }
 }
+/// Retired proposal records remain in the own document but have no current projection.
+pub(crate) fn retired_record(root: &str, value: &Value) -> bool {
+    match value.get("kind").and_then(Value::as_str) {
+        Some("thread") => root == "threads" && value.get("proposal").is_some(),
+        Some("proposal-decision") => root == "messages",
+        _ => false,
+    }
+}
 pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()> {
     match value.get("kind").and_then(Value::as_str) {
         Some("thread-status" | "thread-notification") => status::validate(root, key, value)?,

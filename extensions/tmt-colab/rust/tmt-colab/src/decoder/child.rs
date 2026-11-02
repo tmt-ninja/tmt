@@ -264,10 +264,17 @@ fn execute_with(
         let vector = doc.transact().state_vector();
         let mut tx = doc.transact_mut();
         for record in records {
-            if let Some(existing) = before
+            let map = Root::<MapRef>::new(record.root.as_str())
+                .get(&tx)
+                .ok_or(DecodeFault::Rejected)?;
+            let visible = before
                 .get(&record.root)
-                .and_then(|root| root.get(&record.key))
-            {
+                .and_then(|root| root.get(&record.key));
+            // A retired record is omitted from the projection, not free space for a new write.
+            if visible.is_none() && map.get(&tx, record.key.as_str()).is_some() {
+                return Err(DecodeFault::Rejected);
+            }
+            if let Some(existing) = visible {
                 if existing == &record.value {
                     continue;
                 }
@@ -275,9 +282,6 @@ fn execute_with(
                     return Err(DecodeFault::Rejected);
                 }
             }
-            let map = Root::<MapRef>::new(record.root.as_str())
-                .get(&tx)
-                .ok_or(DecodeFault::Rejected)?;
             map.insert(
                 &mut tx,
                 record.key.as_str(),
@@ -609,7 +613,7 @@ fn protected_own_records(
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "needs-you-handled" | "attachment-publication" | "edit-request" | "edit-result" | "edit-lock"))
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification" | "proposal-decision" | "needs-you-handled" | "attachment-publication" | "edit-request" | "edit-result" | "edit-lock"))
             {
                 records.insert(
                     (root.into(), key.into()),
@@ -829,10 +833,11 @@ fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
                 let Out::Any(value) = value else {
                     return Err(DecodeFault::Rejected);
                 };
-                values.insert(
-                    key.into(),
-                    serde_json::to_value(value).map_err(|_| DecodeFault::Rejected)?,
-                );
+                let value = serde_json::to_value(value).map_err(|_| DecodeFault::Rejected)?;
+                if namespace == Namespace::Own && crate::threads::retired_record(name, &value) {
+                    continue;
+                }
+                values.insert(key.into(), value);
             }
             roots.insert((*name).into(), Value::Object(values));
         }
