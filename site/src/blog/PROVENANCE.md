@@ -21,8 +21,10 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   Its hood, rounded terminal prompt, oval face and scarf were redrawn from the
   selected image-generation concept and refined in the shared Colab page. The
   fixed rice-paper fill makes the external SVG visible on the dark blog header.
+  SHA-256: `20e2cade81e8808d193e34eb13838decd7dc854a8245f7c81c26cf1cdf9c8214`.
 - `site/src/blog/favicon.png` is a raster rendering of the same mark on a black
   rounded square, used for both the tab and touch icon.
+  SHA-256: `e40ccbac730bc4664db3c59e918610fce4abf3db488875842742041d9abf63e1`.
 - `site/src/blog/og.png` is the 1200×630 link-preview card for every blog page:
   the earlier team icon beside the journal title, description and `tmt.ninja/blog`,
   in the black-only palette with a red top rule, rendered once in headless Chromium.
@@ -41,7 +43,8 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
 The owner-approved blog home mock (1 November 2026, #5908) supplies the shared
 sticky header/footer, index questions, statistics and date/article/key-number rows.
 The selected Wrapped mark replaces the earlier team tile in the blog header.
-Product and Colab navigation is configured but hidden until those destinations are published, by the lead's explicit decision.
+Product and Colab navigation is configured but hidden until those destinations
+are published, by the lead's explicit decision.
 The owner-supplied X handle links to `https://x.com/tmtTofu` as “Follow on X”.
 The committed `stats.json` snapshot is refreshed by `stats-update.mjs` (see the
 site README); build-time validation does not query host activity.

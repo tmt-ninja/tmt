@@ -6,7 +6,7 @@ import { stats, validateStats } from "../src/blog/stats.mjs";
 const config = {
   sectionPath: "~/journal",
   brandHref: "/tmt/blog/",
-  markUrl: "/tmt/blog/team-tmt.png",
+  markUrl: "/tmt/blog/mark.svg",
   rssUrl: "/tmt/blog/feed.xml",
   links: [
     { label: "Product", url: "/tmt/", published: false },
@@ -18,7 +18,7 @@ const config = {
 test("shared chrome hides unpublished destinations and adds X only for a configured handle", () => {
   const { header, footer } = siteChrome(config);
   assert.match(header, /~\/journal/);
-  assert.match(header, /team-tmt\.png/);
+  assert.match(header, /mark\.svg/);
   assert.doesNotMatch(header, />Product<|>Colab<|Follow on/);
   assert.match(header, />Journal</);
   assert.match(footer, /mailto:tofu@tmt.ninja/);

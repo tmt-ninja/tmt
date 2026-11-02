@@ -482,7 +482,8 @@ main {
   color: var(--c-paper);
 }
 
-/* The journal's path types once; visitors who prefer reduced motion see it immediately. */
+/* Nine characters in ~/journal set the typing width and step count.
+   Visitors who prefer reduced motion see the path immediately. */
 @media (prefers-reduced-motion: no-preference) {
   .site-chrome-path-text {
     display: inline-block;
