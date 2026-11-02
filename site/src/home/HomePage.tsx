@@ -1,3 +1,5 @@
+import { SiteHeader, SiteFooter } from "../shared/SiteChrome";
+import { landingChrome } from "../shared/landing-chrome";
 import { useState } from "react";
 import { useAtom } from "jotai";
 import { LocalLink } from "../components/LocalLink";
@@ -7,7 +9,7 @@ import { useLang } from "../lang/useLang";
 import { useStrings } from "../lang/useStrings";
 import { themeAtom, type ThemeChoice } from "../state/theme";
 import "./v9.css";
-import { BrandLockup, BrandMark } from "../components/BrandMark";
+import { BrandMark } from "../components/BrandMark";
 import asset1 from "./assets/v9-1.svg";
 import { HeroTunnel } from "./HeroTunnel";
 import asset3 from "./assets/v9-3.svg";
@@ -70,6 +72,18 @@ function TopInstall({
 // static and illustrative. MDX chapters remain in source, outside public rendering.
 export function HomePage() {
   const { lang } = useLang();
+  const chrome = landingChrome("~/", languageOf(lang).prefix);
+  return (
+    <div className="v9-home" lang={languageOf(lang).htmlLang}>
+      <SiteHeader config={chrome}>
+        <HomeControls />
+      </SiteHeader>
+      <HomeContent />
+      <SiteFooter config={chrome} />
+    </div>
+  );
+}
+function HomeContent() {
   const { landing } = useStrings();
   const [copied, setCopied] = useState(false);
   const copyExample = async () => {
@@ -81,30 +95,7 @@ export function HomePage() {
     }
   };
   return (
-    <main className="v9-home" lang={languageOf(lang).htmlLang}>
-      <header className="site-header content">
-        <LocalLink to="/" hash="top" className="wordmark">
-          <BrandLockup size={34} />
-        </LocalLink>
-        <nav aria-label="Primary navigation">
-          <LocalLink to="/" hash="workflow">
-            {landing.howItWorks}
-          </LocalLink>
-          <LocalLink to="/" hash="install">
-            {landing.quickStart}
-          </LocalLink>
-          <a
-            className="github-link"
-            href="https://github.com/pj-tmt/tmt"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub <img className="icon" src={asset1} alt="" />
-          </a>
-          <HomeControls />
-        </nav>
-      </header>
-
+    <main>
       <section className="hero" id="top">
         <HeroTunnel />
         <div className="hero-inner content">
@@ -579,15 +570,6 @@ export function HomePage() {
           </LocalLink>
         </div>
       </section>
-      <footer className="content">
-        <LocalLink to="/" hash="top" className="wordmark">
-          <BrandLockup size={26} />
-        </LocalLink>
-        <span>{landing.footer}</span>
-        <a href="https://github.com/pj-tmt/tmt" target="_blank" rel="noreferrer">
-          GitHub <img className="icon" src={asset1} alt="" />
-        </a>
-      </footer>
       <div className="copy-status" role="status">
         {copied ? "Command copied" : ""}
       </div>

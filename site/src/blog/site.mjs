@@ -148,7 +148,7 @@ export function layout({
       { label: "Product", url: location.siteBase, published: published.product },
       { label: "Journal", url: languageIndex, published: published.journal },
       { label: "Colab", url: location.siteBase + "colab/", published: published.colab },
-      { label: "GitHub", url: location.repository, published: published.github },
+      { label: "GitHub", url: location.repository, published: published.github, external: true },
     ],
     rssUrl: languageIndex + "feed.xml",
     xHandle: site.xHandle,

@@ -15,7 +15,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { themeAtom } from "../state/theme";
-import { BrandMark } from "../components/BrandMark";
+import { SiteHeader, SiteFooter } from "../shared/SiteChrome";
+import { landingChrome } from "../shared/landing-chrome";
 import "./colab-landing.css";
 
 const features = [
@@ -378,38 +379,19 @@ const install = [
 export function ColabLanding() {
   const [backend, setBackend] = useState<keyof typeof backendGuides>("local");
   const selectedBackend = backendGuides[backend];
+  const chrome = landingChrome("~/colab");
   const [theme, setTheme] = useAtom(themeAtom);
   return (
     <div className="colab-landing">
-      <header className="cl-header">
-        <div className="cl-brand" aria-label="TMT Colab">
-          <a href={import.meta.env.BASE_URL} className="cl-brand-parent" aria-label="TMT home">
-            <BrandMark className="cl-logo" size={24} />
-            <span>TMT</span>
-          </a>
-          <span className="cl-brand-divider" aria-hidden="true" />
-          <span className="cl-brand-product">Colab</span>
-        </div>
-        <nav className="cl-nav" aria-label="Colab features">
-          {features.map((feature) => (
-            <a key={feature.id} href={`#${feature.id}`}>
-              <span>{feature.number}</span> {feature.label}
-            </a>
-          ))}
-        </nav>
-        <div className="cl-header-actions">
-          <a className="cl-header-cta" href="#install">
-            Get started <ArrowRight size={15} />
-          </a>
-          <button
-            type="button"
-            aria-label="Change theme"
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-          >
-            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
-        </div>
-      </header>
+      <SiteHeader config={chrome}>
+        <button
+          type="button"
+          aria-label="Change theme"
+          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+        >
+          {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
+      </SiteHeader>
 
       <main>
         <section className="cl-hero" aria-labelledby="cl-hero-title">
@@ -612,15 +594,7 @@ export function ColabLanding() {
           </div>
         </section>
       </main>
-      <footer className="cl-footer">
-        <a href={import.meta.env.BASE_URL} className="cl-footer-brand">
-          <BrandMark className="cl-logo" size={24} /> Colab
-        </a>
-        <span>Pages for people and agents.</span>
-        <a href="https://github.com/pj-tmt/tmt">
-          GitHub <ArrowRight size={15} />
-        </a>
-      </footer>
+      <SiteFooter config={chrome} />
     </div>
   );
 }
