@@ -51,44 +51,148 @@
   min-width: 0;
   margin-top: 8px;
 }
+/* Pending files are 96px tiles that wrap; past two rows the tray scrolls, so the composer's
+   actions stay reachable and the page never scrolls sideways (#5955). */
 .attachment-pending-row {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
+  max-height: 200px;
   margin: 0;
   padding: 0;
-  overflow-x: auto;
+  overflow-y: auto;
   list-style: none;
 }
 .attachment-pending-item {
-  display: inline-flex;
-  align-items: center;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   flex: none;
-  gap: 4px;
-  white-space: nowrap;
-  --tmt-ui-host-icon-action-size: 24px;
+  width: 96px;
+  height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  overflow: hidden;
+  --tmt-ui-host-icon-action-size: 22px;
   --tmt-ui-header-icon-size: 14px;
+}
+.attachment-pending-item[data-kind='file'] {
+  width: auto;
+  min-width: 96px;
+  max-width: 200px;
+}
+.attachment-pending-item[data-state='refused'],
+.attachment-pending-item[data-state='unknown'],
+.attachment-pending-item[data-state='again'] {
+  border-color: var(--c-blocked);
+}
+.attachment-pending-preview {
+  position: absolute;
+  inset: 0;
 }
 .attachment-pending-image {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
-.attachment-pending-name {
-  max-width: 144px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 13px;
-}
-.attachment-pending-item[data-state='ready'] .attachment-state {
+/* An image speaks for itself; its name and type stay for assistive technology and the tooltip. */
+.attachment-pending-item:has(.attachment-pending-preview) .attachment-label,
+.attachment-pending-item[data-state='ready'] .attachment-state,
+.attachment-pending-item[data-state='uploading'] .attachment-state,
+.attachment-pending-item[data-state='stored'] .attachment-state {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+.attachment-pending-item .attachment-label {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  height: 100%;
+}
+.attachment-pending-item .attachment-label > svg {
+  margin-bottom: auto;
+  color: var(--c-muted);
+}
+.attachment-pending-item .attachment-label > span {
+  max-width: 100%;
+}
+.attachment-pending-item .attachment-name,
+.attachment-pending-item .attachment-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-pending-item .attachment-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+.attachment-pending-item .attachment-size {
+  font-size: 11px;
+}
+.attachment-pending-status {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.attachment-pending-item[data-state='refused'] .attachment-pending-status,
+.attachment-pending-item[data-state='unknown'] .attachment-pending-status,
+.attachment-pending-item[data-state='again'] .attachment-pending-status {
+  background: var(--tmt-ui-surface-sheet);
+}
+.attachment-pending-status .attachment-state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.attachment-pending-ring {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* The sheet, softened, in either theme: the image shows through behind the ring. */
+  background: color-mix(in srgb, var(--tmt-ui-surface-sheet) 55%, transparent);
+}
+.attachment-pending-ring circle {
+  fill: none;
+  stroke: var(--tmt-ui-surface-rule);
+  stroke-width: 3;
+}
+.attachment-pending-ring circle + circle {
+  stroke: var(--tmt-ui-color-accent);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+.attachment-pending-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  border-radius: 50%;
+  background: rgb(20 30 35 / 0.72);
+  --tmt-ui-color-text: #fff;
+  color: #fff;
+}
+.attachment-pending-remove button {
+  color: inherit;
 }
 .message-attachments {
   margin: 6px 0 0;
@@ -103,18 +207,26 @@
 .attachment-images {
   display: grid;
   align-items: start;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  max-width: 360px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 320px;
 }
+/* One image is a large preview; two or more share a two-column grid (#5955). */
 .attachment-images.single {
   display: block;
 }
 .message-image {
+  position: relative;
   min-width: 0;
 }
+/* The image speaks for itself; its name and size stay for assistive technology and the tooltip. */
 .message-image .attachment-label {
-  max-width: 100%;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .message-image .attachment-name,
 .message-image .attachment-size {
@@ -127,9 +239,9 @@
   display: grid;
   place-items: center;
   width: 100%;
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 3;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-s);
   background: var(--c-sheet);
   color: var(--c-muted);
@@ -147,17 +259,42 @@
   height: 100%;
   object-fit: cover;
 }
+/* A fixed frame, so a message keeps its place while the image loads; the whole image shows. */
 .attachment-thumbnail.single {
-  width: 200px;
+  width: 320px;
   max-width: 100%;
-  height: 120px;
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 10;
 }
 .attachment-thumbnail.single img {
-  width: 100%;
-  height: 100%;
-  object-fit: scale-down;
-  object-position: left top;
+  object-fit: contain;
+}
+.attachment-tile-failure {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  background: var(--c-sheet);
+  color: var(--c-muted);
+  font-size: 12px;
+  text-align: center;
+  /* The tile under it still opens the viewer; only Retry takes its own clicks. */
+  pointer-events: none;
+}
+.attachment-tile-failure button {
+  pointer-events: auto;
+}
+.attachment-tile-failure > svg {
+  width: 20px;
+  height: 20px;
+}
+.attachment-tile-failure .attachment-state {
+  color: inherit;
 }
 .attachment-thumbnail:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
@@ -380,22 +517,6 @@
 .comment-thread .attachment-label {
   padding: 7px 10px;
   background: var(--tmt-ui-surface-mention-agent);
-}
-.comment-thread .attachment-pending-row {
-  flex-wrap: wrap;
-  align-items: start;
-  /* Many staged previews scroll here, keeping the composer actions reachable. */
-  max-height: 24dvh;
-  overflow: auto;
-}
-.comment-thread .attachment-pending-item {
-  flex-wrap: wrap;
-  flex: 1 1 100%;
-  white-space: normal;
-  min-width: 0;
-}
-.comment-thread .attachment-pending-preview {
-  flex: 1 0 100%;
 }
 .comment-thread .attachment-thumbnail {
   margin-top: 8px;

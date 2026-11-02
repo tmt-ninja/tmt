@@ -1,6 +1,6 @@
 import { visibleElement } from './visible-element.js';
-import { BrowserIconAction } from '@tmt/browser-ui/react';
-import { Download } from 'lucide-react';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
+import { Download, ImageOff } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { RASTER_TYPES } from './attachment-file.js';
 import type { EchoAttachment } from './message-echo.js';
@@ -115,6 +115,7 @@ function ImageTile({
   error,
   load,
   open,
+  retry,
   single,
   handoff,
 }: {
@@ -123,6 +124,8 @@ function ImageTile({
   error?: string;
   load?(visible: () => boolean): void;
   open?(trigger: HTMLElement): void;
+  /** Reads the image again after a failure, from inside its tile. */
+  retry?(): void;
   single: boolean;
   handoff?: () => readonly string[];
 }) {
@@ -158,12 +161,26 @@ function ImageTile({
           failed={!!error}
           alt={item.filename}
           handoff={handoff}
-          fallback={<span>{error ?? text.attachmentOpening}</span>}
+          fallback={error ? null : <span>{text.attachmentOpening}</span>}
         />
       </button>
+      {/* A failure is said once, inside the tile it belongs to (#5955). */}
       {error && (
-        <span className="attachment-state" role="alert">
-          {error}
+        <span className="attachment-tile-failure">
+          <ImageOff aria-hidden />
+          <span className="attachment-state" role="alert">
+            {error}
+          </span>
+          {retry && (
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.attachRetry}
+              onActivate={(event) => {
+                if (event.isTrusted) retry();
+              }}
+            />
+          )}
         </span>
       )}
     </li>
@@ -348,6 +365,9 @@ export function MessageAttachments({
             void opener.thumbnail(d, visible);
           }}
           open={(trigger) => show(index, trigger)}
+          retry={() => {
+            void opener.preview(d);
+          }}
           handoff={() => {
             const message = messageKey({ writer: comment.ref.writer, id: comment.messageId });
             const echo = echoOf.get(message);
