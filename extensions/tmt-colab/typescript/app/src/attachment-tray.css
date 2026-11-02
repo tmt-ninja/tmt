@@ -296,9 +296,10 @@
 .attachment-tile-failure .attachment-state {
   color: inherit;
 }
+/* The tile has its own edge, so focus recolours it (#3998). */
 .attachment-thumbnail:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+  outline: none;
+  border-color: var(--tmt-ui-color-focus);
 }
 .attachment-more {
   font-size: 20px;
