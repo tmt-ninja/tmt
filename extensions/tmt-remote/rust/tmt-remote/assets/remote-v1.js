@@ -6425,15 +6425,23 @@ function startShellHost(root, routes, options = {}) {
 	const listeners = [];
 	let generation = 0;
 	let disposed = false;
+	const lastLocation = /* @__PURE__ */ new Map();
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
 	});
 	/** The rail links to this app's routes, not to a module's own mount. */
-	const view = () => ({
-		rail: appRail(answer, routes, place(), current?.route),
-		menu
-	});
+	const view = () => {
+		const rail = appRail(answer, routes, place(), current?.route);
+		for (const item of [...rail.main, ...rail.bottom]) {
+			const route = routes.find((candidate) => candidate.rail === item.id);
+			if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
+		}
+		return {
+			rail,
+			menu
+		};
+	};
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
@@ -6520,6 +6528,7 @@ function startShellHost(root, routes, options = {}) {
 	/** Leave the current module: suspend it when it can be kept, else release it. */
 	function leave() {
 		const leaving = current;
+		if (leaving && matchRoute(routes, window.location.pathname) === leaving.route) lastLocation.set(leaving.route.id, window.location.href);
 		try {
 			if (leaving) keep(leaving);
 		} finally {

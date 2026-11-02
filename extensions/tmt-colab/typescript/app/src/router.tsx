@@ -2842,7 +2842,7 @@ function OpenPage({
  */
 function shellHistory() {
   let last: ReturnType<typeof createBrowserHistory>['location'] | undefined;
-  return createBrowserHistory({
+  const history = createBrowserHistory({
     parseLocation: () => {
       const own = location.pathname === '/colab' || location.pathname.startsWith('/colab/');
       if (last && !own) return last;
@@ -2857,6 +2857,12 @@ function shellHistory() {
       return last;
     },
   });
+  // Router pushes update its in-memory location before the browser URL is flushed. Keep that
+  // location too, so leaving immediately after an in-app navigation cannot restore a stale page.
+  history.subscribe(({ location: next }) => {
+    if (next.pathname === '/colab' || next.pathname.startsWith('/colab/')) last = next;
+  });
+  return history;
 }
 
 /** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */

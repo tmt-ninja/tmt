@@ -548,6 +548,41 @@ test.describe('the door serving the TMT app', () => {
       expect(await live()).toBeLessThanOrEqual(2);
     });
 
+    for (const returnBy of ['rail', 'Back'] as const) {
+      test(`a page keeps its frame when returning via ${returnBy}`, async ({ page }) => {
+        const id = await door!.createPage('Return page', '<h1>Return content</h1>');
+        await door!.pair(page);
+        await page.goto(`${door!.origin}/colab/`);
+        await showAllPages(page);
+        await page.locator(`[data-page-id="${id}"] a`).click();
+        await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+        const frame = page.locator('.colab-route iframe').first();
+        await expect(
+          page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Return content' }),
+        ).toBeVisible();
+        const original = (await frame.elementHandle())!;
+        const renderer = (await original.contentFrame())!;
+        await original.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+        await renderer.evaluate(() => ((window as Window & { kept?: boolean }).kept = true));
+        const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+        await rail.locator('a[data-id="ops"]').click();
+        await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+        if (returnBy === 'rail') await rail.locator('a[data-id="colab"]').click();
+        else await page.goBack();
+        await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+        await expect(
+          page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Return content' }),
+        ).toBeVisible();
+        expect(
+          await frame.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept),
+        ).toBe(true);
+        expect(await (await frame.elementHandle())!.contentFrame()).toBe(renderer);
+        expect(await renderer.evaluate(() => (window as Window & { kept?: boolean }).kept)).toBe(
+          true,
+        );
+      });
+    }
+
     test('a paired Colab keeps its session, page bindings and frame across a rail switch', async ({
       page,
     }) => {

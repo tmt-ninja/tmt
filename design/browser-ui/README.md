@@ -279,6 +279,8 @@ the function that releases everything the module started, or a `ShellMounted`
   timers, polling, animation frames or visibility work, and no title, URL or focus changes;
   data-driven updates may still render into the hidden, inert area, and sockets and state stay.
   Focus inside the module moves to the new main area before it goes inert, never to the body.
+- **Rail location.** The host remembers the location a route had when left and its rail link returns
+  there, including its query and fragment. Direct links and browser history keep their destinations.
 - **Resume.** Coming back, the host adopts the common top bar again, returns the header and tool
   nodes, the menu and the title, makes the kept element the main again and calls `resume(slot)`
   with a fresh slot. It never calls `mount` again. Focus goes back to where it was in the module
