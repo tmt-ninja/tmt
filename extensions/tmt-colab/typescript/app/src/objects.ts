@@ -34,7 +34,9 @@ export interface ObjectEntry extends Position {
 }
 /** An object a peer sent in chunks, joined and parsed once by `Frames`: its JSON bytes are never
  * re-encoded to base64url only to be decoded again here. Only `Frames` makes one; no wire JSON
- * can, so an inline envelope is always a string. */
+ * can, so an inline envelope is always a string. It never crosses a clone or persist boundary: it
+ * lives only between `Frames` and admission on one connection, while the writer, IndexedDB and
+ * worker messages carry strings or bytes. */
 export class JoinedEnvelope {
   constructor(
     readonly envelope: Envelope,

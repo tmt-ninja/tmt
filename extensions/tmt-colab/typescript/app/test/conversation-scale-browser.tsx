@@ -22,6 +22,7 @@ const discussion: ThreadBinding = {
   edit: unused,
   deleteComment: unused,
   setStatus: unused,
+  setStatuses: unused,
   notificationFailed: unused,
   updateThread: unused,
 };

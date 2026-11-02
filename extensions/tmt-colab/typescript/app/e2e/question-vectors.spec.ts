@@ -35,3 +35,33 @@ for (const candidate of cases)
   test(`${candidate.name}: ${candidate.why}`, () => {
     expect(project(results.get(candidate.name)!)).toEqual(expected(candidate));
   });
+
+// #5891: inspection skips its parse when the source names no question element or marker. Names
+// are case-insensitive in HTML, so the same vectors written in capitals inspect the same.
+test('the no-question prefilter keeps every vector written in capital letters', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const sources = cases.map((candidate) =>
+    candidate.source
+      .join('\n')
+      .replace(
+        /<(\/?)tmt-(questions?|review|read)\b/g,
+        (_, slash, name) => `<${slash}TMT-${name.toUpperCase()}`,
+      )
+      .replace(/\bdata-(question|choice)\b/g, (_, name) => `DATA-${name.toUpperCase()}`),
+  );
+  expect(sources.some((source) => /TMT-QUESTION/.test(source))).toBe(true);
+  const inspected: QuestionInspection[] = await page.evaluate(
+    async ({ module, sources }) => {
+      const { inspectQuestions } = await import(module);
+      return sources.map((source: string) => inspectQuestions(source));
+    },
+    { module, sources },
+  );
+  cases.forEach((candidate, index) =>
+    expect(project(inspected[index]!), candidate.name).toEqual(
+      project(results.get(candidate.name)!),
+    ),
+  );
+});
