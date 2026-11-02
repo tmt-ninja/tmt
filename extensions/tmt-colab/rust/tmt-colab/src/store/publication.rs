@@ -489,5 +489,8 @@ pub(super) fn prune(c: &Connection, s: StreamScope<'_>, paired_seq: &str) -> Sto
     Ok(())
 }
 
+mod inventory;
+pub use inventory::{ContentInventory, Reason, Tally};
+
 #[cfg(test)]
 mod tests;

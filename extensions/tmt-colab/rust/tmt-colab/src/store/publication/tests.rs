@@ -694,3 +694,181 @@ fn storage_attributes_padded_baseline_epoch_to_the_current_page() {
     let older = f.store.page_storage_bytes(PAGE).unwrap();
     assert_eq!((older.content, older.history), (0, 8));
 }
+
+// #5366: the read-only inventory over synthetic stores only.
+fn inventory_of(f: &Fixture) -> (super::ContentInventory, crate::store::PageStorageBytes) {
+    // Each fixture opens its own private directory, never the owner's store.
+    let root = f.root.canonicalize().unwrap();
+    assert!(
+        f.layout
+            .directory
+            .canonicalize()
+            .unwrap()
+            .starts_with(&root)
+    );
+    if let Some(home) = std::env::var_os("HOME") {
+        assert!(!root.starts_with(PathBuf::from(home).join(".config/tmt")));
+    }
+    let inventory = f.store.content_inventory(PAGE).unwrap();
+    let bytes = f.store.page_storage_bytes(PAGE).unwrap();
+    // Every retained byte is counted once, and the estimate is exactly what prune removes.
+    assert_eq!(
+        inventory.content_and_history().unwrap(),
+        bytes.content + bytes.history
+    );
+    assert_eq!(inventory.own.bytes, bytes.comments);
+    assert_eq!(
+        inventory.total(super::Reason::PruneableNow),
+        f.store.eligible_history_bytes(PAGE).unwrap()
+    );
+    (inventory, bytes)
+}
+fn reasons_of(inventory: &super::ContentInventory) -> Vec<(super::Reason, u64)> {
+    inventory
+        .reasons
+        .iter()
+        .map(|(reason, tally)| (*reason, tally.bytes))
+        .collect()
+}
+fn store_bytes(f: &Fixture) -> Vec<u8> {
+    fs::read(f.layout.directory.join("space.db")).unwrap()
+}
+
+#[test]
+fn inventory_of_a_stream_without_a_pair_is_its_bootstrap() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    let (inventory, _) = inventory_of(&f);
+    use super::Reason::*;
+    assert_eq!(reasons_of(&inventory), vec![(Bootstrap, 16)]);
+    assert_eq!((inventory.own.rows, inventory.own.bytes), (1, 8));
+    assert_eq!((inventory.streams, inventory.receipt_rows), (1, 2));
+}
+
+#[test]
+fn inventory_finds_a_superseded_payload_prune_can_remove_now() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.pair(3);
+    // A payload kept below the pair, as an interrupted or older store holds it.
+    f.store
+        .connection
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE page=?2 AND seq=?3",
+            params![b"update-1".as_slice(), PAGE, sequence(1)],
+        )
+        .unwrap();
+    f.append(4);
+    f.append(5);
+    let (inventory, _) = inventory_of(&f);
+    use super::Reason::*;
+    let checkpoint = b"checkpoint-3-content".len() as u64;
+    assert_eq!(
+        reasons_of(&inventory),
+        vec![
+            (LatestPaired, checkpoint),
+            (Bootstrap, 8),
+            (PruneableNow, 8)
+        ]
+    );
+    assert_eq!(inventory.pruned_receipt_rows, 1);
+}
+
+#[test]
+fn inventory_of_a_paired_stream_without_a_tail_shows_retention_keeps_it() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.pair(3);
+    f.store
+        .connection
+        .execute(
+            "UPDATE receipts SET payload=?1 WHERE page=?2 AND seq=?3",
+            params![b"update-1".as_slice(), PAGE, sequence(1)],
+        )
+        .unwrap();
+    let before = store_bytes(&f);
+    let (inventory, _) = inventory_of(&f);
+    use super::Reason::*;
+    // No active tail: the current rules free nothing, and the superseded update is what a new
+    // generation would have to free.
+    assert_eq!(inventory.total(PruneableNow), 0);
+    assert_eq!(inventory.total(Superseded), 8);
+    assert_eq!(
+        inventory.total(LatestPaired),
+        b"checkpoint-3-content".len() as u64
+    );
+    // Reading changed nothing on disk.
+    assert_eq!(store_bytes(&f), before);
+}
+
+#[test]
+fn inventory_counts_overlapping_protections_once() {
+    let mut f = Fixture::new();
+    for seq in 1..=3 {
+        f.append(seq);
+    }
+    f.pair(1);
+    f.store
+        .connection
+        .execute(
+            "UPDATE checkpoints SET pinned=1 WHERE page=?1 AND seq=?2",
+            params![PAGE, sequence(1)],
+        )
+        .unwrap();
+    // The cloud has confirmed only up to 1, so update 3 waits for it.
+    f.store
+        .connection
+        .execute(
+            "INSERT INTO cloud_publications(page,epoch,stream,binding,uid,bootstrap_seq,confirmed_seq)
+             VALUES(?1,'1',?2,?3,'owner',?4,?4)",
+            params![PAGE, STREAM, [9u8; 32].as_slice(), sequence(1)],
+        )
+        .unwrap();
+    f.pair(3);
+    f.append(4);
+    f.append(5);
+    let (inventory, _) = inventory_of(&f);
+    use super::Reason::*;
+    let pinned = b"checkpoint-1-content".len() as u64;
+    assert_eq!(inventory.total(Pinned), pinned);
+    assert_eq!(inventory.total(Unconfirmed), 8);
+    // A later epoch makes the whole stream old: each payload keeps its first reason only.
+    f.store
+        .connection
+        .execute("UPDATE pages SET epoch='2' WHERE page=?1", [PAGE])
+        .unwrap();
+    let (old, bytes) = inventory_of(&f);
+    assert_eq!(old.total(OldEpoch), bytes.history);
+    assert_eq!(old.overlaps["oldEpoch+pinned"].bytes, pinned);
+    assert_eq!(
+        old.overlaps["oldEpoch+latestPaired"].bytes,
+        b"checkpoint-3-content".len() as u64
+    );
+}
+
+#[test]
+fn inventory_keeps_the_update_an_owner_fold_binds() {
+    let mut f = Fixture::new();
+    for seq in 1..=5 {
+        f.append(seq);
+    }
+    f.fold_pair(5, "device");
+    f.append(6);
+    f.append(7);
+    let (inventory, _) = inventory_of(&f);
+    use super::Reason::*;
+    assert_eq!(
+        inventory.total(OwnerSigned),
+        8 + b"fold-5-content".len() as u64
+    );
+    assert_eq!(
+        inventory.overlaps["ownerSigned+latestPaired"].bytes,
+        b"fold-5-content".len() as u64
+    );
+}
