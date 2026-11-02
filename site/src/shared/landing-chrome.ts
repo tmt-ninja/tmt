@@ -16,7 +16,7 @@ export function landingChrome(sectionPath: string, homePrefix = ""): SiteChromeO
       { label: "Product", url: homeHref, published: true },
       { label: "Journal", url: `${base}blog/`, published: true },
       { label: "Colab", url: `${base}colab/`, published: true },
-      { label: "GitHub", url: "https://github.com/pj-tmt/tmt", published: true, external: true },
+      { label: "GitHub", url: "https://github.com/tmt-ninja/tmt", published: true, external: true },
     ],
     rssUrl: `${base}blog/feed.xml`,
     xHandle: settings.xHandle,
