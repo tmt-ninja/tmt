@@ -543,10 +543,6 @@ impl Store {
     pub fn require_current_schema(&self) -> StoreResult<()> {
         schema::check_read_version(&self.connection)
     }
-    /// Object rows the envelope v2 conversion (#5876) left in the v1 form.
-    pub fn unconverted_objects(&self) -> StoreResult<i64> {
-        schema::unconverted_objects(&self.connection)
-    }
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection

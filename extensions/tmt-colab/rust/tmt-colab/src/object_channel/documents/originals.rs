@@ -1,8 +1,8 @@
 //! Exact original bytes behind the declared transport projection. Syntax and
 //! scope checks here never replace certificate, membership or epoch admission.
 use super::{
-    CHUNK_BYTES, Field, Fields, Invalid, LEGACY_CHUNK_BYTES, LOG_ENVELOPE_BYTES, MAX_CHUNKS,
-    Resource, binary, decode, encode, integer, text,
+    CHUNK_BYTES, Field, Fields, Invalid, LOG_ENVELOPE_BYTES, MAX_CHUNKS, Resource, binary, decode,
+    encode, integer, text,
 };
 use tmt_colab_model::{crypto, object, values};
 use tmt_extension_objects::{Sha256Hex, sync};
@@ -13,25 +13,9 @@ pub struct Original {
     pub header: object::Header,
     pub hash: [u8; 32],
 }
-/// How a row carries its original: v2 bytes, or the v1 JSON a row written before #5876 PR 2
-/// holds. A legacy row is converted under the same hash, as the store converter does.
-enum Cloud {
-    Bytes(Vec<u8>),
-    Legacy(Vec<u8>),
-}
-/// A cloud original, returned as the local v2 bytes.
-fn original(cloud: Cloud, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
-    let (envelope, bytes) = match cloud {
-        Cloud::Bytes(bytes) => (
-            object::Envelope::from_bytes(&bytes).map_err(|_| Invalid)?,
-            bytes,
-        ),
-        Cloud::Legacy(json) => {
-            let envelope = object::Envelope::from_json_v1(&json).map_err(|_| Invalid)?;
-            let bytes = envelope.to_bytes().map_err(|_| Invalid)?;
-            (envelope, bytes)
-        }
-    };
+/// A cloud original: the v2 bytes of one row or of one object's ordered chunks.
+fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
+    let envelope = object::Envelope::from_bytes(&bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != text(fields, "space")?
@@ -52,11 +36,11 @@ fn original(cloud: Cloud, fields: &Fields, kinds: &[&str]) -> Result<Original, I
 /// The returned bytes are the local v2 form of the original received.
 pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
     let fields = decode(Resource::Log, document)?;
-    let cloud = match fields.get("envelope") {
-        Some(Field::String(legacy)) => Cloud::Legacy(legacy.as_bytes().to_vec()),
-        _ => Cloud::Bytes(binary(&fields, "envelope", LOG_ENVELOPE_BYTES)?),
-    };
-    let result = original(cloud, &fields, &["update"])?;
+    let result = original(
+        binary(&fields, "envelope", LOG_ENVELOPE_BYTES)?,
+        &fields,
+        &["update"],
+    )?;
     if result.header.context.author_device != text(&fields, "stream")?
         || result.header.context.stream_seq != integer(&fields, "seq")?.to_string()
         || values::binary(text(&fields, "hash")?, 32).map_err(|_| Invalid)? != result.hash
@@ -67,11 +51,7 @@ pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
 }
 /// Split one already sealed checkpoint. No new seal, identity or payload store.
 pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
-    let parsed = original(
-        Cloud::Bytes(bytes.to_vec()),
-        &fields,
-        &["checkpoint", object::FOLD],
-    )?;
+    let parsed = original(bytes.to_vec(), &fields, &["checkpoint", object::FOLD])?;
     if parsed.header.object_id != text(&fields, "object")? || bytes.is_empty() {
         return Err(Invalid);
     }
@@ -107,15 +87,8 @@ pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
     Ok(result)
 }
 /// The ordered, complete chunks of one object, reassembled, with the first chunk's routing.
-/// Every chunk of one object has the first chunk's form; a legacy object is v1 JSON.
-fn chunks(documents: &[sync::Document]) -> Result<(Fields, Cloud), Invalid> {
+fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
     let first = decode(Resource::Checkpoints, documents.first().ok_or(Invalid)?)?;
-    let legacy = matches!(first.get("bytes"), Some(Field::String(_)));
-    let size = if legacy {
-        LEGACY_CHUNK_BYTES
-    } else {
-        CHUNK_BYTES
-    };
     let count = integer(&first, "count")?;
     if count == 0 || count != documents.len() as u64 {
         return Err(Invalid);
@@ -131,25 +104,14 @@ fn chunks(documents: &[sync::Document]) -> Result<(Fields, Cloud), Invalid> {
         if integer(&fields, "index")? != index as u64 {
             return Err(Invalid);
         }
-        let chunk = if legacy {
-            values::binary(text(&fields, "bytes")?, size).map_err(|_| Invalid)?
-        } else {
-            binary(&fields, "bytes", size)?
-        };
+        let chunk = binary(&fields, "bytes", CHUNK_BYTES)?;
         // Only the final chunk may be short; the producer's partition is fixed.
-        if index + 1 < documents.len() && chunk.len() != size {
+        if index + 1 < documents.len() && chunk.len() != CHUNK_BYTES {
             return Err(Invalid);
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok((
-        first,
-        if legacy {
-            Cloud::Legacy(bytes)
-        } else {
-            Cloud::Bytes(bytes)
-        },
-    ))
+    Ok((first, bytes))
 }
 /// The records that carry an epoch's baseline: the exact sealed `html` original the owner Store
 /// holds, in the checkpoints carrier, under its own hash. `object` is the lowercase hex of the

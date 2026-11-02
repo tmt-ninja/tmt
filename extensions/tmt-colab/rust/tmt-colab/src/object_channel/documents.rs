@@ -188,11 +188,6 @@ pub const LOG_ENVELOPE_BYTES: usize = crate::decoder::UPDATE_BYTES + 2048;
 pub const CHUNK_BYTES: usize = 256 * 1024;
 /// Enough chunks for the largest v2 envelope.
 pub const MAX_CHUNKS: usize = tmt_colab_model::object::MAX_ENVELOPE_BYTES.div_ceil(CHUNK_BYTES);
-/// Rows written before #5876 PR 2: a v1 JSON envelope as an ASCII stringValue, and checkpoint
-/// chunks of 32 KiB base64url. Readers still admit them until they expire; nothing writes them.
-pub(crate) const LEGACY_ENVELOPE_JSON: usize = 354_304;
-pub(crate) const LEGACY_CHUNK_BYTES: usize = 32_768;
-pub(crate) const LEGACY_CHUNKS: usize = 513;
 const _: () = assert!(
     LOG_ENVELOPE_BYTES.div_ceil(3) * 4 + 2048 <= tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES
         && CHUNK_BYTES.div_ceil(3) * 4 + 2048 <= tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES
@@ -331,23 +326,14 @@ fn check(resource: Resource, fields: &Fields) -> Result<(), Invalid> {
             {
                 return Err(Invalid);
             }
-            match fields.get("envelope") {
-                Some(Field::String(legacy))
-                    if legacy.is_ascii() && legacy.len() <= LEGACY_ENVELOPE_JSON => {}
-                Some(value) if !value.binary(LOG_ENVELOPE_BYTES)?.is_empty() => {}
-                _ => return Err(Invalid),
+            if binary(fields, "envelope", LOG_ENVELOPE_BYTES)?.is_empty() {
+                return Err(Invalid);
             }
         }
         Resource::Checkpoints => {
-            let (bytes, count) = match fields.get("bytes") {
-                Some(Field::Bytes(_)) => (binary(fields, "bytes", CHUNK_BYTES)?, MAX_CHUNKS),
-                _ => (
-                    values::binary(text(fields, "bytes")?, LEGACY_CHUNK_BYTES)
-                        .map_err(|_| Invalid)?,
-                    LEGACY_CHUNKS,
-                ),
-            };
-            if bytes.is_empty() || integer(fields, "count")? > count as u64 {
+            if binary(fields, "bytes", CHUNK_BYTES)?.is_empty()
+                || integer(fields, "count")? > MAX_CHUNKS as u64
+            {
                 return Err(Invalid);
             }
         }

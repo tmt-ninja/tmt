@@ -71,13 +71,6 @@ type Fields = Record<string, unknown>;
 /** Checkpoint chunks are 256 KiB bytesValue rows; enough of them for the largest envelope. */
 const CHUNK_BYTES = 262144,
   MAX_CHUNKS = 65;
-/** Rows written before #5876 PR 2 carry v1 JSON: a log stringValue of at most 354,304 ASCII
- * bytes, and checkpoint chunks of 32 KiB base64url. They still read until they expire. */
-const LEGACY_ENVELOPE_JSON = 354304,
-  LEGACY_CHUNK_BYTES = 32768,
-  LEGACY_CHUNKS = 513;
-/** A cloud original: v2 bytes, or a legacy row's v1 JSON. */
-type Cloud = { bytes: Uint8Array; legacy: boolean };
 type Resource = 'log' | 'checkpoints' | 'authority';
 const BASE = ['space', 'page', 'epoch', 'uid', 'expiresAt'];
 const KEYS = {
@@ -92,15 +85,9 @@ export async function hostedLog(
   scope: HostedScope,
 ): Promise<HostedOriginal & { publisherUid: string }> {
   const row = await fields(document, 'log', scope);
-  let cloud: Cloud;
-  if (legacy(row, 'envelope')) {
-    const raw = string(row, 'envelope'),
-      bytes = text(raw);
-    requireValue(raw.length <= LEGACY_ENVELOPE_JSON && bytes.length === raw.length);
-    cloud = { bytes, legacy: true };
-  } else cloud = { bytes: bytesValue(row, 'envelope', LOG_ENVELOPE_BYTES), legacy: false };
-  requireValue(cloud.bytes.length > 0);
-  const result = await original(cloud, scope, 'update');
+  const bytes = bytesValue(row, 'envelope', LOG_ENVELOPE_BYTES);
+  requireValue(bytes.length > 0);
+  const result = await original(bytes, scope, 'update');
   requireValue(
     result.header.context.authorDevice === string(row, 'stream') &&
       result.header.context.streamSeq === number(row, 'seq').toString(),
@@ -114,7 +101,7 @@ export async function hostedCheckpoint(
   documents: readonly SealedDocument[],
   scope: HostedScope,
 ): Promise<HostedOriginal> {
-  const rows = await ordered(documents, 'checkpoints', scope, LEGACY_CHUNKS);
+  const rows = await ordered(documents, 'checkpoints', scope, MAX_CHUNKS);
   const result = await original(chunks(rows), scope, ['checkpoint', 'fold']);
   requireValue(result.header.objectId === string(rows[0], 'object'));
   return result;
@@ -139,7 +126,7 @@ export async function hostedCheckpointSet(
   if (expected) requireValue(expected.length === 32);
   for (const [id, rows] of groups) {
     rows.sort((a, b) => number(a, 'seq') - number(b, 'seq'));
-    orderedRows(rows, 'checkpoints', LEGACY_CHUNKS);
+    orderedRows(rows, 'checkpoints', MAX_CHUNKS);
     originals.push({
       id,
       value: await original(
@@ -253,7 +240,7 @@ async function fields(
     requireValue(
       /^[0-9a-f]{64}$/.test(object) &&
         index < count &&
-        count <= (legacy(row, 'bytes') ? LEGACY_CHUNKS : MAX_CHUNKS) &&
+        count <= MAX_CHUNKS &&
         number(row, 'seq') === index + 1,
     );
     id = `${base}_${object}_${index}`;
@@ -288,11 +275,6 @@ function string(row: Fields, name: string): string {
   exactKeys(value, ['stringValue']);
   requireValue(typeof value.stringValue === 'string');
   return value.stringValue;
-}
-/** A stringValue where a bytesValue is now written: a row from before #5876 PR 2. */
-function legacy(row: Fields, name: string): boolean {
-  const value = row[name];
-  return typeof value === 'object' && value !== null && 'stringValue' in value;
 }
 /** The exact bytes of a canonical (padded, standard alphabet) REST bytesValue. */
 function bytesValue(row: Fields, name: string, max: number): Uint8Array {
@@ -359,32 +341,17 @@ function pieces(
   });
   return concat(...parts);
 }
-/** One object's chunks, all in the first chunk's form. */
-function chunks(rows: readonly Fields[]): Cloud {
-  if (legacy(rows[0], 'bytes')) {
-    requireValue(rows.length <= LEGACY_CHUNKS);
-    return {
-      bytes: pieces(
-        rows,
-        (row) => binary(string(row, 'bytes'), LEGACY_CHUNK_BYTES),
-        LEGACY_CHUNK_BYTES,
-      ),
-      legacy: true,
-    };
-  }
+/** One object's chunks, reassembled. */
+function chunks(rows: readonly Fields[]): Uint8Array {
   requireValue(rows.length <= MAX_CHUNKS);
-  return {
-    bytes: pieces(rows, (row) => bytesValue(row, 'bytes', CHUNK_BYTES), CHUNK_BYTES),
-    legacy: false,
-  };
+  return pieces(rows, (row) => bytesValue(row, 'bytes', CHUNK_BYTES), CHUNK_BYTES);
 }
 async function original(
-  cloud: Cloud,
+  bytes: Uint8Array,
   scope: HostedScope,
   kind: 'update' | 'checkpoint' | readonly ('html' | 'checkpoint' | 'fold')[],
 ): Promise<HostedOriginal> {
-  // A legacy row converts to v2 under the same hash, as the native store converter does.
-  const envelope = cloud.legacy ? Envelope.fromJson(cloud.bytes) : Envelope.fromBytes(cloud.bytes),
+  const envelope = Envelope.fromBytes(bytes),
     header = decodeHeader(envelope.header());
   requireValue(
     header.context.space === scope.space &&
@@ -395,7 +362,7 @@ async function original(
         : kind.some((allowed) => allowed === header.context.kind)),
   );
   return {
-    bytes: cloud.legacy ? envelope.toBytes() : cloud.bytes,
+    bytes,
     envelope,
     header,
     hash: await envelope.hash(),
