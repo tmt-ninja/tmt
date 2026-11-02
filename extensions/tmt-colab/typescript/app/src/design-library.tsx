@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import type { PageTransport } from './transport.js';
 import {
@@ -207,16 +208,19 @@ export function DesignLibrary({
             )}
             {transport.management ? (
               <>
-                <BrowserAction
-                  type="button"
-                  variant="secondary"
-                  label="New design system"
-                  disabled={publishing || loading}
-                  onActivate={() => {
-                    setNotice(undefined);
-                    setCreating(true);
-                  }}
-                />
+                <span className="design-new-system">
+                  <BrowserAction
+                    type="button"
+                    variant="secondary"
+                    label="New design system"
+                    leadingIcon={<Plus aria-hidden="true" />}
+                    disabled={publishing || loading}
+                    onActivate={() => {
+                      setNotice(undefined);
+                      setCreating(true);
+                    }}
+                  />
+                </span>
                 {selected && (
                   <BrowserAction
                     type="button"

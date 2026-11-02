@@ -99,9 +99,22 @@
     grid-column: 2;
     grid-row: 1;
   }
+  /* One row on a phone: the actions sit beside the common controls, and New design system shows
+   * only its icon (its label stays the accessible name). */
+  .tmt-ui-topbar:has(.design-header-title) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
   .tmt-ui-topbar:has(.design-header-title) .tmt-ui-topbar-actions {
-    grid-column: 1 / -1;
-    justify-self: end;
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .design-new-system .tmt-ui-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 

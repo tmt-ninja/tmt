@@ -1030,6 +1030,10 @@ code {
   .pattern-row-tags {
     display: none;
   }
+  
+  .docs-snippet pre {
+    padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
+  }
 }
 
 

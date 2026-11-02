@@ -544,6 +544,10 @@ code {
   .pattern-row-tags {
     display: none;
   }
+  /* A code line runs under the Copy button on a phone: start the code below it. */
+  .docs-snippet pre {
+    padding-top: calc(var(--tmt-ui-ref-space-4) + 24px);
+  }
 }
 
 /* Motion, elevation and brand pages (#5821) */
