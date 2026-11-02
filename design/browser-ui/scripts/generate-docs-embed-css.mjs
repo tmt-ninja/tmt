@@ -16,6 +16,8 @@ const sources = [
   '../docs/mock-colab.css',
   '../docs/mock-reader.css',
   '../docs/mock-list.css',
+  '../docs/tui/tui.css',
+  '../docs/mock-tui/mock-tui.css',
   // Last, so the hosted overrides win over the site's own rules.
   '../docs/hosted.css',
 ];

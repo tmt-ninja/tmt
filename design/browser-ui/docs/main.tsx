@@ -8,17 +8,21 @@ import './docs.css';
 import './mock-colab.css';
 import './mock-reader.css';
 import './mock-list.css';
+// The TUI pages' styles load here, not in their modules, so a host loads them only scoped (#5866).
+import './tui/tui.css';
+import './mock-tui/mock-tui.css';
 import { StrictMode, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DocsApp } from './app.js';
 import { setPaletteBFavicon } from './favicon.js';
 import { ColabMock } from './mock-colab.js';
+import { TuiMock } from './tui-nav.js';
 import { currentLocation, replacePath, usePath } from './router.js';
 import { previewRoot } from './preview.js';
 import { applyStoredTheme } from '../src/theme.js';
 import { frameFor } from '../gallery/frames.js';
 import { PatternFrame } from './patterns-more.js';
-import { canonicalPath, colabMockBase } from './routes.js';
+import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 
 // An old /docs or /mock URL, or the bare root, moves to its design system's route (#5821).
 function redirect() {
@@ -36,6 +40,9 @@ function Root() {
   }, [path]);
   const current = canonicalPath(path) ?? path;
   if (current.startsWith(colabMockBase)) return <ColabMock path={current} />;
+  // The TUI mock still matches its first URLs (docs/mock-tui, #5835) until it reads tuiMockBase.
+  if (current.startsWith(tuiMockBase))
+    return <TuiMock path={`/mock/tui${current.slice(tuiMockBase.length)}`} />;
   return <DocsApp path={current} />;
 }
 

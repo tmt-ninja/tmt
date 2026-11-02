@@ -5,11 +5,11 @@ import { expect, test, type Page } from '@playwright/test';
 // second web server in playwright.config.ts.
 const docs = `http://127.0.0.1:${Number(process.env.BROWSER_UI_TEST_PORT ?? 5184) + 1}`;
 
-/** Every docs page of each design system, from each system's own nav (mocks excluded). */
+/** Every docs page of both design systems, from each system's own nav (mocks excluded). */
 async function docsPages(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   const paths: string[] = [];
-  for (const root of ['/ds/gui']) {
+  for (const root of ['/ds/gui', '/ds/tui']) {
     await page.goto(`${docs}${root}`);
     const hrefs = await page
       .locator('nav.docs-nav a')

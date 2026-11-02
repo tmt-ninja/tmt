@@ -1,4 +1,4 @@
-// The docs inside Design (#5866): the design-system docs drawn in the host's document,
+// The docs inside Design (#5866): the GUI and TUI design-system docs drawn in the host's document,
 // not framed, since owner assets refuse framing. The host owns the URL, the header and the system
 // switcher; the docs keep their nav, content and preview controls. Every docs style sits in
 // @scope (.tmt-design-docs) in one generated stylesheet, a self-hosted asset of the host's build
@@ -12,7 +12,10 @@ import { ColabMock } from './mock-colab.js';
 import { PatternFrame } from './patterns-more.js';
 import { previewRoot } from './preview.js';
 import { hostDocs } from './router.js';
-import { canonicalPath, colabMockBase } from './routes.js';
+import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
+import { TuiMock } from './tui-nav.js';
+import { TuiFrame } from './tui/frame.js';
+import { oracle } from './tui/model.js';
 
 export interface DesignDocsProps {
   /** The host path that holds the docs, such as `/colab/design`. */
@@ -22,7 +25,7 @@ export interface DesignDocsProps {
   navigate(href: string): void;
 }
 
-/** The design-system docs, for a host that brings its own header and system switcher. */
+/** The GUI and TUI docs, for a host that brings its own header and system switcher. */
 export function DesignDocs({ base, path, navigate }: DesignDocsProps) {
   const root = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -33,8 +36,10 @@ export function DesignDocs({ base, path, navigate }: DesignDocsProps) {
   }, [trimmed, path, navigate]);
   useLayoutEffect(() => {
     previewRoot(root.current!);
-    drawFramesInline((_path, params) =>
-      params.get('frame') === 'pattern' ? (
+    drawFramesInline((path, params) =>
+      path.endsWith('/tui/frame.html') ? (
+        <TuiFramePreview params={params} />
+      ) : params.get('frame') === 'pattern' ? (
         <PatternFrame params={params} />
       ) : (
         frameFor(params.get('frame') ?? '', params)
@@ -58,9 +63,32 @@ export function DesignDocs({ base, path, navigate }: DesignDocsProps) {
       {ready &&
         (current.startsWith(colabMockBase) ? (
           <ColabMock path={current} />
+        ) : current.startsWith(tuiMockBase) ? (
+          <TuiMock path={`/mock/tui${current.slice(tuiMockBase.length)}`} />
         ) : (
           <DocsApp path={current} />
         ))}
+    </div>
+  );
+}
+
+/** A TUI oracle frame (docs/tui/frame.html) drawn in the document, cropped as its query says. */
+function TuiFramePreview({ params }: { params: URLSearchParams }) {
+  const source = oracle.frames.find(
+    (frame) =>
+      frame.state === params.get('state') &&
+      frame.look === params.get('look') &&
+      frame.width === Number(params.get('columns')) &&
+      frame.height === Number(params.get('rows')),
+  );
+  const from = Number(params.get('from') ?? 0);
+  const to = Number(params.get('to') ?? source?.height);
+  if (!source || !(from >= 0 && from < to && to <= source.height))
+    return <p role="alert">No recorded oracle frame for this preview.</p>;
+  const defaults = oracle.defaults[source.look === 'tmt-light' ? 'light' : 'dark'];
+  return (
+    <div style={{ backgroundColor: defaults.bg }}>
+      <TuiFrame frame={source} crop={[from, to]} label={source.state} />
     </div>
   );
 }

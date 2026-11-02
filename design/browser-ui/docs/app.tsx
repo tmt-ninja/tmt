@@ -7,11 +7,12 @@ import { patterns } from './patterns.js';
 import { morePatterns, PatternViewports } from './patterns-more.js';
 import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
+import { tuiPages } from './tui-nav.js';
 import { usePreview } from './preview.js';
 import { follow, hosted } from './router.js';
 import { Article, ComponentTemplate, Snippet } from './templates.js';
 export { Article, Snippet } from './templates.js';
-import { colabMockBase, guiRoot } from './routes.js';
+import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
 
 interface Page {
   href: string;
@@ -24,7 +25,7 @@ interface Section {
 }
 /** A design system the docs shell serves (#5821): its own route root and nav. */
 interface DesignSystem {
-  id: 'gui';
+  id: 'gui' | 'tui';
   name: string;
   root: string;
   sections: Section[];
@@ -104,11 +105,41 @@ const gui: DesignSystem = {
   ],
 };
 
-export const designSystems = [gui];
+/** The TUI pages, grouped by the group they name (#5835); an ungrouped page is a component. */
+const tuiGroups = ['Getting started', 'Foundations', 'Components', 'Patterns'] as const;
+const tuiPage = (page: (typeof tuiPages)[number]): Page => ({
+  href: `${tuiRoot}/${page.slug}`,
+  title: page.title,
+  render: () => (
+    <Article title={page.title} lead={page.lead}>
+      {page.render()}
+    </Article>
+  ),
+});
+const tuiGroup = (page: (typeof tuiPages)[number]) =>
+  (page as { group?: string }).group ?? 'Components';
+const tui: DesignSystem = {
+  id: 'tui',
+  name: 'tmt TUI',
+  root: tuiRoot,
+  sections: [
+    ...tuiGroups.map((title) => ({
+      title,
+      pages: [
+        ...(title === 'Getting started'
+          ? [{ href: tuiRoot, title: 'Introduction', render: () => <TuiIntroduction /> }]
+          : []),
+        ...tuiPages.filter((page) => tuiGroup(page) === title).map(tuiPage),
+      ],
+    })),
+    { title: 'Mocks', pages: [mock(`${tuiMockBase}/agents`, 'Agents')] },
+  ].filter((section) => section.pages.length > 0),
+};
+export const designSystems = [gui, tui];
 
 export function DocsApp({ path }: { path: string }) {
   const { theme } = usePreview();
-  const system = gui;
+  const system = path === tuiRoot || path.startsWith(`${tuiRoot}/`) ? tui : gui;
   const pages = system.sections.flatMap((section) => section.pages);
   const page = pages.find((entry) => entry.href === path) ?? pages[0]!;
   const index = pages.indexOf(page);
@@ -198,6 +229,26 @@ function TopBar({ system, onMenu }: { system: DesignSystem; onMenu?: () => void 
         </>
       )}
     </header>
+  );
+}
+
+function TuiIntroduction() {
+  return (
+    <Article
+      title="TMT TUI design system"
+      lead="The terminal side of tmt: the roles, glyphs, components and patterns the Ops board and the CLI paint, shown from real painter frames rather than drawn by hand."
+    >
+      <p>
+        Every frame on these pages is decoded from the recorded Ops oracle, so a page shows what a
+        terminal shows. The TUI keeps its own palette; GUI palette B does not apply here.
+      </p>
+      <div className="docs-cards">
+        <a className="docs-card" href={`${tuiMockBase}/agents`} onClick={follow}>
+          <b>Agents mock</b>
+          <span>The Agents board in each recorded state and terminal rendering.</span>
+        </a>
+      </div>
+    </Article>
   );
 }
 
