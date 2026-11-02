@@ -563,3 +563,29 @@ test('a large page update parses only what changed, exactly as a full parse', as
       });
   }
 });
+
+test('spans are trusted only where the full parse made the same nodes', async ({ page }) => {
+  await page.setContent('<!doctype html><html><body></body></html>');
+  const result = await page.evaluate(
+    ({ region }) => {
+      const { topLevelSpans, placedSpans } = new Function(
+        `${region}\nreturn { topLevelSpans, placedSpans };`,
+      )();
+      const parse = (source: string) =>
+        new DOMParser().parseFromString(`<body>${source}</body>`, 'text/html').body.childNodes;
+      const source = '<p>a</p>text<!--c--><div>b</div>';
+      const spans = topLevelSpans(source);
+      // A scan that placed a boundary wrongly, with the node count still right.
+      const shifted = spans.map(([a, b, ...kind]: [number, number, ...string[]], i: number) =>
+        i === 3 ? [a - 1, b, ...kind] : i === 2 ? [a, b - 1, ...kind] : [a, b, ...kind],
+      );
+      return {
+        kept: placedSpans(source, spans, parse(source)) === spans,
+        shifted: placedSpans(source, shifted, parse(source)),
+        otherNode: placedSpans(source, spans, parse('<p>a</p>text<!--c--><span>b</span>')),
+      };
+    },
+    { region },
+  );
+  expect(result).toEqual({ kept: true, shifted: null, otherNode: null });
+});

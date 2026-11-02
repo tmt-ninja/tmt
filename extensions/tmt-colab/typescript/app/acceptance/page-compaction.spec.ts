@@ -163,6 +163,8 @@ for (const [kind, top] of [
       const page = await openPage(door, browser, created);
       const frame = page.frameLocator('iframe');
       await expect(frame.locator('#n')).toHaveText('0', { timeout: 120_000 });
+      // The frame parses its bound page once, when idle after drawing it; writes come after that.
+      await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1, { timeout: 60_000 });
       await page.evaluate(() => {
         const long: number[] = [];
         Object.defineProperty(window, 'longTasks', { value: long });

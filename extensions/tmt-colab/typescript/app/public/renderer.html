@@ -368,6 +368,19 @@
           return spans;
         }
         // Whether `source` at `at` is a start tag that closes an open paragraph.
+        // `spans` when each one is the node a full parse made in its place (a tag's name, a comment,
+        // text), else null: the scan is only trusted where the parse agrees with it (#5891).
+        function placedSpans(source, spans, nodes) {
+          if (spans?.length !== nodes.length) return null;
+          const fits = spans.every(([start, , kind], index) => {
+            const node = nodes[index];
+            if (kind === 'text') return node.nodeType === 3;
+            if (source.startsWith('<!--', start)) return node.nodeType === 8;
+            const name = /^<([A-Za-z][^\s/>]*)/.exec(source.slice(start, start + 64))?.[1];
+            return node.nodeType === 1 && node.localName === name?.toLowerCase();
+          });
+          return fits ? spans : null;
+        }
         const closesParagraph = (source, at) => {
           const match = /^<([A-Za-z][^\s/>]*)/.exec(source.slice(at, at + 32));
           return !!match && CLOSES_P.has(match[1].toLowerCase());
@@ -2248,14 +2261,20 @@
           // Applies a new source to this page in place (#5022), or answers false when the page needs
           // a fresh frame: its key differs from the bound one, or it is a page that never updates in
           // place. Everything the frame reports is measured again before the answer.
+          // The bound source's parse and spans, prepared once: when the frame is idle after it is
+          // drawn, or at the first update if that comes sooner, so a live write never pays for the
+          // whole page's parse (#5891). `data-colab-prepared` on the root says it is done.
+          function prepareBound() {
+            if (stopped || boundKey !== undefined) return;
+            const bound = parsePage(boundSource);
+            boundKey = pageKey(boundSource, bound);
+            boundBody = bound.body;
+            boundSpans = placedSpans(boundSource, topLevelSpans(boundSource), boundBody.childNodes);
+            document.documentElement.dataset.colabPrepared = '';
+          }
+          (window.requestIdleCallback ?? ((then) => setTimeout(then, 200)))(prepareBound);
           function applySource(source) {
-            if (boundKey === undefined) {
-              const bound = parsePage(boundSource);
-              boundKey = pageKey(boundSource, bound);
-              boundBody = bound.body;
-              boundSpans = topLevelSpans(boundSource);
-              if (boundSpans?.length !== boundBody.childNodes.length) boundSpans = null;
-            }
+            prepareBound();
             if (boundKey === null) return false;
             // Only the changed top-level nodes are parsed and compared when that is the same as
             // parsing the page whole (`planFragment`); the key cannot change then, since the run
@@ -2312,12 +2331,11 @@
               const parsed = boundBody.ownerDocument.createDocumentFragment();
               parsed.append(...doc.body.childNodes);
               boundBody.insertBefore(parsed, next);
-              boundSpans = plan.spans;
+              boundSpans = placedSpans(source, plan.spans, boundBody.childNodes);
             } else {
               morphPage(document.body, doc.body, owner);
               boundBody = doc.body;
-              boundSpans = topLevelSpans(source);
-              if (boundSpans?.length !== boundBody.childNodes.length) boundSpans = null;
+              boundSpans = placedSpans(source, topLevelSpans(source), boundBody.childNodes);
             }
             if (imageRequestId) configureImages(imageRequestId);
             boundSource = source;

@@ -23,10 +23,6 @@ fn decoded_payload(envelope: &[u8]) -> Result<payload::Payload> {
     }
     Ok(payload::decode(header.operation, &bytes)?)
 }
-/// Page policies folded by read transactions, kept while the membership head stays the same
-/// (#5882). The log is append-only and its head hash names every statement up to it, so a
-/// policy at or below that head is the same fold; any new head starts the cache again. Each
-/// admission recheck then costs a lookup, not a decode of the whole log.
 /// What a read cache entry was filled at: the membership head hash, and SQLite's
 /// `data_version`, which changes whenever another connection commits. This connection's own
 /// membership writes move the head; any other write to the store refolds and reverifies.
@@ -55,6 +51,10 @@ impl VerifiedLog {
     }
 }
 type Policies = HashMap<(String, u64), crate::fold::PagePolicy>;
+/// Page policies folded by read transactions, kept while the membership head stays the same
+/// (#5882). The log is append-only and its head hash names every statement up to it, so a
+/// policy at or below that head is the same fold; any new head starts the cache again. Each
+/// admission recheck then costs a lookup, not a decode of the whole log.
 #[derive(Default)]
 pub(crate) struct PolicyCache(std::sync::Mutex<Option<(CacheKey, Policies)>>);
 impl PolicyCache {
