@@ -921,7 +921,8 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .conversation-composer {
   flex: 0 0 auto;
   min-height: 0;
-  overflow: auto;
+  /* It never shrinks, so it never scrolls; visible lets the composer's notice float above it. */
+  overflow: visible;
   border-top: 1px solid var(--c-rule);
   padding: 12px 16px 16px;
 }
@@ -954,6 +955,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 /* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   flex-shrink: 1;
+  overflow: auto;
 }
 /* A tall failure card can leave only a few lines below it, even in a tall viewport. */
 .annotation-popover .conversation-window:has(.annotation-compose[data-connection='ended']) {
