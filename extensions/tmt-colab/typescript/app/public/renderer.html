@@ -476,14 +476,16 @@
         // may. A page with a script, an inline handler or the runtime marker owns DOM its source
         // does not describe, so any change to it gets a fresh frame, as before #5022. The root's
         // attributes and the design-system match are fixed when the frame binds.
-        function pageKey(source, doc) {
-          if (
-            doc.querySelector('script,meta[name="tmt-colab-runtime"]') ||
+        function ownsDom(doc) {
+          return (
+            doc.querySelector('script,meta[name="tmt-colab-runtime"]') !== null ||
             [...doc.querySelectorAll('*')].some((el) =>
               [...el.attributes].some((a) => /^on/i.test(a.name)),
             )
-          )
-            return null;
+          );
+        }
+        function pageKey(source, doc) {
+          if (ownsDom(doc)) return null;
           return JSON.stringify([
             usesDesign(source),
             [...doc.documentElement.attributes].map((a) => [a.name, a.value]),
@@ -2280,7 +2282,9 @@
             if (boundKey === null) return false;
             // Only the changed top-level nodes are parsed and compared when that is the same as
             // parsing the page whole (`planFragment`); the key cannot change then, since the run
-            // holds no script, handler, design marker or document-level tag.
+            // holds no script, handler, design marker or document-level tag. `WHOLE` is a fast text
+            // screen; the parsed run is checked too, since the parser also makes an attribute that
+            // follows a quoted value with no space (`<img src="x"onerror=a>`).
             const candidates = [...document.body.childNodes].filter((n) => !frameNodes.has(n));
             let plan =
               candidates.length === boundBody.childNodes.length
@@ -2289,7 +2293,7 @@
             let doc;
             if (plan) {
               doc = parsePage(plan.text);
-              if (doc.body.childNodes.length !== plan.count) plan = null;
+              if (doc.body.childNodes.length !== plan.count || ownsDom(doc)) plan = null;
             }
             if (!plan) {
               doc = parsePage(source);

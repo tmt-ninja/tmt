@@ -137,6 +137,37 @@ test('a layout change gets a fresh frame', async ({ page }) => {
   expect(await sameDocument(page)).toBe(false);
 });
 
+// The parser makes an attribute that follows a quoted value with no space, so the frame's text
+// screen alone would plan a fragment here. The frame checks the parsed run too and answers remount,
+// whatever key the parent computed.
+for (const [name, added] of [
+  ['img', '<p><img src="x"onerror="window.ran=1"></p>'],
+  ['quoted title', `<p title='t'onclick="window.ran=1">Click</p>`],
+]) {
+  test(`the frame refuses an edit that adds a handler right after a quoted value (${name})`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const result = await page.evaluate(async (added) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      document.body.replaceChildren(host);
+      let ready!: () => void;
+      const bound = new Promise<void>((resolve) => (ready = resolve));
+      const handle = await mountRenderer(host, '<p id="a">one</p>\n<p id="b">two</p>', {
+        signal: new AbortController().signal,
+        onState: (state: string) => state === 'ready' && ready(),
+      });
+      await bound;
+      const plain = await handle.update('<p id="a">one!</p>\n<p id="b">two</p>');
+      const handler = await handle.update(`<p id="a">one!</p>\n${added}\n<p id="b">two</p>`);
+      return { plain, handler };
+    }, added);
+    expect(result).toEqual({ plain: 'applied', handler: 'remount' });
+  });
+}
+
 for (const [name, replacement] of [
   // The frame answers that the page needs a fresh frame.
   ['refuses', 'applied = false;'],
