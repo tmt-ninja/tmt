@@ -31,6 +31,60 @@ function forbiddenLoads(file: string, text: string): boolean {
   visit(source);
   return forbidden;
 }
+// Each directory export (`./src/<dir>/index.ts` in package.json "exports") is its own graph. The
+// set of graphs comes from the exports; each one's admitted packages are listed here explicitly.
+// Any other module is the root graph, which admits React only; static.ts admits nothing.
+const UI_PACKAGES = [
+  'react',
+  'lucide-react',
+  'clsx',
+  'tailwind-merge',
+  'radix-ui',
+  'cmdk',
+  'class-variance-authority',
+];
+const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> = {
+  './ui': { packages: UI_PACKAGES },
+  './rich-input': {
+    packages: [
+      'react',
+      'lucide-react',
+      'lexical',
+      '@lexical/react',
+      '@lexical/plain-text',
+      '@lexical/history',
+    ],
+  },
+  './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
+};
+// Modules with no edges at all, which every graph may import.
+const NEUTRAL = ['overlay.ts'];
+const packageExports = JSON.parse(readFileSync(path.join(home, 'package.json'), 'utf8'))
+  .exports as Record<string, string>;
+const directoryExports = Object.entries(packageExports).flatMap(([name, target]) => {
+  const match = /^\.\/src\/([^/]+)\/index\.ts$/.exec(target);
+  return match ? [{ name, directory: match[1]! }] : [];
+});
+interface Graph {
+  directory: string;
+  packages: string[];
+  graphs: string[];
+}
+function graphsOf(sourceRoot: string): Graph[] {
+  return directoryExports.map(({ name, directory }) => ({
+    directory: path.join(sourceRoot, directory),
+    packages: GRAPH_POLICIES[name]?.packages ?? [],
+    graphs: (GRAPH_POLICIES[name]?.graphs ?? []).map((other) =>
+      path.join(sourceRoot, directoryExports.find((entry) => entry.name === other)!.directory)
+    ),
+  }));
+}
+const inside = (file: string, directory: string) => file.startsWith(`${directory}/`);
+const packageOf = (edge: string) =>
+  edge
+    .split('/')
+    .slice(0, edge.startsWith('@') ? 2 : 1)
+    .join('/');
 function violations(
   file: string,
   source: string,
@@ -39,35 +93,22 @@ function violations(
   sourceRoot = production
 ): string[] {
   const failures: string[] = [];
-  const uiEntry = file.startsWith(`${path.join(sourceRoot, 'ui')}/`);
-  // The shell React adapter portals actions into its native owner's explicit slot (#4848).
+  const graphs = graphsOf(sourceRoot);
+  const graph = graphs.find((candidate) => inside(file, candidate.directory));
+  const uiGraph = graph?.directory === path.join(sourceRoot, 'ui');
+  const neutral = NEUTRAL.map((name) => path.join(sourceRoot, name));
   const shellPortal = file === path.join(sourceRoot, 'browser-shell.tsx');
-  const admittedPeers = uiEntry
-    ? [
-        'react',
-        'react/jsx-runtime',
-        'lucide-react',
-        'clsx',
-        'tailwind-merge',
-        'radix-ui',
-        'cmdk',
-        'class-variance-authority',
-      ]
-    : ['react', 'react/jsx-runtime', 'lucide-react'];
-  const admittedPackages = uiEntry
-    ? [
-        'react',
-        '@types/react',
-        'lucide-react',
-        'clsx',
-        'tailwind-merge',
-        'radix-ui',
-        'cmdk',
-        'class-variance-authority',
-      ]
+  // The root graph and ui/ admit exact peers; another declared graph admits its packages' subpaths.
+  const admittedPeers = uiGraph
+    ? ['react/jsx-runtime', ...UI_PACKAGES]
+    : graph
+      ? undefined
+      : ['react', 'react/jsx-runtime', 'lucide-react'];
+  const admittedPackages = graph
+    ? [...graph.packages, ...(graph.packages.includes('react') ? ['@types/react'] : [])]
     : ['react', '@types/react', 'lucide-react'];
   if (shellPortal) {
-    admittedPeers.push('react-dom');
+    admittedPeers!.push('react-dom');
     admittedPackages.push('react-dom', '@types/react-dom');
   }
   if (forbiddenLoads(file, source)) failures.push('unproved runtime input');
@@ -79,13 +120,22 @@ function violations(
         { moduleResolution: ts.ModuleResolutionKind.Bundler, ...options },
         ts.sys
       ).resolvedModule;
+      const named = admittedPeers
+        ? admittedPeers.includes(edge)
+        : graph!.packages.includes(packageOf(edge));
       if (
         staticEntry ||
-        !admittedPeers.includes(edge) ||
+        neutral.includes(file) ||
+        !named ||
         !resolved?.isExternalLibraryImport ||
         !admittedPackages.includes(resolved.packageId?.name ?? '')
       )
         failures.push(edge);
+      continue;
+    }
+    // A declared graph other than ui/ keeps its own stylesheet import inside its directory.
+    if (graph && !uiGraph && edge.endsWith('.css')) {
+      if (!inside(path.resolve(path.dirname(file), edge), graph.directory)) failures.push(edge);
       continue;
     }
     const target = ts.resolveModuleName(
@@ -94,11 +144,14 @@ function violations(
       { moduleResolution: ts.ModuleResolutionKind.Bundler, ...options },
       ts.sys
     ).resolvedModule?.resolvedFileName;
+    const reachable = graph
+      ? [graph.directory, ...graph.graphs].some((directory) => target && inside(target, directory))
+      : !graphs.some((other) => target && inside(target, other.directory));
     if (
       !target ||
-      !target.startsWith(`${sourceRoot}/`) ||
-      (uiEntry && !target.startsWith(`${path.join(sourceRoot, 'ui')}/`)) ||
-      (!uiEntry && target.startsWith(`${path.join(sourceRoot, 'ui')}/`)) ||
+      !inside(target, sourceRoot) ||
+      neutral.includes(file) ||
+      (!reachable && !neutral.includes(target)) ||
       (staticEntry && target !== path.join(sourceRoot, 'static.ts'))
     )
       failures.push(edge);
@@ -129,6 +182,59 @@ function productionViolations(directory: string): string[] {
 }
 it('protects production and the React-free static graph', () => {
   expect(productionViolations(production)).toEqual([]);
+});
+it('gives every directory export its own policy, and only those exports', () => {
+  expect(directoryExports.map((entry) => entry.name).sort()).toEqual(
+    Object.keys(GRAPH_POLICIES).sort()
+  );
+  for (const name of NEUTRAL) {
+    const file = path.join(production, name);
+    expect(imports(file, readFileSync(file, 'utf8'))).toEqual([]);
+  }
+});
+it('keeps each declared graph to its own packages, stylesheet and admitted graphs', () => {
+  const rich = path.join(production, 'rich-input/rich-input.tsx');
+  const table = path.join(production, 'data-table/data-table.tsx');
+  const floating = path.join(production, 'ui/floating.tsx');
+  const legacy = path.join(production, 'header.tsx');
+  const statics = path.join(production, 'static.ts');
+  const lexical =
+    "import { $getRoot } from 'lexical'; import '@lexical/react/LexicalComposerContext';";
+  expect(violations(rich, `${lexical} import './rich-input.css';`, false)).toEqual([]);
+  // The root graph stays free of an entry's packages, and the static graph of React itself.
+  expect(violations(legacy, lexical, false)).toEqual([
+    'lexical',
+    '@lexical/react/LexicalComposerContext',
+  ]);
+  for (const peer of ['react', 'react/jsx-runtime'])
+    expect(violations(statics, `import value from '${peer}';`, true)).toEqual([peer]);
+  expect(violations(table, "import { $getRoot } from 'lexical';", false)).toEqual(['lexical']);
+  expect(violations(table, "import { Button } from '../ui/index.js';", false)).toEqual([]);
+  expect(violations(rich, "import { Button } from '../ui/index.js';", false)).toEqual([
+    '../ui/index.js',
+  ]);
+  // A stylesheet stays inside its own entry; the root graph imports none.
+  expect(violations(table, "import '../rich-input/rich-input.css';", false)).toEqual([
+    '../rich-input/rich-input.css',
+  ]);
+  expect(violations(legacy, "import './data-table/data-table.css';", false)).toEqual([
+    './data-table/data-table.css',
+  ]);
+  // Root modules do not reach into an entry; the edge-free overlay helper is open to every graph.
+  expect(violations(legacy, "export * from './rich-input/index.js';", false)).toEqual([
+    './rich-input/index.js',
+  ]);
+  for (const file of [legacy, table, floating]) {
+    const edge = path.relative(path.dirname(file), path.join(production, 'overlay.js'));
+    const source = `import { admitsOverlayEscape } from '${edge.startsWith('.') ? edge : `./${edge}`}';`;
+    expect(violations(file, source, false)).toEqual([]);
+  }
+  expect(violations(floating, "import { Chips } from '../chips.js';", false)).toEqual([
+    '../chips.js',
+  ]);
+  expect(violations(path.join(production, 'overlay.ts'), "import './chips.js';", false)).toEqual([
+    './chips.js',
+  ]);
 });
 it('keeps the search entry free of every import', () => {
   const file = path.join(production, 'search.ts');
