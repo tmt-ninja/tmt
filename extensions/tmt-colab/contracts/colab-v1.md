@@ -3350,7 +3350,7 @@ Waiting questions render as a card with their title, asking agent, choices and S
 group stacks its waiting questions in one card with one Send; separate placements retain separate
 Send scopes. Recipient chips appear above Send, with the existing attachment action beside it.
 An answered question folds to a 32px strip showing its state, title, one-line answer and chevron.
-Expanding it in place shows the answer and conversation, Change answer, Follow up and Dismiss.
+Expanding it in place shows the answer once as “Your answer”, with its existing message actions and Ask status/retry, alongside the conversation, Change answer, Follow up and Dismiss. The underlying comment retains its full content.
 Follow up writes through the ordinary question conversation. Dismiss removes the element through
 the existing browser page-edit path and marks its registration handled through the existing metadata
 path. The edit remains in page history. Undo restores the element and reopens a question that was

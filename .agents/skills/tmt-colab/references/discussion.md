@@ -62,7 +62,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   answers; `question-layer.tsx` associates verified ordinary annotations by the
   renderer's existing normal quote resolver. `components/question-group-card.tsx`
   owns drafts and visible recipient chips, delegates explicit Send to `sendAnswers`,
-  and supplies controlled `QuestionCard` panels. Shared replies/retries resolve from
+  and supplies controlled `QuestionCard` panels. Each current answer is presented once
+  with its existing comment actions and Ask status; the underlying record stays unchanged. Shared replies/retries resolve from
   verified comments and Ask records, with the canonical thread rendering the reply.
   Send includes the immutable registered `questionId` on each ordinary answer comment before
   its independent Ask. `questionStates` consumes verified own comments for Open/Answered/Handled;

@@ -1844,6 +1844,15 @@ button.discussion-quote:focus-visible {
 .question-attach {
   display: flex;
 }
+.question-answer-record {
+  border-left: 2px solid var(--tmt-ui-surface-rule);
+  padding: 0 0 0 8px;
+}
+.question-answer-record header > .tmt-ui-avatar,
+.question-answer-record .conversation-time-separator,
+.question-answer-record time {
+  display: none;
+}
 .question-answer {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

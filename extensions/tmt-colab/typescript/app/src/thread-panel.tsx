@@ -192,8 +192,11 @@ export function DiscussionComment({
   status,
   delivery,
   attachments = true,
+  answerText,
 }: {
   comment: CommentView;
+  /** Display-only summary for a question answer; edits and retries keep the original record. */
+  answerText?: string;
   allowEdit?: boolean;
   readOnly?: boolean;
   /** False where the same files already show elsewhere, such as a question's answer block. */
@@ -238,10 +241,16 @@ export function DiscussionComment({
   return (
     <ConversationTurn
       role="user"
-      author={owned ? text.askYou : comment.deviceName || text.commentDevice}
+      author={
+        answerText !== undefined
+          ? 'Your answer'
+          : owned
+            ? text.askYou
+            : comment.deviceName || text.commentDevice
+      }
       at={Number(comment.at)}
       authorTitle={comment.ref.writer}
-      className="comment"
+      className={answerText !== undefined ? 'comment question-answer-record' : 'comment'}
       data-testid="comment-entry"
       data-message-id={comment.messageId}
       data-conversation-record={conversationRecordKey(
@@ -322,9 +331,24 @@ export function DiscussionComment({
             </form>
           ) : (
             <>
-              <MarkdownText className="comment-body" value={comment.body} names={mentionedNames} />
-              {attachments && (
-                <MessageAttachments comment={comment} binding={binding?.attachments} />
+              {answerText !== undefined ? (
+                <div className="question-answer">
+                  <p>{answerText}</p>
+                  {attachments && (
+                    <MessageAttachments comment={comment} binding={binding?.attachments} />
+                  )}
+                </div>
+              ) : (
+                <>
+                  <MarkdownText
+                    className="comment-body"
+                    value={comment.body}
+                    names={mentionedNames}
+                  />
+                  {attachments && (
+                    <MessageAttachments comment={comment} binding={binding?.attachments} />
+                  )}
+                </>
               )}
             </>
           )}
@@ -347,9 +371,11 @@ export function CommentExchange({
   attachments = true,
   title,
   retryInput,
+  answerText,
 }: {
   comment: CommentView;
   thread: ThreadView;
+  answerText?: string;
   binding?: ThreadBinding;
   ask?: AskBinding;
   asks: readonly PageAsk[];
@@ -397,6 +423,7 @@ export function CommentExchange({
       allowEdit={allowEdit}
       attachments={attachments}
       mentionedNames={records.map((record) => record.agentName)}
+      answerText={answerText}
       status={status}
       delivery={delivery}
     />

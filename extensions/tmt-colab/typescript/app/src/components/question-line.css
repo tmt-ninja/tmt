@@ -1,5 +1,4 @@
-/* Question cards and answered strips use the viewer's sheet and a bounded in-flow slot.
-   The 10px corner matches the approved Colab mock. */
+/* Question cards and answered strips use the viewer's sheet and a bounded in-flow slot. */
 .tmt-ui-card.question-compact-block {
   --question-icon: 22px;
   --question-text-inset: calc(var(--question-icon) + 12px);
@@ -8,7 +7,7 @@
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
   border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 10px;
+  border-radius: var(--tmt-ui-radius);
   pointer-events: auto;
 }
 .question-compact-block > div + div {
@@ -229,29 +228,31 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.question-compact-controls .tmt-ui-choice {
+/* The shared chip supplies the surface; native choice controls keep keyboard semantics. */
+.question-choice-chip {
+  border-radius: var(--tmt-ui-radius-pill);
+  overflow: visible;
+}
+.question-choice-chip .tmt-ui-choice {
   position: relative;
   align-items: center;
   min-width: 0;
   padding: 3px 10px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-pill);
-  font-size: 12px;
   overflow-wrap: anywhere;
 }
-.question-compact-controls .tmt-ui-choice:has(:checked) {
+.question-choice-chip:has(:checked) {
   color: var(--tmt-ui-color-accent);
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
   font-weight: 600;
 }
-.question-compact-controls .tmt-ui-choice > :is(.tmt-ui-radio, .tmt-ui-checkbox) {
+.question-choice-chip .tmt-ui-choice > :is(.tmt-ui-radio, .tmt-ui-checkbox) {
   position: absolute;
   width: 1px;
   height: 1px;
   opacity: 0;
 }
-.question-compact-controls .tmt-ui-choice:has(:focus-visible) {
+.question-choice-chip:has(:focus-visible) {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
 
@@ -263,7 +264,7 @@
 .question-compact-block[data-multiple] > .question-group-row {
   background: var(--tmt-ui-surface-sheet);
   border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: 10px;
+  border-radius: var(--tmt-ui-radius);
 }
 .question-compact-block[data-multiple] > .question-group-row + .question-group-row {
   margin-top: 6px;

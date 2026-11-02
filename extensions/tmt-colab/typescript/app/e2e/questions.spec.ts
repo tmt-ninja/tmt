@@ -374,20 +374,21 @@ for (const change of [false, true]) {
   });
 }
 
-test('the answer conversation keeps an agent name with a space in one mention chip', async ({
+test('the answer entry omits raw Page and mention metadata without changing its record', async ({
   page,
 }) => {
-  // The viewer holds no Ask record for the comment; the observed directory names the agent.
   const card = await mount(page, {}, { presentation: ['Agent 1'] });
   await card.getByLabel('Keep it', { exact: true }).check();
   await send(page);
-  const body = card.locator('.question-history .comment-body');
-  await expect(body.locator('.agent-chip-name')).toHaveText(['Agent 1']);
-  await expect(body).toContainText('Page: Live shared page Agent 1');
-  // The same chip stays whole once the viewer's own Ask record covers the comment.
+  const entry = card.locator('.question-answer-record');
+  await expect(entry.locator('.question-answer > p')).toHaveText('Keep it');
+  await expect(entry).not.toContainText('Page:');
+  await expect(entry.locator('.agent-chip-name')).toHaveCount(0);
+  const [thread] = await run(page, 'discussionProof');
+  expect(thread.comments[0].body).toContain('Page: Live shared page\n@Agent 1');
   await run(page, 'questionAsk', 'replied');
   await expect(card.getByTestId('ask-reply')).toContainText('I read your answer in this thread.');
-  await expect(body.locator('.agent-chip-name')).toHaveText(['Agent 1']);
+  await expect(entry.locator('.question-answer > p')).toHaveText('Keep it');
 });
 
 test('ordinary answer history growth keeps the inline card in window scrolling', async ({
@@ -709,4 +710,29 @@ test('question starts as a card and folds to a 32px answered strip', async ({ pa
     await card
       .locator('.question-compact-block')
       .screenshot({ path: `${process.env.COLAB_CAPTURE_DIR}/question-answered.png` });
+});
+
+test('an answer appears once with its edit, delete and Ask retry actions', async ({ page }) => {
+  const card = await mount(page, {}, { prepareFailures: 1 });
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  const entry = card.locator('.question-answer-record');
+  await expect(entry).toHaveCount(1);
+  await expect(entry).toContainText('Your answer');
+  await expect(entry.locator('.question-answer > p')).toHaveText('Keep it');
+  await expect(card.locator('.question-answer')).toHaveCount(1);
+  await expect(entry).not.toContainText('Answer to “');
+  await expect(entry).not.toContainText('Page:');
+  await entry.getByRole('button', { name: 'Message actions', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Edit', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(card.getByTestId('recipient-failure')).toBeVisible();
+  await card
+    .getByTestId('recipient-failure')
+    .getByRole('button', { name: 'Ask again', exact: true })
+    .click();
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  expect((await run(page, 'discussionProof'))[0].comments).toHaveLength(1);
 });

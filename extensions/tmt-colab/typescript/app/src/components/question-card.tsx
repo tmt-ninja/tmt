@@ -18,7 +18,6 @@ import type { CreatorTarget } from '../creator-default.js';
 import { attachmentInputHandlers } from '../attachment-drop.js';
 import type { AttachmentDraft } from '../attachment-draft.js';
 import { PendingAttachments } from '../attachment-tray.js';
-import { MessageAttachments } from '../message-attachments.js';
 import { text } from '../strings.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
@@ -138,12 +137,6 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
-        {answer && (
-          <div className="question-answer">
-            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
-            <MessageAttachments comment={answer} binding={discussion?.attachments} />
-          </div>
-        )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>
@@ -154,47 +147,50 @@ export function QuestionCard({
                 legend={text.questionInstruction(question.kind, question.other)}
               >
                 {question.choices.map((choice, index) => (
-                  <BrowserChoice
-                    key={choice.label}
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    label={choice.label}
-                    description={choice.description}
-                    aria-label={choice.label}
-                    data-choice-index={index + 1}
-                    aria-keyshortcuts={String(index + 1)}
-                    title={text.questionKey(index + 1)}
-                    disabled={disabled}
-                    checked={choices.includes(choice.label)}
-                    onChange={(event) => {
-                      if (question.kind === 'single') {
-                        onDraft({ choices: [choice.label], other: false });
-                      } else
-                        onDraft({
-                          choices: event.target.checked
-                            ? [...choices, choice.label]
-                            : choices.filter((item) => item !== choice.label),
-                        });
-                    }}
-                  />
+                  <span key={choice.label} className={`${c.chip} question-choice-chip`}>
+                    <BrowserChoice
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      label={choice.label}
+                      description={choice.description}
+                      aria-label={choice.label}
+                      data-choice-index={index + 1}
+                      aria-keyshortcuts={String(index + 1)}
+                      title={text.questionKey(index + 1)}
+                      disabled={disabled}
+                      checked={choices.includes(choice.label)}
+                      onChange={(event) => {
+                        if (question.kind === 'single') {
+                          onDraft({ choices: [choice.label], other: false });
+                        } else
+                          onDraft({
+                            choices: event.target.checked
+                              ? [...choices, choice.label]
+                              : choices.filter((item) => item !== choice.label),
+                          });
+                      }}
+                    />
+                  </span>
                 ))}
                 {question.other && (
-                  <BrowserChoice
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    label="Other"
-                    data-choice-index={question.choices.length + 1}
-                    aria-keyshortcuts={String(question.choices.length + 1)}
-                    title={text.questionKey(question.choices.length + 1)}
-                    disabled={disabled}
-                    checked={other}
-                    onChange={(event) => {
-                      onDraft({
-                        other: event.target.checked,
-                        ...(question.kind === 'single' ? { choices: [] } : {}),
-                      });
-                    }}
-                  />
+                  <span className={`${c.chip} question-choice-chip`}>
+                    <BrowserChoice
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      label="Other"
+                      data-choice-index={question.choices.length + 1}
+                      aria-keyshortcuts={String(question.choices.length + 1)}
+                      title={text.questionKey(question.choices.length + 1)}
+                      disabled={disabled}
+                      checked={other}
+                      onChange={(event) => {
+                        onDraft({
+                          other: event.target.checked,
+                          ...(question.kind === 'single' ? { choices: [] } : {}),
+                        });
+                      }}
+                    />
+                  </span>
                 )}
               </BrowserChoiceGroup>
             )}
@@ -277,7 +273,7 @@ export function QuestionCard({
         )}
         {threads.some((thread) => thread.comments.length) && (
           <div className="question-history">
-            <h3>
+            <h3 className={c.visuallyHidden}>
               Conversation
               {asks.some(
                 (record) =>
@@ -291,8 +287,13 @@ export function QuestionCard({
                 {thread.comments.map((comment) => (
                   <CommentExchange
                     readOnly={readOnly}
-                    // The answer's files show once, in the answer block above.
-                    attachments={comment.messageId !== answer?.messageId}
+                    answerText={
+                      comment.ref.writer === answer?.ref.writer && comment.ref.id === answer?.ref.id
+                        ? pageLine >= 0
+                          ? answerText?.slice(0, pageLine)
+                          : answerText
+                        : undefined
+                    }
                     key={`${comment.ref.writer}:${comment.ref.id}`}
                     comment={comment}
                     thread={thread}

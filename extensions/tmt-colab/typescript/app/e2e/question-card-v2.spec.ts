@@ -62,7 +62,7 @@ for (const [width, scheme] of [
         rgb(tokens.browser.surface.rule[scheme]),
       );
     }
-    await expect(block).toHaveCSS('border-top-left-radius', '10px');
+    await expect(block).toHaveCSS('border-top-left-radius', '8px');
     await expect(block).toHaveCSS('box-shadow', 'none');
     const legend = card.locator('.tmt-ui-choices-legend');
     await expect(legend).toHaveText('Choose one answer, or write your own.');

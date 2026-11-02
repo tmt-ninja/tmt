@@ -226,7 +226,9 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
     },
   ];
   const group = await mount(page, { count: 2, agents: ['Review', 'Review'] }, { agents });
-  await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(0);
   await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
   await page.getByRole('combobox', { name: 'Find an agent' }).fill('Review');
   await expect(page.getByRole('option')).toHaveCount(2);
@@ -235,9 +237,13 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
   await page.getByRole('combobox', { name: 'Find an agent' }).fill('Review');
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option').filter({ hasText: 'Second machine' }).click();
-  await expect(group.locator('.tmt-ui-chip')).toHaveCount(2);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(2);
   // Every recipient is the shared agent chip inside the design-system frame, and the option list too.
-  await expect(group.locator('.tmt-ui-chip .agent-chip')).toHaveCount(2);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip .agent-chip'),
+  ).toHaveCount(2);
   await expect(group.getByRole('group', { name: 'Answer recipients' })).toContainText('Review');
   await group.locator('.question-line').first().focus();
   await card(page).getByLabel('Keep it', { exact: true }).check();
@@ -436,7 +442,9 @@ test('no recipients posts answers only, and a removed default does not return', 
   await group.getByRole('button', { name: 'Send 3 answers · to thread only', exact: true }).click();
   await recorded(page, 3);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
-  await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(0);
   await group.locator('.question-line').nth(0).click();
   await page
     .locator('.question-group-row:focus-within')
@@ -464,7 +472,9 @@ test('recipient chips add/remove/Backspace share the cap and never send by thems
     await expect(page.getByRole('option')).toHaveCount(1);
     await search.press('Enter');
   }
-  await expect(group.locator('.tmt-ui-chip')).toHaveCount(8);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(8);
   await expect(group.getByRole('button', { name: 'Add recipient', exact: true })).toBeDisabled();
   await expect(group.getByText('At most 8', { exact: true })).toBeVisible();
   await group.getByRole('button', { name: 'Remove @Agent 8', exact: true }).press('Enter');
@@ -472,7 +482,9 @@ test('recipient chips add/remove/Backspace share the cap and never send by thems
   await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
   const search = page.getByRole('combobox', { name: 'Find an agent' });
   await search.press('Backspace');
-  await expect(group.locator('.tmt-ui-chip')).toHaveCount(6);
+  await expect(
+    group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(6);
   await search.press('Escape');
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -598,7 +610,9 @@ for (const [width, theme] of [
       await expect(page.getByRole('option')).toHaveCount(1);
       await capture('recipient-popup');
       await search.press('Enter');
-      await expect(group.locator('.tmt-ui-chip')).toHaveCount(3);
+      await expect(
+        group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+      ).toHaveCount(3);
       await capture('long-recipient');
       await run(page, 'pausePrepare');
       await group.getByRole('button', { name: /^Send 3 answers/ }).click();
@@ -668,14 +682,18 @@ for (const [width, theme] of [
         { count: 9, darkPage, agents: agents.map((agent) => agent.agentName) },
         { agents },
       );
-      await expect(group.locator('.tmt-ui-chip')).toHaveCount(8);
+      await expect(
+        group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+      ).toHaveCount(8);
       await expect(
         group.getByRole('button', { name: 'Add recipient', exact: true }),
       ).toBeDisabled();
       await expect(group.getByText('At most 8', { exact: true })).toBeVisible();
       await capture('recipient-cap');
       await remount({ count: 3, darkPage }, { agents: [] });
-      await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
+      await expect(
+        group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+      ).toHaveCount(0);
       await group.locator('.question-line').first().focus();
       await card(page).getByLabel('Keep it', { exact: true }).check();
       await expect(
@@ -698,7 +716,9 @@ for (const [width, theme] of [
       await remount({ count: 3, darkPage }, { agentsUnavailable: true });
       await expect(group.getByText('Agents are unavailable.', { exact: true })).toBeVisible();
       await expect(group.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled();
-      await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
+      await expect(
+        group.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+      ).toHaveCount(0);
       await capture('directory-failed');
       await remount({ count: 3, darkPage }, { agents: [{ ...agents[0], online: 'offline' }] });
       await group.locator('.question-line').first().focus();
