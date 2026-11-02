@@ -69,6 +69,8 @@ it('flags a positive offset and an outline on a bordered control', () => {
 it('draws one focus frame in the design system, the gallery and the Colab and Remote pages', () => {
   for (const [name, css] of [
     ...sheets('../src/'),
+    ...sheets('../src/rich-input/'),
+    ...sheets('../src/data-table/'),
     ...sheets('../gallery/'),
     ...sheets('../../../extensions/tmt-colab/typescript/app/src/'),
     ...sheets('../../../extensions/tmt-remote/rust/tmt-remote/assets/'),
