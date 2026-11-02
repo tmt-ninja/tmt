@@ -315,11 +315,19 @@ jobs:
           retention-days: 7
 
   browser-ui:
-    name: Design gallery audits (Chromium)
+    name: Design gallery audits (Chromium, shard ${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.browser_ui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # The gallery outgrew one 15-minute job: three gallery shards.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { suite: gallery, shard: 1 }
+          - { suite: gallery, shard: 2 }
+          - { suite: gallery, shard: 3 }
     permissions:
       contents: read
     steps:
@@ -354,14 +362,15 @@ jobs:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ steps.browsers.outputs.cache-primary-key }}
       - name: Run design gallery audits
+        if: matrix.suite == 'gallery'
         working-directory: typescript
-        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2
+        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2 --shard=${{ matrix.shard }}/3
       # Only this synthetic gallery's failure traces; no product, account or host state.
       - name: Upload gallery failure traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-ui-traces
+          name: browser-ui-traces-${{ matrix.suite }}-${{ matrix.shard }}
           path: design/browser-ui/test-results
           if-no-files-found: ignore
           retention-days: 7
