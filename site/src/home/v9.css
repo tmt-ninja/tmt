@@ -30,6 +30,9 @@
     font-size: 15px;
     line-height: 1.5;
   }
+  [id] {
+    scroll-margin-top: var(--site-chrome-header-height, 80px);
+  }
   button,
   a {
     -webkit-tap-highlight-color: transparent;

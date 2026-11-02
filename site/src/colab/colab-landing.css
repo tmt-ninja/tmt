@@ -25,7 +25,7 @@
   outline-offset: 3px;
 }
 .colab-landing section[id] {
-  scroll-margin-top: 80px;
+  scroll-margin-top: var(--site-chrome-header-height, 80px);
 }
 
 .cl-feature-copy a:hover,

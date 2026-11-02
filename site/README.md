@@ -60,7 +60,8 @@ redirects to the blog with a meta refresh and visible link; `404.html` links to
 the blog and repository. Home, Colab and blog header/footer navigation share the framework-free
 [chrome renderer](src/shared/site-chrome.mjs) and `src/shared/site-chrome.css`.
 The React adapter preserves the existing language/theme controls in a dedicated slot;
-Home maps the paper/text/rule roles to its own theme. Phone navigation wraps so all
+Home maps the paper/text/rule roles to its own theme. The adapter measures the
+wrapped header so existing section anchors stay below it. Phone navigation wraps so all
 published destinations stay reachable. Callers provide the section path, mark URL,
 brand link, RSS URL, optional X handle, and navigation items (`label`, `url`, `published`,
 optional `external`). External items carry the arrow and appear in the footer; labels
