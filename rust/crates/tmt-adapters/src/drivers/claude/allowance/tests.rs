@@ -274,6 +274,54 @@ fn used(limits: &RateLimits) -> Vec<f64> {
         .collect()
 }
 
+// #5973: exercise the actual private data-root store, not the host TMT_HOME.
+#[test]
+fn partial_push_keeps_the_previous_current_window() {
+    let mut bare = config();
+    bare.as_object_mut()
+        .unwrap()
+        .remove("cachedUsageUtilization");
+    let fixture = PushedFixture::new(&bare);
+    assert!(fixture.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let partial = json!({"rateLimits": [{"kind": "seven_day", "percentUsed": 81,
+        "resetsAt": "2026-10-14T03:29:18.000Z"}]});
+    assert!(
+        fixture
+            .push(&serde_json::to_vec(&partial).unwrap(), NOW + 1)
+            .unwrap()
+    );
+    let stored = fs::read_to_string(fixture.data.path.join(STORE)).unwrap();
+    println!("private store after both then seven-day only: {stored}");
+    assert_eq!(used(&fixture.read(NOW + 1).unwrap()), [20.0, 81.0]);
+}
+
+#[test]
+fn elapsed_push_does_not_erase_a_current_window() {
+    let mut bare = config();
+    bare.as_object_mut()
+        .unwrap()
+        .remove("cachedUsageUtilization");
+    let fixture = PushedFixture::new(&bare);
+    let current = json!({"rateLimits": [
+        {"kind": "five_hour", "percentUsed": 20, "resetsAt": "2026-10-14T03:29:18.000Z"},
+        {"kind": "seven_day", "percentUsed": 80, "resetsAt": "2026-10-14T03:29:18.000Z"}
+    ]});
+    let after_reset = PUSHED_FIVE_RESET + 1;
+    assert!(
+        fixture
+            .push(&serde_json::to_vec(&current).unwrap(), after_reset)
+            .unwrap()
+    );
+    assert!(
+        fixture
+            .push(&push_body(10.0, 81.0), after_reset + 1)
+            .unwrap()
+    );
+    let stored = fs::read_to_string(fixture.data.path.join(STORE)).unwrap();
+    println!("private store after elapsed five-hour push: {stored}");
+    assert_eq!(used(&fixture.read(after_reset + 1).unwrap()), [20.0, 81.0]);
+}
+
 #[test]
 fn the_newest_observation_wins_whole_between_a_push_and_the_cache() {
     let pushed = PushedFixture::new(&config());
