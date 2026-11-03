@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { metadata, validateApproval, validateStoredArticle } from "./content.mjs";
+import { metadata, validateApproval, validateStoredArticle, withEditorial } from "./content.mjs";
 import { languages, languageInfo, indexPath, postPath } from "./languages.mjs";
 import { tagPath } from "./tags.mjs";
 import { stats } from "./stats.mjs";
@@ -89,18 +89,23 @@ export async function readPosts(directory) {
       if (prefix && !Object.keys(files).length) continue;
       for (const required of ["meta.json", "article.html", "approval.json"])
         if (!files[required]) throw new Error(`${item.name}: missing ${required}`);
-      const meta = metadata(JSON.parse(files["meta.json"]));
-      if (meta.slug !== item.name) throw new Error("Post directory must match slug");
-      if (meta.language !== language.id) throw new Error("Post directory must match language");
+      const approved = metadata(JSON.parse(files["meta.json"]));
+      if (approved.slug !== item.name) throw new Error("Post directory must match slug");
+      if (approved.language !== language.id) throw new Error("Post directory must match language");
       const html = files["article.html"].toString("utf8");
       const approval = JSON.parse(files["approval.json"]);
       const assets = Object.fromEntries(
         Object.entries(files).filter(
-          ([path]) => !["meta.json", "article.html", "approval.json"].includes(path),
+          ([path]) =>
+            !["meta.json", "article.html", "approval.json", "editorial.json"].includes(path),
         ),
       );
       validateStoredArticle(html, assets);
-      validateApproval(approval, meta, html, assets);
+      validateApproval(approval, approved, html, assets);
+      // Tags and key numbers are editorial: editorial.json overrides them without a new approval.
+      const meta = files["editorial.json"]
+        ? withEditorial(approved, JSON.parse(files["editorial.json"]))
+        : approved;
       posts.push({ meta, html, assets });
     }
   }
@@ -148,7 +153,7 @@ export function layout({
       { label: "Product", url: location.siteBase, published: published.product },
       { label: "Journal", url: languageIndex, published: published.journal },
       { label: "Colab", url: location.siteBase + "colab/", published: published.colab },
-      { label: "GitHub", url: location.repository, published: published.github },
+      { label: "GitHub", url: location.repository, published: published.github, external: true },
     ],
     rssUrl: languageIndex + "feed.xml",
     xHandle: site.xHandle,
