@@ -79,7 +79,9 @@ export function extract(oracle = JSON.parse(read(oraclePath))) {
   );
   const tokens = JSON.parse(read('design/tokens/tokens.json'));
   const theme = read(themePath);
-  const ansi = theme.match(/const ANSI_RGB:[\s\S]*?= \[([\s\S]*?)\];/)[1];
+  const ansi = theme.match(/const ANSI_RGB:[\s\S]*?= \[([\s\S]*?)\];/)?.[1];
+  if (ansi === undefined)
+    throw new Error(`${themePath}: no \`const ANSI_RGB: … = [ … ];\` table found`);
   const ansiRgb = [...ansi.matchAll(/\((\d+), (\d+), (\d+)\)/g)].map(
     (m) => `rgb(${m[1]}, ${m[2]}, ${m[3]})`,
   );
