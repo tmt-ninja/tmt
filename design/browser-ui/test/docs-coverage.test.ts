@@ -65,6 +65,7 @@ const entries: Record<string, string> = {
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
   './data-table': 'Components entry data-table',
+  './manage-list': 'Browser entry shell (ordered management list and dialog)',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',
   './docs-oracle': 'the build-time plugin the docs site needs in its host',

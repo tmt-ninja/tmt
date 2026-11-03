@@ -1,3 +1,5 @@
+import { BrowserManageList } from '../src/manage-list/index.js';
+import { UiTheme } from '../src/ui/index.js';
 import { CompactControlsFrame } from './compact-controls-frame.js';
 import { UiContrastFrame } from './ui-contrast-frame.js';
 import { FloatingFrame } from './floating-frame.js';
@@ -695,6 +697,16 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
 export function ShellSection() {
   return (
     <Section id="shell">
+      <h3>Manage ordered shortcuts</h3>
+      <UiTheme>
+        <BrowserManageList
+          items={[{ id: 'spec', label: 'spec', detail: 'project:spec' }]}
+          onEdit={noop}
+          onDelete={() => false}
+          onMove={noop}
+          onReorder={noop}
+        />
+      </UiTheme>
       <FramePair title="Shared common top bar · React adapter" frame="topbar" height={400} />
       <FramePair
         title="Shared common top bar · native renderer"

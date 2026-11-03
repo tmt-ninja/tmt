@@ -67,6 +67,8 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
   const [reorderRequests, setReorderRequests] = useState(0);
   const [revision, setRevision] = useState(0);
   const [status, setStatus] = useState('Ready');
+  const [commandCalls, setCommandCalls] = useState(0);
+  const [addCalls, setAddCalls] = useState(0);
   const [mounted, setMounted] = useState(true);
   const view = useMemo<ShellView>(() => {
     const result: ShellView = {
@@ -130,7 +132,10 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
             action: {
               label: icons ? 'Manage' : 'Manage projects',
               ...(icons ? {} : { icon: 'settings' as const }),
-              onActivate: () => setStatus(`Manage ${revision}`),
+              onActivate: () => {
+                setStatus(`Manage ${revision}`);
+                setCommandCalls((count) => count + 1);
+              },
             },
             items: [
               {
@@ -151,7 +156,13 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
                 count: shellCount(0),
               },
             ],
-            add: { label: 'New project', onActivate: () => setStatus(`New ${revision}`) },
+            add: {
+              label: 'New project',
+              onActivate: () => {
+                setStatus(`New ${revision}`);
+                setAddCalls((count) => count + 1);
+              },
+            },
           },
         ],
         settings: {
@@ -280,7 +291,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
         Shared rail with sample counts and host-owned commands. Main area is a fixture, not a
         product adoption.
       </p>
-      <p role="status" data-host-status>
+      <p role="status" data-host-status data-command-calls={commandCalls} data-add-calls={addCalls}>
         {status}
       </p>
       {tree && <p data-host-open={open.join(',')}>Host expanded: {open.join(', ') || 'none'}</p>}

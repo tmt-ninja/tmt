@@ -1,3 +1,4 @@
+import { trustedActivation } from './ui/trusted-activation.js';
 import { brandMarkSvg } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
@@ -79,6 +80,8 @@ export interface ShellMenuItem {
 export interface ShellMenuAction {
   label: string;
   onActivate(): void;
+  /** Explain an unavailable command without removing it from the menu. */
+  disabledReason?: string;
 }
 export interface ShellMenuIconAction extends ShellMenuAction {
   icon: ShellIcon;
@@ -88,6 +91,8 @@ export interface ShellMenuGroup {
   /** At most one command beside the heading; omitting the icon renders its label as text. */
   action?: ShellMenuAction & { icon?: ShellIcon };
   items: ShellMenuItem[];
+  /** Inline read failure and a host-owned retry command. */
+  alert?: { message: string; retry: ShellMenuAction };
   /** Visible and accessible label; the rail adds the decorative plus icon. */
   add?: ShellMenuAction;
   /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
@@ -658,13 +663,46 @@ export function mountShell(
     const button = document.createElement('button');
     button.type = 'button';
     button.className = className;
-    button.title = action.label;
+    button.title = action.disabledReason ?? action.label;
+    button.disabled = action.disabledReason !== undefined;
     if (mark) {
       button.setAttribute('aria-label', action.label);
       button.append(icon(document, mark));
       tipFor(button, action.label);
     } else button.textContent = action.label;
-    button.onclick = () => {
+    let keyTurn: Event | undefined;
+    const recordKey = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !event.isTrusted ||
+        !(
+          (event.key === 'Enter' && event.type === 'keydown') ||
+          (event.key === ' ' && event.type === 'keyup')
+        )
+      )
+        return;
+      keyTurn = event;
+      // #6016: native listeners may run a microtask checkpoint between handlers of the same key.
+      // Expire at the next task; TrustedMenuItem's React handler can use a microtask instead.
+      setTimeout(() => {
+        if (keyTurn === event) keyTurn = undefined;
+      }, 0);
+    };
+    button.addEventListener('keydown', recordKey);
+    button.addEventListener('keyup', recordKey);
+    button.onclick = (event) => {
+      const origin = keyTurn?.target;
+      const target = event.target;
+      const matchingKey =
+        !keyTurn?.defaultPrevented &&
+        origin instanceof Node &&
+        target instanceof Node &&
+        origin.contains(target)
+          ? keyTurn
+          : undefined;
+      const admitted = trustedActivation(event, matchingKey);
+      if (admitted) keyTurn = undefined;
+      if (event.defaultPrevented || !admitted || button.disabled) return;
       setDrawer(false);
       activate();
     };
@@ -800,6 +838,20 @@ export function mountShell(
         if (group.label) entries.setAttribute('aria-label', group.label);
         section.append(heading, entries);
         list.append(section);
+      }
+      if (group.alert) {
+        const row = document.createElement('li');
+        row.className = 'tmt-ui-rail-alert';
+        row.setAttribute('role', 'alert');
+        const message = document.createElement('span');
+        message.textContent = group.alert.message;
+        row.append(
+          message,
+          command('tmt-ui-rail-group-action', group.alert.retry, () =>
+            latest.menu?.groups[index]?.alert?.retry.onActivate(),
+          ),
+        );
+        entries.append(row);
       }
       for (const item of group.items) {
         const row = document.createElement('li');

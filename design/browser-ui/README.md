@@ -167,6 +167,11 @@ It is inline without a ring by default; `data-placement="overlay"` positions it 
 icon's top-right and adds an `attention-dot-ring-width` ring in `surface-sheet`.
 Its owner supplies the accessible label and tooltip; the dot is decorative.
 
+`@tmt/browser-ui/manage-list` exports `BrowserManageList` and `BrowserManageDialog` for
+host-owned ordered collections and their management sheet. It imports its own chrome-only CSS;
+the host supplies commands, persistence, theme and focus fallback. Row mutations admit trusted
+input, and the dialog keeps dismissal and focus inside its shared UI layer.
+
 `mountShell` owns the one rail renderer; `BrowserShell` and `HostedShell` pass it the
 same `ShellMenu` model. Exactly one deepest current row is selected: a soft accent fill,
 rounded corners and no edge line. Its current module ancestor has bold text and an accent
@@ -192,6 +197,13 @@ example `New project`) and `onActivate`; it never navigates or becomes selected.
 navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
 state and data; these presentation additions do not change the composed-shell wire format.
 Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
+
+A group command may supply `disabledReason`; the rail keeps the disabled control and exposes that
+reason in its title. A group may also show an inline `alert` with a host-owned Retry command.
+Group, Retry and add commands accept trusted clicks or a single synthetic click within the
+same trusted Enter/Space key turn, bound to that key's target. Prevented events do not activate.
+The shell keeps the key through the current task because native listeners can run microtasks
+between handlers; #6016 tracks sharing this lifetime with the UI menu helper.
 
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands

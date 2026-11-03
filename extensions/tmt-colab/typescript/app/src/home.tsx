@@ -1094,7 +1094,6 @@ export function Home() {
         remote={{ deviceName: transport.backendName }}
       />
       {!port && listActions}
-      {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
           key={`${spaceId}:${shortcutDialog}`}
@@ -1125,13 +1124,18 @@ export function Home() {
             if (shortcutFromMenu.current) {
               requestAnimationFrame(() => {
                 const opener = [
-                  ...document.querySelectorAll<HTMLElement>('.tmt-ui-shell-open'),
+                  ...document.querySelectorAll<HTMLElement>(
+                    '.tmt-ui-rail-group-text-action, .tmt-ui-shell-open',
+                  ),
                 ].find((node) => node.getClientRects().length > 0);
                 opener?.focus({ preventScroll: true });
               });
             }
           }}
           focusFallback={() => document.querySelector<HTMLElement>('.tmt-ui-shell-open')}
+          onDeleted={(id) => {
+            if (search.shortcut === id) void navigate({ search: {}, replace: true });
+          }}
           onSaved={savedShortcut}
         />
       )}

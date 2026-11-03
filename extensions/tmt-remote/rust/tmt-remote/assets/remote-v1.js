@@ -5121,6 +5121,12 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 	});
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/ui/trusted-activation.ts
+/** A Radix keyboard selection produces a synthetic click in the same key event. */
+function trustedActivation(click, key) {
+	return click.isTrusted || key?.isTrusted === true;
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/brand-mark-svg.ts
 var inner = "<rect class=\"tmt-brand-mark-tile\" width=\"96\" height=\"96\" rx=\"25.6\" fill=\"#0a0a0a\"/><svg x=\"11.5\" y=\"11.5\" viewBox=\"0 0 720 760\" width=\"73\" height=\"73\"><path fill=\"#f2efe9\" fill-rule=\"evenodd\" d=\"M 10 351 C 33 245 82 143 160 89 C 213 52 275 12 319 11 C 403 9 536 78 622 207 L 459 144 C 518 217 548 282 558 325 C 578 410 504 440 396 476 C 301 507 189 543 119 573 C 217 570 317 531 414 497 C 505 465 616 425 716 416 L 639 552 C 550 550 468 574 414 612 C 518 585 646 631 711 746 C 611 694 506 680 404 690 C 300 701 198 713 117 697 C 35 682 0 638 20 576 C 27 549 38 529 60 506 C 17 478 -1 445 5 407 C 6 389 8 370 10 351 Z M 100 345 C 100 273 186 234 290 234 C 394 234 480 273 480 345 C 480 417 394 456 290 456 C 186 456 100 417 100 345 Z\"/><path d=\"M 219 312 L 283 353 L 219 394 M 314 392 H 382\" fill=\"none\" stroke=\"#f2efe9\" stroke-width=\"27\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
 function brandMarkSvg({ size = 24, className = "tmt-brand-mark" } = {}) {
@@ -6014,13 +6020,29 @@ function mountShell(root, view, select) {
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = className;
-		button.title = action.label;
+		button.title = action.disabledReason ?? action.label;
+		button.disabled = action.disabledReason !== void 0;
 		if (mark) {
 			button.setAttribute("aria-label", action.label);
 			button.append(icon(document, mark));
 			tipFor(button, action.label);
 		} else button.textContent = action.label;
-		button.onclick = () => {
+		let keyTurn;
+		const recordKey = (event) => {
+			if (event.defaultPrevented || !event.isTrusted || !(event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup")) return;
+			keyTurn = event;
+			setTimeout(() => {
+				if (keyTurn === event) keyTurn = void 0;
+			}, 0);
+		};
+		button.addEventListener("keydown", recordKey);
+		button.addEventListener("keyup", recordKey);
+		button.onclick = (event) => {
+			const origin = keyTurn?.target;
+			const target = event.target;
+			const admitted = trustedActivation(event, !keyTurn?.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? keyTurn : void 0);
+			if (admitted) keyTurn = void 0;
+			if (event.defaultPrevented || !admitted || button.disabled) return;
 			setDrawer(false);
 			activate();
 		};
@@ -6126,6 +6148,15 @@ function mountShell(root, view, select) {
 				if (group.label) entries.setAttribute("aria-label", group.label);
 				section.append(heading, entries);
 				list.append(section);
+			}
+			if (group.alert) {
+				const row = document.createElement("li");
+				row.className = "tmt-ui-rail-alert";
+				row.setAttribute("role", "alert");
+				const message = document.createElement("span");
+				message.textContent = group.alert.message;
+				row.append(message, command("tmt-ui-rail-group-action", group.alert.retry, () => latest.menu?.groups[index]?.alert?.retry.onActivate()));
+				entries.append(row);
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
