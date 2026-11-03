@@ -1,6 +1,8 @@
 :root {
   /* Static pages keep a conservative anchor offset; React hosts measure the header. */
   --site-chrome-height: 128px;
+  /* The supplied mark has fixed pale ink in both themes. */
+  --site-mark-paper: #0a0a0a;
   --site-paper: var(--c-paper, #0a0a0a);
   --site-text: var(--c-text, #f2efe9);
   --site-muted: var(--c-muted, #8f8b84);
@@ -37,6 +39,7 @@ html {
   width: 30px;
   height: 30px;
   border-radius: 8px;
+  background: var(--site-mark-paper);
 }
 .site-chrome-brand b {
   font-size: 20px;

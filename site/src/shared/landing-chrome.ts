@@ -1,5 +1,5 @@
 import journal from "../blog/site.json";
-import markUrl from "../blog/team-tmt.png";
+import markUrl from "../blog/mark.svg?no-inline";
 import type { SiteChromeOptions } from "./site-chrome.mjs";
 
 const settings: { title: string; xHandle?: string } = journal;
