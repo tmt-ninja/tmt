@@ -212,6 +212,31 @@ it.each([
   await expect(f.client.send(p)).rejects.toMatchObject({ code: 'UNKNOWN' });
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
+// The owner answers a browser refusal as JSON `{code}` (#5916); the bare text code belongs to
+// the reserved local socket, so a text body here is not a recognized refusal.
+it('keeps a bare text refusal uncertain', async () => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
+  vi.stubGlobal('fetch', async () => new Response('INVALID', { status: 400 }));
+  await expect(f.client.send(p)).rejects.toMatchObject({ code: 'UNKNOWN' });
+});
+it('keeps a definite refusal off the unknown-outcome path after a prepared send', async () => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
+  vi.stubGlobal(
+    'fetch',
+    async () =>
+      new Response(JSON.stringify({ code: 'INVALID' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  );
+  const refused = await f.client.send(p).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(managementFailure(refused, true).code).toBe('INVALID');
+});
 it('does not accept a wrong operation, malformed or oversized acknowledgment', async () => {
   const f = await fixture(),
     p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
