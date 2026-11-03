@@ -40,7 +40,7 @@ const recency = (page: PageSummary, opened: ReadonlyMap<string, number>) =>
  * every `labels` name must be carried, any one of `authors` is the creator, and each free-text word
  * must appear in the title, a label or the creator (ignoring case). Archived pages are not offered.
  *
- * Without free text, pinned pages come first (in the order given), then pages with a proposal awaiting
+ * Without free text, pinned pages come first (in the order given), then pages with an item awaiting
  * you (`summary.waiting`), then the most recently opened or updated. With free text, match strength comes first (its weakest word),
  * then waiting, then recency. Ties break by title, then ID.
  */

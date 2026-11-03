@@ -61,7 +61,7 @@ for (const width of [1440, 390])
     await expect(needsYou).toHaveCount(0);
     await expect(page.locator('#ask-page-fixture').getByText('Nothing waits')).toHaveCount(0);
     await expect(
-      page.locator('[data-inline-reading], [data-inline-review], .proposal-inline'),
+      page.locator('[data-inline-reading], [data-inline-review], .inline-block-layer'),
     ).toHaveCount(0);
     await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(0);
     await capture(page, 'pending', width);
@@ -140,13 +140,12 @@ test('a lone question placed while the discussion was pending shows its line onc
   const line = card.locator('.question-line');
   await expect(line).toBeVisible();
   await expect(line).toContainText('Which heading should we use?');
-  // The line sits between the paragraphs it was authored between, and opens like any other.
+  // The question sits between the paragraphs it was authored between and is ready to answer.
   const before = await frame(page).getByText('Before the question.').boundingBox();
   const after = await frame(page).locator('#after-question').boundingBox();
   const box = (await line.boundingBox())!;
   expect(box.y).toBeGreaterThan(before!.y);
   expect(box.y + box.height).toBeLessThanOrEqual(after!.y + 1);
-  await line.click();
-  await expect(line).toHaveAttribute('aria-expanded', 'true');
-  await expect(card.getByLabel('Keep it', { exact: true })).toBeVisible();
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await expect(card.getByLabel('Keep it', { exact: true })).toBeChecked();
 });

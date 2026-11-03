@@ -11,7 +11,6 @@ mod cli_page_check;
 mod cli_patch;
 mod cli_pins;
 mod cli_projects;
-mod cli_proposal;
 mod cli_read;
 mod cli_storage;
 mod cli_template;
@@ -371,7 +370,6 @@ fn grammar() -> Command {
             )
             .subcommand(tmt_cli_style::command(&SPACES))
             .subcommand(cli_threads::command())
-            .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
             .subcommand(cli_storage::command())
             .subcommand(cli_projects::command())
@@ -502,9 +500,6 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "threads" {
         return cli_threads::run(&root, args);
-    }
-    if command == "proposal" {
-        return cli_proposal::run(&root, args);
     }
     if command == "attachment" {
         return cli_attachments::run(&root, args);
@@ -1291,9 +1286,6 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
     if error.is::<tmt_colab::attachments::CapacityRefusal>() {
         return "COLAB_CAPACITY";
     }
-    if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
-        return error_code(recovery.cause.as_ref());
-    }
     error
         .downcast_ref::<tmt_colab::keyring::StateFault>()
         .map(|e| e.code())
@@ -1432,9 +1424,6 @@ fn main() -> ExitCode {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())
                     .unwrap_or_else(|| json!({}));
-                if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
-                    value = recovery.correlation.clone();
-                }
                 value["error"] = json!({"code":code,"message":reported_error.to_string()});
                 if let Some(reason) = tmt_colab::work_admission::reason(error) {
                     value["error"]["reason"] = json!(reason);

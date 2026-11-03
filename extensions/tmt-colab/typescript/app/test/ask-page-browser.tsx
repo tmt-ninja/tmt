@@ -144,6 +144,13 @@ export function finishStatusNotice() {
 }
 /** The next status action fails before it is published, like a lost connection. */
 let sourceSaves = 0;
+let failQuestionAction: 'question.handle' | 'question.reopen' | undefined;
+export function failQuestionActionOnce(action: 'question.handle' | 'question.reopen') {
+  failQuestionAction = action;
+}
+export function questionDismissProof() {
+  return { source: current.source, questions: current.questions, actions: [...actions] };
+}
 /** The next Source save waits for `releaseEdit`, as a slow Save does. */
 let editGate: { held?: Promise<void>; release?(fail: boolean): void } = {};
 export function holdEdit() {
@@ -249,6 +256,7 @@ function sessionDrafts(mode: 'session' | 'failing' | 'split', wait?: Promise<voi
 export async function mount(
   options: {
     creator?: boolean;
+    dismissQuestions?: boolean;
     /** Expose each real Ask own-publication for pending-send lifecycle scenarios. */
     observeSend?: boolean;
     /** Viewer-owned records survive this private fixture's reload. */
@@ -655,8 +663,6 @@ export async function mount(
       resolved: _resolved,
       comments: _comments,
       ref: _ref,
-      proposal: _proposal,
-      decision: _decision,
       status: _status,
       notifications: _notifications,
       ...scope
@@ -751,45 +757,6 @@ export async function mount(
       return statusBatch((ref, previous, resolved, recipients) =>
         discussion.setStatus(ref, previous, resolved, recipients),
       )(requests);
-    },
-    async decideProposal(ref, decision) {
-      await decisionGate.held;
-      if (decisionGate.fail) {
-        decisionGate.fail = false;
-        throw new Error('Decision refused');
-      }
-      const thread = find(ref);
-      if (!ownerDevice || !thread.proposal || thread.deleted || thread.decision)
-        throw new Error('Decision unavailable');
-      actions.push(`decision:${decision}`);
-      const actionId = crypto.randomUUID();
-      current = {
-        ...current,
-        threads: current.threads!.map((value) =>
-          value === thread
-            ? {
-                ...value,
-                decision: {
-                  version: 1,
-                  kind: 'proposal-decision',
-                  spaceId: thread.spaceId,
-                  pageId: thread.pageId,
-                  epoch: thread.epoch,
-                  senderDevice: id(4),
-                  deviceName: 'You',
-                  revision: '1',
-                  deleted: false,
-                  at: String(Date.now()),
-                  actionId,
-                  thread: thread.ref,
-                  previous: null,
-                  decision,
-                },
-              }
-            : value,
-        ),
-      };
-      emit();
     },
     async notificationFailed() {
       throw new Error('Not used');
@@ -935,7 +902,7 @@ export async function mount(
     },
     agentResolves() {
       setResolved(
-        current.threads!.find((value) => value.anchor || value.proposal)!,
+        current.threads!.find((value) => value.anchor)!,
         true,
         'agent',
       );
@@ -979,10 +946,37 @@ export async function mount(
         if (fail === failed) fail = undefined;
       };
     },
-    async edit() {
+    async edit(source, base) {
       sourceSaves++;
       await editGate.held;
+      if (options.dismissQuestions) {
+        if (base !== current.source) throw new Error('Stale fixture source');
+        current = { ...current, source };
+        emit();
+      }
       return { merged: false };
+    },
+    canMetadata: () => !!options.dismissQuestions,
+    async metadataRevision() {
+      return 'fixture-revision';
+    },
+    async metadata(action, body) {
+      if (failQuestionAction === action) {
+        failQuestionAction = undefined;
+        throw new Error('Fixture metadata refused');
+      }
+      if (action !== 'question.handle' && action !== 'question.reopen')
+        throw new Error('Unexpected action');
+      actions.push(action);
+      current = {
+        ...current,
+        questions: current.questions?.map((entry) =>
+          entry.id === body.id
+            ? { ...entry, state: action === 'question.handle' ? 'handled' : 'open' }
+            : entry,
+        ),
+      };
+      emit();
     },
     async export() {
       if (!options.exportAttachments) throw new Error('Not used');
@@ -1212,6 +1206,27 @@ export async function verifyDiscussion() {
 export function releaseOpen() {
   openGate?.();
 }
+export function referenceFixtureThreads() {
+  const base = current.threads![0];
+  const chat = {
+    ...structuredClone(base),
+    threadId: base.ref.writer,
+    anchor: null,
+    ref: { writer: base.ref.writer, id: base.ref.writer },
+    comments: [],
+  };
+  const deleted = {
+    ...structuredClone(base),
+    threadId: id(98),
+    deleted: true,
+    anchor: null,
+    ref: { writer: base.ref.writer, id: id(98) },
+    comments: [],
+  };
+  current = { ...current, threads: [base, chat, deleted] };
+  emit();
+  return { chat: chat.ref, deleted: deleted.ref };
+}
 export function seedThread(body?: string) {
   return hooks!.seed(body);
 }
@@ -1306,19 +1321,6 @@ export function replaceFilesOwner() {
 }
 /** Holds or refuses the next reply or Chat write, as a slow or refused Remote append would. */
 let replyGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
-let decisionGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
-/** The next proposal decisions wait for `releaseDecision`. */
-export function holdDecision() {
-  decisionGate.held = new Promise<void>((resolve) => (decisionGate.release = resolve));
-}
-/** The held decision is refused when released. */
-export function failDecision() {
-  decisionGate.fail = true;
-}
-export function releaseDecision() {
-  decisionGate.release?.();
-  decisionGate = { fail: decisionGate.fail };
-}
 export function holdReply() {
   replyGate.held = new Promise<void>((resolve) => (replyGate.release = resolve));
 }
@@ -1768,138 +1770,6 @@ export function resizeHistory() {
   emit();
 }
 
-/** Authenticated proposal projection double; author HTML carries only its inert ID. */
-export function proposal(placement: 'inline' | 'missing' | 'duplicate' = 'inline') {
-  const proposalId = id(81);
-  const placeholder = `<tmt-proposal data-id="${proposalId}"></tmt-proposal>`;
-  current = {
-    ...current,
-    source: `<style>body {margin:24px;font:16px/1.5 sans-serif} tmt-proposal {display:block}</style><h1>Project notes</h1><p>Before the proposal.</p>${placement === 'missing' ? '' : placeholder}${placement === 'duplicate' ? placeholder : ''}<p id="after-proposal">The page continues here.</p>`,
-    threads: [
-      {
-        version: 1,
-        kind: 'thread',
-        spaceId: selection().space,
-        pageId: id(1),
-        epoch: '1',
-        senderDevice: id(4),
-        deviceName: 'You',
-        threadId: proposalId,
-        revision: '1',
-        createdAt: String(Date.now()),
-        at: String(Date.now()),
-        anchor: null,
-        resolved: false,
-        deleted: false,
-        ref: { writer: id(4), id: proposalId },
-        comments: [],
-        proposal: {
-          proposalId,
-          title: 'Use a clearer project heading',
-          body: 'Change the heading to explain what the page contains. Keep the supporting notes below it.',
-          proposer: {
-            machineId: destination().machine,
-            agentId: destination().agent,
-            label: destination().agentName,
-          },
-        },
-      },
-    ],
-  };
-  emit();
-}
-
-/** Admitted own Ask projection for proposal delivery-state presentation cases. */
-export function proposalAsk(state: PageAsk['state'] | 'replied') {
-  const thread = current.threads!.find((thread) => thread.proposal)!;
-  const comment = thread.comments.at(-1)!;
-  current = {
-    ...current,
-    asks: [
-      {
-        thread: thread.threadId,
-        messageIds: [comment.messageId],
-        operationId: sends.sends[0].operationId,
-        writer: id(4),
-        message: comment.body,
-        agent: destination().agent,
-        agentName: destination().agentName,
-        deviceName: 'You',
-        machine: destination().machine,
-        issuedAt: Date.now(),
-        canTrack: true,
-        state: state === 'replied' ? 'accepted' : state,
-        ...(state === 'refused' ? { requestId: null, reason: 'REMOTE_SCOPE_DENIED' } : {}),
-        ...(state === 'replied'
-          ? {
-              reply:
-                'I will use the clearer heading.\n' +
-                'The supporting notes stay in place. '.repeat(12),
-            }
-          : {}),
-      },
-    ],
-  };
-  emit();
-}
-
-/** Deterministic mixed admitted projection; no native publication proof. */
-export function mixedProposals() {
-  proposal('inline');
-  const base = current.threads![0];
-  const clone = (number: number, title: string): ThreadView => ({
-    ...structuredClone(base),
-    threadId: id(number),
-    ref: { writer: base.ref.writer, id: id(number) },
-    proposal: { ...base.proposal!, proposalId: id(number), title },
-  });
-  const approved = clone(82, 'Keep the supporting notes');
-  approved.decision = {
-    version: 1,
-    kind: 'proposal-decision',
-    spaceId: base.spaceId,
-    pageId: base.pageId,
-    epoch: base.epoch,
-    senderDevice: base.senderDevice,
-    deviceName: base.deviceName,
-    revision: '1',
-    at: base.at,
-    deleted: false,
-    actionId: id(101),
-    thread: approved.ref,
-    previous: null,
-    decision: 'approved',
-  };
-  const resolved = clone(83, 'Confirm the page audience');
-  resolved.resolved = true;
-  const annotation: ThreadView = {
-    ...structuredClone(base),
-    threadId: id(91),
-    ref: { writer: base.ref.writer, id: id(91) },
-    proposal: undefined,
-    deviceName: base.proposal!.proposer.label,
-    anchor: { exact: 'Review the supporting notes.', prefix: '', suffix: '' },
-  };
-  const chat = {
-    ...structuredClone(annotation),
-    anchor: null,
-    threadId: base.ref.writer,
-    ref: { writer: base.ref.writer, id: base.ref.writer },
-  };
-  current = {
-    ...current,
-    title: 'Project review',
-    source:
-      '<style>body {margin:24px;font:16px/1.5 sans-serif}</style><h1>Project review</h1><p>Review the supporting notes.</p>' +
-      [base, approved, resolved]
-        .map((t) => `<tmt-proposal data-id="${t.threadId}"></tmt-proposal>`)
-        .join('') +
-      '<p id="after-proposal">The page continues here.</p>',
-    threads: [base, annotation, approved, resolved, chat],
-  };
-  emit();
-}
-
 /** Trusted admitted-observation seam. Publishing a new operation uses the production trigger;
  * no fixture control reaches the authored page frame or changes a retained turn key. */
 export function driverObservation(options: {
@@ -1977,7 +1847,6 @@ export function question(
     choices?: Array<string | { label: string; description?: string }>;
     other?: boolean;
     placement?: 'inline' | 'duplicate' | 'nested';
-    mixed?: boolean;
     darkPage?: boolean;
     bare?: boolean;
   } = {},
@@ -1993,11 +1862,10 @@ export function question(
       return `<span data-choice>${escape(label)}${description === undefined ? '' : `<span data-choice-description>${escape(description)}</span>`}</span>`;
     })
     .join('')}</tmt-question>`;
-  if (options.mixed) proposal('inline');
   current = {
     ...current,
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
-    threads: options.mixed ? current.threads : [],
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}tmt-question{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>`,
+    threads: [],
   };
   emit();
 }
@@ -2222,7 +2090,7 @@ export function shiftQuestionOnPointerDown() {
 
 /** Admitted answer Ask state attached to the same normal annotation turn. */
 export function questionAsk(state: PageAsk['state'] | 'replied') {
-  const thread = current.threads!.find((thread) => !thread.proposal)!;
+  const thread = current.threads!.find((thread) => !thread.deleted)!;
   const comment = thread.comments.at(-1)!;
   current = {
     ...current,
@@ -2286,7 +2154,7 @@ export function questionSibling(options: {
   canonical?: boolean;
   empty?: boolean;
 }) {
-  const first = current.threads!.find((thread) => !thread.proposal && thread.comments.length)!;
+  const first = current.threads!.find((thread) => !thread.deleted && thread.comments.length)!;
   const threadId = id(92 + (options.index ?? 0) * 3),
     writer = options.canonical ? id(2) : id(93 + (options.index ?? 0) * 3),
     messageId = id(94 + (options.index ?? 0) * 3);
@@ -2564,15 +2432,9 @@ export function editLockDirectoryReads() {
 }
 
 /** One existing non-compact owner under nested disclosures, without changing its admitted state. */
-export function detailsSlots(options: {
-  kind: 'proposal' | 'review' | 'reading';
-  darkPage?: boolean;
-}) {
-  if (options.kind === 'proposal') proposal();
-  else if (options.kind === 'review') review({ sections: 1, darkPage: options.darkPage });
+export function detailsSlots(options: { kind: 'review' | 'reading'; darkPage?: boolean }) {
+  if (options.kind === 'review') review({ sections: 1, darkPage: options.darkPage });
   else reading({ count: 1, darkPage: options.darkPage });
-  if (options.kind === 'proposal')
-    current = { ...current, source: `<style>body{${pagePaint(options)}}</style>${current.source}` };
   const tag = options.kind === 'reading' ? 'read' : options.kind;
   const start = current.source.indexOf(`<tmt-${tag}`);
   const end = current.source.indexOf(`</tmt-${tag}>`, start) + `</tmt-${tag}>`.length;

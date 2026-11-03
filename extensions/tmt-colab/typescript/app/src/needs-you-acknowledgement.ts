@@ -4,9 +4,9 @@ import type { OwnState } from './fold-protocol.js';
 import type { DiscussionScope } from './thread-records.js';
 import type { NeedsYouCandidate } from './needs-you.js';
 
-/** A viewer acknowledges attention, never an answer, review close or proposal decision. */
+/** A viewer acknowledges attention, never an answer or review close. */
 export type NeedsYouTarget = {
-  kind: 'answer' | 'review' | 'proposal';
+  kind: 'answer' | 'review';
   id: string;
   version: string;
 };
@@ -64,7 +64,7 @@ export function validateNeedsYouAcknowledgement(
   );
   for (const raw of record.items) {
     const item = keys(raw, ['kind', 'id', 'version']);
-    requireValue(['answer', 'review', 'proposal'].includes(item.kind as string));
+    requireValue(['answer', 'review'].includes(item.kind as string));
     nonempty(item.id, 512);
     nonempty(item.version, 64 * 1024);
   }

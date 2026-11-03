@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { useNotificationConversation } from './reply-notification-context.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 /** Cards report only presentation geometry; the page observer owns participation. */
 export function useNotificationBlock(
@@ -30,7 +31,7 @@ export function useNotificationBlock(
         !!node.getClientRects().length &&
         !node.closest('[hidden]') &&
         !node.closest('[data-detached="true"]') &&
-        !document.hidden &&
+        !pageHidden() &&
         rect.bottom > header &&
         rect.top < window.innerHeight;
       const recordKeys = visible
@@ -54,7 +55,7 @@ export function useNotificationBlock(
     resize.observe(node);
     window.addEventListener('scroll', report, true);
     window.addEventListener('resize', report);
-    document.addEventListener('visibilitychange', report);
+    addVisibilityListener(report);
     window.addEventListener('pointerdown', clear, true);
     window.addEventListener('keydown', clear, true);
     node.addEventListener('blur', clear, true);
@@ -64,7 +65,7 @@ export function useNotificationBlock(
       resize.disconnect();
       window.removeEventListener('scroll', report, true);
       window.removeEventListener('resize', report);
-      document.removeEventListener('visibilitychange', report);
+      removeVisibilityListener(report);
       window.removeEventListener('pointerdown', clear, true);
       window.removeEventListener('keydown', clear, true);
       node.removeEventListener('blur', clear, true);

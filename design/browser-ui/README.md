@@ -299,6 +299,38 @@ colour, radius and font roles and the global body scale remain unchanged. Galler
 both menu renderers, tab drafts and busy Actions. Product adoption stays with each host;
 no product overrides of leaf internals are needed.
 
+### Route module lifecycle
+
+`startShellHost` mounts one route module at a time through a `ShellSlot`. `mount` returns either
+the function that releases everything the module started, or a `ShellMounted`
+`{ release, suspend?, resume? }`. On a route marked `keep: true`, a module that also gives
+`suspend` is kept when its route is left (#5954):
+
+- **Suspend.** The host calls `suspend()` while its slot is still current. The main element the
+  module drew in stays where it is, renamed `.tmt-ui-shell-kept`, `hidden` and `inert`, so its
+  frames never unload, and a fresh `.tmt-ui-shell-main` takes its place; header and tool nodes,
+  which hold no frames, are set aside. Suspended means a hidden document: no module-started
+  timers, polling, animation frames or visibility work, and no title, URL or focus changes;
+  data-driven updates may still render into the hidden, inert area, and sockets and state stay.
+  Focus inside the module moves to the new main area before it goes inert, never to the body.
+- **Rail location.** The host remembers a route's last location when it is left. A mounted module
+  may provide `location()` so its own history survives a browser traversal; otherwise the host uses
+  its last known location. A module whose URLs can carry secrets must return a sanitized
+  `location()`. Direct links and browser history keep their destinations.
+- **Resume.** Coming back, the host adopts the common top bar again, returns the header and tool
+  nodes, the menu and the title, makes the kept element the main again and calls `resume(slot)`
+  with a fresh slot. It never calls `mount` again. Focus goes back to where it was in the module
+  only when the user returned with the keyboard through the rail.
+- **Release.** One suspended module per route and two in all; the least recently used goes
+  first. The host also releases one after 10 minutes, on `pagehide`, on a session change and on
+  `dispose`. A `suspend` or `resume` that throws releases the module, and the next visit mounts
+  afresh. A released module is never resumed.
+- **Session.** `ShellSlot.session(signal)` lends the tab's one Remote session, which the root
+  supplies as an opaque `ShellSessions`; browser-ui never names a Remote type.
+  `forgetSession(previous)` forgets it only while `previous` is still current, after releasing
+  every suspended module. The root calls `ShellHost.sessionChanging()` before it replaces the
+  session.
+
 ### Shared top bar
 
 The shell offers an opt-in shared top bar through the existing `./shell`, `./shell-host`

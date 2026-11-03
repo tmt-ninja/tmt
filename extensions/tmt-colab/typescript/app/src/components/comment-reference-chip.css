@@ -1,0 +1,37 @@
+tmt-thread-ref {
+  font-size: 0;
+}
+tmt-thread-ref > :not([data-colab-ref-chip]) {
+  display: none !important;
+}
+.colab-thread-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: baseline;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--tmt-ui-color-annotation-rule);
+  border-radius: 999px;
+  background: var(--tmt-ui-surface-annotation-highlight);
+  color: var(--tmt-ui-color-annotation-rule-selected);
+  font:
+    600 12px/20px system-ui,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+button.colab-thread-ref-chip {
+  cursor: pointer;
+}
+.colab-thread-ref-chip[data-missing] {
+  border-color: var(--tmt-ui-surface-rule);
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  opacity: 0.65;
+  font-weight: 400;
+}
+.colab-thread-ref-chip tmt-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}

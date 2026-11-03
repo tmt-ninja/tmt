@@ -19,7 +19,7 @@ async function placed(page: Page, band: import('@playwright/test').Locator) {
   const id = await band.getAttribute('data-inline-reading');
   const spacer = page
     .frameLocator('#ask-page-fixture iframe')
-    .locator(`tmt-read[data-id="${id}"] > [data-colab-proposal-slot]`);
+    .locator(`tmt-read[data-id="${id}"] > [data-colab-block-slot]`);
   await expect
     .poll(async () => {
       const [height, box] = await Promise.all([

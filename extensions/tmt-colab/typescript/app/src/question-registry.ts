@@ -82,7 +82,7 @@ export function questionStates(
   validateQuestionRegistry(registry);
   return registry.map((entry) => {
     const answer = threads
-      .filter((thread) => !thread.deleted && !thread.proposal)
+      .filter((thread) => !thread.deleted)
       .flatMap((thread) => thread.comments)
       .filter(
         (comment) =>

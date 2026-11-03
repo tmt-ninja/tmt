@@ -7,7 +7,7 @@ import {
 } from '../test/page-actions.js';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
@@ -812,144 +812,6 @@ test('composer records plain annotations and replies without a recipient, then s
   });
 });
 
-test('proposal decisions notify the exact proposer once and survive resolution and reload', async () => {
-  await withWorld(async (world) => {
-    const door = await startDoor(world, await freePort());
-    const agent = await world.startAgent('proposal-agent', { gated: true });
-    const browser = await pairBrowser(world, 'proposal-author', { talk: true });
-    const created = createPage(
-      world,
-      'Proposal review',
-      '<h1>Project notes</h1><p>Review the heading.</p>',
-      agent.pane,
-    );
-    const added = JSON.parse(
-      run(
-        world,
-        world.binaries.colab,
-        [
-          'proposal',
-          'add',
-          created.pageId,
-          '--title',
-          'Use a clearer project heading',
-          '--body',
-          'Explain what this page contains.',
-          '--json',
-        ],
-        undefined,
-        agent.pane,
-      ),
-    );
-    const page = await openPage(door, browser, created);
-    const card = page.locator(
-      `.proposal-inline .proposal-card[data-proposal-id="${added.proposalId}"]`,
-    );
-    await expect(card).toBeVisible();
-    const captures = process.env.COLAB_PROPOSAL_NATIVE_CAPTURE_DIR;
-    async function capture(state: string) {
-      if (!captures) return;
-      mkdirSync(captures, { recursive: true });
-      for (const width of [1440, 390])
-        for (const theme of ['light', 'dark']) {
-          await page.setViewportSize({ width, height: 900 });
-          await page.evaluate((theme) => {
-            document.documentElement.dataset.theme = theme;
-          }, theme);
-          await expect(card).toBeVisible();
-          const spacer = page
-            .frameLocator('.frame-host iframe')
-            .locator('[data-colab-proposal-slot]');
-          await expect
-            .poll(async () => {
-              const reserved = await spacer.boundingBox();
-              const displayed = await card.boundingBox();
-              if (!reserved || !displayed) return false;
-              return reserved.height >= displayed.height && reserved.height - displayed.height <= 1;
-            })
-            .toBe(true);
-          await page.screenshot({ path: `${captures}/${state}-${width}-${theme}.png` });
-        }
-    }
-    await capture('open');
-    await card.getByRole('button', { name: 'Approve', exact: true }).click();
-    await until(() => agent.received().length === 1, 'proposal decision notification');
-    await expect(card.locator('.proposal-state')).toHaveText('Approved');
-    const received = agent.received()[0];
-    expect(received.identityId).toBe(agent.id);
-    const delivered = received.message as string;
-    expect(delivered).toContain('[remote: proposal-author]\nPage: Proposal review\nLink: ');
-    expect(delivered).toContain(
-      '\n\nQuote:\n\n\nComment:\nApproved: Use a clearer project heading',
-    );
-    await capture('approved-waiting');
-    writeFileSync(path.join(agent.gate, `${received.requestId}.release`), '');
-    await until(
-      () =>
-        agent.rows().some((row) => row.event === 'replied' && row.requestId === received.requestId),
-      'proposal correlated reply',
-    );
-    const reply = agent
-      .rows()
-      .find((row) => row.event === 'replied' && row.requestId === received.requestId)!
-      .body as string;
-    await expect(card.getByTestId('ask-reply')).toHaveText(reply);
-    await capture('approved-replied');
-    await card.getByRole('button', { name: 'Follow up', exact: true }).click();
-    const composer = card.getByRole('combobox');
-    await expect(composer).toBeFocused();
-    await expect(composer).toContainText('@proposal-agent');
-    await expect(page.locator('.annotation-new')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
-    await capture('follow-up');
-    await composer.press('Escape');
-    await expect(card.getByRole('combobox')).toHaveCount(0);
-    await card.getByRole('button', { name: 'Follow up', exact: true }).click();
-    await card.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(card.getByRole('combobox')).toHaveCount(0);
-    await card.getByRole('button', { name: 'Resolve', exact: true }).click();
-    await expect(card).toHaveAttribute('data-resolved', 'true');
-    await capture('resolved');
-    await card.getByRole('button', { name: 'Reopen', exact: true }).click();
-    await expect(card.locator('.proposal-state')).toHaveText('Approved');
-    await capture('reopened');
-    await page.reload();
-    await expect(card.locator('.proposal-state')).toHaveText('Approved');
-    await expect(card.getByTestId('ask-reply')).toHaveText(reply);
-    const rows = JSON.parse(
-      run(world, world.binaries.colab, ['proposal', 'ls', created.pageId, '--json']),
-    ).proposals;
-    const exportParent = path.join(world.root, 'proposal-export');
-    mkdirSync(exportParent, { mode: 0o700 });
-    const exported = JSON.parse(
-      run(world, world.binaries.colab, ['export', created.pageId, '--dir', exportParent, '--json']),
-    );
-    const conversation = JSON.parse(
-      readFileSync(path.join(exported.directory, 'conversations.json'), 'utf8'),
-    );
-    expect(conversation.asks).toHaveLength(1);
-    const ask = conversation.asks[0];
-    expect(ask.thread).toBe(added.proposalId);
-    expect(ask.machine).toBe(rows[0].proposal.proposer.machineId);
-    expect(ask.agent).toBe(rows[0].proposal.proposer.agentId);
-    expect(ask.messageIds).toEqual([rows[0].comments[0].id]);
-    expect(ask.requestId).toBe(received.requestId);
-    expect(delivered).toBe(`[remote: proposal-author]\n${ask.message}`);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].decision.decision).toBe('approved');
-    expect(rows[0].resolved).toBe(false);
-    expect(
-      rows[0].comments.filter(
-        (comment: { body: string }) => comment.body === 'Approved: Use a clearer project heading',
-      ),
-    ).toHaveLength(1);
-    expect(agent.received()).toHaveLength(1);
-    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      1,
-    );
-  });
-});
-
 test('answer blocks publish verified normal annotations and keep changes and agent replies in one thread', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -965,12 +827,11 @@ test('answer blocks publish verified normal annotations and keep changes and age
     const page = await openPage(door, browser, created);
     const card = page.locator('.question-group-card');
     const row = card.locator('.question-line');
-    await expect(row).toHaveAttribute('aria-expanded', 'false');
-    await row.click();
+    await expect(card.getByLabel('Keep it', { exact: true })).toBeVisible();
     await expect(
       card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
     ).toBeVisible();
-    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await expect(row).toHaveAttribute('data-state', 'answered');
@@ -1090,10 +951,10 @@ test('answer Send names start with visible text through the served question grou
     const group = page.locator('[data-question-group]');
     const rows = group.locator('.question-line');
     await rows.first().click();
-    const first = group.locator('.question-card:visible');
+    const first = group.locator('.question-card:visible').first();
     await first.getByLabel('Yes', { exact: true }).check();
     const send = group.getByRole('button', { name: /^Send 1 answer/ });
-    await expect(send).toHaveText('Send 1 answer');
+    await expect(send).toHaveText('Send');
     await expect(
       group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
     ).toBeVisible();
@@ -1102,9 +963,9 @@ test('answer Send names start with visible text through the served question grou
     await expect(rows.first()).toHaveAttribute('data-state', 'answered');
     await expect(rows.first().locator('.question-line-answer')).toHaveText('Yes');
     await rows.nth(1).click();
-    const last = group.locator('.question-card:visible');
+    const last = group.locator('.question-card:visible').last();
     await last.getByLabel('Your answer', { exact: true }).fill('One detail');
-    await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toHaveText('Send 1 answer');
+    await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toHaveText('Send');
     await expect(
       group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
     ).toBeVisible();
@@ -1138,7 +999,7 @@ test('a served question group records three answers and asks each recipient once
     const group = page.locator('[data-question-group]');
     const rows = group.locator('.question-line');
     await rows.first().click();
-    const current = () => group.locator('.question-card:visible');
+    const current = () => group.locator('.question-group-row:focus-within .question-card:visible');
     await expect(
       group.getByRole('button', { name: 'Remove @batch-alpha', exact: true }),
     ).toHaveCount(1);
@@ -1203,7 +1064,10 @@ test('a served question group records three answers and asks each recipient once
     expect(alpha.received()).toHaveLength(1);
     expect(beta.received()).toHaveLength(1);
     await rows.nth(1).click();
-    await current().getByRole('button', { name: 'Change answer', exact: true }).click();
+    await group
+      .locator('.question-group-row:focus-within')
+      .getByRole('button', { name: 'Change answer', exact: true })
+      .click();
     await current().getByLabel('Your answer', { exact: true }).fill('One revised detail');
     // Reload restores answer history before the fresh directory has seeded recipients.
     await group
@@ -1278,25 +1142,7 @@ test('served non-compact slots hide through nested details without losing drafts
     const agent = await world.startAgent('details-slots-agent', { gated: true });
     const browser = await pairBrowser(world, 'details-slots-reader', { talk: true });
     const created = createPage(world, 'Slots in details', '<h1>Release review</h1>', agent.pane);
-    const proposal = JSON.parse(
-      run(
-        world,
-        world.binaries.colab,
-        [
-          'proposal',
-          'add',
-          created.pageId,
-          '--title',
-          'Review this proposal',
-          '--body',
-          'Keep the release notes clear.',
-          '--json',
-        ],
-        undefined,
-        agent.pane,
-      ),
-    );
-    const source = `<h1>Release review</h1><details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-review data-id="10000000-0000-4000-8000-000000000097" data-agent="${agent.name}"><h2 data-title>Review section</h2><p>Review the release notes.</p></tmt-review><tmt-proposal data-id="${proposal.proposalId}"></tmt-proposal><tmt-read data-id="10000000-0000-4000-8000-000000000098" data-agent="${agent.name}" data-why="Read before release"><h2 data-title>Release reading</h2><p>Read these release notes.</p></tmt-read></details></details><p>After the decisions.</p>`;
+    const source = `<h1>Release review</h1><details id="outer"><summary>Review decisions</summary><details id="inner" open><summary>Section details</summary><tmt-review data-id="10000000-0000-4000-8000-000000000097" data-agent="${agent.name}"><h2 data-title>Review section</h2><p>Review the release notes.</p></tmt-review><tmt-read data-id="10000000-0000-4000-8000-000000000098" data-agent="${agent.name}" data-why="Read before release"><h2 data-title>Release reading</h2><p>Read these release notes.</p></tmt-read></details></details><p>After the decisions.</p>`;
     run(
       world,
       world.binaries.colab,
@@ -1307,17 +1153,14 @@ test('served non-compact slots hide through nested details without losing drafts
     const page = await openPage(door, browser, created);
     const outer = page.frameLocator('iframe').locator('#outer'),
       inner = page.frameLocator('iframe').locator('#inner');
-    const slots = page.locator('[data-inline-review],[data-inline-proposal],[data-inline-reading]');
-    await expect(slots).toHaveCount(3);
+    const slots = page.locator('[data-inline-review],[data-inline-reading]');
+    await expect(slots).toHaveCount(2);
     for (const slot of await slots.all()) await expect(slot).toHaveCSS('display', 'none');
     await outer.locator(':scope > summary').click();
     for (const slot of await slots.all()) await expect(slot).toBeVisible();
-    const review = page.locator('[data-inline-review]'),
-      proposalCard = page.locator('[data-inline-proposal]');
+    const review = page.locator('[data-inline-review]');
     await review.getByRole('button', { name: 'Add a note', exact: true }).click();
     await review.getByLabel('Note (optional)', { exact: true }).fill('An unsent review');
-    await proposalCard.getByRole('button', { name: 'Follow up', exact: true }).click();
-    await proposalCard.getByRole('combobox').fill('An unsent proposal');
     await inner.locator(':scope > summary').click();
     for (const slot of await slots.all()) {
       await expect(slot).toHaveCSS('display', 'none');
@@ -1338,7 +1181,6 @@ test('served non-compact slots hide through nested details without losing drafts
     await expect(review.getByLabel('Note (optional)', { exact: true })).toHaveValue(
       'An unsent review',
     );
-    await expect(proposalCard.getByRole('combobox')).toHaveText('An unsent proposal');
     const after = JSON.parse(
       run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
     );

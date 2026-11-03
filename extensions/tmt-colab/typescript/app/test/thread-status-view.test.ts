@@ -91,53 +91,7 @@ it('counts only open live non-Chat threads and keeps status independent of atten
   ).toBe(true);
 });
 
-it('combines undecided proposals and annotations once, independent of decision delivery and resolution', () => {
-  const annotation = { ...thread(), resolved: false, status: undefined };
-  const proposal = {
-    ...annotation,
-    proposal: {
-      proposalId: annotation.threadId,
-      title: 'Review',
-      body: 'Review this',
-      proposer: {
-        machineId: annotation.senderDevice,
-        agentId: annotation.senderDevice,
-        label: 'Agent',
-      },
-    },
-  };
-  const approved = {
-    ...proposal,
-    decision: fixture.decisionCases
-      .flatMap((value: { actions: unknown[] }) => value.actions)
-      .find((value: { decision: string }) => value.decision === 'approved'),
-  };
-  const declined = {
-    ...approved,
-    decision: { ...approved.decision, decision: 'declined' as const },
-  };
-  const resolved = { ...proposal, resolved: true };
-  const chat = {
-    ...annotation,
-    anchor: null,
-    ref: { ...annotation.ref, id: annotation.ref.writer },
-  };
-  expect(
-    openThreadCount([
-      annotation,
-      proposal,
-      approved,
-      declined,
-      resolved,
-      chat,
-      { ...proposal, deleted: true },
-    ]),
-  ).toBe(2);
-  expect(openThreadCount([{ ...resolved, resolved: false }])).toBe(1);
-  expect(openThreadCount([{ ...approved, resolved: false }])).toBe(0);
-});
-
-it('walks filtered live threads by number, retaining the selected resolved thread until navigation', () => {
+it('removes a resolved thread from Open even when selected', () => {
   const base = thread();
   const open = { ...base, threadId: 'open', ref: { ...base.ref, id: 'open' }, resolved: false };
   const resolved = { ...base, threadId: 'resolved', ref: { ...base.ref, id: 'resolved' } };
@@ -154,37 +108,15 @@ it('walks filtered live threads by number, retaining the selected resolved threa
   ]);
   const all = [open, chat, deleted, resolved];
   expect(listedThreads(all, numbers, 'open', null)).toEqual([open]);
-  expect(listedThreads(all, numbers, 'open', threadKey(resolved))).toEqual([resolved, open]);
+  expect(listedThreads(all, numbers, 'open', threadKey(resolved))).toEqual([open]);
   expect(listedThreads(all, numbers, 'all', null)).toEqual([resolved, open]);
   expect(listedThreads(all, numbers, 'all', threadKey(deleted))).not.toContain(deleted);
 });
-it('prefers an undecided proposal, and keeps attention selection after acknowledgement', () => {
+it('keeps the selected needs-you thread after acknowledgement', () => {
   const open = { ...thread(), resolved: false, status: undefined };
-  const proposal = {
-    ...open,
-    threadId: 'proposal',
-    ref: { ...open.ref, id: 'proposal' },
-    proposal: {
-      proposalId: 'proposal',
-      title: 'Review',
-      body: 'Review this',
-      proposer: {
-        machineId: open.senderDevice,
-        agentId: open.senderDevice,
-        label: 'Agent',
-      },
-    },
-  };
-  const numbers = new Map([
-    [threadKey(open), 1],
-    [threadKey(proposal), 2],
-  ]);
-  expect(firstThread(listedThreads([open, proposal], numbers, 'open', null))).toBe(proposal);
-  expect(listedThreads([open, proposal], numbers, 'needs', null)).toEqual([proposal]);
-  expect(listedThreads([open, proposal], numbers, 'needs', threadKey(open))).toEqual([
-    open,
-    proposal,
-  ]);
+  const numbers = new Map([[threadKey(open), 1]]);
+  expect(listedThreads([open], numbers, 'needs', threadKey(open))).toEqual([open]);
+  expect(firstThread(listedThreads([open], numbers, 'open', null))).toBe(open);
   expect(firstThread([])).toBeUndefined();
 });
 

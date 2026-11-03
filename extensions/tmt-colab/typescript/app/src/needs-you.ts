@@ -11,7 +11,6 @@ type Target = {
 };
 export type NeedsYouCandidate = Target &
   (
-    | { kind: 'proposal'; state: 'waiting' | 'settled' }
     | { kind: 'reading'; state: 'unread' | 'read' }
     | {
         kind: 'answer';
@@ -29,15 +28,14 @@ export function pendingNeedsYou(
 ): NeedsYouCandidate[] {
   const seen = new Set<string>();
   const pending = {
-    proposal: 'waiting',
     reading: 'unread',
     answer: 'unanswered',
     review: 'waiting',
   } as const;
-  return (['proposal', 'reading', 'answer', 'review'] as const).flatMap((kind) =>
+  return (['reading', 'answer', 'review'] as const).flatMap((kind) =>
     candidates.filter((item) => {
       // Registered questions retain their own target even when legacy markup reused an ID for
-      // a reading/review/proposal. Other passage kinds keep their existing cross-kind dedup.
+      // a reading/review. Other passage kinds keep their existing cross-kind dedup.
       const key = JSON.stringify([registeredQuestions && kind === 'answer', item.id]);
       if (
         item.kind !== kind ||
