@@ -1,7 +1,15 @@
 import { indexPath } from "./languages.mjs";
 
 // A small editorial vocabulary keeps tag pages useful and predictable.
-export const postTags = ["announcements", "colab", "design", "engineering", "workflow"];
+export const postTags = [
+  "announcements",
+  "colab",
+  "design",
+  "engineering",
+  "shugyo",
+  "usage",
+  "workflow",
+];
 
 export function validatePostTags(value) {
   if (!Array.isArray(value) || value.length > 3 || new Set(value).size !== value.length)

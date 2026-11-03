@@ -183,7 +183,8 @@ posts are never decorated by the template or silently rewritten.
 
 Optional `tags` metadata holds zero to three unique lowercase slugs from the
 fixed vocabulary in [tags.mjs](src/blog/tags.mjs): `announcements` (project news),
-`colab` (Colab use), `design` (interface design), `engineering` (implementation)
+`colab` (Colab use), `design` (interface design), `engineering` (implementation),
+`shugyo` (the weekly Shugyō retro series), `usage` (allowance, cost and model use)
 and `workflow` (working with agents). Unknown, duplicate or excessive tags fail
 validation; values are never silently normalized. Omitting tags preserves the
 existing metadata and approval hash. Adding or changing tags requires a new
