@@ -70,6 +70,22 @@ it('preserves out-of-ID-order pins while matching the sorted catalog with delete
   expect(boot.pageIds).toEqual(body.pageIds);
   expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
 });
+it('accepts the design-system page kind and nothing else as a kind (#5866)', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const pages = [
+    { ...metadata, pageId: id(1), kind: 'design-system' },
+    { ...metadata, pageId: id(2) },
+  ];
+  await response(pages);
+  expect((await discover(mount)).pages).toEqual(pages);
+  for (const kind of ['dashboard', null, '']) {
+    await response([{ ...metadata, pageId: id(1), kind }]);
+    await expect(discover(mount), String(kind)).rejects.toThrow();
+  }
+});
 it('a caller whose document is another module’s neither reads nor rewrites its location', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },

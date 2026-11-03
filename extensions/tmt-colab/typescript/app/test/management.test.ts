@@ -200,6 +200,19 @@ it.each([
   expect(records.size).toBe(0);
 });
 it.each([
+  ['INVALID', 400],
+  ['STALE_HEAD', 409],
+])('reads the owner socket bare text refusal %s as that code', async (code, status) => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(code, { status: Number(status) })),
+  );
+  await expect(f.client.send(p)).rejects.toMatchObject({ code });
+  expect(records.size).toBe(0);
+});
+it.each([
   [503, { code: 'UNRECOGNIZED' }],
   [503, { code: 'INVALID' }],
   [500, { code: 'UNAVAILABLE' }],

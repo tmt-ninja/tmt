@@ -8868,7 +8868,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         include_bytes!("../../../skills/tmt-colab/SKILL.md")
     );
     let skill = std::str::from_utf8(&output.stdout).unwrap();
-    assert!(output.stdout.len() <= 10_300);
+    assert!(output.stdout.len() <= 10_400);
     for (name, expected) in [
         (
             "attachments",

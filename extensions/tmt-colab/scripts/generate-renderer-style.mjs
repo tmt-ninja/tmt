@@ -49,7 +49,7 @@ const frameStyle = (
   .trim();
 // The design system the frame injects into every page (#5057) and the icons it draws; page-ui.mjs builds
 // both, and the standalone export carries the same bytes.
-const { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons } = await buildPageUi();
+const { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons, dsProseStyle } = await buildPageUi();
 // `page check` reads the same two lists the frame draws from: a `tmt-ui-*` class it does not know and an
 // icon name it does not know are findings, not silent no-ops.
 const classes = [...new Set([...(staticCss + editorialCss).matchAll(/\.(tmt-ui-[A-Za-z0-9_-]+)/g)].map((m) => m[1]))].sort();
@@ -72,7 +72,12 @@ const expected = generate(
   'pageUi',
   pageUiStyle,
 );
-const withIcons = generate(expected, 'PAGE ICONS', 'pageIcons', pageIcons);
+const withIcons = generate(
+  generate(expected, 'PAGE ICONS', 'pageIcons', pageIcons),
+  'DS PROSE',
+  'dsProse',
+  dsProseStyle,
+);
 const startComponent = '          // BEGIN GENERATED THREAD REFERENCE COMPONENT';
 const endComponent = '          // END GENERATED THREAD REFERENCE COMPONENT';
 const componentStart = withIcons.indexOf(startComponent);

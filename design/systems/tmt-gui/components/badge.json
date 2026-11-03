@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "badge",
+  "source": "badge.js",
+  "props": {
+    "variant": {
+      "enum": [
+        "default",
+        "secondary",
+        "outline",
+        "ghost",
+        "destructive",
+        "link"
+      ],
+      "default": "default"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "badge.css",
+  "ui": {
+    "module": "/src/ui/badge.tsx",
+    "component": "Badge",
+    "variants": "badgeVariants",
+    "dims": {
+      "variant": [
+        "default",
+        "secondary",
+        "outline",
+        "ghost",
+        "destructive",
+        "link"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "title": "Default",
+      "markup": "<tmt-ui-badge>spec</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Outline",
+      "markup": "<tmt-ui-badge variant=\"outline\">Private</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Secondary",
+      "markup": "<tmt-ui-badge variant=\"secondary\">draft</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Ghost",
+      "markup": "<tmt-ui-badge variant=\"ghost\">ghost</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Destructive",
+      "markup": "<tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

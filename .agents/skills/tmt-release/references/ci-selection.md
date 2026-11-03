@@ -132,9 +132,11 @@ The Colab three-engine safety net retains Playwright's own dependency installati
 
 `browser-ui` runs the design gallery's six computed-style audits and overlay motion checks
 in Chromium, with seeded negative controls. It is one matrix job under one gate: three gallery
-shards (`test:browser --shard N/3`), each within the 15-minute limit, with fail-fast off.
+shards (`test:browser --shard N/3`) and a parallel TUI docs entry (`test:tui-docs`), each within
+the 15-minute limit, with fail-fast off.
 `browser_ui` selects `design/browser-ui/**`,
-`design/tokens/**` and the closed CI/tooling/workspace inputs in `ci-scope.mjs`; a tooling
+`design/tokens/**`, the Ops oracle and CLI theme the TUI docs read at build time, and the
+closed CI/tooling/workspace inputs in `ci-scope.mjs`; a tooling
 guard follows the gallery's local import graph and refuses inputs outside that selector.
 PR and merge-group diffs select it independently of native scope; main-full and weekly/manual
 full runs also select it. Unrelated product-only changes and cache seeds do not. It uses the

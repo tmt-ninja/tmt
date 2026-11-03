@@ -36,6 +36,7 @@ COPY extensions/tmt-colab/firestore/ extensions/tmt-colab/firestore/
 COPY extensions/tmt-digest/skills/ extensions/tmt-digest/skills/
 COPY extensions/tmt-colab/skills/ extensions/tmt-colab/skills/
 COPY design/tokens/tokens.json design/tokens/tokens.json
+COPY design/systems/tmt-gui/generated/bundle.json design/systems/tmt-gui/generated/bundle.json
 COPY design/browser-ui/generated/static.css design/browser-ui/generated/static.css
 COPY design/browser-ui/generated/brand-mark-static.svg design/browser-ui/generated/brand-mark-static.svg
 COPY extensions/tmt-colab/typescript/app/src/colab-header.css extensions/tmt-colab/typescript/app/src/colab-header.css

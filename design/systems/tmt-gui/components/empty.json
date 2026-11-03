@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "empty",
+  "source": "empty.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default",
+    "icon"
+  ],
+  "css": "empty.css",
+  "ui": {
+    "module": "/src/ui/empty.tsx",
+    "component": "Empty",
+    "parts": [
+      "EmptyHeader",
+      "EmptyMedia",
+      "EmptyTitle",
+      "EmptyDescription",
+      "EmptyContent"
+    ],
+    "compose": "<Empty><EmptyHeader><EmptyMedia if=\"icon\">{icon}</EmptyMedia><EmptyTitle>{heading}</EmptyTitle><EmptyDescription if=\"description\">{description}</EmptyDescription></EmptyHeader><EmptyContent if=\"children\">{children}</EmptyContent></Empty>"
+  },
+  "examples": [
+    {
+      "title": "With an action",
+      "markup": "<tmt-ui-empty heading=\"No pages yet\" description=\"Make the first page to start the space.\"><tmt-ui-button>New page</tmt-ui-button></tmt-ui-empty>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Title only",
+      "markup": "<tmt-ui-empty heading=\"Nothing needs you\"></tmt-ui-empty>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

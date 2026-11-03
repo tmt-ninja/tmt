@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "card",
+  "source": "card.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default",
+    "action",
+    "footer"
+  ],
+  "css": "card.css",
+  "ui": {
+    "module": "/src/ui/card.tsx",
+    "component": "Card",
+    "parts": [
+      "CardHeader",
+      "CardTitle",
+      "CardDescription",
+      "CardAction",
+      "CardContent",
+      "CardFooter"
+    ],
+    "compose": "<Card><CardHeader if=\"heading\"><CardTitle>{heading}</CardTitle><CardDescription if=\"description\">{description}</CardDescription><CardAction if=\"action\">{action}</CardAction></CardHeader><CardContent>{children}</CardContent><CardFooter if=\"footer\">{footer}</CardFooter></Card>"
+  },
+  "examples": [
+    {
+      "title": "With a title",
+      "markup": "<tmt-ui-card heading=\"Ops board\" description=\"Three members, one waiting\">Plan the release and watch the queue.</tmt-ui-card>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "With a footer",
+      "markup": "<tmt-ui-card heading=\"Night shift\">Codex members run the queue.<span slot=\"footer\">Starts at 00:00</span></tmt-ui-card>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

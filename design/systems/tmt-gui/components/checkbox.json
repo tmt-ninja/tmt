@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "checkbox",
+  "source": "checkbox.js",
+  "props": {
+    "checked": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "checkbox.css",
+  "ui": {
+    "module": "/src/ui/checkbox.tsx",
+    "component": "Checkbox"
+  },
+  "examples": [
+    {
+      "title": "Checked",
+      "markup": "<tmt-ui-checkbox checked label=\"Show comments\"></tmt-ui-checkbox>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Unchecked",
+      "markup": "<tmt-ui-checkbox label=\"Archived\"></tmt-ui-checkbox>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-checkbox disabled label=\"Locked\"></tmt-ui-checkbox>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

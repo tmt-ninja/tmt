@@ -5,7 +5,7 @@
  * (`.js`). Anything else is
  * refused, and the module's own link is the fallback.
  */
-import { moduleMount } from '@tmt/browser-ui/shell';
+import { moduleMount, type ShellAnswer } from '@tmt/browser-ui/shell';
 
 export interface ModuleLoad {
   /** The module's own mount path, ending in `/`, when the answer's `rail.path` is a valid mount. */
@@ -62,4 +62,57 @@ export function moduleLoad(
     !target.search &&
     !target.hash;
   return inside ? { link, entry: target.href } : { link };
+}
+
+/** Only the admitted Design app family can leave a Colab extra's mount for navigation. */
+export function designPath(path: string): boolean {
+  if (path === '/design' || path === '/design/') return true;
+  const rest = path.startsWith('/design/') ? path.slice('/design/'.length) : undefined;
+  return (
+    rest !== undefined &&
+    rest.length <= 160 &&
+    rest.split('/').every((segment) => /^[A-Za-z0-9_-]+$/.test(segment))
+  );
+}
+
+/** Navigation may use the owner route; script authority still comes from the primary mount. */
+export function designModuleLoad(answer: ShellAnswer | undefined, here: string): ModuleLoad {
+  const primary = answer?.modules.find(
+    (module) => module.extension === 'colab' && !('module' in module),
+  );
+  if (!primary) return {};
+  let page: URL;
+  try {
+    page = new URL(here);
+  } catch {
+    return {};
+  }
+  const extra = answer?.modules.find((module) => {
+    if (
+      module.extension !== 'colab' ||
+      !('module' in module) ||
+      typeof module.module !== 'string' ||
+      !/^[a-z0-9-]{1,32}$/.test(module.module) ||
+      !plain(module.rail.path)
+    )
+      return false;
+    try {
+      const route = new URL(module.rail.path, page);
+      return (
+        route.origin === page.origin && !route.search && !route.hash && designPath(route.pathname)
+      );
+    } catch {
+      return false;
+    }
+  });
+  if (!extra) return {};
+  const load = moduleLoad(primary.rail.path, (extra as { entry?: string }).entry, here);
+  if (!load.link) return {};
+  const route = new URL(extra.rail.path, page);
+  // If the script is absent or cannot load, the paired alias can open the standalone
+  // Colab view; the root navigation link would only reopen this same fallback.
+  return {
+    link: `${load.link}${route.pathname.slice(1)}`,
+    ...(load.entry ? { entry: load.entry } : {}),
+  };
 }
