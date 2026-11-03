@@ -10,13 +10,13 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 use tmt_cli_style::Role;
+use unicode_width::UnicodeWidthStr;
 
 /// The page ID's first eight characters when `url` is a page on this machine's Colab.
 pub(in crate::board) fn page(url: &str) -> Option<&str> {
@@ -157,13 +157,14 @@ pub(super) fn paint_card(frame: &mut Frame, app: &App, surface: Rect, hit: &Hit)
         return;
     }
     let fit = |text: &str| crate::board::view::fit(text, inner);
-    let lines = vec![
-        Line::from(Span::styled(fit(&title), look.role(Role::Text).bold())),
-        Line::from(Span::styled(fit(&detail), look.role(Role::Dim))),
-        Line::from(Span::styled(fit(hint), look.role(Role::Dim))),
+    let rows = [
+        (fit(&title), look.role(Role::Text).bold()),
+        (fit(&detail), look.role(Role::Dim)),
+        (fit(hint), look.role(Role::Dim)),
     ];
-    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
-    let height = lines.len() as u16 + 2;
+    let content = rows.iter().map(|(text, _)| text.width()).max().unwrap_or(0);
+    let width = content as u16 + 4;
+    let height = rows.len() as u16 + 2;
     let below = hit.area.bottom();
     let y = if below + height <= surface.bottom() {
         below
@@ -177,23 +178,25 @@ pub(super) fn paint_card(frame: &mut Frame, app: &App, surface: Rect, hit: &Hit)
         .x
         .min(surface.right().saturating_sub(width))
         .max(surface.x);
-    let area = Rect::new(x, y, width.min(surface.width), height);
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(look.role(Role::Dim))
-                .padding(ratatui::widgets::Padding::horizontal(1)),
-        ),
-        area,
-    );
+    let border = look.role(Role::Dim);
+    let rule = "─".repeat(content + 2);
+    let mut lines = vec![Line::styled(format!("╭{rule}╮"), border)];
+    lines.extend(rows.into_iter().map(|(text, style)| {
+        let pad = " ".repeat(content - text.width());
+        Line::from(vec![
+            Span::styled("│ ", border),
+            Span::styled(text, style),
+            Span::raw(pad),
+            Span::styled(" │", border),
+        ])
+    }));
+    lines.push(Line::styled(format!("╰{rule}╯"), border));
+    crate::board::view::overlay_lines(frame, Rect::new(x, y, width, height), lines);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn only_page_links_on_this_machine_become_chips() {

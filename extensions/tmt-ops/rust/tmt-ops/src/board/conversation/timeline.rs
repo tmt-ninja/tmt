@@ -90,7 +90,7 @@ impl<'a> Paint<'a> {
     fn caption(&mut self, text: &str) {
         for line in markdown::wrap_styled(
             Line::styled(text.to_owned(), self.look.role(Role::Muted)),
-            self.width.saturating_sub(3).max(1),
+            self.width.saturating_sub(exchange_view::BODY_INDENT).max(1),
         ) {
             self.line(
                 exchange_view::body(line, self.look),
@@ -158,7 +158,7 @@ impl<'a> Paint<'a> {
         let text = sanitize(text);
         let mapped = markdown::render_conversation_with_members(
             &text,
-            self.width.saturating_sub(3).max(1),
+            self.width.saturating_sub(exchange_view::BODY_INDENT).max(1),
             self.look,
             Some(self.inventory),
         );
@@ -185,7 +185,7 @@ impl<'a> Paint<'a> {
                 mute(&mut line, self.look);
             }
             for link in &mut links {
-                link.column += 3;
+                link.column += exchange_view::BODY_INDENT;
                 link.occurrence += base;
             }
             self.line(
@@ -773,11 +773,14 @@ impl Session {
         let start = paint.lines.len();
         let lines = markdown::wrap_styled(
             exchange_view::feedback_content(&text, paint.look),
-            paint.width.saturating_sub(3).max(1),
+            paint
+                .width
+                .saturating_sub(exchange_view::BODY_INDENT)
+                .max(1),
         );
         for line in lines {
             paint.line(
-                exchange_view::feedback(line, paint.look),
+                exchange_view::feedback(line),
                 Vec::new(),
                 None,
                 &note_source::Source::Unavailable,

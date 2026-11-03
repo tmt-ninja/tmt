@@ -1603,6 +1603,11 @@ new output is labelled until End or intentional downward scrolling to the bottom
 resumes follow. Resize and new output alone keep it paused. A replaced response
 stays visible while paused. A vanished source is labelled separately, not presented as new
 output.
+While the reader has lines below its view, a boxed `↓  Jump to latest · N new` button
+(End on its lower edge; N counts messages that arrived since you scrolled away, omitted
+when none) covers the bottom-right corner without moving any line; clicking it does what
+End does. A small pane shows `↓ Latest · End` instead. Message bodies sit two cells in,
+under their header, with no rule beside them.
 
 Each acquired settled reply is a separate message with its own author and age,
 correlated to its request. Single line breaks remain visible in replies and pane

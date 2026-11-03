@@ -4842,6 +4842,17 @@ impl App {
             && self
                 .conversation
                 .borrow()
+                .jump_hit
+                .is_some_and(|area| area.contains((event.column, event.row).into()))
+        {
+            self.scroll_pane(Pane::Replies, Step::Bottom);
+            return Effect::None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self
+                .conversation
+                .borrow()
                 .send_now_hit
                 .as_ref()
                 .is_some_and(|hit| hit.area.contains((event.column, event.row).into()))

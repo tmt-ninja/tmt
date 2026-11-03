@@ -299,6 +299,30 @@ pub(in crate::board) fn render_frame(
     super::workspace::render::finish_idle_alert_hover(frame, app);
     header::finish_meter_styles(frame, app, summary);
     super::conversation::source::paint(frame, app);
+    super::conversation::jump::paint_over(frame, app);
+}
+
+/// Lines painted over a finished frame in `area`, each cell reset first so nothing beneath
+/// shows through: the Colab chip card and Jump to latest.
+pub(in crate::board) fn overlay_lines(
+    frame: &mut Frame,
+    area: Rect,
+    lines: Vec<ratatui::text::Line<'_>>,
+) {
+    let area = area.intersection(frame.area());
+    let buffer = frame.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            buffer[(x, y)].reset();
+        }
+    }
+    for (row, line) in lines.into_iter().enumerate().take(usize::from(area.height)) {
+        strip::paint_left(
+            buffer,
+            Rect::new(area.x, area.y + row as u16, area.width, 1),
+            line,
+        );
+    }
 }
 
 #[cfg(test)]

@@ -636,7 +636,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
             .mapped
             .lines;
         assert_eq!(
-            lines[2].to_string().trim_start_matches(" │ ").to_owned(),
+            lines[2].to_string().trim_start_matches("  ").to_owned(),
             "✓ sent · auth-fix's activity is not reported"
         );
         assert!(
@@ -656,7 +656,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let lines = &rendered.mapped.lines;
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
     assert!(text[0].contains("Ben → auth-fix"), "{text:?}");
-    assert_eq!(text[1], " │ literal auth-fix · now");
+    assert_eq!(text[1], "  literal auth-fix · now");
     assert_eq!(text[2], "");
     assert!(
         text[3].contains("auth-fix")
@@ -666,7 +666,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
             && !text[3].contains('—'),
         "unknown settled time is not invented: {text:?}"
     );
-    assert_eq!(text[4], " │ answer body");
+    assert_eq!(text[4], "  answer body");
     assert!(
         lines[0]
             .spans
@@ -725,17 +725,17 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
         for index in 0..3 {
             let message = lines
                 .iter()
-                .position(|line| line.trim_start_matches(" │ ") == format!("message {index}"))
+                .position(|line| line.trim_start_matches("  ") == format!("message {index}"))
                 .unwrap();
             assert_eq!(lines[message + 1], "", "{lines:?}");
             assert_eq!(
-                lines[message + 3].trim_start_matches(" │ "),
+                lines[message + 3].trim_start_matches("  "),
                 format!("reply {index}"),
                 "the correlated reply immediately replaces feedback: {lines:?}"
             );
             let reply = lines
                 .iter()
-                .position(|line| line.trim().trim_start_matches("│ ") == format!("reply {index}"))
+                .position(|line| line.trim() == format!("reply {index}"))
                 .unwrap();
             assert!(
                 lines[reply - 1].contains("auth-fix") && lines[reply - 1].contains('→'),
