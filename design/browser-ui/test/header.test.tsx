@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { BrowserHeader } from '../src/react';
 
-it('renders the shared 04D-1 mark, exactly as its static-host copy, inside a retained brand link', () => {
+it('renders the shared ninja mark, exactly as its static-host copy, inside a retained brand link', () => {
   const copy = readFileSync(new URL('../generated/brand-mark-static.svg', import.meta.url), 'utf8');
   const html = renderToStaticMarkup(
     <BrowserHeader
@@ -13,19 +13,18 @@ it('renders the shared 04D-1 mark, exactly as its static-host copy, inside a ret
       brandLink={(brand) => <a href="/pages">{brand}</a>}
     />,
   );
-  // Gradient ids are per instance; everything else is byte-equal.
-  const sameIds = (markup: string) =>
+  const normalize = (markup: string) =>
     markup
       .replace(/\s+/g, ' ')
       .replace(/ ?> ?</g, '><')
-      .replace(/ >/g, '>')
-      .replace(
-        /(id="|url\(#)[^")]*-(aurora|far|panel|mono|halo-weight|halo-mask|feather|feather-mask|spill|sheen|rim|panel-clip|halo|soft)(?=[")])/g,
-        '$1$2',
-      );
+      .replace(/ >/g, '>');
   expect(html).toContain('<a href="/pages"><svg');
-  expect(html.match(/<svg/g)).toHaveLength(1);
-  expect(sameIds(html.match(/<svg[\s\S]*?<\/svg>/)![0])).toBe(sameIds(copy.trim()));
+  expect(html.match(/<svg[^>]*class="tmt-brand-mark[ "]/g)).toHaveLength(1);
+  expect(
+    normalize(
+      html.slice(html.indexOf('<svg'), html.indexOf('</svg></svg>') + '</svg></svg>'.length),
+    ),
+  ).toBe(normalize(copy.trim()));
   expect(html).not.toContain('style=');
   expect(html).not.toContain('<title');
   expect(html).toContain('tmt-ui-wordmark">Colab</span>');

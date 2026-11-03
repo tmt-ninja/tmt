@@ -85,8 +85,7 @@ whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots.
 theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
 there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
 once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
-its theme and radius switches. Under the scope the brand mark's roles (`palette-b.brand-mark`) turn
-it red, black and white.
+its theme and radius switches. The selected ninja keeps its pale ink and dark tile under palette B too.
 
 Shadows form one elevation scale, `browser.shadow.elevation-0` to `elevation-3`; `overlay` is level 2.
 The `ui` set reads them as `shadow-elevation-1` (Card), `shadow-overlay` (Popover, menus, Select,
@@ -106,20 +105,18 @@ Button changes colour only (a press never shrinks its hit area); Skeleton pulses
 is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
 (`tuiOracle()`), which reads the Ops oracle at build time.
 
-A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
-`useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
-fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.
+The mark has no paint servers or document IDs; multiple live or hidden shells render independently.
 
-`scripts/generate-brand.mjs` writes the static brand assets from the mark's one definition
-(`src/brand-mark-svg.ts`), `src/brand-mark.css` and the mark-only `brand.mark` roles in
-`tokens.json`; `pnpm check:generated` fails when they are stale. `generated/favicon.svg` is the
-TMT tab icon: the small form of the 04D-1 mark on its dark rounded-square tile, the same in light
-and dark browser chrome. Site, Colab and Remote HTML embed data-URI copies; their tests decode
-those copies and compare the exact SVG bytes with this file. Updating the icon requires refreshing
-these literals; no icon request or runtime generator is involved. `generated/app-icon-light.svg`
-and `generated/app-icon-dark.svg` are the 512 px app icons: the full mark on the same dark tile,
-in each theme's mark roles. Colab's design-geometry browser test rasterises the favicon at 16, 24
-and 32 px and the full mark at 256 px.
+`scripts/generate-brand.mjs` generates `src/brand-mark-svg.ts` and the static product assets from
+`src/brand-mark.svg` and the `brand.mark.tile` token. The SVG is an exact copy of the selected blog artwork, rather than a traced silhouette. `pnpm check:generated` rejects stale outputs.
+
+PROVENANCE: [#5971](https://github.com/tmt-ninja/tmt/pull/5971), selected by Ben;
+`site/src/blog/mark.svg` at `4f94bffb07`.
+
+`generated/favicon.svg` is a self-contained vector generated from the selected artwork and tile token. The 512px app icons retain vector paths from the same SVG in both themes. Colab and Remote HTML carry
+the favicon as a data URI; their literal tests compare the decoded bytes. Colab's design-geometry
+browser test rasterizes the generated 16/24/32px favicon and the 256px icon to check pale ink and
+its dark tile. Hosts copy generated assets; they never redraw or recolour the ninja.
 
 ## Host metric inputs
 
@@ -389,22 +386,17 @@ full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
 
-The brand is the 04D-1 "Beam / Window" mark (`BrandMark`, `src/brand-mark.tsx` and
-`.css`): a dark terminal panel with a `>_` prompt opening into an aurora beam. Every surface
-shows this one mark. Its stops carry aurora-light; dark themes switch to the brighter aurora-dark
-stops and give the panel a faint edge. Print swaps in a mono beam.
-Below 28 px the simplified form drops the perspective and the underscore. `BrandLockup`
-adds the `tmt` / `terminal team` words for marketing surfaces.
+The brand is Ben's selected ninja (`BrandMark`, generated `src/brand-mark-svg.ts`): the
+canonical pale-ink silhouette on the blog's dark rounded tile, unchanged in light, dark and
+palette B. The tile stays dark on light surfaces. Every size and print uses the same geometry.
+`BrandLockup` adds the `tmt` / `terminal team` words for marketing surfaces.
 
-The header brand renders the small form at the header's mark size, `aria-hidden="true"`.
-Mark size and brand gap derive from the wordmark-size token using the handbook's 33/19 and
-12/19 ratios (about 24.32px and 8.84px with a 14px label); they stay equal at compact and wide
-widths, within the 56px/62px header. The product label and brand link use the normal text
-colour. The screen title follows the brand as plain text, without a divider.
-`generated/brand-mark-static.svg` is the static-host copy of that header mark; static hosts embed it
-(with their own extra classes and gradient ids) and the shared stylesheet styles it. The
-header test compares React's output with that copy, ignoring only formatting whitespace and
-gradient ids.
+The header brand is decorative (`aria-hidden="true"`). Mark size and brand gap derive from
+the wordmark-size token using the handbook's 33/19 and 12/19 ratios (about 24.32px and 8.84px
+with a 14px label); compact and wide headers retain those proportions. The product label and
+brand link use the normal text colour. The screen title follows as plain text, without a divider.
+`generated/brand-mark-static.svg` is the static-host copy; the header test compares React's
+output with that copy, ignoring only formatting whitespace.
 
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
