@@ -14,6 +14,9 @@ const artwork = source.match(/<svg[^>]*>([\s\S]*)<\/svg>/)![1]!.trim();
 
 it('keeps the selected ninja artwork exact, on its dark tile, at every product size', () => {
   expect(brandMarkInner()).toContain(artwork);
+  expect(brandMarkInner()).toContain(
+    '<svg x="11.5" y="11.5" viewBox="0 0 720 760" width="73" height="73">',
+  );
   expect(brandMarkInner()).toContain(`fill="${tokens.brand.mark.tile.light.toLowerCase()}"`);
   expect(tokens.brand.mark.tile.light).toBe(tokens.brand.mark.tile.dark);
   expect(tokens.browser['palette-b']['brand-mark'].tile.light).toBe(tokens.brand.mark.tile.light);
