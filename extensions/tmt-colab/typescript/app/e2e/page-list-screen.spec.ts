@@ -183,7 +183,7 @@ for (const width of [1440, 390])
       if (width === 390) {
         await expect(sort).toHaveAccessibleName('Sort: Recently updated');
         await expect(sort.locator('svg.lucide-arrow-down-up')).toHaveCount(1);
-      } else await expect(sort).toHaveText('Recently updated');
+      } else await expect(sort).toHaveText('Sort');
       const search = app(page).getByRole('combobox', { name: 'Search pages' });
       await expect(search).toHaveCSS('font-size', '14px');
       expect((await search.boundingBox())!.height).toBe(33);
@@ -726,12 +726,19 @@ for (const width of [1440, 390])
       );
       for (const row of [alpha, beta, gamma]) {
         const group = row.locator('.tmt-page-list-project-picker');
-        await expect(group).toBeVisible();
-        await group.focus();
-        await group.press('Space');
-        await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
-        await page.keyboard.press('Escape');
-        await expect(group).toBeFocused();
+        if (width === 390 && row === gamma) {
+          await row.getByRole('button', { name: /^More for/ }).click();
+          await page.getByRole('menuitem', { name: 'Projects…', exact: true }).click();
+          await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+          await page.keyboard.press('Escape');
+        } else {
+          await group.focus();
+          await expect(group).toHaveCSS('opacity', '1');
+          await group.press('Space');
+          await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(group).toBeFocused();
+        }
       }
       const metrics = await alpha
         .locator('.tmt-page-list-project')

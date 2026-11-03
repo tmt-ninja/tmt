@@ -117,8 +117,15 @@ export async function mountPageList(
   withSpace = true,
   failure?: 'network' | 'admission' | 'session',
 ) {
-  // Remove the boot app entirely: a hidden shell would still affect :has() during root errors.
-  document.getElementById('root')?.remove();
+  // Keep the boot app connected for its own cleanup, but its hidden shell must not affect :has()
+  // when this fixture renders a standalone root error.
+  const boot = document.getElementById('root');
+  if (boot) {
+    boot.style.display = 'none';
+    boot
+      .querySelectorAll('.tmt-ui-shell')
+      .forEach((shell) => shell.classList.remove('tmt-ui-shell'));
+  }
   let host = document.getElementById('list-fixture');
   if (!host) {
     host = document.createElement('div');
@@ -177,16 +184,28 @@ export async function mountPageList(
                 const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
                 return page(
                   n + 1,
-                  `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
-                  n % 4 ? [['spec', 'blog', 'pm'][n % 3]] : [],
+                  // CJK is necessary fixture data for the requested mixed-script visual check.
+                  size === 'work-pinned' && n === 0
+                    ? '夜のレビュー：共有ページと進捗'
+                    : size === 'work-pinned' && n === 2
+                      ? 'A deliberately long page title that must truncate cleanly without pushing other columns outside the list'
+                      : `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
+                  size === 'work-pinned' && n === 2
+                    ? ['pm', 'spec', 'blog']
+                    : n % 4
+                      ? [['spec', 'blog', 'pm'][n % 3]]
+                      : [],
                   {
-                    ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
+                    ...(size === 'work-pinned' && (n < 2 || n === 3) ? { pinned: true } : {}),
+                    ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
                     summary: {
                       comments: n % 6,
                       waiting: n === 1,
-                      needsYou: n === 1 ? 1 : 0,
+                      needsYou: n === 1 ? (size === 'work-pinned' ? 3 : 1) : 0,
                       author: n % 2 ? 'Ada' : 'feat-1',
-                      work: work(stage, stage === 'done' ? 4 : n % 4, 4),
+                      ...(size === 'work-pinned' && (n === 0 || n === 2)
+                        ? {}
+                        : { work: work(stage, stage === 'done' ? 4 : n % 4, 4) }),
                     },
                   },
                 );

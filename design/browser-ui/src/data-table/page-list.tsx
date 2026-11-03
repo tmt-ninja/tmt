@@ -347,6 +347,8 @@ export function PageListProjectPicker({
         <button
           type="button"
           className="tmt-page-list-project-picker"
+          data-empty={selected.length === 0 || undefined}
+          tabIndex={selected.length === 0 ? -1 : undefined}
           aria-label={label}
           title={selected.map((project) => project.name).join(', ') || undefined}
         >

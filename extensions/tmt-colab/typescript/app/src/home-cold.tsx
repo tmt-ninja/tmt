@@ -1,4 +1,4 @@
-import { ArrowDownUp, Funnel, Plus, Search } from 'lucide-react';
+import { ArrowDownUp, ListFilter, Plus, Search } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { PageListControls, PageListTabs } from '@tmt/browser-ui/data-table';
 import { RichInput, emptyRichInputValue } from '@tmt/browser-ui/rich-input';
@@ -10,9 +10,11 @@ import { NewPageDialog } from './new-page-dialog.js';
 /** The list's structure before the first read supplies pages, counts or commands. */
 export function ColdPageList({
   theme,
+  canCreate = false,
   children,
 }: {
   theme: 'light' | 'dark';
+  canCreate?: boolean;
   children: ReactNode;
 }) {
   const t = text.pageList;
@@ -31,6 +33,7 @@ export function ColdPageList({
             ref={create}
             type="button"
             collapseLabel={t.newPage}
+            disabled={!canCreate}
             onClick={(event) => {
               if (event.nativeEvent.isTrusted) setCreating(true);
             }}
@@ -63,7 +66,7 @@ export function ColdPageList({
           }
           filter={
             <Button type="button" variant="outline" disabled aria-label={text.shortcuts.filter}>
-              <Funnel aria-hidden="true" />
+              <ListFilter aria-hidden="true" />
               <span className="cold-list-action-label">{text.shortcuts.filter}</span>
             </Button>
           }

@@ -12,7 +12,7 @@ import {
   ArrowDownUp,
   Bookmark,
   ExternalLink,
-  Funnel,
+  ListFilter,
   Pencil,
   Pin,
   Plus,
@@ -650,11 +650,11 @@ export function Home() {
         }
         filter={
           <span className="page-list-filter-menu">
-            <Funnel aria-hidden="true" />
+            <ListFilter aria-hidden="true" />
             <BrowserMenu
               label={text.shortcuts.filter}
               triggerText={phone ? undefined : text.shortcuts.filter}
-              icon={<Funnel />}
+              icon={<ListFilter />}
               popupLayout="grouped"
               items={[
                 ...(['todo', 'in-progress', 'done'] as const).map((state, index) => ({
@@ -727,9 +727,10 @@ export function Home() {
         }
         sort={
           <span className="page-list-sort">
+            <ArrowDownUp aria-hidden="true" />
             <BrowserMenu
               label={`${t.sort}: ${sortLabel}`}
-              triggerText={phone ? undefined : sortLabel}
+              triggerText={phone ? undefined : t.sort}
               icon={<ArrowDownUp />}
               items={(['updated', 'title'] as const).map((key) => ({
                 key,

@@ -31,6 +31,59 @@ for (const width of [390, 1440])
       await mount(page, width, theme);
       await expect(root.getByRole('grid', { name: 'Pages' })).toBeVisible();
       await expect(root.getByRole('tablist', { name: 'Page views' })).toBeVisible();
+      const mixed = root.getByRole('row').filter({ hasText: '夜のレビュー' });
+      const long = root.getByRole('row').filter({ hasText: 'A deliberately long page title' });
+      if (width === 390) {
+        await mixed.getByRole('button', { name: /^More for/ }).click();
+        await expect(page.getByText('Access: Shared')).toBeVisible();
+        await page.getByRole('menuitem', { name: 'Projects…', exact: true }).click();
+        await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+        await page.keyboard.press('Escape');
+        await root.locator('[data-page-list]').evaluate((node) => (node.scrollTop = 0));
+      } else await expect(mixed).toContainText('Shared');
+      await expect(mixed.locator('.tmt-data-table-sub')).toHaveText('');
+      await expect(
+        root
+          .getByRole('row')
+          .filter({ has: page.getByRole('checkbox', { name: 'Select Review 2', exact: true }) }),
+      ).toContainText('Needs you · 3');
+      await expect(long.locator('.tmt-page-list-project-overflow')).toHaveText('+2');
+      await expect(long.locator('.tmt-data-table-sub')).toHaveText('');
+      expect(
+        await long
+          .locator('.tmt-ui-list-title')
+          .evaluate(
+            (node) =>
+              node.scrollWidth > node.clientWidth &&
+              getComputedStyle(node).textOverflow === 'ellipsis',
+          ),
+      ).toBe(true);
+      await expect(root.locator('.tmt-page-list-tabs-row')).toHaveCSS(
+        'border-bottom-style',
+        'solid',
+      );
+      await expect(
+        root.locator('.page-list-filter-menu svg.lucide-list-filter:visible'),
+      ).toHaveCount(1);
+      await expect(root.locator('.page-list-sort svg.lucide-arrow-down-up:visible')).toHaveCount(1);
+      if (width === 1440) {
+        await expect(root.locator('.page-list-sort button')).toHaveText('Sort');
+        await expect(
+          root.locator('.page-list-filter-menu .tmt-ui-menu-trigger > .tmt-ui-icon'),
+        ).toBeHidden();
+        await expect(
+          root.locator('.page-list-sort .tmt-ui-menu-trigger > .tmt-ui-icon'),
+        ).toBeHidden();
+      }
+      const rowFont = await long
+        .locator('.tmt-page-list-project')
+        .first()
+        .evaluate((node) => getComputedStyle(node).fontFamily);
+      const pinFont = await root
+        .locator('.tmt-page-list-pin .tmt-page-list-project')
+        .first()
+        .evaluate((node) => getComputedStyle(node).fontFamily);
+      expect(rowFont).not.toBe(pinFont);
       await page.screenshot({ path: await capturePath(`5972-filled-${width}-${theme}.png`) });
       await root.getByRole('checkbox', { name: 'Select Review 2', exact: true }).check();
       await expect(root.getByRole('region', { name: 'Bulk actions' })).toBeVisible();
@@ -75,15 +128,7 @@ for (const width of [390, 1440])
       );
       await expect(app.getByRole('button', { name: 'Filter' })).toBeDisabled();
       await expect(app.getByRole('button', { name: 'Sort' })).toBeDisabled();
-      const create = app.getByRole('button', { name: 'New page' });
-      await expect(create).toBeEnabled();
-      await create.evaluate((element: HTMLElement) => element.click());
-      await expect(app.getByRole('dialog', { name: 'New page' })).toHaveCount(0);
-      await create.click();
-      const createDialog = app.getByRole('dialog', { name: 'New page' });
-      await expect(createDialog).toContainText('tmt colab page create');
-      await createDialog.getByRole('button', { name: 'Close', exact: true }).click();
-      await expect(create).toBeFocused();
+      await expect(app.getByRole('button', { name: 'New page' })).toBeDisabled();
       await expect(app.getByRole('list', { name: 'Pinned pages' })).toHaveCount(0);
       await expect(app.getByLabel('Loading pages')).toBeVisible();
       await expect(app.getByLabel('Loading pages').locator('[data-slot=skeleton]')).toHaveCount(6);
@@ -99,7 +144,15 @@ for (const width of [390, 1440])
       );
       await expect(app.getByRole('button', { name: 'Filter' })).toBeDisabled();
       await expect(app.getByRole('button', { name: 'Sort' })).toBeDisabled();
-      await expect(app.getByRole('button', { name: 'New page' })).toBeEnabled();
+      const create = app.getByRole('button', { name: 'New page' });
+      await expect(create).toBeEnabled();
+      await create.evaluate((element: HTMLElement) => element.click());
+      await expect(app.getByRole('dialog', { name: 'New page' })).toHaveCount(0);
+      await create.click();
+      const createDialog = app.getByRole('dialog', { name: 'New page' });
+      await expect(createDialog).toContainText('tmt colab page create');
+      await createDialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(create).toBeFocused();
       const headerBox = (await app.locator('header').first().boundingBox())!;
       const tabList = app.getByRole('tablist', { name: 'Page views' });
       await expect(tabList).toBeVisible();

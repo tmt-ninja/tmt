@@ -881,7 +881,7 @@ const root = createRootRouteWithContext<AppContext>()({
         <main>
           {listFailure ? (
             <section className="home tmt-ui-page" data-page-list>
-              <ColdPageList theme={theme}>
+              <ColdPageList theme={theme} canCreate>
                 <PageListError onRetry={() => void router.invalidate()} />
               </ColdPageList>
             </section>
