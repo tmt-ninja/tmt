@@ -27,6 +27,9 @@ mod room;
 mod room_roster;
 mod storage_cutover;
 
+// Unix-only like the crate's other test support (uid and mode checks).
+#[cfg(all(test, unix))]
+pub(crate) mod template_fixture;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

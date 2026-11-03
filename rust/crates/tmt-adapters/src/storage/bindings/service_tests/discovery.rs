@@ -526,7 +526,7 @@ fn read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_an
     .unwrap();
     assert_eq!(stale.candidates[0].state, "stale");
     assert!(!stale.candidates[0].adoptable());
-    let absent = Fixture::new();
+    let absent = Fixture::missing();
     let mut hook = observation(known.clone());
     annotate(
         &mut hook,
