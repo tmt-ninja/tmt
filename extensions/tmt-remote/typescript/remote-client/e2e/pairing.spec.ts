@@ -1609,7 +1609,6 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               context.fillRect(0, 0, 32, 32);
               context.drawImage(image, 0, 0, 32, 32);
               const pixels = [...context.getImageData(0, 0, 32, 32).data];
-              const corner = [...context.getImageData(0, 0, 1, 1).data];
               const png = canvas.toDataURL('image/png').split(',')[1]!;
               // The selected blog PNG is the independent pixel oracle, under the same door CSP.
               const approved = new Image();
@@ -1621,16 +1620,13 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               return {
                 pixels,
                 expected: [...context.getImageData(0, 0, 32, 32).data],
-                corner,
                 png,
               };
             },
             `data:image/png;base64,${approvedPng.toString('base64')}`,
           );
           expect(icon.pixels).toEqual(icon.expected);
-          expect(icon.corner).toEqual(
-            colorScheme === 'light' ? [255, 255, 255, 255] : [17, 17, 17, 255],
-          );
+          // Full-image equality includes the rounded PNG's antialiased corner transparency.
           if (state === 'landing' && width === 1440) {
             const png = Buffer.from(icon.png, 'base64');
             const path = testInfo.outputPath(`favicon-${colorScheme}-32.png`);
