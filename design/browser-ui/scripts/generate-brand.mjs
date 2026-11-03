@@ -19,7 +19,7 @@ if (tile !== tokens.brand.mark.tile.dark.toLowerCase())
   throw new Error('Brand tile must match across themes');
 const inner =
   `<rect class="tmt-brand-mark-tile" width="96" height="96" rx="25.6" fill="${tile}"/>` +
-  '<svg viewBox="0 0 720 760" width="96" height="96">' +
+  '<svg x="11.5" y="11.5" viewBox="0 0 720 760" width="73" height="73">' +
   body +
   '</svg>';
 const svg = (size, className = 'tmt-brand-mark') =>
