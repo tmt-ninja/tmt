@@ -108,14 +108,12 @@ is the hosted entry Colab's Design route loads, and its host adds the `./docs-or
 The mark has no paint servers or document IDs; multiple live or hidden shells render independently.
 
 `scripts/generate-brand.mjs` generates `src/brand-mark-svg.ts` and the static product assets from
-`src/brand-mark.svg` and `src/brand-favicon.png`. The inputs are exact copies of the selected blog
-artwork, rather than a traced silhouette. `pnpm check:generated` rejects stale outputs.
+`src/brand-mark.svg` and the `brand.mark.tile` token. The SVG is an exact copy of the selected blog artwork, rather than a traced silhouette. `pnpm check:generated` rejects stale outputs.
 
 PROVENANCE: [#5971](https://github.com/tmt-ninja/tmt/pull/5971), selected by Ben;
-`site/src/blog/mark.svg` and `site/src/blog/favicon.png` at `4f94bffb07`.
+`site/src/blog/mark.svg` at `4f94bffb07`.
 
-`generated/favicon.svg` wraps the blog's exact favicon/touch-icon PNG bytes in a self-contained
-SVG. The 512px app icons retain vector paths from the same SVG in both themes. Colab and Remote HTML carry
+`generated/favicon.svg` is a self-contained vector generated from the selected artwork and tile token. The 512px app icons retain vector paths from the same SVG in both themes. Colab and Remote HTML carry
 the favicon as a data URI; their literal tests compare the decoded bytes. Colab's design-geometry
 browser test rasterizes the generated 16/24/32px favicon and the 256px icon to check pale ink and
 its dark tile. Hosts copy generated assets; they never redraw or recolour the ninja.
