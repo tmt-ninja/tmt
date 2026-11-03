@@ -5530,16 +5530,26 @@ pages in the reserved project `tmt:design-system` whose source holds the
 ID), `name`, `prefix`, the released `versions`, `latest` (null before the first release) and
 `builtIn`. It reads only the local store, and lists the built-in system even before a space exists
 (`spaceId` null). The built-in release is `design/systems/tmt-gui/generated/bundle.json`, embedded in
-both the executable and the app: a pin `tmt-gui@<version>#<hash>` resolves to it with no page behind
-it, and only while this build carries that exact version and hash.
+both the executable and the app: `tmt-gui` resolves to it with no page behind it, and a lock
+`tmt-gui@<version>#<hash>` only while this build carries that exact version and hash.
+
+A page names one system with `<meta name="tmt-ds" content="PIN">` (#5967). `PIN` is `SYSTEM`, which
+follows the system's live draft, or `SYSTEM@VERSION#sha256-HEX`, which locks one release. The app
+compiles a followed draft from the root page's config and each component page's block, as publish
+compiles them; a page that follows it redraws when one of those pages changes (edits settle for
+500 ms). A draft that does not compile shows the page's design-system notice, never a blank page.
+A lock is verified against its release's hash and never changes. Publish records a release and
+keeps the system's own tree following its draft; the Design header can show a release in place of
+the draft for viewing.
 `tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
 or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
 built-in one, and VERSION (default: the latest release). A space's release is the root page's
 attachment, read through the running serve under current access; the built-in release is read
 from the executable. The bundle must match
 its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
-prints `pin`, the `meta` line to copy, `principles` and each component's `tag`, `props`, `slots` and
-`examples`, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
+prints `pin` (the system, which follows the draft), the `meta` line to copy, `lock` and `lockMeta`
+(this release's lock), `principles` and each component's `tag`, `props`, `slots` and `examples` of
+that release, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
 release `COLAB_DESIGN_RELEASE_NOT_FOUND`. Both commands change nothing.
 
 ### Local management CLI (#1307)
