@@ -3,6 +3,7 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
@@ -11,7 +12,7 @@ import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
+import { designBase, entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
   BrowserAction,
   BrowserCommand,
@@ -68,6 +69,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Link,
   redirect,
   Outlet,
@@ -77,6 +79,7 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageSnapshot, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
+import { EmbeddedPageContext, type EmbeddedPageProps } from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
@@ -914,7 +917,8 @@ const root = createRootRouteWithContext<AppContext>()({
   ),
 });
 async function loadSpaceHome({ context }: { context: AppContext }) {
-  const home = await context.transport.spaceHome();
+  // Design-system pages belong to the Design tab, not the Colab list (#5866).
+  const home = withoutDesignSystems(await context.transport.spaceHome());
   context.rememberPages?.(
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
@@ -1116,6 +1120,22 @@ function ShortPageChoice() {
   );
 }
 
+// The Design pack is lazy: ordinary Colab pages do not load its catalog or styles. Its pages are
+// Colab pages, so the route hands it the embedded page view.
+const LazyDesign = lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute');
+function Design() {
+  return (
+    <EmbeddedPageContext.Provider value={EmbeddedPage}>
+      <LazyDesign />
+    </EmbeddedPageContext.Provider>
+  );
+}
+const design = createRoute({ getParentRoute: () => root, path: '/design', component: Design });
+const designPage = createRoute({
+  getParentRoute: () => root,
+  path: '/design/$',
+  component: Design,
+});
 const colabSettings = createRoute({
   getParentRoute: () => root,
   path: '/settings',
@@ -1146,6 +1166,8 @@ function Shell() {
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
   const sharedSearch = ownShell || hostSlot.topBarReady();
+  // Design owns its docs navigation and header rather than the Colab page/list chrome.
+  if (pathname === '/design' || pathname.startsWith('/design/')) return <Outlet />;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1237,10 +1259,11 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   };
 }
 
-/** A chapter's page hosted in the shell's panel: it opens the page through the transport as the
- * route would, and gives its live connection up when the panel leaves it (back to the summary, the
- * full page, Esc), so one page never holds two. */
-function EmbeddedPage({ pageId }: { pageId: string }) {
+/** A page hosted inside another view: a chapter in the shell's panel, or a Design page (#5866). It
+ * opens the page through the transport as the route would, and gives its live connection up when the
+ * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
+ * route the page's own links (Design keeps its tree's pages in Design). */
+function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
@@ -1266,10 +1289,14 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
       opened?.binding?.close();
     };
   }, [transport, pageId]);
-  const routing = useMemo<PageRouting>(
-    () => ({ ...routePageRouting(router), home: (brand) => brand, scopeCrumb: () => null }),
-    [router],
-  );
+  const routing = useMemo<PageRouting>(() => {
+    const base: PageRouting = {
+      ...routePageRouting(router),
+      home: (brand) => brand,
+      scopeCrumb: () => null,
+    };
+    return hostRouting ? hostRouting(base) : base;
+  }, [router, hostRouting]);
   const wrap = useRef<HTMLDivElement>(null);
   const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (
@@ -1290,7 +1317,7 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
             transport={transport}
             space={space}
             loaded={loaded}
-            search={{}}
+            search={anchor ? { anchor } : {}}
             scope={undefined}
             routing={routing}
           />
@@ -1828,6 +1855,7 @@ function OpenPage({
     contentRevision,
     admitted: !discussionPending && !liveError && !archived,
   });
+  const designSystems = useMemo(() => pageDesignSystems(transport), [transport]);
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -1847,6 +1875,7 @@ function OpenPage({
     resetPageLinks,
     requestPageLink,
     onContentApplied: () => setContentRevision((count) => count + 1),
+    designSystem: designSystems,
     handlers: {
       onSelection,
       onAnnotate: annotate,
@@ -2982,9 +3011,20 @@ export function createAppRouter(
       : createHashHistory();
   if (space) keepListSearch(history);
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, colabSettings, blocked]),
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      page,
+      shortPage,
+      colabSettings,
+      blocked,
+      design,
+      designPage,
+    ]),
     history,
-    ...(inShell() ? { basepath: '/colab' } : {}),
+    // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
+    // this module for Design at /design/ (#5873), where its /design routes match as they are.
+    ...(inShell() ? { basepath: designBase() === '/design' ? '/' : '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
   });
   router.subscribe('onResolved', () => void buildWatch.check());

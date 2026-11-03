@@ -13,6 +13,16 @@ export function hostInShell(mount: URL | null): void {
 export function inShell(): boolean {
   return shellMount !== undefined;
 }
+/**
+ * Where Design lives (#5866): inside the TMT app it is the app's own `/design/` (Remote's door,
+ * #5873), where the shell mounts this module for Colab's described Design extra; otherwise it is
+ * Colab's `/colab/design/`. Read when the router is made, from the location the module opens at.
+ */
+export function designBase(path = location.pathname): '/design' | '/colab/design' {
+  return inShell() && (path === '/design' || path.startsWith('/design/'))
+    ? '/design'
+    : '/colab/design';
+}
 
 /** Remote supplies the internal mount; public location carries only a display target. The hosted
  * static origin serves the same paths with no Remote mount, so it is never a public entry. Inside

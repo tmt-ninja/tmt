@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "separator",
+  "source": "separator.js",
+  "props": {
+    "orientation": {
+      "enum": [
+        "horizontal",
+        "vertical"
+      ],
+      "default": "horizontal"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "separator.css",
+  "ui": {
+    "module": "/src/ui/separator.tsx",
+    "component": "Separator",
+    "dims": {
+      "orientation": [
+        "horizontal",
+        "vertical"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "title": "Horizontal",
+      "markup": "<tmt-ui-separator></tmt-ui-separator>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

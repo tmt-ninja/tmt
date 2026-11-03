@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "textarea",
+  "source": "textarea.js",
+  "props": {
+    "placeholder": {
+      "type": "string"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "textarea.css",
+  "ui": {
+    "module": "/src/ui/textarea.tsx",
+    "component": "Textarea"
+  },
+  "examples": [
+    {
+      "title": "Default",
+      "markup": "<tmt-ui-textarea placeholder=\"Write a note\"></tmt-ui-textarea>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

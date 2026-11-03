@@ -101,6 +101,11 @@ of it; a dialog pops in on base and leaves on fast; a sheet slides in on base an
 line Tabs underline slides between triggers; Switch, Checkbox and Alert move on press or entry, and
 Button changes colour only (a press never shrinks its hit area); Skeleton pulses calmly. Reduced motion zeroes every duration, the pulse included.
 
+`pnpm design-docs` serves the design-system docs and the Colab mock (`docs/`,
+`vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` (export `./docs-embed`)
+is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
+(`tuiOracle()`), which reads the Ops oracle at build time.
+
 A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
 `useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
 fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.
@@ -1292,13 +1297,19 @@ migration or Select revival is included.
 From `typescript/`, install the frozen leaf tools with
 `pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
 `pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
-only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
-It never attaches to an existing server or opens a product/host fixture.
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it),
+and the /docs site one port above it for the docs preview layout sweep. It never
+attaches to an existing server or opens a product/host fixture.
 
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
 border-only control contrast and the named soft-edge field exception, plus overlay exit
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
-repair. CI selection and gate ownership live in the
+repair.
+
+`pnpm --filter @tmt/browser-ui test:tui-docs` runs the TUI docs suite
+(`docs/tui/playwright.config.ts`) against its own docs server on port 15835
+(`TUI_DOCS_TEST_PORT` overrides it); the same CI job runs it after the gallery audits.
+CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
 
 ### List table and page subheader

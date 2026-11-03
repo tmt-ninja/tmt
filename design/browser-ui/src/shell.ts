@@ -23,6 +23,8 @@ export interface ShellAnswer {
 }
 export interface ShellModule {
   extension: string;
+  /** An extension's extra module (#5811/#5819), such as Colab's `design`; absent on its primary. */
+  module?: string;
   rail: { label: string; icon: string; path: string; order: number };
   menu: { id: string; label: string; path: string; group?: string; count?: ShellAnswerCount }[];
   settings: { id: string; label: string; path: string }[];
@@ -197,15 +199,24 @@ export async function loadShellAnswer(address: string): Promise<ShellAnswer | un
  */
 const RAIL: readonly { id: string; label: string; icon: ShellIcon; path: string }[] = [
   { id: 'colab', label: 'Colab', icon: 'file-text', path: '/colab/' },
+  // Design is Colab's extra module, a peer beside it (#5873).
+  { id: 'design', label: 'Design', icon: 'palette', path: '/colab/design/' },
   { id: 'remote', label: 'Remote', icon: 'monitor-smartphone', path: '/remote/' },
   { id: 'ops', label: 'Ops', icon: 'users', path: '/ops/' },
   { id: 'digest', label: 'Digest', icon: 'chart-column', path: '/digest/' },
 ];
+/**
+ * A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
+ * extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
+ * Design extra, which is the fixed `design` item.
+ */
+export const shellModuleKey = (module: Pick<ShellModule, 'extension' | 'module'>) =>
+  module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
 const HOST_SERVED = new Set(['remote', 'ops', 'digest']);
 
 /**
- * Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+ * Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
  * order, then TMT settings at the bottom. Colab is available
  * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
  * The current item is the host's module, else the longest matching path.
@@ -216,7 +227,10 @@ export function shellRail(
   host?: ShellModule,
 ): ShellView['rail'] {
   const active = host?.extension;
-  const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+  const keyOf = shellModuleKey;
+  const owner = (id: string) => (id === 'design' ? 'colab' : id.split(':')[0]);
+  const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
+  const primaries = (answer?.modules ?? []).filter((module) => !module.module);
   // The host page's own module is available even when the answer does not describe it.
   const hosted = (id: string) => host?.extension === id;
   const path = place.href.slice(place.origin.length);
@@ -226,6 +240,19 @@ export function shellRail(
     : 'Pair this browser with Remote to open it';
   const modules = [
     ...RAIL.map((fixed) => {
+      // Design is Colab's extra module: its own destination and no duplicate attention count.
+      // Before Colab describes it, the rail keeps Colab's own Design route.
+      if (fixed.id === 'design') {
+        const module = described.get('colab:design');
+        return {
+          id: fixed.id,
+          label: module?.rail.label ?? fixed.label,
+          icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+          href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+          needsYou: undefined,
+          available: described.has('colab') || hosted('colab'),
+        };
+      }
       const module = described.get(fixed.id);
       return {
         id: fixed.id,
@@ -238,24 +265,29 @@ export function shellRail(
         available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id),
       };
     }),
-    ...[...described.values(), ...(host && !described.has(host.extension) ? [host] : [])]
-      .filter((module) => !RAIL.some((fixed) => fixed.id === module.extension))
+    ...[...described.values(), ...(host && !described.has(keyOf(host)) ? [host] : [])]
+      .filter((module) =>
+        module.module
+          ? keyOf(module) !== 'colab:design'
+          : !RAIL.some((fixed) => fixed.id === module.extension),
+      )
       .sort((a, b) => a.rail.order - b.rail.order)
       .map((module) => ({
-        id: module.extension,
+        id: keyOf(module),
         label: module.rail.label,
         icon: moduleIcon(module.rail.icon),
         href: module.rail.path,
-        needsYou: module.needsYou,
+        needsYou: module.module ? undefined : module.needsYou,
         available: true,
       })),
   ];
-  const matched =
-    active ??
-    modules
-      .filter((module) => module.available && place.href.startsWith(module.href))
-      .sort((a, b) => b.href.length - a.href.length)[0]?.id;
-  const counts = [...described.values()].map((module) => module.needsYou);
+  const longest = modules
+    .filter((module) => module.available && place.href.startsWith(module.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.id;
+  // A host's extra module (Colab's Design) wins within that host by its longer path.
+  const matched = longest && owner(longest) === active ? longest : (active ?? longest);
+  // Attention counts come from each extension's primary module only.
+  const counts = primaries.map((module) => module.needsYou);
   const total =
     answer && counts.every((count) => count !== undefined)
       ? counts.reduce<number>((sum, count) => sum + count!, 0)

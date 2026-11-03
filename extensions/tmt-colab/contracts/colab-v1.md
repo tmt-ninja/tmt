@@ -726,8 +726,13 @@ The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
 cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
 subscription or write, and only selects from that projection.
-Static module availability (rail, Pages link and script entry) does not depend on the
-registration mutex. While that mutex is busy, the reply keeps this navigation and omits
+When the callback's `tmt-describe-features` tokens contain `modules`, the answer also carries
+one extra module, `{id:"design", rail:{label:"Design", icon:"palette", path:"/design/",
+order:101}, menu:[], settings:[], entry:"/assets/colab-module.js"}`: inside Colab's own mount,
+loaded by the same module script as the primary, with no count. Without
+that token the answer is the exact primary-only one.
+Static module availability (rail, Pages link, script entry and the Design extra) does not depend
+on the registration mutex. While that mutex is busy, the reply keeps this navigation and omits
 all catalog-derived fields: the Pages count, `needsYou` and `home`. Omitted counts are
 unknown, never zero; the shell draws no count or badge for them. A missing or poisoned
 registration still refuses. When the mutex is available, both counts exclude archived
@@ -2862,7 +2867,11 @@ IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-s
 the parent enables it only for the admitted comment surface. Its bound port projection is
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
-the same bounded quote owner opens the existing anchored discussion. Textless clicks
+the same bounded quote owner opens the existing anchored discussion. A click inside an
+element marked `data-ds-example` (a design-system example, #5866) targets that whole element,
+so its quote is the example's own text; the anchor stays a text quote. Two examples with the
+same text on one page would quote alike, so Design writes each example's `<component>:<id>` as a
+visible label line inside its root. Textless clicks
 show a temporary polite hint and create nothing. Starting a comment exits selection mode,
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
@@ -5418,10 +5427,32 @@ Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `pro
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,
-write/retry and receipt rules stay in the root, at most 10,000 bytes. Detail is
+write/retry and receipt rules stay in the root, at most 10,400 bytes. Detail is
 bundled verbatim in the references. The release archive's full skill tree equals
 its source, and each archived reference equals the relocated executable's
 `skill <name>` output; guidance probes create no config, home or workspace state.
+The name `tmt-design-system` prints the companion skill installed beside the root one
+(`skills/tmt-design-system/SKILL.md`), which covers using a published design system (#5921).
+
+### Design systems from the command line (#5921)
+
+`tmt colab design ls [--json]` lists the built-in tmt GUI system, then the space's design systems:
+pages in the reserved project `tmt:design-system` whose source holds the
+`data-tmt-ds="design-system"` config block. Each row gives `system` (`tmt-gui`, or the root page
+ID), `name`, `prefix`, the released `versions`, `latest` (null before the first release) and
+`builtIn`. It reads only the local store, and lists the built-in system even before a space exists
+(`spaceId` null). The built-in release is `design/systems/tmt-gui/generated/bundle.json`, embedded in
+both the executable and the app: a pin `tmt-gui@<version>#<hash>` resolves to it with no page behind
+it, and only while this build carries that exact version and hash.
+`tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
+or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
+built-in one, and VERSION (default: the latest release). A space's release is the root page's
+attachment, read through the running serve under current access; the built-in release is read
+from the executable. The bundle must match
+its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
+prints `pin`, the `meta` line to copy, `principles` and each component's `tag`, `props`, `slots` and
+`examples`, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
+release `COLAB_DESIGN_RELEASE_NOT_FOUND`. Both commands change nothing.
 
 ### Local management CLI (#1307)
 

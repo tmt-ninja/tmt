@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "skeleton",
+  "source": "skeleton.js",
+  "props": {
+    "width": {
+      "type": "string"
+    },
+    "height": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "skeleton.css",
+  "ui": {
+    "module": "/src/ui/skeleton.tsx",
+    "component": "Skeleton"
+  },
+  "examples": [
+    {
+      "title": "Line",
+      "markup": "<tmt-ui-skeleton width=\"12rem\" height=\"1rem\"></tmt-ui-skeleton>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Block",
+      "markup": "<tmt-ui-skeleton width=\"16rem\" height=\"4rem\"></tmt-ui-skeleton>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

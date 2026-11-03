@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "alert",
+  "source": "alert.js",
+  "props": {
+    "variant": {
+      "enum": [
+        "default",
+        "destructive"
+      ],
+      "default": "default"
+    },
+    "heading": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "alert.css",
+  "ui": {
+    "module": "/src/ui/alert.tsx",
+    "component": "Alert",
+    "dims": {
+      "variant": [
+        "default",
+        "destructive"
+      ]
+    },
+    "parts": [
+      "AlertTitle",
+      "AlertDescription"
+    ],
+    "compose": "<Alert variant=\"{variant}\"><AlertTitle if=\"heading\">{heading}</AlertTitle><AlertDescription>{children}</AlertDescription></Alert>"
+  },
+  "examples": [
+    {
+      "title": "Default",
+      "markup": "<tmt-ui-alert heading=\"Saved\">The page is up to date.</tmt-ui-alert>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Destructive",
+      "markup": "<tmt-ui-alert variant=\"destructive\" heading=\"Blocked\">The member is waiting on a review.</tmt-ui-alert>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

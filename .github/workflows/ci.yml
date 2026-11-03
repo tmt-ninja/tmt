@@ -315,12 +315,12 @@ jobs:
           retention-days: 7
 
   browser-ui:
-    name: Design gallery audits (Chromium, shard ${{ matrix.shard }}/3)
+    name: Design gallery audits (Chromium, ${{ matrix.suite == 'tui-docs' && 'TUI docs' || format('shard {0}/3', matrix.shard) }})
     needs: changes
     if: needs.changes.outputs.browser_ui == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # The gallery outgrew one 15-minute job: three gallery shards.
+    # The gallery outgrew one 15-minute job: three gallery shards plus the TUI docs audits.
     strategy:
       fail-fast: false
       matrix:
@@ -328,6 +328,7 @@ jobs:
           - { suite: gallery, shard: 1 }
           - { suite: gallery, shard: 2 }
           - { suite: gallery, shard: 3 }
+          - { suite: tui-docs, shard: 4 }
     permissions:
       contents: read
     steps:
@@ -365,6 +366,12 @@ jobs:
         if: matrix.suite == 'gallery'
         working-directory: typescript
         run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:browser --workers=2 --shard=${{ matrix.shard }}/3
+      - name: Run TUI docs audits
+        if: matrix.suite == 'tui-docs'
+        working-directory: typescript
+        env:
+          TUI_DOCS_TEST_RESULTS: ${{ github.workspace }}/design/browser-ui/test-results/tui-docs
+        run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:tui-docs
       # Only this synthetic gallery's failure traces; no product, account or host state.
       - name: Upload gallery failure traces
         if: failure()
