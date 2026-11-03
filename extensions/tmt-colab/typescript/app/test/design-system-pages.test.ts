@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
 import { bundleHash, DesignDraftError, noticeFrame } from '../src/design-system.js';
+import { GENERATED_NOTE, shippedBundle, syncBuiltInMirror } from '../src/design-mirror.js';
 import {
   adoptDesignSystem,
   createDesignSystem,
@@ -31,12 +32,13 @@ function space() {
       order: string[];
       projects: string[];
       attachments: { id: string; bytes: Uint8Array }[];
+      archived?: boolean;
     }
   >();
   let next = 0;
   // Live views the way a binding publishes them: every edit reaches the page's subscribers.
   const subscribers = new Map<string, Set<(view: { source: string }) => void>>();
-  const open = { count: 0 };
+  const open = { count: 0, edits: 0 };
   const make = (title: string) => {
     const id = `page-${++next}`;
     pages.set(id, { title, source: `<h1>${title}</h1>`, order: [], projects: [], attachments: [] });
@@ -57,6 +59,7 @@ function space() {
       edit: async (source: string, base: string) => {
         if (base !== page().source) throw new Error('stale base');
         page().source = source;
+        open.edits++;
         for (const publish of subscribers.get(id) ?? []) publish({ source });
         return { merged: false };
       },
@@ -113,9 +116,17 @@ function space() {
         title: page.title,
         sharing: 'private',
         projects: [...page.projects],
+        ...(page.archived && { archived: true }),
       })),
     }),
     management: {
+      // Archive as the page list runs it: read, sign, send, verify.
+      read: async (pageId: string) => ({ pageId }),
+      prepare: async (_view: unknown, selection: unknown) => selection,
+      send: async () => ({}),
+      verify: async (pending: { operation: string; value: { pageId: string } }) => {
+        if (pending.operation === 'page.archive') pages.get(pending.value.pageId)!.archived = true;
+      },
       setProjects: async (changes: { pageId: string; projects: string[] }[]) => {
         // As the real client refuses: one request lists its pages in ID order.
         const order = changes.map((change) => change.pageId);
@@ -429,5 +440,54 @@ describe('live draft (#5967)', () => {
     const frame = noticeFrame('draft-broken', 'The button page has no component block.');
     expect(frame.script).toContain('data-tmt-ds-notice');
     expect(frame.script).toContain('does not compile. Fix it in Design. The button page');
+  });
+});
+
+describe('built-in tmt GUI pages (#5969)', () => {
+  it('makes the tmt GUI as pages that follow tmt-gui, name their files and list as built-in', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await syncBuiltInMirror(transport);
+    const root = pages.get(rootId)!;
+    expect(readBlock(root.source, 'origin')).toEqual({ key: '', bundle: await shippedBundle() });
+    const { systems } = await listDesignSystems(transport);
+    const entry = systems.find((system) => system.id === rootId)!;
+    expect(entry.builtIn).toEqual({ bundle: await shippedBundle() });
+    const button = entry.tree.children
+      .find((node) => node.key === 'components')!
+      .children.find((node) => node.key === 'components/button')!;
+    const source = pages.get(button.id)!.source;
+    expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
+    expect(source).toContain(GENERATED_NOTE);
+    expect(readBlock<{ files: string[] }>(source, 'origin')!.files).toContain(
+      'design/browser-ui/src/ui/button.tsx',
+    );
+    expect(source).toContain('data-ds-example="button:primary"');
+    for (const id of [rootId, button.id]) expect(pages.get(id)!.projects).toEqual([DESIGN_PROJECT]);
+  });
+
+  it('regenerates in place: same ids, an owner edit replaced, a gone entry archived, nothing edited when current', async () => {
+    const { pages, make, transport, open } = space();
+    make('Notes');
+    const rootId = await syncBuiltInMirror(transport);
+    const tree = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
+    const components = tree.children.find((node) => node.key === 'components')!;
+    const button = components.children.find((node) => node.key === 'components/button')!;
+    const generated = pages.get(button.id)!.source;
+    const edits = open.edits;
+    await syncBuiltInMirror(transport, rootId);
+    expect(open.edits).toBe(edits);
+    pages.get(button.id)!.source = `${generated}<p>Owner edit</p>`;
+    // A page whose docs entry no longer exists, with its threads.
+    const gone = make('Gone');
+    pages.get(components.id)!.order.push(gone);
+    pages.get(gone)!.source =
+      '<script type="application/json" data-tmt-ds="origin">{"key":"components/gone"}</script>';
+    await syncBuiltInMirror(transport, rootId);
+    expect(pages.get(button.id)!.source).toBe(generated);
+    expect(pages.get(gone)!.archived).toBe(true);
+    expect(pages.has(gone)).toBe(true);
+    const again = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
+    expect(again.children.find((node) => node.key === 'components')!.id).toBe(components.id);
   });
 });

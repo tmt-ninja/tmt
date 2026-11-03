@@ -61,7 +61,9 @@ page over. `tmt colab page check` covers the HTML rules, not these.
   the line, and check that every tag and prop still exists there. Do not do it without the
   person's ask.
 - Never edit a system's own pages to make your page work. Comments and fixes on a system go
-  through its Design pages (tmt-colab skill, editing: "A design-system example").
+  through its Design pages (tmt-colab skill, editing: "A design-system example"). The built-in
+  tmt GUI's pages are generated from `design/browser-ui`: a fix there is a code change through a
+  PR, never a page edit.
 
 ## Limits
 

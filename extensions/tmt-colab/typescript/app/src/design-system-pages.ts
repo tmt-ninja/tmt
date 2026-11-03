@@ -34,7 +34,8 @@ import { PROJECT_REQUEST_PAGES } from './projects.js';
  * `tmt colab design` all find design-system pages without reading sources.
  */
 
-export type BlockKind = 'design-system' | 'component';
+/** `origin` marks a page of the built-in tmt GUI's generated tree (design-mirror.ts, #5969). */
+export type BlockKind = 'design-system' | 'component' | 'origin';
 /** The reserved owner-store project every design-system page holds (contract: Projects). */
 export const DESIGN_PROJECT = DESIGN_SYSTEM_PROJECT;
 export const isDesignSystemPage = (page: Pick<PageSummary, 'projects'>) =>
@@ -92,9 +93,9 @@ const sha256Hex = async (text: string) =>
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 
-type Snapshot = PageSnapshot & { attachments?: readonly attachment.AttachmentDescriptor[] };
+export type Snapshot = PageSnapshot & { attachments?: readonly attachment.AttachmentDescriptor[] };
 /** Open another page, use it, and always close its binding. */
-async function withPage<T>(
+export async function withPage<T>(
   transport: PageTransport,
   id: string,
   use: (page: Snapshot) => Promise<T>,
@@ -489,7 +490,7 @@ interface DocSection {
 }
 
 /** A section page: its title and a link to each of its pages. */
-const sectionSource = (title: string, pages: readonly { id: string; title: string }[]) =>
+export const sectionSource = (title: string, pages: readonly { id: string; title: string }[]) =>
   `<h1>${escape(title)}</h1>\n<ul>${pages.map((page) => `<li><a href="/p/${escape(page.id)}">${escape(page.title)}</a></li>`).join('')}</ul>`;
 
 /**
@@ -561,7 +562,7 @@ async function fillFromTemplate(
 
 /** The root page of a new system, top level: made under an existing system (or the first page) and
  * detached from it at once. */
-async function newRoot(transport: PageTransport, name: string): Promise<string> {
+export async function newRoot(transport: PageTransport, name: string): Promise<string> {
   const home = await transport.spaceHome();
   const live = home.pages.filter((page) => !page.archived);
   const parent = live.find(isDesignSystemPage) ?? live[0];
@@ -583,6 +584,8 @@ export interface DesignTreeNode {
   kind: BlockKind | 'page';
   /** A component page's tag without the system prefix, shown beside its title. */
   tag?: string;
+  /** A built-in tree page's docs path (`components/button`; the root is ''). */
+  key?: string;
   children: DesignTreeNode[];
 }
 /** A design system as the Design tab's switcher and header show it. */
@@ -597,6 +600,8 @@ export interface DesignSystemEntry {
   config: DesignSystemConfig;
   /** The root page and the pages under it, in the root's sub-page order. */
   tree: DesignTreeNode;
+  /** The built-in tmt GUI's generated tree (#5969): the shipped bundle it was made from. */
+  builtIn?: { bundle: string };
 }
 const TREE_DEPTH = 4;
 async function treeOf(
@@ -604,8 +609,10 @@ async function treeOf(
   page: Snapshot,
   titles: ReadonlyMap<string, string>,
   depth: number,
+  archived: ReadonlySet<string> = new Set(),
 ): Promise<DesignTreeNode> {
   const component = readBlock<ComponentDoc>(page.source, 'component');
+  const origin = readBlock<{ key: string }>(page.source, 'origin');
   const kind: DesignTreeNode['kind'] = readBlock(page.source, 'design-system')
     ? 'design-system'
     : component
@@ -616,19 +623,29 @@ async function treeOf(
   const children: DesignTreeNode[] = [];
   if (depth < TREE_DEPTH)
     for (const child of subpages(page.work))
-      children.push(
-        await withPage(transport, child, (sub) => treeOf(transport, sub, titles, depth + 1)),
-      );
+      if (!archived.has(child))
+        children.push(
+          await withPage(transport, child, (sub) =>
+            treeOf(transport, sub, titles, depth + 1, archived),
+          ),
+        );
   return {
     id: page.id,
     title: titles.get(page.id) ?? page.title,
     kind,
     ...(component?.tag && { tag: component.tag }),
+    ...(origin && { key: origin.key }),
     children,
   };
 }
-function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): DesignSystemEntry {
+function entryOf(
+  id: string,
+  config: DesignSystemConfig,
+  tree: DesignTreeNode,
+  origin?: { bundle?: string },
+): DesignSystemEntry {
   return {
+    ...(origin?.bundle && { builtIn: { bundle: origin.bundle } }),
     id,
     name: config.name,
     prefix: config.prefix,
@@ -653,6 +670,9 @@ export async function listDesignSystems(
 ): Promise<DesignSystemList> {
   const home = await transport.spaceHome(signal);
   const titles = new Map(home.pages.map((page) => [page.id, page.title]));
+  // An archived page (a built-in page whose docs entry is gone, say) keeps its threads but leaves
+  // the tree.
+  const archived = new Set(home.pages.filter((page) => page.archived).map((page) => page.id));
   const seen = new Set<string>();
   const systems: DesignSystemEntry[] = [];
   const failed: { id: string; title: string }[] = [];
@@ -662,7 +682,15 @@ export async function listDesignSystems(
     try {
       const entry = await withPage(transport, page.id, async (root) => {
         const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
-        return config && entryOf(root.id, config, await treeOf(transport, root, titles, 0));
+        return (
+          config &&
+          entryOf(
+            root.id,
+            config,
+            await treeOf(transport, root, titles, 0, archived),
+            readBlock<{ bundle?: string }>(root.source, 'origin'),
+          )
+        );
       });
       seen.add(page.id);
       if (entry) {
@@ -683,7 +711,7 @@ export async function listDesignSystems(
 
 /** Mark a system's pages as design-system pages with the reserved project, keeping each page's
  * other projects. */
-async function markDesignPages(transport: PageTransport, ids: readonly string[]) {
+export async function markDesignPages(transport: PageTransport, ids: readonly string[]) {
   const management = transport.management;
   if (!management) throw new Error('Only the owner can make a design system.');
   const home = await transport.spaceHome();
