@@ -21,10 +21,15 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   Its hood, rounded terminal prompt, oval face and scarf were redrawn from the
   selected image-generation concept and refined in the shared Colab page. The
   fixed rice-paper fill makes the external SVG visible on the dark blog header.
-  SHA-256: `20e2cade81e8808d193e34eb13838decd7dc854a8245f7c81c26cf1cdf9c8214`.
+  Its square viewBox adds the equivalent of #5979's 11.5-unit inset around a
+  73-unit artwork viewport in a 96-unit tile (Ben's 12% choice, #5983). The
+  underlying paths are unchanged; the 30px header matches the product mark.
+  SHA-256: `517aa33d0e80920faf50c6343d86838d9fd155d3add49a4aa1c4fb8c84eb4188`.
 - `site/src/blog/favicon.png` is a raster rendering of the same mark on a black
-  rounded square, used for both the tab and touch icon.
-  SHA-256: `e40ccbac730bc4664db3c59e918610fce4abf3db488875842742041d9abf63e1`.
+  rounded square, used for both the tab and touch icon. It is rendered at
+  192×192 from the padded SVG, with no additional inset and a 51.2px corner
+  radius, matching the product tile's 25.6-unit radius in a 96-unit viewport.
+  SHA-256: `8b662538017fa34c69e109f378bdbde407dce938bc5ac6bef8ddb81e2378a5a0`.
 - `site/src/blog/og.png` is the 1200×630 link-preview card for every blog page:
   the earlier team icon beside the journal title, description and `tmt.ninja/blog`,
   in the black-only palette with a red top rule, rendered once in headless Chromium.
