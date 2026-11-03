@@ -524,7 +524,8 @@ export function inspectQuestions(source: string): QuestionInspection {
       title: candidate.title,
       kind: candidate.kind as QuestionKind,
       choices: choices.map(({ choice }) => choice),
-      other: candidate.other,
+      // A choice question always offers Other (#5998); `data-other` only matters as a finding.
+      other: candidate.other || choiceKind(candidate),
       agent: candidate.agent,
       group: group ? idOf(group) : splitId,
       label,
