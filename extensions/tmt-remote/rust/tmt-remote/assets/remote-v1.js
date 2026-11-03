@@ -6425,15 +6425,28 @@ function startShellHost(root, routes, options = {}) {
 	const listeners = [];
 	let generation = 0;
 	let disposed = false;
+	const lastLocation = /* @__PURE__ */ new Map();
+	const rememberLocation = (route, href) => {
+		const url = linkTo(href);
+		if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+		lastLocation.set(route.id, url.href);
+	};
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
 	});
 	/** The rail links to this app's routes, not to a module's own mount. */
-	const view = () => ({
-		rail: appRail(answer, routes, place(), current?.route),
-		menu
-	});
+	const view = () => {
+		const rail = appRail(answer, routes, place(), current?.route);
+		for (const item of [...rail.main, ...rail.bottom]) {
+			const route = routes.find((candidate) => candidate.rail === item.id);
+			if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
+		}
+		return {
+			rail,
+			menu
+		};
+	};
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
@@ -6520,6 +6533,11 @@ function startShellHost(root, routes, options = {}) {
 	/** Leave the current module: suspend it when it can be kept, else release it. */
 	function leave() {
 		const leaving = current;
+		if (leaving) try {
+			const owned = leaving.mounted?.location?.();
+			if (owned) rememberLocation(leaving.route, owned);
+			else rememberLocation(leaving.route, window.location.href);
+		} catch {}
 		try {
 			if (leaving) keep(leaving);
 		} finally {
@@ -6635,8 +6653,12 @@ function startShellHost(root, routes, options = {}) {
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
-		if (current?.route === route) return paint();
+		if (current?.route === route) {
+			rememberLocation(route, window.location.href);
+			return paint();
+		}
 		leave();
+		rememberLocation(route, window.location.href);
 		controls.clearTopBar();
 		menu = void 0;
 		select = void 0;
@@ -12591,6 +12613,7 @@ var RootSearch = class {
 				const go = async (href) => this.options.navigate(href);
 				this.session = module.mountSearchSession(this.host, {
 					registry: this.registry,
+					session: this.options.session,
 					navigate: (id) => go(pageHref(id)),
 					pageHref,
 					go,
@@ -12795,7 +12818,7 @@ var routes = [
 			return remotePage((slot) => adoptRemote(slot, landing_default, settings_default, sheets), (slot) => remoteApp(remoteShell(), slot.main, slot.bar, () => sheets.load(), async () => ({
 				landing: async (lifetime, registry, connected) => {
 					const { landingPage } = await import("./remote-v1.js");
-					await landingPage(lifetime, registry, connected);
+					await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
 				},
 				settings: async (shell, registry, initial) => {
 					const { settingsPage } = await import(
@@ -12886,6 +12909,8 @@ function observedSession(next) {
 var sessionAdmission;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
 function rootSession(signal) {
+	if (!signal && sessionAdmission) return sessionAdmission.result;
+	signal ??= new AbortController().signal;
 	signal.throwIfAborted();
 	if (session && channelFor(session)?.ended === false) return Promise.resolve(session);
 	if (sessionAdmission?.signal === signal) return sessionAdmission.result;
@@ -12933,6 +12958,10 @@ function shellApp() {
 	status.hidden = true;
 	root.append(status);
 	search = new RootSearch({
+		session: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
 		load: (entry) => import(
 			/* @vite-ignore */
 			entry
@@ -12995,6 +13024,11 @@ function shellApp() {
 					}
 				});
 				publishSearch = publish;
+				let remotePath = location.pathname;
+				const rememberRemotePath = () => {
+					if (route.id === "remote" && remoteItem(location.pathname)) remotePath = location.pathname;
+				};
+				window.addEventListener("popstate", rememberRemotePath, { signal: lifetime.signal });
 				let given;
 				try {
 					given = await module.mount(hosted(slot));
@@ -13011,10 +13045,15 @@ function shellApp() {
 					lifetime.abort();
 					mounted?.release();
 				};
-				if (!mounted?.suspend) return release;
+				const ownedLocation = route.id === "remote" ? () => remotePath : mounted?.location?.bind(mounted);
+				if (!mounted?.suspend) return ownedLocation ? {
+					release,
+					location: ownedLocation
+				} : release;
 				const { suspend, resume } = mounted;
 				return {
 					release,
+					location: ownedLocation,
 					suspend() {
 						quiet();
 						suspend.call(mounted);
@@ -13031,7 +13070,7 @@ function shellApp() {
 		}
 	})), {
 		sessions: {
-			open: (signal) => rootSession(signal ?? new AbortController().signal),
+			open: rootSession,
 			forget: (previous) => forgetSession(previous)
 		},
 		failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
@@ -14342,6 +14381,12 @@ function reopenSession(previous, options) {
 	}
 	return pending;
 }
+/** Keeps the landing's different-machine state distinct from other identity mismatches. */
+var DifferentMachineError = class extends ReopenSessionError {
+	constructor() {
+		super("mismatch", "identity-mismatch");
+	}
+};
 async function reopenOnce(previous, signal) {
 	active(signal);
 	const send = async (input, init) => {
@@ -14387,7 +14432,10 @@ async function reopenOnce(previous, signal) {
 	try {
 		validateDoor(current, record);
 	} catch (error) {
-		if (signal) throw new ReopenSessionError(current.machineId !== record.paired.machineId ? "mismatch" : "transient", current.machineId !== record.paired.machineId ? "identity-mismatch" : "unverifiable-response");
+		if (signal) {
+			if (current.machineId !== record.paired.machineId && entryUuid(current.machineId) && entryUuid(current.windowId) && entryAddress(current.address)) throw new DifferentMachineError();
+			throw new ReopenSessionError("transient", "unverifiable-response");
+		}
 		throw error;
 	}
 	let refused = false;
@@ -14454,7 +14502,7 @@ async function entryPairing() {
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
 /** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more.
 * `registry` is the route's one controller of the remotes section, shared with the settings views. */
-async function landingPage(lifetime, registry, connected) {
+async function landingPage(lifetime, registry, connected, sharedSession) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
 	const button = element("check");
@@ -14562,7 +14610,7 @@ async function landingPage(lifetime, registry, connected) {
 			if (pageAlive()) element(`copy-feedback-guide-${command}`).textContent = "Copy failed. Select the command and copy it manually.";
 		}
 	});
-	const check = async () => {
+	const check = async (manual = false) => {
 		const restoreFocus = document.activeElement === button;
 		const currentAttempt = ++attempt;
 		const currentPage = () => pageAlive() && attempt === currentAttempt;
@@ -14580,8 +14628,27 @@ async function landingPage(lifetime, registry, connected) {
 		element("protocol-address").textContent = local.record.paired.address;
 		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
 		const step = { phase: "open" };
+		if (!manual && sharedSession) {
+			try {
+				session = await sharedSession();
+			} catch (error) {
+				if (currentPage()) {
+					if (error instanceof DifferentMachineError) render("different");
+					else if (error instanceof ReopenSessionError && error.cause) render("refused", false, error.cause.code);
+					else render("unconfirmed");
+				}
+				return;
+			}
+			if (!currentPage()) return;
+		}
 		const channel = session && channelFor(session);
-		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const validSession = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const reused = manual && validSession;
+		if (!manual && sharedSession && !validSession) {
+			session = void 0;
+			render("unconfirmed");
+			return;
+		}
 		const open = async () => {
 			step.phase = "open";
 			opaque = false;
@@ -14621,7 +14688,7 @@ async function landingPage(lifetime, registry, connected) {
 		};
 		opaque = false;
 		try {
-			if (!reused && !await open()) return;
+			if (!validSession && !await open()) return;
 			if (!currentPage()) return;
 			try {
 				await observe();
@@ -14653,7 +14720,7 @@ async function landingPage(lifetime, registry, connected) {
 		}
 	};
 	button.addEventListener("click", () => {
-		if (!button.disabled) check();
+		if (!button.disabled) check(true);
 	});
 	await check();
 }

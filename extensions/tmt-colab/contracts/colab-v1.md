@@ -4652,7 +4652,8 @@ shell and mounts it into the shared shell, using the shell's one Remote session 
 another route opens, the app keeps Colab suspended in place, treated as a hidden document: its
 polling and observation pause while its page bindings and renderer frame stay, a live write still
 reaches the frame, and coming back shows the same page without opening, registering or
-discovering again (#5954). The app releases it (closing its page bindings) under the
+discovering again (#5954). The shell's global search and the Colab route share the mounted
+transport while either uses it; the last user closes it. The app releases the route under the
 [route module lifecycle](../../../design/browser-ui/README.md#route-module-lifecycle) bounds.
 Without an owner session the route says, in plain words, to pair the browser and loads no Colab
 code; a module that cannot load says Colab could not start.

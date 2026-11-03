@@ -28,7 +28,7 @@ import {
   type SearchEntryOptions,
 } from './search-entry.js';
 import { createSearchSession, type SearchSessionOptions } from './search-session.js';
-import { mountedTransport } from './mounted.js';
+import { mountedTransport, sharedMountedTransport, type SharedSession } from './mounted.js';
 
 /** The paired mount the composed shell names for Colab, or null for the local preview. */
 function pairedMount(slot: ShellSlot): URL | null {
@@ -103,7 +103,7 @@ export function mountSearch(container: HTMLElement, options: SearchEntryOptions)
  */
 export function mountSearchSession(
   container: HTMLElement,
-  options: SearchSessionOptions,
+  options: SearchSessionOptions & { session?: SharedSession },
 ): SearchEntry {
   const style = stylesheet();
   const session = createSearchSession(
@@ -113,7 +113,9 @@ export function mountSearchSession(
       admit: (signal) => {
         const mount = mountOfModule(import.meta.url);
         return mount
-          ? mountedTransport(signal, { mount })
+          ? options.session
+            ? sharedMountedTransport(signal, { mount, session: options.session })
+            : mountedTransport(signal, { mount })
           : Promise.reject(new Error('Colab was not loaded from its mount'));
       },
       mountEntry: mountSearchEntry,
@@ -207,10 +209,17 @@ export async function mount(slot: ShellSlot): Promise<ShellMounted | (() => void
     );
   render(forward());
   return {
+    location() {
+      const snapshot = runtime?.snapshot();
+      return snapshot?.state === 'ready'
+        ? snapshot.router.history.location.href
+        : (preview?.history.location.href ?? window.location.href);
+    },
     release() {
       setSuspended(false);
       root.unmount();
       runtime?.close();
+      preview?.history.destroy();
       style.remove();
     },
     suspend() {
