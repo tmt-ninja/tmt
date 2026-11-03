@@ -58,6 +58,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
   const interactive = params.get('interactive') === 'true';
   const tree = params.get('tree') === 'true';
   const icons = params.get('icons') === 'true';
+  const dashboardDefaults = params.get('dashboard-defaults') === 'true';
   const [selected, setSelected] = useState(interactive ? 'project' : tree ? 'night-1' : 'all');
   const [open, setOpen] = useState(['tmt-gui']);
   const [order, setOrder] = useState(['project', 'empty', 'notes']);
@@ -279,8 +280,39 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
           }
         : undefined;
     }
+    if (dashboardDefaults)
+      result.menu!.groups.push(
+        {
+          label: 'Dashboards',
+          items: [
+            { id: 'dashboard-default', label: 'Dashboard', href: '/dashboard', current: false },
+            {
+              id: 'dashboard-explicit',
+              label: 'Pinned dashboard',
+              href: '/pinned',
+              current: false,
+              icon: 'bookmark',
+            },
+          ],
+        },
+        {
+          label: 'Other',
+          items: [{ id: 'other-default', label: 'Other', href: '/other', current: false }],
+        },
+      );
     return result;
-  }, [selected, revision, interactive, tree, icons, open, order, holdMoves, reorderEnabled]);
+  }, [
+    selected,
+    revision,
+    interactive,
+    tree,
+    icons,
+    dashboardDefaults,
+    open,
+    order,
+    holdMoves,
+    reorderEnabled,
+  ]);
   const select = (id: string) => {
     setSelected(id);
     return true;

@@ -3564,6 +3564,36 @@ function createMenuController(options) {
 var shellIconNodes = {
 	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
 	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-dashboard": [
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "14",
+			y: "12",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "3",
+			y: "16",
+			rx: "1"
+		}]
+	],
 	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
@@ -5982,14 +6012,15 @@ function mountShell(root, view, select) {
 		};
 		return anchor;
 	};
-	const menuEntry = (className, item, selected) => {
+	const menuEntry = (className, item, selected, fallbackIcon) => {
 		const anchor = link(className, item, item === selected);
 		if (item.note) anchor.title = item.note;
 		const label = document.createElement("span");
 		label.className = "tmt-ui-module-menu-label";
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
-		if (item.icon) anchor.append(icon(document, item.icon));
+		const mark = item.icon ?? fallbackIcon;
+		if (mark) anchor.append(icon(document, mark));
 		anchor.append(label);
 		if (item.emphasis === "unread") {
 			anchor.dataset.emphasis = "unread";
@@ -6160,7 +6191,7 @@ function mountShell(root, view, select) {
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected);
+				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.label === "Dashboards" ? "layout-dashboard" : void 0);
 				row.dataset.menuGroup = String(index);
 				row.append(anchor);
 				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);

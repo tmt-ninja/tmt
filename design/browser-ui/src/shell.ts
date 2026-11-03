@@ -612,6 +612,7 @@ export function mountShell(
     className: string,
     item: ShellMenuItem,
     selected: ShellMenuItem | undefined,
+    fallbackIcon?: ShellIcon,
   ) => {
     const anchor = link(className, item, item === selected);
     if (item.note) anchor.title = item.note;
@@ -619,7 +620,8 @@ export function mountShell(
     label.className = 'tmt-ui-module-menu-label';
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
-    if (item.icon) anchor.append(icon(document, item.icon));
+    const mark = item.icon ?? fallbackIcon;
+    if (mark) anchor.append(icon(document, mark));
     anchor.append(label);
     if (item.emphasis === 'unread') {
       anchor.dataset.emphasis = 'unread';
@@ -855,7 +857,12 @@ export function mountShell(
       }
       for (const item of group.items) {
         const row = document.createElement('li');
-        const anchor = menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item, selected);
+        const anchor = menuEntry(
+          'tmt-ui-module-menu-item tmt-ui-rail-sub-item',
+          item,
+          selected,
+          group.label === 'Dashboards' ? 'layout-dashboard' : undefined,
+        );
         row.dataset.menuGroup = String(index);
         row.append(anchor);
         if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);

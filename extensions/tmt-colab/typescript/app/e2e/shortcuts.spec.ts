@@ -116,7 +116,9 @@ for (const width of [390, 1440])
         'Shortcuts',
         'Dashboards',
       ]);
-      await expect(rail(page).getByRole('link', { name: 'Reading shell' })).toBeVisible();
+      const dashboard = rail(page).getByRole('link', { name: 'Reading shell' });
+      await expect(dashboard).toBeVisible();
+      await expect(dashboard.locator('svg rect')).toHaveCount(4);
       await page.screenshot({ path: capturePath(`menu-dashboards-${width}-${theme}.png`) });
     });
 

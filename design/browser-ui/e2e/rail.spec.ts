@@ -181,6 +181,33 @@ for (const key of ['Enter', ' '])
   });
 
 for (const renderer of ['native', 'react'])
+  test(`dashboard rows default to the shared glyph without replacing an explicit icon (${renderer})`, async ({
+    page,
+  }) => {
+    await page.goto(`/?frame=rail&icons=true&dashboard-defaults=true&renderer=${renderer}`);
+    const rail = page.locator('nav.tmt-ui-rail');
+    const dashboard = rail.locator('a[data-id="dashboard-default"] > svg');
+    const explicit = rail.locator('a[data-id="dashboard-explicit"] > svg');
+    const bookmark = rail.locator('a[data-id="project"] > svg');
+    await expect(dashboard).toHaveAttribute('aria-hidden', 'true');
+    await expect(dashboard.locator('rect')).toHaveCount(4);
+    await expect(explicit.locator('path')).toHaveCount(1);
+    await expect(rail.locator('a[data-id="other-default"] > svg')).toHaveCount(0);
+    for (const property of ['width', 'height', 'color'])
+      expect(
+        await dashboard.evaluate(
+          (node, key) => getComputedStyle(node).getPropertyValue(key),
+          property,
+        ),
+      ).toBe(
+        await bookmark.evaluate(
+          (node, key) => getComputedStyle(node).getPropertyValue(key),
+          property,
+        ),
+      );
+  });
+
+for (const renderer of ['native', 'react'])
   test(`optional row icons and text group action use the shared renderer in ${renderer}`, async ({
     page,
   }) => {

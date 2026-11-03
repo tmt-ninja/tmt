@@ -187,6 +187,7 @@ attention dot before it. The tooltip and accessible name retain the attention co
 unknown totals stay hidden; visible values above 99 read `99+`. Selection retains these roles.
 Module rows show nonzero attention as a dot with its count in the accessible name and tooltip.
 Optional `ShellMenuItem.icon` adds a decorative leading icon; rows without one retain their indent.
+A Dashboards group defaults an iconless row to the shared layout-dashboard glyph; an explicit icon wins.
 Group headings use sentence case, label typography and `rail-group-height`.
 
 Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
