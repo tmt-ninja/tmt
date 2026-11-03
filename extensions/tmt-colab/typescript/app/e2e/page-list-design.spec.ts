@@ -48,6 +48,16 @@ for (const width of [390, 1440])
           .filter({ has: page.getByRole('checkbox', { name: 'Select Review 2', exact: true }) }),
       ).toContainText('Needs you · 3');
       await expect(long.locator('.tmt-page-list-project-overflow')).toHaveText('+2');
+      const pinnedLong = root
+        .locator('.tmt-page-list-pin a')
+        .filter({ hasText: 'A deliberately long page title' });
+      expect(
+        await pinnedLong.evaluate(
+          (node) =>
+            node.scrollWidth > node.clientWidth &&
+            getComputedStyle(node).textOverflow === 'ellipsis',
+        ),
+      ).toBe(true);
       await expect(long.locator('.tmt-data-table-sub')).toHaveText('');
       expect(
         await long

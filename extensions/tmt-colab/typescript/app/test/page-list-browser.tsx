@@ -196,7 +196,7 @@ export async function mountPageList(
                       ? [['spec', 'blog', 'pm'][n % 3]]
                       : [],
                   {
-                    ...(size === 'work-pinned' && (n < 2 || n === 3) ? { pinned: true } : {}),
+                    ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
                     ...(size === 'work-pinned' && n === 0 ? { sharing: 'link' as const } : {}),
                     summary: {
                       comments: n % 6,
