@@ -97,11 +97,11 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   expect(await sameDocument(page)).toBe(true);
 });
 
-test('an edit next to a proposal places its slot again in the same frame', async ({ page }) => {
+test('an edit next to a question places its slot again in the same frame', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');
-  await run(page, 'proposal', 'inline');
-  const card = page.locator('.proposal-inline').first();
+  await run(page, 'question');
+  const card = page.locator('.question-inline').first();
   await expect(card).toBeVisible();
   const renderId = await iframe(page).getAttribute('data-render-id');
   const before = (await card.boundingBox())!.y;
@@ -109,7 +109,7 @@ test('an edit next to a proposal places its slot again in the same frame', async
   await run(
     page,
     'change',
-    source.replace('<p>Before the proposal.</p>', '$&<div style="height:300px">Tall</div>'),
+    source.replace('<p>Before the question.</p>', '$&<div style="height:300px">Tall</div>'),
   );
   await expect(frame(page).getByText('Tall', { exact: true })).toBeVisible();
   await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);

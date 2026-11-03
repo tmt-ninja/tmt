@@ -174,7 +174,7 @@ export function NeedsYouHeader({
                   }
                 }}
               >
-                {(['proposal', 'reading', 'answer', 'review'] as const).map((kind) => {
+                {(['reading', 'answer', 'review'] as const).map((kind) => {
                   const rows = items.filter((item) => item.kind === kind);
                   if (!rows.length) return null;
                   const label = text.needsYouGroup(kind, rows.length);

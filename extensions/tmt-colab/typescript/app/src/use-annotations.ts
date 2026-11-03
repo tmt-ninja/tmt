@@ -7,6 +7,7 @@ import type { SelectionRect, UnsentHighlight } from './renderer.js';
 import { shareView } from './share-view.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import type { PageBinding, PageSnapshot, PageTransport } from './transport.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 /** One annotation window: a new one on a selection, or one on a thread. */
 export interface Annotation {
@@ -134,13 +135,13 @@ export function useAnnotations({
       setDraftsReady(true);
     });
     const leave = () => void current.flush();
-    const hide = () => document.visibilityState === 'hidden' && leave();
+    const hide = () => pageHidden() && leave();
     window.addEventListener('pagehide', leave);
-    document.addEventListener('visibilitychange', hide);
+    addVisibilityListener(hide);
     return () => {
       live = false;
       window.removeEventListener('pagehide', leave);
-      document.removeEventListener('visibilitychange', hide);
+      removeVisibilityListener(hide);
       session.current = undefined;
       void current.close();
     };

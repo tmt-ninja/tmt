@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 /** The owner folds page summaries in the background; until every page has one the list reads again. */
 const REREAD_MS = 2000;
@@ -41,11 +42,11 @@ export async function rereadInPlace(reload: () => Promise<unknown>) {
  */
 export function useSummaryFill(missing: number, reread: () => unknown): boolean {
   const [tries, setTries] = useState(0);
-  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  const [visible, setVisible] = useState(() => !pageHidden());
   useEffect(() => {
-    const onChange = () => setVisible(document.visibilityState === 'visible');
-    document.addEventListener('visibilitychange', onChange);
-    return () => document.removeEventListener('visibilitychange', onChange);
+    const onChange = () => setVisible(!pageHidden());
+    addVisibilityListener(onChange);
+    return () => removeVisibilityListener(onChange);
   }, []);
   // A complete list starts over: a page edited later loses its summary and gets a fresh set of tries.
   useEffect(() => {

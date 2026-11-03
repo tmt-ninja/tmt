@@ -10,10 +10,13 @@ import {
 } from 'react';
 import type { QuestionState, RegisteredAgent, RegisteredQuestion } from '../question-registry.js';
 import { QuestionLine } from './question-line.js';
+import { AnsweredStrip } from './answered-strip.js';
+import { QuestionAnswerCard } from './question-answer-card.js';
 import { AgentChip, AgentList, agentSentence } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
 import type { ComposerConnectionPresentation } from '../router.js';
 import { AnswerFiles } from '../answer-files.js';
+import { AttachButton } from '../attachment-tray.js';
 import { sendAnswers, askedMessageIds, type BatchAnswer } from '../answer-batch.js';
 import type { AskAgainInput } from '../ask-again.js';
 import type { AskBinding, PageAsk } from '../ask-panel.js';
@@ -89,6 +92,7 @@ export function QuestionGroupCard({
   renderBlock,
   connectionPresentation,
   onRecorded,
+  onDismiss,
 }: {
   group: QuestionGroup;
   registry?: readonly RegisteredQuestion[];
@@ -114,6 +118,7 @@ export function QuestionGroupCard({
   connectionPresentation?: ComposerConnectionPresentation;
   /** Called after an explicit Send recorded answers, with the recorded comments. */
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
+  onDismiss?(id: string): void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   // The attachment drafts live beside the text drafts and leave with the group.
@@ -157,7 +162,8 @@ export function QuestionGroupCard({
   const [query, setQuery] = useState('');
   const [sending, setSending] = useState<readonly string[]>([]);
   const busy = useRef(false);
-  const lines = useRef(new Map<string, HTMLButtonElement>());
+  const lines = useRef(new Map<string, HTMLElement>());
+  const focusAfterSend = useRef<string | undefined>(undefined);
   const [focusReply, setFocusReply] = useState<{ id: string; placement?: AnchorPosition }>();
   const disclosure = useRef({ selected, expanded, version: 0 });
   if (disclosure.current.selected !== selected || disclosure.current.expanded !== expanded)
@@ -304,7 +310,8 @@ export function QuestionGroupCard({
   const pending = rows.filter(
     (row) => row.eligible && scopeMembers.some((question) => question.id === row.question.id),
   );
-  const sendable = composing || (members.length > 1 && (pending.length > 0 || sending.length > 0));
+  const sendable =
+    composing || (members.length > 1 && rows.some((row) => !row.answer || row.draft.changing));
 
   // Only an admitted answer closes the disclosure. Recording or layout alone cannot do it.
   useEffect(() => {
@@ -320,9 +327,6 @@ export function QuestionGroupCard({
     const next = [...rows.slice(index + 1), ...rows.slice(0, index)].find((row) => !row.answer);
     lines.current.get(next?.question.id ?? selected)?.focus({ preventScroll: true });
   }, [focusChange, activeAnswered, selected, expanded, members, rows, onCollapse]);
-  const pendingRegistrations = states?.filter(
-    (entry) => entry.state === 'open' && members.some((question) => question.id === entry.id),
-  ).length;
   const sendingCount = sending.length || pending.length;
   const sendLabel =
     scopeMembers.length === 1
@@ -358,8 +362,10 @@ export function QuestionGroupCard({
     setFocusChange(undefined);
     busy.current = true;
     // The panel folds with this Send; focus stays on its line instead of falling to the page.
-    if (section.current?.contains(document.activeElement))
+    if (section.current?.contains(document.activeElement)) {
+      focusAfterSend.current = selected;
       lines.current.get(selected)?.focus({ preventScroll: true });
+    }
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
     // Keep the chosen disclosure until its recorded answers are verified.
@@ -488,6 +494,10 @@ export function QuestionGroupCard({
       <QuestionCard
         key={question.id}
         question={question}
+        followUpRecipient={(() => {
+          const agent = registry?.find((entry) => entry.id === question.id)?.agent ?? creator;
+          return agent ? { agentId: agent.id, label: agent.name } : undefined;
+        })()}
         draft={row.draft}
         onDraft={(patch) =>
           setDrafts((previous) => ({
@@ -613,24 +623,40 @@ export function QuestionGroupCard({
                 }}
               />
             </div>
-            <BrowserAction
-              label={`${sendLabel} · to ${audience || 'thread only'}`}
-              visibleLabel={sendLabel}
-              type="button"
-              variant="primary"
-              busy={resolvingDefaults}
-              disabled={
-                disabled ||
-                resolvingDefaults ||
-                !attached ||
-                !pending.length ||
-                !decision.allowed ||
-                pending.some((row) => !selectors.has(row.question.id))
-              }
-              onActivate={(event) => {
-                if (event.isTrusted) void send();
-              }}
-            />
+            <div className="question-footer-actions">
+              {filesOf(selected) && (
+                <AttachButton
+                  draft={filesOf(selected)!}
+                  disabled={
+                    disabled ||
+                    !active ||
+                    !(
+                      active.question.kind === 'short' ||
+                      active.question.kind === 'long' ||
+                      active.draft.other
+                    )
+                  }
+                />
+              )}
+              <BrowserAction
+                label={`${sendLabel} · to ${audience || 'thread only'}`}
+                visibleLabel="Send"
+                type="button"
+                variant="primary"
+                busy={resolvingDefaults}
+                disabled={
+                  disabled ||
+                  resolvingDefaults ||
+                  !attached ||
+                  !pending.length ||
+                  !decision.allowed ||
+                  pending.some((row) => !selectors.has(row.question.id))
+                }
+                onActivate={(event) => {
+                  if (event.isTrusted) void send();
+                }}
+              />
+            </div>
           </div>
           {connectionPresentation ? (
             <p className="annotation-hint" role="status">
@@ -697,72 +723,96 @@ export function QuestionGroupCard({
     >
       {physical.map((blockRows) => {
         const id = group.split ? blockRows[0].question.id : group.id;
+        // Answered strips keep their original order; remaining questions stay together in one card.
+        const isAnswered = (row: (typeof blockRows)[number]) =>
+          !!row.echo || (!row.draft.changing && !!row.answer);
+        const orderedRows = [
+          ...blockRows.filter(isAnswered),
+          ...blockRows.filter((row) => !isAnswered(row)),
+        ];
         return (
           <Fragment key={id}>
             {renderBlock(
               id,
-              <div
-                className="question-compact-block"
-                role="group"
-                aria-label={group.title ?? blockRows[0].question.title}
+              <QuestionAnswerCard
+                label={group.title ?? blockRows[0].question.title}
+                multiple={blockRows.length > 1}
               >
-                {blockRows.length > 1 && (
-                  <p className="question-compact-heading">
-                    Questions from{' '}
-                    <AgentList
-                      names={[
-                        ...new Set(blockRows.map((row) => row.question.agent).filter(Boolean)),
-                      ]}
-                    />{' '}
-                    ·{' '}
-                    {registry === undefined
-                      ? text.metadata.status.unregistered
-                      : pendingRegistrations === undefined
-                        ? text.metadata.verifying
-                        : `${pendingRegistrations} of ${members.length} waiting`}
-                  </p>
-                )}
-                {blockRows.map((row, index) => {
-                  const open = expanded && selected === row.question.id && row.echo === undefined;
+                {orderedRows.map((row) => {
+                  const answered =
+                    row.echo ??
+                    (row.draft.changing
+                      ? undefined
+                      : row.answer
+                        ? (answerOf(row.question, row.answer.body) ?? row.answer.body)
+                        : undefined);
+                  const open =
+                    answered === undefined ||
+                    (expanded && selected === row.question.id && row.echo === undefined);
                   const panelId = `question-panel-${row.question.id}`;
                   return (
-                    <div key={row.question.id}>
-                      <QuestionLine
-                        ref={(node) => {
-                          if (node) lines.current.set(row.question.id, node);
-                          else lines.current.delete(row.question.id);
-                        }}
-                        question={row.question}
-                        status={
-                          !registry?.some((entry) => entry.id === row.question.id)
-                            ? 'unregistered'
-                            : (states?.find((entry) => entry.id === row.question.id)?.state ??
-                              'unknown')
-                        }
-                        answer={
-                          row.echo ??
-                          (row.answer
-                            ? (answerOf(row.question, row.answer.body) ?? row.answer.body)
-                            : undefined)
-                        }
-                        pending={row.echo !== undefined}
-                        eyebrow={blockRows.length === 1}
-                        expanded={open}
-                        panelId={panelId}
-                        onToggle={() => onToggle(row.question.id)}
-                        onMove={
-                          blockRows.length > 1
-                            ? (direction) =>
-                                lines.current
-                                  .get(
-                                    blockRows[
-                                      (index + direction + blockRows.length) % blockRows.length
-                                    ].question.id,
-                                  )
-                                  ?.focus()
-                            : undefined
-                        }
-                      />
+                    <div
+                      key={row.question.id}
+                      className="question-group-row"
+                      data-answered={answered !== undefined || undefined}
+                      onFocusCapture={(event) => {
+                        // The shared footer belongs to the group, not the last rendered question.
+                        if ((event.target as HTMLElement).closest('.question-group-footer')) return;
+                        if (selected !== row.question.id) onSelect(row.question.id);
+                      }}
+                    >
+                      {answered !== undefined ? (
+                        <AnsweredStrip
+                          ref={(node) => {
+                            if (node) {
+                              lines.current.set(row.question.id, node);
+                              if (focusAfterSend.current === row.question.id) {
+                                focusAfterSend.current = undefined;
+                                if (document.activeElement === document.body)
+                                  node.focus({ preventScroll: true });
+                              }
+                            } else lines.current.delete(row.question.id);
+                          }}
+                          question={row.question}
+                          answer={answered}
+                          pending={row.echo !== undefined}
+                          expanded={open}
+                          panelId={panelId}
+                          onToggle={() => onToggle(row.question.id)}
+                          onChangeAnswer={
+                            !readOnly
+                              ? () =>
+                                  setDrafts((previous) => ({
+                                    ...previous,
+                                    [row.question.id]: {
+                                      ...(previous[row.question.id] ?? emptyDraft()),
+                                      changing: true,
+                                    },
+                                  }))
+                              : undefined
+                          }
+                          onDismiss={onDismiss ? () => onDismiss(row.question.id) : undefined}
+                          onFollowUp={() =>
+                            section.current
+                              ?.querySelector<HTMLElement>(
+                                `[id="${panelId}"] textarea, [id="${panelId}"] [contenteditable]`,
+                              )
+                              ?.focus()
+                          }
+                        />
+                      ) : (
+                        <QuestionLine
+                          ref={(node) => {
+                            if (node) lines.current.set(row.question.id, node);
+                            else lines.current.delete(row.question.id);
+                          }}
+                          question={row.question}
+                          agent={
+                            registry?.find((entry) => entry.id === row.question.id)?.agent?.name ??
+                            creator?.name
+                          }
+                        />
+                      )}
                       <div
                         id={panelId}
                         className="question-compact-controls"
@@ -819,12 +869,19 @@ export function QuestionGroupCard({
                         }}
                       >
                         {card(row.question)}
-                        {selected === row.question.id && footer}
+                        {row.question.id ===
+                          (group.split
+                            ? selected
+                            : [...orderedRows]
+                                .reverse()
+                                .find((candidate) => !candidate.answer || candidate.draft.changing)
+                                ?.question.id) && footer}
                       </div>
                     </div>
                   );
                 })}
-              </div>,
+                {!sendable && (error || failures.length > 0) && footer}
+              </QuestionAnswerCard>,
             )}
           </Fragment>
         );

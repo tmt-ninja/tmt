@@ -61,6 +61,7 @@ test('resolving hides the margin marker, Reopen restores it, and each click writ
 test('an agent resolution stays unseen until the person reopens the selected discussion', async ({
   page,
 }) => {
+  await showResolvedOn(page);
   const { toggle, markers, state } = await open(page);
   await run(page, 'agentResolves');
   await expect(markers).toHaveCount(0);
@@ -74,19 +75,23 @@ test('an agent resolution stays unseen until the person reopens the selected dis
   await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-anchor', 'resolved');
 });
 
-test('a device without owner-member provenance gets no Resolve or Reopen control', async ({
+test('a device without owner-member provenance sees disabled status controls with an explanation', async ({
   page,
 }) => {
+  await showResolvedOn(page);
   await open(page);
   await run(page, 'nonOwnerDevice');
   await expect(page.locator('.discussion-position')).toHaveText('1 / 1');
-  await expect(
-    headerActions(page).getByRole('button', { name: 'Resolve', exact: true }),
-  ).toHaveCount(0);
+  const resolve = headerActions(page).getByRole('button', { name: 'Resolve', exact: true });
+  await expect(resolve).toBeDisabled();
+  await expect(resolve).toHaveAttribute('aria-describedby', 'discussion-status-owner-only');
+  await expect(page.locator('#discussion-status-owner-only')).toHaveText(
+    'Only an owner device can resolve or reopen a thread.',
+  );
   await run(page, 'agentResolves');
   await expect(
     headerActions(page).getByRole('button', { name: 'Reopen', exact: true }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
   expect(await statusActions(page)).toEqual([]);
 });
 

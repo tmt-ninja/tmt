@@ -70,7 +70,6 @@ fn associated<'a>(view: &'a Conversations, anchors: &SummaryAnchors, id: &str) -
         .iter()
         .filter(|thread| {
             !thread.deleted
-                && thread.proposal.is_none()
                 && anchors
                     .threads(id)
                     .iter()
@@ -118,18 +117,6 @@ pub(crate) fn items(
             });
         }
     };
-    for thread in &view.threads {
-        if !thread.deleted
-            && !thread.resolved
-            && thread
-                .decision
-                .as_ref()
-                .is_none_or(|decision| decision.deleted)
-            && let Some(proposal) = &thread.proposal
-        {
-            add("proposal", &proposal.proposal_id);
-        }
-    }
     for reading in &report.readings {
         if !anchors.contains(&reading.id) {
             continue;
