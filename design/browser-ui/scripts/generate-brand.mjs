@@ -1,4 +1,4 @@
-// PROVENANCE: #5971 (Ben's selected ninja); the inputs are exact copies of the selected blog artwork at 4f94bffb07.
+// PROVENANCE: #5971 (Ben's selected ninja); the input is an exact copy of the selected blog artwork at 4f94bffb07.
 // Generate product markup and icon sizes from those sources, never a traced copy.
 import { readFile, writeFile } from 'node:fs/promises';
 
@@ -11,18 +11,19 @@ const body = source.match(/^<svg[^>]*viewBox="0 0 720 760"[^>]*>([\s\S]*)<\/svg>
 if (!body || /<(?!path\b)[^/]|(?:href|url\(|<script)/i.test(body)) {
   throw new Error('The selected mark must remain self-contained path artwork');
 }
+const tokens = JSON.parse(
+  await readFile(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
+);
+const tile = tokens.brand.mark.tile.light.toLowerCase();
+if (tile !== tokens.brand.mark.tile.dark.toLowerCase())
+  throw new Error('Brand tile must match across themes');
 const inner =
-  '<rect class="tmt-brand-mark-tile" width="96" height="96" rx="25.6" fill="#0a0a0a"/>' +
+  `<rect class="tmt-brand-mark-tile" width="96" height="96" rx="25.6" fill="${tile}"/>` +
   '<svg viewBox="0 0 720 760" width="96" height="96">' +
   body +
   '</svg>';
 const svg = (size, className = 'tmt-brand-mark') =>
   `<svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 96 96" aria-hidden="true" width="${size}" height="${size}">${inner}</svg>`;
-const png = await readFile(new URL('../src/brand-favicon.png', import.meta.url));
-// The blog uses this same PNG for its favicon and touch icon. SVG containers preserve its exact
-// bytes at each product size without a second rasterizer, redraw or browser-dependent scaling.
-const icon = (size) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 192 192"><image width="192" height="192" href="data:image/png;base64,${png.toString('base64')}"/></svg>\n`;
 const outputs = new Map([
   [
     'src/brand-mark-svg.ts',
@@ -44,7 +45,7 @@ export function brandMarkSvg({
 `,
   ],
   ['generated/brand-mark-static.svg', svg(24, 'tmt-brand-mark tmt-ui-mark') + '\n'],
-  ['generated/favicon.svg', icon(96)],
+  ['generated/favicon.svg', svg(96) + '\n'],
   ['generated/app-icon-light.svg', svg(512) + '\n'],
   ['generated/app-icon-dark.svg', svg(512) + '\n'],
 ]);

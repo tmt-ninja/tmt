@@ -1566,9 +1566,6 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
   const favicon = await readFile(
     new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
   );
-  const approvedPng = await readFile(
-    new URL('../../../../../design/browser-ui/src/brand-favicon.png', import.meta.url),
-  );
   const iconEvidence: { scheme: string; sha256: string; path: string }[] = [];
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (captures) await mkdir(captures, { recursive: true });
@@ -1595,38 +1592,37 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           const href = await page.locator('link[rel="icon"]').getAttribute('href');
           expect(href).toBe(`data:image/svg+xml;base64,${favicon.toString('base64')}`);
           // Decode under the actual door CSP; render the tab icon, not simulated browser chrome.
-          const icon = await page.evaluate(
-            async (reference) => {
-              const image = new Image();
-              image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
-              await image.decode();
-              const canvas = document.createElement('canvas');
-              canvas.width = canvas.height = 32;
-              const context = canvas.getContext('2d')!;
-              context.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches
-                ? '#111'
-                : '#fff';
-              context.fillRect(0, 0, 32, 32);
-              context.drawImage(image, 0, 0, 32, 32);
-              const pixels = [...context.getImageData(0, 0, 32, 32).data];
-              const png = canvas.toDataURL('image/png').split(',')[1]!;
-              // The selected blog PNG is the independent pixel oracle, under the same door CSP.
-              const approved = new Image();
-              approved.src = reference;
-              await approved.decode();
-              context.clearRect(0, 0, 32, 32);
-              context.fillRect(0, 0, 32, 32);
-              context.drawImage(approved, 0, 0, 32, 32);
-              return {
-                pixels,
-                expected: [...context.getImageData(0, 0, 32, 32).data],
-                png,
-              };
-            },
-            `data:image/png;base64,${approvedPng.toString('base64')}`,
-          );
-          expect(icon.pixels).toEqual(icon.expected);
-          // Full-image equality includes the rounded PNG's antialiased corner transparency.
+          const icon = await page.evaluate(async () => {
+            const image = new Image();
+            image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 32;
+            const context = canvas.getContext('2d')!;
+            context.drawImage(image, 0, 0, 32, 32);
+            const pixels = context.getImageData(0, 0, 32, 32).data;
+            let pale = 0;
+            let dark = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+              if (
+                pixels[i + 3]! > 200 &&
+                pixels[i]! > 220 &&
+                pixels[i + 1]! > 220 &&
+                pixels[i + 2]! > 220
+              )
+                pale++;
+              if (
+                pixels[i + 3]! > 200 &&
+                pixels[i]! < 30 &&
+                pixels[i + 1]! < 30 &&
+                pixels[i + 2]! < 30
+              )
+                dark++;
+            }
+            return { pale, dark, png: canvas.toDataURL('image/png').split(',')[1]! };
+          });
+          expect(icon.pale).toBeGreaterThan(100);
+          expect(icon.dark).toBeGreaterThan(100);
           if (state === 'landing' && width === 1440) {
             const png = Buffer.from(icon.png, 'base64');
             const path = testInfo.outputPath(`favicon-${colorScheme}-32.png`);
