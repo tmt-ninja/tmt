@@ -186,6 +186,16 @@ export function extractArticle(raw, images = new Map()) {
   return { html: serialize(document).trimEnd() + "\n", assets, scripts };
 }
 
+export function withEditorial(meta, editorial) {
+  if (
+    !editorial ||
+    Array.isArray(editorial) ||
+    typeof editorial !== "object" ||
+    Object.keys(editorial).some((key) => !["tags", "keyNumber"].includes(key))
+  )
+    throw new Error("editorial.json may only hold tags and keyNumber");
+  return metadata({ ...meta, ...editorial });
+}
 export function artifactHash(meta, html, assets) {
   return sha256(
     stableJson({
