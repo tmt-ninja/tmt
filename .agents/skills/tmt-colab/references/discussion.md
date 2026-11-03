@@ -106,8 +106,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
   Sent-image grids in threads, Chat and answers share `attachment-tray.css`: top-aligned
   equal thumbnails, single-line ellipsized name/size labels, and the full filename in its title.
-  A single image reserves a 200×120 frame before decoding; `scale-down` preserves
-  small images at natural size, aligned to the top left against the existing thumbnail background.
+  A single image reserves a 320px 16:10 frame before decoding and shows the whole image
+  (`contain`); two or more share a two-column 4:3 grid. A failed read is said once, inside its
+  tile, with Retry; an automatic thumbnail read the page changed under is read once more before
+  the failure shows, and a click is never replayed (#5955).
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
   retain display URLs only for their live binding/scope/reference; hidden overflow images
@@ -130,8 +132,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   projects that checked CSS alongside its paint roles into the opaque frame.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
   editor, recipient and Send ownership stays unchanged. Its notices (a refusal, a recipient
-  not reached, a recorded message's next step) share one reserved one-line slot, `RichInput`'s
-  `header` row inside the input above the text, so neither the history nor the field moves (#5911).
+  not reached, a recorded message's next step) share one slot, `RichInput`'s `header`, that
+  takes no room: empty, it is not drawn; filled, it floats as one line just above the field,
+  over the history's end, so neither the history nor the field moves (#5911, #5953).
   The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
