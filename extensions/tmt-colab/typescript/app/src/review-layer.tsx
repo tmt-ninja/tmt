@@ -47,8 +47,7 @@ export function useReviewLayer({
   const { directory } = useAgentDirectory(reviews.length ? snapshot.binding?.ask : undefined);
   const resolving = !!snapshot.binding?.ask && directory.state === 'loading';
   const threads = useMemo(
-    () =>
-      (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
+    () => (view.threads ?? []).filter((thread) => !thread.deleted && thread.anchor),
     [view.threads],
   );
   const rows = reviews.map((review) => {
@@ -185,7 +184,7 @@ export function useReviewLayer({
               }}
               data-inline-review={review.id}
               data-inline-slot={review.id}
-              className="proposal-inline review-inline"
+              className="inline-block-layer review-inline"
               data-detached={!slot || slot.hidden || !anchor || undefined}
               style={{ top: slot?.top ?? 0, display: slot?.hidden ? 'none' : undefined }}
             >

@@ -6,13 +6,11 @@ import type { DiscussionScope, ThreadView } from './thread-records.js';
 export function isStatusThread(thread: ThreadView) {
   return !thread.deleted && !(thread.anchor === null && thread.ref.id === thread.ref.writer);
 }
+export function isOpenThread(thread: ThreadView) {
+  return isStatusThread(thread) && !thread.resolved;
+}
 export function openThreadCount(threads: readonly ThreadView[]) {
-  // A proposal's final decision removes it from pending independently of resolution.
-  // Proposal-linked threads contribute once here, never to an annotation subtotal.
-  return threads.filter(
-    (thread) =>
-      isStatusThread(thread) && !thread.resolved && (!thread.proposal || !thread.decision),
-  ).length;
+  return threads.filter(isOpenThread).length;
 }
 
 /** Browser-local attention, not authority or a synced read receipt. Only an

@@ -47,6 +47,7 @@ test('wide CLI and browser batches keep the original live socket and exact sourc
       });
       socket.on('framereceived', ({ payload }) => {
         observed.received++;
+        if (typeof payload !== 'string') return;
         const frame = JSON.parse(String(payload)) as { type: string; code?: string };
         if (frame.type === 'error') observed.errors.push(frame.code ?? 'unknown');
       });

@@ -9954,6 +9954,38 @@
           "code": "unknown-icon"
         }
       ]
+    },
+    {
+      "name": "thread-ref-grammar",
+      "scope": "parser",
+      "why": "A reference needs only two canonical UUIDv4 attributes; content is ignored.",
+      "source": [
+        "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000001\" data-thread=\"10000000-0000-4000-8000-000000000002\">ignored</tmt-thread-ref>",
+        "<tmt-thread-ref data-writer=\"bad\" data-thread=\"10000000-0000-4000-8000-000000000002\"></tmt-thread-ref>",
+        "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000001\" data-thread=\"10000000-0000-4000-8000-000000000002\" title=\"extra\"></tmt-thread-ref>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-thread-ref",
+          "ordinal": 2,
+          "id": null,
+          "line": 2,
+          "severity": "warning",
+          "code": "thread-ref-invalid"
+        },
+        {
+          "element": "tmt-thread-ref",
+          "ordinal": 3,
+          "id": null,
+          "line": 3,
+          "severity": "warning",
+          "code": "thread-ref-invalid"
+        }
+      ]
     }
   ]
 }

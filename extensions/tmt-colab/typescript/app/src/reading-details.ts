@@ -20,7 +20,7 @@ export interface ReadingDescriptor {
   why: string;
   state: 'unread' | 'read';
 }
-export type NeedKind = 'review' | 'question' | 'reading' | 'proposal';
+export type NeedKind = 'review' | 'question' | 'reading';
 /** One pending item the page's count includes: `id` is the pending-target ID (a question's is its
  * group's). `why` is a reading's reason only. */
 export interface NeedDescriptor {
@@ -45,7 +45,7 @@ export type ReadingDetails =
       pageState?: PageState | null;
       progress?: PageProgress | null;
       readings: ReadingDescriptor[];
-      /** The first pending items by rank (review, question, reading, proposal); the count stays `summary.needsYou`. */
+      /** The first pending items by rank (review, question, reading); the count stays `summary.needsYou`. */
       needs: NeedDescriptor[];
       latest?: LatestComment;
     }
@@ -74,7 +74,7 @@ export function readingDetails(value: unknown, pageId: string): ReadingDetails {
   return completeDetails(value, pageId);
 }
 
-const NEED_KINDS: readonly NeedKind[] = ['review', 'question', 'reading', 'proposal'];
+const NEED_KINDS: readonly NeedKind[] = ['review', 'question', 'reading'];
 
 function need(item: unknown): NeedDescriptor {
   requireValue(item !== null && typeof item === 'object' && !Array.isArray(item));

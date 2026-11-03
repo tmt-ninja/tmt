@@ -60,7 +60,7 @@ const cases: MorphCase[] = [
     live: 'owned',
     after: '<p id="a">A changed</p><p id="b">B</p><p id="c" data-choice="">C</p>',
     expected:
-      '<p id="a">A changed</p><div data-colab-proposal-slot=""></div><p id="b" data-colab-question="">B</p><p id="c" data-choice="" hidden="">C</p>',
+      '<p id="a">A changed</p><div data-colab-block-slot=""></div><p id="b" data-colab-question="">B</p><p id="c" data-choice="" hidden="">C</p>',
     kept: ['a', 'b', 'c'],
   },
   {
@@ -125,7 +125,7 @@ test('the page morph table', async ({ page }) => {
         const values: Record<string, unknown> = {};
         if (item.live === 'owned') {
           const spacer = document.createElement('div');
-          spacer.setAttribute('data-colab-proposal-slot', '');
+          spacer.setAttribute('data-colab-block-slot', '');
           owned.add(spacer);
           body.querySelector('#a')!.after(spacer);
           body.querySelector('#b')!.setAttribute('data-colab-question', '');

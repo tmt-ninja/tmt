@@ -26,8 +26,9 @@ async function mount(page: Page, options: object = {}) {
 }
 /** The open panel of the question with this title: its answer field and tray. */
 async function open(group: Locator, title: RegExp | string) {
-  await group.locator('.question-line', { hasText: title }).click();
-  return group.locator('.question-compact-controls:not([hidden])');
+  const row = group.locator('.question-group-row').filter({ hasText: title });
+  await row.locator('.question-line').focus();
+  return row.locator('.question-compact-controls');
 }
 const answerField = (panel: Locator) => panel.getByLabel('Your answer', { exact: true });
 const SHORT = 'What should the introduction say?';
@@ -69,20 +70,20 @@ test('only the text answers have a tray, and it takes a pick, a paste and a drop
   const group = await mount(page);
   // A choice has no tray: there is no text to carry files.
   const choice = await open(group, 'Which heading should we use?');
-  await expect(choice.getByTestId('attachment-input')).toHaveCount(0);
-  await expect(choice.getByRole('button', { name: text.messageAttach })).toHaveCount(0);
+  await expect(choice.getByTestId('attachment-chip')).toHaveCount(0);
+  await expect(group.getByRole('button', { name: text.attachFiles })).toBeDisabled();
 
   const short = await open(group, SHORT);
-  await expect(short.getByTestId('attachment-input')).toHaveCount(1);
+  await expect(group.getByTestId('attachment-input')).toHaveCount(1);
   const chooser = page.waitForEvent('filechooser');
-  await short.getByRole('button', { name: text.messageAttach }).click();
+  await group.getByRole('button', { name: text.attachFiles }).click();
   await (await chooser).setFiles([picture('picked.png')]);
   await expect(short.getByTestId('attachment-chip')).toHaveCount(1);
   await deliver(answerField(short), 'paste', ['pasted.png']);
   await expect(short.getByTestId('attachment-chip')).toHaveCount(2);
 
   const long = await open(group, LONG);
-  await expect(long.getByTestId('attachment-input')).toHaveCount(1);
+  await expect(group.getByTestId('attachment-input')).toHaveCount(1);
   await deliver(answerField(long), 'drop', ['dropped.png']);
   await expect(long.getByTestId('attachment-chip')).toHaveCount(1);
   // Adding only makes inert local chips: nothing is stored or sent before Send.
@@ -95,6 +96,10 @@ test('a batch Send publishes each answer with its own files and the card shows t
   const group = await mount(page);
   const short = await open(group, SHORT);
   await answerField(short).fill('Make the purpose clear.');
+  const chooser = page.waitForEvent('filechooser');
+  await group.getByRole('button', { name: text.attachFiles }).click();
+  await (await chooser).setFiles([picture('intro.png')]);
+  await expect(short.getByTestId('attachment-chip')).toHaveCount(1);
   const long = await open(group, LONG);
   await answerField(long).fill('Explain the tradeoffs.');
   await deliver(answerField(long), 'paste', ['tradeoffs.png']);
@@ -103,7 +108,12 @@ test('a batch Send publishes each answer with its own files and the card shows t
 
   await expect
     .poll(() => published(page))
-    .toEqual([`message:${SHORT}:0`, 'attach:upload:tradeoffs.png', `message:${LONG}:1`]);
+    .toEqual([
+      'attach:upload:intro.png',
+      `message:${SHORT}:1`,
+      'attach:upload:tradeoffs.png',
+      `message:${LONG}:1`,
+    ]);
   // Recorded messages precede the admitted answer's disclosure collapse. Reopen only after it.
   await expect(group.locator('.question-line', { hasText: LONG })).toHaveAttribute(
     'aria-expanded',
@@ -119,11 +129,13 @@ test('a batch Send publishes each answer with its own files and the card shows t
   await expect(
     group.locator('.question-compact-controls:not([hidden]) [data-testid="message-attachment"]'),
   ).toHaveCount(1);
-  // The answer without files carries none.
+  // Each answer keeps its own file when the selected question changes.
   await group.locator('.question-line', { hasText: SHORT }).click();
   await expect(
-    group.locator('.question-compact-controls:not([hidden]) [data-testid="message-attachment"]'),
-  ).toHaveCount(0);
+    group
+      .locator('.question-compact-controls:not([hidden]) .question-answer')
+      .getByText('intro.png'),
+  ).toBeVisible();
 });
 
 test('a draft keeps its files while the disclosure moves, and a Send that sends nothing uploads nothing', async ({
@@ -152,7 +164,7 @@ test('files over the shared limits show the shared notices, and a refused upload
   const long = await open(group, LONG);
   await answerField(long).fill('One answer.');
   const chooser = page.waitForEvent('filechooser');
-  await long.getByRole('button', { name: text.messageAttach }).click();
+  await group.getByRole('button', { name: text.attachFiles }).click();
   await (
     await chooser
   ).setFiles([{ name: 'empty.png', mimeType: 'image/png', buffer: Buffer.alloc(0) }]);

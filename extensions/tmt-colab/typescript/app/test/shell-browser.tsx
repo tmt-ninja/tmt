@@ -252,9 +252,9 @@ export function mount(kind: ShellCase = 'full') {
           if (id.startsWith('10000000-0000-4000-8000-0000000010'))
             return ready(id, [
               {
-                kind: 'proposal',
+                kind: 'question',
                 id: `${id.slice(0, -4)}f0f0`,
-                title: `Proposal on ${id.slice(-4)}`,
+                title: `Question on ${id.slice(-4)}`,
                 agent: 'Atlas',
               },
             ]);

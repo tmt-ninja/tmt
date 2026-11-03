@@ -30,10 +30,9 @@ export function useNeedsYouVersions(source: string, candidates: readonly NeedsYo
         'tmt-questions': 'answer',
         'tmt-review': 'review',
         'tmt-read': 'reading',
-        'tmt-proposal': 'proposal',
       };
       for (const node of template.content.querySelectorAll(
-        'tmt-question,tmt-questions,tmt-review,tmt-read,tmt-proposal',
+        'tmt-question,tmt-questions,tmt-review,tmt-read',
       )) {
         const id = node.getAttribute('data-id');
         if (!id) continue;

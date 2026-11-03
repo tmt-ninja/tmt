@@ -882,3 +882,132 @@ it('reports fixed closed reasons for invalid output, timeout, posting failure, a
     vi.useRealTimers();
   }
 });
+
+it('opens a writer with retired proposal records and retains them when a new comment is appended', async () => {
+  vi.resetModules();
+  const surface = {
+    onmessage: null as unknown as (event: {
+      data: { id: number; command: FoldCommand };
+    }) => Promise<void>,
+    postMessage: vi.fn(),
+  };
+  vi.stubGlobal('self', surface);
+  const doc = new Y.Doc();
+  const replay = new Y.Doc();
+  try {
+    await import('../src/fold.worker.js');
+    const { readThreads } = await import('../src/thread-records.js');
+    const send = async (command: FoldCommand) => {
+      surface.postMessage.mockClear();
+      await surface.onmessage({ data: { id: 1, command } });
+      return surface.postMessage.mock.calls[0][0];
+    };
+    const vector = JSON.parse(
+      readFileSync(
+        new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url),
+        'utf8',
+      ),
+    );
+    const thread = vector.thread;
+    const writer = thread.senderDevice as string;
+    const retiredId = '00000000-0000-4000-8000-000000000099';
+    const old = {
+      ...thread,
+      threadId: retiredId,
+      anchor: null,
+      proposal: {
+        proposalId: retiredId,
+        title: 'Retired proposal',
+        body: 'Keep these historical bytes.',
+        proposer: {
+          machineId: '40000000-0000-4000-8000-000000000001',
+          agentId: '50000000-0000-1000-8000-000000000001',
+          label: 'Proposer',
+        },
+      },
+    };
+    const decision = {
+      ...thread,
+      kind: 'proposal-decision',
+      actionId: '60000000-0000-4000-8000-000000000002',
+      thread: { writer, id: retiredId },
+      previous: null,
+      decision: 'approved',
+    };
+    delete decision.threadId;
+    delete decision.anchor;
+    delete decision.resolved;
+    const oldKey = `${retiredId}:1`;
+    const decisionKey = `${decision.actionId}:proposal-decision`;
+    doc.getMap('threads').set(oldKey, old);
+    doc.getMap('threads').set(`${thread.threadId}:1`, thread);
+    doc.getMap('messages').set(decisionKey, decision);
+    const source = new Y.Doc();
+    source.getText('html').insert(0, '<p>Still readable</p>');
+    source.getMap('meta').set('title', 'Page');
+    const opened = await send({
+      type: 'apply',
+      updates: [Y.encodeStateAsUpdate(source)],
+      own: [{ writer, update: Y.encodeStateAsUpdate(doc) }],
+    });
+    expect(opened.error).toBeUndefined();
+    expect(opened.source).toBe('<p>Still readable</p>');
+    expect(opened.own[writer].threads[oldKey]).toBeUndefined();
+    expect(opened.own[writer].messages[decisionKey]).toBeUndefined();
+    const list = () =>
+      readThreads(
+        opened.own,
+        vector.scope,
+        () => new Uint8Array(32),
+        () => true,
+      );
+    expect(list().map((entry) => entry.threadId)).toEqual([thread.threadId]);
+    const comment = { ...vector.comment, senderDevice: writer };
+    const commentKey = `${comment.messageId}:1`;
+    const appended = await send({
+      type: 'prepare-own',
+      writer,
+      records: [{ root: 'messages', key: commentKey, value: comment }],
+    });
+    expect(appended.error).toBeUndefined();
+    const updated = await send({
+      type: 'apply',
+      updates: [],
+      own: [{ writer, update: appended.update }],
+    });
+    expect(updated.error).toBeUndefined();
+    const threads = readThreads(
+      updated.own,
+      vector.scope,
+      () => new Uint8Array(32),
+      () => true,
+    );
+    expect(threads).toHaveLength(1);
+    expect(threads[0].comments.map((entry) => entry.body)).toEqual([comment.body]);
+    const encoded = await send({ type: 'encode-own', writer });
+    expect(encoded.error).toBeUndefined();
+    Y.applyUpdate(replay, encoded.update);
+    expect(replay.getMap('threads').get(oldKey)).toEqual(old);
+    expect(replay.getMap('messages').get(decisionKey)).toEqual(decision);
+    expect(replay.getMap('messages').get(commentKey)).toEqual(comment);
+    const state = Y.encodeStateVector(replay);
+    replay.getMap('messages').delete(decisionKey);
+    const removal = await send({
+      type: 'apply',
+      updates: [],
+      own: [{ writer, update: Y.encodeStateAsUpdate(replay, state) }],
+    });
+    expect(removal.error).toBeDefined();
+    const overwrite = await send({
+      type: 'prepare-own',
+      writer,
+      records: [{ root: 'threads', key: oldKey, value: { ...thread, threadId: retiredId } }],
+    });
+    expect(overwrite.error).toBeDefined();
+    source.destroy();
+  } finally {
+    doc.destroy();
+    replay.destroy();
+    vi.unstubAllGlobals();
+  }
+});

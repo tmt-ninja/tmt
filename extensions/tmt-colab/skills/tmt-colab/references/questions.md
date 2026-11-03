@@ -1,7 +1,7 @@
 # Answer blocks
 
 When authorized, place each decision beside the passage it concerns. Colab renders
-compact question lines that the person can open; no tabs or layout HTML are needed.
+a waiting card and folds an answered question to a 32px strip; no tabs or layout HTML are needed.
 Use a unique canonical UUID for every question and group. Register each question before writing
 its block (groups themselves are not registrations):
 
@@ -100,13 +100,14 @@ duplicate labels or replace an empty label. Colab stacks described choices and
 announces each description with its control; the label alone is recorded in the
 answer. Without descriptions the existing inline choices stay unchanged.
 
-Questions start closed, except an arrival from Needs you or a notification. The
-person's expanded/collapsed state is local and never changes the answer. Waiting
-and Answered states come from the existing verified answer path; collapse does
-not dismiss or acknowledge a question. HTML names grant no routing authority.
+Waiting questions show their controls in the card. Answered strips expand in place to show
+conversation and Follow up; Change answer returns to the question card. Dismiss removes the
+question element from the shared page and marks its registration handled; Undo restores it and
+reopens it when it was open before dismissal. The page history retains the edit. A failed metadata
+step is reported with Retry; it does not reverse a successful page edit. HTML names grant no routing
+authority.
 
-Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`. A short,
-long or Other answer can carry images: they are the answer comment's attachments, which `threads`
+Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`. An answer can carry images: they are the answer comment's attachments, which `threads`
 lists, and `tmt colab attachment read PAGE ID` writes one out.
 Changing an answer adds a normal follow-up; the latest verified device answer in
 its canonical thread wins. Each answer has its own comment/thread and each

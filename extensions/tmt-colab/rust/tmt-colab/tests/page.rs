@@ -5994,261 +5994,9 @@ sys.stdout.write(json.dumps(reply))
 }
 
 #[test]
-fn proposals_are_complete_before_placement_and_recover_by_id_without_notifications() {
-    use tmt_colab::{
-        discussion,
-        threads::{Proposal, Proposer},
-    };
-    let mut f = Fixture::new();
-    let proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Review 🐈".into(),
-        body: "<script>display text</script>".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Proposer".into(),
-        },
-    };
-    let source = f.read().source;
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    assert_eq!(
-        f.read().source,
-        source,
-        "record-first publication leaves source alone"
-    );
-    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    assert_eq!(
-        view.conversations.threads[0].proposal.as_ref(),
-        Some(&proposal)
-    );
-    assert!(!view.conversations.threads[0].resolved);
-    assert!(view.conversations.threads[0].decision.is_none());
-    assert!(
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .is_none()
-    );
-    let mut changed = proposal.clone();
-    changed.body = "Changed".into();
-    assert!(
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &changed, &mut f.decoder(), NOW)
-            .is_err()
-    );
-    // Existing-ID recovery uses retained provenance, even without a running Remote.
-    let run = |f: &Fixture| {
-        f.command()
-            .args([
-                "proposal",
-                "add",
-                PAGE,
-                "--id",
-                &proposal.proposal_id,
-                "--title",
-                &proposal.title,
-                "--body",
-                &proposal.body,
-                "--json",
-            ])
-            .output()
-            .unwrap()
-    };
-    let first = run(&f);
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stdout)
-    );
-    assert_eq!(
-        serde_json::from_slice::<Value>(&first.stdout).unwrap()["placed"],
-        true
-    );
-    let human = f
-        .command()
-        .args([
-            "proposal",
-            "add",
-            PAGE,
-            "--id",
-            "90000000",
-            "--title",
-            &proposal.title,
-            "--body",
-            &proposal.body,
-        ])
-        .output()
-        .unwrap();
-    assert!(human.status.success());
-    let shown = String::from_utf8(human.stdout).unwrap();
-    assert!(
-        shown.contains(&proposal.proposal_id) && shown.contains("placed") && shown.contains("yes")
-    );
-    assert!(!shown.contains("spaceId") && !shown.contains("{\""));
-    let after = f.read();
-    let second = run(&f);
-    assert!(second.status.success());
-    assert_eq!(
-        f.read().revision,
-        after.revision,
-        "already placed recovery publishes nothing"
-    );
-    assert_eq!(f.read().source.matches("<tmt-proposal ").count(), 1);
-    let listed = f
-        .command()
-        .args(["proposal", "ls", PAGE, "--json"])
-        .output()
-        .unwrap();
-    assert!(listed.status.success());
-    let rows: Value = serde_json::from_slice(&listed.stdout).unwrap();
-    assert_eq!(rows["proposals"].as_array().unwrap().len(), 1);
-    let human = f.command().args(["proposal", "ls", PAGE]).output().unwrap();
-    assert!(human.status.success());
-    let shown = String::from_utf8(human.stdout).unwrap();
-    assert!(
-        shown.contains("90000000")
-            && shown.contains(&proposal.title)
-            && shown.contains("open")
-            && shown.contains("not resolved")
-    );
-    for expected in [true, false] {
-        let output = f
-            .command()
-            .args(["proposal", "resolve", PAGE, "90000000", "--json"])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        assert_eq!(
-            serde_json::from_slice::<Value>(&output.stdout).unwrap()["changed"],
-            expected
-        );
-    }
-    let human = f
-        .command()
-        .args(["proposal", "resolve", PAGE, &proposal.proposal_id])
-        .output()
-        .unwrap();
-    assert!(human.status.success());
-    assert!(
-        String::from_utf8(human.stdout)
-            .unwrap()
-            .contains("already resolved")
-    );
-    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    assert!(view.conversations.threads[0].resolved);
-    assert!(
-        view.conversations.threads[0]
-            .status
-            .as_ref()
-            .unwrap()
-            .action
-            .recipients
-            .is_empty()
-    );
-    let duplicate = format!(
-        "{}\n<tmt-proposal data-id=\"{}\"></tmt-proposal>",
-        f.read().source,
-        proposal.proposal_id
-    );
-    f.write(&duplicate);
-    let output = run(&f);
-    assert!(output.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&output.stdout).unwrap()["placed"],
-        false
-    );
-    assert_eq!(
-        f.read().source,
-        duplicate,
-        "duplicate recovery never guesses a placement"
-    );
-    let human = f
-        .command()
-        .args([
-            "proposal",
-            "add",
-            PAGE,
-            "--id",
-            "90000000",
-            "--title",
-            &proposal.title,
-            "--body",
-            &proposal.body,
-        ])
-        .output()
-        .unwrap();
-    assert!(human.status.success());
-    let shown = String::from_utf8(human.stdout).unwrap();
-    assert!(shown.contains(&format!(
-        "tmt colab proposal add {PAGE} --id {}",
-        proposal.proposal_id
-    )));
-    let mut other = proposal.clone();
-    other.proposal_id = "90000000-1000-4000-8000-000000000002".into();
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &other, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let before = f.read().revision;
-    for prefix in ["90000000", "deadbeef"] {
-        let resolve = f
-            .command()
-            .args(["proposal", "resolve", PAGE, prefix, "--json"])
-            .output()
-            .unwrap();
-        let add = f
-            .command()
-            .args([
-                "proposal",
-                "add",
-                PAGE,
-                "--id",
-                prefix,
-                "--title",
-                &proposal.title,
-                "--body",
-                &proposal.body,
-                "--json",
-            ])
-            .output()
-            .unwrap();
-        for output in [resolve, add] {
-            assert!(!output.status.success());
-            let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-            let message = value["error"]["message"].as_str().unwrap();
-            assert!(
-                message.contains(if prefix == "90000000" {
-                    "matches more than one"
-                } else {
-                    "No proposal matches"
-                }),
-                "{message}"
-            );
-        }
-        assert_eq!(
-            f.read().revision,
-            before,
-            "ambiguous/missing prefix never publishes"
-        );
-    }
-}
-
-#[test]
-fn the_owner_summary_comes_from_the_real_fold_and_follows_each_proposal_state() {
-    use tmt_colab::{
-        discussion,
-        summary::summarize,
-        threads::{Proposal, Proposer},
-    };
-    let mut f = Fixture::with_metadata(
+fn the_owner_summary_reads_the_author_from_the_real_fold() {
+    use tmt_colab::summary::summarize;
+    let f = Fixture::with_metadata(
         Some("Studio agent"),
         Some(&tmt_colab::decoder::CreationRecipient {
             machine_id: "40000000-0000-4000-8000-000000000001".into(),
@@ -6268,65 +6016,6 @@ fn the_owner_summary_comes_from_the_real_fold_and_follows_each_proposal_state() 
     let empty = summarize_now();
     assert_eq!((empty.comments, empty.waiting), (0, false));
     assert_eq!(empty.author.as_deref(), Some("Studio agent"));
-    let proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Review".into(),
-        body: "Review body".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Proposer".into(),
-        },
-    };
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    // An undecided proposal awaits the owner.
-    assert!(summarize_now().waiting);
-    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let reference = tmt_colab::threads::status::Reference {
-        writer: view.conversations.threads[0].writer.clone(),
-        id: proposal.proposal_id.clone(),
-    };
-    // Resolving the proposal thread clears the mark, reopening it brings it back.
-    for (resolved, waiting) in [(true, false), (false, true)] {
-        let (frozen, _) = discussion::prepare_status(
-            &f.store,
-            &f.key,
-            PAGE,
-            discussion::StatusEdit {
-                thread: &proposal.proposal_id,
-                resolved,
-                agent_name: None,
-            },
-            &mut f.decoder(),
-            NOW,
-        )
-        .unwrap()
-        .unwrap();
-        f.commit(&frozen, NOW).unwrap();
-        assert_eq!(summarize_now().waiting, waiting, "resolved: {resolved}");
-    }
-    // A final decision clears it for good.
-    let frozen = discussion::prepare_decision(
-        &f.store,
-        &f.key,
-        PAGE,
-        discussion::DecisionEdit {
-            thread: &reference,
-            decision: "approved",
-        },
-        &mut f.decoder(),
-        NOW,
-    )
-    .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let decided = summarize_now();
-    assert!(!decided.waiting);
-    // A proposal thread is not an annotation thread: it adds no comment to the count.
-    assert_eq!(decided.comments, 0);
     // A page without a creation label has no author.
     let bare = Fixture::new();
     let mut source = tmt_colab::page::save::open_source(
@@ -6367,11 +6056,7 @@ fn the_owner_summary_counts_live_comments_of_annotation_threads_from_the_real_fo
 
 #[test]
 fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_the_background() {
-    use tmt_colab::{
-        discussion,
-        registration::Registration,
-        threads::{Proposal, Proposer},
-    };
+    use tmt_colab::registration::Registration;
     let mut f = Fixture::with_metadata(
         Some("Studio agent"),
         Some(&tmt_colab::decoder::CreationRecipient {
@@ -6430,21 +6115,27 @@ fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_th
     );
     // An accepted write changes the page's fingerprint: the old summary is stale, so it is no
     // longer served, and the next refresh brings the new state.
-    let proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Review".into(),
-        body: "Review body".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Proposer".into(),
+    let revision = f.read().revision;
+    let body = json!({"id":"00000000-0000-0000-0000-000000000001", "title":"Review"});
+    let page::PublicationPreparation::Write(question) = page::prepare_structured_publication(
+        &f.store,
+        &f.key,
+        PAGE,
+        page::StructuredAction {
+            kind: tmt_colab::decoder::StructuredKind::Questions,
+            action: "question.add",
+            body: &body,
+            expected_revision: &revision,
+            display_agent: None,
+            operation_id: None,
         },
+        &mut f.decoder(),
+        &|| Ok(NOW),
+    )
+    .unwrap() else {
+        panic!("question metadata must change");
     };
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
+    f.commit(&question, NOW).unwrap();
     assert!(
         entry().get("summary").is_none(),
         "a page changed since its summary was computed must not serve it"
@@ -6559,246 +6250,6 @@ fn starting_the_summaries_fills_a_store_without_titles_and_no_list_read() {
         title_row_after(&f, None, || ()).0,
         "Exact title 🐈",
         "the start drain records the title"
-    );
-}
-
-#[test]
-fn proposal_decision_is_final_and_resolution_remains_independent() {
-    use tmt_colab::{
-        discussion,
-        threads::{Proposal, Proposer},
-    };
-    let mut f = Fixture::new();
-    let proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Review".into(),
-        body: "Review body".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Proposer".into(),
-        },
-    };
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let reference = tmt_colab::threads::status::Reference {
-        writer: view.conversations.threads[0].writer.clone(),
-        id: proposal.proposal_id.clone(),
-    };
-    let frozen = discussion::prepare_decision(
-        &f.store,
-        &f.key,
-        PAGE,
-        discussion::DecisionEdit {
-            thread: &reference,
-            decision: "approved",
-        },
-        &mut f.decoder(),
-        NOW,
-    )
-    .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    assert!(
-        discussion::prepare_decision(
-            &f.store,
-            &f.key,
-            PAGE,
-            discussion::DecisionEdit {
-                thread: &reference,
-                decision: "declined"
-            },
-            &mut f.decoder(),
-            NOW
-        )
-        .is_err()
-    );
-    for resolved in [true, false] {
-        let (frozen, _) = discussion::prepare_status(
-            &f.store,
-            &f.key,
-            PAGE,
-            discussion::StatusEdit {
-                thread: &proposal.proposal_id,
-                resolved,
-                agent_name: None,
-            },
-            &mut f.decoder(),
-            NOW,
-        )
-        .unwrap()
-        .unwrap();
-        f.commit(&frozen, NOW).unwrap();
-        let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-        assert_eq!(
-            view.conversations.threads[0]
-                .decision
-                .as_ref()
-                .unwrap()
-                .decision,
-            "approved"
-        );
-        assert_eq!(view.conversations.threads[0].resolved, resolved);
-    }
-}
-
-#[test]
-fn proposal_cli_creates_from_public_provenance_and_refuses_unavailable_provenance() {
-    let f = Fixture::new();
-    let core = f.root.join("proposal-core");
-    let reply = json!({"dataRoot":f.root}).to_string();
-    tmt_test_support::write_executable(&core,format!(r#"#!/bin/sh
-case "$*" in
-'api') printf '%s\n' '{reply}';;
-'identity show --json') printf '%s\n' '{{"identity":{{"name":"Proposer","id":"50000000-0000-1000-8000-000000000001"}}}}';;
-'remote status --machine --json') printf '%s\n' '{{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"}}';;
-*) exit 9;;
-esac
-"#).as_bytes(),0o700).unwrap();
-    let output = f
-        .command()
-        .env("TMT_EXECUTABLE", &core)
-        .args([
-            "proposal",
-            "add",
-            PAGE,
-            "--title",
-            "New proposal",
-            "--body",
-            "Review body",
-            "--json",
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
-    let id = result["proposalId"].as_str().unwrap();
-    values::generated_id(id).unwrap();
-    assert_eq!(result["placed"], true);
-    let view = tmt_colab::discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let proposal = view.conversations.threads[0].proposal.as_ref().unwrap();
-    assert_eq!(
-        proposal.proposer.machine_id,
-        "40000000-0000-4000-8000-000000000001"
-    );
-    assert_eq!(
-        proposal.proposer.agent_id,
-        "50000000-0000-1000-8000-000000000001"
-    );
-    let before = f.read();
-    let missing = f
-        .command()
-        .args([
-            "proposal",
-            "add",
-            PAGE,
-            "--title",
-            "Unavailable",
-            "--body",
-            "Body",
-            "--json",
-        ])
-        .output()
-        .unwrap();
-    assert!(!missing.status.success());
-    let error: Value = serde_json::from_slice(&missing.stdout).unwrap();
-    values::generated_id(error["proposalId"].as_str().unwrap()).unwrap();
-    assert_eq!(error["placed"], false);
-    assert_eq!(f.read().revision, before.revision);
-    assert_eq!(
-        tmt_colab::discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
-            .unwrap()
-            .conversations
-            .threads
-            .len(),
-        1
-    );
-}
-
-#[test]
-fn proposal_capacity_refuses_a_new_record_before_publication() {
-    use tmt_colab::{
-        decoder::OwnRecord,
-        discussion,
-        threads::{Proposal, Proposer},
-    };
-    let mut f = Fixture::new();
-    let mut proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Review".into(),
-        body: "Review body".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Proposer".into(),
-        },
-    };
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let writer = &view.conversations.threads[0].writer;
-    let records:Vec<_>=(2..=200).map(|i| {
-        let id=format!("90000000-0000-4000-8000-{i:012}");
-        let mut p=proposal.clone();p.proposal_id=id.clone();
-        OwnRecord {root:"threads".into(),key:format!("{id}:1"),value:json!({"version":1,"kind":"thread","spaceId":f.key.space_id,"pageId":PAGE,"epoch":view.conversations.epoch,"senderDevice":writer,"revision":"1","deleted":false,"deviceName":"Local CLI","at":NOW.to_string(),"threadId":id,"anchor":null,"resolved":false,"proposal":p})}
-    }).collect();
-    for batch in records.chunks(tmt_colab::limits::OWN_RECORDS) {
-        let frozen =
-            page::prepare_own_records(&f.store, &f.key, PAGE, batch, &mut f.decoder(), NOW)
-                .unwrap();
-        f.commit(&frozen, NOW).unwrap();
-    }
-    assert_eq!(
-        discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
-            .unwrap()
-            .conversations
-            .threads
-            .len(),
-        200
-    );
-    let before = f.read().revision;
-    proposal.proposal_id = "90000000-0000-4000-8000-000000000201".into();
-    let fault =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .err()
-            .unwrap();
-    assert!(
-        matches!(fault.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),Some(tmt_colab::store::owner::OwnerFault::PageCapacity(c)) if c.edit)
-    );
-    assert!(fault.to_string().contains("maximum 200 proposals"));
-    assert_eq!(f.read().revision, before);
-    // Raw own publications do not interpret discussion policy; the read fold
-    // still rejects authenticated state beyond the same page limit.
-    let mut over = records[0].clone();
-    over.key = format!("{}:1", proposal.proposal_id);
-    over.value["threadId"] = json!(proposal.proposal_id);
-    over.value["proposal"] = serde_json::to_value(&proposal).unwrap();
-    let frozen =
-        page::prepare_own_records(&f.store, &f.key, PAGE, &[over], &mut f.decoder(), NOW).unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let output = f
-        .command()
-        .args(["proposal", "ls", PAGE, "--json"])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(error["error"]["code"], "COLAB_CAPACITY");
-    assert!(
-        error["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("maximum 200")
     );
 }
 
@@ -7058,11 +6509,8 @@ fn edit_locks_publish_in_own_stream_replace_and_release_without_changing_content
 }
 
 #[test]
-fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_compaction() {
-    use tmt_colab::{
-        discussion,
-        threads::{Proposal, Proposer},
-    };
+fn pre_lock_history_retains_threads_statuses_and_questions_across_own_compaction() {
+    use tmt_colab::discussion;
     fn folded_bytes(value: &impl serde::Serialize) -> Vec<u8> {
         // Y.Map iteration order is not a wire invariant; compare canonical JSON bytes.
         let mut value = serde_json::to_value(value).unwrap();
@@ -7102,22 +6550,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
         panic!("question metadata must change");
     };
     f.commit(&question, NOW).unwrap();
-    let proposal = Proposal {
-        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
-        title: "Historical proposal".into(),
-        body: "Keep this proposal".into(),
-        proposer: Proposer {
-            machine_id: "40000000-0000-4000-8000-000000000001".into(),
-            agent_id: "50000000-0000-1000-8000-000000000001".into(),
-            label: "Historical author".into(),
-        },
-    };
-    let frozen =
-        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
-            .unwrap()
-            .unwrap();
-    f.commit(&frozen, NOW).unwrap();
-    let (status, _) = discussion::prepare_status(
+    let (status, status_action) = discussion::prepare_status(
         &f.store,
         &f.key,
         PAGE,
@@ -7132,14 +6565,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
     .unwrap()
     .unwrap();
     f.commit(&status, NOW).unwrap();
-    let local = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
-    let writer = &local
-        .conversations
-        .threads
-        .iter()
-        .find(|thread| thread.proposal.is_some())
-        .unwrap()
-        .writer;
+    let writer = &status_action.sender_device;
     let comment_id = "60000000-0000-4000-8000-000000000002";
     let comment = tmt_colab::decoder::OwnRecord {
         root: "messages".into(),
@@ -7153,14 +6579,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
     let before = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
     let before_threads = folded_bytes(&before.conversations.threads);
     let before_page = f.read();
-    assert_eq!(before.conversations.threads.len(), 2);
-    assert!(
-        before
-            .conversations
-            .threads
-            .iter()
-            .any(|thread| thread.proposal.is_some())
-    );
+    assert_eq!(before.conversations.threads.len(), 1);
     assert!(
         before
             .conversations
@@ -7178,14 +6597,7 @@ fn pre_lock_history_retains_threads_statuses_proposals_and_questions_across_own_
             .is_empty()
     );
     assert!(before_page.edit_locks.is_empty());
-    let writer = before
-        .conversations
-        .threads
-        .iter()
-        .find(|thread| thread.proposal.is_some())
-        .unwrap()
-        .writer
-        .clone();
+    let writer = status_action.sender_device.clone();
     let compacted = compact_now(&mut f, 1).unwrap();
     assert_eq!(compacted.namespaces, 2);
     let after = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
