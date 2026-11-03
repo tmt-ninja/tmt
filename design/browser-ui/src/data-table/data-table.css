@@ -357,3 +357,15 @@
     flex: 1 1 100%;
   }
 }
+
+/* Phone menu facts fit the floating layer even when a value is very long. */
+.tmt-data-table-menu-fact {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  gap: var(--tmt-foundation-spacing-unit);
+}
+.tmt-data-table-menu-fact .tmt-data-table-text {
+  display: block;
+  min-width: 0;
+}

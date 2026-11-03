@@ -4,6 +4,8 @@ import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import type { PageWorkRow } from '../src/bootstrap.js';
 import { ManagementError, type ManagementPort, type Selection } from '../src/management.js';
+import { AdmissionRefusedError } from '../src/registration.js';
+import { SessionEndedError } from '../src/ask-remote.js';
 import type { ProjectChange, ProjectManage } from '../src/projects.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
 
@@ -99,6 +101,7 @@ export async function mountPageList(
     | 'quiet'
     /** A working space: 75 active pages over the stages and projects, one that needs you, one archived. */
     | 'work'
+    | 'work-pinned'
     /** No page has reported its tasks yet, as after a cold start. */
     | 'cold'
     /** A dashboard (shell page). */
@@ -112,6 +115,7 @@ export async function mountPageList(
    */
   pinned?: 'automatic' | readonly string[],
   withSpace = true,
+  failure?: 'network' | 'admission' | 'session',
 ) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('list-fixture');
@@ -166,7 +170,7 @@ export async function mountPageList(
               summary: { ...idle, work: work('in-progress', 0, 2) },
             }),
           ]
-        : size === 'work'
+        : size === 'work' || size === 'work-pinned'
           ? [
               ...Array.from({ length: 75 }, (_, n) => {
                 const stage = (['discussion', 'in-progress', 'done'] as const)[n % 3];
@@ -175,6 +179,7 @@ export async function mountPageList(
                   `${['Spec', 'Review', 'Plan', 'Notes', 'Report'][n % 5]} ${n + 1}`,
                   n % 4 ? [['spec', 'blog', 'pm'][n % 3]] : [],
                   {
+                    ...(size === 'work-pinned' && n < 3 ? { pinned: true } : {}),
                     summary: {
                       comments: n % 6,
                       waiting: n === 1,
@@ -390,12 +395,18 @@ export async function mountPageList(
   };
   // Set before the router reads its history, so a redirect in the first load is not overwritten.
   location.hash = hash;
+  let remainingFailure = failure;
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
     spaceHome: async () => {
       await homeGate;
       window.__listReads += 1;
+      const fail = remainingFailure;
+      remainingFailure = undefined;
+      if (fail === 'network') throw new TypeError('Failed to fetch');
+      if (fail === 'admission') throw new AdmissionRefusedError(403, '', 'DENIED');
+      if (fail === 'session') throw new SessionEndedError('REMOTE_SESSION_ENDED');
       return {
         title: 'Studio pages',
         projects: [...state.projects].sort(),

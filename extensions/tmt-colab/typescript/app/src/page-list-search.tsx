@@ -1,4 +1,9 @@
 import { BrowserChip } from '@tmt/browser-ui/react';
+import {
+  RichInput as SharedRichInput,
+  type RichInputValue as SharedRichInputValue,
+} from '@tmt/browser-ui/rich-input';
+import { Search } from 'lucide-react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   $createTextNode,
@@ -454,4 +459,72 @@ function SearchControl({
   const attributes =
     trigger?.['aria-expanded'] === true ? trigger : { ...trigger, ...resultTrigger };
   return <RichInputControl {...props} trigger={{ ...attributes, ref }} />;
+}
+
+/** The page list uses the design-system editor; other listbox hosts retain their result wiring. */
+export function SharedPageListSearch(props: PageListSearchProps) {
+  const toShared = (edit: SearchEdit): SharedRichInputValue => ({
+    value: edit.value,
+    chips: edit.tokens.map((token) => ({
+      kind: token.kind,
+      text: `${TRIGGERS[token.kind]}${token.name}`,
+      range: token.range,
+    })),
+  });
+  const fromShared = (value: SharedRichInputValue): SearchEdit => ({
+    value: value.value,
+    tokens: value.chips.flatMap((chip) => {
+      if (chip.kind !== 'project' && chip.kind !== 'by') return [];
+      const kind = chip.kind;
+      return [{ kind, name: chip.text.slice(TRIGGERS[kind].length), range: chip.range }];
+    }),
+  });
+  const suggestions = (
+    kind: FilterKind | 'stage',
+    choices: readonly { name: string; count: number }[],
+  ) => ({
+    kind,
+    trigger: kind === 'stage' ? 'stage:' : TRIGGERS[kind],
+    caseInsensitive: true,
+    allowSpaces: true,
+    options: (query: string) =>
+      nameCandidates(
+        choices,
+        query,
+        kind === 'stage'
+          ? []
+          : props.edit.tokens.filter((token) => token.kind === kind).map((token) => token.name),
+      ).map(({ name, count }) => ({ text: `${kind}:${name}`, label: `${name} (${count})` })),
+  });
+  return (
+    <SharedRichInput
+      shape="single"
+      role="combobox"
+      label={props.label ?? text.pageList.searchLabel}
+      placeholder={props.placeholder ?? text.pageList.searchPlaceholder}
+      value={toShared(props.edit)}
+      resetKey={props.resetKey}
+      onChange={(value) => props.onChange(fromShared(value))}
+      onSubmit={(value) => props.onApply(fromShared(value))}
+      onChipRemove={(value) => props.onApply(fromShared(value))}
+      onEscape={props.onClear}
+      onSuggestionChoose={(kind, option, value) => {
+        if (kind !== 'stage') return false;
+        props.onChange(fromShared(value));
+        props.onStage?.(option.text.slice('stage:'.length));
+        return true;
+      }}
+      leading={<Search aria-hidden="true" />}
+      suggestions={[
+        suggestions('project', props.projects),
+        suggestions('by', props.authors),
+        ...(props.stages ? [suggestions('stage', props.stages)] : []),
+      ]}
+      removeLabel={(kind, value) =>
+        kind === 'project'
+          ? text.pageList.removeFilter(value.slice('project:'.length))
+          : text.pageList.removeAuthorFilter(value.slice('by:'.length))
+      }
+    />
+  );
 }

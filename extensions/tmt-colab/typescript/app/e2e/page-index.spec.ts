@@ -19,7 +19,7 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const fixture = page.locator('#index-fixture');
-      const rows = fixture.locator('.pages [data-page-id]');
+      const rows = fixture.locator('.page-list-table [data-page-id]');
       await expect(rows).toHaveCount(3);
       expect(
         await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-page-id'))),
@@ -103,7 +103,7 @@ for (const width of [1440, 390])
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      const rows = page.locator('#index-fixture .pages [data-page-id]');
+      const rows = page.locator('#index-fixture .page-list-table [data-page-id]');
       const count = page.locator('#index-fixture [data-page-list-count] > span').first();
       const list = page.locator('#index-fixture [data-page-list]');
       const search = page.locator('#index-fixture .page-list-search');
@@ -167,7 +167,7 @@ test('website rows keep symmetric insets and control size while columns stack at
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  const row = page.locator('#index-fixture .pages [data-page-id]').first();
+  const row = page.locator('#index-fixture .page-list-table [data-page-id]').first();
   await expect(row).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   const measures = [];
@@ -250,7 +250,7 @@ test('metadata order follows update timestamps before English title ties', async
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  const rows = page.locator('#index-fixture .pages [data-page-id]');
+  const rows = page.locator('#index-fixture .page-list-table [data-page-id]');
   await expect(rows).toHaveCount(3);
   expect(
     await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-page-id'))),
@@ -290,7 +290,7 @@ test('the first committed index render uses the actual time snapshot', async ({ 
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  await expect(page.locator('#index-fixture .pages [data-page-id]')).toHaveCount(3);
+  await expect(page.locator('#index-fixture .page-list-table [data-page-id]')).toHaveCount(3);
   const initialLabels = await page.evaluate(async () => {
     const path = '/test/page-index-browser.tsx';
     return (await import(path)).firstUpdateLabels();

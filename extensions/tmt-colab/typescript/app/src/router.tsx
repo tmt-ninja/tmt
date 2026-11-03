@@ -60,6 +60,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type Ref,
 } from 'react';
@@ -108,6 +109,11 @@ import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comm
 import { useThreadFilter } from './use-thread-filter.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
+import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
+import { UiTheme } from '@tmt/browser-ui/ui';
+import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
+import '@tmt/browser-ui/ui.css';
+import { getTheme, subscribeTheme } from './theme.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import './about-drawer.css';
@@ -834,9 +840,10 @@ const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
     const router = useRouter();
-    const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
-      '/pages/',
-    );
+    const pathname = useRouterState({ select: (state) => state.location.pathname });
+    const opening = pathname.startsWith('/pages/');
+    const listFailure = pathname === '/' && error instanceof HomeReadFailure;
+    const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
     const failure =
       error instanceof Error && (opening || error.message === text.reconnectFailed)
         ? openFailure(error)
@@ -862,11 +869,23 @@ const root = createRootRouteWithContext<AppContext>()({
     return inHost(
       <>
         <AppHeader
-          title={failure && failure.kind !== 'refused' ? pageOpenFailureTitle(failure) : text.error}
+          title={
+            listFailure
+              ? text.pageList.allPages
+              : failure && failure.kind !== 'refused'
+                ? pageOpenFailureTitle(failure)
+                : text.error
+          }
           headerRef={header}
         />
         <main>
-          {failure && failure.kind !== 'refused' ? (
+          {listFailure ? (
+            <section className="home tmt-ui-page" data-page-list>
+              <UiTheme theme={theme}>
+                <PageListError onRetry={() => void router.invalidate()} />
+              </UiTheme>
+            </section>
+          ) : failure && failure.kind !== 'refused' ? (
             <PageOpenFailure failure={failure} />
           ) : (
             <NoticeCard
@@ -918,7 +937,14 @@ const root = createRootRouteWithContext<AppContext>()({
 });
 async function loadSpaceHome({ context }: { context: AppContext }) {
   // Design-system pages belong to the Design tab, not the Colab list (#5866).
-  const home = withoutDesignSystems(await context.transport.spaceHome());
+  let loaded;
+  try {
+    loaded = await context.transport.spaceHome();
+  } catch (error) {
+    if (isOrdinaryListReadFailure(error)) throw new HomeReadFailure(error);
+    throw error;
+  }
+  const home = withoutDesignSystems(loaded);
   context.rememberPages?.(
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
@@ -926,6 +952,23 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
   rememberPages(context.transport, context.space, home.pages);
   return home;
 }
+function HomePending() {
+  const opening = useContext(OpeningFrame);
+  useLayoutEffect(() => {
+    opening(true);
+    return () => opening(false);
+  }, [opening]);
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
+  return (
+    <section className="home tmt-ui-page" data-page-list>
+      <AppHeader title={text.pageList.allPages} />
+      <UiTheme theme={theme}>
+        <PageListLoading />
+      </UiTheme>
+    </section>
+  );
+}
+
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
@@ -945,6 +988,9 @@ const home = createRoute({
     return space;
   },
   component: Home,
+  pendingComponent: HomePending,
+  pendingMs: 150,
+  pendingMinMs: 300,
 });
 // The list was `/all` before it became the home; an old link or history entry still lands on it.
 const allPages = createRoute({
