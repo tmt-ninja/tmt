@@ -1566,6 +1566,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
   const favicon = await readFile(
     new URL('../../../../../design/browser-ui/generated/favicon.svg', import.meta.url),
   );
+  const approvedPng = await readFile(
+    new URL('../../../../../design/browser-ui/src/brand-favicon.png', import.meta.url),
+  );
   const iconEvidence: { scheme: string; sha256: string; path: string }[] = [];
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (captures) await mkdir(captures, { recursive: true });
@@ -1592,26 +1595,39 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           const href = await page.locator('link[rel="icon"]').getAttribute('href');
           expect(href).toBe(`data:image/svg+xml;base64,${favicon.toString('base64')}`);
           // Decode under the actual door CSP; render the tab icon, not simulated browser chrome.
-          const icon = await page.evaluate(async () => {
-            const image = new Image();
-            image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
-            await image.decode();
-            const canvas = document.createElement('canvas');
-            canvas.width = canvas.height = 32;
-            const context = canvas.getContext('2d')!;
-            context.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches
-              ? '#111'
-              : '#fff';
-            context.fillRect(0, 0, 32, 32);
-            context.drawImage(image, 0, 0, 32, 32);
-            return {
-              // Inside the mark's terminal panel, above the prompt: the panel keeps one colour.
-              pixel: [...context.getImageData(3, 10, 1, 1).data],
-              corner: [...context.getImageData(0, 0, 1, 1).data],
-              png: canvas.toDataURL('image/png').split(',')[1]!,
-            };
-          });
-          expect(icon.pixel).toEqual([14, 17, 22, 255]);
+          const icon = await page.evaluate(
+            async (reference) => {
+              const image = new Image();
+              image.src = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href;
+              await image.decode();
+              const canvas = document.createElement('canvas');
+              canvas.width = canvas.height = 32;
+              const context = canvas.getContext('2d')!;
+              context.fillStyle = matchMedia('(prefers-color-scheme: dark)').matches
+                ? '#111'
+                : '#fff';
+              context.fillRect(0, 0, 32, 32);
+              context.drawImage(image, 0, 0, 32, 32);
+              const pixels = [...context.getImageData(0, 0, 32, 32).data];
+              const corner = [...context.getImageData(0, 0, 1, 1).data];
+              const png = canvas.toDataURL('image/png').split(',')[1]!;
+              // The selected blog PNG is the independent pixel oracle, under the same door CSP.
+              const approved = new Image();
+              approved.src = reference;
+              await approved.decode();
+              context.clearRect(0, 0, 32, 32);
+              context.fillRect(0, 0, 32, 32);
+              context.drawImage(approved, 0, 0, 32, 32);
+              return {
+                pixels,
+                expected: [...context.getImageData(0, 0, 32, 32).data],
+                corner,
+                png,
+              };
+            },
+            `data:image/png;base64,${approvedPng.toString('base64')}`,
+          );
+          expect(icon.pixels).toEqual(icon.expected);
           expect(icon.corner).toEqual(
             colorScheme === 'light' ? [255, 255, 255, 255] : [17, 17, 17, 255],
           );
@@ -1780,7 +1796,7 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             expect(header).toMatchObject({
               markViewBox: '0 0 96 96',
               // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
-              markPaths: 5,
+              markPaths: 2,
               wordmarkText: 'Remote',
             });
             expect(header.mark).toMatchObject({
