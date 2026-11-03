@@ -110,7 +110,7 @@ import { useThreadFilter } from './use-thread-filter.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
-import { UiTheme } from '@tmt/browser-ui/ui';
+import { ColdPageList } from './home-cold.js';
 import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
 import '@tmt/browser-ui/ui.css';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -881,9 +881,9 @@ const root = createRootRouteWithContext<AppContext>()({
         <main>
           {listFailure ? (
             <section className="home tmt-ui-page" data-page-list>
-              <UiTheme theme={theme}>
+              <ColdPageList theme={theme}>
                 <PageListError onRetry={() => void router.invalidate()} />
-              </UiTheme>
+              </ColdPageList>
             </section>
           ) : failure && failure.kind !== 'refused' ? (
             <PageOpenFailure failure={failure} />
@@ -962,9 +962,9 @@ function HomePending() {
   return (
     <section className="home tmt-ui-page" data-page-list>
       <AppHeader title={text.pageList.allPages} />
-      <UiTheme theme={theme}>
+      <ColdPageList theme={theme}>
         <PageListLoading />
-      </UiTheme>
+      </ColdPageList>
     </section>
   );
 }

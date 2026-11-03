@@ -117,7 +117,8 @@ export async function mountPageList(
   withSpace = true,
   failure?: 'network' | 'admission' | 'session',
 ) {
-  document.getElementById('root')!.style.display = 'none';
+  // Remove the boot app entirely: a hidden shell would still affect :has() during root errors.
+  document.getElementById('root')?.remove();
   let host = document.getElementById('list-fixture');
   if (!host) {
     host = document.createElement('div');

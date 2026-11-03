@@ -756,3 +756,9 @@
 .home .tmt-page-list-pins {
   margin-bottom: var(--tmt-ui-ref-space-4);
 }
+
+@media (max-width: 760px) {
+  .cold-list-action-label {
+    display: none;
+  }
+}

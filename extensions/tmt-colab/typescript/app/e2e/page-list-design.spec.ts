@@ -65,6 +65,26 @@ for (const width of [390, 1440])
         await fixture.mountPageList('few', '/', undefined, true, 'network');
       }, theme);
       const app = page.locator('#list-fixture');
+      const tabs = app.getByRole('tablist', { name: 'Page views' });
+      await expect(tabs.getByRole('tab')).toHaveCount(6);
+      for (const name of ['All', 'Needs you', 'Discussion', 'In progress', 'Done', 'Archived'])
+        await expect(tabs.getByRole('tab', { name, exact: true })).toBeDisabled();
+      await expect(app.getByRole('combobox', { name: 'Search pages' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
+      await expect(app.getByRole('button', { name: 'Filter' })).toBeDisabled();
+      await expect(app.getByRole('button', { name: 'Sort' })).toBeDisabled();
+      const create = app.getByRole('button', { name: 'New page' });
+      await expect(create).toBeEnabled();
+      await create.evaluate((element: HTMLElement) => element.click());
+      await expect(app.getByRole('dialog', { name: 'New page' })).toHaveCount(0);
+      await create.click();
+      const createDialog = app.getByRole('dialog', { name: 'New page' });
+      await expect(createDialog).toContainText('tmt colab page create');
+      await createDialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(create).toBeFocused();
+      await expect(app.getByRole('list', { name: 'Pinned pages' })).toHaveCount(0);
       await expect(app.getByLabel('Loading pages')).toBeVisible();
       await expect(app.getByLabel('Loading pages').locator('[data-slot=skeleton]')).toHaveCount(6);
       await page.screenshot({ path: await capturePath(`5972-loading-${width}-${theme}.png`) });
@@ -72,7 +92,59 @@ for (const width of [390, 1440])
         const path = '/test/page-list-browser.tsx';
         (await import(path)).releaseHome();
       });
-      await expect(app.getByText('Could not load pages')).toBeVisible();
+      const heading = app.getByText('Could not load pages');
+      await expect(heading).toBeVisible();
+      await expect(app.getByRole('tablist', { name: 'Page views' }).getByRole('tab')).toHaveCount(
+        6,
+      );
+      await expect(app.getByRole('button', { name: 'Filter' })).toBeDisabled();
+      await expect(app.getByRole('button', { name: 'Sort' })).toBeDisabled();
+      await expect(app.getByRole('button', { name: 'New page' })).toBeEnabled();
+      const headerBox = (await app.locator('header').first().boundingBox())!;
+      const tabList = app.getByRole('tablist', { name: 'Page views' });
+      await expect(tabList).toBeVisible();
+      const visibility = await tabList.evaluate((node) => {
+        const chain = [];
+        for (
+          let current: HTMLElement | null = node as HTMLElement;
+          current;
+          current = current.parentElement
+        ) {
+          const style = getComputedStyle(current);
+          chain.push({
+            tag: current.tagName,
+            opacity: style.opacity,
+            visibility: style.visibility,
+            display: style.display,
+          });
+        }
+        return chain;
+      });
+      expect(
+        visibility.every(
+          (entry) =>
+            Number(entry.opacity) > 0 && entry.visibility === 'visible' && entry.display !== 'none',
+        ),
+        JSON.stringify(visibility),
+      ).toBe(true);
+      const tabVisible = await tabList
+        .getByRole('tab', { name: 'All', exact: true })
+        .evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return {
+            clear: top === node || node.contains(top) || top === node.closest('[role=tablist]'),
+            top: top?.outerHTML.slice(0, 400),
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
+          };
+        });
+      expect(tabVisible.clear, JSON.stringify(tabVisible)).toBe(true);
+      const tabBox = (await tabList.boundingBox())!;
+      const searchBox = (await app.getByRole('combobox', { name: 'Search pages' }).boundingBox())!;
+      expect(tabBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
+      expect(searchBox.y).toBeGreaterThanOrEqual(tabBox.y + tabBox.height);
+      const headingBox = (await heading.boundingBox())!;
+      expect(headingBox.y).toBeGreaterThanOrEqual(searchBox.y + searchBox.height);
       await page.screenshot({ path: await capturePath(`5972-error-${width}-${theme}.png`) });
       await app.getByRole('button', { name: 'Try again' }).click();
       await expect(app.getByRole('grid', { name: 'Pages' })).toBeVisible();

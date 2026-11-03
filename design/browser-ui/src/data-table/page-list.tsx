@@ -74,7 +74,7 @@ export function PageListPins({ label, pages }: { label: string; pages: readonly 
 export interface PageListView {
   id: string;
   label: string;
-  count: number;
+  count?: number;
   state?: { mark: string; word: string };
 }
 
@@ -85,6 +85,7 @@ export function PageListTabs({
   views,
   onChange,
   formatCount,
+  disabled = false,
   actions,
   children,
 }: {
@@ -93,6 +94,7 @@ export function PageListTabs({
   views: readonly PageListView[];
   onChange(value: string): void;
   formatCount(value: number): string;
+  disabled?: boolean;
   actions?: ReactNode;
   children?: ReactNode;
 }) {
@@ -104,9 +106,13 @@ export function PageListTabs({
             <TabsTrigger
               key={view.id}
               value={view.id}
-              aria-label={`${view.state ? `${view.state.mark} ` : ''}${view.label}, ${formatCount(view.count)}${view.state ? ` · ${view.state.word}` : ''}`}
+              disabled={disabled}
+              aria-label={`${view.state ? `${view.state.mark} ` : ''}${view.label}${view.count === undefined ? '' : `, ${formatCount(view.count)}`}${view.state ? ` · ${view.state.word}` : ''}`}
             >
-              {view.label} <span className="tmt-page-list-count">{formatCount(view.count)}</span>
+              {view.label}{' '}
+              {view.count !== undefined && (
+                <span className="tmt-page-list-count">{formatCount(view.count)}</span>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>
