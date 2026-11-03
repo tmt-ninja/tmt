@@ -688,6 +688,7 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
     'Projects…',
     'Restore',
     'Delete',
+    'Copy page ID',
   ]);
   await page.getByRole('menuitem', { name: 'Delete' }).click();
   await confirmDialog(page, 'Delete “Archived spec”?')
@@ -1647,8 +1648,8 @@ async function insideViewport(page: Page) {
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
-    const rows = [...document.querySelectorAll('#list-fixture .page-projects')]
-      .flatMap((row) => [...row.querySelectorAll('button')].map((b) => b.getBoundingClientRect()))
+    const rows = [...document.querySelectorAll('#list-fixture .tmt-page-list-project-picker')]
+      .map((button) => button.getBoundingClientRect())
       .filter((box) => box.right > column.right + 0.5 || box.left < column.left - 0.5).length;
     return { outside, rows, scroll: document.documentElement.scrollWidth - width };
   });

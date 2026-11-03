@@ -55,6 +55,8 @@ import {
 import { ShortcutMenuRequestSlot } from './shortcut-menu-request.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
+import { RetentionHint } from './retention-hint.js';
+import { CopyCommand } from './copy-command.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
 import { operationStatus } from './page-operation-status.js';
@@ -428,6 +430,7 @@ export function Home() {
   const [newPage, setNewPage] = useState(false);
   // The list owns the dialog even when a refreshed list no longer contains its page.
   const [managedPage, setManagedPage] = useState<Pick<PageSummary, 'id' | 'title'>>();
+  const managedReturn = useRef<HTMLElement | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   // Only pages the list shows count: a filter, a tab or a refresh drops the rest from the selection.
   const chosen = port ? pages.filter((page) => selectedIds.has(page.id)) : [];
@@ -962,12 +965,28 @@ export function Home() {
                     pinned={page.pinned}
                     onOpenInNewTab={() => openInNewTab(page.id)}
                     onPin={port && !page.archived ? () => void togglePin(page) : undefined}
-                    onManage={() => setManagedPage({ id: page.id, title: page.title })}
+                    onManage={() => {
+                      const row = [
+                        ...(section.current?.querySelectorAll<HTMLElement>('[data-page-id]') ?? []),
+                      ].find((element) => element.dataset.pageId === page.id);
+                      managedReturn.current =
+                        row?.querySelector<HTMLElement>('.tmt-data-table-menu') ?? null;
+                      setManagedPage({ id: page.id, title: page.title });
+                    }}
                     onProjects={() => openProjects(page.id)}
                     onArchive={() =>
                       openRowOperation(page.archived ? 'page.unarchive' : 'page.archive', page)
                     }
                     onDelete={() => openRowOperation('page.delete', page)}
+                    onCopyId={async () => {
+                      try {
+                        await navigator.clipboard.writeText(page.id);
+                        setStatus({ text: 'Page ID copied.', failed: false });
+                      } catch {
+                        setStatus({ text: 'Could not copy page ID.', failed: true });
+                      }
+                    }}
+                    footer={<RetentionHint page={page} />}
                   />
                 );
               }}
@@ -1046,11 +1065,12 @@ export function Home() {
               <>
                 <EmptyHeader>
                   <EmptyTitle>No pages yet</EmptyTitle>
-                  <EmptyDescription>
-                    Pages are created on your machine: tmt colab page create --title "Notes"
-                  </EmptyDescription>
+                  <EmptyDescription>Pages are created on your machine.</EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent>{newPageAction}</EmptyContent>
+                <EmptyContent>
+                  {port && <CopyCommand command={t.newPageCommand} enabled />}
+                  {newPageAction}
+                </EmptyContent>
               </>
             )}
           </Empty>
@@ -1165,7 +1185,15 @@ export function Home() {
               pageId={managedPage.id}
               title={managedPage.title}
               open
-              close={() => setManagedPage(undefined)}
+              close={() => {
+                const target = managedReturn.current;
+                managedReturn.current = null;
+                setManagedPage(undefined);
+                if (target)
+                  requestAnimationFrame(() => {
+                    if (target.isConnected) target.focus({ preventScroll: true });
+                  });
+              }}
             />
           )}
           <PageOperationDialog

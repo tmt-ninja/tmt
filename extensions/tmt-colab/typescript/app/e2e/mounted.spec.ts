@@ -351,7 +351,7 @@ for (const width of [1440, 390]) {
       }),
     );
     await page.goto(mount);
-    const pinnedTitles = page.locator('.page-pins a');
+    const pinnedTitles = page.locator('.tmt-page-list-pins a');
     await expect(homeList(page)).toBeVisible();
     await expect(pinnedTitles).toHaveText(['First owner pin', 'Second owner pin']);
     await expect(page.locator('.page-list-table [data-page-id]')).toHaveCount(3);
@@ -517,10 +517,10 @@ test('empty owner space names the product page-create command', async ({ page })
   await fixture(page, false, true);
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
-  await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
-    'tmt colab page create --title "Notes" --layout column',
-  );
-  await expect(page.locator('.pages')).toHaveCount(0);
+  await expect(
+    page.getByText('tmt colab page create --title "Notes" --layout column', { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.page-list-table')).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);
 });
 
@@ -639,9 +639,9 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await showAllPages(page);
   await page
     .locator('.page-list-table [data-page-id]')
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
-  await page.getByRole('menuitem', { name: 'Manage page' }).click();
+  await page.getByRole('menuitem', { name: 'Manage…' }).click();
   const dialog = page.locator('dialog.management-dialog');
   const audience = dialog.getByRole('button', { name: /^Who can open this page/ });
   await expect(audience).toBeVisible();
@@ -684,9 +684,9 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     // The visible action must actually close the scrolled dialog and restore its trigger.
     await closeManagement.click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Actions for/ })).toBeFocused();
-    await page.getByRole('button', { name: /^Actions for/ }).click();
-    await page.getByRole('menuitem', { name: 'Manage page' }).click();
+    await expect(page.getByRole('button', { name: /^More for/ })).toBeFocused();
+    await page.getByRole('button', { name: /^More for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage…' }).click();
     await expect(audience).toBeVisible();
   }
   await page.setViewportSize(originalViewport);
@@ -792,7 +792,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await page.screenshot({ path: testInfo.outputPath('share-mobile.png') });
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(page.getByRole('button', { name: /^Actions for/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^More for/ })).toBeFocused();
 });
 
 test('trusted home manages retention, archive and verified or awaiting deletion', async ({
@@ -905,11 +905,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
   await showAllPages(page);
-  const row = (id: string) => page.locator(`.pages [data-page-id="${id}"]`);
+  const row = (id: string) => page.locator(`.page-list-table [data-page-id="${id}"]`);
   await row(pageId)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
-  const manage = page.getByRole('menuitem', { name: 'Manage page' });
+  const manage = page.getByRole('menuitem', { name: 'Manage…' });
   await manage.click();
   const dialog = page.locator('dialog.management-dialog');
   await expect(dialog).toContainText('local only');
@@ -925,18 +925,18 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(close).toHaveCSS('outline-offset', '-2px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
+  await expect(row(pageId).getByRole('button', { name: /^More for/ })).toBeFocused();
   await row(pageId)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
   await manage.click();
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(close).toBeEnabled();
   await close.click();
   await expect(dialog).toHaveCount(0);
-  await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
+  await expect(row(pageId).getByRole('button', { name: /^More for/ })).toBeFocused();
   await row(pageId)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
   await manage.click();
   await expect(dialog.getByLabel('Days after the last change')).toBeVisible();
@@ -968,7 +968,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.getByRole('tab', { name: /^Archived/ }).click();
   await expect(row(pageId)).toContainText('Archived');
   await row(pageId)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
   await expect(page.getByRole('menu').locator('.retention-hint')).toHaveText('kept forever');
   await page.getByRole('menu').press('Escape');
@@ -976,9 +976,9 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   // The two catalog IDs differ only in the last character, so the shortest unique prefix is the ID.
   await expect(row(pageId).getByRole('link')).toHaveAttribute('href', `/p/${pageId}`);
   await row(pageId)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
-  await page.getByRole('menuitem', { name: 'Manage page' }).click();
+  await page.getByRole('menuitem', { name: 'Manage…' }).click();
   await expect(
     dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }),
   ).toBeDisabled();
@@ -1013,9 +1013,9 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: /^All, \d+\+?$/ }).click();
   await row(other)
-    .getByRole('button', { name: /^Actions for/ })
+    .getByRole('button', { name: /^More for/ })
     .click();
-  await page.getByRole('menuitem', { name: 'Manage page' }).click();
+  await page.getByRole('menuitem', { name: 'Manage…' }).click();
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
@@ -1038,9 +1038,9 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.page-list-table [data-page-id]')).toHaveCount(0);
-  await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
-    'tmt colab page create',
-  );
+  await expect(
+    page.getByText('tmt colab page create --title "Notes" --layout column', { exact: true }),
+  ).toBeVisible();
 });
 
 test.describe('relative retention evidence', () => {
@@ -1083,9 +1083,9 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     await expect(homeList(page)).toBeVisible();
     await showAllPages(page);
-    const row = page.locator(`.pages [data-page-id="${pageId}"]`);
+    const row = page.locator(`.page-list-table [data-page-id="${pageId}"]`);
     const hint = page.getByRole('menu').locator('.retention-hint');
-    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
     await expect(hint).toHaveText('expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveClass(/lucide-clock/);
@@ -1093,7 +1093,7 @@ test.describe('relative retention evidence', () => {
       'color',
       await page.locator('body').evaluate((node) => getComputedStyle(node).color),
     );
-    await expect(row.getByRole('link')).toBeVisible();
+    await expect(row.locator('a')).toBeVisible();
     const dialog = page.locator('.management-dialog');
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -1101,17 +1101,13 @@ test.describe('relative retention evidence', () => {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        if (
-          (await row
-            .getByRole('button', { name: /^Actions for/ })
-            .getAttribute('aria-expanded')) !== 'true'
-        )
-          await row.getByRole('button', { name: /^Actions for/ }).click();
+        if ((await row.locator('.tmt-data-table-menu').getAttribute('aria-expanded')) !== 'true')
+          await row.getByRole('button', { name: /^More for/ }).click();
         await page.screenshot({
           path: testInfo.outputPath(`expiry-home-${width}-${theme}.png`),
           fullPage: true,
         });
-        await page.getByRole('menuitem', { name: 'Manage page' }).click();
+        await page.getByRole('menuitem', { name: 'Manage…' }).click();
         await expect(dialog.locator('.retention-hint')).toHaveText('expires in 6 days');
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
@@ -1136,10 +1132,10 @@ test.describe('relative retention evidence', () => {
     await page.clock.setFixedTime(now);
     await page.reload();
     await showAllPages(page);
-    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
     await expect(hint).toHaveText('not in the cloud');
-    await expect(row.getByRole('link')).toBeVisible();
-    await page.getByRole('menuitem', { name: 'Manage page' }).click();
+    await expect(row.locator('a')).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Manage…' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('not in the cloud');
     await expect(
       dialog.getByRole('button', { name: 'Set access expiry', exact: true }),
@@ -1150,7 +1146,7 @@ test.describe('relative retention evidence', () => {
     await page.clock.setFixedTime(now);
     await page.reload();
     await showAllPages(page);
-    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
     await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
     // An ordinary hint is dim text: the muted colour, read from a probe in the list.

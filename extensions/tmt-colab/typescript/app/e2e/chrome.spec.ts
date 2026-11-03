@@ -294,10 +294,10 @@ for (const width of [1440, 390, 320])
           if (screen === 'pages') {
             const card = page.locator('.page-list-table [data-page-id]:visible').first();
             await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
-            await expect(card.getByRole('button', { name: /^Actions for/ })).toBeVisible();
-            await card.getByRole('button', { name: /^Actions for/ }).click();
-            await expect(page.getByRole('menu').getByText(/^Page ID:/)).toContainText('a19c0460');
-            await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
+            await expect(card.getByRole('button', { name: /^More for/ })).toBeVisible();
+            await card.getByRole('button', { name: /^More for/ }).click();
+            await expect(page.getByRole('menuitem', { name: 'Copy page ID' })).toBeVisible();
+            await expect(page.getByRole('menuitem', { name: 'Manage…' })).toBeVisible();
             await page.getByRole('menu').press('Escape');
             await expect(
               page

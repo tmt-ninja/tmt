@@ -8,6 +8,7 @@ import { TrustedMenuItem, TrustedMenuCheckboxItem } from '../ui/trusted-menu.js'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu.js';
@@ -251,6 +252,8 @@ export function PageListRowMenu({
   onProjects,
   onArchive,
   onDelete,
+  onCopyId,
+  footer,
 }: {
   archived: boolean;
   readOnly: boolean;
@@ -261,6 +264,8 @@ export function PageListRowMenu({
   onProjects(): void;
   onArchive(): void;
   onDelete(): void;
+  onCopyId?(): void;
+  footer?: ReactNode;
 }) {
   const reason = readOnly ? 'Read-only access' : undefined;
   return (
@@ -313,6 +318,9 @@ export function PageListRowMenu({
       >
         Delete
       </TrustedMenuItem>
+      {(onCopyId || footer) && <DropdownMenuSeparator />}
+      {onCopyId && <TrustedMenuItem onSelect={onCopyId}>Copy page ID</TrustedMenuItem>}
+      {footer && <DropdownMenuLabel>{footer}</DropdownMenuLabel>}
     </>
   );
 }

@@ -48,6 +48,10 @@ for (const width of [390, 1440])
           .filter({ has: page.getByRole('checkbox', { name: 'Select Review 2', exact: true }) }),
       ).toContainText('Needs you · 3');
       await expect(long.locator('.tmt-page-list-project-overflow')).toHaveText('+2');
+      await expect(long.locator('.tmt-page-list-project-overflow')).toHaveCSS(
+        'border-top-width',
+        '1px',
+      );
       const pinnedLong = root
         .locator('.tmt-page-list-pin a')
         .filter({ hasText: 'A deliberately long page title' });
@@ -68,10 +72,17 @@ for (const width of [390, 1440])
               getComputedStyle(node).textOverflow === 'ellipsis',
           ),
       ).toBe(true);
-      await expect(root.locator('.tmt-page-list-tabs-row')).toHaveCSS(
-        'border-bottom-style',
-        'solid',
-      );
+      await expect(root.locator('.tmt-page-list-tabs-row')).not.toHaveCSS('box-shadow', 'none');
+      expect(
+        await root
+          .locator('.tmt-page-list-tabs-row')
+          .evaluate((node) =>
+            Math.abs(
+              node.getBoundingClientRect().width -
+                node.parentElement!.getBoundingClientRect().width,
+            ),
+          ),
+      ).toBeLessThanOrEqual(1);
       await expect(
         root.locator('.page-list-filter-menu svg.lucide-list-filter:visible'),
       ).toHaveCount(1);
@@ -111,6 +122,10 @@ for (const width of [390, 1440])
       await expect(readOnly.getByRole('checkbox', { name: 'Select Alpha plan' })).toBeDisabled();
       await expect(readOnly).toContainText('Read-only');
       await page.screenshot({ path: await capturePath(`5972-read-only-${width}-${theme}.png`) });
+      await readOnly.getByRole('button', { name: /^More for/ }).click();
+      await expect(page.getByRole('menuitem', { name: 'Copy page ID' })).toBeEnabled();
+      await expect(page.getByRole('menu').locator('.retention-hint')).toBeVisible();
+      await page.keyboard.press('Escape');
     });
   }
 
