@@ -1,4 +1,3 @@
-import { trustedActivation } from './ui/trusted-activation.js';
 import { brandMarkSvg } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
@@ -704,7 +703,8 @@ export function mountShell(
         origin.contains(target)
           ? keyTurn
           : undefined;
-      const admitted = trustedActivation(event, matchingKey);
+      // #6016 will move this import-free trust check to a neutral home shared with UI.
+      const admitted = event.isTrusted || matchingKey?.isTrusted === true;
       if (admitted) keyTurn = undefined;
       if (event.defaultPrevented || !admitted || button.disabled) return;
       setDrawer(false);
