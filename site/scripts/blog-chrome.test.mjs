@@ -12,7 +12,7 @@ const config = {
     { label: "Product", url: "/tmt/", published: false },
     { label: "Journal", url: "/tmt/blog/", published: true },
     { label: "Colab", url: "/tmt/colab/", published: false },
-    { label: "GitHub", url: "https://github.com/team/repo", published: true },
+    { label: "GitHub", url: "https://github.com/team/repo", published: true, external: true },
   ],
 };
 test("shared chrome hides unpublished destinations and adds X only for a configured handle", () => {
@@ -90,4 +90,31 @@ test("stats require a dated, complete, bounded snapshot", () => {
     change(value);
     assert.throws(() => validateStats(value), /Invalid blog stats/);
   }
+});
+
+test("external chrome links use explicit metadata, independent of their label", () => {
+  const result = siteChrome({
+    ...config,
+    links: [
+      {
+        label: "Source & issues",
+        url: "https://github.com/team/repo",
+        published: true,
+        external: true,
+      },
+      { label: "GitHub", url: "/local/", published: true },
+    ],
+  });
+  assert.match(result.header, />Source &amp; issues ↗</);
+  assert.match(result.footer, />Source &amp; issues ↗</);
+  assert.match(result.header, />GitHub</);
+  assert.doesNotMatch(result.footer, /href="\/local\/"/);
+  assert.throws(
+    () =>
+      siteChrome({
+        ...config,
+        links: [{ label: "Source", url: "/", published: true, external: "yes" }],
+      }),
+    /external must be a boolean/,
+  );
 });
