@@ -239,6 +239,7 @@ export function ColabShell({
       settings: {
         id: 'colab-settings',
         label: text.colabSettings.title,
+        icon: 'settings',
         href: href('/settings'),
         current: settings,
       },

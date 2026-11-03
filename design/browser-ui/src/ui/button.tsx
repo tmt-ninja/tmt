@@ -6,7 +6,7 @@ import { Slot } from 'radix-ui';
 import { cn } from './utils.js';
 
 const buttonVariants = cva(
-  "tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4",
+  "tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)",
   {
     variants: {
       variant: {
@@ -15,11 +15,12 @@ const buttonVariants = cva(
           'tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground',
         destructive:
           'tmt:border-border tmt:bg-secondary tmt:text-destructive tmt:hover:bg-destructive-soft tmt:focus-visible:border-destructive-ring',
+        // A <button> does not inherit colour (the UA sets buttontext), so every variant names its ink.
         outline:
-          'tmt:border-input tmt:bg-background tmt:hover:bg-accent tmt:hover:text-accent-foreground',
+          'tmt:border-input tmt:bg-background tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground',
         secondary:
           'tmt:border-input tmt:bg-secondary tmt:text-secondary-foreground tmt:hover:bg-secondary',
-        ghost: 'tmt:hover:bg-accent tmt:hover:text-accent-foreground',
+        ghost: 'tmt:text-foreground tmt:hover:bg-accent tmt:hover:text-accent-foreground',
         link: 'tmt:text-foreground tmt:underline-offset-4 tmt:hover:underline',
       },
       size: {
@@ -47,6 +48,7 @@ function Button({
   asChild = false,
   busy = false,
   busyLabel,
+  collapseLabel,
   disabled,
   children,
   onClickCapture,
@@ -55,6 +57,12 @@ function Button({
 }: React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    /**
+     * A labelled action that collapses (#5821 A5b): the icon in `children`, then this label; below
+     * the compact width (760px) the label hides and the button turns square at control-size-l. The
+     * label stays its accessible name at every width.
+     */
+    collapseLabel?: string;
   } & ({ busy?: false; busyLabel?: string } | { busy: true; busyLabel: string })) {
   const Comp = asChild ? Slot.Root : 'button';
   const blocked = disabled || busy;
@@ -83,19 +91,35 @@ function Button({
       },
     });
   };
+  const labelled = collapseLabel ? (
+    <>
+      {children}
+      <span data-slot="button-label" className="tmt:max-[760px]:sr-only">
+        {collapseLabel}
+      </span>
+    </>
+  ) : (
+    children
+  );
   const content =
     asChild && blocked
       ? React.isValidElement(children)
         ? fenceCapture(children)
         : React.Children.map(children, fenceCapture)
-      : children;
+      : labelled;
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({ variant, size }),
+        collapseLabel &&
+          'tmt:h-(--tmt-foundation-control-size-l) tmt:max-[760px]:w-(--tmt-foundation-control-size-l) tmt:max-[760px]:px-0',
+        className,
+      )}
+      aria-label={collapseLabel}
       {...props}
       disabled={blocked}
       aria-disabled={blocked || undefined}
