@@ -1145,6 +1145,7 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
             window_minutes: 20_000,
             used_percent: 1.0,
             resets_at_ms: 1_791_948_558_000,
+            observed_at_ms: None,
         });
     let mut only_limits_lost = false;
     for length in 1..=118 {

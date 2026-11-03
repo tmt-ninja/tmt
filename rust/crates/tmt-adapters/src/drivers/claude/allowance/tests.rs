@@ -40,12 +40,14 @@ fn real_cache_shape_keeps_percent_units_fetch_age_and_only_selected_fields() {
             RateWindow {
                 window_minutes: 300,
                 used_percent: 12.5,
-                resets_at_ms: FIVE_RESET
+                resets_at_ms: FIVE_RESET,
+                observed_at_ms: Some(FETCHED)
             },
             RateWindow {
                 window_minutes: 10_080,
                 used_percent: 78.0,
-                resets_at_ms: WEEK_RESET
+                resets_at_ms: WEEK_RESET,
+                observed_at_ms: Some(FETCHED)
             },
         ]
     );
@@ -323,7 +325,7 @@ fn elapsed_push_does_not_erase_a_current_window() {
 }
 
 #[test]
-fn the_newest_observation_wins_whole_between_a_push_and_the_cache() {
+fn complete_observations_use_the_newest_and_cache_wins_ties() {
     let pushed = PushedFixture::new(&config());
     let cache = fs::read(pushed.home.path.join(".claude.json")).unwrap();
     // Before any push the cache answers, with its own age.
@@ -342,7 +344,7 @@ fn the_newest_observation_wins_whole_between_a_push_and_the_cache() {
         fs::read(pushed.home.path.join(".claude.json")).unwrap(),
         cache
     );
-    // A newer cache beats the older push, whole: the windows are never mixed.
+    // A newer complete cache beats the older complete push.
     let mut newer = config();
     newer["cachedUsageUtilization"]["fetchedAtMs"] = json!(NOW + 1_000);
     pushed.config(&newer);
@@ -358,6 +360,98 @@ fn the_newest_observation_wins_whole_between_a_push_and_the_cache() {
         (limits.observed_at_ms, used(&limits)),
         (NOW + 2_000, vec![31.0, 82.0])
     );
+}
+
+#[test]
+fn independent_windows_merge_cache_and_push_in_both_views() {
+    let mut cached = config();
+    cached["cachedUsageUtilization"]["fetchedAtMs"] = json!(NOW);
+    cached["cachedUsageUtilization"]["utilization"]["seven_day"] = Value::Null;
+    let fixture = PushedFixture::new(&cached);
+    assert!(fixture.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let newer_week = json!({"rateLimits": [{"kind": "seven_day", "percentUsed": 81,
+        "resetsAt": "2026-10-14T03:29:18.000Z"}]});
+    assert!(
+        fixture
+            .push(&serde_json::to_vec(&newer_week).unwrap(), NOW + 1)
+            .unwrap()
+    );
+    let from_read = fixture.read(NOW + 1).unwrap();
+    let [account] = listed(&fixture, NOW + 1).try_into().unwrap();
+    let from_accounts = account.rate_limits.unwrap();
+    for view in [&from_read, &from_accounts] {
+        assert_eq!(used(view), [12.5, 81.0]);
+        assert_eq!(view.windows[0].resets_at_ms, FIVE_RESET);
+        assert_eq!(view.windows[0].observed_at_ms, Some(NOW));
+        assert_eq!(view.windows[1].observed_at_ms, Some(NOW + 1));
+        let json = serde_json::to_value(view).unwrap();
+        assert_eq!(json["windows"][0]["observedAtMs"], NOW);
+    }
+}
+
+#[test]
+fn alternating_sessions_keep_each_latest_window_and_reset_requires_new_observation() {
+    let fixture = PushedFixture::new(&bare());
+    let other_home = TestDirectory::new();
+    fs::write(
+        other_home.path.join(".claude.json"),
+        serde_json::to_vec(&bare()).unwrap(),
+    )
+    .unwrap();
+    let other = ProviderEnvironment::from_parts(&other_home.path, &other_home.path, Vec::new(), [])
+        .with_data_root(&fixture.data.path);
+    assert!(fixture.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let week = json!({"rateLimits": [{"kind": "seven_day", "percentUsed": 81,
+        "resetsAt": "2026-10-14T03:29:18.000Z"}]});
+    assert!(
+        push(
+            &other,
+            &fixture.data.path,
+            &serde_json::to_vec(&week).unwrap(),
+            NOW + 1
+        )
+        .unwrap()
+    );
+    let five = json!({"rateLimits": [{"kind": "five_hour", "percentUsed": 21,
+        "resetsAt": "2026-10-10T08:13:20.000Z"}]});
+    assert!(
+        fixture
+            .push(&serde_json::to_vec(&five).unwrap(), NOW + 2)
+            .unwrap()
+    );
+    let both = fixture.read(NOW + 2).unwrap();
+    assert_eq!(used(&both), [21.0, 81.0]);
+    assert_eq!(both.windows[0].observed_at_ms, Some(NOW + 2));
+    assert_eq!(both.windows[1].observed_at_ms, Some(NOW + 1));
+    assert_eq!(used(&fixture.read(PUSHED_FIVE_RESET).unwrap()), [81.0]);
+    let renewed = json!({"rateLimits": [{"kind": "five_hour", "percentUsed": 3,
+        "resetsAt": "2026-10-14T03:29:18.000Z"}]});
+    assert!(
+        push(
+            &other,
+            &fixture.data.path,
+            &serde_json::to_vec(&renewed).unwrap(),
+            PUSHED_FIVE_RESET
+        )
+        .unwrap()
+    );
+    assert_eq!(used(&fixture.read(PUSHED_FIVE_RESET).unwrap()), [3.0, 81.0]);
+}
+
+#[test]
+fn old_version_store_is_not_observed_or_migrated() {
+    let fixture = PushedFixture::new(&bare());
+    assert!(fixture.push(&push_body(20.0, 80.0), NOW).unwrap());
+    let path = fixture.data.path.join(STORE);
+    let mut old: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    old["version"] = json!(1);
+    fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+    assert!(fixture.read(NOW).is_none());
+    let [account] = listed(&fixture, NOW).try_into().unwrap();
+    assert_eq!(account.reason, Some(NoLimits::NoneObserved));
+    assert!(fixture.push(&push_body(30.0, 90.0), NOW + 1).unwrap());
+    assert_eq!(used(&fixture.read(NOW + 1).unwrap()), [30.0, 90.0]);
+    assert_eq!(fixture.store().unwrap().version, 2);
 }
 
 #[test]
@@ -465,7 +559,7 @@ fn the_store_is_private_bounded_to_eight_accounts_and_drops_the_oldest() {
         0o700
     );
     // A foreign or corrupt store is replaced by the next push, never trusted.
-    fs::write(&path, b"{\"version\":2,\"accounts\":{}}").unwrap();
+    fs::write(&path, b"{\"version\":1,\"accounts\":{}}").unwrap();
     assert!(pushed.store().is_none());
     assert!(pushed.push(&push_body(3.0, 4.0), NOW + 20).unwrap());
     assert_eq!(pushed.store().unwrap().accounts.len(), 1);
@@ -617,7 +711,7 @@ fn a_known_account_with_nothing_seen_or_nothing_left_says_why_instead_of_vanishi
 }
 
 #[test]
-fn the_newest_observation_wins_whole_in_the_account_view_and_a_tie_prefers_the_cache() {
+fn account_view_uses_newest_complete_observations_and_cache_wins_ties() {
     let pushed = PushedFixture::new(&config());
     assert!(pushed.push(&push_body(20.0, 80.0), NOW).unwrap());
     let newest = |pushed: &PushedFixture, now| {
