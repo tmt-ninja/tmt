@@ -1131,28 +1131,27 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
         "a typical Codex state keeps its limits in the opaque bound"
     );
 
-    // Legacy records with absent per-window observations remain absent after a state round trip.
-    assert!(
-        limited
-            .value
-            .rate_limits
-            .as_ref()
-            .unwrap()
-            .windows
-            .iter()
-            .all(|window| window.observed_at_ms.is_none())
-    );
-    assert_eq!(State::read(&limited.document()), Some(limited.clone()));
-
-    // Independent Claude window ages survive the compact opaque representation.
+    // Claude's account-store window ages must not change the opaque member state bytes.
     let mut timed = limited.clone();
     let limits = timed.value.rate_limits.as_mut().unwrap();
-    limits.windows[0].observed_at_ms = Some(limits.observed_at_ms - 100);
-    let mut second = limits.windows[0];
-    second.window_minutes += 1;
-    second.observed_at_ms = Some(limits.observed_at_ms);
-    limits.windows.push(second);
-    assert_eq!(State::read(&timed.document()), Some(timed));
+    limits.provider = "claude".into();
+    limits.windows[0].observed_at_ms = Some(limits.observed_at_ms);
+    let mut untimed = timed.clone();
+    untimed.value.rate_limits.as_mut().unwrap().windows[0].observed_at_ms = None;
+    assert_eq!(timed.document(), untimed.document());
+    let timed_state = driver_state::after_observation(None, Some(timed), None).unwrap();
+    let untimed_state = driver_state::after_observation(None, Some(untimed), None).unwrap();
+    assert_eq!(timed_state.document(), untimed_state.document());
+    assert!(
+        driver_state::state_consumption(&timed_state)
+            .unwrap()
+            .value
+            .rate_limits
+            .unwrap()
+            .windows[0]
+            .observed_at_ms
+            .is_none()
+    );
 
     // Sweep the attribution size across the bound. Whatever the size, the
     // counters survive, limits go no later than attribution, and some size
@@ -1171,7 +1170,6 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
             observed_at_ms: None,
         });
     let mut only_limits_lost = false;
-    let mut timed_limits_retained = false;
     for length in 1..=118 {
         let mut state = full.clone();
         state.value.input_tokens = 4;
@@ -1200,85 +1198,10 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
         }
         only_limits_lost |=
             restored.value.rate_limits.is_none() && restored.value.delta_by_model.is_some();
-        let mut timed = state.clone();
-        let limits = timed.value.rate_limits.as_mut().unwrap();
-        for window in &mut limits.windows {
-            window.observed_at_ms = Some(limits.observed_at_ms);
-        }
-        let bounded = driver_state::after_observation(None, Some(timed), Some(&launch)).unwrap();
-        let restored = driver_state::state_consumption(&bounded).unwrap();
-        timed_limits_retained |=
-            restored.value.rate_limits.is_some() && restored.value.delta_by_model.is_none();
     }
     assert!(
         only_limits_lost,
         "limits must be dropped before attribution"
-    );
-    assert!(
-        timed_limits_retained,
-        "independently timed windows survive before attribution"
-    );
-}
-
-#[test]
-fn independently_maximal_escaped_activity_cannot_fit_the_driver_state_bound() {
-    use crate::runtime::driver_state;
-    use tmt_core::{
-        binding::session::{
-            ProviderSessionId,
-            activity::{Event, EventKind},
-        },
-        endpoint::ProcessIncarnation,
-    };
-    let root = TestDirectory::new();
-    let path = root.path.join("maxima.jsonl");
-    fs::write(&path, CODEX).unwrap();
-    let first = codex(&root.path, &path, None, NOW).unwrap();
-    append(
-        &path,
-        &codex_limited(6_910_969, "2026-10-10T03:48:29.763Z", weekly_used(78.0)),
-    );
-    let mut reading = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
-    let limits = reading.value.rate_limits.as_mut().unwrap();
-    limits.provider = "claude".into();
-    limits.windows[0].observed_at_ms = Some(limits.observed_at_ms);
-    let mut second = limits.windows[0];
-    second.window_minutes += 1;
-    limits.windows.push(second);
-    let model = "m".repeat(128);
-    let start = legacy_start(&model, None);
-    let previous = driver_state::after_observation(None, Some(reading), Some(&start)).unwrap();
-    assert_eq!(
-        driver_state::state_consumption(&previous)
-            .unwrap()
-            .value
-            .rate_limits
-            .unwrap()
-            .windows
-            .len(),
-        2
-    );
-    let session = ProviderSessionId::new(&"\"".repeat(256)).unwrap();
-    let process = ProcessIncarnation::new(42, &"\\".repeat(256)).unwrap();
-    let event = Event {
-        kind: EventKind::TurnStarted,
-        turn: None,
-    };
-    // The independently valid escaped maxima exceed 1 KiB even before consumption. The writer
-    // returns no new state rather than publishing a partial activity or inventing windows.
-    assert!(
-        driver_state::after_activity(Some(&previous), &session, &process, &event, None, NOW + 2)
-            .is_none()
-    );
-    assert_eq!(
-        driver_state::state_consumption(&previous)
-            .unwrap()
-            .value
-            .rate_limits
-            .unwrap()
-            .windows
-            .len(),
-        2
     );
 }
 

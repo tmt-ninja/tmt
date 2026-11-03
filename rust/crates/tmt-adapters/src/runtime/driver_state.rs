@@ -240,36 +240,6 @@ impl Document {
             if document.len() <= DriverState::MAXIMUM_BYTES {
                 return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
             }
-            // Independently timed windows are expensive evidence to recover: prefer them over
-            // optional model attribution when their newer opaque representation needs space.
-            // Existing timestamp-free records (including Codex) retain their original eviction order.
-            let independently_timed =
-                consumption
-                    .value
-                    .rate_limits
-                    .as_ref()
-                    .is_some_and(|limits| {
-                        limits
-                            .windows
-                            .iter()
-                            .any(|window| window.observed_at_ms.is_some())
-                    });
-            if independently_timed {
-                let attribution = consumption.value.delta_by_model.take();
-                fields.insert("consumption".into(), consumption.document());
-                let document = Value::Object(fields.clone()).to_string();
-                if document.len() <= DriverState::MAXIMUM_BYTES {
-                    return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
-                }
-                let model_id = consumption.value.model_id.take();
-                fields.insert("consumption".into(), consumption.document());
-                let document = Value::Object(fields.clone()).to_string();
-                if document.len() <= DriverState::MAXIMUM_BYTES {
-                    return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
-                }
-                consumption.value.delta_by_model = attribution;
-                consumption.value.model_id = model_id;
-            }
             consumption.value.rate_limits = None;
             fields.insert("consumption".into(), consumption.document());
             let document = Value::Object(fields.clone()).to_string();

@@ -791,7 +791,8 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   `utilization` is a percentage (0–100, never rescaled), and ISO resets become UTC
   milliseconds. Missing/null windows are optional; a malformed or partial window
   rejects the snapshot. Windows at or past reset are dropped individually. Older
-  current windows retain their original age without a one-hour cutoff. No usable
+  current windows remain available without a one-hour cutoff; individual ages are exposed
+  by the account-level limits view. No usable
   windows means no limits. A cache change advances the consumption sequence without
   adding tokens; an unchanged cache does not. `provider` is fixed by the source (`claude` or `codex`),
   never inferred from a seat's models; values stored before this field read as
@@ -811,12 +812,11 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   when a provider has more than one account; they never group by a model or plan tier.
   Codex's `limit_id` names a limit family and `plan_type` a shared plan tier;
   neither identifies an account.
-  `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs,observedAtMs?}` entries in
-  strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
-  allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset. Optional
-  `observedAtMs` is that window's own observation time; when absent, use the enclosing
-  observation time. A still-current older value retains its age; a window at or past reset
-  is absent until a new observation arrives.
+  Member `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
+  strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's allowance used
+  in that window and `resetsAtMs` its UTC Unix millisecond reset. Individual observation
+  ages appear only in [account limits](#account-limits); a member sample has the enclosing
+  observation time. A window at or past reset is absent until a new observation arrives.
   The contract names no window; consumers choose one by length. Limits describe the
   account, so seats on one account report the same windows: they are not a session
   counter and are never summed. They are the first optional evidence omitted under

@@ -438,20 +438,57 @@ fn alternating_sessions_keep_each_latest_window_and_reset_requires_new_observati
     assert_eq!(used(&fixture.read(PUSHED_FIVE_RESET).unwrap()), [3.0, 81.0]);
 }
 
-#[test]
-fn old_version_store_is_not_observed_or_migrated() {
-    let fixture = PushedFixture::new(&bare());
+fn make_v1_store(fixture: &PushedFixture) {
     assert!(fixture.push(&push_body(20.0, 80.0), NOW).unwrap());
     let path = fixture.data.path.join(STORE);
     let mut old: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     old["version"] = json!(1);
-    fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
-    assert!(fixture.read(NOW).is_none());
-    let [account] = listed(&fixture, NOW).try_into().unwrap();
-    assert_eq!(account.reason, Some(NoLimits::NoneObserved));
-    assert!(fixture.push(&push_body(30.0, 90.0), NOW + 1).unwrap());
-    assert_eq!(used(&fixture.read(NOW + 1).unwrap()), [30.0, 90.0]);
-    assert_eq!(fixture.store().unwrap().version, 2);
+    for window in old["accounts"]["account-a"]["windows"]
+        .as_array_mut()
+        .unwrap()
+    {
+        window.as_object_mut().unwrap().remove("observedAtMs");
+    }
+    fs::write(path, serde_json::to_vec(&old).unwrap()).unwrap();
+}
+
+#[test]
+fn v1_store_reads_current_windows_with_the_original_observation_time() {
+    let fixture = PushedFixture::new(&bare());
+    make_v1_store(&fixture);
+    let limits = fixture.read(NOW + 1).unwrap();
+    assert_eq!(used(&limits), [20.0, 80.0]);
+    assert!(
+        limits
+            .windows
+            .iter()
+            .all(|window| window.observed_at_ms == Some(NOW))
+    );
+    let [account] = listed(&fixture, NOW + 1).try_into().unwrap();
+    assert_eq!(used(account.rate_limits.as_ref().unwrap()), [20.0, 80.0]);
+}
+
+#[test]
+fn a_v2_partial_push_migrates_v1_without_reaging_the_untouched_window() {
+    let fixture = PushedFixture::new(&bare());
+    make_v1_store(&fixture);
+    let mut partial: Value = serde_json::from_slice(&push_body(30.0, 90.0)).unwrap();
+    partial["rateLimits"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|window| window["kind"] == "five_hour");
+    assert!(
+        fixture
+            .push(&serde_json::to_vec(&partial).unwrap(), NOW + 1)
+            .unwrap()
+    );
+    let limits = fixture.read(NOW + 1).unwrap();
+    assert_eq!(used(&limits), [30.0, 80.0]);
+    assert_eq!(limits.windows[0].observed_at_ms, Some(NOW + 1));
+    assert_eq!(limits.windows[1].observed_at_ms, Some(NOW));
+    let persisted: Value =
+        serde_json::from_slice(&fs::read(fixture.data.path.join(STORE)).unwrap()).unwrap();
+    assert_eq!(persisted["version"], 2);
 }
 
 #[test]
@@ -559,7 +596,7 @@ fn the_store_is_private_bounded_to_eight_accounts_and_drops_the_oldest() {
         0o700
     );
     // A foreign or corrupt store is replaced by the next push, never trusted.
-    fs::write(&path, b"{\"version\":1,\"accounts\":{}}").unwrap();
+    fs::write(&path, b"{\"version\":3,\"accounts\":{}}").unwrap();
     assert!(pushed.store().is_none());
     assert!(pushed.push(&push_body(3.0, 4.0), NOW + 20).unwrap());
     assert_eq!(pushed.store().unwrap().accounts.len(), 1);

@@ -276,8 +276,24 @@ struct PushedWindowStore {
 
 fn load(path: &Path) -> Option<PushedWindowStore> {
     let bytes = crate::bounded_file::read_no_follow(path, STORE_LIMIT).ok()?;
-    let store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
-    (store.version == 2).then_some(store)
+    let mut store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
+    match store.version {
+        1 => {
+            // Each v1 entry is one observation: retain that age for every window even if a later
+            // v2 push refreshes only one of them. The file is upgraded only by a successful push.
+            for limits in store.accounts.values_mut() {
+                for window in &mut limits.windows {
+                    if window.observed_at_ms.is_none() {
+                        window.observed_at_ms = Some(limits.observed_at_ms);
+                    }
+                }
+            }
+            store.version = 2;
+            Some(store)
+        }
+        2 => Some(store),
+        _ => None,
+    }
 }
 
 /// Whether the mod has pushed nothing yet for the environment's Claude account: the store has no
