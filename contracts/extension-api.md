@@ -781,7 +781,7 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   never the mod's. Pushes and cache are merged per account and window: the newest window's
   observation wins, and a cache observation wins a tie. Values and reset times stay together;
   windows are never summed. An absent or elapsed pushed window cannot erase a still-current
-  observation. The versioned pushed store treats an older version as nothing observed. Each
+  observation. A version-1 store is read with each window's observation time set to its entry's `observedAtMs`; the next push writes version 2. Any other version is treated as nothing observed. Each
   pushed entry also records the account's `{key,label}` (the label is the
   root's name) for [account limits](#account-limits); the reader above strips it. Setup installs the mod only with usage consented, as a marked copy
   in Claude's skills root; `--no-usage`, `--remove` and uninstall remove it, and a
