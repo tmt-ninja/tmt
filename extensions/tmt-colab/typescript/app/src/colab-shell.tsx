@@ -177,7 +177,15 @@ export function ColabShell({
               }
             : {}),
         },
-        ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
+        ...(shells.length
+          ? [
+              {
+                label: text.colabSettings.shells,
+                fallbackIcon: 'layout-dashboard' as const,
+                items: shells,
+              },
+            ]
+          : []),
       ],
       settings: {
         id: 'colab-settings',

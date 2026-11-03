@@ -181,7 +181,7 @@ for (const key of ['Enter', ' '])
   });
 
 for (const renderer of ['native', 'react'])
-  test(`dashboard rows default to the shared glyph without replacing an explicit icon (${renderer})`, async ({
+  test(`group fallback icons ignore display labels and preserve explicit icons (${renderer})`, async ({
     page,
   }) => {
     await page.goto(`/?frame=rail&icons=true&dashboard-defaults=true&renderer=${renderer}`);

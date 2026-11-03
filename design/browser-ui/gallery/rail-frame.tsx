@@ -283,7 +283,8 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
     if (dashboardDefaults)
       result.menu!.groups.push(
         {
-          label: 'Dashboards',
+          label: 'Renamed dashboards',
+          fallbackIcon: 'layout-dashboard',
           items: [
             { id: 'dashboard-default', label: 'Dashboard', href: '/dashboard', current: false },
             {
@@ -296,7 +297,7 @@ export function RailFrame({ params }: { params: URLSearchParams }) {
           ],
         },
         {
-          label: 'Other',
+          label: 'Dashboards',
           items: [{ id: 'other-default', label: 'Other', href: '/other', current: false }],
         },
       );

@@ -88,6 +88,8 @@ export interface ShellMenuIconAction extends ShellMenuAction {
 }
 export interface ShellMenuGroup {
   label?: string;
+  /** Decorative icon for rows without their own icon, independent of the heading. */
+  fallbackIcon?: ShellIcon;
   /** At most one command beside the heading; omitting the icon renders its label as text. */
   action?: ShellMenuAction & { icon?: ShellIcon };
   items: ShellMenuItem[];
@@ -861,7 +863,7 @@ export function mountShell(
           'tmt-ui-module-menu-item tmt-ui-rail-sub-item',
           item,
           selected,
-          group.label === 'Dashboards' ? 'layout-dashboard' : undefined,
+          group.fallbackIcon,
         );
         row.dataset.menuGroup = String(index);
         row.append(anchor);

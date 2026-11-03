@@ -6191,7 +6191,7 @@ function mountShell(root, view, select) {
 			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.label === "Dashboards" ? "layout-dashboard" : void 0);
+				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.fallbackIcon);
 				row.dataset.menuGroup = String(index);
 				row.append(anchor);
 				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);

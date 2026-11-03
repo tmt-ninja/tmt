@@ -187,10 +187,11 @@ attention dot before it. The tooltip and accessible name retain the attention co
 unknown totals stay hidden; visible values above 99 read `99+`. Selection retains these roles.
 Module rows show nonzero attention as a dot with its count in the accessible name and tooltip.
 Optional `ShellMenuItem.icon` adds a decorative leading icon; rows without one retain their indent.
-A Dashboards group defaults an iconless row to the shared layout-dashboard glyph; an explicit icon wins.
+A group may supply `fallbackIcon` for iconless rows; an explicit row icon wins. Colab uses
+`layout-dashboard` for its dashboard group, independently of the group label.
 Group headings use sentence case, label typography and `rail-group-height`.
 
-Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
+Each `ShellMenuGroup` has `items` and optional `label`, `fallbackIcon`, `action` and `add`. `action` is
 one command with accessible `label` and host-owned `onActivate`; optional `icon` makes it an
 icon button, while its absence renders a right-aligned text action. `add` is a
 trailing muted button with a decorative 14px plus and the visible, accessible label (for
