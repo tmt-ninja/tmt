@@ -281,6 +281,20 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Every follow change goes through here, so Jump to latest's count (#5920) starts from
+    /// what was painted when the reader last left the bottom, and is dropped on return.
+    pub(in crate::board) fn set_follow(&mut self, follow: bool) {
+        self.follow = follow;
+        if follow {
+            self.seen = None;
+        } else if self.seen.is_none() {
+            self.seen = self
+                .rendered
+                .as_ref()
+                .map(|rendered| rendered.timeline_entries.iter().cloned().collect());
+        }
+    }
+
     /// A replaced request must not steal the text somebody is reading. It is
     /// admitted when follow resumes; appending to the same source keeps its anchor.
     fn update(&mut self, incoming: Option<Reply>) {
@@ -566,15 +580,7 @@ impl App {
                         .saturating_add(super::scroll::Scrolls::viewport(area, content))
                         >= content
                 });
-        session.follow = matches!(step, Step::Bottom) || forward && at_bottom;
-        if session.follow {
-            session.seen = None;
-        } else if session.seen.is_none() {
-            session.seen = session
-                .rendered
-                .as_ref()
-                .map(|rendered| rendered.timeline_entries.iter().cloned().collect());
-        }
+        session.set_follow(matches!(step, Step::Bottom) || forward && at_bottom);
         if session.follow {
             session.change = Change::Current;
         } else if let Some(rendered) = &session.rendered {

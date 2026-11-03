@@ -24,12 +24,16 @@ pub(in crate::board) fn page(url: &str) -> Option<&str> {
         .strip_prefix("http://")
         .or_else(|| url.strip_prefix("https://"))?;
     let (authority, path) = rest.split_once('/')?;
-    let host = if authority.starts_with('[') {
-        &authority[..=authority.find(']')?]
-    } else {
-        authority.split(':').next()?
+    // Agent text is untrusted: a plain host[:port] only, so userinfo (`127.0.0.1@evil`),
+    // percent-encoding or any other authority syntax never passes for this machine.
+    let (host, port) = match authority.strip_prefix("[::1]") {
+        Some(port) => ("[::1]", port),
+        None => authority.split_at(authority.find(':').unwrap_or(authority.len())),
     };
-    if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
+    let port = port.strip_prefix(':').unwrap_or(port);
+    if !port.bytes().all(|byte| byte.is_ascii_digit())
+        || !(host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "[::1]")
+    {
         return None;
     }
     let id = path.strip_prefix("colab/p/")?;
@@ -208,6 +212,8 @@ mod tests {
             ),
             ("http://localhost:5100/colab/p/4204d993?x=1#c", "4204d993"),
             ("http://[::1]:5100/colab/p/4204d993/", "4204d993"),
+            ("http://LOCALHOST:5100/colab/p/4204d993", "4204d993"),
+            ("http://127.0.0.1/colab/p/4204d993", "4204d993"),
         ] {
             assert_eq!(page(url), Some(id), "{url}");
         }
@@ -219,6 +225,12 @@ mod tests {
             "http://127.0.0.1:50711/colab/p/36b98efz",
             "http://127.0.0.1:50711/x/colab/p/36b98efb",
             "javascript:alert(1)",
+            "http://127.0.0.1:80@evil.example/colab/p/36b98efb",
+            "http://127.0.0.1@evil.example/colab/p/36b98efb",
+            "http://user@127.0.0.1:5100/colab/p/36b98efb",
+            "http://%31%32%37.0.0.1:5100/colab/p/36b98efb",
+            "http://127.0.0.1:5100x/colab/p/36b98efb",
+            "http://[::1]evil/colab/p/36b98efb",
         ] {
             assert_eq!(page(url), None, "{url}");
         }

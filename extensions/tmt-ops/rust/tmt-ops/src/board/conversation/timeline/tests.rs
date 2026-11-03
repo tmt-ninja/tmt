@@ -136,38 +136,7 @@ pub(in crate::board) const JUMP_SCENES: [&str; 2] = ["jump-latest-new", "jump-la
 pub(in crate::board) fn jump_capture(scene: &str, look: crate::look::Look) -> App {
     assert!(JUMP_SCENES.contains(&scene));
     crate::status::with_now_ms(NOW, || {
-        let turn = |index: usize| {
-            let request = format!("ask-{index}");
-            let answer = format!("rsp-{index}");
-            (
-                [
-                    input(
-                        &request,
-                        VIEWER,
-                        "Ben",
-                        &format!("Question {index} about the release"),
-                    ),
-                    final_entry(
-                        &format!("stop-{index}"),
-                        &answer,
-                        VIEWER,
-                        &request,
-                        index as u64 + 1,
-                    ),
-                ],
-                response(
-                    &answer,
-                    &format!("Answer {index}: the checks passed.\nNothing else changed."),
-                    NOW - 60_000 + index as u64 * 1_000,
-                ),
-            )
-        };
-        let document = |turns: usize| {
-            let (entries, responses): (Vec<_>, Vec<_>) = (0..turns).map(turn).unzip();
-            json!({"identityId":MEMBER,"entries":entries.concat(),"responses":responses,
-                "coverage":{"olderDropped":false},"capture":{"enabled":true}})
-        };
-        let mut app = setup(document(8), false);
+        let mut app = setup(jump_document(8), false);
         app.view.as_mut().unwrap().look = look;
         draw(&app, 160);
         app.scroll_pane(
@@ -175,20 +144,98 @@ pub(in crate::board) fn jump_capture(scene: &str, look: crate::look::Look) -> Ap
             crate::board::scroll::Step::Top,
         );
         if scene == "jump-latest-new" {
-            app.conversation.borrow_mut().refresh_pane_output();
-            let read = app.pane_output_plan().unwrap();
-            let timeline = model::parse(MEMBER, &document(9)).unwrap();
-            app.apply_answer_read(
-                &read,
-                Observation::Observed(Arc::new(Page {
-                    coverage: timeline.coverage.clone(),
-                    capture: timeline.capture,
-                    timeline: Some(timeline),
-                    ..Default::default()
-                })),
-            );
+            apply_timeline(&mut app, jump_document(9));
         }
         app
+    })
+}
+
+/// `turns` question/answer turns of the Jump to latest scenes.
+fn jump_document(turns: usize) -> Value {
+    let turn = |index: usize| {
+        let request = format!("ask-{index}");
+        let answer = format!("rsp-{index}");
+        (
+            [
+                input(
+                    &request,
+                    VIEWER,
+                    "Ben",
+                    &format!("Question {index} about the release"),
+                ),
+                final_entry(
+                    &format!("stop-{index}"),
+                    &answer,
+                    VIEWER,
+                    &request,
+                    index as u64 + 1,
+                ),
+            ],
+            response(
+                &answer,
+                &format!("Answer {index}: the checks passed.\nNothing else changed."),
+                NOW - 60_000 + index as u64 * 1_000,
+            ),
+        )
+    };
+    let (entries, responses): (Vec<_>, Vec<_>) = (0..turns).map(turn).unzip();
+    json!({"identityId":MEMBER,"entries":entries.concat(),"responses":responses,
+        "coverage":{"olderDropped":false},"capture":{"enabled":true}})
+}
+
+/// A newer read of the committed timeline arrives.
+fn apply_timeline(app: &mut App, document: Value) {
+    app.conversation.borrow_mut().refresh_pane_output();
+    let read = app.pane_output_plan().unwrap();
+    let timeline = model::parse(MEMBER, &document).unwrap();
+    app.apply_answer_read(
+        &read,
+        Observation::Observed(Arc::new(Page {
+            coverage: timeline.coverage.clone(),
+            capture: timeline.capture,
+            timeline: Some(timeline),
+            ..Default::default()
+        })),
+    );
+}
+
+fn jump_new_messages(app: &App) -> usize {
+    let state = app.conversation.borrow();
+    let session = &state.sessions[state.active.as_ref().unwrap()];
+    super::super::jump::new_messages(session)
+}
+
+#[test]
+fn a_send_returns_to_the_bottom_and_the_next_scroll_up_counts_from_there() {
+    crate::status::with_now_ms(NOW, || {
+        let mut app = setup(jump_document(8), false);
+        draw(&app, 160);
+        let up = |app: &mut App| {
+            app.scroll_pane(
+                crate::config::Pane::Replies,
+                crate::board::scroll::Step::Top,
+            )
+        };
+        up(&mut app);
+        apply_timeline(&mut app, jump_document(9));
+        draw(&app, 160);
+        assert_eq!(
+            jump_new_messages(&app),
+            2,
+            "one turn arrived while reading above"
+        );
+        own_send(&mut app);
+        draw(&app, 160);
+        assert_eq!(jump_new_messages(&app), 0, "a send returns to the bottom");
+        up(&mut app);
+        assert_eq!(
+            jump_new_messages(&app),
+            0,
+            "everything painted before this scroll is read"
+        );
+        apply_timeline(&mut app, jump_document(10));
+        draw(&app, 160);
+        assert_eq!(jump_new_messages(&app), 2);
     })
 }
 

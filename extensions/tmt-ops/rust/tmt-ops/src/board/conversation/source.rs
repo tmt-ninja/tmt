@@ -862,7 +862,7 @@ impl App {
                 if let Some(active) = state.active.clone()
                     && let Some(session) = state.sessions.get_mut(&active)
                 {
-                    session.follow = false;
+                    session.set_follow(false);
                 }
                 drop(state);
                 self.focus = 1;
