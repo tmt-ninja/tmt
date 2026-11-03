@@ -1,7 +1,7 @@
 import { mountUrl } from './bootstrap.js';
 import { buildWatch } from './app-build.js';
 import { createAppRouter } from './router.js';
-import { mountedTransport, type SharedSession } from './mounted.js';
+import { mountedTransport, sharedMountedTransport, type SharedSession } from './mounted.js';
 import { SessionLimitError } from './session-limit-error.js';
 
 export type MountedSnapshot =
@@ -30,6 +30,7 @@ export function startMounted(options: { session?: SharedSession } = {}) {
     closed = true;
     controller.abort();
     mounted?.close();
+    if (snapshot.state === 'ready') snapshot.router.history.destroy();
     window.removeEventListener('pagehide', close);
     window.removeEventListener('pageshow', restore);
   };
@@ -45,7 +46,9 @@ export function startMounted(options: { session?: SharedSession } = {}) {
       return publish({ state: 'failed' });
     }
     try {
-      const next = await mountedTransport(controller.signal, { session: options.session });
+      const next = options.session
+        ? await sharedMountedTransport(controller.signal, { session: options.session })
+        : await mountedTransport(controller.signal);
       if (closed) return next.close();
       mounted = next;
       publish({

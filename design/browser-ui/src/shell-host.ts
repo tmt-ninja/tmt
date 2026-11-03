@@ -69,6 +69,8 @@ export interface ShellSlot {
  * session is forgotten) and on `dispose`. */
 export interface ShellMounted {
   release(): void;
+  /** The route-owned location to remember when leaving, including after a history traversal. */
+  location?(): string;
   suspend?(): void;
   resume?(slot: ShellSlot): void;
 }
@@ -251,13 +253,26 @@ export function startShellHost(
   const listeners: ((answer: ShellAnswer | undefined) => void)[] = [];
   let generation = 0;
   let disposed = false;
+  const lastLocation = new Map<string, string>();
+  const rememberLocation = (route: ShellRoute, href: string) => {
+    const url = linkTo(href);
+    if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+    lastLocation.set(route.id, url.href);
+  };
 
   const place = () => ({
     origin: window.location.origin,
     href: window.location.href.split(/[?#]/)[0]!,
   });
   /** The rail links to this app's routes, not to a module's own mount. */
-  const view = () => ({ rail: appRail(answer, routes, place(), current?.route), menu });
+  const view = () => {
+    const rail = appRail(answer, routes, place(), current?.route);
+    for (const item of [...rail.main, ...rail.bottom]) {
+      const route = routes.find((candidate) => candidate.rail === item.id);
+      if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
+    }
+    return { rail, menu };
+  };
   const controls: ShellControls = mountShell(root, view(), (id, href) => {
     if (select?.(id, href)) return true;
     return go(href);
@@ -351,6 +366,15 @@ export function startShellHost(
   /** Leave the current module: suspend it when it can be kept, else release it. */
   function leave() {
     const leaving = current;
+    if (leaving) {
+      try {
+        const owned = leaving.mounted?.location?.();
+        if (owned) rememberLocation(leaving.route, owned);
+        else rememberLocation(leaving.route, window.location.href);
+      } catch {
+        // A location failure must not prevent the route from being released or suspended.
+      }
+    }
     try {
       // The module suspends while its slot is still current, so it sees the shell it was drawn in.
       if (leaving) keep(leaving);
@@ -489,8 +513,12 @@ export function startShellHost(
     const route = matchRoute(routes, window.location.pathname);
     if (!route) return elsewhere();
     remember(undefined);
-    if (current?.route === route) return paint();
+    if (current?.route === route) {
+      rememberLocation(route, window.location.href);
+      return paint();
+    }
     leave();
+    rememberLocation(route, window.location.href);
     controls.clearTopBar();
     menu = undefined;
     select = undefined;
