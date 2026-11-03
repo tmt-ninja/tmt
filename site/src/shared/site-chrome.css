@@ -1,10 +1,17 @@
 :root {
+  /* Static pages keep a conservative anchor offset; React hosts measure the header. */
+  --site-chrome-height: 128px;
+  /* The supplied mark has fixed pale ink in both themes. */
+  --site-mark-paper: #0a0a0a;
   --site-paper: var(--c-paper, #0a0a0a);
   --site-text: var(--c-text, #f2efe9);
   --site-muted: var(--c-muted, #8f8b84);
   --site-rule: var(--c-rule, #262626);
   --site-red: var(--c-red, #e2452c);
   --site-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html {
+  scroll-padding-top: var(--site-chrome-height);
 }
 .site-chrome-header {
   position: sticky;
@@ -16,7 +23,7 @@
   gap: 20px;
   padding: 14px clamp(16px, 4vw, 64px);
   border-bottom: 1px solid var(--site-rule);
-  background: rgba(10, 10, 10, 0.92);
+  background: color-mix(in srgb, var(--site-paper) 92%, transparent);
   backdrop-filter: blur(8px);
   color: var(--site-text);
 }
@@ -32,6 +39,7 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
+  background: var(--site-mark-paper);
 }
 .site-chrome-brand b {
   font-size: 20px;
@@ -109,8 +117,41 @@
   outline: 2px solid var(--site-text);
   outline-offset: 4px;
 }
+/* React hosts reuse the exact string-rendered chrome; only controls are mounted as a portal. */
+.site-chrome-slot {
+  display: contents;
+}
+.site-chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+.site-chrome-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.site-chrome-controls > button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--site-rule);
+  background: transparent;
+  color: var(--site-text);
+}
 @media (max-width: 720px) {
-  .site-chrome-nav a:not(:last-child) {
-    display: none;
+  .site-chrome-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .site-chrome-actions {
+    width: 100%;
+    gap: 12px;
+  }
+  .site-chrome-nav {
+    flex: 1;
+    gap: 12px;
   }
 }
