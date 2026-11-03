@@ -56,12 +56,14 @@ function space() {
         set.add(publish);
         return () => set.delete(publish);
       },
+      // As the binding does, an edit onto a page that moved since `base` merges; here the
+      // later write wins.
       edit: async (source: string, base: string) => {
-        if (base !== page().source) throw new Error('stale base');
+        const merged = base !== page().source;
         page().source = source;
         open.edits++;
         for (const publish of subscribers.get(id) ?? []) publish({ source });
-        return { merged: false };
+        return { merged };
       },
       work: async (action: string, body: Record<string, unknown>) => {
         if (action === 'subpage.detach') {
@@ -489,5 +491,33 @@ describe('built-in tmt GUI pages (#5969)', () => {
     expect(pages.has(gone)).toBe(true);
     const again = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
     expect(again.children.find((node) => node.key === 'components')!.id).toBe(components.id);
+  });
+  it('two syncs at once (two tabs or devices) end with one tree and one page per docs path', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const [first, second] = await Promise.all([
+      syncBuiltInMirror(transport),
+      syncBuiltInMirror(transport),
+    ]);
+    expect(second).toBe(first);
+    const builtIn = (await listDesignSystems(transport)).systems.filter((system) => system.builtIn);
+    expect(builtIn.map((system) => system.id)).toEqual([first]);
+    // Each docs path has one live page, all in that tree; the other sync's pages are archived.
+    const live = [...pages].filter(([, page]) => !page.archived);
+    const keys = live.flatMap(([, page]) => {
+      const origin = readBlock<{ key: string }>(page.source, 'origin');
+      return origin ? [origin.key] : [];
+    });
+    expect(keys.length).toBeGreaterThan(3);
+    expect(new Set(keys).size).toBe(keys.length);
+    const inTree = new Set<string>();
+    const walk = (node: { id: string; children: readonly unknown[] }) => {
+      inTree.add(node.id);
+      for (const child of node.children) walk(child as typeof node);
+    };
+    walk(builtIn[0]!.tree);
+    for (const [id, page] of live)
+      if (readBlock(page.source, 'origin')) expect(inTree.has(id), id).toBe(true);
+    expect([...pages.values()].some((page) => page.archived)).toBe(true);
   });
 });

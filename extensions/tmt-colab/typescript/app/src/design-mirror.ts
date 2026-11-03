@@ -3,6 +3,7 @@ import {
   BUILT_IN_SYSTEM,
   blockHtml,
   componentPageSource,
+  isDesignSystemPage,
   markDesignPages,
   newRoot,
   readBlock,
@@ -77,40 +78,99 @@ async function generated() {
 export const shippedBundle = async () => (await generated()).hash;
 
 /** Make the mirror (no `rootId`) or regenerate it in place, and return its root page id. Pages are
- * opened one at a time, as listing does; a page already up to date is not edited. */
+ * opened one at a time, as listing does; a page already up to date is not edited.
+ *
+ * Every owner tab and device syncs on its first Design visit, so two can run at once. They
+ * converge: a new page carries its origin block as soon as it exists, a sync reuses a root or a
+ * child it finds by key before making one, and it ends with a second pass that archives a second
+ * root's tree and any second page for a key. The lowest page id stays, so every device keeps the
+ * same one. */
 export async function syncBuiltInMirror(
   transport: PageTransport,
   rootId?: string,
 ): Promise<string> {
-  const { system, live, sections, hash } = await generated();
-  const root = rootId ?? (await newRoot(transport, system.name));
+  const { system } = await generated();
+  let root = rootId ?? (await builtInRoots(transport, system.name))[0];
+  if (!root) {
+    root = await newRoot(transport, system.name);
+    // Claimed at once, so a sync elsewhere finds this root instead of making its own.
+    await write(transport, root, mirrorSource({ key: '' }, ''));
+    await markDesignPages(transport, [root]);
+  }
+  await fill(transport, root);
+  const [keep = root, ...extra] = await builtInRoots(transport, system.name);
+  for (const id of extra)
+    await archive(transport, [id, ...[...(await tree(transport, id)).values()].flat()]);
+  // The second pass archives a key's second page and relinks the sections to what stays.
+  await fill(transport, keep);
+  return keep;
+}
+
+const write = (transport: PageTransport, id: string, source: string) =>
+  withPage(transport, id, async (page) => {
+    if (page.source !== source) await page.binding!.edit(source, page.source);
+  });
+const archive = async (transport: PageTransport, ids: readonly string[]) => {
+  for (const id of ids)
+    if (transport.management) await runPageOperation(transport.management, id, 'page.archive');
+};
+const originOf = (transport: PageTransport, id: string) =>
+  withPage(transport, id, async (page) => readBlock<MirrorOrigin>(page.source, 'origin'));
+const archivedPages = async (transport: PageTransport) =>
+  new Set(
+    (await transport.spaceHome()).pages.filter((page) => page.archived).map((page) => page.id),
+  );
+
+/** The live built-in roots, lowest id first: design pages titled as the system whose origin is the
+ * root's. */
+async function builtInRoots(transport: PageTransport, name: string): Promise<string[]> {
   const home = await transport.spaceHome();
-  const archived = new Set(home.pages.filter((page) => page.archived).map((page) => page.id));
-  // The tree as it stands: each page's docs path, and its children.
-  const byKey = new Map<string, string>();
+  const roots: string[] = [];
+  for (const page of home.pages)
+    if (
+      isDesignSystemPage(page) &&
+      !page.archived &&
+      (page.title === name || page.titleMissing) &&
+      (await originOf(transport, page.id))?.key === ''
+    )
+      roots.push(page.id);
+  return roots.sort();
+}
+
+/** A root's live pages by docs path; a path two syncs both made has two ids, lowest first. */
+async function tree(transport: PageTransport, root: string, archived?: ReadonlySet<string>) {
+  const gone = archived ?? (await archivedPages(transport));
+  const byKey = new Map<string, string[]>();
   const visit = async (id: string, depth: number): Promise<void> => {
     const children = await withPage(transport, id, async (page) => {
       const origin = readBlock<MirrorOrigin>(page.source, 'origin');
-      if (origin && id !== root) byKey.set(origin.key, id);
+      if (origin && id !== root) byKey.set(origin.key, [...(byKey.get(origin.key) ?? []), id]);
       return depth >= 2 ? [] : subpages(page.work);
     });
-    for (const child of children) if (!archived.has(child)) await visit(child, depth + 1);
+    for (const child of children) if (!gone.has(child)) await visit(child, depth + 1);
   };
   await visit(root, 0);
-  const write = (id: string, source: string) =>
-    withPage(transport, id, async (page) => {
-      if (page.source !== source) await page.binding!.edit(source, page.source);
-    });
+  for (const ids of byKey.values()) ids.sort();
+  return byKey;
+}
+
+/** Write the tree under `root` from the shipped docs. */
+async function fill(transport: PageTransport, root: string) {
+  const { system, live, sections, hash } = await generated();
+  const archived = await archivedPages(transport);
+  const pages = await tree(transport, root, archived);
+  // A path's second page (a race between two syncs) is archived; the lowest id stays.
+  const byKey = new Map([...pages].map(([key, ids]) => [key, ids[0]!]));
+  await archive(
+    transport,
+    [...pages.values()].flatMap((ids) => ids.slice(1)),
+  );
   const kept = new Map<string, string>();
   const place = async (parent: string, key: string, title: string) => {
     const id =
       byKey.get(key) ??
-      (await withPage(transport, parent, async (page) => {
-        if (!page.binding?.work) throw new Error('The tmt GUI pages cannot hold sub-pages.');
-        const made = await page.binding.work('subpage.create', { title });
-        if (!made.childPage) throw new Error(`The ${title} page was not made.`);
-        return made.childPage;
-      }));
+      (await childFor(transport, parent, key, archived)) ??
+      (await create(transport, parent, key, title));
     kept.set(key, id);
     return id;
   };
@@ -124,18 +184,47 @@ export async function syncBuiltInMirror(
       const id = await place(sectionId, key, doc.title);
       const component = section.title === 'Components' ? live.get(doc.slug) : undefined;
       const body = component ? componentPageSource(component, system.prefix) : doc.html;
-      await write(id, mirrorSource({ key, files: doc.files ?? [] }, body));
+      await write(transport, id, mirrorSource({ key, files: doc.files ?? [] }, body));
       if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
       made.push({ id, title: doc.title });
     }
-    await write(sectionId, mirrorSource({ key: sectionKey }, sectionSource(section.title, made)));
+    await write(
+      transport,
+      sectionId,
+      mirrorSource({ key: sectionKey }, sectionSource(section.title, made)),
+    );
   }
   const config: DesignSystemConfig = { ...system, id: root, components: entries, releases: [] };
-  await write(root, mirrorSource({ key: '', bundle: hash }, rootPageSource(config)));
+  await write(transport, root, mirrorSource({ key: '', bundle: hash }, rootPageSource(config)));
   // A page whose docs entry is gone keeps its threads: archived, never deleted.
-  const gone = [...byKey].filter(([key]) => !kept.has(key)).map(([, id]) => id);
-  for (const id of gone)
-    if (transport.management) await runPageOperation(transport.management, id, 'page.archive');
+  await archive(
+    transport,
+    [...byKey].filter(([key]) => !kept.has(key)).map(([, id]) => id),
+  );
   await markDesignPages(transport, [root, ...kept.values()]);
-  return root;
+}
+
+/** The parent's live sub-page for `key`, read again now: another sync may have just made it. */
+async function childFor(
+  transport: PageTransport,
+  parent: string,
+  key: string,
+  archived: ReadonlySet<string>,
+) {
+  const children = await withPage(transport, parent, async (page) => subpages(page.work));
+  for (const child of [...children].sort())
+    if (!archived.has(child) && (await originOf(transport, child))?.key === key) return child;
+  return undefined;
+}
+
+/** Make the sub-page and claim it with its origin at once, so a sync elsewhere finds it. */
+async function create(transport: PageTransport, parent: string, key: string, title: string) {
+  const id = await withPage(transport, parent, async (page) => {
+    if (!page.binding?.work) throw new Error('The tmt GUI pages cannot hold sub-pages.');
+    const made = await page.binding.work('subpage.create', { title });
+    if (!made.childPage) throw new Error(`The ${title} page was not made.`);
+    return made.childPage;
+  });
+  await write(transport, id, mirrorSource({ key }, ''));
+  return id;
 }
