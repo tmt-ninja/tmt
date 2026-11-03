@@ -202,3 +202,27 @@ fn invalid_member_input_and_page_options_refuse_without_effect() {
     }
     assert_eq!(durable_rows(&pilot), before);
 }
+
+#[test]
+fn a_cursor_that_starts_with_a_hyphen_reaches_the_page_check() {
+    // Cursors are base64url, so about 1 in 64 starts with '-' (#5934, #5964). The parser must
+    // pass it on as the option's value, not read it as a flag.
+    let pilot = Pilot::new();
+    let (_, member) = seed_member(&pilot);
+    let before = durable_rows(&pilot);
+    let hyphen = format!("-{}", "A".repeat(53));
+    for view in [
+        vec!["members"],
+        vec!["members", "machines", &member.member_id],
+    ] {
+        let refusal = |cursor: &str| {
+            let mut words = view.clone();
+            words.extend(["--cursor", cursor, "--json"]);
+            json_command(&pilot, &words, false)["error"].clone()
+        };
+        let plain = refusal("invalid");
+        assert_eq!(refusal(&hyphen), plain, "{view:?}");
+        assert_eq!(plain["code"], "REMOTE_INPUT_INVALID");
+    }
+    assert_eq!(durable_rows(&pilot), before);
+}
