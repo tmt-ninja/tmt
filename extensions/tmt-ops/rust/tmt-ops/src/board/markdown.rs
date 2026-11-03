@@ -49,6 +49,8 @@ struct Part {
     source: usize,
     member: Option<(super::member_links::Target, usize)>,
     source_range: Option<std::ops::Range<usize>>,
+    /// A fixed caption that never wraps or splits, like a file chip (#6008 Colab chips).
+    chip: bool,
 }
 impl Part {
     fn new(
@@ -63,18 +65,21 @@ impl Part {
             source,
             member,
             source_range: None,
+            chip: false,
         }
     }
 
-    fn is_file(&self) -> bool {
-        matches!(
-            &self.member,
-            Some((super::member_links::Target::File(_), _))
-        )
+    /// One caption laid out whole: a file reference or a Colab chip.
+    fn is_atomic(&self) -> bool {
+        self.chip
+            || matches!(
+                &self.member,
+                Some((super::member_links::Target::File(_), _))
+            )
     }
 
     fn width(&self) -> usize {
-        if self.is_file() {
+        if self.is_atomic() {
             unicode_width::UnicodeWidthStr::width(self.text.as_str())
         } else {
             cells(&self.text)
@@ -174,6 +179,33 @@ impl Renderer<'_> {
                 Some((super::member_links::Target::Url(url.into()), occurrence)),
             ));
         }
+    }
+
+    /// A local Colab page link as its chip; `source` is the address's bytes in the message.
+    fn push_chip(&mut self, id: &str, url: &str, source: Option<std::ops::Range<usize>>) {
+        if self.current.is_none() {
+            let indent = self.lists.len() * 2;
+            self.start(" ".repeat(indent), indent);
+        }
+        let mut part = Part::new(
+            super::member_links::colab::chip(id),
+            self.style()
+                .patch(self.look.role(Role::Code))
+                .patch(self.look.role(Role::Track)),
+            self.source_line,
+            Some((
+                super::member_links::Target::Url(url.into()),
+                self.next_mention,
+            )),
+        );
+        part.chip = true;
+        part.source_range = source;
+        self.next_mention += 1;
+        self.current
+            .as_mut()
+            .expect("a block is open")
+            .spans
+            .push(part);
     }
 
     fn push_file(&mut self, file: files::Reference) {
@@ -718,7 +750,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
         + &" ".repeat(block.indent.saturating_sub(block.quote_depth * 2));
     let mut words = Vec::new();
     for part in block.spans {
-        if part.is_file() {
+        if part.is_atomic() {
             words.push(part);
             continue;
         }
@@ -734,7 +766,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
         }
     }
     for part in words {
-        if part.is_file() {
+        if part.is_atomic() {
             let caption = files::fit(&part.text, width.saturating_sub(block.indent).max(1));
             used = line.iter().map(Span::width).sum();
             let caption_width = unicode_width::UnicodeWidthStr::width(caption.as_str());

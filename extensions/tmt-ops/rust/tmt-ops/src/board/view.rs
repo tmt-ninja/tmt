@@ -49,6 +49,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         super::home::limits_of(app, frame.area().width, app.look())
     };
     render_frame(frame, app, home_usage, home_limits);
+    super::member_links::paint_colab_card(frame, app);
     // While typing into a terminal, its program has the caret; a hidden one is moved after the
     // draw by the board loop.
     if let Some(caret) = app.terminal.caret().filter(|caret| caret.shown) {
