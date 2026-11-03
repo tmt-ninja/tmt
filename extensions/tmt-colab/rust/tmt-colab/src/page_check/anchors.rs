@@ -60,7 +60,7 @@ fn project_until(
         }
     };
     check()?;
-    // Proposals and ordinary comments need no source quote association. Keep their summaries
+    // Ordinary comments need no source quote association. Keep their summaries
     // available even when unrelated page text exceeds the renderer's quote-matching budget.
     if report.questions.is_empty() && report.reviews.is_empty() && report.readings.is_empty() {
         return Ok(SummaryAnchors::default());
@@ -118,10 +118,7 @@ fn project_until(
     }
     let text: String = points.iter().map(|(c, _)| c).collect();
     let mut matches = Vec::new();
-    for thread in threads
-        .iter()
-        .filter(|thread| !thread.deleted && thread.proposal.is_none())
-    {
+    for thread in threads.iter().filter(|thread| !thread.deleted) {
         check()?;
         let Some(selector) = &thread.anchor else {
             continue;

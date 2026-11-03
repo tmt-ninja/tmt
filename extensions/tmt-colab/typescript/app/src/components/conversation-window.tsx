@@ -10,6 +10,7 @@ import {
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { text } from '../strings.js';
 import { useNotificationConversation } from '../reply-notification-context.js';
+import { addVisibilityListener, removeVisibilityListener } from '../page-visibility.js';
 
 const bottomThreshold = 24;
 function atBottom(node: HTMLElement) {
@@ -232,11 +233,11 @@ export function ConversationWindow({
     // The window as a whole: a composer whose helper line wraps or whose tray grows moves the end of
     // a history that has no scroll of its own, so a reader at the end follows it there.
     if (root.current) observer.observe(root.current);
-    document.addEventListener('visibilitychange', reportReading);
+    addVisibilityListener(reportReading);
     reportReading();
     return () => {
       observer.disconnect();
-      document.removeEventListener('visibilitychange', reportReading);
+      removeVisibilityListener(reportReading);
     };
   }, [latest, requestReveal, reportReading]);
   // A history with no scroll of its own (the Comments panel's) reads and follows in the ancestor

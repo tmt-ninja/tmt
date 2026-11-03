@@ -34,7 +34,9 @@ test('registered questions count separately and menu navigation only scrolls and
   await menu.getByRole('menuitem', { name: 'First heading? · Agent 1' }).click();
   await expect(menu).toHaveCount(0);
   await expect(
-    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+    page
+      .getByRole('region', { name: 'First heading?', exact: true })
+      .getByLabel('Your answer', { exact: true }),
   ).toBeFocused();
   expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toEqual(threads);
@@ -138,7 +140,7 @@ test('the header opens the next unanswered question without changing its retaine
   const records = await run(page, 'discussionProof');
   await trigger.click();
   await page.getByRole('menuitem', { name: 'Hide read pages? · Agent 1' }).click();
-  await expect(panel.locator('.question-line').nth(1)).toHaveAttribute('aria-expanded', 'true');
+  await expect(panel.locator('.question-line').nth(1)).toBeVisible();
   await expect(panel.getByLabel('Your answer', { exact: true })).toHaveValue(
     'Keep this unsent draft.',
   );
@@ -558,7 +560,9 @@ test('Needs-you entries are links and modified activation leaves this page uncha
   await link.press('Enter');
   await expect(menu).toHaveCount(0);
   await expect(
-    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+    page
+      .getByRole('region', { name: 'First heading?', exact: true })
+      .getByLabel('Your answer', { exact: true }),
   ).toBeFocused();
   expect(await run(page, 'proof')).toEqual(before);
 });
@@ -577,7 +581,7 @@ test('separate placements count each registered question and name the remaining 
   await expect(item).toHaveCount(1);
   await item.click();
   const rows = page.locator('.question-line');
-  await expect(rows.first()).toHaveAttribute('aria-expanded', 'true');
+  await expect(rows.first()).toBeVisible();
   await page.getByLabel('Keep it', { exact: true }).check();
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
   await expectAnswered(rows.first(), 'Keep it');
@@ -588,9 +592,11 @@ test('separate placements count each registered question and name the remaining 
     page.getByRole('menuitem', { name: 'What should the introduction say? · Agent 1' }),
   ).toHaveCount(1);
   await page.getByRole('menuitem', { name: 'What should the introduction say? · Agent 1' }).click();
-  await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'true');
+  await expect(rows.nth(1)).toBeVisible();
   await expect(
-    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+    page
+      .getByRole('region', { name: 'What should the introduction say?', exact: true })
+      .getByLabel('Your answer', { exact: true }),
   ).toBeFocused();
   expect(await run(page, 'discussionProof')).toEqual(records);
 });

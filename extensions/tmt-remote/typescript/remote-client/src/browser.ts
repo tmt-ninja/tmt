@@ -283,6 +283,12 @@ export function reopenSession(
   }
   return pending;
 }
+/** Keeps the landing's different-machine state distinct from other identity mismatches. */
+class DifferentMachineError extends ReopenSessionError {
+  constructor() {
+    super('mismatch', 'identity-mismatch');
+  }
+}
 async function reopenOnce(previous?: Session, signal?: AbortSignal): Promise<Session> {
   active(signal);
   const send: typeof fetch = async (input, init) => {
@@ -327,13 +333,16 @@ async function reopenOnce(previous?: Session, signal?: AbortSignal): Promise<Ses
   try {
     validateDoor(current, record);
   } catch (error) {
-    if (signal)
-      throw new ReopenSessionError(
-        current.machineId !== record.paired.machineId ? 'mismatch' : 'transient',
-        current.machineId !== record.paired.machineId
-          ? 'identity-mismatch'
-          : 'unverifiable-response',
-      );
+    if (signal) {
+      if (
+        current.machineId !== record.paired.machineId &&
+        entryUuid(current.machineId) &&
+        entryUuid(current.windowId) &&
+        entryAddress(current.address)
+      )
+        throw new DifferentMachineError();
+      throw new ReopenSessionError('transient', 'unverifiable-response');
+    }
     throw error;
   }
   let refused = false;
@@ -468,6 +477,7 @@ export async function landingPage(
   lifetime?: AbortSignal,
   registry?: RemoteRegistryPage,
   connected?: (session: Session) => void,
+  sharedSession?: () => Promise<Session>,
 ): Promise<void> {
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
@@ -594,7 +604,7 @@ export async function landingPage(
       }
     });
   }
-  const check = async (): Promise<void> => {
+  const check = async (manual = false): Promise<void> => {
     const restoreFocus = document.activeElement === button;
     const currentAttempt = ++attempt;
     const currentPage = (): boolean => pageAlive() && attempt === currentAttempt;
@@ -614,8 +624,22 @@ export async function landingPage(
       byte.toString(16).padStart(2, '0'),
     ).join('');
     const step: { phase: 'open' | 'capabilities' } = { phase: 'open' };
+    if (!manual && sharedSession) {
+      try {
+        session = await sharedSession();
+      } catch (error) {
+        if (currentPage()) {
+          if (error instanceof DifferentMachineError) render('different');
+          else if (error instanceof ReopenSessionError && error.cause)
+            render('refused', false, error.cause.code);
+          else render('unconfirmed');
+        }
+        return;
+      }
+      if (!currentPage()) return;
+    }
     const channel = session && channelFor(session);
-    const reused =
+    const validSession =
       !!channel &&
       !channel.ended &&
       channel.paired.clientId === local.record.paired.clientId &&
@@ -624,6 +648,12 @@ export async function landingPage(
         (byte, index) => byte === local.record.paired.machinePublicKey[index],
       ) &&
       channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+    const reused = manual && validSession;
+    if (!manual && sharedSession && !validSession) {
+      session = undefined;
+      render('unconfirmed');
+      return;
+    }
     const open = async (): Promise<boolean> => {
       step.phase = 'open';
       opaque = false;
@@ -672,7 +702,7 @@ export async function landingPage(
     };
     opaque = false;
     try {
-      if (!reused && !(await open())) return;
+      if (!validSession && !(await open())) return;
       if (!currentPage()) return;
       try {
         await observe();
@@ -722,7 +752,7 @@ export async function landingPage(
     }
   };
   button.addEventListener('click', () => {
-    if (!button.disabled) void check();
+    if (!button.disabled) void check(true);
   });
   await check();
 }

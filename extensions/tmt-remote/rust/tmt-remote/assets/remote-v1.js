@@ -6351,8 +6351,7 @@ function patchShape(live, next) {
 	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
 	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
 }
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-host.ts
+var KEPT_FOR = 6e5;
 function matchRoute(routes, pathname) {
 	let best;
 	let length = -1;
@@ -6406,7 +6405,9 @@ function startShellHost(root, routes, options = {}) {
 	const document = root.ownerDocument;
 	const window = document.defaultView;
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
-	const main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
+	/** The shown main area. A kept module keeps the element it was drawn in, renamed
+	* `.tmt-ui-shell-kept` and hidden in place, and a fresh main takes its place. */
+	let main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
 	const loading = document.createElement("div");
 	loading.className = "tmt-ui-shell-loading";
 	loading.setAttribute("role", "status");
@@ -6415,6 +6416,8 @@ function startShellHost(root, routes, options = {}) {
 	main.after(loading);
 	let answer = rememberedShellAnswer();
 	let current;
+	/** Suspended modules by route, least recently used first. */
+	const kept = /* @__PURE__ */ new Map();
 	let menu;
 	let select;
 	let asked = false;
@@ -6422,15 +6425,28 @@ function startShellHost(root, routes, options = {}) {
 	const listeners = [];
 	let generation = 0;
 	let disposed = false;
+	const lastLocation = /* @__PURE__ */ new Map();
+	const rememberLocation = (route, href) => {
+		const url = linkTo(href);
+		if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+		lastLocation.set(route.id, url.href);
+	};
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
 	});
 	/** The rail links to this app's routes, not to a module's own mount. */
-	const view = () => ({
-		rail: appRail(answer, routes, place(), current?.route),
-		menu
-	});
+	const view = () => {
+		const rail = appRail(answer, routes, place(), current?.route);
+		for (const item of [...rail.main, ...rail.bottom]) {
+			const route = routes.find((candidate) => candidate.rail === item.id);
+			if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
+		}
+		return {
+			rail,
+			menu
+		};
+	};
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
@@ -6475,8 +6491,138 @@ function startShellHost(root, routes, options = {}) {
 		described(listener) {
 			if (settled) listener(answer);
 			else listeners.push(listener);
+		},
+		session: (signal) => options.sessions ? options.sessions.open(signal) : Promise.reject(/* @__PURE__ */ new Error("This shell has no Remote session")),
+		forgetSession(previous) {
+			if (!options.sessions) return;
+			releaseKept();
+			options.sessions.forget(previous);
 		}
 	});
+	const release = (mounted) => {
+		try {
+			mounted?.release();
+		} catch {}
+	};
+	/** The header and tool nodes a kept module drew, held aside while it is suspended. They hold
+	* no frames; its main area, which may, never moves. */
+	const areas = () => [
+		bar,
+		controls.tools.search,
+		controls.tools.chip
+	];
+	/** Make `next` the shown main area, with the loading mark right after it (shell.css reads it). */
+	function showMain(next) {
+		main = next;
+		next.className = "tmt-ui-shell-main";
+		next.hidden = false;
+		next.inert = false;
+		next.after(loading);
+	}
+	function drop(id) {
+		const held = kept.get(id);
+		if (!held) return;
+		kept.delete(id);
+		window.clearTimeout(held.timer);
+		release(held.mounted);
+		held.area.remove();
+	}
+	function releaseKept() {
+		for (const id of kept.keys()) drop(id);
+	}
+	/** Leave the current module: suspend it when it can be kept, else release it. */
+	function leave() {
+		const leaving = current;
+		if (leaving) try {
+			const owned = leaving.mounted?.location?.();
+			if (owned) rememberLocation(leaving.route, owned);
+			else rememberLocation(leaving.route, window.location.href);
+		} catch {}
+		try {
+			if (leaving) keep(leaving);
+		} finally {
+			current = void 0;
+		}
+	}
+	function keep(leaving) {
+		const { mounted, route } = leaving;
+		if (!mounted?.suspend || !route.keep || disposed) return release(mounted);
+		try {
+			mounted.suspend();
+		} catch {
+			return release(mounted);
+		}
+		const area = main;
+		const active = document.activeElement;
+		const focus = active instanceof window.HTMLElement && area.contains(active) ? active : void 0;
+		showMain(area.cloneNode(false));
+		area.after(main, loading);
+		if (focus) {
+			main.tabIndex = -1;
+			main.focus({ preventScroll: true });
+		}
+		area.className = "tmt-ui-shell-kept";
+		area.hidden = true;
+		area.inert = true;
+		drop(route.id);
+		kept.set(route.id, {
+			route,
+			mounted,
+			generation: leaving.generation,
+			area,
+			focus,
+			nodes: areas().map((place) => [place, [...place.childNodes].filter((node) => !node.matches?.(".tmt-ui-topbar"))]),
+			topBar: !!bar.querySelector(":scope > .tmt-ui-topbar"),
+			menu,
+			select,
+			title: document.title,
+			timer: window.setTimeout(() => drop(route.id), KEPT_FOR)
+		});
+		for (const place of areas().slice(1)) place.replaceChildren();
+		while (kept.size > 2) drop(kept.keys().next().value);
+	}
+	/** Put a suspended module back; false when it could not be resumed (it is then released). */
+	function revive(route) {
+		const held = kept.get(route.id);
+		if (!held) return false;
+		kept.delete(route.id);
+		window.clearTimeout(held.timer);
+		++generation;
+		current = {
+			route,
+			mounted: held.mounted,
+			generation: held.generation
+		};
+		if (held.topBar && controls.topBarReady()) controls.setTopBar();
+		else bar.replaceChildren();
+		for (const [place, nodes] of held.nodes) if (place === bar) bar.append(...nodes);
+		else place.replaceChildren(...nodes);
+		const spare = main;
+		showMain(held.area);
+		spare.remove();
+		main.dataset.route = route.id;
+		const via = document.activeElement;
+		if (held.focus?.isConnected && via instanceof window.HTMLElement && root.contains(via) && !via.closest(".tmt-ui-shell-content") && via.matches(":focus-visible")) held.focus.focus({ preventScroll: true });
+		menu = held.menu;
+		select = held.select;
+		document.title = held.title;
+		paint();
+		try {
+			held.mounted.resume?.(slot(route, held.generation));
+			return true;
+		} catch {
+			current = void 0;
+			for (const place of areas().slice(1)) place.replaceChildren();
+			release(held.mounted);
+			const fresh = main.cloneNode(false);
+			main.after(fresh);
+			main.remove();
+			showMain(fresh);
+			return false;
+		}
+	}
+	const pagehide = () => releaseKept();
+	window.addEventListener("pagehide", pagehide);
 	/** The path a full load was last asked for, so a route the door serves but this app does not
 	* know reloads once, then lands on Home instead of reloading forever. */
 	const RELOADED = "tmt-shell-reloaded";
@@ -6507,16 +6653,21 @@ function startShellHost(root, routes, options = {}) {
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
-		if (current?.route === route) return paint();
-		current?.release?.();
+		if (current?.route === route) {
+			rememberLocation(route, window.location.href);
+			return paint();
+		}
+		leave();
+		rememberLocation(route, window.location.href);
 		controls.clearTopBar();
+		menu = void 0;
+		select = void 0;
+		if (revive(route)) return;
 		const mine = ++generation;
 		current = {
 			route,
 			generation: mine
 		};
-		menu = void 0;
-		select = void 0;
 		const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
 		const placeholder = document.createElement("header");
 		placeholder.className = "tmt-ui-header";
@@ -6535,9 +6686,10 @@ function startShellHost(root, routes, options = {}) {
 		try {
 			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
 			if (current?.generation !== mine) return;
-			const release = await module.mount(slot(route, mine));
-			if (current?.generation !== mine) return release?.();
-			current.release = release ?? void 0;
+			const given = await module.mount(slot(route, mine));
+			const mounted = typeof given === "function" ? { release: given } : given ?? void 0;
+			if (current?.generation !== mine) return release(mounted);
+			current.mounted = mounted;
 		} catch (error) {
 			if (current?.generation !== mine) return;
 			main.replaceChildren();
@@ -6554,6 +6706,7 @@ function startShellHost(root, routes, options = {}) {
 			if (url.hash !== here.hash) window.location.hash = url.hash;
 			return true;
 		}
+		if (matchRoute(routes, url.pathname) !== current?.route) leave();
 		if (url.href !== window.location.href) window.history[replace ? "replaceState" : "pushState"](null, "", url.href);
 		if (matchRoute(routes, url.pathname) === current?.route) window.dispatchEvent(new PopStateEvent("popstate"));
 		else show();
@@ -6586,6 +6739,7 @@ function startShellHost(root, routes, options = {}) {
 			describe();
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
+		sessionChanging: releaseKept,
 		dispose() {
 			if (disposed) return;
 			disposed = true;
@@ -6593,8 +6747,10 @@ function startShellHost(root, routes, options = {}) {
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
-			current?.release?.();
+			window.removeEventListener("pagehide", pagehide);
+			release(current?.mounted);
 			current = void 0;
+			releaseKept();
 			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
@@ -12457,6 +12613,7 @@ var RootSearch = class {
 				const go = async (href) => this.options.navigate(href);
 				this.session = module.mountSearchSession(this.host, {
 					registry: this.registry,
+					session: this.options.session,
 					navigate: (id) => go(pageHref(id)),
 					pageHref,
 					go,
@@ -12661,7 +12818,7 @@ var routes = [
 			return remotePage((slot) => adoptRemote(slot, landing_default, settings_default, sheets), (slot) => remoteApp(remoteShell(), slot.main, slot.bar, () => sheets.load(), async () => ({
 				landing: async (lifetime, registry, connected) => {
 					const { landingPage } = await import("./remote-v1.js");
-					await landingPage(lifetime, registry, connected);
+					await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
 				},
 				settings: async (shell, registry, initial) => {
 					const { settingsPage } = await import(
@@ -12695,6 +12852,7 @@ var routes = [
 		id: "colab",
 		paths: ["/colab", "/colab/"],
 		rail: "colab",
+		keep: true,
 		async load(_remembered, settled) {
 			let answer = await settled();
 			if (!answer && await reopened()) answer = await started?.redescribe();
@@ -12743,6 +12901,7 @@ var heldBy;
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next) {
 	if (session === next) return;
+	if (session) started?.sessionChanging();
 	session = next;
 	search?.replace();
 	publishSearch?.();
@@ -12750,6 +12909,8 @@ function observedSession(next) {
 var sessionAdmission;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
 function rootSession(signal) {
+	if (!signal && sessionAdmission) return sessionAdmission.result;
+	signal ??= new AbortController().signal;
 	signal.throwIfAborted();
 	if (session && channelFor(session)?.ended === false) return Promise.resolve(session);
 	if (sessionAdmission?.signal === signal) return sessionAdmission.result;
@@ -12771,6 +12932,7 @@ function rootSession(signal) {
 }
 function forgetSession(previous) {
 	if (session !== previous) return;
+	started?.sessionChanging();
 	session = void 0;
 	search?.replace();
 	publishSearch?.();
@@ -12796,6 +12958,10 @@ function shellApp() {
 	status.hidden = true;
 	root.append(status);
 	search = new RootSearch({
+		session: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
 		load: (entry) => import(
 			/* @vite-ignore */
 			entry
@@ -12816,14 +12982,14 @@ function shellApp() {
 			started?.navigate(href);
 		}
 	});
-	let currentRoute;
+	/** The instance still loading or mounting: a later route load ends it before it draws. */
+	let mounting;
 	const host = startShellHost(root, routes.map((route) => ({
 		...route,
 		async load(remembered, settled) {
-			currentRoute?.abort();
+			mounting?.abort();
 			const lifetime = new AbortController();
-			currentRoute = lifetime;
-			search.replace();
+			mounting = lifetime;
 			status.hidden = true;
 			settled().then((read) => {
 				if (!observed) {
@@ -12837,8 +13003,9 @@ function shellApp() {
 				if (lifetime.signal.aborted) return;
 				let active = true;
 				let adopted = false;
+				let current = slot;
 				const publish = () => {
-					if (!active || !adopted || !slot.topBarReady()) return;
+					if (!active || !adopted || !current.topBarReady()) return;
 					const place = {
 						origin: location.origin,
 						href: location.href
@@ -12846,8 +13013,7 @@ function shellApp() {
 					const rail = appRail(answer, routes, place);
 					search.update(colabLoad(answer)?.entry, navigationSnapshot(answer, [...rail.main, ...rail.bottom], location.href, (path) => appHref(routes, path)));
 				};
-				publishSearch = publish;
-				const hosted = {
+				const hosted = (slot) => ({
 					...slot,
 					routeSignal: lifetime.signal,
 					setTopBar() {
@@ -12856,19 +13022,62 @@ function shellApp() {
 						publish();
 						return bar;
 					}
+				});
+				publishSearch = publish;
+				let remotePath = location.pathname;
+				const rememberRemotePath = () => {
+					if (route.id === "remote" && remoteItem(location.pathname)) remotePath = location.pathname;
 				};
-				const release = await module.mount(hosted);
-				return () => {
+				window.addEventListener("popstate", rememberRemotePath, { signal: lifetime.signal });
+				let given;
+				try {
+					given = await module.mount(hosted(slot));
+				} finally {
+					if (mounting === lifetime) mounting = void 0;
+				}
+				const mounted = typeof given === "function" ? { release: given } : given;
+				const quiet = () => {
 					active = false;
 					if (publishSearch === publish) publishSearch = void 0;
-					release?.();
+				};
+				const release = () => {
+					quiet();
+					lifetime.abort();
+					mounted?.release();
+				};
+				const ownedLocation = route.id === "remote" ? () => remotePath : mounted?.location?.bind(mounted);
+				if (!mounted?.suspend) return ownedLocation ? {
+					release,
+					location: ownedLocation
+				} : release;
+				const { suspend, resume } = mounted;
+				return {
+					release,
+					location: ownedLocation,
+					suspend() {
+						quiet();
+						suspend.call(mounted);
+					},
+					resume(next) {
+						current = next;
+						active = true;
+						publishSearch = publish;
+						resume?.call(mounted, hosted(next));
+						publish();
+					}
 				};
 			} };
 		}
-	})), { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
-		className: "page",
-		textContent: "This page could not load. Reload to try again."
-	})) });
+	})), {
+		sessions: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
+		failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
+			className: "page",
+			textContent: "This page could not load. Reload to try again."
+		}))
+	});
 	host.setCommonControls({
 		openSearch: (opener) => {
 			status.hidden = true;
@@ -12880,7 +13089,6 @@ function shellApp() {
 		}
 	});
 	const dispose = () => {
-		currentRoute?.abort();
 		session = void 0;
 		search?.dispose();
 		host.dispose();
@@ -12891,7 +13099,6 @@ function shellApp() {
 		window.removeEventListener("hashchange", changed);
 	};
 	const changed = () => {
-		search?.replace();
 		publishSearch?.();
 	};
 	const restore = (event) => {
@@ -14174,6 +14381,12 @@ function reopenSession(previous, options) {
 	}
 	return pending;
 }
+/** Keeps the landing's different-machine state distinct from other identity mismatches. */
+var DifferentMachineError = class extends ReopenSessionError {
+	constructor() {
+		super("mismatch", "identity-mismatch");
+	}
+};
 async function reopenOnce(previous, signal) {
 	active(signal);
 	const send = async (input, init) => {
@@ -14219,7 +14432,10 @@ async function reopenOnce(previous, signal) {
 	try {
 		validateDoor(current, record);
 	} catch (error) {
-		if (signal) throw new ReopenSessionError(current.machineId !== record.paired.machineId ? "mismatch" : "transient", current.machineId !== record.paired.machineId ? "identity-mismatch" : "unverifiable-response");
+		if (signal) {
+			if (current.machineId !== record.paired.machineId && entryUuid(current.machineId) && entryUuid(current.windowId) && entryAddress(current.address)) throw new DifferentMachineError();
+			throw new ReopenSessionError("transient", "unverifiable-response");
+		}
 		throw error;
 	}
 	let refused = false;
@@ -14286,7 +14502,7 @@ async function entryPairing() {
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
 /** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more.
 * `registry` is the route's one controller of the remotes section, shared with the settings views. */
-async function landingPage(lifetime, registry, connected) {
+async function landingPage(lifetime, registry, connected, sharedSession) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
 	const button = element("check");
@@ -14394,7 +14610,7 @@ async function landingPage(lifetime, registry, connected) {
 			if (pageAlive()) element(`copy-feedback-guide-${command}`).textContent = "Copy failed. Select the command and copy it manually.";
 		}
 	});
-	const check = async () => {
+	const check = async (manual = false) => {
 		const restoreFocus = document.activeElement === button;
 		const currentAttempt = ++attempt;
 		const currentPage = () => pageAlive() && attempt === currentAttempt;
@@ -14412,8 +14628,27 @@ async function landingPage(lifetime, registry, connected) {
 		element("protocol-address").textContent = local.record.paired.address;
 		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
 		const step = { phase: "open" };
+		if (!manual && sharedSession) {
+			try {
+				session = await sharedSession();
+			} catch (error) {
+				if (currentPage()) {
+					if (error instanceof DifferentMachineError) render("different");
+					else if (error instanceof ReopenSessionError && error.cause) render("refused", false, error.cause.code);
+					else render("unconfirmed");
+				}
+				return;
+			}
+			if (!currentPage()) return;
+		}
 		const channel = session && channelFor(session);
-		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const validSession = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const reused = manual && validSession;
+		if (!manual && sharedSession && !validSession) {
+			session = void 0;
+			render("unconfirmed");
+			return;
+		}
 		const open = async () => {
 			step.phase = "open";
 			opaque = false;
@@ -14453,7 +14688,7 @@ async function landingPage(lifetime, registry, connected) {
 		};
 		opaque = false;
 		try {
-			if (!reused && !await open()) return;
+			if (!validSession && !await open()) return;
 			if (!currentPage()) return;
 			try {
 				await observe();
@@ -14485,7 +14720,7 @@ async function landingPage(lifetime, registry, connected) {
 		}
 	};
 	button.addEventListener("click", () => {
-		if (!button.disabled) check();
+		if (!button.disabled) check(true);
 	});
 	await check();
 }

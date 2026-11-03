@@ -1,16 +1,13 @@
-/* A question is one band over the author's page, as on the concept website (#/colab/page/ops-ui): the
-   page sheet between two 1px light rules, closed or open, with no side rules and no radius, so the
-   page behind never decides its text colours (needs-you.css; #4068). The rules are the block's own
-   borders. A group of several questions separates its rows with the same rule. */
-.question-compact-block {
+/* Question cards and answered strips use the viewer's sheet and a bounded in-flow slot. */
+.tmt-ui-card.question-compact-block {
   --question-icon: 22px;
   --question-text-inset: calc(var(--question-icon) + 12px);
   box-sizing: border-box;
-  max-height: 1900px;
-  overflow: auto;
+  grid-template-columns: minmax(0, 1fr);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border-block: 1px solid var(--tmt-ui-surface-rule);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
   pointer-events: auto;
 }
 .question-compact-block > div + div {
@@ -145,12 +142,11 @@
   overflow: visible;
   padding: 0;
 }
-/* The rule between the fields and the send row. */
+/* The shared footer follows the answer controls. */
 .question-compact-controls .question-group-footer {
   background: transparent;
-  padding: 16px 0 0;
+  padding: 8px 0 0;
   border: 0;
-  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .question-compact-inline {
   pointer-events: auto;
@@ -176,7 +172,7 @@
 }
 
 /* The existing inline placeholder anchors placement; the after spacer reserves the
-   complete trusted block through its normal 2000px measurement bound. */
+   complete trusted block through the bounded height measurement. */
 .question-placement-anchor {
   position: absolute;
   top: 0;
@@ -189,4 +185,165 @@
 .question-line:is([data-state='handled'], [data-state='unknown'], [data-state='unregistered'])
   .question-line-state {
   color: var(--tmt-ui-color-secondary);
+}
+
+.question-waiting-heading.question-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
+  gap: 6px;
+  padding: 12px 12px 8px;
+  cursor: default;
+  font-size: 13px;
+}
+.question-waiting-heading.question-line:hover {
+  background: transparent;
+}
+.question-waiting-eyebrow {
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+.question-waiting-eyebrow > span {
+  color: var(--tmt-ui-color-waiting);
+}
+.question-waiting-heading .question-line-title {
+  grid-area: auto;
+  font-weight: 600;
+}
+.question-compact-controls {
+  padding: 0 12px 12px;
+}
+
+/* Keep the native choice controls accessible while presenting the approved chip shape. */
+.question-compact-controls .tmt-ui-choices[data-layout='inline'] {
+  gap: 6px;
+}
+.question-compact-controls .tmt-ui-choices-legend,
+.question-compact-controls .question-kind {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The shared chip supplies the surface; native choice controls keep keyboard semantics. */
+.question-choice-chip {
+  border-radius: var(--tmt-ui-radius-pill);
+  overflow: visible;
+}
+.question-choice-chip .tmt-ui-choice {
+  position: relative;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 10px;
+  overflow-wrap: anywhere;
+}
+.question-choice-chip:has(:checked) {
+  color: var(--tmt-ui-color-accent);
+  border-color: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-surface-selection);
+  font-weight: 600;
+}
+.question-choice-chip .tmt-ui-choice > :is(.tmt-ui-radio, .tmt-ui-checkbox) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.question-choice-chip:has(:focus-visible) {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+
+.question-compact-block[data-multiple] {
+  display: block;
+  border: 0;
+  background: transparent;
+}
+.question-compact-block[data-multiple] > .question-group-row {
+  background: var(--tmt-ui-surface-sheet);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+}
+.question-compact-block[data-multiple] > .question-group-row + .question-group-row {
+  margin-top: 6px;
+}
+.question-compact-block[data-multiple]
+  > .question-group-row:not([data-answered])
+  + .question-group-row:not([data-answered]) {
+  margin-top: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.question-compact-block[data-multiple]
+  > .question-group-row:not([data-answered]):has(+ .question-group-row:not([data-answered])) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.question-compact-controls .question-group-send {
+  gap: 8px;
+}
+.question-compact-controls .question-recipients {
+  flex: 1 0 100%;
+}
+.question-footer-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.question-compact-controls .conversation-turn {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.question-compact-controls .conversation-body {
+  overflow-wrap: anywhere;
+}
+
+.question-compact-controls .question-history .question-history {
+  margin-top: 0;
+}
+.question-compact-controls .question-answer-record {
+  border-bottom: 0;
+}
+.question-answer-record .conversation-turn-status:empty {
+  display: none;
+}
+.question-compact-controls .message-composer-field {
+  min-height: 1.5em;
+}
+
+.question-answer-record .question-answer p {
+  margin: 0;
+}
+.question-compact-controls .annotation-notice-slot:empty {
+  display: none;
+}
+
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  ) {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, auto);
+  align-items: center;
+}
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  )
+  .message-composer-field {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+}
+.question-compact-controls
+  .rich-input-surface[data-accessory]:has(.annotation-notice-slot:empty):not(
+    :has(.rich-input-accessory > :not(.message-toolbar))
+  )
+  .rich-input-accessory {
+  min-width: 0;
 }

@@ -1,7 +1,9 @@
 import { expect, test, type Frame, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { showAllPages } from '../test/home-list.js';
+import { annotationInput } from '../acceptance/harness/ask.js';
 import {
   binariesBuilt,
   remoteBinary,
@@ -547,7 +549,327 @@ test.describe('the door serving the TMT app', () => {
       expect(await live()).toBeLessThanOrEqual(2);
     });
 
-    test('a paired Colab closes its Remote session and page bindings on unmount', async ({
+    for (const width of [390, 1440]) {
+      test(`rail switch recording keeps shell geometry at ${width}`, async ({
+        browser,
+      }, testInfo) => {
+        const id = await door!.createPage(`Recording ${width}`, '<h1>Recording content</h1>');
+        const videoDir = testInfo.outputPath('video');
+        await mkdir(videoDir, { recursive: true });
+        const context = await browser.newContext({
+          viewport: { width, height: 900 },
+          reducedMotion: 'reduce',
+          recordVideo: { dir: videoDir, size: { width, height: 900 } },
+        });
+        try {
+          const pairing = await context.newPage();
+          await door!.pair(pairing);
+          await pairing.close();
+          const page = await context.newPage();
+          await page.goto(`${door!.origin}/colab/pages/${id}`);
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          const rail = page.locator('nav[aria-label="TMT"]');
+          const openRail = async () => {
+            if (width <= 900) await page.getByRole('button', { name: 'Open navigation' }).click();
+            await expect(rail).toBeVisible();
+          };
+          await openRail();
+          await page.evaluate(() => {
+            const state = {
+              active: true,
+              frames: [] as { rail: number[] | null; bar: number[]; opening: boolean }[],
+            };
+            (window as unknown as { switchRecording: typeof state }).switchRecording = state;
+            const box = (element: Element) => {
+              const rect = element.getBoundingClientRect();
+              return [rect.x, rect.y, rect.width, rect.height];
+            };
+            const sample = () => {
+              if (!state.active) return;
+              const nav = document.querySelector('nav[aria-label="TMT"]')!;
+              const bar = document.querySelector('.tmt-ui-shell-bar')!;
+              state.frames.push({
+                rail: nav.getClientRects().length ? box(nav) : null,
+                bar: box(bar),
+                opening: document.body.innerText.includes('Opening space'),
+              });
+              requestAnimationFrame(sample);
+            };
+            sample();
+          });
+          // Let the compositor present each state for the 25 fps recording before the next step.
+          const present = () =>
+            page.evaluate(
+              () =>
+                new Promise<void>((resolve) => {
+                  let frames = 0;
+                  const next = () => {
+                    if (++frames === 16) resolve();
+                    else requestAnimationFrame(next);
+                  };
+                  requestAnimationFrame(next);
+                }),
+            );
+          await present();
+          await rail.locator('a[data-id="ops"]').click();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await present();
+          await openRail();
+          await rail.locator('a[data-id="colab"]').click();
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          await present();
+          await page.goBack();
+          await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+          await present();
+          await page.goForward();
+          await expect(
+            page
+              .frameLocator('.colab-route iframe')
+              .getByRole('heading', { name: 'Recording content' }),
+          ).toBeVisible();
+          await present();
+          const frames = await page.evaluate(() => {
+            const state = (
+              window as unknown as {
+                switchRecording: {
+                  active: boolean;
+                  frames: { rail: number[] | null; bar: number[]; opening: boolean }[];
+                };
+              }
+            ).switchRecording;
+            state.active = false;
+            return state.frames;
+          });
+          expect(frames.length).toBeGreaterThan(1);
+          for (const frame of frames) {
+            if (frame.rail) expect(frame.rail).toEqual(frames[0]!.rail);
+            expect(frame.bar).toEqual(frames[0]!.bar);
+            expect(frame.opening).toBe(false);
+          }
+          const video = page.video()!;
+          await page.close();
+          const path = testInfo.outputPath(`rail-walk-${width}.webm`);
+          await video.saveAs(path);
+          await testInfo.attach(`rail-walk-${width}`, { path, contentType: 'video/webm' });
+        } finally {
+          await context.close();
+        }
+      });
+    }
+
+    test('navigation retains root search until the session changes', async ({ page }) => {
+      await door!.pair(page);
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `
+            const proof = window.searchLifetime = { mounts: 0, closes: 0 };
+            export async function mount(slot) {
+              const session = await slot.session();
+              window.forgetTestSession = () => slot.forgetSession(session);
+              slot.setTopBar();
+              slot.main.textContent = 'Search route';
+              return { release() {}, suspend() {}, resume() {} };
+            }
+            export function mountSearchSession() {
+              proof.mounts++;
+              return { open() {}, dispose() { proof.closes++; } };
+            }
+          `,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('Search route')).toBeVisible();
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
+      const proof = () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { searchLifetime: { mounts: number; closes: number } })
+              .searchLifetime,
+        );
+      await expect.poll(proof).toEqual({ mounts: 1, closes: 0 });
+      await rail.locator('a[data-id="ops"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="colab"]').click();
+      await expect(page.getByText('Search route')).toBeVisible();
+      expect(await proof()).toEqual({ mounts: 1, closes: 0 });
+      await page.evaluate(() =>
+        (window as unknown as { forgetTestSession(): void }).forgetTestSession(),
+      );
+      await expect.poll(proof).toEqual({ mounts: 1, closes: 1 });
+    });
+
+    test('signal-less shell session calls join an in-flight admission', async ({ page }) => {
+      await door!.pair(page);
+      let admissions = 0;
+      page.on('request', (request) => {
+        try {
+          if (request.postDataJSON()?.operation === 'session.open') admissions++;
+        } catch {
+          // Other requests may carry non-JSON bodies.
+        }
+      });
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `export async function mount(slot) {
+            const [first, second] = await Promise.all([
+              slot.session(new AbortController().signal), slot.session()
+            ]);
+            slot.main.textContent = first === second ? 'One shared session' : 'Different sessions';
+            return () => {};
+          }`,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('One shared session')).toBeVisible();
+      expect(admissions).toBe(1);
+    });
+
+    test('a suspended route keeps its Remote signal until release', async ({ page }) => {
+      await door!.pair(page);
+      await page.addInitScript(() => {
+        (
+          window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          }
+        ).originalPush = history.pushState;
+        (
+          window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          }
+        ).originalReplace = history.replaceState;
+      });
+      await page.route('**/x/colab/assets/colab-module.js*', (route) =>
+        route.fulfill({
+          contentType: 'text/javascript',
+          body: `export function mount(slot) {
+            const signal = slot.routeSignal;
+            window.routeProof = { signal, mounts: 1, resumes: 0 };
+            slot.main.textContent = 'Kept route';
+            return { release() {}, suspend() {}, resume() { window.routeProof.resumes++; } };
+          }`,
+        }),
+      );
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('Kept route')).toBeVisible();
+      expect(
+        await page.evaluate(() => {
+          const original = window as unknown as {
+            originalPush: History['pushState'];
+            originalReplace: History['replaceState'];
+          };
+          return (
+            history.pushState === original.originalPush &&
+            history.replaceState === original.originalReplace
+          );
+        }),
+      ).toBe(true);
+      const proof = () =>
+        page.evaluate(() => {
+          const route = (
+            window as unknown as {
+              routeProof: { signal: AbortSignal; mounts: number; resumes: number };
+            }
+          ).routeProof;
+          return { aborted: route.signal.aborted, mounts: route.mounts, resumes: route.resumes };
+        });
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await rail.locator('a[data-id="ops"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      expect(await proof()).toEqual({ aborted: false, mounts: 1, resumes: 0 });
+      await rail.locator('a[data-id="colab"]').click();
+      await expect(page.getByText('Kept route')).toBeVisible();
+      expect(await proof()).toEqual({ aborted: false, mounts: 1, resumes: 1 });
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+      expect((await proof()).aborted).toBe(true);
+    });
+
+    test('disposing a real Colab route restores history methods', async ({ page }) => {
+      const id = await door!.createPage('Disposal page', '<h1>Disposal content</h1>');
+      await door!.pair(page);
+      await page.addInitScript(() => {
+        (window as unknown as { originalHistory: History['pushState'] }).originalHistory =
+          history.pushState;
+      });
+      await page.goto(`${door!.origin}/colab/pages/${id}`);
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Disposal content' }),
+      ).toBeVisible();
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+      expect(
+        await page.evaluate(
+          () =>
+            history.pushState ===
+            (window as unknown as { originalHistory: History['pushState'] }).originalHistory,
+        ),
+      ).toBe(true);
+    });
+
+    test('the rail remembers a page when browser history leaves its module', async ({ page }) => {
+      const id = await door!.createPage('History page', '<h1>History content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/ops/`);
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      await rail.locator('a[data-id="colab"]').click();
+      await showAllPages(page);
+      await page.locator(`[data-page-id="${id}"] a`).click();
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'History content' }),
+      ).toBeVisible();
+      await page.evaluate(() => history.go(-2));
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      await rail.locator('a[data-id="colab"]').click();
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+    });
+
+    for (const returnBy of ['rail', 'Back'] as const) {
+      test(`a page keeps its frame when returning via ${returnBy}`, async ({ page }) => {
+        const id = await door!.createPage('Return page', '<h1>Return content</h1>');
+        await door!.pair(page);
+        await page.goto(`${door!.origin}/colab/`);
+        await showAllPages(page);
+        await page.locator(`[data-page-id="${id}"] a`).click();
+        await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+        const frame = page.locator('.colab-route iframe').first();
+        await expect(
+          page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Return content' }),
+        ).toBeVisible();
+        const original = (await frame.elementHandle())!;
+        const renderer = (await original.contentFrame())!;
+        await original.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+        await renderer.evaluate(() => ((window as Window & { kept?: boolean }).kept = true));
+        const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+        await rail.locator('a[data-id="ops"]').click();
+        await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+        if (returnBy === 'rail') await rail.locator('a[data-id="colab"]').click();
+        else await page.goBack();
+        await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+        await expect(
+          page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Return content' }),
+        ).toBeVisible();
+        expect(
+          await frame.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept),
+        ).toBe(true);
+        expect(await (await frame.elementHandle())!.contentFrame()).toBe(renderer);
+        expect(await renderer.evaluate(() => (window as Window & { kept?: boolean }).kept)).toBe(
+          true,
+        );
+      });
+    }
+
+    test('a paired Colab keeps its session, page bindings and frame across a rail switch', async ({
       page,
     }) => {
       await page.addInitScript(() => {
@@ -561,29 +883,211 @@ test.describe('the door serving the TMT app', () => {
         };
         (window as unknown as { __opened: WebSocket[] }).__opened = opened;
       });
-      const id = await door!.createPage('Unmount page', '<h1>Unmount content</h1>');
+      const id = await door!.createPage(
+        'Kept page',
+        `<h1>Kept content</h1><p id="lead">${'A lead paragraph that keeps the quote context. '.repeat(4)}</p>` +
+          '<p id="quote">The passage a thread is anchored to.</p>',
+      );
       await door!.pair(page);
-      await page.goto(`${door!.origin}/colab/pages/${id}`);
-      const live = () =>
-        page.evaluate(
-          () =>
-            (window as unknown as { __opened: WebSocket[] }).__opened.filter(
-              (socket) => socket.readyState < WebSocket.CLOSING,
-            ).length,
-        );
-      // An open page holds its binding; leaving the route through the TMT rail must close it.
-      await expect.poll(live).toBeGreaterThan(0);
-      const styles = page.locator('link[href$="/colab-module.css"]');
-      await expect(styles).toHaveCount(1);
+      let admissions = 0;
+      let registrations = 0;
+      page.on('request', (request) => {
+        if (new URL(request.url()).pathname.endsWith('/api/devices/register')) registrations++;
+        try {
+          if (request.postDataJSON()?.operation === 'session.open') admissions++;
+        } catch {
+          // Other requests may carry non-JSON bodies.
+        }
+      });
+      const url = `${door!.origin}/colab/pages/${id}`;
+      await page.goto(`${door!.origin}/`);
       await page
         .getByRole('navigation', { name: 'TMT', exact: true })
-        .getByRole('link', { name: 'Home' })
+        .locator('a[data-id="colab"]')
         .click();
-      await expect.poll(live).toBe(0);
-      // Colab's stylesheet goes with its route.
-      await expect(styles).toHaveCount(0);
+      await showAllPages(page);
+      await page.locator(`[data-page-id="${id}"] a`).click();
+      const sockets = () =>
+        page.evaluate(() => {
+          const opened = (window as unknown as { __opened: WebSocket[] }).__opened;
+          return {
+            opened: opened.length,
+            live: opened.filter((socket) => socket.readyState < WebSocket.CLOSING).length,
+          };
+        });
+      const sessions = () =>
+        page.evaluate(
+          () =>
+            performance
+              .getEntriesByType('resource')
+              .filter((entry) => new URL(entry.name).pathname.endsWith('/api/session')).length,
+        );
+      const frame = page.locator('.colab-route iframe').first();
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
+      ).toBeVisible();
+      await expect.poll(async () => (await sockets()).live).toBeGreaterThan(0);
+      // An anchored thread, whose marker the frame places at its passage.
+      const view = page.frameLocator('.colab-route iframe');
+      await view.locator('#quote').evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+      const input = await annotationInput(page.locator('.annotation-new'));
+      await input.fill('Anchored note');
+      await input.press('Enter');
+      await expect(view.locator('[data-colab-thread]')).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      const before = await sockets();
+      const registered = await sessions();
+      // The renderer is an opaque-origin frame: mark its own window from inside it.
+      const renderer = (await (await frame.elementHandle())!.contentFrame())!;
+      await renderer.evaluate(() => ((window as Window & { kept?: boolean }).kept = true));
+      await frame.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+      const styles = page.locator('link[href$="/colab-module.css"]');
+      const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
+      // Leaving Colab through the rail suspends it: its sockets stay open and its styles are off.
+      await rail.locator('a[data-id="ops"]').click();
+      await expect(page.locator('.tmt-ui-shell-main[data-route="ops"]')).toBeVisible();
+      expect(await sockets()).toEqual(before);
+      expect(await sessions()).toBe(registered);
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(true);
+      // A suspended Colab is as quiet as a background tab: no request of its own for 10 s.
+      const requests: string[] = [];
+      const record = (request: { url(): string }) => {
+        if (new URL(request.url()).pathname.includes('/x/colab/')) requests.push(request.url());
+      };
+      page.on('request', record);
+      await page.waitForTimeout(10_000);
+      page.off('request', record);
+      expect(requests).toEqual([]);
+      // A live write while it is hidden still reaches the kept frame. It moves the passage down
+      // without touching the quote's own context.
+      await door!.patchPage(id, '<p id="lead">', '<p>Inserted while away.</p><p id="lead">');
+      await expect
+        .poll(() => renderer.evaluate(() => document.body.textContent ?? ''))
+        .toContain('Inserted while away.');
+      // The global search opened on the other route shares Colab's stylesheet: it keeps its styles
+      // while Colab is suspended.
+      await page.keyboard.press('ControlOrMeta+k');
+      const search = page.getByRole('dialog', { name: 'Search TMT', exact: true });
+      await expect(search).toBeVisible();
+      await expect(search.getByRole('option', { name: /Kept page/ })).toBeVisible();
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
+      expect(
+        await search
+          .locator('.quick-switcher-search-mark')
+          .evaluate((mark) => getComputedStyle(mark).position),
+      ).toBe('absolute');
+      await page.keyboard.press('Escape');
+      await expect(search).toHaveCount(0);
+      // Search and the return share the original admission across the entire walk.
+      expect(await sessions()).toBe(registered);
+      const searched = { sockets: await sockets(), sessions: await sessions() };
+      // Coming back opens nothing: the same frame document, no new socket or registration.
+      // Back returns to the same page.
+      await page.goBack();
+      await expect(
+        page.frameLocator('.colab-route iframe').getByRole('heading', { name: 'Kept content' }),
+      ).toBeVisible();
+      await expect(page.getByText('Opening space')).toHaveCount(0);
+      expect(await (await frame.elementHandle())!.contentFrame()).toBe(renderer);
+      expect(await renderer.evaluate(() => (window as Window & { kept?: boolean }).kept)).toBe(
+        true,
+      );
+      expect(await sockets()).toEqual(searched.sockets);
+      expect(await sessions()).toBe(searched.sessions);
+      expect(admissions).toBe(1);
+      expect(registrations).toBe(1);
+      expect(await styles.evaluate((link: HTMLLinkElement) => link.disabled)).toBe(false);
+      // Resume measures again: the same frame element shows the new text, and the frame and the
+      // thread's marker sit where a fresh open puts them.
+      expect(await frame.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(
+        true,
+      );
+      const placed = async (target: Page) => {
+        const shown = target.locator('.colab-route iframe').first();
+        const inner = target.frameLocator('.colab-route iframe');
+        await expect(inner.locator('[data-colab-thread]')).toHaveCount(1);
+        await expect(inner.getByText('Inserted while away.')).toBeVisible();
+        const box = (await shown.boundingBox())!;
+        const marker = await inner.locator('[data-colab-thread]').evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return { x: rect.left + scrollX, y: rect.top + scrollY };
+        });
+        return { width: box.width, height: box.height, ...marker };
+      };
+      const fresh = await page.context().newPage();
+      await fresh.goto(url);
+      const [kept, opened] = [await placed(page), await placed(fresh)];
+      for (const key of ['width', 'height', 'x', 'y'] as const)
+        expect(Math.abs(kept[key] - opened[key]), key).toBeLessThanOrEqual(1);
+      await fresh.close();
     });
   });
+});
+
+// #5954: leaving Colab through the rail suspends it in place; coming back resumes it, never mounts.
+test('a rail switch keeps Colab in place and brings it back without opening again', async ({
+  page,
+}) => {
+  // A resume that touched what the kept tree drew into the shell would fail in React's commit.
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    // The preview fixture has no door: its resource 404s are not the module's.
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource'))
+      errors.push(message.text());
+  });
+  await page.goto('/');
+  await serveRendererLikeTheDoor(page);
+  await page.evaluate(
+    async (fixture) => (await import(fixture)).mountKeptHostApp('/colab/'),
+    fixture,
+  );
+  const route = page.locator('#spa-slot .colab-route');
+  await expect(route.locator('> *').first()).toBeVisible();
+  const go = (path: string) =>
+    page.evaluate((path) => {
+      history.pushState(null, '', path);
+      dispatchEvent(new PopStateEvent('popstate'));
+    }, path);
+  const box = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((node) => node.getBoundingClientRect().toJSON());
+  const bar = await box('#spa-slot .tmt-ui-shell-bar');
+  await route.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+  for (const round of [1, 2]) {
+    await go('/ops/');
+    await expect(page.getByText('Ops board')).toBeVisible();
+    await expect(route).toBeHidden();
+    // Suspended is a hidden document to Colab: its polling and observation pause.
+    expect(
+      await page.evaluate(async (fixture) => (await import(fixture)).pageHidden(), fixture),
+    ).toBe(true);
+    expect(
+      await route.evaluate((node) => node.closest<HTMLElement>('.tmt-ui-shell-kept')!.inert),
+    ).toBe(true);
+    await go('/colab/');
+    await expect(route.locator('> *').first()).toBeVisible();
+    await expect(page.getByText('Ops board')).toHaveCount(0);
+    await expect(page.getByText('Opening space')).toHaveCount(0);
+    expect(
+      await page.evaluate(async (fixture) => (await import(fixture)).pageHidden(), fixture),
+    ).toBe(false);
+    expect(
+      await route.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept),
+      `round ${round}`,
+    ).toBe(true);
+    expect(await box('#spa-slot .tmt-ui-shell-bar'), `round ${round}`).toEqual(bar);
+  }
+  expect(await page.evaluate(() => window.__colabMounts)).toBe(1);
+  expect(errors).toEqual([]);
 });
 
 test('unmounting Colab closes what it started', async ({ page }) => {

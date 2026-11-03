@@ -4,7 +4,6 @@ import { ChatSeen } from './chat-unread.js';
 import type { ConversationReading, ReplyReveal } from './reply-notification-context.js';
 import {
   answerNotificationDestination,
-  proposalNotificationDestination,
   threadNotificationDestination,
 } from './reply-notification-context.js';
 import {
@@ -18,11 +17,7 @@ import {
 const destinationKey = (event: ReplyNotification) => {
   if (event.destination === 'Chat') return 'Chat';
   if (event.destination === 'Answer') return answerNotificationDestination(event.questionId!);
-  return (
-    event.destination === 'Proposal'
-      ? proposalNotificationDestination
-      : threadNotificationDestination
-  )(event.thread!.writer, event.thread!.id);
+  return threadNotificationDestination(event.thread!.writer, event.thread!.id);
 };
 /** A click never becomes an unbounded future navigation after its source changes. */
 export const REPLY_REVEAL_WAIT_MS = 5000;
@@ -170,7 +165,7 @@ export function useReplyNotifications({
       reader.destination === destinationKey(event) &&
       reader.pageKey === pageKey &&
       reader.state.visible &&
-      (event.destination === 'Answer' || event.destination === 'Proposal'
+      (event.destination === 'Answer'
         ? !!reader.state.recordKeys?.includes(event.recordKey)
         : reader.state.atEnd),
     [pageKey],

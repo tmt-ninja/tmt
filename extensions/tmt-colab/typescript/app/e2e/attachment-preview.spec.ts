@@ -13,6 +13,7 @@ async function mount(
     held?: boolean;
     kind?: string;
     refused?: boolean;
+    failures?: ('changed' | 'denied')[];
     files?: boolean;
   } = {},
 ) {
@@ -129,6 +130,37 @@ test('a denied thumbnail reports the admitted failure and never retries just fro
   expect((await proof(page)).reads).toHaveLength(1);
   await page.getByRole('button', { name: 'Preview image-1.png' }).click();
   await expect(page.locator('.attachment-viewer').getByRole('alert')).toBeVisible();
+  expect((await proof(page)).reads).toHaveLength(2);
+});
+// #5955: a failed image says so once, inside its own tile, with Retry there.
+test('a failed thumbnail says so once inside its tile and Retry reads it again', async ({
+  page,
+}) => {
+  await mount(page, { count: 1, failures: ['denied'] });
+  const tile = page.getByTestId('message-attachment');
+  await expect(tile.getByRole('alert')).toHaveText('You can no longer open this file.');
+  await expect(page.getByText('You can no longer open this file.')).toHaveCount(1);
+  const box = await tile.locator('.attachment-thumbnail').boundingBox();
+  const failure = await tile.locator('.attachment-tile-failure').boundingBox();
+  expect(failure).toEqual(box);
+  await tile.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(tile.locator('.attachment-thumbnail img')).toBeVisible();
+  await expect(tile.getByRole('alert')).toHaveCount(0);
+  expect((await proof(page)).reads).toHaveLength(2);
+});
+test('a thumbnail read the page changed under is read once more before saying so', async ({
+  page,
+}) => {
+  await mount(page, { count: 1, failures: ['changed'] });
+  await expect(page.locator('.attachment-thumbnail img')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect((await proof(page)).reads).toHaveLength(2);
+  await mount(page, { count: 1, failures: ['changed', 'changed'] });
+  await expect(page.getByTestId('message-attachment').getByRole('alert')).toHaveText(
+    'The page changed while opening this file. Try again.',
+  );
+  await expect.poll(async () => (await proof(page)).reads.length).toBe(2);
+  await page.getByRole('button', { name: 'After attachments' }).scrollIntoViewIfNeeded();
   expect((await proof(page)).reads).toHaveLength(2);
 });
 const captures = process.env.COLAB_2554_CAPTURE_DIR;

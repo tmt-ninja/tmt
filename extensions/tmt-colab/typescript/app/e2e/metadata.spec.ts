@@ -211,7 +211,7 @@ test('creator changes seed new question drafts without remounting dirty drafts o
   ).toBeVisible();
   await rows.first().click();
   await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
-  await expect(rows.first().locator('.question-line-state')).toHaveText('Answered');
+  await expect(rows.first()).toHaveAttribute('aria-label', /Answered:/);
   await expect.poll(async () => (await run('proof')).sends.length).toBe(1);
   const sent = (await run('proof')).sends;
   expect(sent[0].agentId).toBe('00000000-0000-4000-8000-000000000006');

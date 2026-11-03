@@ -205,20 +205,6 @@ notify uniquely identified mentioned agents, replied or not. Partial or uncertai
 delivery neither undoes the resolution nor promises receipt or authorizes resending:
 read the thread and delivery state first.
 
-## Proposals
-
-When authorized: `proposal add PAGE --title TITLE --body BODY --id UUID --json`,
-`proposal ls PAGE --json` or `proposal resolve PAGE ID --json` with `tmt colab`.
-Keep a UUID for Add; recovery/resolve accept unique prefixes from ls.
-Limits: title 200 characters, body 4 KiB, label 64; 200 proposals/page. Use a tmt
-agent session; if Remote is stopped, run `tmt colab serve`. Add saves, then places
-the proposal at the page end. If interrupted, check ls and page source; rerun
-with the same ID, title and body to finish the missing step. `placed:false`
-means placement is unconfirmed; missing/duplicate placeholders stay detached.
-HTML grants no authority. Resolve never notifies agents; Reopen keeps the decision.
-Trusted Approve/Decline saves the final decision, then sends one Ask; failure
-keeps it. Reload never sends.
-
 ## Projects
 
 Projects organize the owner's page list: [projects](references/projects.md)

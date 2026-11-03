@@ -146,10 +146,6 @@ pub const MAX_SEQUENCE: u64 = 9_007_199_254_740_991;
 pub const OWN_RECORDS: usize = 32;
 /// Frozen status recipients, bounded independently from comment text.
 pub const STATUS_RECIPIENTS: usize = 1000;
-pub const PROPOSAL_TITLE_POINTS: usize = 200;
-pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
-pub const PROPOSAL_LABEL_POINTS: usize = 64;
-pub const PAGE_PROPOSALS: usize = 200;
 /// Projects (contract: Projects): display-only names in the owner store. `PROJECT_POINTS` bounds one
 /// name, `PAGE_PROJECTS` the names on one page, `SPACE_PROJECTS` the names in the space and
 /// `SPACE_PROJECT_PAGES` every page-in-project assignment, so the `/api/pages` reply stays under its
@@ -213,8 +209,8 @@ pub const LATEST_POINTS: usize = 160;
 pub const SUMMARY_DETAILS_BYTES: usize = 192 * 1024;
 /// Maximum time spent projecting quote anchors for one owner summary.
 pub const SUMMARY_PROJECTION_TIMEOUT: Duration = Duration::from_millis(200);
-/// Maximum admitted proposal, question, review and reading items in one page summary.
-pub const NEEDS_YOU_ITEMS: usize = PAGE_PROPOSALS + QUESTION_PAGE + REVIEW_PAGE + READING_PAGE;
+/// Maximum admitted question, review and reading items in one page summary.
+pub const NEEDS_YOU_ITEMS: usize = QUESTION_PAGE + REVIEW_PAGE + READING_PAGE;
 pub const QUESTION_TITLE_POINTS: usize = 200;
 /// Display-only summary of the latest verified answer; full text stays in its comment.
 pub const QUESTION_ANSWER_POINTS: usize = 200;

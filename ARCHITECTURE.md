@@ -579,6 +579,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
   Colab owns the mounted browser app, including trusted recovery and archived reads ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
+  Inline question blocks reserve measured in-flow space; thread-reference activation is admitted
+  against the parent's authenticated thread projection ([contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)).
   One `tmt colab serve` is enough for a browser: it attaches to a running door, else starts
   one as a supervised child it alone stops.
   This edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate

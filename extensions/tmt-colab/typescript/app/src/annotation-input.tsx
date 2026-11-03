@@ -79,7 +79,7 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  /** Admitted page/proposal UUIDs select the recipient; an optional label is display only. */
+  /** Admitted page UUIDs select the recipient; an optional label is display only. */
   creationRecipient?: CreatorTarget & { label?: string };
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
@@ -589,9 +589,9 @@ export function AnnotationInput({
               }
             : undefined
         }
-        // One reserved slot in the composer, above the text: a refusal, a recipient that was not
-        // reached, or a recorded message's next step fills it, so neither the history nor the
-        // field moves (#5911).
+        // One notice slot that takes no room: a refusal, a recipient that was not reached, or a
+        // recorded message's next step floats just above the field, so neither the history nor
+        // the field moves, and an empty slot leaves no gap above the text (#5911).
         header={
           <div className="annotation-notice-slot">
             {sendFailureNotice}

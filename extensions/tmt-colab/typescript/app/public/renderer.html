@@ -499,7 +499,7 @@
           if (framed) document.documentElement.dataset.colabLayout = layout;
           const utf8 = new TextEncoder();
           const excluded =
-            'head,script,style,template,noscript,[hidden],[data-colab-highlight],[data-colab-image]';
+            'head,script,style,template,noscript,tmt-thread-ref,[hidden],[data-colab-highlight],[data-colab-image]';
           const validQuote = (v) =>
             v &&
             typeof v === 'object' &&
@@ -562,6 +562,34 @@
           // `frameNodes`, and every attribute it sets there is a `data-colab-*` one or, for the
           // choices a question hides, `hidden` on an element in `frameHidden`. An in-place update
           // never compares, moves or removes them.
+          // BEGIN GENERATED THREAD REFERENCE COMPONENT
+          // This source is embedded into the opaque page renderer by generate-renderer-style.mjs.
+          // It receives only the parent's admitted display projection and grants no record authority.
+          // eslint-disable-next-line no-unused-vars -- embedded and called by the renderer
+          function commentReferenceChip(frameNode, entry, activate) {
+            const chip = frameNode(entry ? 'button' : 'span');
+            chip.dataset.colabRefChip = '';
+            chip.className = 'colab-thread-ref-chip';
+            if (!entry) {
+              chip.textContent = 'Thread not found';
+              chip.dataset.missing = '';
+              return chip;
+            }
+            chip.type = 'button';
+            chip.setAttribute('aria-label', `Open thread ${entry.number}: ${entry.excerpt}`);
+            const icon = frameNode('tmt-icon');
+            icon.setAttribute('name', 'message-circle');
+            icon.setAttribute('aria-hidden', 'true');
+            chip.append(icon, document.createTextNode(`${entry.number} · ${entry.excerpt}`));
+            chip.addEventListener('click', (event) => {
+              if (!event.isTrusted) return;
+              event.preventDefault();
+              event.stopPropagation();
+              activate(entry.id);
+            });
+            return chip;
+          }
+          // END GENERATED THREAD REFERENCE COMPONENT
           const frameNodes = new WeakSet();
           const frameHidden = new WeakSet();
           // The marks `resolveQuestions` puts on the author's question, review and reading blocks. It
@@ -594,6 +622,9 @@
           let quiet = null,
             quietEntry = null,
             quietLayer;
+          let referenceRequestId = '',
+            referenceEntries = [];
+          const referenceChips = new WeakMap();
           let questionBlocks = [],
             reviewBlocks = [],
             readingBlocks = [],
@@ -874,7 +905,7 @@
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
-            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }';
+            ':root{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}:root[data-colab-scheme="light"]{--tmt-ui-surface-annotation-highlight:#d8e8e4;--tmt-ui-surface-annotation-highlight-hover:#bbd8d2;--tmt-ui-surface-annotation-highlight-selected:#aed0c8;--tmt-ui-color-annotation-rule:#6dafa0;--tmt-ui-color-annotation-rule-selected:#147f67;--tmt-ui-surface-annotation-action:#147f67;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#26393f;--tmt-ui-surface-rule:#d4dfdb;}:root[data-colab-scheme="dark"]{--tmt-ui-surface-annotation-highlight:#1b3132;--tmt-ui-surface-annotation-highlight-hover:#284c48;--tmt-ui-surface-annotation-highlight-selected:#254643;--tmt-ui-color-annotation-rule:#4e9784;--tmt-ui-color-annotation-rule-selected:#78edc8;--tmt-ui-surface-annotation-action:#78edc8;--tmt-ui-color-annotation-on-action:#10241e;--tmt-ui-surface-sheet:#17232c;--tmt-ui-color-text:#c9d6dd;--tmt-ui-surface-rule:#283a46;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; } .annotation-number[data-colab-thread] { width: 24px; min-width: 24px; height: 24px; padding: 4px; background-clip: content-box; font-size: 10px; } .annotation-number[data-colab-group] { width: auto; min-width: 24px; height: 24px; padding: 0 4px; border: 4px solid transparent; border-radius: var(--tmt-ui-radius-pill); background-clip: padding-box; font-size: 10px; } .annotation-number[data-colab-selected] { outline: 2px solid var(--tmt-ui-color-annotation-rule-selected); outline-offset: -2px; }tmt-thread-ref { font-size: 0; } tmt-thread-ref > :not([data-colab-ref-chip]) { display: none !important; } .colab-thread-ref-chip { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; max-width: 100%; padding: 0 8px; border: 1px solid var(--tmt-ui-color-annotation-rule); border-radius: 999px; background: var(--tmt-ui-surface-annotation-highlight); color: var(--tmt-ui-color-annotation-rule-selected); font: 600 12px/20px system-ui, sans-serif; overflow-wrap: anywhere; } button.colab-thread-ref-chip { cursor: pointer; } .colab-thread-ref-chip[data-missing] { border-color: var(--tmt-ui-surface-rule); background: transparent; color: var(--tmt-ui-color-text); opacity: 0.65; font-weight: 400; } .colab-thread-ref-chip tmt-icon { width: 14px; height: 14px; flex: none; }';
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE UI
           const pageUi =
@@ -886,7 +917,7 @@
           // END GENERATED PAGE ICONS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
+            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-block-slot] { margin-block-start: -16px !important; } } } }';
           // END GENERATED PAGE FRAME
           const accent = 'var(--tmt-ui-color-annotation-rule-selected)';
           const accentTint = (percent) => `color-mix(in srgb,${accent} ${percent}%,transparent)`;
@@ -1133,6 +1164,8 @@
               event.metaKey ||
               event.shiftKey
             )
+              return;
+            if (event.target instanceof Element && event.target.closest('[data-colab-ref-chip]'))
               return;
             // Number badges own their exact target, even over overlapping range text.
             if (event.target instanceof Node && markers?.contains(event.target)) {
@@ -1404,7 +1437,7 @@
               // Reading tags cannot displace an existing control, and an unrequested authored
               // tag contributes no slot at all. The parent also reserves ordinary IDs first.
               const ordinary = document.querySelectorAll(
-                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
+                `tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
               );
               const matches =
                 ordinary.length || !readingBlocks.some((reading) => reading.id === slot.id)
@@ -1485,7 +1518,7 @@
                 }
                 if (!panel) {
                   panel = frameNode('div');
-                  panel.dataset.colabProposalSlot = '';
+                  panel.dataset.colabBlockSlot = '';
                   panel.setAttribute('aria-hidden', 'true');
                   edge.after(panel);
                   spacers.set(slot.id, panel);
@@ -1576,7 +1609,7 @@
               }
               if (!spacer) {
                 spacer = frameNode('div');
-                spacer.dataset.colabProposalSlot = '';
+                spacer.dataset.colabBlockSlot = '';
                 spacer.setAttribute('aria-hidden', 'true');
                 target.after(spacer);
                 spacers.set(slot.id, spacer);
@@ -1584,7 +1617,7 @@
               if (slot.before !== undefined && group) {
                 if (!before) {
                   before = frameNode('div');
-                  before.dataset.colabProposalSlot = '';
+                  before.dataset.colabBlockSlot = '';
                   before.setAttribute('aria-hidden', 'true');
                   target.before(before);
                   beforeSpacers.set(slot.id, before);
@@ -1995,7 +2028,39 @@
               readings,
             });
           }
+          function resolveThreadReferences() {
+            if (!referenceRequestId) return;
+            for (const node of document.querySelectorAll('tmt-thread-ref')) {
+              const attributes = [...node.attributes].map((attribute) => attribute.name);
+              const id = `${node.getAttribute('data-writer')}:${node.getAttribute('data-thread')}`;
+              const entry =
+                attributes.length === 2 &&
+                attributes.every((name) => name === 'data-writer' || name === 'data-thread')
+                  ? referenceEntries.find((value) => value.id === id)
+                  : undefined;
+              const key = JSON.stringify(entry ?? null);
+              const previous = referenceChips.get(node);
+              if (
+                previous?.key === key &&
+                previous.chip.parentNode === node &&
+                node.childNodes.length === 1
+              )
+                continue;
+              previous?.chip.remove();
+              const chip = commentReferenceChip(frameNode, entry, (selected) => {
+                port.postMessage({
+                  type: 'colab.render.open-reference',
+                  renderId,
+                  requestId: referenceRequestId,
+                  id: selected,
+                });
+              });
+              node.replaceChildren(chip);
+              referenceChips.set(node, { key, chip });
+            }
+          }
           function resolve() {
+            resolveThreadReferences();
             resolveSlots();
             resolveQuestions();
             resolveLocks();
@@ -2388,6 +2453,34 @@
               return;
             }
             if (
+              v?.type === 'colab.render.thread-references' &&
+              Object.keys(v).length === 4 &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              Array.isArray(v.entries) &&
+              v.entries.length <= 1000 &&
+              v.entries.every(
+                (entry) =>
+                  entry &&
+                  Object.keys(entry).length === 3 &&
+                  typeof entry.id === 'string' &&
+                  entry.id.length === 73 &&
+                  Number.isSafeInteger(entry.number) &&
+                  entry.number > 0 &&
+                  entry.number <= 1000 &&
+                  typeof entry.excerpt === 'string' &&
+                  entry.excerpt.length <= 160,
+              ) &&
+              utf8.encode(JSON.stringify(v)).length <= 256 * 1024
+            ) {
+              referenceRequestId = v.requestId;
+              referenceEntries = v.entries;
+              resolveThreadReferences();
+              scheduleHeight();
+              return;
+            }
+            if (
               v?.type === 'colab.render.edit-locks' &&
               !Array.isArray(v) &&
               Object.keys(v).length === 4 &&
@@ -2577,7 +2670,7 @@
                       Object.keys(s).includes('before') &&
                       Number.isInteger(s.before) &&
                       s.before >= 0 &&
-                      s.before <= 2000) ||
+                      s.before <= 1000000) ||
                     (Object.keys(s).length === 3 &&
                       s.chip &&
                       typeof s.chip === 'object' &&
@@ -2593,7 +2686,7 @@
                   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.id) &&
                   Number.isInteger(s.height) &&
                   s.height >= 0 &&
-                  s.height <= 2000,
+                  s.height <= 1000000,
               )
             ) {
               for (const [id, spacer] of spacers)
@@ -2782,7 +2875,7 @@
                   !markers?.contains(m.target) &&
                   !hover?.contains(m.target) &&
                   !(
-                    m.target instanceof Element && m.target.hasAttribute('data-colab-proposal-slot')
+                    m.target instanceof Element && m.target.hasAttribute('data-colab-block-slot')
                   ) &&
                   !(
                     m.type === 'childList' &&

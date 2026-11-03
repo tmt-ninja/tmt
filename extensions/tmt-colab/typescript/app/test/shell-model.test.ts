@@ -39,7 +39,7 @@ function shellOf(items: Shell['items'], order = Object.keys(items)): Shell {
 }
 function details(
   n: number,
-  needs: { kind: 'review' | 'question' | 'reading' | 'proposal'; id: string; title: string }[],
+  needs: { kind: 'review' | 'question' | 'reading'; id: string; title: string }[],
   latest?: { atMs: number; text: string },
 ): [string, ReadingDetails] {
   return [

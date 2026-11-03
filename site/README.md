@@ -70,8 +70,8 @@ published. An optional bare `xHandle` (1–15 letters, digits or underscores) en
 Follow on X in both header and footer. The working title is
 TMT Journal. Its shared layout uses a black-only ninja palette in both color
 preferences, rice-paper text, a red accent and a file-backed owner-supplied team mark.
-The sticky header and footer are shared by index, topic and post pages. The padded
-team icon PNG is the favicon and touch icon.
+The sticky header and footer are shared by index, topic and post pages. The selected
+ninja SVG is the header mark; a matching PNG is the favicon and touch icon.
 Every page carries Open Graph and X card metadata with absolute `SITE_ORIGIN`
 URLs: the canonical URL, the article title and summary, and a 1200×630 card:
 `src/blog/share/<slug>.png` when an article has one, else `src/blog/og.png`.

@@ -78,7 +78,6 @@ import {
 import type { PageView, PageSnapshot, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
 import { AnnotationInput } from './annotation-input.js';
-import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
@@ -101,14 +100,8 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { ResolveAllThreads } from './resolve-all-threads.js';
 import { presentationOf } from './thread-status-presentation.js';
-import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import {
-  firstThread,
-  listedThreads,
-  threadKey,
-  threadNeedsYou,
-  type ThreadFilter,
-} from './comments-listing.js';
+import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-view.js';
+import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
@@ -150,7 +143,7 @@ import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
  * footers, and the open work band's controls, which can fill a phone's viewport. */
-const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
+const AVOIDED_CARDS = '.question-group-footer';
 const AVOIDED_BAND =
   '.work-band :is(button, a[href], input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"])';
 
@@ -1627,6 +1620,27 @@ function OpenPage({
   );
   const [batchGeneration, setBatchGeneration] = useState(0);
   const [threadFilter, setThreadFilter] = useThreadFilter();
+  const [agentResolutionNotice, setAgentResolutionNotice] = useState<string>();
+  const viewedStatus = useRef<{ id: string; resolved: boolean } | undefined>(undefined);
+  useEffect(() => {
+    if (panel !== 'comments' || threadFilter !== 'open' || !activeThread) {
+      viewedStatus.current = undefined;
+      return;
+    }
+    const thread = (view.threads ?? []).find((item) => threadKey(item) === activeThread);
+    if (!thread) return;
+    if (
+      viewedStatus.current?.id === activeThread &&
+      !viewedStatus.current.resolved &&
+      thread.resolved &&
+      thread.status?.actor === 'agent'
+    )
+      setAgentResolutionNotice(text.threadResolvedBy(thread.status.agentName ?? 'Agent'));
+    viewedStatus.current = { id: activeThread, resolved: thread.resolved };
+  }, [panel, threadFilter, activeThread, view.threads]);
+  useEffect(() => {
+    setAgentResolutionNotice(undefined);
+  }, [panel, threadFilter]);
   useEffect(() => {
     setBatchStatus(null);
     setBatchGeneration((generation) => generation + 1);
@@ -1803,21 +1817,6 @@ function OpenPage({
     connectionPresentation,
     readingHint: space ? readingHint : undefined,
   });
-  const proposalLayer = useProposalLayer({
-    slotPositions: inlineSlots.positions,
-    snapshot,
-    view,
-    binding,
-    discussionBlocked,
-    recoveryRequired,
-    connectionPresentation,
-    statusCoordinator,
-    otherBusy: () => statusBusy.current,
-    closeAnnotation: () => closeRef.current(false),
-    draft: (key) => drafts.current.get(key),
-    keepDraft,
-    setActiveThread,
-  });
   const editLockLayer = useEditLockLayer({
     page: snapshot.id,
     view,
@@ -1863,6 +1862,8 @@ function OpenPage({
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
         if (thread) {
+          // A direct reference can name a resolved thread or one outside the current filter.
+          if (!listed.some((item) => threadKey(item) === id)) setThreadFilter('all');
           if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
           openThread(thread.ref);
         }
@@ -1896,6 +1897,29 @@ function OpenPage({
   );
   const anchoredThreads = highlights.current,
     threadTotal = numbers.size;
+  const referenceEntries = useRef<readonly { id: string; number: number; excerpt: string }[]>([]);
+  referenceEntries.current = shareView(
+    referenceEntries.current,
+    (view.threads ?? []).flatMap((thread) => {
+      if (thread.deleted || isChatThread(thread) || !thread.anchor) return [];
+      const id = `${thread.ref.writer}:${thread.ref.id}`;
+      const number = numbers.get(id);
+      return number === undefined
+        ? []
+        : [
+            {
+              id,
+              number,
+              excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()].slice(0, 80).join(''),
+            },
+          ];
+    }),
+  );
+  const admittedReferences = referenceEntries.current;
+  useEffect(() => {
+    if (state !== 'ready') return;
+    renderer.current?.threadReferences([...admittedReferences]);
+  }, [state, contentRevision, admittedReferences]);
   // A resolved thread leaves the marker set, but while its Discussion view is open the page keeps a
   // quiet mark on its passage, so the person can see and scroll to what it was about.
   const quietCandidate =
@@ -1987,12 +2011,6 @@ function OpenPage({
         openChat();
       } else if (event.destination === 'Answer') {
         return questionLayer.activateNotification(event);
-      } else if (event.destination === 'Proposal' && event.thread) {
-        const target = proposalLayer.activateNotification(event.thread);
-        if (target === 'comments') {
-          showThread(`${event.thread.writer}:${event.thread.id}`);
-        }
-        return !!target;
       } else if (event.thread) openThread(event.thread);
       else return false;
       return true;
@@ -2028,7 +2046,6 @@ function OpenPage({
   const attentionBinding = snapshot.binding?.discussion;
   const attentionScope = attentionBinding?.scope;
   const attentionVersions = useNeedsYouVersions(view.source, [
-    ...proposalLayer.navigation,
     ...readingLayer.items
       .filter((item) => inlineSlots.readingIds.has(item.id))
       .map((item) => ({
@@ -2150,12 +2167,7 @@ function OpenPage({
                   : undefined
               }
               onPick={(item) => {
-                if (item.kind === 'proposal') {
-                  if (!proposalLayer.jump(item.id)) {
-                    const ref = proposalLayer.reference(item.id);
-                    if (ref) openThread(ref);
-                  }
-                } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                if (item.kind === 'reading') readingLayer.jump(item.id, true);
                 else if (item.kind === 'answer') {
                   if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
                 } else if (item.kind === 'review') reviewLayer.jump(item.id);
@@ -2326,11 +2338,6 @@ function OpenPage({
           {editLockLayer.layer}
           {!discussionPending && (
             <>
-              {/* The proposal and question cards sit on the author's page, so they take the scheme it
-                  paints; the review and reading bands sit on the app's paper and keep the app's. */}
-              <div className="page-cards" data-theme={pageScheme}>
-                {proposalLayer.inline}
-              </div>
               {reviewLayer.inline}
               {readingLayer.inline}
               <div className="page-cards" data-theme={pageScheme}>
@@ -2442,14 +2449,13 @@ function OpenPage({
           )}
           {!discussionPending && (
             <>
+              {agentResolutionNotice && <p role="status">{agentResolutionNotice}</p>}
               <ThreadPanel
                 connectionPresentation={connectionPresentation}
                 archived={archived}
-                proposalStatusPending={proposalLayer.proposalStatusPending}
                 creationRecipient={creatorTarget(view)}
                 hideHeader
                 numbers={numbers}
-                renderProposal={proposalLayer.renderProposal}
                 key={`discussion:${snapshot.id}:${draftsReady}`}
                 threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
                 resolved={resolved}
@@ -2489,11 +2495,7 @@ function OpenPage({
               />
               <ResolveAllThreads
                 headerSlot={resolveAllSlot}
-                threads={listed.filter(
-                  (thread) =>
-                    !thread.resolved &&
-                    (threadFilter !== 'needs' || threadNeedsYou(thread, view.threadPresentations)),
-                )}
+                threads={(view.threads ?? []).filter(isOpenThread)}
                 coordinator={
                   (view.threadPresentations ?? []).some((value) => value.status.controllable)
                     ? statusCoordinator
@@ -2637,7 +2639,7 @@ function OpenPage({
                       <AnnotationInput
                         connectionPresentation={connectionPresentation}
                         archived={archived}
-                        creationRecipient={itemThread?.proposal?.proposer ?? creatorTarget(view)}
+                        creationRecipient={creatorTarget(view)}
                         binding={pageBinding.ask}
                         discussion={pageBinding.discussion}
                         anchor={itemThread ? itemThread.anchor : item.selector}
@@ -2835,6 +2837,36 @@ function OpenPage({
     </CreatorDefaultProvider>
   );
 }
+/**
+ * Colab's history inside the TMT web app. Another route's address (`/ops`, Home) is never Colab's
+ * location: the router keeps the last Colab one, so a module kept while another route shows never
+ * loads, unloads or rewrites a page for that address (#5954).
+ */
+function shellHistory() {
+  let last: ReturnType<typeof createBrowserHistory>['location'] | undefined;
+  const history = createBrowserHistory({
+    parseLocation: () => {
+      const own = location.pathname === '/colab' || location.pathname.startsWith('/colab/');
+      if (last && !own) return last;
+      const state = window.history.state;
+      last = {
+        href: location.pathname + location.search + location.hash,
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+        state: { ...state, __TSR_index: state?.__TSR_index ?? 0 },
+      };
+      return last;
+    },
+  });
+  // Router pushes update its in-memory location before the browser URL is flushed. Keep that
+  // location too, so leaving immediately after an in-app navigation cannot restore a stale page.
+  history.subscribe(({ location: next }) => {
+    if (next.pathname === '/colab' || next.pathname.startsWith('/colab/')) last = next;
+  });
+  return history;
+}
+
 /** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */
 let linkSpace: string | undefined;
 /**
@@ -2877,7 +2909,7 @@ export function createAppRouter(
     window.history.replaceState(window.history.state, '', '/colab/blocked');
   linkSpace = undefined;
   const history = inShell()
-    ? createBrowserHistory()
+    ? shellHistory()
     : space
       ? createBrowserHistory({
           parseLocation: () => {
