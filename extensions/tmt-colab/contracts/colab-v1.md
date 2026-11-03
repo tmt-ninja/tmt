@@ -1215,7 +1215,7 @@ An ordinary comment may carry optional `questionId`, using the same UUID grammar
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
 binding, not a new comment kind or authority. Effective question state consumes only current,
 nondeleted question-bound comments from verified owner-member devices in nondeleted,
-non-proposal threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+threads. Stable comment order (sequence, writer, message ID) chooses the latest;
 clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
 a whitespace-normalized summary of at most 200 code points in `answer`, display-only
 `answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
@@ -1397,6 +1397,8 @@ metadata UI and integrated door/hosted proofs belong to B, not this native slice
 
 ### Own-stream discussion records (#1427)
 
+Retired proposal thread and decision records are ignored on read; their stored bytes are retained.
+
 All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
 `senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
@@ -1428,58 +1430,14 @@ order for browser and native.
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
-**Proposal records and agent CLI (#1773, slice 1)**
+**Inline blocks and Discussion**
 
-A proposal is a null-anchor discussion thread whose immutable head metadata includes
-`proposal:{proposalId,title,body,proposer:{machineId,agentId,label}}`. Its proposal ID
-is the thread ID; it cannot be the writer's reserved Chat ID. Proposal metadata
-remains identical in subsequent thread revisions, including a tombstone. Title and
-label are nonempty text bounded to 200 and 64 Unicode code points respectively;
-body is nonempty text bounded to 4096 UTF-8 bytes. Proposal and machine IDs are
-canonical UUIDv4; agent IDs use the existing canonical Core UUID grammar. These
-asserted labels and IDs do not authenticate an agent or grant publication authority.
-At most 200 distinct writer/proposal pairs may be retained per page, counting
-revisions and deleted proposals once, alongside the existing thread-entry limit.
-
-`messages[actionId+":proposal-decision"]` is an immutable status action containing
-all common discussion fields, `actionId`, `thread:{writer,id}`, `previous:null` or
-`{writer,id}`, and `decision:"approved"|"declined"`. Revision is `"1"` and deleted is
-false. Only the same authenticated owner-device provenance as resolution actions
-contributes a decision. The first causal decision is final: roots precede all their
-descendants, and concurrent roots choose the smallest ASCII `(writer,actionId)`
-pair. Later decisions are refused by the native preparation and browser discussion
-writer; descendants, orphans and cycles cannot replace a root in the fold. Clocks
-and labels never choose a winner. Decision and resolution are independent; Resolve
-and Reopen keep the recorded decision. Without a decision action the decision is
-open. A deleted proposal ignores decision actions.
-
-`proposal add PAGE --title TITLE --body BODY [--id UUID]` publishes the complete
-record first through the existing own publication, then reads the page and appends
-`<tmt-proposal data-id="<proposalId>"></tmt-proposal>` through the existing
-expected-revision, lock-or-serve source publication. These are two recoverable
-publications, not one transaction. New records require the public caller's canonical
-agent ID and the existing `tmt remote status --machine --json` machine observation.
-No Remote private state is read. A stopped or unavailable provenance lookup refuses
-new record creation; recovery of an existing local-writer record uses its retained
-metadata. Source placement is append only; `--after` is deferred.
-
-The JSON result includes `proposalId` and `placed:true|false`. A failure after an ID
-is allocated retains it in the error result; `placed:false` means placement was not
-confirmed. After uncertainty, read `proposal ls PAGE --json` and `page read PAGE
---json`, then retry with the same `--id`, title and body. Recovery never changes
-retained metadata or mints a replacement ID. It publishes only a missing record or
-placeholder step, and a stale page base refuses placement. One exact generated
-placeholder confirms placement; multiple copies stay detached and are left alone.
-HTML is untrusted position data, never record, destination or activation authority.
-A missing or duplicate placeholder leaves the authenticated proposal detached;
-a placeholder without a record supplies no proposal. The trusted parent draws the
-card from admitted records; labels and author HTML never choose a destination.
-The shared inline renderer channel carries admitted proposal/question-group IDs and integer
-heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
+The shared inline renderer channel carries admitted inline-block IDs and integer
+heights clamped to 0–1,000,000 px (at most 250 slots),
 scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
 `{id,height,before}`; both heights have the same bound. For a chip-form group (its entry in the
 questions request carries `form:"chip"`) a slot is `{id,height,chip:{width,height}}`: `height` is
-the open panel's, 0 while collapsed, and `chip` the chip's own integer size, 1–1000 by 1–200;
+the complete card or strip height, and `chip` the placeholder's own integer size, 1–1000 by 1–200;
 `chip` is refused for any other group and next to `before`. Compact question
 blocks retain a 1px inert marker in that placeholder and render at the bounded
 after spacer's top using the authored column's horizontal bounds; the placeholder never carries the
@@ -1493,17 +1451,17 @@ without allowing focus or Send. Hidden slots do not count as visible inline dest
 notifications or navigation and do not trigger measurement re-requests. Opening the disclosure restores
 current bounded placement without changing record or publication admission.
 The iframe inserts the after spacer
-beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
+beside exactly one live `tmt-question[data-id]`,
 `tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves trusted state above the authored description;
 the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
-`{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
+`{id,top,beforeTop,descriptionHeight,left,width}` for
 an admitted question group with a requested `before` height, or
 `{id,top,chip,left,width}` for a requested chip-form group, where `chip` is the closed
 `{top,left,width,height}` page rectangle of the frame's inline placeholder (finite, nonnegative,
 width and height positive, within the cosmetic bound), `top` the open panel spacer's top and
 `left`/`width` the content box of the block that holds the chip, with the bounds of an answer card.
-Answer geometry is not admitted for a proposal or an unrequested group. `left` and `width` are finite
+Answer geometry is not admitted for an unrequested group. `left` and `width` are finite
 iframe-viewport CSS pixels measured from the actual authored group (or standalone
 question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
 the current frame width, each value must fit the existing 1,000,000px cosmetic
@@ -1525,8 +1483,8 @@ focus authority.
 
 Changing the parent-selected question requests current cosmetic placement on the
 existing ordered port. Controls stay detached until a current response arrives;
-old description geometry never authorizes a new Send. Compact rows retain
-viewer drafts while closed. Digits inside opened controls can update local
+old description geometry never authorizes a new Send. The group retains
+viewer drafts across selection and presentation changes. Digits inside opened controls can update local
 choices, while Send requires current placement. The trusted block uses the
 admitted authored container bounds. Viewport narrowing retires bounds that no
 longer fit until a current reply reattaches the block. The existing inline-slot
@@ -1535,53 +1493,23 @@ attached answer footers using parent-window bounds, and hide temporarily when no
 room remains; header entry points stay available. Placement and visibility never
 change answer, recipient, draft or publication admission.
 
-Approve/Decline is an explicit trusted parent activation. An in-flight fence and
-live proposal/finality admission precede decision publication. The immutable
-decision is the commit point. Within the same activation, the parent publishes
-`Approved: <title>` or `Declined: <title>` as an ordinary comment and prepares and
-sends the existing Ask with that real thread/comment correlation, frozen page
-link and the proposer's exact machine/agent UUID pair. Current directory admission
-still applies; names never select another agent. Failure retains the decision and
-shows existing Ask failure, held or uncertain state. Recovery is an explicit
-existing Ask recheck or resend; reload, sync and rendering never resume sending,
-roll back the decision or create another automatic request. Follow up opens the
-shared composer inside the card under its history, pre-addressed to that UUID
-pair; Send remains explicit. Send, Escape and Cancel close that composer without
-opening an anchored thread window. The card retains any unrecorded delivery
-failure for explicit recovery after the composer closes; signed Ask outcomes own
-recovery once admitted. Proposals expose no Delete thread action.
-Inline Resolve folds the proposal to one line with its title, retained decision/resolved
-mark and Reopen action; body, author and conversation history return on Reopen.
-In Comments the selected proposal stays expanded through Resolve and Reopen, with
-its retained decision and history. Reopen never changes its decision. Resolved
-cards use the ordinary resolved-thread mark, never the Open mark.
-Comments opens one discussion directly, mixing proposals and ordinary annotations
-in the same numbered sequence. There is no list, tab strip or back-to-list action.
-The header filter offers Open, Needs you and All. Open excludes resolved threads;
-Needs you holds unresolved undecided proposals and unresolved threads with unseen
-news; All includes resolved threads. Deleted and Chat threads stay excluded. The
-first selection prefers the first Needs-you thread, then the first matching thread
-by number. The selected thread remains in the sequence after resolution or
-acknowledgement until explicit navigation. Position text is static; Previous and
-Next choose another thread. Choosing a filter starts a matching discussion and
-never changes status or sends a request. Passive rendering and reload never
-acknowledge an agent resolution; explicitly opening its discussion does.
-The one header pending count is computed by `openThreadCount`: unresolved
-proposals without a final decision plus unresolved ordinary annotations. Approved
-or declined proposals are not pending even before resolution; proposal-linked
-threads contribute once, and Chat/deleted threads never contribute. Reopening an
-undecided proposal adds it back; reopening a decided proposal keeps its decision
-and does not add a pending item. `--after` placement remains deferred.
+The Discussion header offers Open, Needs you and All. Open, the corner count and Resolve all
+share the same live, non-Chat, unresolved predicate. A resolved thread leaves Open immediately,
+even while selected. Resolve and Reopen have visible labels; a device without owner-member
+provenance sees why the action is unavailable. An agent resolution observed while the person is
+viewing the thread produces a one-line notice. Deleted and Chat threads stay excluded. Passive
+rendering and reload never acknowledge an agent resolution; explicitly opening its discussion does.
 
-`proposal ls PAGE` reads authenticated proposal threads, their retained decision and
-independent resolved state. Human rows print the shortest unique UUID prefix (at least
-8 characters). `resolve` and `add --id` accept those prefixes from the current
-page's authenticated proposals, refusing missing or ambiguous matches before any
-write. Only a full canonical UUID can start a new proposal with `add --id`. `proposal resolve PAGE ID` uses the existing owner-device
-resolution action, sends no notifications and is a no-op when already resolved.
-Resolve refuses missing, ambiguous or deleted proposals. The generic thread Reopen
-operation retains the proposal and decision. Proposal dispatch does not run from
-CLI, render, sync or recovery.
+**Inline thread references**
+
+`<tmt-thread-ref data-writer="UUID" data-thread="UUID"></tmt-thread-ref>` names a thread by its
+canonical UUIDv4 writer and thread ID, as returned by `tmt colab threads PAGE --json`. No other
+attributes are admitted; element content is ignored. The parent supplies the thread number and
+quote excerpt from its authenticated projection to the isolated renderer. A trusted activation
+opens that thread through the same parent action as its margin marker and selects its passage.
+Missing, deleted and Chat threads render muted `Thread not found`. The frame's claim never grants
+discussion or publication authority. `page check` reports `thread-ref-invalid` with the source line
+for malformed values or extra attributes.
 
 No unknown fields are accepted. A value claiming a typed kind rejects if its
 root, key or field grammar is invalid in the browser or native decoder. Other
@@ -3420,43 +3348,23 @@ text bounds. Optional legacy `data-label` retains its 24-code-point/control
 validation; labels no longer create tabs. A lone question is an internal group of
 one. The page markup check owns complete admission rules and ID-holder ordering.
 
-All question forms render as one band per placement, without tabs: the page sheet
-between two 1px rules, with no side rule and no radius. Each question's line is a
-trusted button with a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
-admitted plain-text title, the state at the right and a chevron (up when open,
-down when closed): waiting is `◆` and `Needs your answer` in the waiting colour;
-answered is a check and `Answered` in the secondary colour, with the recorded
-answer under the title (two lines at most). The glyph, eyebrow, title and chevron
-remain neutral. Two or more adjacent questions share one band with one muted
-`Questions from <agent> · N of M waiting` heading and no per-line eyebrow, their
-lines separated by the same rule; a question placed alone has the band above.
-Native Needs you counts each registered open question; browser counting adoption follows #5146. Existing
-`data-form="chip"` markup remains admitted under its existing attribute checks,
-but uses the same compact lines instead of a tabbed panel.
-
-Every question starts closed except an explicit Needs-you or notification arrival,
-which opens the target, scrolls it into view and focuses its first control.
-Open/closed state belongs to the viewer, never the page or answer records. Opening
-reveals the existing parent-owned answer controls under the line, in the heading's
-column: a kind line (`Single choice · Other available`), an instruction (`Choose one
-answer, or write your own.`) and the choices in one wrapped row (stacked when a choice has a description). The `Other` field
-(`Your other answer`) is drawn under the row once Other is picked. A rule, then a
-`Goes to` row carries the recipient chips and the add control, and `Send answer` /
-`Send answers` is the group's one primary action at the end of that row. Answered questions are read-only until the existing Change answer
-action is admitted. Answering closes the question and focuses the next waiting
-question in the same group, or its own line when none remains. There is no
-Dismissed state or dismissal action in this slice; closing a row acknowledges
-nothing. Enter/Space toggles, Escape closes and returns focus to its line, and
-Up/Down moves between a stack's lines. At narrow widths the state wraps under
-the title while the chevron stays on its first line.
+Waiting questions render as a card with their title, asking agent, choices and Send. A structural
+group stacks its waiting questions in one card with one Send; separate placements retain separate
+Send scopes. Recipient chips appear above Send, with the existing attachment action beside it.
+An answered question folds to a 32px strip showing its state, title, one-line answer and chevron.
+Expanding it in place shows the answer once as “Your answer”, with its existing message actions and Ask status/retry, alongside the conversation, Change answer, Follow up and Dismiss. The underlying comment retains its full content.
+Follow up writes through the ordinary question conversation. Dismiss removes the element through
+the existing browser page-edit path and marks its registration handled through the existing metadata
+path. The edit remains in page history. Undo restores the element and reopens a question that was
+open before dismissal. A successful page edit is never reversed by a failed metadata action: the
+notice offers Retry for that action. An unknown metadata outcome is read through the existing
+projection before reporting success or offering Retry. Expand, collapse and dismissal preserve the
+ordinary source and metadata admission fences.
 
 The authored text remains available to the normal quote/association owner while
 the parent draws the compact title and controls. A local callback or frame claim
 cannot provide a verified current answer. The whole question presentation follows
 Colab's effective theme, including parent controls on a fixed-look author page.
-Sibling in-page Proposal cards also follow the effective Colab theme throughout their
-bodies, Approve/Decline/Follow up/Resolve controls and follow-up composers, even when
-the author fixes a different page palette.
 
 The parent group owns drafts, answer publication and visible recipient chips using
 BrowserChips. Each physical block owns its Send scope: a split question sends only
@@ -3526,7 +3434,7 @@ empty later sibling cannot displace an answered thread. Agent replies never mark
 Answered; sibling history stays visible.
 Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
-one proposal/question measurement batch, preserving sibling positions and focus.
+one inline-block measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
 
 The existing `colab.render.questions` parent request is a closed
@@ -3618,14 +3526,14 @@ parent-admitted title and references may name only requested threads. The separa
 `colab.render.scroll-reading` request has exactly `{type,renderId,requestId,id}`, bound to that
 current exchange and a resolved reading ID; it has no publication authority. Unknown fields or
 stale requests do nothing. Reading slots consume only the remaining existing 250-slot budget,
-in document order, and never displace an existing proposal, question or review control.
+in document order, and never displace an existing question or review control.
 
 The page-header Needs you menu includes only current anchored targets. Removing a target
 keeps its authored and discussion records. Confirmed Clear all invokes the existing Mark read
-for each listed reading, without navigation. For listed questions, reviews and proposals it
+for each listed reading, without navigation. For listed questions and reviews it
 publishes a viewer-owned `messages` record keyed `<actionId>:needs-you-handled`, with exactly
 `{version:1,kind:"needs-you-handled",spaceId,pageId,epoch,senderDevice,actionId,at,items}`.
-Each item is `{kind,id,version}` (`answer`, `review` or `proposal`); `version` is the exact
+Each item is `{kind,id,version}` (`answer` or `review`); `version` is the exact
 unpadded base64url SHA-256 of the inert authored target HTML and its admitted owner-state
 description captured by the header. Neighboring anchor context is excluded. Current own-write admission
 and the existing discussion lock precede publication. Outer writer, sender, page and epoch
@@ -3634,7 +3542,7 @@ must match the admitted viewer; malformed records provide no handled state. A re
 Reload reads that viewer's admitted own stream; a new or changed version waits again. A published
 acknowledgement is immutable: later own updates cannot change or remove its record, while
 unrelated own records may still be appended. This acknowledgement never creates an answer,
-proposal decision or review close. The discovery summary below remains the owner's recorded pending projection; the header additionally applies
+or review close. The discovery summary below remains the owner's recorded pending projection; the header additionally applies
 current placement and viewer acknowledgements.
 
 ### Review sections
@@ -3713,7 +3621,7 @@ one is asked` follow. It follows Colab's effective theme and takes its position 
 answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
 attribute from the parent's closed set, so its content stays in the DOM, selectable and in the
 text map, and annotations inside it keep resolving. The page head's `Needs you N` menu counts
-each waiting review section once, alongside undecided/unresolved proposals, unread reading anchors and unanswered question
+each waiting review section once, alongside unread reading anchors and unanswered question
 blocks. A question group with any unanswered questions counts once; a standalone question is
 one block. Changes requested from an agent and closed sections do not count. IDs are never
 counted twice. These are projections of the admitted layer state after anchor resolution, not
@@ -3722,7 +3630,7 @@ in Comments like any open annotation, while a waiting section with no thread sti
 Needs you. Archived pages retain cosmetic navigation without publication controls. The owner-list
 count uses the same definition over its verified static-source fold (see [Page summary](#page-summary-2588)); collection per-item details are separate.
 
-The header menu groups targets in proposal, reading, answer and review order, omitting empty groups.
+The header menu groups targets in reading, answer and review order, omitting empty groups.
 Search results and in-app page links expose real hrefs. Modified clicks retain native browser
 activation; Ctrl/Cmd+Enter opens the selected result in a new tab and Shift+Enter in a new
 window, leaving the search open in the current tab. Plain click/Enter retain existing navigation.
@@ -3932,7 +3840,7 @@ thread of the first recorded answer in tab order, and `messageIds` are the sorte
 IDs of every recorded answer comment of that Send. No signed field, record kind, stored
 record or Remote path changes. Before capture the parent rechecks that each comment is this
 device's own undeleted answer comment (`Answer to “<question>”: …`) to a question of the one
-`tmt-questions` group the admitted page source names, in an anchored non-proposal thread at
+`tmt-questions` group the admitted page source names, in an anchored thread at
 its recorded revisions, and that the answers follow the group's tab order with no question
 twice; otherwise nothing is asked. The frozen message is the ordinary frame (page, link,
 `Quote:` the canonical thread's anchor text) whose `Comment:` is `Answers to <N> questions:`
@@ -3951,7 +3859,7 @@ returns a batch Ask for every question thread holding one of its comments; its r
 notification and captured earlier conversation belong to the canonical thread alone. `Change
 answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
 
-The Comments overlay opens one annotation, page-level thread or proposal directly.
+The Comments overlay opens one annotation or page-level thread directly.
 Its Open / Needs you / All filter and Previous / Next arrows use the authenticated
 thread projection, existing creation-order numbers and attention metadata; opening
 performs no additional discussion read. Position (`n / N`) is text, not navigation.
@@ -4023,7 +3931,7 @@ Owner page and space-home header presentation follows the [page-chrome reference
 
 ### Transient reply notifications (#2726, #2727)
 
-Chat, anchored Thread, Answer and Proposal replies use the shared presentation-only FIFO queue.
+Chat, anchored Thread and Answer replies use the shared presentation-only FIFO queue.
 The parent reads admitted page Ask finals from this device's ledger and new live
 comments in conversations where the authenticated Yours writer has participated.
 Names, author HTML, renderer messages and Send outcomes cannot admit a reply.
@@ -4031,9 +3939,8 @@ Initial history and the binding's first available current view establish baselin
 including when it follows a cached loader snapshot; repeated
 reads, edits, reconnects and remounts do not replay arrivals. Stable page/viewer,
 writer and record identities select events; no new signed record or storage field
-is introduced. Answer destinations use the question layer's checked association;
-Proposal destinations use admitted proposal threads. Neither body labels nor
-proposer display metadata can establish participation or choose a destination.
+is introduced. Answer destinations use the question layer's checked association. Body labels cannot
+establish participation or choose a destination.
 
 A destination already visible and following the history end suppresses its
 arrival. Trusted activation opens the existing Chat window and reveals the exact
@@ -4046,16 +3953,15 @@ Before display or announcement,
 resume rechecks every retained/pending event against the latest admitted view and
 silently drops withdrawn destinations. Header counts remain the persistent record.
 
-Answer/Proposal arrivals are suppressed only when their exact reply is in open,
-visible block history. Activation selects the answer tab or unfolds proposal
-history, scrolls and focuses the existing block; detached proposals use Comments.
+Answer arrivals are suppressed only when their exact reply is in open,
+visible block history. Activation opens the answer, scrolls and focuses the existing block.
 The pointer-visible arrival outline uses the focus token and clears on blur or
 the next pointer/key interaction. Activation never publishes a decision or Reopen,
 creates a composer, or changes Send/recipient admission. Busy clicks are retained
 behind the existing fence for at most five seconds; pending activation and reveal
 are cancelled on page change, withdrawal or timeout with no late visible effect.
 The destination remains accessible through normal Chat/Comments or inline blocks.
-All four tags announce once on first display through the leaf's existing polite
+All three tags announce once on first display through the leaf's existing polite
 region, deferred while suspended. There is no legacy announcer, relocation or
 second event observer. Presentation grants no routing, recipient, Send or storage
 authority.
@@ -5943,19 +5849,17 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
 
 - `comments` is the number of non-deleted comment records in the page's annotation threads,
   open and resolved, agent replies included. An annotation thread is a thread that is not
-  deleted, carries no proposal and is anchored. Chat messages, status actions, proposal
-  decisions and question answers are not counted; a question answer is the plain-text comment
+  deleted and is anchored. Chat messages, status actions and question answers are not counted; a question answer is the plain-text comment
   that starts `Answer to “`.
-- `needsYou` is the number of pending targets, at most 350 (200 proposals, 50 readings,
+- `needsYou` is the number of pending targets, at most 150 (50 readings,
   50 answer blocks and 50 reviews), with a target ID counted once. The order for deduplication
-  and the page-header menu is proposals, readings, answers, reviews. A proposal waits while
-  not deleted, not resolved and without a live decision. A reading is unread until its canonical
+  and the page-header menu is readings, answers, reviews. A reading is unread until its canonical
   exact fixed-form device comment and a person's Resolve exist. Each registered open question counts
   once, including source-removed registrations; group wrappers do not collapse those targets.
   Answered is projected from verified question-bound ordinary own comments, independently of Ask.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
-- `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
+- `waiting` is exactly `needsYou > 0`, not a separate definition.
 - `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
@@ -6027,9 +5931,9 @@ The JSON result is exactly one of:
   page; labels or agent prose never count as a read. Pending reading IDs must
   agree with the shared pending-target projection, including cross-kind ID
   deduplication. These descriptor links only open unread readings; they never mark read.
-  `needs` names the pending items the count includes, ordered review, question, reading,
-  proposal and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
-  `{kind:"review"|"question"|"reading"|"proposal", id, title, agent?, why?}`. `id` is the
+  `needs` names the pending items the count includes, ordered review, question, reading
+  and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
+  `{kind:"review"|"question"|"reading", id, title, agent?, why?}`. `id` is the
   pending-target ID (a question's is its group's); `title` is 1–200 code points and `agent` at
   most 64; `why` appears on a reading only. A pending item the page no longer lists is left out.
   `latest`, absent when the page has no live comment, is `{who?, atMs, text}`: the newest
@@ -6671,7 +6575,7 @@ Known JSON byte quantities are integers; an unavailable measurement is null. A p
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
 stream's latest paired content checkpoint, any required fold anchor, and active tail after that cut;
 other retained content payloads and earlier baselines are history. Every counted payload appears
-in exactly one row. Own-namespace payloads are comments, including status and proposal records.
+in exactly one row. Own-namespace payloads are comments, including status records.
 SQLite receipt/hash ledgers, indexes, and physical overhead are outside these row counts; `dbBytes`
 and `dbFreeBytes` separately report physical DB size and SQLite free pages. The `space` response
 includes `version`, `space`, those DB values and `pages`. When the active local object channel

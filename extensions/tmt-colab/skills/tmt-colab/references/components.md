@@ -238,6 +238,19 @@ limits: [questions](questions.md) (`tmt colab skill questions`).
 </tmt-questions>
 ```
 
+## Thread reference
+
+Use `tmt colab threads PAGE --json` to find a thread's exact `writer` and `id` in the
+`threads` array. Place those full UUIDs in the inline element:
+
+```html
+<tmt-thread-ref data-writer="10000000-0000-4000-8000-000000000001" data-thread="20000000-0000-4000-8000-000000000002"></tmt-thread-ref>
+```
+
+Colab draws the thread number and quote excerpt; clicking opens the discussion and selects its
+passage. Chat, deleted and missing threads show “Thread not found”. Element content is ignored;
+only the two attributes are allowed. `page check` warns about malformed references.
+
 ## Review
 
 A part of the page the reader confirms. Grammar and limits: [reviews](reviews.md)

@@ -74,10 +74,6 @@ pub struct Thread {
     pub at: String,
     pub comments: Vec<Comment>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub proposal: Option<crate::threads::Proposal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub decision: Option<crate::threads::status::Decision>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<crate::threads::status::Status>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notifications: Vec<crate::threads::status::Notification>,
@@ -189,10 +185,6 @@ fn latest(mut records: Vec<&Value>) -> Option<&Value> {
         if revision(record)? != revision(previous)? + 1 || previous["deleted"] == true {
             return None;
         }
-        if text(record, "kind") == Some("thread") && record.get("proposal") != first.get("proposal")
-        {
-            return None;
-        }
         if text(record, "kind") == Some("comment")
             && text(previous, "kind") == Some("comment")
             && (pair(&record["thread"]) != pair(&previous["thread"])
@@ -215,7 +207,6 @@ pub(crate) fn threads(
     let mut threads: BTreeMap<String, Thread> = BTreeMap::new();
     let mut comments = Vec::new();
     let mut actions = Vec::new();
-    let mut decisions = Vec::new();
     let mut notifications = Vec::new();
     for (writer, roots) in own {
         if !keys.contains_key(writer) {
@@ -230,13 +221,7 @@ pub(crate) fn threads(
                 let kind = text(value, "kind");
                 if !matches!(
                     kind,
-                    Some(
-                        "thread"
-                            | "comment"
-                            | "thread-status"
-                            | "thread-notification"
-                            | "proposal-decision"
-                    )
+                    Some("thread" | "comment" | "thread-status" | "thread-notification")
                 ) {
                     continue;
                 }
@@ -265,16 +250,6 @@ pub(crate) fn threads(
                         serde_json::from_value::<crate::threads::status::Action>(value.clone())
                     {
                         actions.push(action);
-                    }
-                    continue;
-                }
-                if kind == Some("proposal-decision") {
-                    if status_writers.contains(writer)
-                        && let Ok(action) = serde_json::from_value::<crate::threads::status::Decision>(
-                            value.clone(),
-                        )
-                    {
-                        decisions.push(action);
                     }
                     continue;
                 }
@@ -321,10 +296,6 @@ pub(crate) fn threads(
                     format!("{writer}:{id}"),
                     Thread {
                         writer: writer.clone(),
-                        proposal: record
-                            .get("proposal")
-                            .and_then(|value| serde_json::from_value(value.clone()).ok()),
-                        decision: None,
                         id,
                         revision: rev,
                         anchor,
@@ -369,15 +340,6 @@ pub(crate) fn threads(
     let mut out: Vec<Thread> = threads.into_values().collect();
     out.sort_by(|a, b| (&a.writer, &a.id).cmp(&(&b.writer, &b.id)));
     for thread in &mut out {
-        if thread.proposal.is_some() && !thread.deleted {
-            thread.decision = crate::threads::status::fold_decision(
-                &crate::threads::status::Reference {
-                    writer: thread.writer.clone(),
-                    id: thread.id.clone(),
-                },
-                &decisions,
-            );
-        }
         thread.status = crate::threads::status::fold(
             &crate::threads::status::Reference {
                 writer: thread.writer.clone(),
@@ -630,28 +592,6 @@ impl Conversations {
                         String::new(),
                     ]);
                 }
-            }
-            if let Some(proposal) = &thread.proposal {
-                lines.extend([
-                    format!("- Proposal ID: {}", proposal.proposal_id),
-                    format!("- Proposal title: {}", code_span(&proposal.title)),
-                    format!(
-                        "- Proposer: {} ({}:{})",
-                        code_span(&proposal.proposer.label),
-                        proposal.proposer.machine_id,
-                        proposal.proposer.agent_id
-                    ),
-                    format!(
-                        "- Decision: {}",
-                        thread
-                            .decision
-                            .as_ref()
-                            .map_or("open", |d| d.decision.as_str())
-                    ),
-                    String::new(),
-                    fence(&proposal.body),
-                    String::new(),
-                ]);
             }
             match &thread.anchor {
                 Some(anchor) => lines.extend([

@@ -101,10 +101,6 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   resolves with an `OwnPublicationReceipt`, waits until the connection admits those own
   records for that receipt, and zeroes the prepared bytes either way. The decoder state
   commits only after the append is admitted.
-- **`proposal-actions.ts`.** A trusted Approve/Decline fences and publishes the
-  immutable decision, then publishes its ordinary comment and invokes this same Ask
-  preparation/send path in that activation, with the proposer UUID pair. Failure
-  preserves the decision; only explicit existing Ask recovery can recheck/resend.
 - **`ask-again.tsx`.** One trusted action serves composer-local pre-adoption failures and
   own signed refusals from `AskPanel`. It refreshes the exact UUID pair, captures the
   original comment and calls `LiveAsk.prepare` with `retryOf`; `LiveAsk` checks the own

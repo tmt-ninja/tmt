@@ -343,6 +343,31 @@ fn inspect(tree: &tree::Tree) -> Report {
         .collect();
     image::check(tree, &images, &mut report);
     ui::check(tree, &ordinals, &mut report);
+    for &(id, ordinal) in &ordinals {
+        if tree.name(id) != "tmt-thread-ref" {
+            continue;
+        }
+        let valid = ["data-writer", "data-thread"].iter().all(|name| {
+            tree.attr(id, name)
+                .is_some_and(|value| tmt_colab_model::values::generated_id(value).is_ok())
+        });
+        if !valid
+            || tree
+                .attr_names(id)
+                .any(|name| !matches!(name, "data-writer" | "data-thread"))
+        {
+            report.findings.push(Finding {
+                fix: None,
+                element: "tmt-thread-ref".into(),
+                ordinal,
+                id: None,
+                line: tree.line(id),
+                severity: Severity::Warning,
+                code: "thread-ref-invalid",
+                questions_skipped: None,
+            });
+        }
+    }
     report.sort();
     report
 }
@@ -352,6 +377,7 @@ fn inspect(tree: &tree::Tree) -> Report {
 pub fn codes() -> Vec<&'static str> {
     let mut codes = vec![
         "page-too-deep",
+        "thread-ref-invalid",
         "question-page-limit",
         "question-marker-misplaced",
         "question-choice-description-invalid",

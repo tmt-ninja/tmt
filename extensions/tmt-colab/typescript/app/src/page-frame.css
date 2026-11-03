@@ -55,7 +55,7 @@
         meta,
         [hidden],
         [data-colab-highlight],
-        [data-colab-proposal-slot],
+        [data-colab-block-slot],
         [data-colab-chip-slot]
       ) {
         box-sizing: border-box !important;
@@ -88,7 +88,7 @@
             meta,
             [hidden],
             [data-colab-highlight],
-            [data-colab-proposal-slot],
+            [data-colab-block-slot],
             [data-colab-chip-slot]
           ) {
           &[data-gap='tight'] {
@@ -101,7 +101,7 @@
       }
 
       /* The room the frame reserves for a parent-drawn band sits against its passage. */
-      > [data-colab-proposal-slot] {
+      > [data-colab-block-slot] {
         margin-block-start: -16px !important;
       }
     }

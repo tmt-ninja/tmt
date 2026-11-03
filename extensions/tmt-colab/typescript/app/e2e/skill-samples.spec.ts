@@ -101,7 +101,7 @@ for (const width of [1440, 390])
               .filter(
                 (element) =>
                   !element.matches(
-                    '[data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot]',
+                    '[data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot]',
                   ),
               )
               .map((element) => {

@@ -1327,7 +1327,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 
 /* Parent-drawn in-page cards inherit the effective app theme throughout. */
-.proposal-inline {
+.inline-block-layer {
   color-scheme: inherit;
   position: absolute;
   left: 0;
@@ -1337,25 +1337,21 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 }
 /* A band keeps out of the 28 px marker lane the render frame reserves at the right edge of every page
    (page-frame.css); a question block does the same by taking its bounds from its passage's slot. */
-.proposal-inline:not(.question-inline) {
+.inline-block-layer:not(.question-inline) {
   padding-inline-end: calc(24px + var(--colab-lane));
 }
 /* On a framed page (#3913) a band sits on the column the render frame draws: the numbers are those
    of page-frame.css, which the frame applies to its top-level blocks inside the 28 px marker lane it
    reserves at the right edge. A question block takes its bounds from the frame's measurement of its
    passage instead. */
-.canvas[data-layout] .proposal-inline:not(.question-inline) {
+.canvas[data-layout] .inline-block-layer:not(.question-inline) {
   --band-side: max(16px, (100% - var(--colab-lane) - 1280px) / 2);
   padding-inline: var(--band-side) calc(var(--band-side) + var(--colab-lane));
 }
-.proposal-inline .proposal-card {
-  border: 1px solid var(--tmt-ui-surface-rule);
-  box-shadow: none;
-}
-.proposal-inline :focus-visible {
+.inline-block-layer :focus-visible {
   outline-color: var(--tmt-ui-color-focus);
 }
-.proposal-inline[data-detached] {
+.inline-block-layer[data-detached] {
   visibility: hidden;
   pointer-events: none;
 }
@@ -1381,7 +1377,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   font-size: 13px;
   line-height: 1.5;
 }
-/* A review section's parent-drawn band sits below the section, like a proposal card. */
+/* A review section's parent-drawn band sits below the section. */
 .review-inline .review-card {
   background: transparent;
   color: var(--c-text);
@@ -1418,74 +1414,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   border: 1px solid var(--c-rule);
   padding: 8px;
 }
-.proposal-card {
-  border: 1px solid var(--c-rule);
-  /* A framed card rounds, as every bordered card does on the website. */
-  border-radius: var(--tmt-ui-radius);
-  background: var(--c-sheet);
-  color: var(--c-text);
-  padding: 16px;
-  max-height: 2000px;
-  overflow: auto;
-}
-.proposal-card header {
-  display: flex;
-  gap: 16px;
-  align-items: start;
-  justify-content: space-between;
-}
-.proposal-card strong {
-  overflow-wrap: anywhere;
-}
-.proposal-state {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.proposal-state svg {
-  width: 16px;
-  height: 16px;
-}
-.proposal-state[data-state='approved'] {
-  color: var(--c-working);
-}
-.proposal-state[data-state='declined'] {
-  color: var(--c-blocked);
-}
-.proposal-author {
-  color: var(--c-muted);
-  font-size: 12px;
-}
-.proposal-body {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.proposal-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* A text button has no border, so the row would shrink by its width once the decision buttons are
-   gone: the decided row stands at the height of the one it replaces. */
-.proposal-actions .tmt-ui-action[data-variant='text'] {
-  border: var(--tmt-ui-action-border-width) solid transparent;
-}
-/* The busy mark of the decision not being saved keeps the button's width without showing. */
-.proposal-unpressed {
-  visibility: hidden;
-}
-
-.proposal-actions .proposal-resolve {
-  margin-inline-start: auto;
-  color: var(--c-muted);
-}
-
-.proposal-resolve .tmt-ui-action:not(:hover):not(:focus-visible) {
-  color: var(--c-muted);
-}
-
 /* Page-comment creation precedes the selected conversation. */
 .comments-add {
   display: flex;
@@ -1635,7 +1563,7 @@ button.discussion-quote:focus-visible {
 }
 /* Mock 1: the Discussion header is one compact row with a bordered filter. */
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0;
   padding: 8px 6px 8px 14px;
@@ -1645,16 +1573,21 @@ button.discussion-quote:focus-visible {
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header::after {
   display: none;
 }
+@media (max-height: 560px) {
+  .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header {
+    padding-block: 0;
+  }
+}
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading {
   display: flex;
-  flex: 1;
+  flex: 1 1 180px;
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
   gap: 0;
 }
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-heading h2 {
-  flex: 0 1 auto;
+  flex: none;
   min-width: 0;
   overflow: hidden;
   font-size: 13px;
@@ -1689,6 +1622,12 @@ button.discussion-quote:focus-visible {
   display: flex;
   align-items: center;
   gap: 0;
+}
+.tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header-actions .tmt-ui-action {
+  --tmt-ui-host-action-padding: 2px 4px;
+  --tmt-ui-host-action-gap: 2px;
+  --tmt-ui-host-action-size: 11px;
+  --tmt-ui-host-action-min-height: 26px;
 }
 .tmt-ui-panel[data-panel='comments'] .tmt-ui-drawer-header .tmt-ui-icon-action-control {
   border-radius: 6px;
@@ -1783,35 +1722,6 @@ button.discussion-quote:focus-visible {
   font-size: 12px;
   line-height: 1.6;
 }
-.proposal-card[data-resolved] header {
-  flex-wrap: nowrap;
-  align-items: center;
-}
-.proposal-card[data-resolved] strong,
-.proposal-card[data-resolved] .proposal-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.proposal-card[data-resolved] .proposal-state {
-  white-space: nowrap;
-  color: var(--c-muted);
-}
-.proposal-card[data-resolved] header .tmt-ui-action:not(.proposal-title) {
-  color: var(--c-muted);
-  flex: none;
-}
-
-.proposal-card[data-resolved] .proposal-title {
-  justify-content: start;
-  display: block;
-  padding-inline: 0;
-  font-weight: 600;
-  text-align: left;
-}
-
 .question-card {
   color: var(--tmt-ui-color-text);
   background: transparent;
@@ -1836,8 +1746,6 @@ button.discussion-quote:focus-visible {
   background: var(--tmt-ui-surface-sheet);
   pointer-events: auto;
   padding: 0 16px 16px;
-  max-height: 1900px;
-  overflow: auto;
 }
 .question-controls .rich-input-field {
   min-height: 2.5em;
@@ -1946,6 +1854,15 @@ button.discussion-quote:focus-visible {
 }
 .question-attach {
   display: flex;
+}
+.question-answer-record {
+  border-left: 2px solid var(--tmt-ui-surface-rule);
+  padding: 0 0 0 8px;
+}
+.question-answer-record header > .tmt-ui-avatar,
+.question-answer-record .conversation-time-separator,
+.question-answer-record time {
+  display: none;
 }
 .question-answer {
   overflow-wrap: anywhere;
@@ -2257,7 +2174,7 @@ button.discussion-quote:focus-visible {
   }
 }
 
-/* Pointer-activated Answer/Proposal arrivals reuse the shared focus indicator. */
+/* Pointer-activated Answer arrivals reuse the shared focus indicator. */
 [data-arrived] {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 3px;
