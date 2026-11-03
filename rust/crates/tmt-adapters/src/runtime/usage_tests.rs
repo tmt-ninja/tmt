@@ -657,7 +657,8 @@ fn claude_cache_windows_survive_the_normal_model_activity_and_cursor_state() {
         include_str!("fixtures/claude-usage-sequence.jsonl"),
     )
     .unwrap();
-    let start = driver_state::after_start(Some("claude-opus-5-5"), None, None, NOW - 2).unwrap();
+    let model = "m".repeat(128);
+    let start = driver_state::after_start(Some(&model), None, None, NOW - 2).unwrap();
     let active = driver_state::after_activity(
         Some(&start),
         &ProviderSessionId::new(SESSION).unwrap(),
@@ -683,6 +684,11 @@ fn claude_cache_windows_survive_the_normal_model_activity_and_cursor_state() {
             std::time::Instant::now() + std::time::Duration::from_secs(2),
         )
         .unwrap();
+    let bytes = state.document().len();
+    assert!(
+        bytes <= tmt_core::binding::session::DriverState::MAXIMUM_BYTES,
+        "normal state has {bytes} bytes"
+    );
     let consumption = driver_state::state_consumption(&state).expect("normal consumption state");
     assert_eq!(
         consumption
@@ -694,10 +700,48 @@ fn claude_cache_windows_survive_the_normal_model_activity_and_cursor_state() {
             .len(),
         2
     );
+    // Main stored named window objects without per-window observations. They must survive upgrade.
+    let mut legacy: serde_json::Value = serde_json::from_str(state.document()).unwrap();
+    assert!(
+        legacy.pointer("/consumption/cursor").is_some(),
+        "the bounded document keeps its cursor"
+    );
+    let windows = legacy
+        .pointer_mut("/consumption/value/rateLimits/windows")
+        .unwrap()
+        .as_array_mut()
+        .unwrap();
+    for window in windows {
+        let tuple = window.as_array().unwrap();
+        *window =
+            json!({"windowMinutes": tuple[0], "usedPercent": tuple[1], "resetsAtMs": tuple[2]});
+    }
+    // Main's normal model and cursor used named fields and full hexadecimal hashes.
+    legacy["model"] = json!("claude-opus-5-5");
+    for field in ["/consumption/cursor/last", "/consumption/cursor/request"] {
+        if let Some(hash) = legacy.pointer_mut(field)
+            && let Some(encoded) = hash.as_str().and_then(|hash| hash.strip_prefix('~'))
+        {
+            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+            let bytes = URL_SAFE_NO_PAD.decode(encoded).unwrap();
+            *hash = json!(
+                bytes
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            );
+        }
+    }
+    let legacy =
+        tmt_core::binding::session::DriverState::new(state.version(), &legacy.to_string()).unwrap();
+    let restored = driver_state::state_consumption(&legacy).unwrap();
+    let windows = &restored.value.rate_limits.unwrap().windows;
+    assert_eq!(windows.len(), 2);
+    assert!(windows.iter().all(|window| window.observed_at_ms.is_none()));
     assert!(driver_state::state_activity(&state).is_some());
     assert_eq!(
         driver_state::state_model(&state).as_deref(),
-        Some("claude-opus-5-5")
+        Some(model.as_str())
     );
     // The account is never part of this state (it is capped at 1024 bytes); the sampled reading
     // names it from the root (#5274).

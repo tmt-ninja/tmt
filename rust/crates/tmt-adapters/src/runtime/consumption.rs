@@ -12,6 +12,7 @@ pub use credits::Credits;
 pub(crate) use rate_limits::timestamp_ms;
 pub use rate_limits::{AccountLimits, NoLimits, RateAccount, RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -268,6 +269,32 @@ impl State {
                 }
             }
         }
+        if let Some(windows) = value
+            .pointer_mut("/value/rateLimits/windows")
+            .and_then(Value::as_array_mut)
+        {
+            // Claude's per-window observations use compact tuples only inside the opaque state.
+            for window in windows {
+                if let Value::Array(tuple) = window {
+                    if tuple.len() != 4 {
+                        return None;
+                    }
+                    *window = json!({"windowMinutes":tuple[0],"usedPercent":tuple[1],"resetsAtMs":tuple[2],"observedAtMs":tuple[3]});
+                }
+            }
+        }
+        // Short hashes are confined to the opaque state. Main's hex strings remain readable.
+        for field in ["/cursor/last", "/cursor/request"] {
+            if let Some(hash) = value.pointer_mut(field)
+                && let Some(encoded) = hash.as_str().and_then(|hash| hash.strip_prefix('~'))
+            {
+                let bytes = URL_SAFE_NO_PAD.decode(encoded).ok()?;
+                if bytes.len() != 32 {
+                    return None;
+                }
+                *hash = Value::String(bytes.iter().map(|byte| format!("{byte:02x}")).collect());
+            }
+        }
         let state: Self = serde_json::from_value(value).ok()?;
         let hash = |hash: &str| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
         (state.value.valid()
@@ -295,6 +322,40 @@ impl State {
                         row.output_tokens,
                         row.cached_input_tokens,
                         row.cache_write_tokens
+                    ]))
+                    .collect::<Vec<_>>()
+            );
+        }
+        if let Some(limits) = &self.value.rate_limits
+            && limits
+                .windows
+                .iter()
+                .any(|window| window.observed_at_ms.is_some())
+        {
+            for field in ["/cursor/last", "/cursor/request"] {
+                if let Some(hash) = value.pointer_mut(field)
+                    && let Some(hex) = hash.as_str().filter(|hex| {
+                        hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+                {
+                    let bytes = (0..hex.len())
+                        .step_by(2)
+                        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16))
+                        .collect::<Result<Vec<_>, _>>();
+                    if let Ok(bytes) = bytes {
+                        *hash = Value::String(format!("~{}", URL_SAFE_NO_PAD.encode(bytes)));
+                    }
+                }
+            }
+            value["value"]["rateLimits"]["windows"] = json!(
+                limits
+                    .windows
+                    .iter()
+                    .map(|window| json!([
+                        window.window_minutes,
+                        window.used_percent,
+                        window.resets_at_ms,
+                        window.observed_at_ms
                     ]))
                     .collect::<Vec<_>>()
             );
