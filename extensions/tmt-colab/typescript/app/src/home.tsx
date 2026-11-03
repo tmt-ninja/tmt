@@ -1089,7 +1089,7 @@ export function Home() {
         title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
-      {!port && listActions}
+      {!port && <UiTheme theme={theme}>{listActions}</UiTheme>}
       {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
@@ -1176,7 +1176,7 @@ export function Home() {
           </UiTheme>
         </div>
       ) : (
-        content
+        <UiTheme theme={theme}>{content}</UiTheme>
       )}
       {port && (
         <>

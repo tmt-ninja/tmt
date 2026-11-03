@@ -556,7 +556,7 @@ export function DataTable<Row>({
                                         type="button"
                                         variant="ghost"
                                         size="icon-sm"
-                                        tabIndex={includeActionsInMenu ? -1 : 0}
+                                        tabIndex={-1}
                                         aria-label={action.label}
                                         aria-haspopup={action.hasPopup}
                                         aria-pressed={action.pressed}
