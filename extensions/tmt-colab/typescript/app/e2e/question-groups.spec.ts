@@ -596,8 +596,9 @@ for (const width of [1440, 1024, 390])
         mkdirSync(captures, { recursive: true });
         await page.screenshot({ path: `${captures}/container-footer-${width}-${theme}.png` });
       }
-      // Hit the far edge that the old FAB covered, not only the radio at the left.
-      const lastOption = group.locator('.tmt-ui-choice').last();
+      // Hit the far edge that the old FAB covered, not only the radio at the left. The last
+      // authored choice, not Other, which every choice question now ends with (#5998).
+      const lastOption = group.locator('.tmt-ui-choice').filter({ hasText: 'Change it' });
       const option = await lastOption.boundingBox();
       expect(option).not.toBeNull();
       await lastOption.click({ position: { x: option!.width - 4, y: option!.height / 2 } });
