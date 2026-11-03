@@ -186,9 +186,11 @@ fixed vocabulary in [tags.mjs](src/blog/tags.mjs): `announcements` (project news
 `colab` (Colab use), `design` (interface design), `engineering` (implementation),
 `shugyo` (the weekly Shugyō retro series), `usage` (allowance, cost and model use)
 and `workflow` (working with agents). Unknown, duplicate or excessive tags fail
-validation; values are never silently normalized. Omitting tags preserves the
-existing metadata and approval hash. Adding or changing tags requires a new
-approved proposal, whose body lists the tags.
+validation; values are never silently normalized. Tags and `keyNumber` in
+`meta.json` are part of the approved artifact. To add or change them after
+publication, put them in the post's optional `editorial.json` (only `tags` and
+`keyNumber`); it overrides those two fields, needs no new approval and is not part
+of the approval hash (owner decision, 3 November 2026).
 
 Posts and listing rows show ordinary `#tag` links. The build generates
 `${SITE_BASE}blog/tags/<tag>/` for English, or `blog/<language>/tags/<tag>/` for
