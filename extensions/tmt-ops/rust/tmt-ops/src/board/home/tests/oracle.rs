@@ -1015,6 +1015,24 @@ fn answer_paging_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// Jump to latest (#5920) over a committed timeline: scrolled up after new messages arrived,
+/// and a pane too short for the box.
+fn jump_latest_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        &crate::board::conversation::timeline::tests::JUMP_SCENES,
+        |scene| {
+            if scene == "jump-latest-short" {
+                grid(&[160, 60], &[16])
+            } else {
+                grid(&[160, 100, 60], &[36])
+            }
+        },
+        |scene, look, _, _| crate::board::conversation::timeline::tests::jump_capture(scene, look),
+        |_, _| {},
+    )
+}
+
 fn checklist_activity_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
         styles,
@@ -1215,6 +1233,7 @@ fn captures() -> Value {
         frames.extend(action_needed_frames(&mut styles));
         frames.extend(digest_impact_frames(&mut styles));
         frames.extend(answer_paging_frames(&mut styles));
+        frames.extend(jump_latest_frames(&mut styles));
         frames.extend(checklist_activity_frames(&mut styles));
         frames.extend(timeline_frames(&mut styles));
         frames.extend(snapshot_frames(&mut styles));

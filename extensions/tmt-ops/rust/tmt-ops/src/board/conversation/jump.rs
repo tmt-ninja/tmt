@@ -1,5 +1,5 @@
 //! Jump to latest (#5920): while the reader is scrolled away from the bottom, a boxed button
-//! sits over the bottom-right of the body, `↓  Jump to latest · N new` with `End` on its lower
+//! sits over the bottom-right of the body, `↓ Jump to latest · N new` with `End` on its lower
 //! edge. It covers content without moving a line; a click does what End does. N counts the
 //! messages painted since the reader left the bottom. A body too small for the box gets one
 //! line, `↓ Latest · End`.
@@ -66,7 +66,7 @@ fn paint(frame: &mut Frame, new: usize, body: Rect, look: Look) -> Option<Rect> 
     } else {
         "Jump to latest".to_owned()
     };
-    let inner = 3 + label.width() as u16; // "↓  " before the label
+    let inner = 2 + label.width() as u16; // "↓ " before the label
     let width = inner + 4;
     let border = look.role(Role::Dim);
     if body.height >= 4 && body.width >= width + 2 {
@@ -76,7 +76,7 @@ fn paint(frame: &mut Frame, new: usize, body: Rect, look: Look) -> Option<Rect> 
             Line::styled(format!("╭{}╮", rule(width - 2)), border),
             Line::from(vec![
                 Span::styled("│ ", border),
-                Span::styled("↓  ", look.role(Role::Accent)),
+                Span::styled("↓ ", look.role(Role::Accent)),
                 Span::styled(label, look.role(Role::Text)),
                 Span::styled(" │", border),
             ]),
@@ -135,16 +135,16 @@ mod tests {
         assert_eq!(
             rows[5..],
             [
-                "                              ╭───────────────────────────╮",
-                "                              │ ↓  Jump to latest · 3 new │",
-                "                              ╰─ End ─────────────────────╯",
+                "                               ╭──────────────────────────╮",
+                "                               │ ↓ Jump to latest · 3 new │",
+                "                               ╰─ End ────────────────────╯",
             ]
         );
-        assert_eq!(hit, Some(Rect::new(30, 5, 29, 3)));
+        assert_eq!(hit, Some(Rect::new(31, 5, 28, 3)));
         let (rows, _) = shown(60, 8, 0);
         assert_eq!(
             rows[6].trim(),
-            "│ ↓  Jump to latest │",
+            "│ ↓ Jump to latest │",
             "no count without new messages"
         );
     }

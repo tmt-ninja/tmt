@@ -128,6 +128,70 @@ fn setup(document: Value, live: bool) -> App {
     app
 }
 
+/// Oracle scenes for Jump to latest (#5920).
+pub(in crate::board) const JUMP_SCENES: [&str; 2] = ["jump-latest-new", "jump-latest-short"];
+
+/// A long committed conversation read from its top; "jump-latest-new" then receives two
+/// more messages while the reader stays where it is.
+pub(in crate::board) fn jump_capture(scene: &str, look: crate::look::Look) -> App {
+    assert!(JUMP_SCENES.contains(&scene));
+    crate::status::with_now_ms(NOW, || {
+        let turn = |index: usize| {
+            let request = format!("ask-{index}");
+            let answer = format!("rsp-{index}");
+            (
+                [
+                    input(
+                        &request,
+                        VIEWER,
+                        "Ben",
+                        &format!("Question {index} about the release"),
+                    ),
+                    final_entry(
+                        &format!("stop-{index}"),
+                        &answer,
+                        VIEWER,
+                        &request,
+                        index as u64 + 1,
+                    ),
+                ],
+                response(
+                    &answer,
+                    &format!("Answer {index}: the checks passed.\nNothing else changed."),
+                    NOW - 60_000 + index as u64 * 1_000,
+                ),
+            )
+        };
+        let document = |turns: usize| {
+            let (entries, responses): (Vec<_>, Vec<_>) = (0..turns).map(turn).unzip();
+            json!({"identityId":MEMBER,"entries":entries.concat(),"responses":responses,
+                "coverage":{"olderDropped":false},"capture":{"enabled":true}})
+        };
+        let mut app = setup(document(8), false);
+        app.view.as_mut().unwrap().look = look;
+        draw(&app, 160);
+        app.scroll_pane(
+            crate::config::Pane::Replies,
+            crate::board::scroll::Step::Top,
+        );
+        if scene == "jump-latest-new" {
+            app.conversation.borrow_mut().refresh_pane_output();
+            let read = app.pane_output_plan().unwrap();
+            let timeline = model::parse(MEMBER, &document(9)).unwrap();
+            app.apply_answer_read(
+                &read,
+                Observation::Observed(Arc::new(Page {
+                    coverage: timeline.coverage.clone(),
+                    capture: timeline.capture,
+                    timeline: Some(timeline),
+                    ..Default::default()
+                })),
+            );
+        }
+        app
+    })
+}
+
 #[test]
 fn upward_timeline_scroll_requests_the_opaque_older_page() {
     crate::status::with_now_ms(NOW, || {
