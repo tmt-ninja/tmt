@@ -264,10 +264,17 @@ fn execute_with(
         let vector = doc.transact().state_vector();
         let mut tx = doc.transact_mut();
         for record in records {
-            if let Some(existing) = before
+            let map = Root::<MapRef>::new(record.root.as_str())
+                .get(&tx)
+                .ok_or(DecodeFault::Rejected)?;
+            let visible = before
                 .get(&record.root)
-                .and_then(|root| root.get(&record.key))
-            {
+                .and_then(|root| root.get(&record.key));
+            // A retired record is omitted from the projection, not free space for a new write.
+            if visible.is_none() && map.get(&tx, record.key.as_str()).is_some() {
+                return Err(DecodeFault::Rejected);
+            }
+            if let Some(existing) = visible {
                 if existing == &record.value {
                     continue;
                 }
@@ -275,9 +282,6 @@ fn execute_with(
                     return Err(DecodeFault::Rejected);
                 }
             }
-            let map = Root::<MapRef>::new(record.root.as_str())
-                .get(&tx)
-                .ok_or(DecodeFault::Rejected)?;
             map.insert(
                 &mut tx,
                 record.key.as_str(),
@@ -829,10 +833,11 @@ fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
                 let Out::Any(value) = value else {
                     return Err(DecodeFault::Rejected);
                 };
-                values.insert(
-                    key.into(),
-                    serde_json::to_value(value).map_err(|_| DecodeFault::Rejected)?,
-                );
+                let value = serde_json::to_value(value).map_err(|_| DecodeFault::Rejected)?;
+                if namespace == Namespace::Own && crate::threads::retired_record(name, &value) {
+                    continue;
+                }
+                values.insert(key.into(), value);
             }
             roots.insert((*name).into(), Value::Object(values));
         }

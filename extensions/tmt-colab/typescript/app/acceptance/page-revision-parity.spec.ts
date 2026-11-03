@@ -42,6 +42,7 @@ function watchCheckpointAdmission(page: Page) {
     sockets.push(progress);
     socket.on('framereceived', ({ payload }) => {
       progress.received++;
+      if (typeof payload !== 'string') return;
       const frame = JSON.parse(String(payload)) as {
         type: string;
         namespace?: string;

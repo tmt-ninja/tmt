@@ -60,9 +60,7 @@ export function useReadingLayer({
     (next: QuestionAnchor[], checked = true) => setAnchors(checked ? next : null),
     [],
   );
-  const threads = (view.threads ?? []).filter(
-    (thread) => !thread.deleted && !thread.proposal && thread.anchor,
-  );
+  const threads = (view.threads ?? []).filter((thread) => !thread.deleted && thread.anchor);
   const rows = readings.map((reading) => {
     const anchor = anchors?.find((anchor) => anchor.id === reading.id);
     const thread = canonicalReadingThread(
@@ -252,7 +250,7 @@ export function useReadingLayer({
         }}
         data-inline-reading={reading.id}
         data-inline-slot={reading.id}
-        className="proposal-inline reading-inline"
+        className="inline-block-layer reading-inline"
         data-detached={!attached || undefined}
         data-reading-state={state.kind}
         data-reason-expanded={(!!warning && (readOnly || expanded.has(reading.id))) || undefined}

@@ -141,7 +141,27 @@ function LocalPreview({ draft, chip }: { draft: AttachmentDraft; chip: Chip }) {
   ) : null;
 }
 
-/** A presentation row inside the input, outside Lexical. Draft remains the only owner. */
+/** Upload progress drawn over a pending tile; the state's words stay for assistive technology. */
+function UploadRing({ percent }: { percent: number }) {
+  const length = 2 * Math.PI * 15;
+  return (
+    <span className="attachment-pending-ring" aria-hidden>
+      <svg viewBox="0 0 36 36" width="34" height="34">
+        <circle cx="18" cy="18" r="15" />
+        <circle
+          cx="18"
+          cy="18"
+          r="15"
+          strokeDasharray={length}
+          strokeDashoffset={length * (1 - percent / 100)}
+        />
+      </svg>
+    </span>
+  );
+}
+
+/** Tiles inside the input, outside Lexical: an image shows itself, a file shows its name and type
+ * on a card of the same height, and more wrap onto the next row (#5955). Draft remains the only owner. */
 export function PendingAttachments({
   draft,
   disabled,
@@ -174,35 +194,46 @@ export function PendingAttachments({
               className="attachment-pending-item"
               data-testid="attachment-chip"
               data-state={chip.state.kind}
+              data-kind={chip.mediaType.startsWith('image/') ? 'image' : 'file'}
+              title={chip.filename}
             >
+              <LocalPreview draft={draft} chip={chip} />
               <AttachmentLabel
                 filename={chip.filename}
                 mediaType={chip.mediaType}
                 size={chip.size}
               />
-              <span className="attachment-state" role="status">
-                {chip.state.kind === 'refused' ? '✗ ' : ''}
-                {stateText(chip, false)}
+              {chip.state.kind === 'uploading' && (
+                <UploadRing
+                  percent={Math.floor((chip.state.sent / Math.max(chip.state.total, 1)) * 100)}
+                />
+              )}
+              <span className="attachment-pending-status">
+                <span className="attachment-state" role="status">
+                  {chip.state.kind === 'refused' ? '✗ ' : ''}
+                  {stateText(chip, false)}
+                </span>
+                {chip.state.kind === 'unknown' &&
+                  action(text.attachCheck, () => void draft.check(chip.id))}
+                {chip.state.kind === 'refused' &&
+                  action(text.attachRetry, () => draft.retry(chip.id))}
               </span>
-              {chip.state.kind === 'unknown' &&
-                action(text.attachCheck, () => void draft.check(chip.id))}
-              {chip.state.kind === 'refused' &&
-                action(text.attachRetry, () => draft.retry(chip.id))}
-              <BrowserIconAction
-                type="button"
-                variant="text"
-                label={`${text.attachRemove} ${chip.filename}`}
-                tooltipLabel="Remove"
-                icon={<X />}
-                disabled={disabled || chip.state.kind === 'uploading'}
-                onActivate={(event) => {
-                  if (event.isTrusted) {
-                    draft.remove(chip.id);
-                    onRemoved();
-                  }
-                }}
-              />
-              <LocalPreview draft={draft} chip={chip} />
+              <span className="attachment-pending-remove">
+                <BrowserIconAction
+                  type="button"
+                  variant="text"
+                  label={`${text.attachRemove} ${chip.filename}`}
+                  tooltipLabel="Remove"
+                  icon={<X />}
+                  disabled={disabled || chip.state.kind === 'uploading'}
+                  onActivate={(event) => {
+                    if (event.isTrusted) {
+                      draft.remove(chip.id);
+                      onRemoved();
+                    }
+                  }}
+                />
+              </span>
             </li>
           ))}
         </ul>

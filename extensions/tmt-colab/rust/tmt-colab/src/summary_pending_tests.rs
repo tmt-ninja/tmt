@@ -27,16 +27,10 @@ pub(crate) fn view(case: &Value) -> Conversations {
             })).unwrap(),
             reference: crate::threads::status::Reference { writer: writer.clone(), id: id.clone() }, depth: 1,
         });
-        let decision = row.get("decided").map(|value| serde_json::from_value(json!({
-            "version":1,"kind":"proposal-decision","spaceId":"fixture","pageId":id,"epoch":"1",
-            "senderDevice":writer,"revision":"1","deleted":value == false,"deviceName":"Fixture","at":"1",
-            "actionId":id,"thread":{"writer":writer,"id":id},"previous":null,"decision":"approved"
-        })).unwrap());
         Thread {
             writer, id, revision:"1".into(), anchor, resolved:row["resolved"] == true,
             deleted:row["deleted"] == true, device_name:"Fixture".into(), at:"1".into(), comments,
-            proposal:row.get("proposal").map(|proposal| serde_json::from_value(proposal.clone()).unwrap()),
-            decision, status, notifications:Vec::new(),
+            status, notifications:Vec::new(),
         }
     }).collect();
     let asks = case["asks"]
@@ -119,7 +113,7 @@ fn legacy_vectors_preserve_the_markup_needs_you_rule_without_a_registry() {
 fn a_quote_budget_failure_is_unavailable_not_a_false_empty_summary() {
     let vectors: Value =
         serde_json::from_str(include_str!("../../../contracts/vectors/needs-you-v1.json")).unwrap();
-    let mut case = vectors["cases"][5].clone();
+    let mut case = vectors["cases"][1].clone();
     let source = format!(
         "{}{}",
         "<p>Read plan</p>".repeat(65),
@@ -153,9 +147,7 @@ fn a_page_without_admitted_blocks_keeps_its_summary_above_the_quote_text_budget(
     let source = "plain text ".repeat(30_000);
     let (report, anchors) = crate::page_check::summary(&source, &conversations.threads).unwrap();
     let pending = items(&report, &anchors, &conversations, &Default::default(), None);
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].kind, "proposal");
-    assert_eq!(pending[0].id, case["expected"][0]["id"].as_str().unwrap());
+    assert!(pending.is_empty());
 }
 
 #[test]

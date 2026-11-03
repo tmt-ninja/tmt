@@ -30,8 +30,6 @@ fn thread(id: &str, deleted: bool, comments: Vec<Comment>) -> Thread {
         device_name: "Fixture".into(),
         at: "1".into(),
         comments,
-        proposal: None,
-        decision: None,
         status: None,
         notifications: Vec::new(),
     }
@@ -69,7 +67,7 @@ fn every_pending_item_of_the_shared_vectors_is_named_review_first_and_in_page_or
                 .unwrap();
         let pending =
             crate::summary_pending::items(&report, &anchors, &conversations, &writers, None);
-        let named = needs(&report, &conversations, &pending, &[]);
+        let named = needs(&report, &pending, &[]);
         let name = case["name"].as_str().unwrap();
         // The same targets as the count, none lost and none added.
         let mut counted: Vec<_> = pending.iter().map(|item| item.id.clone()).collect();
@@ -81,7 +79,7 @@ fn every_pending_item_of_the_shared_vectors_is_named_review_first_and_in_page_or
             named
                 .windows(2)
                 .all(|pair| pair[0].kind.rank() <= pair[1].kind.rank()),
-            "{name}: review, question, reading, proposal"
+            "{name}: review, question, reading"
         );
         assert!(
             named
@@ -114,7 +112,7 @@ fn registered_questions_are_named_individually_and_a_reading_carries_its_reason(
         &writers,
         Some(&questions),
     );
-    let named = needs(&report, &conversations, &pending, &questions);
+    let named = needs(&report, &pending, &questions);
     assert_eq!(
         named
             .iter()
@@ -133,48 +131,23 @@ fn registered_questions_are_named_individually_and_a_reading_carries_its_reason(
         by_kind(NeedKind::Reading).why.as_deref(),
         Some("Read first")
     );
-    assert_eq!(by_kind(NeedKind::Proposal).title, "Choose release");
-    assert_eq!(
-        by_kind(NeedKind::Proposal).agent.as_deref(),
-        Some("Agent 1")
-    );
     assert_eq!(by_kind(NeedKind::Review).title, "Review scope");
     assert_eq!(by_kind(NeedKind::Review).agent.as_deref(), Some("Agent 1"));
 }
 
 #[test]
 fn only_the_first_twenty_by_rank_are_named_while_the_count_stays_whole() {
-    let case = &vectors()["cases"][0];
-    let proposal = |n: usize| {
-        let mut row = thread(
-            &format!("10000000-0000-4000-8000-{n:012}"),
-            false,
-            Vec::new(),
-        );
-        row.proposal = Some(
-            serde_json::from_value(serde_json::json!({
-                "proposalId": format!("10000000-0000-4000-8000-{n:012}"),
-                "title": format!("Proposal {n}"),
-                "body": "Please decide",
-                "proposer": {
-                    "machineId": "10000000-0000-4000-8000-000000000101",
-                    "agentId": "10000000-0000-4000-8000-000000000101",
-                    "label": "Agent 1"
-                }
-            }))
-            .unwrap(),
-        );
-        row
-    };
-    let conversations = view((1..=25).map(proposal).collect());
-    let (report, anchors) =
-        crate::page_check::summary("<p>Plain</p>", &conversations.threads).unwrap();
+    let source = (1..=25).map(|n| format!(
+        "<tmt-question data-id=\"10000000-0000-4000-8000-{n:012}\" data-kind=\"short\"><p data-question>Question {n}</p></tmt-question>"
+    )).collect::<String>();
+    let conversations = view(Vec::new());
+    let (report, anchors) = crate::page_check::summary(&source, &conversations.threads).unwrap();
     let pending =
         crate::summary_pending::items(&report, &anchors, &conversations, &Default::default(), None);
-    assert_eq!(pending.len(), 25, "{}", case["name"]);
-    let named = needs(&report, &conversations, &pending, &[]);
+    assert_eq!(pending.len(), 25);
+    let named = needs(&report, &pending, &[]);
     assert_eq!(named.len(), NEEDS_PASSAGES);
-    assert_eq!(named[0].title, "Proposal 1", "page order inside a kind");
+    assert_eq!(named[0].title, "Question 1", "page order inside a kind");
 }
 
 #[test]
@@ -252,4 +225,21 @@ fn control_characters_never_reach_the_browser_and_an_empty_label_is_left_out() {
         serde_json::to_value(&latest).unwrap(),
         serde_json::json!({"atMs":1,"text":"bell ring text"})
     );
+}
+
+#[test]
+fn ignored_thread_reference_text_does_not_make_question_quote_ambiguous() {
+    use crate::export::conversations::Anchor;
+    let id = "10000000-0000-4000-8000-000000000001";
+    let source = format!(
+        "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000101\" data-thread=\"20000000-0000-4000-8000-000000000001\">Question?</tmt-thread-ref><tmt-question data-id=\"{id}\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>"
+    );
+    let mut discussion = thread("20000000-0000-4000-8000-000000000001", false, vec![]);
+    discussion.anchor = Some(Anchor {
+        exact: "Question?".into(),
+        prefix: String::new(),
+        suffix: String::new(),
+    });
+    let (_, anchors) = crate::page_check::summary(&source, &[discussion]).unwrap();
+    assert_eq!(anchors.threads(id).len(), 1);
 }

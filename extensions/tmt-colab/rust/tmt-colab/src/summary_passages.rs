@@ -24,7 +24,6 @@ pub enum NeedKind {
     Review,
     Question,
     Reading,
-    Proposal,
 }
 impl NeedKind {
     /// The order a reader should meet them: a decision first, a plain read last.
@@ -33,7 +32,6 @@ impl NeedKind {
             Self::Review => 0,
             Self::Question => 1,
             Self::Reading => 2,
-            Self::Proposal => 3,
         }
     }
 }
@@ -101,12 +99,11 @@ fn need(
 }
 
 /// The pending items with what a reader needs to recognise each, review first, then question,
-/// reading and proposal, each in page order; at most [`NEEDS_PASSAGES`] (the count stays
+/// reading, each in page order; at most [`NEEDS_PASSAGES`] (the count stays
 /// `summary.needsYou`). Registered questions retain their title or ID even without markup;
 /// other passage types need an admitted source title.
 pub(crate) fn needs(
     report: &Report,
-    view: &Conversations,
     pending: &[PendingItem],
     questions: &[serde_json::Value],
 ) -> Vec<Need> {
@@ -169,20 +166,6 @@ pub(crate) fn needs(
                     Some(&reading.why),
                 )
             }
-            "proposal" => {
-                let proposal = view
-                    .threads
-                    .iter()
-                    .filter_map(|thread| thread.proposal.as_ref())
-                    .find(|proposal| proposal.proposal_id == item.id)?;
-                need(
-                    NeedKind::Proposal,
-                    &item.id,
-                    &proposal.title,
-                    Some(&proposal.proposer.label),
-                    None,
-                )
-            }
             _ => None,
         })
         .collect();
@@ -197,7 +180,7 @@ pub(crate) fn needs(
 pub(crate) fn latest(view: &Conversations) -> Option<Latest> {
     view.threads
         .iter()
-        .filter(|thread| !thread.deleted && thread.proposal.is_none())
+        .filter(|thread| !thread.deleted)
         .flat_map(|thread| &thread.comments)
         .filter(|comment| {
             !comment.deleted

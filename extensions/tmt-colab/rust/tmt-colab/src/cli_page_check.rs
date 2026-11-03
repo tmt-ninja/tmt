@@ -92,6 +92,7 @@ fn message(code: &str) -> String {
         "question-page-limit" => format!(
             "More than {QUESTION_PAGE} questions on the page: the browser shows none of them. Keep at most {QUESTION_PAGE}."
         ),
+        "thread-ref-invalid" => "Use exactly data-writer and data-thread with canonical UUIDv4 values from threads --json.".into(),
         "question-id-invalid" => "data-id must be a lowercase UUID such as 10000000-0000-4000-8000-000000000001; this question is ignored.".into(),
         "question-id-duplicate" => "Another question or group uses the same data-id, so every holder is ignored. Give each its own UUID.".into(),
         "question-nested" => "A question inside another question is ignored. Put it beside the outer one.".into(),
