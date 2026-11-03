@@ -131,11 +131,9 @@ test('a batch Send publishes each answer with its own files and the card shows t
   ).toHaveCount(1);
   // Each answer keeps its own file when the selected question changes.
   await group.locator('.question-line', { hasText: SHORT }).click();
-  await expect(
-    group
-      .locator('.question-compact-controls:not([hidden]) .question-answer')
-      .getByText('intro.png'),
-  ).toBeVisible();
+  const firstAnswer = group.locator('.question-compact-controls:not([hidden]) .question-answer');
+  await expect(firstAnswer.getByRole('button', { name: 'Preview intro.png' })).toBeVisible();
+  await expect(firstAnswer.getByRole('img', { name: 'intro.png' })).toBeVisible();
 });
 
 test('a draft keeps its files while the disclosure moves, and a Send that sends nothing uploads nothing', async ({
