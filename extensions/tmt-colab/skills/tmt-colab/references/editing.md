@@ -102,9 +102,9 @@ Publishing a version, which pages can lock to, stays the person's step.
 The built-in tmt GUI's pages (the `tmt GUI` tree, `/design/ds/gui`) are different: they are generated
 from `design/browser-ui`. Their first line says so and lists the files the page comes from, and
 their `data-tmt-ds="origin"` block holds the same `files`. Never patch these pages; an edit is
-replaced at the next regeneration. Change those files in a branch, regenerate with
-`node design/systems/compile.mjs --write`, open a PR on the normal review path, and reply on the
-thread with its link. The pages regenerate once a build with the change runs.
+replaced at the next regeneration. Change those files in a branch, regenerate the checked-in
+design output (the usage line in `design/systems/compile.mjs` shows how), open a PR on the normal
+review path, and reply on the thread with its link. The pages regenerate once a build with the change runs.
 
 ## When it conflicts
 
