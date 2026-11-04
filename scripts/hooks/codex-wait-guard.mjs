@@ -43,7 +43,10 @@
 //    `vitest`, `vp test` or `playwright test`, with no `sleep` word and no
 //    `--watch`, `-w` or `--ui` flag. A test that waits briefly for its own
 //    fixture is not the agent waiting; anything chained, looped or wrapped
-//    around the runner is judged, and test files are never sent.
+//    around the runner is judged, and test files are never sent. `npm|pnpm
+//    [run] test` runs whatever the package's `test` script is, so this skip
+//    trusts the repository's reviewed package.json scripts in the call's
+//    worktree, and nothing outside it.
 // 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
