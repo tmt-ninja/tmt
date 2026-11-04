@@ -19,6 +19,9 @@ import { storedDocument } from '../support/ops-state.js';
 import { withE2EFixture, processState, type E2EFixture, type MockEvent } from './harness.js';
 import { savedMemberLifetime } from './ops-saved-member-lifetime.js';
 
+/** One shell word, single-quoted, for commands typed into a private-world pane. */
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
   const cli = resolveCliExecutables().cli.executable;
@@ -181,7 +184,6 @@ function capturedTurnWorker(fixture: E2EFixture, name: string) {
   const log = path.join(fixture.root, `${name}-worker.log`);
   const status = path.join(fixture.root, `${name}-worker.status`);
   const mock = fileURLToPath(new URL('./mock-claude-channel.mjs', import.meta.url));
-  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const command = [
     'env',
     `HOME=${home}`,
@@ -692,7 +694,6 @@ renameSync(output+'.tmp',output);
       installSquad(fixture);
       expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
       expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
-      const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
       const socket = assertPrivateSocket(fixture.socketPath, fixture.socketRoot);
       const shim = path.join(fixture.root, 'switch-bin');
       const native = path.join(fixture.root, 'switch-peers');
@@ -2367,7 +2368,6 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       } finally {
         store.close();
       }
-      const quote = (word: string) => `'${word.replaceAll("'", "'\\''")}'`;
       const calls = path.join(fixture.root, 'answer-page-calls');
       fs.mkdirSync(calls);
       const recorded = <T>(suffix: string): T[] =>
