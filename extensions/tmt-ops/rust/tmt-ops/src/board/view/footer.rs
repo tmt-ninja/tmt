@@ -647,19 +647,6 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         return fit_hints(vec![("Ctrl-\\".into(), "back".into())], vec![], width);
     }
     let bindings = app.bindings();
-    let group_scroll = app.focused_pane() == Some(crate::config::Pane::Replies)
-        && [
-            ("up", OpsUiAction::ScrollUp),
-            ("k", OpsUiAction::ScrollUp),
-            ("down", OpsUiAction::ScrollDown),
-            ("j", OpsUiAction::ScrollDown),
-        ]
-        .iter()
-        .all(|(key, verb)| {
-            bindings
-                .get(*key)
-                .is_some_and(|action| action.verb == Verb::Ui(*verb))
-        });
     let mut entries: Vec<_> = bindings
         .iter()
         .filter(|(event, action)| {
@@ -693,6 +680,11 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
 
             !matches!(event.as_str(), "click" | "double-click")
                 && !help_only(action.verb)
+                && !(matches!(
+                    action.verb,
+                    Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
+                ) && (app.focused_pane() == Some(crate::config::Pane::Replies)
+                    || app.terminal_showing()))
                 && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
                     action.verb,
@@ -733,17 +725,6 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
     }
     let mut help_hint = None;
     for (key, action) in entries {
-        if group_scroll
-            && matches!(
-                action.verb,
-                Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
-            )
-        {
-            if seen.insert("reader-scroll") {
-                hints.push(("↑↓/jk".into(), "scroll".into()));
-            }
-            continue;
-        }
         if !seen.insert(action.text.as_str()) {
             continue;
         }
@@ -1211,6 +1192,26 @@ mod tests {
                     !pairs.contains(&(key_label(&key).to_owned(), hint_word(&app, &action))),
                     "{key} remains in footer"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn conversation_footer_omits_scroll_but_help_keeps_bound_keys() {
+        use crate::action::{OpsUiAction as Ui, Verb};
+        use crate::board::app::workspace::tests::{MEMBER, ROOM, help_lists};
+        use crate::board::workspace::OpsTarget;
+        let mut app = selected(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        app.focus = 1;
+        assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies));
+        let pairs = workspace_pairs(&app, 1000);
+        for (key, action) in app.bindings() {
+            if matches!(action.verb, Verb::Ui(Ui::ScrollUp | Ui::ScrollDown)) {
+                assert!(help_lists(&app, &key), "{key} remains in Help");
+                assert!(!pairs.contains(&(key_label(&key).to_owned(), hint_word(&app, &action))));
             }
         }
     }
