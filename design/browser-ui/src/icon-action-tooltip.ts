@@ -4,14 +4,17 @@ export interface IconActionTooltipPlacement {
   side: 'above';
 }
 
-const activeTooltips = new WeakMap<Document, () => void>();
+const activeTooltips = new WeakMap<Document | HTMLElement, () => void>();
 
 /** Help has one ephemeral owner per document, independent of menu/dialog state. */
-export function claimIconActionTooltip(document: Document, dismiss: () => void): () => void {
-  activeTooltips.get(document)?.();
-  activeTooltips.set(document, dismiss);
+export function claimIconActionTooltip(
+  owner: Document | HTMLElement,
+  dismiss: () => void,
+): () => void {
+  activeTooltips.get(owner)?.();
+  activeTooltips.set(owner, dismiss);
   return () => {
-    if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
+    if (activeTooltips.get(owner) === dismiss) activeTooltips.delete(owner);
   };
 }
 
@@ -66,14 +69,17 @@ export function placeIconActionTooltip(
   const view = anchor.ownerDocument.defaultView;
   if (!view) return () => {};
   const viewport = view.visualViewport;
+  const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
   const place = () => {
     const box = anchor.getBoundingClientRect();
     if (!anchor.isConnected || !box.width || !box.height) {
       if (tooltip.matches(':popover-open')) tooltip.hidePopover();
+      if (scope) tooltip.hidden = true;
       return;
     }
     const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
-    const bounds = {
+    const scopeBox = scope?.getBoundingClientRect();
+    const bounds = scopeBox ?? {
       left: viewport?.offsetLeft ?? 0,
       top: viewport?.offsetTop ?? 0,
       width: viewport?.width ?? view.innerWidth,
@@ -90,14 +96,20 @@ export function placeIconActionTooltip(
       gutter,
       side,
     );
-    tooltip.style.left = `${next.left}px`;
-    tooltip.style.top = `${next.top}px`;
+    // A transformed ancestor (for example an animated dialog) can be the fixed-position
+    // containing block inside the scope; viewport coordinates must be relative to that block.
+    const containing = scope
+      ? (tooltip.offsetParent?.getBoundingClientRect() ?? scopeBox)
+      : undefined;
+    tooltip.style.left = `${next.left - (containing?.left ?? 0)}px`;
+    tooltip.style.top = `${next.top - (containing?.top ?? 0)}px`;
     tooltip.style.maxHeight = `${next.maxHeight}px`;
   };
   place();
   const observer = new ResizeObserver(place);
   observer.observe(anchor);
   observer.observe(tooltip);
+  if (scope) observer.observe(scope);
   view.addEventListener('resize', place);
   view.addEventListener('scroll', place, true);
   viewport?.addEventListener('resize', place);
@@ -134,6 +146,12 @@ export function bindIconActionTooltip(
 ) {
   const document = button.ownerDocument;
   const view = document.defaultView!;
+  const scope = wrapper.closest<HTMLElement>('[data-tmt-ds-scope]');
+  if (scope) {
+    tooltip.removeAttribute('popover');
+    tooltip.hidden = true;
+  }
+  const isOpen = () => (scope ? !tooltip.hidden : tooltip.matches(':popover-open'));
   let hovered = false;
   let focused = false;
   let dismissed = false;
@@ -149,14 +167,18 @@ export function bindIconActionTooltip(
     release?.();
     release = undefined;
     document.removeEventListener('keydown', escape, true);
-    if (tooltip.matches(':popover-open')) tooltip.hidePopover();
+    if (scope) {
+      tooltip.hidden = true;
+      tooltip.removeAttribute('data-tmt-ds-open');
+    } else if (tooltip.matches(':popover-open')) tooltip.hidePopover();
   };
   const dismiss = () => {
     dismissed = true;
     close();
   };
   const escape = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape' || !tooltip.matches(':popover-open')) return;
+    if (event.key !== 'Escape' || !isOpen() || (scope && !scope.contains(event.target as Node)))
+      return;
     dismiss();
     guardEscapeFocus(document);
   };
@@ -172,11 +194,14 @@ export function bindIconActionTooltip(
       close();
       return;
     }
-    if (tooltip.matches(':popover-open')) return;
+    if (isOpen()) return;
     const anchor = placement ? placement.anchor() : button;
     if (!anchor?.isConnected) return;
-    release = claimIconActionTooltip(document, dismiss);
-    tooltip.showPopover();
+    release = claimIconActionTooltip(scope ?? document, dismiss);
+    if (scope) {
+      tooltip.hidden = false;
+      tooltip.setAttribute('data-tmt-ds-open', '');
+    } else tooltip.showPopover();
     position = placeIconActionTooltip(anchor, tooltip, placement?.side);
     document.addEventListener('keydown', escape, true);
   };

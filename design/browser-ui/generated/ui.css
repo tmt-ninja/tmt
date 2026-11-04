@@ -572,6 +572,12 @@
   .tmt\:max-h-\(--tmt-layer-available-height\) {
     max-height: var(--tmt-layer-available-height);
   }
+  .tmt\:max-h-\[calc\(100cqh-var\(--tmt-floating-top\)-var\(--tmt-foundation-floating-action-size\)-var\(--tmt-foundation-floating-gutter\)\*2-var\(--tmt-foundation-spacing-unit\)\*5\)\] {
+    max-height: calc(
+      100cqh - var(--tmt-floating-top) - var(--tmt-foundation-floating-action-size) -
+        var(--tmt-foundation-floating-gutter) * 2 - var(--tmt-foundation-spacing-unit) * 5
+    );
+  }
   .tmt\:max-h-\[calc\(100dvh-var\(--tmt-floating-top\)-var\(--tmt-foundation-floating-action-size\)-var\(--tmt-foundation-floating-gutter\)\*2-var\(--tmt-foundation-spacing-unit\)\*5\)\] {
     max-height: calc(
       100dvh - var(--tmt-floating-top) - var(--tmt-foundation-floating-action-size) -
@@ -1553,6 +1559,31 @@
       width: 100%;
     }
     .tmt\:max-\[760px\]\:px-0 {
+      padding-inline: 0px;
+    }
+  }
+  @container (width < 760px) {
+    .tmt\:\@max-\[760px\]\:sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border-width: 0;
+    }
+    .tmt\:\@max-\[760px\]\:left-\(--tmt-foundation-floating-gutter\) {
+      left: var(--tmt-foundation-floating-gutter);
+    }
+    .tmt\:\@max-\[760px\]\:w-\(--tmt-foundation-control-size-l\) {
+      width: var(--tmt-foundation-control-size-l);
+    }
+    .tmt\:\@max-\[760px\]\:w-full {
+      width: 100%;
+    }
+    .tmt\:\@max-\[760px\]\:px-0 {
       padding-inline: 0px;
     }
   }

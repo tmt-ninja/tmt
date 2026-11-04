@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { DsScope } from '../src/ui/theme.js';
 import { pinState, type ForcedState } from './force-states.js';
 import type { SectionId } from './covered.js';
 import { sections } from './covered.js';
@@ -73,7 +74,7 @@ export function Cells({ children }: { children: ReactNode }) {
   return <div className="gallery-cells">{children}</div>;
 }
 
-/** A real page of this gallery in an iframe, for demos that need a viewport or the top layer. */
+/** A gallery scene with its own local scope and size. */
 export function Frame({
   frame,
   theme,
@@ -109,8 +110,8 @@ export function drawFramesInline(render: InlineFrame | undefined) {
 }
 
 /**
- * An iframe preview that keeps its true layout width and scales down to fit its cell, so a wide
- * viewport never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
+ * A scoped preview that keeps its true layout width and scales down to fit its cell, so a wide
+ * stage never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
  * docs e2e holds it inside its parent cell.
  */
 export function ScaledFrame({
@@ -144,55 +145,29 @@ export function ScaledFrame({
     return (
       <figure className="scaled-frame-static">
         <figcaption>
-          Static preview · {width ? `${width} px` : 'full width'} · {theme}
+          Preview · {width ? `${width} px` : 'full width'} · {theme}
         </figcaption>
         <div
           ref={box}
           className="scaled-frame"
           data-preview-frame=""
+          data-preview-src={src}
+          data-preview-title={title}
           style={{ maxWidth: width, height: height * scale }}
         >
-          <div
+          <DsScope
             className="scaled-frame-inline"
-            role="img"
-            aria-label={title}
-            inert
-            data-theme={theme}
-            data-tmt-palette="b"
             style={{ width: width ?? '100%', height, transform: `scale(${scale})` }}
           >
-            {inlineFrame(path, params)}
-          </div>
+            <div data-theme={theme} data-tmt-palette="b" aria-label={title}>
+              {inlineFrame(path, params)}
+            </div>
+          </DsScope>
         </div>
       </figure>
     );
   }
-  return (
-    <div
-      ref={box}
-      className="scaled-frame"
-      data-preview-frame=""
-      style={{ maxWidth: width, height: height * scale }}
-      data-scaled={scale < 1 || undefined}
-    >
-      {scale < 1 && (
-        <a className="scaled-frame-open" href={src} target="_blank" rel="noopener">
-          Open at 100%
-        </a>
-      )}
-      <iframe
-        className="gallery-frame"
-        loading="lazy"
-        title={title}
-        src={src}
-        style={{
-          width: width ?? '100%',
-          height,
-          transform: scale < 1 ? `scale(${scale})` : undefined,
-        }}
-      />
-    </div>
-  );
+  throw new Error('A preview renderer is required before rendering a scope');
 }
 
 /** A frame demo in light and dark, side by side. */

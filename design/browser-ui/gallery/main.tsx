@@ -12,6 +12,15 @@ import { sections } from './covered.js';
 import { refreshForcedStates } from './force-states.js';
 import { GallerySections } from './sections.js';
 import { frameFor } from './frames.js';
+import { drawFramesInline } from './kit.js';
+
+drawFramesInline((_path, params) => {
+  const scoped = new URLSearchParams(params);
+  scoped.set('scope', 'true');
+  scoped.set('open', 'false');
+  if (scoped.get('frame') === 'ui-overlay') scoped.set('state', 'closed');
+  return frameFor(scoped.get('frame') ?? '', scoped);
+});
 
 document.querySelector<HTMLLinkElement>('#favicon')!.href = favicon;
 const params = new URLSearchParams(location.search);

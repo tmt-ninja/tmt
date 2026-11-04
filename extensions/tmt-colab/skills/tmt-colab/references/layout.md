@@ -49,6 +49,13 @@ whole page is one block: its inside is yours, its width is the column.
 
 Questions and review controls that Colab draws sit on the same column.
 
+## Design-system blocks
+
+Published design-system components can sit directly in page flow. To show a device-sized
+mockup stage, wrap its components in a `data-tmt-ds-scope` element with explicit width and height.
+The stage contains overlays and responds to its own size. The usual page layout still owns the
+top-level block's width and gutters. See [components](components.md).
+
 ## Two declarations
 
 Both go on a top-level block. They are the only way to change the frame.

@@ -3,13 +3,14 @@ import type { ComponentProps } from 'react';
 import { Dialog as Primitive } from 'radix-ui';
 import { XIcon } from 'lucide-react';
 import { cn } from './utils.js';
-import { useUiPortalContainer } from './theme.js';
+import { useDsScope, useUiPortalContainer } from './theme.js';
 import {
   LayerAdmission,
   admitLayerDismiss,
   useLayerAdmission,
   useLayerFocus,
   useLayerSurface,
+  useScopedLayer,
   type LayerController,
   type LayerFocusOptions,
 } from './layer.js';
@@ -19,10 +20,12 @@ export function Sheet({
   controller,
   ...props
 }: ComponentProps<typeof Primitive.Root> & { controller?: LayerController }) {
+  const scope = useDsScope();
   return (
     <LayerAdmission.Provider value={controller}>
       <Primitive.Root
         {...props}
+        {...(scope ? { modal: false } : {})}
         {...(controller
           ? {
               open: controller.open,
@@ -46,8 +49,11 @@ function SheetPortal(props: Omit<ComponentProps<typeof Primitive.Portal>, 'conta
 }
 function SheetOverlay() {
   const controller = useLayerAdmission();
+  const scope = useDsScope();
+  const Overlay = scope ? 'div' : Primitive.Overlay;
   return (
-    <Primitive.Overlay
+    <Overlay
+      data-tmt-ds-scrim={scope ? '' : undefined}
       data-slot="sheet-overlay"
       className={cn(
         'tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)',
@@ -71,6 +77,7 @@ export function SheetContent({
   onCloseAutoFocus,
   onEscapeKeyDown,
   onInteractOutside,
+  onKeyDown,
   ref,
   style,
   ...props
@@ -79,6 +86,7 @@ export function SheetContent({
   const controller = useLayerAdmission();
   const focus = useLayerFocus({ initialFocus, returnFocus, focusFallback }, true);
   const surface = useLayerSurface(ref);
+  const scoped = useScopedLayer(surface.ref);
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -86,7 +94,7 @@ export function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         {...props}
-        ref={surface.ref}
+        ref={scoped.ref}
         className={cn(
           'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:z-(--tmt-foundation-z-layer) tmt:flex tmt:flex-col tmt:gap-4 tmt:max-w-(--tmt-layer-available-width) tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:bg-background tmt:text-foreground tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:outline-none',
           (side === 'left' || side === 'right') &&
@@ -113,11 +121,19 @@ export function SheetContent({
           onCloseAutoFocus?.(event);
           focus.onCloseAutoFocus(event);
         }}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          scoped.onKeyDown(event.nativeEvent);
+        }}
         onEscapeKeyDown={(event) => {
           onEscapeKeyDown?.(event);
           admitLayerDismiss(event, controller, 'escape');
         }}
         onInteractOutside={(event) => {
+          if (scoped.outsideScope(event.detail.originalEvent.target)) {
+            event.preventDefault();
+            return;
+          }
           onInteractOutside?.(event);
           admitLayerDismiss(
             event,

@@ -1,4 +1,11 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+} from 'react';
 import { X } from 'lucide-react';
 import { BrowserAction } from './action.js';
 import { BrowserIconAction } from './icon-action.js';
@@ -30,6 +37,11 @@ export function BrowserNotifications(props: BrowserNotificationsProps) {
 function NotificationSurface({ events, suspended, isEligible }: BrowserNotificationsProps) {
   const [queue] = useState(() => new NotificationQueue<BrowserNotification>());
   const surface = useRef<HTMLDivElement>(null);
+  const [scoped, setScoped] = useState(false);
+  const setSurface = useCallback((node: HTMLDivElement | null) => {
+    surface.current = node;
+    if (node) setScoped(!!node.closest('[data-tmt-ds-scope]'));
+  }, []);
   const focusOrigin = useRef<Element | null>(null);
   const host = useRef({ suspended, isEligible });
   host.current = { suspended, isEligible };
@@ -113,7 +125,8 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
   useLayoutEffect(() => {
     const node = surface.current!;
     if ((queue.getSnapshot().visible.length || closing.size) && !suspended) {
-      if (!node.matches(':popover-open')) node.showPopover();
+      if (!node.closest('[data-tmt-ds-scope]') && !node.matches(':popover-open'))
+        node.showPopover();
       const next = queue.takeAnnouncements();
       if (next.length) setAnnouncements(next);
       // The status holds the currently eligible payload: an active withdrawal drops its item
@@ -128,7 +141,7 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
       setAnnouncements((previous) => (previous.length ? [] : previous));
       if (closing.size) setClosing(new Map());
     }
-  }, [queue, snapshot, suspended, closing]);
+  }, [queue, snapshot, suspended, closing, scoped]);
 
   return (
     <>
@@ -145,8 +158,12 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
           ))}
       </div>
       <div
-        ref={surface}
-        popover="manual"
+        ref={setSurface}
+        popover={scoped ? undefined : 'manual'}
+        hidden={scoped && (suspended || !(snapshot.visible.length || closing.size))}
+        data-tmt-ds-open={
+          scoped && (snapshot.visible.length || closing.size) && !suspended ? '' : undefined
+        }
         className="tmt-ui-notifications"
         onFocusCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) {

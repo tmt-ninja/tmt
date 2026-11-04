@@ -52,6 +52,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  DsScope,
   FloatingAction,
   FloatingActions,
   FloatingDock,
@@ -463,6 +464,19 @@ function RichInputDemo({ shape }: { shape: 'single' | 'multi' }) {
 }
 
 export const moreComponents: ComponentDoc[] = [
+  {
+    slug: 'ds-scope',
+    name: 'DsScope',
+    description:
+      'A sized stage that confines component layers, responsive layout and modal effects.',
+    preview: () => (
+      <DsScope style={{ width: '100%', height: 160 }}>
+        <Button>Scoped action</Button>
+      </DsScope>
+    ),
+    usage: `${importLine('ui', 'DsScope', 'Button')}<DsScope style={{ width: '100%', height: 320 }}><Button>Action</Button></DsScope>`,
+    variants: [],
+  },
   {
     slug: 'surface',
     name: 'Surface',

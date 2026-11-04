@@ -46,6 +46,7 @@ import {
   TooltipTrigger,
   UiTheme,
   useLayerController,
+  useDsScope,
   type SelectionOption,
 } from '../src/ui/index.js';
 import { FramePair, Section } from './kit.js';
@@ -105,6 +106,9 @@ function ComboboxDemo({ state }: { state: string }) {
 }
 
 function Demo({ kind, state }: { kind: string; state: string }) {
+  const scope = useDsScope();
+  const find = (id: string) =>
+    scope?.root ? scope.root.querySelector<HTMLElement>(`#${id}`) : document.getElementById(id);
   const open = state !== 'closed';
   const shown = useShownOpen(open);
   switch (kind) {
@@ -116,7 +120,7 @@ function Demo({ kind, state }: { kind: string; state: string }) {
               Open dialog
             </Button>
           </DialogTrigger>
-          <DialogContent initialFocus={() => document.getElementById('ui-dialog-project')}>
+          <DialogContent initialFocus={() => find('ui-dialog-project')}>
             <DialogHeader>
               <DialogTitle>Move to project</DialogTitle>
               <DialogDescription>Pick where this page lives.</DialogDescription>
@@ -143,10 +147,7 @@ function Demo({ kind, state }: { kind: string; state: string }) {
               Delete page
             </Button>
           </DialogTrigger>
-          <DialogContent
-            showCloseButton={false}
-            initialFocus={() => document.getElementById('ui-confirm-keep')}
-          >
+          <DialogContent showCloseButton={false} initialFocus={() => find('ui-confirm-keep')}>
             <DialogHeader>
               <DialogTitle>Delete this page?</DialogTitle>
               <DialogDescription>Its comments go with it. This cannot be undone.</DialogDescription>
@@ -177,7 +178,7 @@ function Demo({ kind, state }: { kind: string; state: string }) {
           </SheetTrigger>
           <SheetContent
             side={kind === 'sheet' ? 'right' : 'bottom'}
-            initialFocus={() => document.getElementById('ui-sheet-title')}
+            initialFocus={() => find('ui-sheet-title')}
           >
             <SheetHeader>
               <SheetTitle>Page settings</SheetTitle>

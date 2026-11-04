@@ -1,0 +1,164 @@
+/* A nested stage is its own containing block, query container and stacking context. The caller
+   supplies its dimensions; the product's top-level viewport does not need this wrapper. */
+[data-tmt-ds-scope] {
+  position: relative;
+  isolation: isolate;
+  contain: layout paint;
+  container-type: size;
+  container-name: tmt-ds-scope;
+  overflow: auto;
+}
+[data-tmt-ds-scope] > [data-tmt-ui-portal] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+[data-tmt-ds-scope] > [data-tmt-ui-portal] > * {
+  pointer-events: auto;
+}
+[data-tmt-ds-scope] .tmt-ui-dialog {
+  width: min(var(--tmt-ui-dialog-width), calc(100cqw - 2 * var(--tmt-ui-space-l)));
+  max-height: calc(100cqh - 2 * var(--tmt-ui-space-l));
+}
+[data-tmt-ds-scope] .tmt-ui-drawer {
+  inset: var(--tmt-ui-drawer-gutter) var(--tmt-ui-drawer-gutter) var(--tmt-ui-drawer-gutter) auto;
+  width: min(430px, calc(100cqw - 2 * var(--tmt-ui-drawer-gutter)));
+  height: calc(100cqh - 2 * var(--tmt-ui-drawer-gutter));
+}
+[data-tmt-ds-scope] .tmt-ui-drawer[data-width='wide'] {
+  width: min(680px, calc(100cqw - 2 * var(--tmt-ui-drawer-gutter)));
+}
+
+[data-tmt-ds-scope] .tmt-ui-scope-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--tmt-ui-surface-scrim);
+  backdrop-filter: blur(var(--tmt-ui-overlay-blur));
+}
+[data-tmt-ds-scope] :is(.tmt-ui-dialog, .tmt-ui-drawer) {
+  z-index: 2;
+}
+/* Keep a preview header's suffix on one line within its stage. */
+[data-tmt-ds-scope] .tmt-ui-heading-suffix {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+[data-tmt-ds-scope] .tmt-ui-shell {
+  min-height: 100cqh;
+}
+[data-tmt-ds-scope] .tmt-ui-rail {
+  height: 100cqh;
+}
+[data-tmt-ds-scope] :is(.tmt-ui-menu-surface, .tmt-ui-chips-surface) {
+  max-width: calc(100cqw - 16px);
+}
+[data-tmt-ds-scope] .tmt-ui-manage-dialog {
+  width: min(520px, calc(100cqw - 32px));
+  max-width: min(calc(var(--tmt-foundation-spacing-unit) * 128), calc(100cqw - 32px));
+}
+@container tmt-ds-scope (max-width: 900px) {
+  .tmt-ui-shell {
+    display: block;
+    --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
+    --tmt-ui-header-padding-inline: var(--tmt-ui-header-compact-padding-inline);
+  }
+  .tmt-ui-shell-content {
+    display: block;
+  }
+  .tmt-ui-topbar-title-prefix,
+  .tmt-ui-topbar-title-chips {
+    display: none;
+  }
+  .tmt-ui-topbar-title h1 {
+    flex: 1;
+  }
+  .tmt-ui-topbar {
+    padding-inline: var(--tmt-ui-header-compact-padding-inline);
+  }
+  .tmt-ui-shell-open {
+    position: fixed;
+    top: calc((var(--tmt-ui-header-height) - var(--tmt-ui-control-size)) / 2);
+    left: var(--tmt-ui-space-s);
+    z-index: 53;
+    display: flex;
+  }
+  .tmt-ui-topbar .tmt-ui-shell-open {
+    position: static;
+  }
+  .tmt-ui-shell-tools {
+    position: fixed;
+    top: 0;
+    right: 0;
+  }
+  .tmt-ui-rail,
+  .tmt-ui-module-menu {
+    display: none;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 52;
+    display: flex;
+    width: min(calc(var(--tmt-ui-rail-width) + var(--tmt-ui-space-2xl) * 2), 100cqw);
+    height: auto;
+    padding-top: var(--tmt-ui-header-compact-height);
+    box-shadow: var(--tmt-ui-shadow-overlay);
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-shell-brand {
+    display: none;
+  }
+  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-label {
+    visibility: visible;
+  }
+  .tmt-ui-topbar-navigation > .tmt-ui-icon-action {
+    display: inline-flex;
+  }
+}
+@container tmt-ds-scope (min-width: 901px) {
+  .tmt-ui-shell {
+    display: grid;
+    --tmt-ui-header-height: var(--tmt-ui-header-wide-height);
+    --tmt-ui-header-padding-inline: var(--tmt-ui-header-wide-padding-inline);
+  }
+  .tmt-ui-shell-content {
+    display: contents;
+  }
+  .tmt-ui-shell-open {
+    display: none;
+  }
+  .tmt-ui-rail {
+    display: flex;
+    position: sticky;
+    inset: auto;
+    top: 0;
+  }
+  .tmt-ui-shell-tools {
+    position: sticky;
+    right: auto;
+  }
+  .tmt-ui-topbar {
+    padding-inline: var(--tmt-ui-header-wide-padding-inline);
+  }
+  .tmt-ui-topbar-title h1 {
+    flex: 0 1 auto;
+  }
+  .tmt-ui-topbar-controls,
+  .tmt-ui-topbar-actions,
+  .tmt-ui-topbar-common {
+    gap: var(--tmt-ui-header-gap);
+  }
+  .tmt-ui-topbar-title-prefix {
+    display: inline;
+  }
+  .tmt-ui-topbar-title-chips {
+    display: flex;
+  }
+  .tmt-ui-topbar-navigation > .tmt-ui-icon-action {
+    display: none;
+  }
+  .tmt-ui-topbar-search kbd,
+  .tmt-ui-shell-tools kbd {
+    display: inline;
+  }
+}

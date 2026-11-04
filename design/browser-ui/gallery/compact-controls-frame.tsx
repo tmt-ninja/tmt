@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Plus, LoaderCircle } from 'lucide-react';
 import { BrowserAction, BrowserMenu, BrowserTabs } from '../src/react.js';
 import type { BrowserActionVariant } from '../src/static.js';
@@ -6,6 +6,8 @@ import { NativeMenu } from './menu-host-frame.js';
 
 /** Actual opt-in compact controls; this fixture owns only demonstration selection and busy state. */
 export function CompactControlsFrame({ params }: { params: URLSearchParams }) {
+  const unique = useId();
+  const prefix = params.get('scope') === 'true' ? `compact-${unique}` : 'compact';
   const presentation = params.get('presentation') === 'compact' ? 'compact' : undefined;
   const [selected, setSelected] = useState('all');
   const [sort, setSort] = useState('recent');
@@ -14,8 +16,8 @@ export function CompactControlsFrame({ params }: { params: URLSearchParams }) {
   const labels = ['All', 'Needs you', 'Discussion', 'In progress', 'Done', 'Archived'];
   const tabs = labels.map((label, index) => ({
     id: index === 0 ? 'all' : String(index),
-    tabId: `compact-tab-${index}`,
-    panelId: `compact-panel-${index}`,
+    tabId: `${prefix}-tab-${index}`,
+    panelId: `${prefix}-panel-${index}`,
     label,
     count: [6, 1, 3, 2, 1, 1][index],
   }));
@@ -25,7 +27,7 @@ export function CompactControlsFrame({ params }: { params: URLSearchParams }) {
   ];
   const value = sort === 'recent' ? 'Recently updated' : 'Title';
   return (
-    <main className="gallery-main gallery-stack" id="compact-controls">
+    <main className="gallery-main gallery-stack" id={`${prefix}-controls`}>
       <div className="gallery-row">
         <h1>Page-list controls</h1>
         <BrowserAction

@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import { lazy, type ComponentType } from 'react';
 import { ChartsSection } from '../gallery/charts.js';
 import {
   ActionsSection,
@@ -18,7 +18,15 @@ import {
 } from '../gallery/components.js';
 import { covered, type SectionId } from '../gallery/covered.js';
 import { EditorialSection } from '../gallery/editorial.js';
-import { NotificationsSection, OverlaysSection, ShellSection } from '../gallery/frames.js';
+const NotificationsSection = lazy(() =>
+  import('../gallery/frames.js').then((m) => ({ default: m.NotificationsSection })),
+);
+const OverlaysSection = lazy(() =>
+  import('../gallery/frames.js').then((m) => ({ default: m.OverlaysSection })),
+);
+const ShellSection = lazy(() =>
+  import('../gallery/frames.js').then((m) => ({ default: m.ShellSection })),
+);
 import {
   DisclosureSection,
   PageSectionsSection,

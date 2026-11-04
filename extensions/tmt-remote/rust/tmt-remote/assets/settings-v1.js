@@ -376,11 +376,11 @@ function outsideOverlay(node, x, y) {
 //#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
 var activeTooltips = /* @__PURE__ */ new WeakMap();
 /** Help has one ephemeral owner per document, independent of menu/dialog state. */
-function claimIconActionTooltip(document, dismiss) {
-	activeTooltips.get(document)?.();
-	activeTooltips.set(document, dismiss);
+function claimIconActionTooltip(owner, dismiss) {
+	activeTooltips.get(owner)?.();
+	activeTooltips.set(owner, dismiss);
 	return () => {
-		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
+		if (activeTooltips.get(owner) === dismiss) activeTooltips.delete(owner);
 	};
 }
 function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter, side) {
@@ -406,14 +406,17 @@ function placeIconActionTooltip(anchor, tooltip, side) {
 	const view = anchor.ownerDocument.defaultView;
 	if (!view) return () => {};
 	const viewport = view.visualViewport;
+	const scope = anchor.closest("[data-tmt-ds-scope]");
 	const place = () => {
 		const box = anchor.getBoundingClientRect();
 		if (!anchor.isConnected || !box.width || !box.height) {
 			if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+			if (scope) tooltip.hidden = true;
 			return;
 		}
 		const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
-		const bounds = {
+		const scopeBox = scope?.getBoundingClientRect();
+		const bounds = scopeBox ?? {
 			left: viewport?.offsetLeft ?? 0,
 			top: viewport?.offsetTop ?? 0,
 			width: viewport?.width ?? view.innerWidth,
@@ -422,14 +425,16 @@ function placeIconActionTooltip(anchor, tooltip, side) {
 		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
 		const tooltipBox = tooltip.getBoundingClientRect();
 		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter, side);
-		tooltip.style.left = `${next.left}px`;
-		tooltip.style.top = `${next.top}px`;
+		const containing = scope ? tooltip.offsetParent?.getBoundingClientRect() ?? scopeBox : void 0;
+		tooltip.style.left = `${next.left - (containing?.left ?? 0)}px`;
+		tooltip.style.top = `${next.top - (containing?.top ?? 0)}px`;
 		tooltip.style.maxHeight = `${next.maxHeight}px`;
 	};
 	place();
 	const observer = new ResizeObserver(place);
 	observer.observe(anchor);
 	observer.observe(tooltip);
+	if (scope) observer.observe(scope);
 	view.addEventListener("resize", place);
 	view.addEventListener("scroll", place, true);
 	viewport?.addEventListener("resize", place);
@@ -459,6 +464,12 @@ function guardEscapeFocus(document) {
 function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 	const document = button.ownerDocument;
 	const view = document.defaultView;
+	const scope = wrapper.closest("[data-tmt-ds-scope]");
+	if (scope) {
+		tooltip.removeAttribute("popover");
+		tooltip.hidden = true;
+	}
+	const isOpen = () => scope ? !tooltip.hidden : tooltip.matches(":popover-open");
 	let hovered = false;
 	let focused = false;
 	let dismissed = false;
@@ -474,14 +485,17 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 		release?.();
 		release = void 0;
 		document.removeEventListener("keydown", escape, true);
-		if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+		if (scope) {
+			tooltip.hidden = true;
+			tooltip.removeAttribute("data-tmt-ds-open");
+		} else if (tooltip.matches(":popover-open")) tooltip.hidePopover();
 	};
 	const dismiss = () => {
 		dismissed = true;
 		close();
 	};
 	const escape = (event) => {
-		if (event.key !== "Escape" || !tooltip.matches(":popover-open")) return;
+		if (event.key !== "Escape" || !isOpen() || scope && !scope.contains(event.target)) return;
 		dismiss();
 		guardEscapeFocus(document);
 	};
@@ -490,11 +504,14 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 			close();
 			return;
 		}
-		if (tooltip.matches(":popover-open")) return;
+		if (isOpen()) return;
 		const anchor = placement ? placement.anchor() : button;
 		if (!anchor?.isConnected) return;
-		release = claimIconActionTooltip(document, dismiss);
-		tooltip.showPopover();
+		release = claimIconActionTooltip(scope ?? document, dismiss);
+		if (scope) {
+			tooltip.hidden = false;
+			tooltip.setAttribute("data-tmt-ds-open", "");
+		} else tooltip.showPopover();
 		position = placeIconActionTooltip(anchor, tooltip, placement?.side);
 		document.addEventListener("keydown", escape, true);
 	};
@@ -584,9 +601,16 @@ function claimBrowserPopup(document, dismiss) {
 function placeBrowserPopup(anchor, surface, dismiss) {
 	const view = anchor.ownerDocument.defaultView;
 	const viewport = view.visualViewport;
+	const scope = anchor.closest?.("[data-tmt-ds-scope]");
 	const place = () => {
 		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
-		const bounds = {
+		const scopeBox = scope?.getBoundingClientRect();
+		const bounds = scope && scopeBox ? {
+			left: scopeBox.left + scope.clientLeft,
+			top: scopeBox.top + scope.clientTop,
+			width: scope.clientWidth,
+			height: scope.clientHeight
+		} : {
 			left: viewport?.offsetLeft ?? 0,
 			top: viewport?.offsetTop ?? 0,
 			width: viewport?.width ?? view.innerWidth,
@@ -596,8 +620,8 @@ function placeBrowserPopup(anchor, surface, dismiss) {
 		const box = surface.getBoundingClientRect();
 		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
 		Object.assign(surface.style, {
-			left: `${position.left}px`,
-			top: `${position.top}px`,
+			left: `${position.left - (scopeBox?.left ?? 0)}px`,
+			top: `${position.top - (scopeBox?.top ?? 0)}px`,
 			maxHeight: `${position.maxHeight}px`
 		});
 	};
@@ -612,6 +636,7 @@ function placeBrowserPopup(anchor, surface, dismiss) {
 	});
 	observer.observe(anchor);
 	observer.observe(surface);
+	if (scope) observer.observe(scope);
 	view.addEventListener("resize", place);
 	view.addEventListener("scroll", place, true);
 	viewport?.addEventListener("resize", place);
@@ -722,12 +747,18 @@ function createMenuController(options) {
 			return;
 		}
 		if (detach) return detach;
-		const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+		const scope = anchor.closest("[data-tmt-ds-scope]");
+		const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
+		const outside = (event) => {
+			if (event.target instanceof Node && !node.contains(event.target) && !anchor.contains(event.target)) close(false);
+		};
+		scope?.addEventListener("pointerdown", outside, true);
 		let position;
 		const cleanup = () => {
 			if (detach !== cleanup) return;
 			detach = void 0;
 			position?.();
+			scope?.removeEventListener("pointerdown", outside, true);
 			release();
 			if (node.open) node.close();
 			queueMicrotask(() => {
@@ -737,7 +768,8 @@ function createMenuController(options) {
 		};
 		detach = cleanup;
 		try {
-			node.showModal();
+			if (scope) node.show();
+			else node.showModal();
 			position = placeBrowserPopup(anchor, node, () => close(false));
 			if (!snapshot.open) return cleanup;
 			report(true);

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { XIcon } from 'lucide-react';
 import { assignRefs } from './utils.js';
+import { useDsScope } from './theme.js';
 import {
   Combobox,
   type ComboboxProps,
@@ -107,6 +108,7 @@ export function Chips({
   inputRef,
   ...props
 }: ChipsProps) {
+  const scope = useDsScope();
   const input = useRef<HTMLInputElement | null>(null);
   const controls = useRef(new Map<string, HTMLButtonElement>());
   const removalFocus = useRef<{ removed: string; after?: string; before?: string } | null>(null);
@@ -117,7 +119,8 @@ export function Chips({
     const field = input.current;
     const view = field?.ownerDocument.defaultView;
     const viewport = view?.visualViewport;
-    if (!field || !view || !viewport) return;
+    const stage = scope?.root;
+    if (!field || !view || (!stage && !viewport)) return;
     let pendingFrame: number | undefined;
     const queueReveal = () => {
       if (pendingFrame !== undefined) view.cancelAnimationFrame(pendingFrame);
@@ -125,21 +128,36 @@ export function Chips({
         pendingFrame = undefined;
         if (!field.isConnected || field.ownerDocument.activeElement !== field) return;
         const rect = field.getBoundingClientRect();
-        if (
-          rect.left < viewport.offsetLeft ||
-          rect.top < viewport.offsetTop ||
-          rect.right > viewport.offsetLeft + viewport.width ||
-          rect.bottom > viewport.offsetTop + viewport.height
+        if (stage) {
+          const bounds = stage.getBoundingClientRect();
+          const left =
+            rect.left < bounds.left
+              ? rect.left - bounds.left
+              : Math.max(0, rect.right - bounds.right);
+          const top =
+            rect.top < bounds.top
+              ? rect.top - bounds.top
+              : Math.max(0, rect.bottom - bounds.bottom);
+          if (left || top) stage.scrollBy({ left, top });
+        } else if (
+          viewport &&
+          (rect.left < viewport.offsetLeft ||
+            rect.top < viewport.offsetTop ||
+            rect.right > viewport.offsetLeft + viewport.width ||
+            rect.bottom > viewport.offsetTop + viewport.height)
         )
           field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       });
     };
-    viewport.addEventListener('resize', queueReveal);
+    const observer = stage ? new ResizeObserver(queueReveal) : undefined;
+    if (stage) observer?.observe(stage);
+    else viewport?.addEventListener('resize', queueReveal);
     return () => {
-      viewport.removeEventListener('resize', queueReveal);
+      observer?.disconnect();
+      if (!stage) viewport?.removeEventListener('resize', queueReveal);
       if (pendingFrame !== undefined) view.cancelAnimationFrame(pendingFrame);
     };
-  }, [open]);
+  }, [open, scope?.root]);
   useLayoutEffect(() => {
     const pending = removalFocus.current;
     if (!pending || items.some((item) => item.id === pending.removed)) return;

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { Suspense, useState, type ReactNode } from 'react';
 import { BrandMark } from '../src/brand-mark.js';
 import { UiTheme } from '../src/ui/index.js';
 import { browserDocs, browserExports, type BrowserDoc } from './browser-catalog.js';
@@ -364,7 +364,9 @@ function BrowserPage({ doc }: { doc: BrowserDoc }) {
       </p>
       <h2>Variants and states</h2>
       <div className="docs-browser-demo">
-        <doc.Demo />
+        <Suspense fallback={<p data-scene-loading="">Loading preview…</p>}>
+          <doc.Demo />
+        </Suspense>
       </div>
     </Article>
   );

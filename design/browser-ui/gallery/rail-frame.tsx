@@ -1,3 +1,4 @@
+import { useDsScope } from '../src/ui/theme.js';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BrowserShell, BrowserTopBar } from '../src/react.js';
 import {
@@ -23,11 +24,15 @@ function NativeRail({
   children: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const scope = useDsScope();
   const controls = useRef<ShellControls | null>(null);
   const latest = useRef(select);
   latest.current = select;
   useLayoutEffect(() => {
-    const shell = mountShell(root.current!, view, (id) => latest.current(id));
+    if (scope && (!scope.root || !scope.portal)) return;
+    const layerHost =
+      scope?.root && scope.portal ? { root: scope.root, portal: scope.portal } : undefined;
+    const shell = mountShell(root.current!, view, (id) => latest.current(id), layerHost);
     controls.current = shell;
     shell.setCommonControls(common);
     const heading = document.createElement('h1');
@@ -39,7 +44,7 @@ function NativeRail({
     };
     // Mount once; updates share the same native renderer as BrowserShell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scope?.root, scope?.portal]);
   useLayoutEffect(() => {
     controls.current?.update(view);
   }, [view]);

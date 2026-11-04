@@ -36,6 +36,16 @@ export async function buildPageUi() {
   );
   // The editorial layer (#5794) sets an author page's own text: its `.tmt-ui-prose` container is the
   // painted page's body, in the starter's layer, so the classes and an author's CSS both win over it.
+  const scopeMarker = '/* DS scope rules */';
+  const scopeIndex = staticCss.indexOf(scopeMarker);
+  if (scopeIndex < 0 || staticCss.indexOf(scopeMarker, scopeIndex + 1) >= 0)
+    throw new Error('static.css must contain exactly one DS scope marker');
+  const scopeEndMarker = '/* DS scope end */';
+  const scopeEnd = staticCss.indexOf(scopeEndMarker, scopeIndex + scopeMarker.length);
+  if (scopeEnd < 0 || staticCss.indexOf(scopeEndMarker, scopeEnd + 1) >= 0)
+    throw new Error('static.css must contain exactly one DS scope end marker');
+  const scopeCss = staticCss.slice(scopeIndex + scopeMarker.length, scopeEnd);
+  const partCss = staticCss.slice(0, scopeIndex) + staticCss.slice(scopeEnd + scopeEndMarker.length);
   const editorialCss = (
     await readFile(
       new URL('../../../design/browser-ui/generated/editorial.css', import.meta.url),
@@ -60,12 +70,12 @@ export async function buildPageUi() {
     if (css.split(block).length !== 2)
       throw new Error(`static.css must hold exactly one ${block.trim()} token block`);
     return css.replace(block, `\n[data-theme='${name}'],\n:root[data-colab-scheme='${name}'] {`);
-  }, staticCss);
+  }, partCss);
   // Quoted strings must survive the compaction untouched.
   const quoted = (css) => css.match(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g) ?? [];
   if (quoted(compactCss(schemed)).join('\n') !== quoted(schemed).join('\n'))
     throw new Error('Compacting static.css would change a quoted string');
-  const pageUiStyle = `@layer colab-frame,tmt-starter,theme,base,tmt-ui;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}`
+  const pageUiStyle = `@layer colab-frame,tmt-starter,theme,base,tmt-ui,tmt-ds-scope;${compactCss(baseCss)}@layer tmt-starter{${compactCss(editorialCss)}}@layer tmt-ui{${compactCss(schemed)}${compactCss(hostCss)}}@layer tmt-ds-scope{${compactCss(scopeCss)}}`
     // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
     .replaceAll("'", '"');
   if (Buffer.byteLength(pageUiStyle) > PAGE_UI_LIMIT)

@@ -225,8 +225,30 @@ test('the page check shows its findings on the page', async ({ page }) => {
   );
   frame = await mount(
     page,
-    `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Fine</tmt-ui-button>`,
+    `<meta name="tmt-ds" content="${pin}"><div data-tmt-ds-scope><tmt-ui-button>Fine</tmt-ui-button></div>`,
   );
   await expect(frame.getByRole('button', { name: 'Fine' })).toBeVisible();
   await expect(frame.getByRole('status', { name: 'Design system check' })).toHaveCount(0);
 });
+
+for (const [mode, reference] of [
+  ['locked release', pin],
+  ['live draft', 'tmt-gui'],
+] as const) {
+  test(`a ${mode} renders components in page flow and in a stage`, async ({ page }) => {
+    const frame = await mount(
+      page,
+      `<meta name="tmt-ds" content="${reference}">
+     <button id="outside">Outside</button>
+     <div data-tmt-ds-scope style="width:320px;height:180px"><tmt-ui-button>Inside</tmt-ui-button></div>
+     <tmt-ui-button>Unscoped</tmt-ui-button>`,
+    );
+    const scope = frame.locator('[data-tmt-ds-scope]');
+    await expect(scope.locator(':scope > [data-tmt-ui-portal]')).toHaveCount(1);
+    await expect(scope.getByRole('button', { name: 'Inside' })).toBeVisible();
+    await expect(frame.getByRole('button', { name: 'Unscoped' })).toBeVisible();
+    await expect(frame.locator('[data-tmt-ds-findings]')).toHaveCount(0);
+    await frame.locator('#outside').click();
+    await expect(frame.locator('#outside')).toBeFocused();
+  });
+}

@@ -1,3 +1,4 @@
+import { scopePortal, useDsScope } from './ui/scope.js';
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
 import { X, TriangleAlert } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
@@ -41,40 +42,62 @@ export function BrowserDialog({
   ...attributes
 }: BrowserDialogProps) {
   const label = useId();
-  const modal = useModalDialog({ open, onDismiss, initialFocus, focusFallback, restoreFocus });
+  const scope = useDsScope();
+  const { scoped, ...modal } = useModalDialog({
+    open,
+    onDismiss,
+    initialFocus,
+    focusFallback,
+    restoreFocus,
+    portal: scope?.portal,
+  });
   const present = usePresence(open, modal.ref);
   if (!present && !keepMounted) return null;
-  return (
-    <dialog
-      {...attributes}
-      {...modal}
-      className={`tmt-ui-dialog ${className}`}
-      data-size={size}
-      data-presentation={presentation}
-      data-state={open ? 'open' : 'closed'}
-      aria-labelledby={label}
-    >
-      <header className="tmt-ui-dialog-header">
-        {presentation === 'confirm' && (
-          <div className="tmt-ui-dialog-confirm-mark" aria-hidden="true">
-            <TriangleAlert />
-          </div>
-        )}
-        <h2 id={label}>{title}</h2>
-        <BrowserIconAction
-          type="button"
-          variant="text"
-          label={`Close ${title}`}
-          tooltipLabel={`Close ${title} · Esc`}
-          ariaKeyShortcuts="Escape"
-          icon={<X />}
-          onActivate={(event) => {
-            if (event.isTrusted) onDismiss('close', event);
+  if (scope && !scope.portal) return null;
+  const content = (
+    <>
+      {open && scoped && (
+        <div
+          className="tmt-ui-scope-scrim"
+          data-tmt-ds-scrim=""
+          onClick={(event) => {
+            event.stopPropagation();
+            if (event.isTrusted) onDismiss('backdrop', event);
           }}
         />
-      </header>
-      <div className="tmt-ui-dialog-body">{children}</div>
-      {actions !== undefined && <footer className="tmt-ui-dialog-actions">{actions}</footer>}
-    </dialog>
+      )}
+      <dialog
+        {...attributes}
+        {...modal}
+        className={`tmt-ui-dialog ${className}`}
+        data-size={size}
+        data-presentation={presentation}
+        data-state={open ? 'open' : 'closed'}
+        aria-labelledby={label}
+      >
+        <header className="tmt-ui-dialog-header">
+          {presentation === 'confirm' && (
+            <div className="tmt-ui-dialog-confirm-mark" aria-hidden="true">
+              <TriangleAlert />
+            </div>
+          )}
+          <h2 id={label}>{title}</h2>
+          <BrowserIconAction
+            type="button"
+            variant="text"
+            label={`Close ${title}`}
+            tooltipLabel={`Close ${title} · Esc`}
+            ariaKeyShortcuts="Escape"
+            icon={<X />}
+            onActivate={(event) => {
+              if (event.isTrusted) onDismiss('close', event);
+            }}
+          />
+        </header>
+        <div className="tmt-ui-dialog-body">{children}</div>
+        {actions !== undefined && <footer className="tmt-ui-dialog-actions">{actions}</footer>}
+      </dialog>
+    </>
   );
+  return scope?.portal ? scopePortal(content, scope.portal) : content;
 }

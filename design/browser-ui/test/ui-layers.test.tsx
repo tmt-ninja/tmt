@@ -16,9 +16,11 @@ const hooks = vi.hoisted(() => ({
   index: 0,
   refs: [] as { current: unknown }[],
   cleanups: [] as (() => void)[],
+  scope: undefined as { root: HTMLElement; portal: HTMLElement | null } | undefined,
 }));
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
+  useContext: () => hooks.scope,
   useRef: (value: unknown) => (hooks.refs[hooks.index++] ??= { current: value }),
   useCallback: (callback: unknown) => callback,
   useLayoutEffect: (effect: () => void | (() => void)) => {
@@ -30,6 +32,7 @@ afterEach(() => {
   hooks.cleanups.splice(0).forEach((cleanup) => cleanup());
   hooks.index = 0;
   hooks.refs = [];
+  hooks.scope = undefined;
   vi.unstubAllGlobals();
 });
 function rerender(options: LayerControllerOptions) {
@@ -57,6 +60,21 @@ describe('a leaving layer releases input', () => {
     expect(underChanged).toHaveBeenCalledTimes(1);
     expect(underChanged).toHaveBeenCalledWith(false);
     expect(leavingChanged).not.toHaveBeenCalled();
+  });
+  it('hands a leaving layer only to the open layer in its own scope', () => {
+    const first = { root: {} as HTMLElement, portal: null };
+    const second = { root: {} as HTMLElement, portal: null };
+    const firstChanged = vi.fn();
+    const secondChanged = vi.fn();
+    hooks.scope = first;
+    rerender({ open: true, onOpenChange: firstChanged });
+    hooks.scope = second;
+    another({ open: true, onOpenChange: secondChanged });
+    hooks.scope = first;
+    const leaving = another({ open: false, onOpenChange: vi.fn() });
+    admitLayerDismiss(cancelable('keydown'), leaving, 'escape');
+    expect(firstChanged).toHaveBeenCalledOnce();
+    expect(secondChanged).not.toHaveBeenCalled();
   });
   it('keeps an outside press from the layer under it', () => {
     const underChanged = vi.fn();
@@ -298,6 +316,43 @@ it('leaves pointer-opened menu return to Radix instead of focusing the body or f
 });
 
 describe('mounted surface viewport lifetime', () => {
+  it('measures a scoped surface against its containing stage and observes its size', () => {
+    let resized: (() => void) | undefined;
+    let disconnected = false;
+    const view = Object.assign(new EventTarget(), {
+      innerWidth: 1440,
+      innerHeight: 900,
+      getComputedStyle: () => ({ getPropertyValue: () => '4px' }),
+      ResizeObserver: class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe() {}
+        disconnect() {
+          disconnected = true;
+        }
+      },
+    });
+    const scope = { clientWidth: 400, clientHeight: 300 };
+    const node = {
+      ownerDocument: { defaultView: view },
+      closest: () => scope,
+    } as unknown as HTMLElement;
+    const update = vi.fn();
+    const cleanup = observeLayerViewport(node, update);
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      '--tmt-layer-left': '0px',
+      '--tmt-layer-top': '0px',
+      '--tmt-layer-width': '400px',
+      '--tmt-layer-height': '300px',
+      '--tmt-layer-available-width': '384px',
+    });
+    scope.clientWidth = 250;
+    resized?.();
+    expect(update.mock.lastCall?.[0]['--tmt-layer-width']).toBe('250px');
+    cleanup();
+    expect(disconnected).toBe(true);
+  });
   it('cleans up replay/unmount/repeated-open listeners and updates offset soft-keyboard bounds', () => {
     const viewport = Object.assign(new EventTarget(), {
       offsetLeft: 15,

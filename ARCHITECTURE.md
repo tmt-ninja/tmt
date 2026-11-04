@@ -583,7 +583,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `tmt colab serve` attaches to a running door, else starts a supervised one it alone stops.
   Colab reaches Remote only through its public CLI: no state files, no crate dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
-- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages built from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow a draft or lock a release; `tmt colab design` only reads.
+- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow drafts or lock releases; mockup stages render in a sized scope; `tmt colab design` only reads.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

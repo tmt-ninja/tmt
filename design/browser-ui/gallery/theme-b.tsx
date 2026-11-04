@@ -229,11 +229,18 @@ export function ThemeBFrame({ params }: { params: URLSearchParams }) {
             >
               {(tab) => <p>{tab.label}</p>}
             </BrowserTabs>
-            <BrowserField
-              controlId="theme-b-name"
-              label="Name"
-              renderControl={(props) => <input {...props} defaultValue="sample-lead" />}
-            />
+            <div
+              style={{
+                background: 'var(--tmt-ui-surface-sheet)',
+                padding: 'var(--tmt-ui-space-m)',
+              }}
+            >
+              <BrowserField
+                controlId="theme-b-name"
+                label="Name"
+                renderControl={(props) => <input {...props} defaultValue="sample-lead" />}
+              />
+            </div>
             <div className="theme-b-row">
               <BrowserAction type="button" variant="primary" label="Send" onActivate={() => {}} />
               <BrowserAction
