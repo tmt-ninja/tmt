@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ComponentType } from 'react';
+import { PatternFrame } from './patterns-more.js';
 
 type Scene = ComponentType<{ params: URLSearchParams }>;
 const scene = (load: () => Promise<{ default: Scene }>) => lazy(load);
@@ -38,7 +39,6 @@ const scenes: Record<string, ReturnType<typeof scene>> = {
   'ui-contrast': scene(() =>
     import('../gallery/ui-contrast-frame.js').then((m) => ({ default: m.UiContrastFrame })),
   ),
-  pattern: scene(() => import('./patterns-more.js').then((m) => ({ default: m.PatternFrame }))),
   tui: scene(() => import('./tui/frame-scene.js').then((m) => ({ default: m.TuiFramePreview }))),
   shell: scene(() => import('../gallery/frames.js').then((m) => ({ default: m.ShellFrame }))),
   hosted: scene(() => import('../gallery/frames.js').then((m) => ({ default: m.HostedFrame }))),
@@ -85,6 +85,8 @@ export function renderDocsPreview(path: string, params: URLSearchParams) {
   next.set('scope', 'true');
   if (next.get('frame') === 'ui-overlay') next.set('state', 'closed');
   const name = path.endsWith('/tui/frame.html') ? 'tui' : (next.get('frame') ?? '');
+  // Pattern definitions are already in the docs shell; do not suspend each of its 16 scenes.
+  if (name === 'pattern') return <PatternFrame params={next} />;
   const Preview = scenes[name];
   return Preview ? (
     <Suspense fallback={<p data-scene-loading="">Loading preview…</p>}>

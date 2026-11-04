@@ -127,6 +127,18 @@ for (const viewport of [390, 1440]) {
   });
 }
 
+test('dense pattern scenes become ready on a constrained CPU', async ({ page, context }) => {
+  test.setTimeout(120_000);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  await page.goto(`${docs}/ds/gui/patterns/dense-table`);
+  await expect(page.locator('[data-preview-frame]')).toHaveCount(16, { timeout: 90_000 });
+  await expect(page.locator('[data-scene-loading]')).toHaveCount(0);
+  await expect(page.locator('[data-preview-frame] .pattern-frame')).toHaveCount(16, {
+    timeout: 30_000,
+  });
+});
+
 test('an interactive pattern opens inside its scope without locking the docs', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${docs}/ds/gui/patterns/add-dialog`);
