@@ -3615,6 +3615,34 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
+  it('observes both browser jobs disk mounts without cleanup or trace changes (#4742)', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    for (const [name, playwright, results] of [
+      [
+        'colab-chrome',
+        'Run the cross-screen chrome spec without skips',
+        '"$RUNNER_TEMP/colab-chrome-results"',
+      ],
+      ['browser-ui', 'Run design gallery audits', '"design/browser-ui/test-results"'],
+    ]) {
+      const job = ci.split(`\n  ${name}:\n`)[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+      const baseline = job
+        .split('      - name: Record browser disk baseline\n')[1]
+        .split('      - name:')[0];
+      expect(baseline.trim()).toBe('run: df -h / /tmp /dev/shm "$RUNNER_TEMP"');
+      expect(job.indexOf('Record browser disk baseline')).toBeLessThan(job.indexOf(playwright));
+      const diagnostic = job
+        .split('      - name: Record browser disk usage after failure\n')[1]
+        .split('      - name:')[0];
+      expect(diagnostic).toContain('if: failure()');
+      expect(diagnostic).toContain('df -h / /tmp /dev/shm "$RUNNER_TEMP"');
+      expect(diagnostic).toContain('timeout 30s du -sh "$RUNNER_TEMP" /tmp /dev/shm');
+      expect(diagnostic).toContain(results);
+      expect(diagnostic).toContain('"$PLAYWRIGHT_BROWSERS_PATH"');
+      expect(baseline + diagnostic).not.toMatch(/rm |sudo|playwright/);
+    }
+  });
+
   // #5743: hosted blob storage failed every internal retry of an artifact download in a
   // merge group and a release, while other jobs downloaded the same artifact minutes later.
   it('retries each CI and release-manifest artifact download once, then fails closed', () => {
@@ -4873,7 +4901,7 @@ describe('browser UI gallery gate', () => {
     expect(browser).not.toContain('continue-on-error');
     const browserSteps = browser.slice(
       browser.indexOf('      - name: Point Playwright'),
-      browser.indexOf('      - name: Run design gallery audits')
+      browser.indexOf('      # #4742: identify the mount')
     );
     // The only package-specific directory/filter substitutions are outside the installer logic.
     expect(

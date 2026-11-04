@@ -289,6 +289,9 @@ jobs:
           executable="$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "socket" and .executable != null) | .executable' "$RUNNER_TEMP/chrome-fixture-build.json")"
           test -x "$executable"
           echo "executable=$executable" >> "$GITHUB_OUTPUT"
+      # #4742: identify the mount before changing disk or trace policy.
+      - name: Record browser disk baseline
+        run: df -h / /tmp /dev/shm "$RUNNER_TEMP"
       - name: Run the cross-screen chrome spec without skips
         env:
           COLAB_CHROME_REQUIRED: '1'
@@ -304,6 +307,11 @@ jobs:
             pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --list --reporter=json
           pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-chrome-results/traces"
           node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-chrome-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+      - name: Record browser disk usage after failure
+        if: failure()
+        run: |
+          df -h / /tmp /dev/shm "$RUNNER_TEMP"
+          timeout 30s du -sh "$RUNNER_TEMP" /tmp /dev/shm "$RUNNER_TEMP/colab-chrome-results" "extensions/tmt-colab/typescript/app/test-results" "$PLAYWRIGHT_BROWSERS_PATH"
       # Fixture data only (synthetic pages, no account or device state); traces are kept for seven days.
       - name: Upload failure traces
         if: failure()
@@ -362,6 +370,9 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: ${{ steps.browsers.outputs.cache-primary-key }}
+      # #4742: identify the mount before changing disk or trace policy.
+      - name: Record browser disk baseline
+        run: df -h / /tmp /dev/shm "$RUNNER_TEMP"
       - name: Run design gallery audits
         if: matrix.suite == 'gallery'
         working-directory: typescript
@@ -372,6 +383,11 @@ jobs:
         env:
           TUI_DOCS_TEST_RESULTS: ${{ github.workspace }}/design/browser-ui/test-results/tui-docs
         run: pnpm --filter @tmt/browser-ui --fail-if-no-match test:tui-docs
+      - name: Record browser disk usage after failure
+        if: failure()
+        run: |
+          df -h / /tmp /dev/shm "$RUNNER_TEMP"
+          timeout 30s du -sh "$RUNNER_TEMP" /tmp /dev/shm "design/browser-ui/test-results" "$PLAYWRIGHT_BROWSERS_PATH"
       # Only this synthetic gallery's failure traces; no product, account or host state.
       - name: Upload gallery failure traces
         if: failure()
