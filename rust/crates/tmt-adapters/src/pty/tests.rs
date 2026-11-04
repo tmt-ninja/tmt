@@ -1192,14 +1192,21 @@ fn stop_launcher_group(member: &Member) {
     nix::sys::signal::killpg(Pid::from_raw(member.pid as i32), Signal::SIGSTOP).unwrap();
 }
 
-const ECHO_LOOP: &str =
-    r#"printf 'echo-ready\r\n'; while IFS= read -r line; do printf 'got:%s\r\n' "$line"; done"#;
+/// Echoes each line back. It prints nothing first: output written before a test
+/// client attaches is not replayed, so tests type a line and wait for its echo.
+const ECHO_LOOP: &str = r#"while IFS= read -r line; do printf 'got:%s\r\n' "$line"; done"#;
+
+/// Waits until the member reads input, by typing a line and seeing it echoed.
+fn ready(client: &mut Connection) {
+    client.input(b"ready\r").unwrap();
+    collect(client, says("got:ready"));
+}
 
 #[test]
 fn a_job_control_stop_is_reported_until_the_member_continues() {
     let member = Member::start(&["sh", "-c", ECHO_LOOP]);
     let mut client = member.connect();
-    collect(&mut client, says("echo-ready"));
+    ready(&mut client);
     assert!(!paused(&member), "a running member is not paused");
     stop_launcher_group(&member);
     wait_paused(&member, true);
@@ -1218,7 +1225,7 @@ fn resume_continues_a_paused_member_and_repeating_it_changes_nothing() {
     use tmt_pty_protocol::ControlReply;
     let member = Member::start(&["sh", "-c", ECHO_LOOP]);
     let mut client = member.connect();
-    collect(&mut client, says("echo-ready"));
+    ready(&mut client);
     // Resuming a member that is not paused is applied and leaves it running.
     assert_eq!(resume(&member), ControlReply::Applied(true));
     stop_launcher_group(&member);
@@ -1241,7 +1248,7 @@ fn resume_continues_a_paused_member_and_repeating_it_changes_nothing() {
 fn a_member_that_ends_while_paused_still_reports_its_exit() {
     let member = Member::start(&["sh", "-c", ECHO_LOOP]);
     let mut client = member.connect();
-    collect(&mut client, says("echo-ready"));
+    ready(&mut client);
     stop_launcher_group(&member);
     wait_paused(&member, true);
     kill(Pid::from_raw(member.pid as i32), Signal::SIGKILL).unwrap();
@@ -1258,7 +1265,7 @@ fn a_stopped_foreground_group_of_its_own_is_paused_while_the_launcher_runs() {
     use tmt_pty_protocol::ControlReply;
     let member = Member::start(&["perl", "-MPOSIX", "-e", OWN_GROUP_LAUNCHER, ECHO_LOOP]);
     let mut client = member.connect();
-    collect(&mut client, says("echo-ready"));
+    ready(&mut client);
     assert!(!paused(&member));
     // Ctrl-Z as a person types it: the terminal signals its foreground group.
     client.input(&[0x1a]).unwrap();
