@@ -236,7 +236,9 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         _ => Some(Some(claude())),
     };
     let mut app = composer(held);
-    app.view.as_mut().unwrap().look = look;
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    view.home.as_mut().unwrap().workspace.squad_looks.clear();
     app.paste(match scene {
         "skills-filtered" => "/colab",
         "skills-project" => "/dev",
