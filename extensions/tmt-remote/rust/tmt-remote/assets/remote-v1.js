@@ -7104,14 +7104,16 @@ function htmlEl(name, className, text) {
 function paintAtWidth(host, initial, paint) {
 	let current = initial;
 	paint(current);
-	if (typeof ResizeObserver === "undefined") return;
-	new ResizeObserver(() => {
+	if (typeof ResizeObserver === "undefined") return () => {};
+	const observer = new ResizeObserver(() => {
 		const width = Math.floor(host.getBoundingClientRect().width);
 		if (width >= 120 && Math.abs(width - current) >= 8) {
 			current = width;
 			paint(width);
 		}
-	}).observe(host);
+	});
+	observer.observe(host);
+	return () => observer.disconnect();
 }
 /** A table for assistive technology and copy-paste, in a visually hidden `tmt-ui-chart-data` box. */
 function dataTable(caption, columns, rows) {
@@ -7278,7 +7280,7 @@ function seriesModel(options, width) {
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-series.ts
 /** A time-series chart: stacked areas, a 100 % share, columns or lines on one axis. */
-function createSeriesChart(options) {
+function createSeriesChart(options, onDispose) {
 	const figure = htmlEl("figure", "tmt-ui-chart");
 	figure.setAttribute("role", "group");
 	figure.setAttribute("aria-label", options.title);
@@ -7422,7 +7424,8 @@ function createSeriesChart(options) {
 	plot.addEventListener("blur", hideTip);
 	frame.append(plot, tip);
 	figure.append(frame, readout, legend, dataTable(options.title, first.table.columns, first.table.rows));
-	paintAtWidth(figure, 640, paint);
+	const dispose = paintAtWidth(figure, 640, paint);
+	onDispose?.(dispose);
 	return figure;
 }
 //#endregion
