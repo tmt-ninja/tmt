@@ -29,14 +29,30 @@
 //    (realpath) to `<worktree>/scripts/ci-wake.sh`, run directly or by
 //    `sh`/`bash`, with any plain arguments, an optional leading `nohup`,
 //    trailing redirections and a trailing `&`. A copy elsewhere, or anything
-//    chained or wrapped around it, is judged. The host-health gate is a `skip`
-//    (reason `host-health`) on the same terms, with exactly `--gate` and nothing
-//    else: tmt-infra-lead's `host-health.sh` takes both readings itself. It lives
-//    in that seat's notes directory, outside the repository, so the skip also
-//    pins its content: only while its sha256 is HOST_HEALTH_SHA256, checked on
-//    every call; any other content is judged. Changing that script needs a
-//    guard update.
-// 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
+//    chained or wrapped around it, is judged; a `;`/`&&` chain that ends with
+//    it is judged without that last segment (see 5). tmt-infra-lead's
+//    host-health gate is a `skip` (reason `host-health`) on the same terms, with
+//    exactly `--gate` and nothing else: its one ~60 s call takes both readings and
+//    is a sanctioned wait. The pin is its content, not its path: any script whose
+//    sha256 is HOST_HEALTH_SHA256, wherever it lives; any other content is judged.
+//    Changing that script needs a guard update.
+//    Running a known test runner once is a `skip` (reason `test`): one simple
+//    command, after optional plain `NAME=value` words and `corepack`, that is
+//    `cargo test`, `cargo nextest`, `node --test`, `vp test`, or `pnpm`/`npm`/
+//    `npx` (with options, then optional `exec` or `run`) running `test`,
+//    `vitest`, `vp test` or `playwright test`, with no `sleep` word and no
+//    `--watch`, `-w` or `--ui` flag. A test that waits briefly for its own
+//    fixture is not the agent waiting; anything chained, looped or wrapped
+//    around the runner is judged, and test files are never sent. `npm|pnpm
+//    [run] test` runs whatever the package's `test` script is, so this skip
+//    trusts the repository's reviewed package.json scripts in the call's
+//    worktree, and nothing outside it.
+// 5. A `;` or `&&` chain whose last segment starts this repository's ci-wake.sh
+//    (the check above) is judged without that segment, and the judge is told the
+//    call then starts it; only scripts the rest runs are read. Nothing left is a
+//    `skip` (reason `ci-wake`). A ci-wake.sh that is not last, or any chain with
+//    a loop keyword or parentheses, is judged whole.
+// 6. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
 //    missing key allows (fail open), logged with that reason. Until ENFORCE is
@@ -117,15 +133,7 @@ const BUDGET_USD_PER_MONTH = 200;
 const JUDGE_URL = 'https://api.anthropic.com/v1/messages';
 const KEYCHAIN_ITEM = 'tmt-codex-hook-anthropic';
 const CACHE_PREFIX = 'tmt-codex-wait-guard-';
-/** tmt-infra-lead's host-health gate, by its notes directory under the home directory. */
-const HOST_HEALTH = [
-  '.config',
-  'tmt',
-  'notes',
-  'ada473fa-8c4d-4b12-9686-b44a77791a4b',
-  'host-health.sh',
-];
-/** The reviewed content of that script; any other content is judged (#6003). */
+/** The reviewed content of tmt-infra-lead's host-health gate, at any path; any other content is judged (#6003). */
 const HOST_HEALTH_SHA256 = 'c46ddc1a37174c254f07e28e0f5a31affb399d7720fd1692d62c6f59aec5e909';
 
 /** The judge endpoint. The test override is honored only on loopback, since the key goes with it. */
@@ -266,6 +274,42 @@ export function allowlisted(tool, command) {
   return program === 'sed' && first === '-n';
 }
 
+/** Package-manager options that take the next word as their value. */
+const PACKAGE_VALUE_OPTIONS = new Set(['-C', '--dir', '--filter', '-F', '--prefix', '--workspace']);
+/** Flags that keep a runner watching instead of running once. */
+const WATCH_FLAGS = /^(?:--watch|-w|--ui)(?:=|$)/;
+
+/** Whether `words` start a test run: `test`, `vitest`, `vp test` or `playwright test`. */
+function testSubject(words) {
+  const [subject, next] = words;
+  if (subject === 'test' || subject === 'vitest') return true;
+  return (subject === 'vp' || subject === 'playwright') && next === 'test';
+}
+
+/**
+ * Whether the command runs a known test runner once (#6003): one simple command, no `sleep`,
+ * no watch flag. Its own fixtures may wait briefly; the agent does not.
+ */
+export function runsTests(command) {
+  const { words, simple } = shellWords(command);
+  if (!simple || words.some((word) => word === 'sleep' || WATCH_FLAGS.test(word))) return false;
+  let at = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at] ?? '')) at += 1;
+  if (words[at] === 'corepack') at += 1;
+  const [program, ...rest] = words.slice(at);
+  if (program === 'cargo') {
+    const sub = rest.find((word) => !word.startsWith('+') && !word.startsWith('-'));
+    return sub === 'test' || sub === 'nextest';
+  }
+  if (program === 'node') return rest.includes('--test');
+  if (program === 'vp') return rest[0] === 'test';
+  if (!['pnpm', 'npm', 'npx'].includes(program)) return false;
+  let next = 0;
+  while (rest[next]?.startsWith('-')) next += PACKAGE_VALUE_OPTIONS.has(rest[next]) ? 2 : 1;
+  if (rest[next] === 'exec' || rest[next] === 'run') next += 1;
+  return testSubject(rest.slice(next));
+}
+
 /** A trailing `&`, and redirections such as `> log 2>&1` or `< /dev/null`, at the end of a command. */
 const TRAILING_REDIRECT =
   /\s+(?:\d*>&\d+|(?:\d*>>?|&>|<)\s*(?:'[^']*'|"[^"]*"|[^\s;&|<>()`$\\'"]+))$/;
@@ -281,21 +325,52 @@ export function startsCiWake(cwd, command) {
 }
 
 /**
- * Whether the command only runs tmt-infra-lead's host-health gate with `--gate`, while that
- * script's content is the reviewed one. Arguments, chaining or other content are judged.
+ * Whether the command only runs tmt-infra-lead's host-health gate with `--gate`: a script, at
+ * any path, whose content is the reviewed one. Arguments, chaining or other content are judged.
  */
 export function runsHostHealthGate(cwd, command) {
   const started = startedScript(cwd, command);
   if (!started || started.args.length !== 1 || started.args[0] !== '--gate') return false;
   try {
-    const gate = realpathSync(path.join(os.homedir(), ...HOST_HEALTH));
     return (
-      started.file === gate &&
-      createHash('sha256').update(readFileSync(gate)).digest('hex') === HOST_HEALTH_SHA256
+      createHash('sha256').update(readFileSync(started.file)).digest('hex') === HOST_HEALTH_SHA256
     );
   } catch {
     return false;
   }
+}
+
+const LOOP_WORDS = new Set(['while', 'until', 'for', 'do', 'done', 'select']);
+
+/**
+ * The command before a last `;` or `&&` segment that starts this repository's ci-wake.sh (empty
+ * when nothing comes before it), or null: when there is no such segment, or the chain has
+ * parentheses or a loop keyword.
+ */
+export function beforeCiWake(cwd, command) {
+  let quote = null;
+  let cut = null;
+  for (let at = 0; at < command.length; at += 1) {
+    const ch = command[at];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else if (ch === '\\' && quote === '"') at += 1;
+    } else if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '\\') at += 1;
+    else if (ch === '(' || ch === ')') return null;
+    else if (ch === ';' || ch === '\n') cut = { end: at, start: at + 1 };
+    else if (ch === '&' && command[at + 1] === '&') {
+      cut = { end: at, start: at + 2 };
+      at += 1;
+    }
+  }
+  if (quote || !cut) return null;
+  const rest = command.slice(0, cut.end).trim();
+  if (!startsCiWake(cwd, command.slice(cut.start))) return null;
+  if (shellWords(rest.replace(/;|&&|\|\|?/g, ' ')).words.some((word) => LOOP_WORDS.has(word))) {
+    return null;
+  }
+  return rest;
 }
 
 /**
@@ -695,17 +770,23 @@ async function main() {
     return finish({ verdict: 'deny', enforced: true, reason: 'key cache' });
   }
   if (allowlisted(tool, command)) return finish({ verdict: 'skip' });
+  if (tool === 'Bash' && runsTests(command)) return finish({ verdict: 'skip', reason: 'test' });
   if (tool === 'Bash' && startsCiWake(payload.cwd, command)) {
     return finish({ verdict: 'skip', reason: 'ci-wake' });
   }
   if (tool === 'Bash' && runsHostHealthGate(payload.cwd, command)) {
     return finish({ verdict: 'skip', reason: 'host-health' });
   }
+  // The allowed waiter at the end of a chain is not judged with the rest (#6003).
+  const before = tool === 'Bash' ? beforeCiWake(payload.cwd, command) : null;
+  if (before === '') return finish({ verdict: 'skip', reason: 'ci-wake' });
   const seat = whoami();
   const started = Date.now();
-  const content = { tool, input: redact(command).slice(0, INPUT_CHARS) };
-  if (scripts.length > 0) {
-    content.scripts = scripts.map((script) => ({
+  const content = { tool, input: redact(before ?? command).slice(0, INPUT_CHARS) };
+  if (before !== null) content.next = 'the call then starts scripts/ci-wake.sh, which is allowed';
+  const judged = before === null ? scripts : readScripts(payload.cwd, before);
+  if (judged.length > 0) {
+    content.scripts = judged.map((script) => ({
       path: script.path,
       content: redact(script.content),
     }));
