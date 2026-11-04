@@ -542,15 +542,16 @@ mod header {
         app.conversation_checklist_key()
             .expect("a squad member has a conversation")
     }
+    /// Wide enough for the Checklist chip beside the member state (#5992).
     fn screen(app: &App) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, app))
             .unwrap();
         let buffer = terminal.backend().buffer();
         (0..40)
             .map(|y| {
-                (0..120)
+                (0..160)
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>()
             })
@@ -562,6 +563,41 @@ mod header {
         let now = Instant::now();
         let task = app.notes.offer(Some(key), now).expect("a read is wanted");
         app.notes.finished(reading(&task, result), now);
+    }
+
+    #[test]
+    fn the_state_outranks_the_checklist_chip_on_a_narrow_talk_row() {
+        let mut app = board();
+        let key = select_member(&mut app);
+        answer(&mut app, &key, Ok(Counts { links: 0, todo: 12 }));
+        let (mut whole, mut counted_out, mut dropped) = (false, false, false);
+        for width in (80..=200).step_by(2) {
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let row = (0..40)
+                .map(|y| {
+                    (0..width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .find(|line| line.contains("Talk") && line.contains("Measure"))
+                .expect("the Talk/Measure row");
+            assert!(row.contains("working"), "{width}: the state is cut\n{row}");
+            // The chip gives up its count before itself.
+            let chip = row.contains("Checklist 12");
+            let bare = row.contains("Checklist ──");
+            assert!(chip || bare || !row.contains("Checklist"), "{width}: {row}");
+            whole |= chip;
+            counted_out |= bare;
+            dropped |= !row.contains("Checklist");
+        }
+        assert!(
+            whole && counted_out && dropped,
+            "wide rows keep the chip, narrower ones its word, the narrowest none"
+        );
     }
 
     #[test]

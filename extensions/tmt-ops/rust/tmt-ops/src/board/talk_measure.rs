@@ -17,6 +17,9 @@ use unicode_width::UnicodeWidthStr;
 /// The dash and space before the control.
 const LEAD: u16 = 2;
 
+/// The least room the rule keeps after the control for a short title.
+const MIN_TITLE: usize = 14;
+
 const OPTIONS: [(&str, &str, RightTab); 2] = [
     ("talk", "Talk", RightTab::Talk),
     ("measure", "Measure", RightTab::Measure),
@@ -24,12 +27,15 @@ const OPTIONS: [(&str, &str, RightTab); 2] = [
 
 /// Paints the control on `rule` and returns what is left of the rule for its own title.
 /// Narrow rules keep the whole title and show no control. A squad member's `target` adds its
-/// Checklist chip after the tabs (#5992) when the rule has room for it too.
+/// Checklist chip after the tabs (#5992) only while `keep` columns, what the rule's own title and
+/// state need, stay free: the state outranks the chip, which loses its count and then itself first.
+/// A state that would not fit even without the chip does not hold the chip back.
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     app: &App,
     rule: Rect,
     target: Option<&OpsTarget>,
+    keep: usize,
 ) -> Rect {
     let look = app.look();
     let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "M");
@@ -45,7 +51,7 @@ pub(in crate::board) fn paint(
     let width = (cap_width + chips) as u16;
     // The control leads the rule, right after the divider: `┬─ M  Talk  Measure ── worker ──`.
     // Keep room for a short title after it.
-    if rule.height == 0 || rule.width < width + LEAD + 14 {
+    if rule.height == 0 || rule.width < width + LEAD + MIN_TITLE as u16 {
         return rule;
     }
     strip::paint_left(
@@ -83,6 +89,7 @@ pub(in crate::board) fn paint(
     let mut used = LEAD + width;
     if let Some(target) = target
         && let Some(width) = checklist(
+            keep,
             buffer,
             app,
             Rect::new(rule.x + used, rule.y, rule.width - used, 1),
@@ -97,23 +104,33 @@ pub(in crate::board) fn paint(
 /// ` C  Checklist 2 ` after the tabs: the keycap of the action that opens the list, then the
 /// count. Returns the width it took, or nothing when `target` has no list or `rest` keeps too
 /// little room for the title.
-fn checklist(buffer: &mut Buffer, app: &App, rest: Rect, target: &OpsTarget) -> Option<u16> {
+fn checklist(
+    keep: usize,
+    buffer: &mut Buffer,
+    app: &App,
+    rest: Rect,
+    target: &OpsTarget,
+) -> Option<u16> {
     let key = conversation_checklist::Key::of(target)?;
     let look = app.look();
     let action = crate::action::OpsUiAction::MemberNotes;
     let cap = keycap::key(app, action, "C").map(|key| keycap::control_span(app, &key, action));
-    let text = format!(
-        " {} ",
-        conversation_checklist::chip(app.notes.summary(&key))
-    );
-    let mut spans = vec![Span::raw(" ")];
-    spans.extend(cap);
-    spans.push(Span::styled(text, look.role(Role::Muted)));
-    let line = Line::from(spans);
+    // A state too wide for the rule even without the chip is not shown either way.
+    let keep = if usize::from(rest.width) >= keep {
+        keep
+    } else {
+        0
+    };
+    let room = usize::from(rest.width).saturating_sub(keep.max(MIN_TITLE));
+    let full = conversation_checklist::chip(app.notes.summary(&key));
+    let line = [full.as_str(), "Checklist"].into_iter().find_map(|text| {
+        let mut spans = vec![Span::raw(" ")];
+        spans.extend(cap.clone());
+        spans.push(Span::styled(format!(" {text} "), look.role(Role::Muted)));
+        let line = Line::from(spans);
+        (line.width() <= room).then_some(line)
+    })?;
     let width = line.width() as u16;
-    if rest.width < width + 14 {
-        return None;
-    }
     let area = Rect::new(rest.x, rest.y, width, 1);
     strip::paint_left(buffer, area, line);
     // The chip opens the list where it is drawn, for the member that is selected.

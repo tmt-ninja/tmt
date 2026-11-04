@@ -38,7 +38,7 @@ fn rule(frame: &mut Frame, app: &App, area: Rect, y: &mut u16, title: &str, note
         // The pane's top rule carries the Talk/Measure control.
         let line = Rect::new(area.x, *y, area.width, 1);
         let line = if *y == area.y {
-            crate::board::talk_measure::paint(frame.buffer_mut(), app, line, None)
+            crate::board::talk_measure::paint(frame.buffer_mut(), app, line, None, 0)
         } else {
             line
         };
@@ -216,6 +216,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ..area
         },
         Some(selected),
+        section_rule::needed(title, note.width()),
     );
     if matches!(selected, OpsTarget::Member { .. })
         && let Some(area) = section_rule::note_area(title, note.width(), title_rule)
