@@ -277,8 +277,7 @@ impl App {
                 snapshot.preferences.savings_unit
             })
     }
-    /// One click or key on any savings figure moves every surface to the next
-    /// unit; the choice is the shared preference, never a view-local state.
+    /// Digest toggles its own totals; other surfaces update the shared preference.
     pub(in crate::board) fn cycle_savings_unit(&mut self) -> Effect {
         if self.shell.tab == OpsTab::Digest {
             self.digest_cost = !self.digest_cost;

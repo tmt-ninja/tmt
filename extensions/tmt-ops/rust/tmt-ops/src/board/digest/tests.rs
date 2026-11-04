@@ -641,7 +641,22 @@ fn digest_redesign_inline_interval_and_caps_use_public_dropdown_writers() {
     paint_inline(&mut app, 50);
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     assert_eq!(app.menu.as_ref().unwrap().title, "Interval");
-    highlight(&mut app, "Every 5m");
+    assert_eq!(
+        menu_labels(&app),
+        [
+            "Default (Auto)  (current)",
+            "Auto",
+            "1m",
+            "5m",
+            "10m",
+            "30m",
+            "1h",
+            "20s (custom)",
+            "Off",
+            "Custom…"
+        ]
+    );
+    highlight(&mut app, "5m");
     let set = digest_request(press(&mut app, KeyCode::Enter));
     assert!(set.argv.iter().any(|arg| arg == "5m"));
     for (field, label, flag, value) in [
@@ -659,6 +674,60 @@ fn digest_redesign_inline_interval_and_caps_use_public_dropdown_writers() {
         let set = digest_request(press(&mut app, KeyCode::Enter));
         assert!(set.argv.windows(2).any(|args| args == [flag, value]));
     }
+}
+
+#[test]
+fn digest_inline_custom_choice_uses_the_granted_writer() {
+    let mut app = inline_board();
+    press(&mut app, KeyCode::Right);
+    paint_inline(&mut app, 50);
+    press(&mut app, KeyCode::Enter);
+    highlight(&mut app, "Custom…");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.input.is_some());
+    type_in(&mut app, "20s");
+    let set = digest_request(press(&mut app, KeyCode::Enter));
+    assert!(set.argv.iter().any(|arg| arg == "20s"));
+}
+
+#[test]
+fn digest_inline_freezes_the_requested_row_not_the_selected_member() {
+    let mut app = app();
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    const OTHER: &str = "66666666-6666-4666-8666-666666666666";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut other = workspace.roster.members[MEMBER].clone();
+    other.id = OTHER.into();
+    other.name = "other".into();
+    workspace.roster.members.insert(OTHER.into(), other);
+    workspace.roster.squads[0].members.push(OTHER.into());
+    let target = OpsTarget::Member {
+        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        identity_id: OTHER.into(),
+    };
+    workspace
+        .rows
+        .insert(target.clone(), json!({"id": OTHER, "name": "other"}));
+    app.labels = Supplied::from_rows(vec![(
+        "digest".into(),
+        [(OTHER.into(), vec![label("Auto", Some(choose("default")))])].into(),
+    )]);
+    app.selected = app
+        .workspace_rows()
+        .iter()
+        .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+        .unwrap();
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    assert_ne!(index, app.selected);
+    let Effect::Act(Request::DigestOpen(ask)) = app.digest_row(index) else {
+        panic!("access request expected")
+    };
+    assert_eq!(ask.member, "other");
+    assert_eq!(app.digest_inline.as_ref().unwrap().target, target);
 }
 #[test]
 fn digest_redesign_short_inline_form_cannot_submit_and_late_grants_stay_closed() {

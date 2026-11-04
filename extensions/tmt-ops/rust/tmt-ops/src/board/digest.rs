@@ -115,6 +115,37 @@ pub fn apply(core: &Core, set: Set) -> Result<String, String> {
 /// One unsent edit, frozen to the row whose access the lane checked.
 type ModeOffer = (String, String, Option<(u64, u64)>);
 
+fn choice_entries(granted: &Granted) -> (Vec<MenuEntry>, usize) {
+    let choose = &granted.ask.choose;
+    let mut entries: Vec<_> = choose
+        .options
+        .iter()
+        .filter_map(|offer| {
+            let current = if offer.value == choose.current {
+                "  (current)"
+            } else {
+                ""
+            };
+            Some(MenuEntry {
+                key: String::new(),
+                label: format!("{}{current}", sanitize(&offer.label)),
+                choice: Choice::Digest(granted.set(&offer.value, &offer.label)?),
+            })
+        })
+        .collect();
+    let selected = choose
+        .options
+        .iter()
+        .position(|offer| offer.value == choose.current)
+        .unwrap_or_default();
+    entries.push(MenuEntry {
+        key: String::new(),
+        label: "Custom…".into(),
+        choice: Choice::DigestCustom(Box::new(granted.clone())),
+    });
+    (entries, selected)
+}
+
 #[derive(Clone)]
 pub(in crate::board) struct Inline {
     pub target: OpsTarget,
@@ -169,7 +200,7 @@ impl App {
     /// lane, whether the person at the board may; the dropdown opens once it says so.
     pub(super) fn digest_row(&mut self, index: usize) -> Effect {
         if self.shell.tab == super::shell::OpsTab::Digest {
-            let Some(target) = self.workspace.selected.clone() else {
+            let Some(RowTarget::Workspace(target)) = self.row_target(index) else {
                 return self.say("Workspace Digest switches are in ? settings.");
             };
             let OpsTarget::Member { identity_id, .. } = &target else {
@@ -272,34 +303,8 @@ impl App {
             }
             return;
         }
-        let choose = &granted.ask.choose;
-        let mut entries: Vec<_> = choose
-            .options
-            .iter()
-            .filter_map(|offer| {
-                let current = if offer.value == choose.current {
-                    "  (current)"
-                } else {
-                    ""
-                };
-                Some(MenuEntry {
-                    key: String::new(),
-                    label: format!("{}{current}", sanitize(&offer.label)),
-                    choice: Choice::Digest(granted.set(&offer.value, &offer.label)?),
-                })
-            })
-            .collect();
-        let selected = choose
-            .options
-            .iter()
-            .position(|offer| offer.value == choose.current)
-            .unwrap_or_default();
+        let (entries, selected) = choice_entries(&granted);
         let title = format!("{} digest", granted.ask.member);
-        entries.push(MenuEntry {
-            key: String::new(),
-            label: "Custom…".into(),
-            choice: Choice::DigestCustom(Box::new(granted)),
-        });
         self.menu = Some(Menu {
             link: None,
             prefill: String::new(),
@@ -412,12 +417,23 @@ impl App {
                             .map_or(Effect::None, |set| Effect::Act(Request::Digest(set))),
                     );
                 }
-                let offers: Vec<ModeOffer> = if inline.field == 0 {
-                    ["30s", "1m", "5m", "15m", "30m", "1h"]
-                        .into_iter()
-                        .map(|value| (value.into(), format!("Every {value}"), None))
-                        .collect()
-                } else if let Some((wait, count)) = inline.caps {
+                if inline.field == 0 {
+                    let (entries, selected) = choice_entries(granted);
+                    self.menu = Some(Menu {
+                        link: None,
+                        prefill: String::new(),
+                        title: "Interval".into(),
+                        entries,
+                        selected,
+                        anchor: None,
+                        surface: Default::default(),
+                    });
+                    if let Some(inline) = &self.digest_inline {
+                        inline.visible.set(false);
+                    }
+                    return Some(Effect::None);
+                }
+                let offers: Vec<ModeOffer> = if let Some((wait, count)) = inline.caps {
                     if inline.field == 1 {
                         [
                             30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000, 3_600_000,
