@@ -273,3 +273,20 @@ fn duplicate_names_keep_their_own_group_and_description() {
         "Project-specific description"
     );
 }
+
+#[test]
+fn short_screen_keeps_the_composer_visible_while_the_menu_is_open() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let app = capture_case("skills-claude", crate::look::Look::default());
+    app.input_viewport.set(Some((Rect::new(0, 6, 60, 1), 0)));
+    app.input_band.set(Some(Rect::new(0, 6, 60, 2)));
+    let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.buffer_mut()[(0, 6)].set_symbol("/");
+            render(frame, &app);
+        })
+        .unwrap();
+    assert_eq!(terminal.backend().buffer()[(0, 6)].symbol(), "/");
+    assert!(!app.skills.hits.borrow().is_empty());
+}

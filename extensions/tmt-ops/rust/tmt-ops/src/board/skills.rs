@@ -287,14 +287,17 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
     }
     let screen = frame.area();
     let count = rows.len().clamp(1, ROWS);
-    let height = (count as u16 + 1).min(screen.height);
     let anchor = app.input_band.get().unwrap_or(editor).intersection(screen);
-    let y = if screen.bottom().saturating_sub(anchor.bottom()) >= height {
+    let above = anchor.y.saturating_sub(screen.y);
+    let below = screen.bottom().saturating_sub(anchor.bottom());
+    let height = (count as u16 + 1).min(above.max(below));
+    if height == 0 {
+        return;
+    }
+    let y = if below >= height {
         anchor.bottom()
-    } else if anchor.y.saturating_sub(screen.y) >= height {
-        anchor.y - height
     } else {
-        editor.bottom().min(screen.bottom().saturating_sub(height))
+        anchor.y - height
     };
     let width = anchor.width.min(76);
     let x = anchor.x.min(screen.right().saturating_sub(width));
