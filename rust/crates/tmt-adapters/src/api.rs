@@ -65,6 +65,7 @@ const OPS: &[&str] = &[
     "responses.timeline",
     "pane.screen",
     "terminal.stream",
+    "terminal.resume",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -237,6 +238,10 @@ pub enum Request {
         if_stamp: Option<String>,
     },
     TerminalStream {
+        identity_id: String,
+    },
+    /// Continues a built-in member stopped by job control.
+    TerminalResume {
         identity_id: String,
     },
     ConsumptionHistory {
@@ -439,6 +444,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "responses.timeline" => timeline::decode(input)?,
         "pane.screen" => pane::decode(input)?,
         "terminal.stream" => terminal::decode(input)?,
+        "terminal.resume" => terminal::decode_resume(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -636,6 +642,7 @@ impl Session {
                 if_stamp,
             } => agent_skills::list(paths, storage, &identity_id, if_stamp.as_deref()),
             Request::TerminalStream { identity_id } => terminal::stream(storage, &identity_id),
+            Request::TerminalResume { identity_id } => terminal::resume(storage, &identity_id),
             Request::ConsumptionHistory {
                 identities,
                 windows,

@@ -470,6 +470,11 @@ request's ID: nothing is pasted, its wake settles as unavailable and the request
 stays queued until an agent binds there. A person's own passthrough text is not a
 request and is typed as written. Digest checklists, reply and result notices for
 that recipient are held, never pasted or dropped, until an agent binds there.
+A built-in member stopped by job control (`paused`, [extension API](extension-api.md#resume-a-paused-member))
+refuses delivery: `talk` returns `MEMBER_PAUSED` (exit 1) with the request's ID and a
+message naming `terminal.resume`; nothing is pasted, its wake settles as unavailable, and
+the request stays queued. Digest checklists and notices for it are held like those of any
+member that cannot be reached.
 Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake.
@@ -902,18 +907,19 @@ replies `{status, requestId, state}` and carries each refusal above as its fault
 Each code has one sentence, owned by Core: the CLI, the API's fault `message` and the Remote door's
 `reasonText` show it as it is, and a client writes none of its own.
 
-| Code                           | Sentence                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| `SEND_NOW_NOT_ALLOWED`         | Could not send now: only its sender or the owner can send it early         |
-| `SEND_NOW_NOT_APPLICABLE`      | Could not send now: it is not an ordinary message to an agent              |
-| `SEND_NOW_CLOSED`              | Could not send now: it already has an answer, or was withdrawn or expired  |
-| `SEND_NOW_UNCONFIRMED`         | Could not send now: an earlier delivery is unconfirmed, do not resend      |
-| `SEND_NOW_NOT_AVAILABLE`       | Could not send now: the state's `reason.text`                              |
-| `SEND_NOW_UNREACHABLE`         | Could not send now: the agent could not be reached                         |
-| `DELIVERY_AWAITING_APPROVAL`   | Could not send now: the agent is waiting for approval on its machine       |
-| `DELIVERY_CHANNEL_UNAVAILABLE` | Could not send now: the agent's channel is not available                   |
-| `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again. |
-| `RECIPIENT_NOT_AGENT`          | Could not send now: the member runs a plain program, not an AI agent       |
+| Code                           | Sentence                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `SEND_NOW_NOT_ALLOWED`         | Could not send now: only its sender or the owner can send it early                  |
+| `SEND_NOW_NOT_APPLICABLE`      | Could not send now: it is not an ordinary message to an agent                       |
+| `SEND_NOW_CLOSED`              | Could not send now: it already has an answer, or was withdrawn or expired           |
+| `SEND_NOW_UNCONFIRMED`         | Could not send now: an earlier delivery is unconfirmed, do not resend               |
+| `SEND_NOW_NOT_AVAILABLE`       | Could not send now: the state's `reason.text`                                       |
+| `SEND_NOW_UNREACHABLE`         | Could not send now: the agent could not be reached                                  |
+| `DELIVERY_AWAITING_APPROVAL`   | Could not send now: the agent is waiting for approval on its machine                |
+| `DELIVERY_CHANNEL_UNAVAILABLE` | Could not send now: the agent's channel is not available                            |
+| `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again.          |
+| `RECIPIENT_NOT_AGENT`          | Could not send now: the member runs a plain program, not an AI agent                |
+| `MEMBER_PAUSED`                | Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume |
 
 ## Verification ownership
 

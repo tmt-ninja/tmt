@@ -441,6 +441,27 @@ fn deliver(
                     )));
             } else if let crate::delivery::Delivery::NotAgent(program) = &outcome {
                 return Err(not_agent_after_preparation(correlation, program));
+            } else if matches!(outcome, crate::delivery::Delivery::MemberPaused) {
+                // The built-in member is stopped by job control; nothing reached it and
+                // the request waits like any other undeliverable one.
+                let name = correlation
+                    .identity
+                    .as_ref()
+                    .map_or(correlation.target.as_str(), |identity| {
+                        identity.name.as_str()
+                    });
+                return Err(correlation
+                    .error(
+                        "MEMBER_PAUSED",
+                        format!(
+                            "{name} is paused (stopped with Ctrl-Z); nothing was sent. Continue it with terminal.resume or from its terminal."
+                        ),
+                        1,
+                    )
+                    .suggestion(format!(
+                        "Retry after it continues; the request stays queued. {}",
+                        correlation.inspection()
+                    )));
             } else if matches!(outcome, crate::delivery::Delivery::AwaitingApproval) {
                 // The agent refused the prompt while it waits on its user;
                 // nothing reached the pane and nothing types around it.

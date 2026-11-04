@@ -647,6 +647,14 @@ impl Storage {
             .map_err(|error| classify(error, "Read plain program"))
     }
 
+    /// An identity's current binding, read without a write transaction for
+    /// polled projections; `None` when it has none or is unknown.
+    pub fn current_binding(&self, identity_id: &str) -> Result<Option<Binding>, StorageError> {
+        Ok(BindingRows(self.connection()?)
+            .entry_by_id(identity_id)?
+            .and_then(|entry| entry.binding))
+    }
+
     /// Read an active identity's remembered preferences without a write
     /// transaction, for read-only projections such as show and list.
     pub fn session_preferences(

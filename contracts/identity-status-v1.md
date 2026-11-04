@@ -123,6 +123,16 @@ that starts in the same pane and binds through its driver hook replaces it; its
 admission clears `plainProgram` in the same transaction, and the member then
 receives as any other. The key is a stored launch fact, not a fresh probe.
 
+## Paused member
+
+While a built-in-host member is stopped by job control (Ctrl-Z, `SIGSTOP`), its
+`identities.status` entry includes `paused: true`, read fresh from its supervisor; the
+key is absent otherwise, including on any doubt and for other hosts. Such a member
+receives nothing: `tmt talk` returns `MEMBER_PAUSED` and the request stays queued, and
+Digest keeps holding its items ([request/response](request-response-v1.md)).
+[`terminal.resume`](extension-api.md#resume-a-paused-member) continues it. `tmt ls`
+does not carry the key.
+
 ## List pane location
 
 Collection `tmt ls --json` identity rows with a live pane optionally include

@@ -284,6 +284,8 @@ pub enum SendNowUntyped {
     Uncertain,
     /// The binding runs a plain program, not an agent.
     NotAgent,
+    /// The built-in member is stopped by job control.
+    MemberPaused,
 }
 
 impl SendNowUntyped {
@@ -294,6 +296,7 @@ impl SendNowUntyped {
             Self::ChannelUnavailable => "DELIVERY_CHANNEL_UNAVAILABLE",
             Self::Uncertain => "DELIVERY_UNCERTAIN",
             Self::NotAgent => "RECIPIENT_NOT_AGENT",
+            Self::MemberPaused => "MEMBER_PAUSED",
         }
     }
 
@@ -310,6 +313,9 @@ impl SendNowUntyped {
             }
             Self::NotAgent => {
                 "Could not send now: the member runs a plain program, not an AI agent"
+            }
+            Self::MemberPaused => {
+                "Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume"
             }
         }
     }

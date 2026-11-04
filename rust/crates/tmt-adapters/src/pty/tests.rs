@@ -820,7 +820,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     let mut client = member.connect();
     assert_eq!(
         client.control(Control::Capabilities, WAIT).unwrap(),
-        ControlReply::Applied(true)
+        ControlReply::Capabilities { resume: true }
     );
     let deadline = Instant::now() + WAIT;
     loop {
@@ -1159,3 +1159,134 @@ fn startup_exit_keeps_a_bounded_terminal_tail_without_rendering_control_bytes() 
     drop(client);
     member.finish().unwrap();
 }
+
+/// The `paused` flag of a fresh Inspect.
+fn paused(member: &Member) -> bool {
+    use tmt_pty_protocol::{Control, ControlReply};
+    match member.connect().control(Control::Inspect, WAIT).unwrap() {
+        ControlReply::State { paused, .. } => paused,
+        other => panic!("not a state: {other:?}"),
+    }
+}
+
+/// Waits, within the supervisor's tick, until Inspect reports `expected`.
+fn wait_paused(member: &Member, expected: bool) {
+    let deadline = Instant::now() + WAIT;
+    while paused(member) != expected {
+        assert!(Instant::now() < deadline, "paused never became {expected}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn resume(member: &Member) -> tmt_pty_protocol::ControlReply {
+    member
+        .connect()
+        .control(tmt_pty_protocol::Control::Resume, WAIT)
+        .unwrap()
+}
+
+/// The launcher leads an orphaned process group (its parent, the supervisor, is in
+/// another session), so the kernel discards SIGTSTP sent to it; SIGSTOP stands in
+/// for a job-control stop of the launcher's own group.
+fn stop_launcher_group(member: &Member) {
+    nix::sys::signal::killpg(Pid::from_raw(member.pid as i32), Signal::SIGSTOP).unwrap();
+}
+
+const ECHO_LOOP: &str =
+    r#"printf 'echo-ready\r\n'; while IFS= read -r line; do printf 'got:%s\r\n' "$line"; done"#;
+
+#[test]
+fn a_job_control_stop_is_reported_until_the_member_continues() {
+    let member = Member::start(&["sh", "-c", ECHO_LOOP]);
+    let mut client = member.connect();
+    collect(&mut client, says("echo-ready"));
+    assert!(!paused(&member), "a running member is not paused");
+    stop_launcher_group(&member);
+    wait_paused(&member, true);
+    // A continue from outside the supervisor (a shell's `fg`, `kill -CONT`) clears it.
+    nix::sys::signal::killpg(Pid::from_raw(member.pid as i32), Signal::SIGCONT).unwrap();
+    wait_paused(&member, false);
+    client.input(b"after\r").unwrap();
+    collect(&mut client, says("got:after"));
+    client.input(&[4]).unwrap();
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
+fn resume_continues_a_paused_member_and_repeating_it_changes_nothing() {
+    use tmt_pty_protocol::ControlReply;
+    let member = Member::start(&["sh", "-c", ECHO_LOOP]);
+    let mut client = member.connect();
+    collect(&mut client, says("echo-ready"));
+    // Resuming a member that is not paused is applied and leaves it running.
+    assert_eq!(resume(&member), ControlReply::Applied(true));
+    stop_launcher_group(&member);
+    wait_paused(&member, true);
+    // Typed while stopped: the program reads it only once it continues.
+    client.input(b"queued\r").unwrap();
+    assert_eq!(resume(&member), ControlReply::Applied(true));
+    wait_paused(&member, false);
+    collect(&mut client, says("got:queued"));
+    assert_eq!(resume(&member), ControlReply::Applied(true));
+    assert!(!paused(&member));
+    client.input(b"again\r").unwrap();
+    collect(&mut client, says("got:again"));
+    client.input(&[4]).unwrap();
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
+fn a_member_that_ends_while_paused_still_reports_its_exit() {
+    let member = Member::start(&["sh", "-c", ECHO_LOOP]);
+    let mut client = member.connect();
+    collect(&mut client, says("echo-ready"));
+    stop_launcher_group(&member);
+    wait_paused(&member, true);
+    kill(Pid::from_raw(member.pid as i32), Signal::SIGKILL).unwrap();
+    collect(&mut client, exited(Exit::Signal(9)));
+    drop(client);
+    member.finish().unwrap();
+}
+
+/// A provider in its own process group that holds the terminal: Ctrl-Z typed into
+/// the terminal stops only that group, the launcher keeps running, and the
+/// supervisor still reports the member paused through the foreground group.
+#[test]
+fn a_stopped_foreground_group_of_its_own_is_paused_while_the_launcher_runs() {
+    use tmt_pty_protocol::ControlReply;
+    let member = Member::start(&["perl", "-MPOSIX", "-e", OWN_GROUP_LAUNCHER, ECHO_LOOP]);
+    let mut client = member.connect();
+    collect(&mut client, says("echo-ready"));
+    assert!(!paused(&member));
+    // Ctrl-Z as a person types it: the terminal signals its foreground group.
+    client.input(&[0x1a]).unwrap();
+    wait_paused(&member, true);
+    assert!(
+        !crate::process::job_stopped(u64::from(member.pid), Instant::now() + WAIT),
+        "only the provider's group stopped"
+    );
+    client.input(b"queued\r").unwrap();
+    assert_eq!(resume(&member), ControlReply::Applied(true));
+    wait_paused(&member, false);
+    collect(&mut client, says("got:queued"));
+    client.input(&[4]).unwrap();
+    drop(client);
+    member.finish().unwrap();
+}
+
+/// Runs `$ARGV[0]` with `sh -c` in a new process group that takes the terminal,
+/// then waits for it without reclaiming the terminal, as a launcher that is not a
+/// job-control shell does. SIGTTOU is ignored so the child may take the terminal
+/// from the background; it never reads before it holds it.
+pub(super) const OWN_GROUP_LAUNCHER: &str = r#"$SIG{TTOU} = "IGNORE";
+my $script = $ARGV[0];
+my $pid = fork() // die "fork: $!";
+if ($pid == 0) {
+    setpgid(0, 0) or die "setpgid: $!";
+    tcsetpgrp(0, getpgrp()) or die "tcsetpgrp: $!";
+    exec("/bin/sh", "-c", $script) or die "exec: $!";
+}
+waitpid($pid, 0);
+exit(WIFEXITED($?) ? WEXITSTATUS($?) : 128 + WTERMSIG($?));"#;
