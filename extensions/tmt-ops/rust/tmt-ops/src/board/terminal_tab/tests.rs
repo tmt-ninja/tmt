@@ -571,3 +571,14 @@ fn no_colour_leaves_the_program_colours_unpainted() {
     assert_eq!(drawn[(0, 0)].fg, ratatui::style::Color::Reset);
     assert!(drawn[(4, 0)].modifier.contains(Modifier::BOLD));
 }
+
+#[test]
+fn a_menu_owns_every_cell_it_covers() {
+    let mut framed = Framed::new(b"$ cargo test --workspace and a long line under the menu");
+    let (x, y) = hit_at(&framed.app, &FrameHit::Menu(FrameMenu::Session));
+    click(&mut framed.app, x, y);
+    for line in draw(&framed.app, 60, 36).iter().skip(1).take(6) {
+        let inside = line.split('│').nth(1).unwrap_or_default();
+        assert!(!inside.contains("cargo") && !inside.contains("workspace"), "{line}");
+    }
+}

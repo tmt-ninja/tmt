@@ -73,9 +73,9 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
     }
     header(buffer, app, Rect::new(area.x, area.y, area.width, 1), &name);
     if let Some(dialog) = app.frame_dialog() {
-        paint_dialog(buffer, app, screen_area, dialog, &name);
+        paint_dialog(frame, app, screen_area, dialog, &name);
     } else if let Some(menu) = app.terminal.menu() {
-        paint_menu(buffer, app, screen_area, menu, &name);
+        paint_menu(frame, app, screen_area, menu, &name);
     }
 }
 
@@ -200,28 +200,39 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
 }
 
 /// A box with a title over `area`, centred or at `anchor`; returns its inside.
-fn boxed(buffer: &mut Buffer, look: Look, area: Rect, title: &str) -> Rect {
+/// A titled box over the screen that owns every cell it covers (`view::overlay_lines`): `body`
+/// fills its rows from the top, each fitted to the inside, and the rest stays blank. Returns the
+/// inside, where the rows' hits go.
+fn boxed(
+    frame: &mut ratatui::Frame,
+    look: Look,
+    area: Rect,
+    title: &str,
+    body: Vec<Line<'static>>,
+) -> Rect {
     let border = look.role(Role::Muted);
     let fill = look.conversation();
-    buffer.set_style(area, fill);
-    for x in area.x..area.right() {
-        buffer.set_string(x, area.y, "─", border);
-        buffer.set_string(x, area.bottom() - 1, "─", border);
+    let inner = usize::from(area.width.saturating_sub(4));
+    let title = crate::board::view::fit(&format!(" {title} "), inner);
+    let mut lines = vec![Line::from(vec![
+        Span::styled("┌─", border),
+        Span::styled(title.clone(), look.role(Role::Text)),
+        Span::styled("─".repeat(inner + 1 - title.width()), border),
+        Span::styled("┐", border),
+    ])];
+    let rows = usize::from(area.height.saturating_sub(2));
+    let mut body = body.into_iter();
+    for _ in 0..rows {
+        let mut spans = vec![Span::styled("│ ", border)];
+        let line = body.next().unwrap_or_default();
+        let used = line.width();
+        spans.extend(line.spans);
+        spans.push(Span::styled(" ".repeat(inner.saturating_sub(used)), fill));
+        spans.push(Span::styled(" │", border));
+        lines.push(Line::from(spans));
     }
-    for y in area.y..area.bottom() {
-        buffer.set_string(area.x, y, "│", border);
-        buffer.set_string(area.right() - 1, y, "│", border);
-    }
-    buffer.set_string(area.x, area.y, "┌", border);
-    buffer.set_string(area.right() - 1, area.y, "┐", border);
-    buffer.set_string(area.x, area.bottom() - 1, "└", border);
-    buffer.set_string(area.right() - 1, area.bottom() - 1, "┘", border);
-    buffer.set_string(
-        area.x + 2,
-        area.y,
-        format!(" {title} "),
-        look.role(Role::Text),
-    );
+    lines.push(Line::styled(format!("└{}┘", "─".repeat(inner + 2)), border));
+    crate::board::view::overlay_lines(frame, area, lines);
     Rect::new(
         area.x + 2,
         area.y + 1,
@@ -230,7 +241,14 @@ fn boxed(buffer: &mut Buffer, look: Look, area: Rect, title: &str) -> Rect {
     )
 }
 
-fn paint_dialog(buffer: &mut Buffer, app: &App, screen: Rect, dialog: Dialog, name: &str) {
+/// One row of a box: `left`, then `right` against the edge, the whole width in `style`.
+fn row(left: &str, right: &str, width: usize, style: Style) -> Line<'static> {
+    let left = crate::board::view::fit(left, width.saturating_sub(right.width() + 1));
+    let gap = width.saturating_sub(left.width() + right.width());
+    Line::styled(format!("{left}{}{right}", " ".repeat(gap)), style)
+}
+
+fn paint_dialog(frame: &mut ratatui::Frame, app: &App, screen: Rect, dialog: Dialog, name: &str) {
     let look = app.look();
     let (title, text) = match dialog {
         Dialog::Paused => (
@@ -260,63 +278,52 @@ fn paint_dialog(buffer: &mut Buffer, app: &App, screen: Rect, dialog: Dialog, na
         width,
         height,
     );
-    let inside = boxed(buffer, look, area, title);
-    let mut y = inside.y;
-    say(buffer, Rect::new(inside.x, y, inside.width, 1), &text, look);
-    y += 2;
+    let inner = usize::from(width - 4);
+    let muted = look.role(Role::Muted);
     let cursor = app.terminal.cursor().min(choices.len() - 1);
+    let mut body = vec![row(&text, "", inner, muted), Line::default()];
     for (index, (label, hit, key)) in choices.iter().enumerate() {
-        let row = Rect::new(inside.x, y, inside.width, 1);
         let style = if index == cursor {
             look.selection()
         } else {
             look.role(Role::Text)
         };
-        buffer.set_style(row, style);
-        buffer.set_string(
-            row.x,
-            y,
-            format!("{} {label}", if index == cursor { "›" } else { " " }),
-            style,
-        );
         let cap = match (hit, key) {
             (FrameHit::Back, _) => app.member_back_label(),
             (_, Some(letter)) => letter.to_string(),
             _ if index == 0 => "⏎".into(),
             _ => String::new(),
         };
-        buffer.set_string(
-            row.right().saturating_sub(cap.width() as u16 + 1),
-            y,
-            &cap,
-            style,
-        );
-        app.terminal.add_hit(row, hit.clone());
-        y += 1;
+        let mark = if index == cursor { "›" } else { " " };
+        body.push(row(&format!("{mark} {label}"), &format!("{cap} "), inner, style));
     }
-    if let Some(notice) = notice {
-        y += 1;
-        say(
-            buffer,
-            Rect::new(inside.x, y, inside.width, 1),
-            &notice,
-            look,
-        );
+    if let Some(notice) = &notice {
+        body.push(Line::default());
+        body.push(row(notice, "", inner, muted));
     }
-    let hint = Rect::new(inside.x, inside.bottom().saturating_sub(1), inside.width, 1);
-    say(
-        buffer,
-        hint,
+    let rows = usize::from(height - 2);
+    body.resize(rows.saturating_sub(1), Line::default());
+    body.push(row(
         "↑↓ 選擇 · ⏎ 確定 · Esc 關閉（資訊列上也可以）",
-        look,
-    );
+        "",
+        inner,
+        muted,
+    ));
+    let inside = boxed(frame, look, area, title, body);
+    for (index, (_, hit, _)) in choices.iter().enumerate() {
+        let y = inside.y + 2 + index as u16;
+        if y < inside.bottom() {
+            app.terminal
+                .add_hit(Rect::new(inside.x, y, inside.width, 1), hit.clone());
+        }
+    }
     app.terminal.add_hit(
         Rect::new(area.right() - 3, area.y, 3, 1),
         FrameHit::Dismiss(dialog),
     );
 }
 
-fn paint_menu(buffer: &mut Buffer, app: &App, screen: Rect, menu: FrameMenu, name: &str) {
+fn paint_menu(frame: &mut ratatui::Frame, app: &App, screen: Rect, menu: FrameMenu, name: &str) {
     let look = app.look();
     let entries = app.menu_entries(menu);
     let title = match menu {
@@ -326,34 +333,38 @@ fn paint_menu(buffer: &mut Buffer, app: &App, screen: Rect, menu: FrameMenu, nam
     };
     let width = 46.min(screen.width);
     let height = (entries.len() as u16 + 3).min(screen.height);
+    if width < 8 || height < 3 {
+        return;
+    }
     let anchor = app
         .terminal
         .menu_anchor(menu)
         .unwrap_or(screen.x)
         .min(screen.right().saturating_sub(width));
     let area = Rect::new(anchor, screen.y, width, height);
-    let inside = boxed(buffer, look, area, &title);
+    let inner = usize::from(width - 4);
     let cursor = app.terminal.cursor();
-    for (index, (label, hit)) in entries.iter().enumerate() {
+    let body = entries
+        .iter()
+        .enumerate()
+        .map(|(index, (label, hit))| {
+            let style = match hit {
+                None => look.role(Role::Dim),
+                Some(_) if index == cursor => look.selection(),
+                Some(_) => look.role(Role::Text),
+            };
+            let mark = if index == cursor { "›" } else { " " };
+            row(&format!("{mark} {label}"), "", inner, style)
+        })
+        .collect();
+    let inside = boxed(frame, look, area, &title, body);
+    for (index, (_, hit)) in entries.iter().enumerate() {
         let y = inside.y + index as u16;
-        if y >= inside.bottom() {
-            break;
-        }
-        let row = Rect::new(inside.x, y, inside.width, 1);
-        let style = match hit {
-            None => look.role(Role::Dim),
-            Some(_) if index == cursor => look.selection(),
-            Some(_) => look.role(Role::Text),
-        };
-        buffer.set_style(row, style);
-        buffer.set_string(
-            row.x,
-            y,
-            format!("{} {label}", if index == cursor { "›" } else { " " }),
-            style,
-        );
-        if let Some(hit) = hit {
-            app.terminal.add_hit(row, hit.clone());
+        if let Some(hit) = hit
+            && y < inside.bottom()
+        {
+            app.terminal
+                .add_hit(Rect::new(inside.x, y, inside.width, 1), hit.clone());
         }
     }
 }
