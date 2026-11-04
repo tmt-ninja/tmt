@@ -1241,6 +1241,19 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
   const colabHosted = !queue && !seed && !full && selectColabHosted(selection.paths);
   const colabHostedEmulator =
     !queue && !seed && !full && selectHostedReaderEmulator(selection.paths);
+  const runtimeProofProduct = (product) =>
+    !seed &&
+    (full ||
+      selection.paths.some(
+        (p) =>
+          p.startsWith(`extensions/tmt-${product}/`) ||
+          [
+            'typescript/scripts/native-runtime-proof.mjs',
+            'typescript/scripts/verify-native-artifact.mjs',
+          ].includes(p)
+      ));
+  const remoteRuntimeProof = runtimeProofProduct('remote');
+  const colabRuntimeProof = runtimeProofProduct('colab');
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = mainFull || (!seed && !full && selectRemoteFirestore(selection.paths));
   const colabFirestore = mainFull || (!seed && !full && selectColabFirestore(selection.paths));
@@ -1276,6 +1289,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       `browser_ui=${browserUi}\n` +
       `colab_hosted_emulator=${colabHostedEmulator}\n` +
       `native_notices=${nativeNotices}\n` +
+      `remote_runtime_proof=${remoteRuntimeProof}\ncolab_runtime_proof=${colabRuntimeProof}\n` +
       `remote_firestore=${remoteFirestore}\n` +
       `colab_firestore=${colabFirestore}\n` +
       `native_sync_emulator=${nativeSyncEmulator}\n` +

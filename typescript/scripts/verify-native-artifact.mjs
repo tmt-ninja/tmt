@@ -13,7 +13,11 @@ import {
   selectNativeArtifact,
   withNativeArtifact,
 } from './native-artifact-policy.mjs';
-import { assertNativeTarget, verifyNativeRuntime } from './native-runtime-proof.mjs';
+import {
+  assertNativeTarget,
+  verifyNativeRuntime,
+  readColabReferences,
+} from './native-runtime-proof.mjs';
 import { readSchemaEvidence, verifyApplicationSchema } from './native-application-schema.mjs';
 
 const { values } = parseArgs({
@@ -208,28 +212,3 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     }`
   );
 });
-
-/**
- * Every name `tmt colab skill <name>` can print from the archive: a reference under
- * skills/tmt-colab/references, or a companion skill beside the root one (#5961).
- */
-function readColabReferences(artifactRoot) {
-  const skills = path.join(artifactRoot, 'skills');
-  const references = {};
-  const add = (name, file) => {
-    assert(/^[a-z][a-z0-9-]*$/.test(name), `Invalid Colab archive reference name: ${name}`);
-    assert(!Object.hasOwn(references, name), `Duplicate Colab archive reference: ${name}`);
-    references[name] = fs.readFileSync(file, 'utf8');
-  };
-  const referenceRoot = path.join(skills, 'tmt-colab', 'references');
-  if (fs.existsSync(referenceRoot))
-    for (const name of fs.readdirSync(referenceRoot)) {
-      assert(name.endsWith('.md'), `Invalid Colab archive reference name: ${name}`);
-      add(name.slice(0, -3), path.join(referenceRoot, name));
-    }
-  if (fs.existsSync(skills))
-    for (const name of fs.readdirSync(skills))
-      if (name !== 'tmt-colab' && fs.existsSync(path.join(skills, name, 'SKILL.md')))
-        add(name, path.join(skills, name, 'SKILL.md'));
-  return references;
-}

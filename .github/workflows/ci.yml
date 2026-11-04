@@ -40,6 +40,8 @@ jobs:
       native: ${{ steps.mainfull.outputs.native || steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.mainfull.outputs.native_notices || steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
+      remote_runtime_proof: ${{ steps.mainfull.outputs.remote_runtime_proof || steps.scope.outputs.remote_runtime_proof || steps.queue.outputs.remote_runtime_proof || 'false' }}
+      colab_runtime_proof: ${{ steps.mainfull.outputs.colab_runtime_proof || steps.scope.outputs.colab_runtime_proof || steps.queue.outputs.colab_runtime_proof || 'false' }}
       remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
       colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
       native_sync_emulator: ${{ steps.mainfull.outputs.native_sync_emulator || steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
@@ -503,6 +505,16 @@ jobs:
           cargo build --locked -p tmt-adapters --example runtime-caller-fixture
           cargo build --locked -p tmt-test-support --example recording-cli-fixture
           cargo build --locked --release -p tmt-cli -p tmt-driver-herdr --bins
+      - name: Prove source runtime contracts before release
+        if: needs.changes.outputs.remote_runtime_proof == 'true' || needs.changes.outputs.colab_runtime_proof == 'true'
+        env:
+          REMOTE_PROOF: ${{ needs.changes.outputs.remote_runtime_proof }}
+          COLAB_PROOF: ${{ needs.changes.outputs.colab_runtime_proof }}
+        run: |
+          products=()
+          if [ "$REMOTE_PROOF" = true ]; then products+=(remote); fi
+          if [ "$COLAB_PROOF" = true ]; then products+=(colab); fi
+          node typescript/scripts/native-runtime-proof.mjs source-contracts "${products[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Inject the synthetic alpha installation fixture
         if: needs.changes.outputs.native_scope == 'full' || contains(needs.changes.outputs.scoped_native_tests, 'extension-install.test.ts')
         uses: ./.github/actions/inject-release-version

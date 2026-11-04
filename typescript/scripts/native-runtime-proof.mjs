@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { assertNoCoreDatabase, readCoreDatabase } from './native-database-layout.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
@@ -199,9 +200,7 @@ export async function verifyNativeRuntime({
     }
     if (product === 'remote') {
       assert.equal(run(['--version']).trim(), `remote ${version}`, `${subject} version mismatch`);
-      const help = run(['--help']);
-      for (const command of ['serve', 'pair'])
-        assert(new RegExp(`^ {2}${command} +`, 'm').test(help), `${subject} missing ${command}`);
+      assertRemoteCommands(run(['--help']), subject);
       assert(!fs.existsSync(xdg), 'Remote probes must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Remote probes must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Remote probes must not create workspace state');
@@ -210,16 +209,8 @@ export async function verifyNativeRuntime({
     if (product === 'colab') {
       assert.equal(typeof colabSkill, 'string', 'Colab runtime proof requires its skill');
       assert.equal(run(['skill']), colabSkill, `${subject} embedded skill mismatch`);
-      const names = [
-        ...new Set(
-          [...colabSkill.matchAll(/`tmt colab skill ([a-z][a-z0-9-]*)`/g)].map((match) => match[1])
-        ),
-      ];
-      for (const name of names) {
-        assert(Object.hasOwn(colabReferences, name), `${subject} missing skill reference: ${name}`);
-      }
+      assertColabReferences(colabSkill, colabReferences, subject);
       for (const [name, bytes] of Object.entries(colabReferences)) {
-        assert(names.includes(name), `${subject} unknown skill reference: ${name}`);
         assert.equal(
           run(['skill', name]),
           bytes,
@@ -354,4 +345,93 @@ export async function verifyNativeRuntime({
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+}
+
+/**
+ * Every name `tmt colab skill <name>` can print from the archive: a reference under
+ * skills/tmt-colab/references, or a companion skill beside the root one (#5961).
+ */
+export function readColabReferences(artifactRoot) {
+  const skills = path.join(artifactRoot, 'skills');
+  const references = {};
+  const add = (name, file) => {
+    assert(/^[a-z][a-z0-9-]*$/.test(name), `Invalid Colab archive reference name: ${name}`);
+    assert(!Object.hasOwn(references, name), `Duplicate Colab archive reference: ${name}`);
+    references[name] = fs.readFileSync(file, 'utf8');
+  };
+  const referenceRoot = path.join(skills, 'tmt-colab', 'references');
+  if (fs.existsSync(referenceRoot))
+    for (const name of fs.readdirSync(referenceRoot)) {
+      assert(name.endsWith('.md'), `Invalid Colab archive reference name: ${name}`);
+      add(name.slice(0, -3), path.join(referenceRoot, name));
+    }
+  if (fs.existsSync(skills))
+    for (const name of fs.readdirSync(skills))
+      if (name !== 'tmt-colab' && fs.existsSync(path.join(skills, name, 'SKILL.md')))
+        add(name, path.join(skills, name, 'SKILL.md'));
+  return references;
+}
+
+export function assertRemoteCommands(help, subject = 'Native runtime') {
+  for (const command of ['serve', 'pair'])
+    assert(new RegExp(`^ {2}${command} +`, 'm').test(help), `${subject} missing ${command}`);
+}
+
+export function assertColabReferences(skill, references, subject = 'Native runtime') {
+  const names = [
+    ...new Set(
+      [...skill.matchAll(/`tmt colab skill ([a-z][a-z0-9-]*)`/g)].map((match) => match[1])
+    ),
+  ];
+  for (const name of names)
+    assert(Object.hasOwn(references, name), `${subject} missing skill reference: ${name}`);
+  for (const name of Object.keys(references))
+    assert(names.includes(name), `${subject} unknown skill reference: ${name}`);
+  return names;
+}
+
+// Cheap source contracts reuse the archive proof's expectations; no packaging or release selection.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [mode, ...products] = process.argv.slice(2);
+  assert(
+    mode === 'source-contracts' &&
+      products.length &&
+      products.every((p) => ['remote', 'colab'].includes(p)),
+    'Expected source-contracts remote|colab'
+  );
+  const root = process.cwd();
+  const started = performance.now();
+  if (products.includes('remote')) {
+    const privateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-source-proof-'));
+    try {
+      const help = runPackedCommand(path.join(root, 'rust/target/debug/tmt-remote'), ['--help'], {
+        cwd: privateRoot,
+        env: {
+          HOME: privateRoot,
+          XDG_CONFIG_HOME: path.join(privateRoot, 'config'),
+          TMPDIR: privateRoot,
+          PATH: '',
+          LANG: 'C',
+          TMT_AGENT: '1',
+          BROWSER: '/usr/bin/true',
+        },
+        timeoutMs: 10_000,
+      });
+      assertRemoteCommands(help, 'Source Remote');
+    } finally {
+      fs.rmSync(privateRoot, { recursive: true, force: true });
+    }
+  }
+  if (products.includes('colab')) {
+    const source = path.join(root, 'extensions/tmt-colab');
+    const references = readColabReferences(source);
+    assertColabReferences(
+      fs.readFileSync(path.join(source, 'skills/tmt-colab/SKILL.md'), 'utf8'),
+      references,
+      'Source Colab'
+    );
+  }
+  console.log(
+    `Source runtime contracts (${products.join(', ')}): ${((performance.now() - started) / 1000).toFixed(3)} s`
+  );
 }

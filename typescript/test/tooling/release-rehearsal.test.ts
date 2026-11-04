@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -259,5 +259,75 @@ describe('selection from a real git diff', () => {
           stderr: { write: () => true },
         })
       ).toThrow('Usage');
+  });
+});
+
+describe('shared release runtime proof contracts (#6052)', () => {
+  it('uses the release expectations to refuse missing Remote commands and Colab references', async () => {
+    const { assertRemoteCommands, assertColabReferences, readColabReferences } = (await import(
+      new URL('../../scripts/native-runtime-proof.mjs', import.meta.url).href
+    )) as {
+      assertRemoteCommands: (help: string, subject?: string) => void;
+      assertColabReferences: (
+        skill: string,
+        references: Record<string, string>,
+        subject?: string
+      ) => string[];
+      readColabReferences: (root: string) => Record<string, string>;
+    };
+    expect(() => assertRemoteCommands('  serve  Serve\n  pair  Pair')).not.toThrow();
+    expect(() => assertRemoteCommands('  pair  Pair')).toThrow('missing serve');
+    expect(() => assertRemoteCommands('  serve  Serve')).toThrow('missing pair');
+    const source = path.resolve(import.meta.dirname, '../../../extensions/tmt-colab');
+    const references = readColabReferences(source);
+    const skill = readFileSync(path.join(source, 'skills/tmt-colab/SKILL.md'), 'utf8');
+    expect(() => assertColabReferences(skill, references)).not.toThrow();
+    const missing = { ...references };
+    delete missing['tmt-design-system'];
+    expect(() => assertColabReferences(skill, missing)).toThrow('tmt-design-system');
+    expect(() => assertColabReferences(skill, { ...references, unmentioned: 'bytes' })).toThrow(
+      'unmentioned'
+    );
+  });
+
+  it('keeps both callers on the same archive proof owner; routing mutations refuse', () => {
+    const read = (name: string) =>
+      readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
+    const owner = read('native-release-prepare.yml');
+    const guard = (caller: string, shared: string) => {
+      expect(caller).toContain('uses: ./.github/workflows/native-release-prepare.yml');
+      const verify = shared.split('\n  verify:\n')[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+      expect(verify).toContain(
+        'Execute final archive and bootstrap with the matching target process'
+      );
+      expect(verify).toContain(
+        'node typescript/scripts/verify-native-artifact.mjs "${verification_args[@]}"'
+      );
+      expect(verify).toContain('--skills "extensions/tmt-$PRODUCT/skills"');
+      expect(verify).toContain('--app-dir "$RUNNER_TEMP/colab-app"');
+    };
+    for (const name of ['release-rehearsal.yml', 'native-release-bundle.yml']) {
+      const caller = read(name);
+      guard(caller, owner);
+      expect(() =>
+        guard(caller.replaceAll('native-release-prepare.yml', 'bypass.yml'), owner)
+      ).toThrow();
+      expect(() =>
+        guard(caller, owner.replaceAll('verify-native-artifact.mjs', 'bypass.mjs'))
+      ).toThrow();
+    }
+    const ci = read('ci.yml');
+    expect(ci).toContain(
+      "if: needs.changes.outputs.remote_runtime_proof == 'true' || needs.changes.outputs.colab_runtime_proof == 'true'"
+    );
+    expect(ci).toContain(
+      'node typescript/scripts/native-runtime-proof.mjs source-contracts "${products[@]}"'
+    );
+    const runtime = readFileSync(
+      new URL('../../scripts/native-runtime-proof.mjs', import.meta.url),
+      'utf8'
+    );
+    expect(runtime).toContain("assertRemoteCommands(run(['--help']), subject)");
+    expect(runtime).toContain('assertColabReferences(colabSkill, colabReferences, subject)');
   });
 });
