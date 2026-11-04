@@ -475,7 +475,7 @@ fn deliver(
                     .error(
                         "MEMBER_ENDED",
                         format!(
-                            "{name}'s agent has ended; nothing was sent. Start it again with terminal.relaunch, tmt resume or from the board."
+                            "{name}'s agent has ended; nothing was sent. Start it again with terminal.relaunch or from the board."
                         ),
                         1,
                     )

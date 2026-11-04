@@ -125,7 +125,7 @@ pub(in crate::grammar) fn stop() -> Command {
         general(spec!(
             "stop",
             "Stop an agent safely, keeping its identity, binding and session",
-            details = "Stops only a private main agent process proven by PID and start under a verified pane, with one TERM and no KILL or retry; a shared, nested, pane-process or unverifiable agent refuses before anything is signalled. Resume it afterwards with tmt resume. --close then closes the pane only when its host says tmt opened it; a pane you created, or one whose origin is unknown, is left open and the command says so.",
+            details = "Stops only a private main agent process proven by PID and start under a verified pane, with one TERM and no KILL or retry; a shared, nested, pane-process or unverifiable agent refuses before anything is signalled. Resume it afterwards with tmt resume. A built-in-host member keeps its terminal after a plain stop, ready to relaunch there. --close then closes the pane only when its host says tmt opened it; a pane you created, or one whose origin is unknown, is left open and the command says so. tmt rm also closes a built-in member's kept terminal.",
             [
                 "Stop an agent by name" => "tmt stop worker",
                 "Stop an agent by its identity UUID" => "tmt stop 7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f",

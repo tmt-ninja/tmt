@@ -5,7 +5,7 @@
 use super::write_report;
 use crate::{invocation::OutputMode, output::Failure, output::shell_word};
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     ffi::OsString,
     io::{self, Write},
     path::Path,
@@ -20,7 +20,7 @@ use tmt_core::{
     host::HostKind,
     workspace::{
         SnapshotSelector, StoredIdentity,
-        builtin::{BuiltinMember, BuiltinMemberAction, BuiltinSnapshot, member_plan},
+        builtin::{BuiltinMember, BuiltinMemberAction, BuiltinSnapshot, MemberRun, member_plan},
     },
 };
 
@@ -113,7 +113,10 @@ fn restore(
     snapshot: &BuiltinSnapshot,
     fresh: bool,
     deadline: Instant,
-    mut check: impl FnMut(&BuiltinMember, Instant) -> io::Result<(Vec<StoredIdentity>, HashSet<String>)>,
+    mut check: impl FnMut(
+        &BuiltinMember,
+        Instant,
+    ) -> io::Result<(Vec<StoredIdentity>, HashMap<String, MemberRun>)>,
     folder_exists: impl Fn(&str) -> bool,
     mut start: impl FnMut(&str, &Path, bool, Instant) -> Start,
     mut progress: impl FnMut(usize, usize, &Restored),
@@ -176,6 +179,13 @@ fn restore(
                 row.status = "skipped";
                 row.reason = "live";
                 row.message = "skipped (already running)".into();
+            }
+            (false, Some(BuiltinMemberAction::Ended)) => {
+                row.status = "skipped";
+                row.reason = "ended";
+                let command = retry(cwd, flag, &row.name);
+                row.message = format!("skipped (ended, not restored; {command})");
+                row.retry = Some(command);
             }
             (false, Some(BuiltinMemberAction::FolderMissing)) => {
                 row.reason = "folder_missing";
@@ -539,7 +549,8 @@ mod tests {
     fn members_start_one_at_a_time_in_their_folders_and_a_rerun_skips_the_live_ones() {
         let snapshot = snapshot(&["a", "b", "c"]);
         let records = || vec![record("a", true), record("b", true), record("c", false)];
-        let live = std::cell::RefCell::new(HashSet::from(["uuid-b".to_owned()]));
+        let live =
+            std::cell::RefCell::new(HashMap::from([("uuid-b".to_owned(), MemberRun::Running)]));
         let starts = std::cell::RefCell::new(Vec::new());
         let mut lines = Vec::new();
         let run = |lines: &mut Vec<String>| {
@@ -554,7 +565,8 @@ mod tests {
                         .borrow_mut()
                         .push((name.to_owned(), directory.to_owned(), fresh));
                     // The started member is live at the next member's recheck.
-                    live.borrow_mut().insert(format!("uuid-{name}"));
+                    live.borrow_mut()
+                        .insert(format!("uuid-{name}"), MemberRun::Running);
                     Start::Started
                 },
                 |done, total, row| lines.push(format!("{done}/{total} {}", row.status)),
@@ -600,7 +612,7 @@ mod tests {
             &snapshot,
             true,
             deadline,
-            |_, _| Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashMap::new())),
             |_| true,
             |name, _, fresh, until| {
                 assert!(fresh);
@@ -647,7 +659,7 @@ mod tests {
             &snapshot,
             false,
             Instant::now() + TOTAL_BUDGET,
-            |_, _| Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashMap::new())),
             |cwd| cwd != "/work/missing",
             |_, _, _, _| outcomes.next().unwrap(),
             |_, _, _| {},
@@ -681,7 +693,7 @@ mod tests {
             &snapshot,
             false,
             Instant::now() + TOTAL_BUDGET,
-            |_, _| Ok((records(), HashSet::new())),
+            |_, _| Ok((records(), HashMap::new())),
             |cwd| cwd != "/work/missing",
             |_, _, _, _| unreachable!("nothing starts"),
             |_, _, _| {},
@@ -713,7 +725,7 @@ mod tests {
                     return Err(io::Error::new(io::ErrorKind::TimedOut, "slow host"));
                 }
                 // Only this member is reported; the others are not even read.
-                let live = HashSet::from([member.identity.id.clone()]);
+                let live = HashMap::from([(member.identity.id.clone(), MemberRun::Running)]);
                 Ok((records(), live))
             },
             |_| true,

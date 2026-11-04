@@ -337,3 +337,36 @@ fn a_relaunch_that_fails_while_a_reader_reconciles_keeps_the_member_bound() {
     talk_refused_ended(&mut world, "steady", "after-failed-relaunch");
     assert!(world.clean());
 }
+
+#[test]
+fn restore_lists_an_ended_kept_terminal_as_not_restored_and_leaves_it_alone() {
+    let mut world = World::new();
+    let (identity, pane) = member(&mut world, "ended", &["-c", ECHO_LOOP]);
+    member(&mut world, "running", &["-c", ECHO_LOOP]);
+    wait_screen(&mut world, "ended", "paused-ready");
+    type_into(&world, &pane, &[0x04]);
+    wait_ended(&world, &identity);
+
+    let restored = world.json(&["workspace", "restore", "--host", "pty", "--json"]);
+    let row = |name: &str| {
+        restored["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|member| member["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not listed: {restored:#}"))
+            .clone()
+    };
+    let ended = row("ended");
+    assert_eq!(
+        (&ended["status"], &ended["reason"]),
+        (&"skipped".into(), &"ended".into()),
+        "{ended:#}"
+    );
+    let message = ended["message"].as_str().unwrap();
+    assert!(message.contains("ended, not restored"), "{message}");
+    assert_eq!(row("running")["reason"], "live");
+    // Nothing was started on the kept terminal.
+    assert!(stream(&world, &identity)["ended"].is_object());
+    assert!(world.clean());
+}

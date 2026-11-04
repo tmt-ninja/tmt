@@ -1252,6 +1252,27 @@ fn a_fast_exit_reports_completion_and_a_missing_program_is_not_success() {
         "{failed:?}"
     );
     assert!(!String::from_utf8_lossy(&failed.stderr).contains("not confirmed"));
+    // A temporary member whose start fails leaves no identity behind (#5988).
+    let temporary = world.run(&["run", "--no-channel", "gamma", "/bin/sh", "-c", "exit 3"]);
+    assert_eq!(temporary.status.code(), Some(3), "{temporary:?}");
+    let listed = world.json(&["ls", "--json"]);
+    let names: Vec<_> = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].clone())
+        .collect();
+    assert!(!names.contains(&"gamma".into()), "{listed:#}");
+    // A failed start closes its terminal: no supervisor socket is left.
+    let directory = support::state_dir(&world.root).join("pty");
+    let sockets: Vec<_> = fs::read_dir(&directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sock"))
+        .map(|entry| entry.path())
+        .collect();
+    assert!(sockets.is_empty(), "{sockets:?}");
     assert!(world.clean());
 }
 
@@ -1375,6 +1396,24 @@ fn built_in_members_are_recorded_leave_only_on_purpose_and_restore_never_touches
         .unwrap();
     kill(Pid::from_raw(gamma), Signal::SIGKILL).unwrap();
     wait_program_ended(&mut world, "gamma");
+    // Its kept terminal is not restored (relaunch.rs covers that); with the terminal
+    // gone too, gamma is a member restore must resume.
+    let pane = world.member_row("gamma")["pane"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let directory = support::state_dir(&world.root).join("pty");
+    let mut client = Connection::connect(&directory, &pane).unwrap();
+    assert_eq!(
+        client.control(Control::Close, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
+    drop(client);
+    let deadline = Instant::now() + WAIT;
+    while directory.join(format!("{pane}.sock")).exists() {
+        assert!(Instant::now() < deadline, "gamma's terminal did not close");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let report = support::state_dir(&world.root).join("restore-last-pty.json");
     for _ in 0..2 {
         let restored = world.run(&["workspace", "restore", "--host", "pty", "--json"]);
