@@ -182,7 +182,11 @@ impl Connection {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.receive(remaining)? {
                 Some(ServerMessage::Control(answer)) => return Ok(answer),
-                Some(ServerMessage::Output(_) | ServerMessage::Resized(_)) => {}
+                // A kept terminal stays connected after its program exits, so an exit
+                // that lands before the answer is live output too.
+                Some(
+                    ServerMessage::Output(_) | ServerMessage::Resized(_) | ServerMessage::Exited(_),
+                ) => {}
                 Some(_) => {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,

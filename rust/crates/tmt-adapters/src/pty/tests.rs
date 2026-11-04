@@ -274,6 +274,27 @@ fn the_exit_status_and_the_signal_are_reported() {
 }
 
 #[test]
+fn a_control_answer_after_an_unread_exit_on_the_same_connection_is_still_the_answer() {
+    let member = Member::start(&["sh", "-c", "read l; exit 3"]);
+    let mut client = member.connect();
+    client.input(b"\r").unwrap();
+    // The exit is published before this client reads anything, so `Exited` is queued
+    // ahead of the answer on its connection.
+    assert_eq!(wait_ended(&member.directory, &member.id), Exit::Code(3));
+    assert!(matches!(
+        client
+            .control(tmt_pty_protocol::Control::Inspect, WAIT)
+            .unwrap(),
+        tmt_pty_protocol::ControlReply::State {
+            ended: Some(Exit::Code(3)),
+            ..
+        }
+    ));
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
 fn a_program_runs_to_the_end_with_nobody_attached() {
     // More output than any terminal or socket buffer holds: it finishes only if
     // the supervisor keeps reading while no client is there.
