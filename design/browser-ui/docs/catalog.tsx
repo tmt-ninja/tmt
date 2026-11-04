@@ -1,3 +1,4 @@
+import { blockComponents } from './catalog-blocks.js';
 import { moreComponents, moreVariants } from './catalog-more.js';
 import { useState, type ReactNode } from 'react';
 import { Info, Search } from 'lucide-react';
@@ -588,4 +589,5 @@ export const components: ComponentDoc[] = [
     variants: [...doc.variants, ...(moreVariants[doc.slug] ?? [])],
   })),
   ...moreComponents,
+  ...blockComponents,
 ];

@@ -57,6 +57,8 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   },
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
+  // './react' names the root graph: the shared static-drawing parts (table, notice, command).
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react'] },
 };
 // Modules with no edges at all, which every graph may import.
 const NEUTRAL = ['overlay.ts', 'scoped-modal.ts'];
@@ -70,14 +72,20 @@ interface Graph {
   directory: string;
   packages: string[];
   graphs: string[];
+  /** The graph may also reach the root graph: src files outside every directory graph. */
+  root: boolean;
 }
+const ROOT_GRAPH = './react';
 function graphsOf(sourceRoot: string): Graph[] {
   return directoryExports.map(({ name, directory }) => ({
     directory: path.join(sourceRoot, directory),
     packages: GRAPH_POLICIES[name]?.packages ?? [],
-    graphs: (GRAPH_POLICIES[name]?.graphs ?? []).map((other) =>
-      path.join(sourceRoot, directoryExports.find((entry) => entry.name === other)!.directory)
-    ),
+    graphs: (GRAPH_POLICIES[name]?.graphs ?? [])
+      .filter((other) => other !== ROOT_GRAPH)
+      .map((other) =>
+        path.join(sourceRoot, directoryExports.find((entry) => entry.name === other)!.directory)
+      ),
+    root: GRAPH_POLICIES[name]?.graphs?.includes(ROOT_GRAPH) ?? false,
   }));
 }
 const inside = (file: string, directory: string) => file.startsWith(`${directory}/`);
@@ -149,9 +157,13 @@ function violations(
       { moduleResolution: ts.ModuleResolutionKind.Bundler, ...options },
       ts.sys
     ).resolvedModule?.resolvedFileName;
+    const inRoot = !graphs.some((other) => target && inside(target, other.directory));
     const reachable = graph
-      ? [graph.directory, ...graph.graphs].some((directory) => target && inside(target, directory))
-      : !graphs.some((other) => target && inside(target, other.directory));
+      ? [graph.directory, ...graph.graphs].some(
+          (directory) => target && inside(target, directory)
+        ) ||
+        (graph.root && inRoot)
+      : inRoot;
     if (
       !target ||
       !inside(target, sourceRoot) ||
@@ -248,6 +260,26 @@ it('keeps each declared graph to its own packages, stylesheet and admitted graph
     './chips.js',
   ]);
 });
+it('lets only a graph that declares the root graph reach root modules', () => {
+  const blocks = path.join(production, 'blocks/content.tsx');
+  const table = path.join(production, 'data-table/data-table.tsx');
+  const legacy = path.join(production, 'header.tsx');
+  // ./blocks declares './react', so it reaches the shared root parts.
+  expect(violations(blocks, "import { BrowserTable } from '../table.js';", false)).toEqual([]);
+  // It reaches no other entry, and no package beyond its own.
+  for (const edge of ['../ui/index.js', '../rich-input/index.js'])
+    expect(violations(blocks, `import { Button } from '${edge}';`, false)).toEqual([edge]);
+  expect(violations(blocks, "import { $getRoot } from 'lexical';", false)).toEqual(['lexical']);
+  // Root modules never reach into the entry.
+  expect(violations(legacy, "export * from './blocks/index.js';", false)).toEqual([
+    './blocks/index.js',
+  ]);
+  // A graph without the root capability still cannot reach root modules.
+  expect(violations(table, "import { BrowserTable } from '../table.js';", false)).toEqual([
+    '../table.js',
+  ]);
+});
+
 it('keeps the search entry free of every import', () => {
   const file = path.join(production, 'search.ts');
   expect(imports(file, readFileSync(file, 'utf8'))).toEqual([]);

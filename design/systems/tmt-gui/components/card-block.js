@@ -1,0 +1,14 @@
+// Ports browser-ui's CardBlock (#5981): plain JavaScript and htm on the skeleton (React, html, cn).
+// The compiler checks every example draws like the browser-ui part composed as `ui.compose` says; the part's classes are
+// plain names from src/blocks/blocks.css, so `classes` is filled but not read.
+export default ({ html }) => {
+  const classes = /* classes */ null;
+  void classes;
+  return function CardBlock({ variant = 'card', heading, meta, children }) {
+    return html`<section data-slot="card-block" className="tmt-block-card" data-variant=${variant}>
+      ${(heading !== undefined || meta !== undefined) &&
+      html`<div className="tmt-block-card-head">${heading !== undefined && html`<h3 className="tmt-block-card-title">${heading}</h3>`}${meta !== undefined && html`<span className="tmt-block-card-meta">${meta}</span>`}</div>`}
+      <div className="tmt-block-card-body">${children}</div>
+    </section>`;
+  };
+};

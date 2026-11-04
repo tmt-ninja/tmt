@@ -25,7 +25,8 @@
     "./list-table": "./src/list-table-host.ts",
     "./rich-input": "./src/rich-input/index.ts",
     "./data-table": "./src/data-table/index.ts",
-    "./manage-list": "./src/manage-list/index.ts"
+    "./manage-list": "./src/manage-list/index.ts",
+    "./blocks": "./src/blocks/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write && node scripts/generate-docs-embed-css.mjs --write",

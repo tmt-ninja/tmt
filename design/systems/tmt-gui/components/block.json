@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "block",
+  "source": "block.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "heading",
+        "text",
+        "list-item",
+        "todo",
+        "table",
+        "card",
+        "callout",
+        "code"
+      ],
+      "default": "text"
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "hover",
+        "selected",
+        "dragging"
+      ],
+      "default": "idle"
+    },
+    "selected": {
+      "type": "boolean"
+    },
+    "readonly": {
+      "type": "boolean"
+    },
+    "handle": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "block.css",
+  "ui": {
+    "module": "/src/blocks/block.tsx",
+    "component": "Block",
+    "parts": [],
+    "compose": "<Block label=\"{label}\" kind=\"{kind}\" state=\"{state}\" selected=\"{selected}\" readonly=\"{readonly}\"><BlockHandle if=\"handle\"></BlockHandle>{children}</Block>"
+  },
+  "examples": [
+    {
+      "title": "Idle, hover with the handle, selected",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Paragraph: idle\"><tmt-ui-text-block>Idle: no handle, no fill.</tmt-ui-text-block></tmt-ui-block><tmt-ui-block label=\"Paragraph: hover\" state=\"hover\" handle><tmt-ui-text-block>Hover: a light tint; the shared handle sits in the gutter.</tmt-ui-text-block></tmt-ui-block><tmt-ui-block label=\"Paragraph: selected\" selected><tmt-ui-text-block>Selected: the selection tint, no border.</tmt-ui-text-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Dragging and read-only",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Paragraph: dragging\" state=\"dragging\"><tmt-ui-text-block>Dragging: half transparent.</tmt-ui-text-block></tmt-ui-block><tmt-ui-block label=\"Paragraph: read-only\" readonly><tmt-ui-text-block>Read-only: no hover, no handle.</tmt-ui-text-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

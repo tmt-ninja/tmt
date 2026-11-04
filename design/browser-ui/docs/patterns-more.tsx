@@ -62,13 +62,14 @@ import { ScaledFrame } from '../gallery/kit.js';
 import { guiRoot } from './routes.js';
 import { PageTable, samplePages } from '../gallery/page-table.js';
 import { PageRow } from './patterns.js';
+import { blockPatterns } from './patterns-blocks.js';
 
 /**
  * The composed patterns (#5821 C): each is real components only, and its page shows it in an
  * scope at the wide width and at 390, in light and dark, so a pattern is reviewed at the widths
  * it ships at. Scene parameters select the pattern, state and theme without another document.
  */
-interface PatternDoc {
+export interface PatternDoc {
   slug: string;
   title: string;
   lead: string;
@@ -681,6 +682,7 @@ export const morePatterns: PatternDoc[] = [
     rules: ['The destructive action is outlined in the blocked colour, never filled red.'],
     Body: ConfirmNotify,
   },
+  ...blockPatterns,
 ];
 
 /** A pattern scene, rendered in its scope's width and theme. */

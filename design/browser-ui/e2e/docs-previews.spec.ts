@@ -52,27 +52,43 @@ const previewFaults = (page: Page) =>
     return { count: frames.length, faults };
   });
 
-for (const width of [1440, 390]) {
-  test(`docs previews keep to their cells at ${width}`, async ({ page }) => {
-    test.setTimeout(300_000);
-    const paths = await docsPages(page);
-    expect(paths.length).toBeGreaterThan(20);
-    await page.setViewportSize({ width, height: 900 });
-    const faults: string[] = [];
-    let previews = 0;
-    for (const path of paths) {
-      await page.goto(`${docs}${path}`);
-      await page.locator('main').first().waitFor();
-      await expect(page.locator('[data-scene-loading]')).toHaveCount(0);
-      const result = await previewFaults(page);
-      previews += result.count;
-      faults.push(...result.faults.map((fault) => `${path}: ${fault}`));
-    }
-    // The sweep reached the pattern and frame previews, not only pages without any.
-    expect(previews).toBeGreaterThan(40);
-    expect(faults).toEqual([]);
-  });
-}
+// The sweep is split so each group gets its own timeout; together they cover every page.
+const groups: [name: string, owns: (path: string) => boolean][] = [
+  ['GUI components', (path) => path.startsWith('/ds/gui/components/')],
+  ['GUI patterns', (path) => path.startsWith('/ds/gui/patterns/')],
+  [
+    'GUI other pages',
+    (path) =>
+      path.startsWith('/ds/gui') &&
+      !path.startsWith('/ds/gui/components/') &&
+      !path.startsWith('/ds/gui/patterns/'),
+  ],
+  ['TUI', (path) => path.startsWith('/ds/tui')],
+];
+
+for (const width of [1440, 390])
+  for (const [group, owns] of groups)
+    test(`docs previews keep to their cells at ${width}: ${group}`, async ({ page }) => {
+      test.setTimeout(300_000);
+      const all = await docsPages(page);
+      expect(all.length).toBeGreaterThan(20);
+      const paths = all.filter(owns);
+      expect(paths.length).toBeGreaterThan(0);
+      await page.setViewportSize({ width, height: 900 });
+      const faults: string[] = [];
+      let previews = 0;
+      for (const path of paths) {
+        await page.goto(`${docs}${path}`);
+        await page.locator('main').first().waitFor();
+        await expect(page.locator('[data-scene-loading]')).toHaveCount(0);
+        const result = await previewFaults(page);
+        previews += result.count;
+        faults.push(...result.faults.map((fault) => `${path}: ${fault}`));
+      }
+      // The pattern sweep reached the pattern and frame previews, not only pages without any.
+      if (group === 'GUI patterns') expect(previews).toBeGreaterThan(40);
+      expect(faults).toEqual([]);
+    });
 
 test('the preview check catches a frame that keeps its full width', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -36,6 +36,19 @@ describe('buildBundle', () => {
       'tmt-ui-surface',
       'tmt-ui-empty',
       'tmt-ui-tabs',
+      'tmt-ui-block-document',
+      'tmt-ui-block',
+      'tmt-ui-block-menu',
+      'tmt-ui-heading-block',
+      'tmt-ui-text-block',
+      'tmt-ui-list-item',
+      'tmt-ui-todo',
+      'tmt-ui-table-block',
+      'tmt-ui-card-block',
+      'tmt-ui-callout',
+      'tmt-ui-code-block',
+      'tmt-ui-block-mention',
+      'tmt-ui-block-toast',
     ]);
   });
 
