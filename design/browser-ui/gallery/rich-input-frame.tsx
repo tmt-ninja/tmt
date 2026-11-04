@@ -12,6 +12,8 @@ const match = (names: string[], prefix: string) => (query: string) =>
 export function RichInputFrame({ params }: { params: URLSearchParams }) {
   const [search, setSearch] = useState<RichInputValue>(emptyRichInputValue);
   const [message, setMessage] = useState<RichInputValue>(emptyRichInputValue);
+  const [choice, setChoice] = useState('');
+  const [removals, setRemovals] = useState(0);
   const [sent, setSent] = useState<RichInputValue[]>([]);
   const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
   return (
@@ -28,10 +30,35 @@ export function RichInputFrame({ params }: { params: URLSearchParams }) {
             leading={<Search aria-hidden="true" />}
             suggestions={[
               { kind: 'project', trigger: 'project:', options: match(projects, 'project:') },
+              ...(params.has('list-actions')
+                ? [
+                    {
+                      kind: 'stage',
+                      trigger: 'stage:',
+                      options: (query: string) =>
+                        'done'.startsWith(query) ? [{ text: 'stage:done', label: 'Done' }] : [],
+                    },
+                  ]
+                : []),
             ]}
             removeLabel={(_, text) => `Remove filter ${text}`}
+            onSuggestionChoose={
+              params.has('list-actions')
+                ? (kind, option) => {
+                    setChoice(option.text);
+                    return kind === 'stage';
+                  }
+                : undefined
+            }
+            onChipRemove={
+              params.has('list-actions') ? () => setRemovals((count) => count + 1) : undefined
+            }
           />
-          <output data-search={JSON.stringify(search)} />
+          <output
+            data-search={JSON.stringify(search)}
+            data-choice={choice}
+            data-removals={removals}
+          />
         </section>
         <section aria-label="Composer">
           <RichInput

@@ -87,6 +87,19 @@ export const $isRichInputChip = (node: LexicalNode | null | undefined): node is 
 function RichInputChip({ nodeKey, kind, text }: { nodeKey: NodeKey; kind: string; text: string }) {
   const [editor] = useLexicalComposerContext();
   const removeLabel = useContext(ChipRemoveLabel);
+  const remove = () => {
+    if (!editor.isEditable()) return;
+    editor.update(
+      () => {
+        const node = $getNodeByKey(nodeKey);
+        if (!node) return;
+        node.selectPrevious();
+        node.remove();
+      },
+      { tag: HISTORY_PUSH_TAG, discrete: true },
+    );
+    editor.focus();
+  };
   return (
     <span className="tmt-rich-input-chip" data-kind={kind} contentEditable={false}>
       <span className="tmt-rich-input-chip-text">{text}</span>
@@ -94,19 +107,15 @@ function RichInputChip({ nodeKey, kind, text }: { nodeKey: NodeKey; kind: string
         type="button"
         className="tmt-rich-input-chip-remove"
         aria-label={removeLabel(kind, text)}
-        tabIndex={-1}
         onMouseDown={(event) => event.preventDefault()}
+        onKeyDownCapture={(event) => {
+          if (!event.nativeEvent.isTrusted || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          event.stopPropagation();
+          remove();
+        }}
         onClick={(event) => {
-          if (!event.nativeEvent.isTrusted || !editor.isEditable()) return;
-          editor.update(
-            () => {
-              const node = $getNodeByKey(nodeKey);
-              if (!node) return;
-              node.selectPrevious();
-              node.remove();
-            },
-            { tag: HISTORY_PUSH_TAG, discrete: true },
-          );
+          if (event.nativeEvent.isTrusted) remove();
         }}
       >
         <X aria-hidden="true" />

@@ -299,6 +299,18 @@ impl State {
                     .collect::<Vec<_>>()
             );
         }
+        // A member snapshot retains the existing window shape. Independent observation ages
+        // belong to the account store, which the public limits view reads afresh.
+        if let Some(windows) = value
+            .pointer_mut("/value/rateLimits/windows")
+            .and_then(Value::as_array_mut)
+        {
+            for window in windows {
+                if let Some(window) = window.as_object_mut() {
+                    window.remove("observedAtMs");
+                }
+            }
+        }
         value
     }
 }

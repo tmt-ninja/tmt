@@ -132,6 +132,9 @@ pub struct Window {
     pub window_minutes: u64,
     pub used_percent: f64,
     pub resets_at_ms: u64,
+    /// Source observation time when windows have independent ages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at_ms: Option<u64>,
 }
 
 // `valid` admits only finite percentages, so equality is reflexive.
@@ -145,6 +148,9 @@ impl Window {
             && (0.0..=100.0).contains(&self.used_percent)
             && self.resets_at_ms > 0
             && is_valid_js_safe_integer(self.resets_at_ms)
+            && self
+                .observed_at_ms
+                .is_none_or(|time| time > 0 && is_valid_js_safe_integer(time))
     }
 }
 
@@ -154,7 +160,12 @@ impl RateLimits {
             && self.observed_at_ms > 0
             && is_valid_js_safe_integer(self.observed_at_ms)
             && (1..=MAX_WINDOWS).contains(&self.windows.len())
-            && self.windows.iter().all(Window::valid)
+            && self.windows.iter().all(|window| {
+                window.valid()
+                    && window
+                        .observed_at_ms
+                        .is_none_or(|time| time <= self.observed_at_ms)
+            })
             && self
                 .windows
                 .windows(2)
@@ -176,6 +187,7 @@ pub(super) fn codex(entry: &Value) -> Option<RateLimits> {
                 used_percent: window["used_percent"].as_f64()?,
                 // The provider reports epoch seconds.
                 resets_at_ms: window["resets_at"].as_u64()?.checked_mul(1000)?,
+                observed_at_ms: None,
             }),
         }
     }

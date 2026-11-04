@@ -44,9 +44,11 @@ export function usePageListKeys(actions: PageListKeyActions) {
       const section = now.section.current;
       if (!section || !section.getClientRects().length || !admitsListShortcut(event, section))
         return;
-      const rows = [...section.querySelectorAll<HTMLElement>('.pages [role="row"][data-page-id]')];
+      const rows = [
+        ...section.querySelectorAll<HTMLElement>('.page-list-table [role="row"][data-page-id]'),
+      ];
       const target = event.target as HTMLElement;
-      const current = target.closest<HTMLElement>('.pages [role="row"][data-page-id]');
+      const current = target.closest<HTMLElement>('.page-list-table [role="row"][data-page-id]');
       const at = current ? rows.indexOf(current) : -1;
       switch (event.key) {
         case '/': {

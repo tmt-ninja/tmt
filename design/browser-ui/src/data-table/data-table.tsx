@@ -12,7 +12,6 @@ import {
   Checkbox,
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -25,6 +24,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '../ui/index.js';
+import { TrustedMenuItem } from '../ui/trusted-menu.js';
 import './data-table.css';
 
 /** What a column holds; the role sets its alignment, its phone placement and its skeleton. */
@@ -67,6 +67,8 @@ export interface DataTableAction {
   label: string;
   icon: ReactNode;
   onSelect: () => void;
+  hasPopup?: 'dialog';
+  pressed?: boolean;
 }
 
 export interface DataTableSort {
@@ -87,11 +89,18 @@ export interface DataTableProps<Row> {
   onSortChange?: (sort: DataTableSort) => void;
   /** With onSelectedChange, a checkbox column with select all. */
   selected?: ReadonlySet<string>;
+  selectAllLabel?: string;
   onSelectedChange?: (next: ReadonlySet<string>) => void;
+  /** A row can be displayed without being eligible for selection or bulk actions. */
+  canSelect?: (row: Row) => boolean;
+  /** All selectable keys when the host renders a window of a larger result set. */
+  selectionKeys?: readonly string[];
   /** The bulk bar's actions; the bar replaces the header while rows are selected. */
   bulkActions?: (selected: ReadonlySet<string>) => ReactNode;
   /** Hover and focus actions, inside the reserved actions column; also listed in the row menu. */
   actions?: (row: Row) => DataTableAction[];
+  /** Whether quick actions are also listed in the row menu. Defaults to true. */
+  includeActionsInMenu?: boolean;
   /** The row menu's own items (DropdownMenuItem and friends), after the actions. */
   menu?: (row: Row) => ReactNode;
   /** Enter on a focused row. */
@@ -136,7 +145,7 @@ function CellText({ text }: { text: string }) {
       }
     >
       <TooltipTrigger asChild>
-        <span ref={ref} className="tmt-data-table-text">
+        <span ref={ref} className="tmt-data-table-text" title={text}>
           {text}
         </span>
       </TooltipTrigger>
@@ -202,9 +211,13 @@ export function DataTable<Row>({
   sort,
   onSortChange,
   selected = new Set<string>(),
+  selectAllLabel = 'Select all rows',
   onSelectedChange,
+  canSelect,
+  selectionKeys,
   bulkActions,
   actions,
+  includeActionsInMenu = true,
   menu,
   onOpen,
   rowData,
@@ -227,7 +240,11 @@ export function DataTable<Row>({
   const slots = actions ? Math.max(0, ...rows.map((row) => actions(row).length)) : 0;
   const keys = state === 'ready' ? rows.map(rowKey) : [];
   const focusKey = active !== null && keys.includes(active) ? active : (keys[0] ?? null);
-  const chosen = keys.filter((key) => selected.has(key));
+  const eligible =
+    state === 'ready'
+      ? (selectionKeys ?? rows.filter((row) => canSelect?.(row) !== false).map(rowKey))
+      : [];
+  const chosen = eligible.filter((key) => selected.has(key));
   const bulkShown = selectable && chosen.length > 0;
   // When the selection empties, the header row replaces the bulk bar and its focused control (Clear,
   // a bulk action) unmounts; focus moves to Select all instead of falling to the document.
@@ -259,14 +276,14 @@ export function DataTable<Row>({
   };
   const setAll = (on: boolean) => {
     const next = new Set(selected);
-    for (const key of keys) {
+    for (const key of eligible) {
       if (on) next.add(key);
       else next.delete(key);
     }
     onSelectedChange?.(next);
   };
   const allState =
-    chosen.length === 0 ? false : chosen.length === keys.length ? true : 'indeterminate';
+    chosen.length === 0 ? false : chosen.length === eligible.length ? true : 'indeterminate';
 
   const focusRow = (index: number) => {
     const target = body.current?.querySelectorAll<HTMLElement>('[data-table-row]')[index];
@@ -284,7 +301,7 @@ export function DataTable<Row>({
     } else if (event.key === 'Enter') {
       event.preventDefault();
       onOpen?.(row);
-    } else if (event.key === ' ' && selectable) {
+    } else if (event.key === ' ' && selectable && canSelect?.(row) !== false) {
       event.preventDefault();
       setRow(key, !selected.has(key));
     } else if (
@@ -297,7 +314,10 @@ export function DataTable<Row>({
   };
 
   const cellFor = (column: DataTableColumn<Row>, row: Row) => {
-    if (column.cell) return column.cell(row);
+    if (column.cell) {
+      const value = column.cell(row);
+      if (value !== undefined) return value;
+    }
     if (column.chips) return <ChipsCell chips={column.chips(row)} max={column.maxChips ?? 2} />;
     if (column.text) return <CellText text={column.text(row)} />;
     return null;
@@ -308,9 +328,9 @@ export function DataTable<Row>({
       {selectable && (
         <div role="columnheader" className="tmt-data-table-cell" data-role="select">
           <Checkbox
-            aria-label="Select all rows"
+            aria-label={selectAllLabel}
             checked={allState}
-            disabled={keys.length === 0}
+            disabled={eligible.length === 0}
             onCheckedChange={(on) => setAll(on === true)}
           />
         </div>
@@ -367,18 +387,28 @@ export function DataTable<Row>({
     >
       <div role="columnheader" className="tmt-data-table-cell" data-role="select">
         <Checkbox
-          aria-label="Select all rows"
+          aria-label={selectAllLabel}
           checked={allState}
           onCheckedChange={(on) => setAll(on === true)}
         />
       </div>
       <div role="columnheader" className="tmt-data-table-cell tmt-data-table-bulk">
-        <div role="toolbar" aria-label="Selected rows" className="tmt-data-table-bulk-bar">
-          <span className="tmt-data-table-bulk-count">{chosen.length} selected</span>
-          {bulkActions?.(new Set(chosen))}
-          <Button type="button" variant="ghost" size="sm" onClick={() => setAll(false)}>
-            Clear
-          </Button>
+        <div role="region" aria-label="Bulk actions">
+          <div role="toolbar" aria-label="Selected rows" className="tmt-data-table-bulk-bar">
+            <span role="status" className="tmt-data-table-bulk-count">
+              {chosen.length} selected
+            </span>
+            {bulkActions?.(new Set(chosen))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Clear selection"
+              onClick={() => setAll(false)}
+            >
+              Clear
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -455,10 +485,14 @@ export function DataTable<Row>({
                           key={key}
                           role="row"
                           aria-rowindex={index + 2}
-                          aria-selected={selectable ? selected.has(key) : undefined}
+                          aria-selected={
+                            selectable ? selected.has(key) && canSelect?.(row) !== false : undefined
+                          }
                           className="tmt-data-table-row"
                           data-table-row=""
-                          data-selected={selected.has(key) || undefined}
+                          data-selected={
+                            (selected.has(key) && canSelect?.(row) !== false) || undefined
+                          }
                           tabIndex={key === focusKey ? 0 : -1}
                           onFocus={() => setActive(key)}
                           onKeyDown={(event) => onRowKey(event, row, index)}
@@ -474,7 +508,8 @@ export function DataTable<Row>({
                               <Checkbox
                                 tabIndex={-1}
                                 aria-label={`Select ${name}`}
-                                checked={selected.has(key)}
+                                checked={selected.has(key) && canSelect?.(row) !== false}
+                                disabled={canSelect?.(row) === false}
                                 onCheckedChange={(on) => setRow(key, on === true)}
                               />
                             </div>
@@ -523,7 +558,11 @@ export function DataTable<Row>({
                                         size="icon-sm"
                                         tabIndex={-1}
                                         aria-label={action.label}
-                                        onClick={action.onSelect}
+                                        aria-haspopup={action.hasPopup}
+                                        aria-pressed={action.pressed}
+                                        onClick={(event) => {
+                                          if (event.nativeEvent.isTrusted) action.onSelect();
+                                        }}
                                       >
                                         {action.icon}
                                       </Button>
@@ -565,13 +604,16 @@ export function DataTable<Row>({
                                     </DropdownMenuLabel>
                                   ))}
                                   {menuColumns.length > 0 && <DropdownMenuSeparator />}
-                                  {rowActions.map((action) => (
-                                    <DropdownMenuItem key={action.id} onSelect={action.onSelect}>
-                                      {action.icon}
-                                      {action.label}
-                                    </DropdownMenuItem>
-                                  ))}
-                                  {rowActions.length > 0 && menu && <DropdownMenuSeparator />}
+                                  {includeActionsInMenu &&
+                                    rowActions.map((action) => (
+                                      <TrustedMenuItem key={action.id} onSelect={action.onSelect}>
+                                        {action.icon}
+                                        {action.label}
+                                      </TrustedMenuItem>
+                                    ))}
+                                  {includeActionsInMenu && rowActions.length > 0 && menu && (
+                                    <DropdownMenuSeparator />
+                                  )}
                                   {menu?.(row)}
                                 </DropdownMenuContent>
                               </DropdownMenu>

@@ -1,6 +1,6 @@
 //! Best-effort allowance from Claude Code's own usage cache and from the observations the
 //! first-party mod pushes (#5187). Never refresh the cache, read credentials, or retain unrelated
-//! configuration fields. The newest observation per account wins, whole.
+//! configuration fields. Each window retains its own newest observation.
 use crate::{
     runtime::consumption::{AccountLimits, NoLimits, RateAccount, RateLimits, RateWindow},
     skill_installation::ProviderEnvironment,
@@ -116,14 +116,7 @@ pub(super) fn read(environment: &ProviderEnvironment, now_ms: u64) -> Option<Opt
         .data_root()
         .zip(account(&bytes))
         .and_then(|(root, account)| pushed(root, account, now_ms));
-    // The newest observation wins whole; a tie prefers the cache. Never merged per window.
-    Some(match (cached, pushed) {
-        (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
-            Some(pushed)
-        }
-        (Some(cached), _) => Some(cached),
-        (None, pushed) => pushed,
-    })
+    Some(merge(cached, pushed))
 }
 
 /// The account of `environment`'s Claude root as consumers group it (#5274): an opaque key over
@@ -144,8 +137,8 @@ fn root_account(environment: &ProviderEnvironment, uuid: &str) -> RateAccount {
 }
 
 /// What each Claude account Core can see has now (#5418): the accounts in the pushed store and
-/// the ambient root's own. Per account the newest observation with a current window wins whole
-/// and a tie prefers the cache, as in `read`. An account with none is still returned, with
+/// the ambient root's own. Per account each window's newest observation wins; a tie prefers
+/// the cache, as in `read`. An account with none is still returned, with
 /// `expired` when an observation existed and has elapsed and `none_observed` when the account
 /// is known and nothing was ever seen. A source that cannot be read adds nothing.
 pub(super) fn accounts(environment: &ProviderEnvironment, now_ms: u64) -> Vec<AccountLimits> {
@@ -194,13 +187,7 @@ pub(super) fn accounts(environment: &ProviderEnvironment, now_ms: u64) -> Vec<Ac
                 seen.cached.and_then(|limits| current(limits, now_ms)),
                 seen.pushed.and_then(|limits| current(limits, now_ms)),
             );
-            let newest = match (cached, pushed) {
-                (Some(cached), Some(pushed)) if pushed.observed_at_ms > cached.observed_at_ms => {
-                    Some(pushed)
-                }
-                (Some(cached), _) => Some(cached),
-                (None, pushed) => pushed,
-            };
+            let newest = merge(cached, pushed);
             AccountLimits {
                 reason: newest.is_none().then_some(if observed {
                     NoLimits::Expired
@@ -219,9 +206,50 @@ pub(super) fn accounts(environment: &ProviderEnvironment, now_ms: u64) -> Vec<Ac
     listed
 }
 
+/// Merge whole window observations independently, preferring the first source on a tie.
+fn merge(first: Option<RateLimits>, second: Option<RateLimits>) -> Option<RateLimits> {
+    let (mut first, second) = match (first, second) {
+        (Some(first), Some(second)) => (first, second),
+        (Some(value), None) | (None, Some(value)) => return Some(value),
+        (None, None) => return None,
+    };
+    let first_time = first.observed_at_ms;
+    let second_time = second.observed_at_ms;
+    for candidate in second.windows {
+        let observed = candidate.observed_at_ms.unwrap_or(second_time);
+        if let Some(existing) = first
+            .windows
+            .iter_mut()
+            .find(|window| window.window_minutes == candidate.window_minutes)
+        {
+            if observed > existing.observed_at_ms.unwrap_or(first_time) {
+                *existing = candidate;
+            }
+        } else {
+            first.windows.push(candidate);
+        }
+    }
+    first.windows.sort_by_key(|window| window.window_minutes);
+    first.observed_at_ms = first
+        .windows
+        .iter()
+        .map(|window| window.observed_at_ms.unwrap_or(first_time))
+        .max()
+        .unwrap_or(first_time);
+    Some(first)
+}
+
 /// The windows of `limits` that have not elapsed, or nothing when none remain.
 fn current(mut limits: RateLimits, now_ms: u64) -> Option<RateLimits> {
     limits.windows.retain(|window| window.resets_at_ms > now_ms);
+    if let Some(newest) = limits
+        .windows
+        .iter()
+        .filter_map(|window| window.observed_at_ms)
+        .max()
+    {
+        limits.observed_at_ms = newest;
+    }
     (!limits.windows.is_empty()).then_some(limits)
 }
 
@@ -248,8 +276,24 @@ struct PushedWindowStore {
 
 fn load(path: &Path) -> Option<PushedWindowStore> {
     let bytes = crate::bounded_file::read_no_follow(path, STORE_LIMIT).ok()?;
-    let store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
-    (store.version == 1).then_some(store)
+    let mut store: PushedWindowStore = serde_json::from_slice(&bytes).ok()?;
+    match store.version {
+        1 => {
+            // Each v1 entry is one observation: retain that age for every window even if a later
+            // v2 push refreshes only one of them. The file is upgraded only by a successful push.
+            for limits in store.accounts.values_mut() {
+                for window in &mut limits.windows {
+                    if window.observed_at_ms.is_none() {
+                        window.observed_at_ms = Some(limits.observed_at_ms);
+                    }
+                }
+            }
+            store.version = 2;
+            Some(store)
+        }
+        2 => Some(store),
+        _ => None,
+    }
 }
 
 /// Whether the mod has pushed nothing yet for the environment's Claude account: the store has no
@@ -318,6 +362,7 @@ pub(super) fn push(
             window_minutes,
             used_percent: limit.percent_used,
             resets_at_ms,
+            observed_at_ms: Some(now_ms),
         });
     }
     if windows.is_empty() {
@@ -352,9 +397,17 @@ pub(super) fn push(
     limits.account = Some(root_account(environment, account));
     let path = data_root.join(STORE);
     let mut store = load(&path).unwrap_or(PushedWindowStore {
-        version: 1,
+        version: 2,
         accounts: BTreeMap::new(),
     });
+    let previous = store.accounts.remove(account).and_then(|old| {
+        (old.provider == super::NAME && old.observed_at_ms <= now_ms && old.valid())
+            .then(|| current(old, now_ms))
+            .flatten()
+    });
+    let account_label = limits.account.clone();
+    let mut limits = merge(previous, Some(limits)).expect("a current push has windows");
+    limits.account = account_label;
     store.accounts.insert(account.to_owned(), limits);
     while store.accounts.len() > MAX_ACCOUNTS {
         let Some(oldest) = store
@@ -410,6 +463,7 @@ fn cache(bytes: &[u8], now_ms: u64) -> Option<RateLimits> {
                 window_minutes: minutes,
                 used_percent: window.utilization,
                 resets_at_ms: reset_ms(window.resets_at)?,
+                observed_at_ms: Some(cache.fetched_at_ms),
             });
         }
     }
