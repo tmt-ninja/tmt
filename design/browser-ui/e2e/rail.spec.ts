@@ -180,6 +180,25 @@ for (const key of ['Enter', ' '])
     await expect(status).toHaveAttribute('data-command-calls', '2');
   });
 
+test('rail alert and disabled group command styles stay within rail markup', async ({ page }) => {
+  await page.goto('/?frame=rail');
+  await page.evaluate(() => {
+    for (const parent of [document.querySelector('nav.tmt-ui-rail')!, document.body]) {
+      const probe = document.createElement('div');
+      probe.dataset.railStyleProbe = parent === document.body ? 'page' : 'rail';
+      probe.innerHTML =
+        '<div class="tmt-ui-rail-alert">Storage unavailable</div><button disabled class="tmt-ui-rail-group-action">Manage</button>';
+      parent.append(probe);
+    }
+  });
+  const rail = page.locator('[data-rail-style-probe="rail"]');
+  const ordinary = page.locator('[data-rail-style-probe="page"]');
+  await expect(rail.locator('.tmt-ui-rail-alert')).toHaveCSS('display', 'flex');
+  await expect(rail.locator('button')).toHaveCSS('cursor', 'not-allowed');
+  await expect(ordinary.locator('.tmt-ui-rail-alert')).toHaveCSS('display', 'block');
+  await expect(ordinary.locator('button')).not.toHaveCSS('cursor', 'not-allowed');
+});
+
 for (const renderer of ['native', 'react'])
   test(`group fallback icons ignore display labels and preserve explicit icons (${renderer})`, async ({
     page,

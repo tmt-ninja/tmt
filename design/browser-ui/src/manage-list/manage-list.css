@@ -1,16 +1,3 @@
-.tmt-ui-rail-alert {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 6px 12px;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 12px;
-}
-.tmt-ui-rail-group-action:disabled {
-  color: var(--tmt-ui-color-disabled-text);
-  cursor: not-allowed;
-}
-
 .tmt-ui-manage-list {
   display: grid;
   margin: 0;
