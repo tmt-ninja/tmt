@@ -1021,6 +1021,7 @@ impl Supervisor {
                 paused: self.paused,
                 ended: self.ended,
                 shell: self.child.is_some() && self.child_kind == Some(RelaunchKind::Shell),
+                relaunching: self.replaced.is_some(),
             },
             Control::Publish {
                 pane_pid,

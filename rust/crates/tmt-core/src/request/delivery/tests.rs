@@ -323,6 +323,11 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
             "MEMBER_PAUSED",
             "Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume",
         ),
+        (
+            SendNowUntyped::MemberEnded,
+            "MEMBER_ENDED",
+            "Could not send now: the member's agent ended; start it again with terminal.relaunch",
+        ),
     ] {
         assert_eq!((untyped.code(), untyped.message()), (code, sentence));
     }

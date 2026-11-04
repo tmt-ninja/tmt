@@ -286,6 +286,8 @@ pub enum SendNowUntyped {
     NotAgent,
     /// The built-in member is stopped by job control.
     MemberPaused,
+    /// The built-in member's agent ended; its kept terminal runs no agent.
+    MemberEnded,
 }
 
 impl SendNowUntyped {
@@ -297,6 +299,7 @@ impl SendNowUntyped {
             Self::Uncertain => "DELIVERY_UNCERTAIN",
             Self::NotAgent => "RECIPIENT_NOT_AGENT",
             Self::MemberPaused => "MEMBER_PAUSED",
+            Self::MemberEnded => "MEMBER_ENDED",
         }
     }
 
@@ -316,6 +319,9 @@ impl SendNowUntyped {
             }
             Self::MemberPaused => {
                 "Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume"
+            }
+            Self::MemberEnded => {
+                "Could not send now: the member's agent ended; start it again with terminal.relaunch"
             }
         }
     }

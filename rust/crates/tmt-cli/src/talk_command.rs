@@ -462,6 +462,27 @@ fn deliver(
                         "Retry after it continues; the request stays queued. {}",
                         correlation.inspection()
                     )));
+            } else if matches!(outcome, crate::delivery::Delivery::MemberEnded) {
+                // The member's agent ended on its kept terminal; presence stays active,
+                // but nothing is typed into a terminal no agent reads.
+                let name = correlation
+                    .identity
+                    .as_ref()
+                    .map_or(correlation.target.as_str(), |identity| {
+                        identity.name.as_str()
+                    });
+                return Err(correlation
+                    .error(
+                        "MEMBER_ENDED",
+                        format!(
+                            "{name}'s agent has ended; nothing was sent. Start it again with terminal.relaunch, tmt resume or from the board."
+                        ),
+                        1,
+                    )
+                    .suggestion(format!(
+                        "Retry after it runs again; the request stays queued. {}",
+                        correlation.inspection()
+                    )));
             } else if matches!(outcome, crate::delivery::Delivery::AwaitingApproval) {
                 // The agent refused the prompt while it waits on its user;
                 // nothing reached the pane and nothing types around it.

@@ -114,6 +114,8 @@ struct State {
     ended: Option<Exit>,
     /// A relaunched shell holds the kept terminal.
     shell: bool,
+    /// A relaunched agent launcher has not bound yet; see `PtyDriver::snapshot_from`.
+    relaunching: bool,
 }
 
 impl State {
@@ -138,6 +140,7 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         paused,
         ended,
         shell,
+        relaunching,
     } = reply
     else {
         return Err(error("the supervisor did not return state"));
@@ -164,6 +167,7 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         paused,
         ended,
         shell,
+        relaunching,
     })
 }
 
@@ -223,13 +227,6 @@ pub fn member_terminal(binding: &Binding) -> Option<TerminalState> {
         ended: state.ended,
         shell: state.shell,
     })
-}
-
-/// Whether a built-in member is stopped by job control, from one fresh read of
-/// its supervisor. Any doubt (another host, an unreachable supervisor, another
-/// supervisor incarnation at that socket) is not a pause.
-pub(crate) fn member_paused(binding: &Binding) -> bool {
-    member_terminal(binding).is_some_and(|state| state.paused)
 }
 
 /// Why a built-in member was not resumed.
@@ -563,6 +560,14 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
         panes: &[String],
         answer: State,
     ) -> Result<EndpointSnapshot, HostError> {
+        // While a relaunched agent launcher has not bound, the supervisor reports the
+        // launcher as its pane process and no marker. The binding it replaces is restored
+        // if that launch fails, so no other reader may judge it lost meanwhile (#5988):
+        // their observation is inconclusive and every binding stays as it is. The
+        // launcher itself, the pane process, observes its own pane to bind.
+        if answer.relaunching && answer.pane_pid != u64::from(std::process::id()) {
+            return Err(error("a relaunched launcher has not bound yet"));
+        }
         let running = answer.program_running();
         if running {
             verify_pair(self.runner, &answer, self.deadline)?;
@@ -1058,6 +1063,7 @@ mod tests {
             paused: false,
             ended: None,
             shell: false,
+            relaunching: false,
         };
         let runner = Counting {
             calls: Default::default(),
@@ -1194,6 +1200,7 @@ mod tests {
                             paused: false,
                             ended: None,
                             shell: false,
+                            relaunching: false,
                         }
                     }
                     ClientMessage::Control(Control::Publish {
@@ -1445,6 +1452,7 @@ mod tests {
                 paused: false,
                 ended: Some(Exit::Code(0)),
                 shell: false,
+                relaunching: false,
             },
             Control::Close => ControlReply::Applied(true),
             other => panic!("unexpected {other:?}"),
@@ -1500,6 +1508,7 @@ mod tests {
                 paused: false,
                 ended,
                 shell,
+                relaunching: false,
             })
             .unwrap()
             .program_running()
@@ -1519,6 +1528,7 @@ mod tests {
             paused: false,
             ended: None,
             shell: false,
+            relaunching: false,
         };
         assert!(!decode_state(legacy).unwrap().paused);
         let paused = ControlReply::State {
@@ -1529,6 +1539,7 @@ mod tests {
             paused: true,
             ended: None,
             shell: false,
+            relaunching: false,
         };
         assert!(decode_state(paused).unwrap().paused);
     }

@@ -56,6 +56,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             paused: false,
             ended: None,
             shell: false,
+            relaunching: false,
         },
         ControlReply::State {
             supervisor_pid: 12,
@@ -65,6 +66,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             paused: true,
             ended: Some(Exit::Signal(2)),
             shell: true,
+            relaunching: true,
         },
         ControlReply::State {
             supervisor_pid: 12,
@@ -74,6 +76,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             paused: false,
             ended: Some(Exit::Code(-1)),
             shell: false,
+            relaunching: false,
         },
         ControlReply::Launched("committed-marker".into()),
         ControlReply::Applied(true),
@@ -176,6 +179,7 @@ fn a_state_without_the_paused_byte_decodes_as_not_paused() {
             paused: false,
             ended: None,
             shell: false,
+            relaunching: false,
         })
     );
     for (byte, paused) in [(0u8, false), (1, true)] {
@@ -188,7 +192,17 @@ fn a_state_without_the_paused_byte_decodes_as_not_paused() {
         };
         assert_eq!(read, paused);
     }
-    for trailing in [vec![2], vec![0xff], vec![0, 0], vec![1, 0]] {
+    // The later group is all or nothing: the seven bytes of `ended`, `shell` and
+    // `relaunching` (a group without its last byte is malformed), each flag 0 or 1.
+    for trailing in [
+        vec![2],
+        vec![0xff],
+        vec![0, 0],
+        vec![1, 0],
+        vec![0, 0, 0, 0, 0, 0, 0],
+        vec![0, 0, 0, 0, 0, 0, 0, 2],
+        vec![0, 0, 0, 0, 0, 0, 2, 0],
+    ] {
         let mut bad = legacy.clone();
         bad.extend_from_slice(&trailing);
         assert!(
@@ -255,18 +269,27 @@ fn a_state_without_the_ended_group_decodes_as_running() {
         payload.extend_from_slice(tail);
         ServerMessage::read(0xa0, &payload)
     };
-    let Ok(ServerMessage::Control(ControlReply::State { ended, shell, .. })) =
-        current(&[1, 0, 0, 0, 3, 1])
+    let Ok(ServerMessage::Control(ControlReply::State {
+        ended,
+        shell,
+        relaunching,
+        ..
+    })) = current(&[1, 0, 0, 0, 3, 1, 1])
     else {
         panic!("a current State must decode");
     };
-    assert_eq!((ended, shell), (Some(Exit::Code(3)), true));
+    assert_eq!(
+        (ended, shell, relaunching),
+        (Some(Exit::Code(3)), true, true)
+    );
     for bad in [
         &[1, 0, 0, 0][..],
-        &[3, 0, 0, 0, 0, 0],
-        &[0, 0, 0, 0, 1, 0],
-        &[1, 0, 0, 0, 0, 2],
-        &[1, 0, 0, 0, 0, 0, 0],
+        &[1, 0, 0, 0, 3, 1],
+        &[3, 0, 0, 0, 0, 0, 0],
+        &[0, 0, 0, 0, 1, 0, 0],
+        &[1, 0, 0, 0, 0, 2, 0],
+        &[1, 0, 0, 0, 0, 0, 2],
+        &[1, 0, 0, 0, 0, 0, 0, 0],
     ] {
         assert!(current(bad).is_err(), "{bad:?}");
     }

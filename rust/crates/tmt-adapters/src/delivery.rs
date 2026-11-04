@@ -59,6 +59,10 @@ pub enum Delivery {
     /// The built-in member is stopped by job control (Ctrl-Z): nothing is sent, and the
     /// item stays held until `terminal.resume` (or the terminal) continues it.
     MemberPaused,
+    /// The built-in member's agent ended and its terminal is kept (or runs a relaunched
+    /// shell): nothing is sent, and the item stays held until `terminal.relaunch` starts
+    /// the agent again.
+    MemberEnded,
     Transport(crate::host::DeliveryError),
 }
 
@@ -101,6 +105,8 @@ pub enum Availability {
     NotAgent(String),
     /// The live built-in member is stopped by job control (`MEMBER_PAUSED`).
     Paused,
+    /// The built-in member's agent ended on its kept terminal (`MEMBER_ENDED`).
+    Ended,
 }
 
 /// An advisory consumer wake: it never satisfies the recipient's attention.
@@ -307,7 +313,22 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
             if runtime == RuntimeState::Ended {
                 recover(storage, &RuntimeRegistry::first_party(), &mut entry)?;
             }
+            let Some(binding) = entry.binding.as_ref() else {
+                return Ok(Availability::Unbound);
+            };
+            // One fresh supervisor read for a built-in member; other hosts read nothing.
+            // Presence stays active on a kept terminal, but delivery must see the end.
+            let terminal = crate::host::member_terminal(binding);
             Ok(match session.status(&entry) {
+                ActionResult::Completed(InterfaceStatus {
+                    presence: InterfacePresence::Present,
+                    ..
+                }) if terminal
+                    .as_ref()
+                    .is_some_and(|state| state.ended.is_some() || state.shell) =>
+                {
+                    Availability::Ended
+                }
                 ActionResult::Completed(InterfaceStatus {
                     presence: InterfacePresence::Present,
                     runtime: RuntimeState::Ended,
@@ -315,19 +336,9 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
                 ActionResult::Completed(InterfaceStatus {
                     presence: InterfacePresence::Present,
                     ..
-                }) => match entry
-                    .binding
-                    .as_ref()
-                    .and_then(|binding| binding.session.plain_program.clone())
-                {
+                }) => match binding.session.plain_program.clone() {
                     Some(program) => Availability::NotAgent(program),
-                    None if entry
-                        .binding
-                        .as_ref()
-                        .is_some_and(crate::host::member_paused) =>
-                    {
-                        Availability::Paused
-                    }
+                    None if terminal.is_some_and(|state| state.paused) => Availability::Paused,
                     None => Availability::Ready,
                 },
                 _ => Availability::Unavailable,
@@ -372,6 +383,7 @@ fn send_messages(
         Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
         Availability::NotAgent(program) => return Ok(Delivery::NotAgent(program).into()),
         Availability::Paused => return Ok(Delivery::MemberPaused.into()),
+        Availability::Ended => return Ok(Delivery::MemberEnded.into()),
     }
     let Some(entry) = current(storage, identity)? else {
         return Ok(Delivery::Offline.into());

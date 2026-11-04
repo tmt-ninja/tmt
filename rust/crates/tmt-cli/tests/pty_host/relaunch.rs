@@ -124,10 +124,16 @@ fn files(world: &World, pane: &str) -> [PathBuf; 2] {
     ["sock", "lock"].map(|extension| directory.join(format!("{pane}.{extension}")))
 }
 
-/// A talk to a member whose agent is not running reaches nothing and waits offline.
-fn talk_waits_offline(world: &mut World, name: &str, text: &str) {
-    let queued = world.json(&["talk", name, text, "--detach", "--json"]);
-    assert_eq!(queued["offline"], true, "{queued:#}");
+/// A talk to a member whose agent is not running is refused while its presence
+/// stays active, and nothing is typed into the kept terminal.
+fn talk_refused_ended(world: &mut World, name: &str, text: &str) {
+    assert_eq!(world.member_row(name)["presence"], "active");
+    let refused = world.run(&["talk", name, text, "--detach", "--json"]);
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "MEMBER_ENDED", "{error:#}");
+    let message = error["error"]["message"].as_str().unwrap();
+    assert!(message.contains("terminal.relaunch"), "{message}");
     assert!(!screen(world, name).contains(text));
 }
 
@@ -162,7 +168,7 @@ fn an_ended_agent_keeps_its_terminal_and_relaunches_a_shell_its_session_and_a_fr
     assert!(live(), "the supervisor outlives its program");
     assert!(files(&world, &pane).iter().all(|file| file.exists()));
     assert_eq!(world.member_row("alpha")["pane"], pane.as_str());
-    talk_waits_offline(&mut world, "alpha", "while-ended");
+    talk_refused_ended(&mut world, "alpha", "while-ended");
 
     // A login shell on the kept terminal is not the member's agent.
     let shell = relaunch(&world, &identity, "shell");
@@ -173,7 +179,7 @@ fn an_ended_agent_keeps_its_terminal_and_relaunches_a_shell_its_session_and_a_fr
     assert_eq!(status(&world, &identity)["foreground"], "shell");
     type_into(&world, &pane, b"echo shell-$((40+2))\r");
     wait_screen(&mut world, "alpha", "shell-42");
-    talk_waits_offline(&mut world, "alpha", "while-shell");
+    talk_refused_ended(&mut world, "alpha", "while-shell");
     let refused = relaunch(&world, &identity, "resume");
     assert_eq!(
         refused["error"]["code"], "TERMINAL_RELAUNCH_REFUSED",
@@ -279,4 +285,55 @@ fn wait_for_gone(process: &ProcessIncarnation) {
         assert!(Instant::now() < deadline, "{process:?} did not end");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// A relaunched agent launcher that never binds (a resume that fails after a slow
+/// start) must not cost the member its binding, even when a reader reconciles while
+/// it runs: the supervisor reports `relaunching`, the probe stays inconclusive, and
+/// the binding the launcher would have replaced is restored when it ends.
+#[test]
+fn a_relaunch_that_fails_while_a_reader_reconciles_keeps_the_member_bound() {
+    let mut world = World::new();
+    let (identity, pane) = member(&mut world, "steady", &["-c", ECHO_LOOP]);
+    wait_screen(&mut world, "steady", "paused-ready");
+    type_into(&world, &pane, &[0x04]);
+    wait_ended(&world, &identity);
+
+    // Stands in for a relaunched launcher: it runs for a while and ends without ever
+    // publishing a marker, as a refused resume does after a slow preflight.
+    let directory = support::state_dir(&world.root).join("pty");
+    let mut client = Connection::connect(&directory, &pane).unwrap();
+    let answer = client
+        .control(
+            Control::Relaunch {
+                kind: tmt_adapters::pty::protocol::RelaunchKind::New,
+                program: vec!["/bin/sh".into(), "-c".into(), "/bin/sleep 3; exit 7".into()],
+            },
+            Duration::from_secs(3),
+        )
+        .unwrap();
+    assert_eq!(answer, ControlReply::Applied(true));
+    drop(client);
+
+    // Readers reconcile throughout the window. The launcher has not bound, so they
+    // cannot tell; what they must not do is drop the binding it would restore.
+    let deadline = Instant::now() + Duration::from_millis(2500);
+    let mut probes = 0;
+    while Instant::now() < deadline {
+        let listed = world.json(&["ls", "steady", "--json"]);
+        assert_ne!(listed["presence"], "active", "{listed:#}");
+        probes += 1;
+    }
+    assert!(probes > 1, "the window was not probed");
+
+    // The launcher ends unbound: the member keeps its binding on the same terminal.
+    assert_eq!(
+        wait_ended(&world, &identity),
+        serde_json::json!({"code": 7})
+    );
+    let row = world.member_row("steady");
+    assert_eq!(row["pane"], pane.as_str(), "{row:#}");
+    assert!(stream(&world, &identity)["ended"].is_object());
+    talk_refused_ended(&mut world, "steady", "after-failed-relaunch");
+    assert!(world.clean());
 }

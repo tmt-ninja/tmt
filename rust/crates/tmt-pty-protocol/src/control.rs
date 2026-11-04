@@ -115,11 +115,15 @@ pub enum ControlReply {
         /// from a supervisor that predates it omits the byte and reads as false.
         paused: bool,
         /// How the member's program ended, while no program runs on the kept
-        /// terminal. With `shell`, a trailing group of six bytes that older
-        /// supervisors omit (read as none and false).
+        /// terminal. With `shell` and `relaunching`, a trailing group of seven
+        /// bytes that older supervisors omit (read as none and false).
         ended: Option<Exit>,
         /// A relaunched shell, not the member's agent, holds the terminal.
         shell: bool,
+        /// A relaunched agent launcher has not yet bound: `pane_pid` and
+        /// `marker` are in transition, and the binding they replace is restored
+        /// if the launcher ends first, so no reader may judge that binding lost.
+        relaunching: bool,
     },
     Applied(bool),
     Screen(String),
@@ -339,6 +343,7 @@ impl Frame for ControlReply {
                 paused,
                 ended,
                 shell,
+                relaunching,
             } => {
                 out.extend_from_slice(&supervisor_pid.to_be_bytes());
                 out.extend_from_slice(&pane_pid.to_be_bytes());
@@ -353,6 +358,7 @@ impl Frame for ControlReply {
                 out.push(tag);
                 out.extend_from_slice(&value.to_be_bytes());
                 out.push(u8::from(*shell));
+                out.push(u8::from(*relaunching));
             }
             Self::Applied(value) => out.push(u8::from(*value)),
             Self::Capabilities {
@@ -390,10 +396,10 @@ impl Frame for ControlReply {
                     1 => Ok(true),
                     _ => Err(malformed()),
                 };
-                let (paused, ended, shell) = match bytes {
-                    [] => (false, None, false),
-                    [paused] => (flag(*paused)?, None, false),
-                    [paused, tag, a, b, c, d, shell] => {
+                let (paused, ended, shell, relaunching) = match bytes {
+                    [] => (false, None, false, false),
+                    [paused] => (flag(*paused)?, None, false, false),
+                    [paused, tag, a, b, c, d, shell, relaunching] => {
                         let value = i32::from_be_bytes([*a, *b, *c, *d]);
                         let ended = match (tag, value) {
                             (0, 0) => None,
@@ -401,7 +407,7 @@ impl Frame for ControlReply {
                             (2, signal) => Some(Exit::Signal(signal)),
                             _ => return Err(malformed()),
                         };
-                        (flag(*paused)?, ended, flag(*shell)?)
+                        (flag(*paused)?, ended, flag(*shell)?, flag(*relaunching)?)
                     }
                     _ => return Err(malformed()),
                 };
@@ -414,6 +420,7 @@ impl Frame for ControlReply {
                     paused,
                     ended,
                     shell,
+                    relaunching,
                 }
             }
             APPLIED => {
