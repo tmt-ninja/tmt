@@ -31,7 +31,7 @@ pub(in crate::board) fn codex() -> Report {
 }
 pub(in crate::board) fn unsupported() -> Report {
     let mut report = report(json!({"kind": "unsupported"}), Some("gemini"));
-    report.skills.retain(|skill| skill.group == Group::Tmt);
+    report.skills.retain(|skill| skill.group == Section::Tmt);
     report
 }
 
@@ -208,12 +208,6 @@ fn an_older_core_or_a_malformed_answer_is_no_skills() {
         )
         .is_none()
     );
-    // A report without `driver` (an older Core) still parses.
-    let older = Report::parse(&json!({
-        "syntax": {"kind": "prefix", "sigil": "/"}, "skills": [], "rootsStamp": "a"
-    }))
-    .unwrap();
-    assert_eq!(older.driver, None);
 }
 
 /// Visual proof of the recipient skills menu and its non-menu states.
@@ -260,7 +254,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
 fn duplicate_names_keep_their_own_group_and_description() {
     let mut report = claude();
     let mut other = report.skills[0].clone();
-    other.group = Group::Project;
+    other.group = Section::Project;
     other.description = "Project-specific description".into();
     report.skills.push(other);
     let candidates = report.candidates();
@@ -268,8 +262,8 @@ fn duplicate_names_keep_their_own_group_and_description() {
     let last = &candidates.last().unwrap().0;
     assert_eq!(first.label, last.label);
     assert_ne!(first.id, last.id);
-    assert_eq!(report.skill(&first.id).unwrap().group, Group::Tmt);
-    assert_eq!(report.skill(&last.id).unwrap().group, Group::Project);
+    assert_eq!(report.skill(&first.id).unwrap().group, Section::Tmt);
+    assert_eq!(report.skill(&last.id).unwrap().group, Section::Project);
     assert_eq!(
         report.skill(&last.id).unwrap().description,
         "Project-specific description"
@@ -324,7 +318,7 @@ fn menu_rows_are_opaque_and_headings_always_have_a_visible_skill() {
                 })
                 .collect::<Vec<_>>();
             for (y, line) in lines.iter().enumerate() {
-                if ["  TMT", "  Claude Code's own", "  This project"]
+                if ["  TMT", "  Agent's own", "  This project"]
                     .iter()
                     .any(|heading| line.starts_with(heading))
                 {

@@ -33,7 +33,7 @@ mod report;
 mod send;
 
 pub(in crate::board) use report::{Completed, Task, complete};
-use report::{Group, Outcome, Report};
+use report::{Outcome, Report, Section};
 pub(super) use send::chosen;
 use send::insert_skill;
 struct Entry {
@@ -256,7 +256,7 @@ impl App {
 /// One menu row: a group title or a match by its index in the completion.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Row {
-    Title(Group),
+    Title(Section),
     Skill(usize),
 }
 
@@ -345,9 +345,9 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                     format!(
                         "  {}",
                         match group {
-                            Group::Tmt => "TMT".to_owned(),
-                            Group::Own => report.map_or_else(String::new, Report::own_title),
-                            Group::Project => "This project".to_owned(),
+                            Section::Tmt => "TMT".to_owned(),
+                            Section::Own => "Agent's own".to_owned(),
+                            Section::Project => "This project".to_owned(),
                         }
                     ),
                     look.role(Role::Dim),

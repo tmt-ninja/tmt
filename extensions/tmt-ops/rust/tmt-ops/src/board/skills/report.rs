@@ -10,13 +10,13 @@ pub(in crate::board) enum Syntax {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(in crate::board) enum Group {
+pub(in crate::board) enum Section {
     Tmt,
     Own,
     Project,
 }
 
-impl Group {
+impl Section {
     pub(super) fn kind(self) -> &'static str {
         match self {
             Self::Tmt => "tmt",
@@ -30,14 +30,13 @@ impl Group {
 pub(in crate::board) struct Skill {
     pub name: String,
     pub description: String,
-    pub group: Group,
+    pub group: Section,
 }
 
 /// One member's `skills.list` answer. Every name and description is display data.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Report {
     pub syntax: Syntax,
-    pub driver: Option<String>,
     pub skills: Vec<Skill>,
     pub(super) stamp: String,
 }
@@ -61,9 +60,9 @@ impl Report {
             .iter()
             .filter_map(|skill| {
                 let group = match skill["source"]["group"].as_str()? {
-                    "tmt" => Group::Tmt,
-                    "user" | "plugin" => Group::Own,
-                    "project" => Group::Project,
+                    "tmt" => Section::Tmt,
+                    "user" | "plugin" => Section::Own,
+                    "project" => Section::Project,
                     _ => return None,
                 };
                 Some(Skill {
@@ -75,7 +74,6 @@ impl Report {
             .collect();
         Some(Self {
             syntax,
-            driver: value["driver"].as_str().map(str::to_owned),
             skills,
             stamp: value["rootsStamp"].as_str()?.to_owned(),
         })
@@ -94,14 +92,6 @@ impl Report {
         match self.syntax {
             Syntax::Prefix(sigil) => format!("sent as {sigil}name"),
             Syntax::Unsupported => "sent as a sentence".to_owned(),
-        }
-    }
-
-    pub(super) fn own_title(&self) -> String {
-        match self.driver.as_deref() {
-            Some("claude") => "Claude Code's own".to_owned(),
-            Some("codex") => "Codex's own".to_owned(),
-            _ => "The agent's own".to_owned(),
         }
     }
 
