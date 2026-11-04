@@ -8,3 +8,6 @@ export type {
   DataTableRole,
   DataTableSort,
 } from './data-table.js';
+export { PageListTable } from './page-list-table.js';
+export type { PageListRow } from './page-list-table.js';
+export * from './page-list.js';

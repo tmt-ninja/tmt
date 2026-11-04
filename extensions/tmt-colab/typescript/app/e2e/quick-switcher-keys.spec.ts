@@ -8,7 +8,7 @@ async function mount(page: Page) {
     }),
   );
   await page.goto('/');
-  await expect(page.locator('.pages [data-page-id]')).toHaveCount(3);
+  await expect(page.locator('.page-list-table [data-page-id]')).toHaveCount(3);
   await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
 }
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Search pages', exact: true });
@@ -255,7 +255,9 @@ test('page-list links preserve native modified activation without changing this 
 }) => {
   await mount(page);
   await input(page).press('Escape');
-  const link = page.locator('.pages').getByRole('link', { name: 'Beta review', exact: true });
+  const link = page
+    .locator('.page-list-table')
+    .getByRole('link', { name: 'Beta review', exact: true });
   await expect(link).toHaveAttribute('href', pageHref);
   const source = page.url();
   await observeActivation(page);
@@ -290,7 +292,9 @@ test('page-list Shift-click keeps the href and leaves navigation to the browser'
 }) => {
   await mount(page);
   await input(page).press('Escape');
-  const link = page.locator('.pages').getByRole('link', { name: 'Beta review', exact: true });
+  const link = page
+    .locator('.page-list-table')
+    .getByRole('link', { name: 'Beta review', exact: true });
   const source = page.url();
   await expect(link).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
   const shifted = await link.evaluateHandle((anchor) => {

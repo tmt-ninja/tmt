@@ -187,7 +187,7 @@ mod limit_tests {
             json!({
                 "provider": "claude",
                 "observedAtMs": NOW - 1_000,
-                "windows": [{"windowMinutes": 300, "usedPercent": 8.0, "resetsAtMs": RESET}],
+                "windows": [{"windowMinutes": 300, "usedPercent": 8.0, "resetsAtMs": RESET, "observedAtMs": NOW - 1_000}],
                 "account": entry["account"]
             })
         );

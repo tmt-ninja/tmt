@@ -27,7 +27,7 @@ import './page-projects.css';
 
 const t = text.pageList;
 /** A page is in at most this many projects (the list row and the page header share the picker). */
-const PAGE_LIMIT = 8;
+export const PAGE_LIMIT = 8;
 /** The chips beside the title; the rest are a count, the picker names them all. */
 const CHIPS = 3;
 

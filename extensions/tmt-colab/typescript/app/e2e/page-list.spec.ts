@@ -32,7 +32,7 @@ async function storedScope(page: Page) {
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
+const rows = (page: Page) => app(page).locator('.page-list-table [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
@@ -79,7 +79,11 @@ async function filterProject(page: Page, name: string) {
   await page.keyboard.type(`project:${name.split(' ')[0]}`);
   await page.getByRole('option', { name: new RegExp(`^${name} \\(\\d+\\)$`) }).click();
   await page.keyboard.press('Enter');
-  await expect(app(page).locator(`[data-project-filter="${name}"]`)).toBeVisible();
+  await expect(
+    app(page)
+      .locator('[data-kind=project]')
+      .filter({ hasText: `project:${name}` }),
+  ).toBeVisible();
 }
 /** A project option in the open Filter menu. */
 const menuProject = (page: Page, name: string) =>
@@ -95,7 +99,7 @@ test("a writer's project group opens the picker while search retains project fil
   page,
 }) => {
   await mount(page);
-  const group = rows(page).nth(1).locator('.page-project-group');
+  const group = rows(page).nth(1).locator('.tmt-page-list-project-picker');
   await group.click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toHaveAttribute(
     'aria-checked',
@@ -104,7 +108,7 @@ test("a writer's project group opens the picker while search retains project fil
   await page.keyboard.press('Escape');
   await expect(group).toBeFocused();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
+  await expect(app(page).locator('[data-kind=project]')).toHaveCount(0);
   expect(await requests(page)).toEqual([]);
   await filterProject(page, 'design');
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
@@ -138,11 +142,14 @@ for (const width of [390, 1440])
           await expect(home).toHaveAttribute('data-compact', '');
         } else await expect(home).not.toHaveAttribute('data-compact');
         const metrics = await home.evaluate((node) => {
-          const chip = node.querySelector('[data-project-filter] .tmt-ui-chip')!;
+          const chip = node.querySelector('.tmt-rich-input-chip[data-kind=project]')!;
           // The same leaf markup outside the control row is an independent size/style control.
           const reference = chip.cloneNode(true) as HTMLElement;
-          reference.style.cssText = 'position:fixed;left:-10000px;top:0';
-          node.append(reference);
+          const referenceOwner = document.createElement('div');
+          referenceOwner.className = 'tmt-rich-input';
+          referenceOwner.style.cssText = 'position:fixed;left:-10000px;top:0';
+          referenceOwner.append(reference);
+          chip.closest('[data-tmt-ui]')!.append(referenceOwner);
           const measure = (target: Element) => {
             const box = target.getBoundingClientRect();
             const style = getComputedStyle(target);
@@ -161,7 +168,7 @@ for (const width of [390, 1440])
             chip: measure(reference),
             remove: measure(reference.querySelector('button')!),
           };
-          reference.remove();
+          referenceOwner.remove();
           const searchBox = node.querySelector('.page-list-search-box')!;
           const large = Number.parseFloat(
             getComputedStyle(searchBox).getPropertyValue('--tmt-ui-control-size-l'),
@@ -192,7 +199,7 @@ for (const width of [390, 1440])
         await test.info().attach(name, { body: image, contentType: 'image/png' });
       }
       await app(page).getByRole('button', { name: 'Remove project filter old' }).click();
-      await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
+      await expect(app(page).locator('[data-kind=project]')).toHaveCount(0);
       await expect(search(page)).toBeFocused();
     });
 
@@ -233,13 +240,17 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
   const remove = app(page).getByRole('button', { name: 'Remove project filter design' });
   await remove.focus();
   await remove.press('Enter');
-  await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
+  await expect(
+    app(page).locator('[data-kind=project]').filter({ hasText: 'project:design' }),
+  ).toHaveCount(0);
   await expect(titles(page)).toHaveCount(4);
   await expect(search(page)).toBeFocused();
   await filterProject(page, 'design');
   await remove.focus();
   await remove.press('Space');
-  await expect(app(page).locator('[data-project-filter="design"]')).toHaveCount(0);
+  await expect(
+    app(page).locator('[data-kind=project]').filter({ hasText: 'project:design' }),
+  ).toHaveCount(0);
   await expect(titles(page)).toHaveCount(4);
   await expect(search(page)).toBeFocused();
   // The same native chip contract applies to creator tokens introduced on main.
@@ -248,7 +259,9 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
     await expect(search(page)).toContainText('by:stu');
     await expect(page.getByRole('option')).toHaveText(['Studio agent (1)']);
     await page.keyboard.press('Enter');
-    await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+    await expect(
+      app(page).locator('[data-kind=by]').filter({ hasText: 'by:Studio agent' }),
+    ).toBeVisible();
     await page.keyboard.press('Enter');
     await expect(titles(page)).toHaveText(['Alpha plan']);
     const authorRemove = app(page).getByRole('button', {
@@ -256,7 +269,7 @@ test('keyboard removing a filter token keeps editor focus and applies the token 
     });
     await authorRemove.focus();
     await authorRemove.press(key);
-    await expect(app(page).locator('[data-by-filter]')).toHaveCount(0);
+    await expect(app(page).locator('[data-kind=by]')).toHaveCount(0);
     await expect(titles(page)).toHaveCount(4);
     await expect(search(page)).toBeFocused();
   }
@@ -272,7 +285,9 @@ test('typing project: suggests names, Enter takes one, Enter again applies free 
   const options = page.getByRole('option');
   await expect(options).toHaveText(['design (2)']);
   await page.keyboard.press('Enter');
-  await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
+  await expect(
+    app(page).locator('[data-kind=project]').filter({ hasText: 'project:design' }),
+  ).toBeVisible();
   // The token alone is a draft until Enter applies it.
   await expect(titles(page)).toHaveCount(4);
   await page.keyboard.type('beta');
@@ -282,7 +297,7 @@ test('typing project: suggests names, Enter takes one, Enter again applies free 
   await search(page).focus();
   await page.keyboard.press('Escape');
   await expect(titles(page)).toHaveCount(4);
-  await expect(app(page).locator('[data-project-filter]')).toHaveCount(0);
+  await expect(app(page).locator('[data-kind=project]')).toHaveCount(0);
   expect(new URL(page.url()).hash).not.toContain('project');
 });
 
@@ -327,11 +342,14 @@ for (const width of [1440, 390])
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      for (const title of ['Gamma notes', 'Beta review'])
-        await rows(page)
-          .filter({ hasText: title })
-          .getByRole('button', { name: new RegExp(`^Pin ${title}`) })
-          .click();
+      async function pinRow(title: string) {
+        const row = rows(page).filter({ hasText: title });
+        if (width < 480) {
+          await row.getByRole('button', { name: `More for ${title}` }).click();
+          await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+        } else await row.getByRole('button', { name: `Pin ${title}` }).click();
+      }
+      for (const title of ['Gamma notes', 'Beta review']) await pinRow(title);
       await expect(titles(page).first()).toHaveText('Gamma notes');
       await expect(rows(page).nth(1)).toContainText('Beta review');
       expect(
@@ -341,10 +359,7 @@ for (const width of [1440, 390])
       ).toBe(true);
       await page.screenshot({ path: await capturePath(`4356-pinned-list-${width}-${theme}.png`) });
       await page.evaluate(() => (window.__pinRefusal = 'CAPACITY'));
-      await rows(page)
-        .filter({ hasText: 'Alpha plan' })
-        .getByRole('button', { name: /^Pin Alpha plan/ })
-        .click();
+      await pinRow('Alpha plan');
       await expect(app(page).getByRole('alert')).toContainText('Unpin one first');
       await page.screenshot({ path: await capturePath(`4356-pin-refused-${width}-${theme}.png`) });
     });
@@ -358,12 +373,12 @@ test('a row shows the real creator and waiting count without a repeated comments
   await expect(rows(page).locator('.page-comments')).toHaveCount(0);
   // Updated and Author are distinct cells at every width; compact rows keep the same values.
   await expect(metadata('Alpha plan').locator('time')).toHaveAttribute('dateTime', /T/);
-  await expect(metadata('Alpha plan').locator('.page-author')).toHaveText('Studio agent');
+  await expect(metadata('Alpha plan').locator('[data-role=person]')).toHaveText('Studio agent');
   // The dot accompanies the readable word; only the page with a proposal awaiting the owner has it.
-  await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
-  await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
-    'Needs you · 1',
-  );
+  await expect(app(page).locator('.tmt-page-list-stage[data-stage=needs]')).toHaveCount(1);
+  await expect(
+    rows(page).filter({ hasText: 'Alpha plan' }).locator('.tmt-page-list-stage[data-stage=needs]'),
+  ).toHaveText('Needs you · 1');
   // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
   const gamma = metadata('Gamma notes');
   await expect(gamma).not.toContainText('comment');
@@ -381,7 +396,9 @@ test('typing by: suggests creators, a token filters by creator and free text mat
   await page.keyboard.type('stu');
   await expect(page.getByRole('option')).toHaveText(['Studio agent (1)']);
   await page.keyboard.press('Enter');
-  await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+  await expect(
+    app(page).locator('[data-kind=by]').filter({ hasText: 'by:Studio agent' }),
+  ).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('by');
@@ -391,7 +408,7 @@ test('typing by: suggests creators, a token filters by creator and free text mat
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
   await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
   await expect(titles(page)).toHaveCount(4);
-  await expect(app(page).locator('[data-by-filter]')).toHaveCount(0);
+  await expect(app(page).locator('[data-kind=by]')).toHaveCount(0);
   await search(page).click();
   await page.keyboard.type('ada');
   await page.keyboard.press('Enter');
@@ -405,7 +422,7 @@ test('a multi-word creator keeps its space in the token and the address, and an 
   await search(page).click();
   await page.keyboard.type('by:stu');
   await page.keyboard.press('Enter');
-  const token = app(page).locator('[data-by-filter="Studio agent"]');
+  const token = app(page).locator('[data-kind=by]').filter({ hasText: 'by:Studio agent' });
   await expect(token).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(titles(page)).toHaveText(['Alpha plan']);
@@ -416,7 +433,9 @@ test('a multi-word creator keeps its space in the token and the address, and an 
     location.hash = '/blocked';
     location.hash = hash;
   }, hash);
-  await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+  await expect(
+    app(page).locator('[data-kind=by]').filter({ hasText: 'by:Studio agent' }),
+  ).toBeVisible();
   await expect(titles(page)).toHaveText(['Alpha plan']);
   // A creator no page has is the ordinary empty result, not an error.
   await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
@@ -425,7 +444,7 @@ test('a multi-word creator keeps its space in the token and the address, and an 
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await expect(rows(page)).toHaveCount(0);
-  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
 });
 
 test('free text matches titles and projects, a miss says so and clears', async ({ page }) => {
@@ -438,7 +457,7 @@ test('free text matches titles and projects, a miss says so and clears', async (
   await page.keyboard.type(' nothing');
   await page.keyboard.press('Enter');
   await expect(rows(page)).toHaveCount(0);
-  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
   await app(page).getByRole('button', { name: 'Clear filters' }).click();
   await expect(titles(page)).toHaveCount(4);
   await expect(search(page)).toHaveText('');
@@ -454,7 +473,9 @@ test('the list keeps its filter in the address and restores it on reload', async
     location.hash = hash;
   }, hash);
   await expect(titles(page)).toHaveCount(2);
-  await expect(app(page).locator('[data-project-filter="design"]')).toBeVisible();
+  await expect(
+    app(page).locator('[data-kind=project]').filter({ hasText: 'project:design' }),
+  ).toBeVisible();
 });
 
 test('the home is the concept17 list with no Today view, and an old /all link keeps its search', async ({
@@ -487,16 +508,10 @@ test('the Needs you tab keeps the pages waiting on the viewer, combines with a p
   await expect(needs).toHaveAttribute('aria-selected', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('needs=true');
-  // Selected is neutral like every tab; colour stays on the diamond.
-  const look = await needs.evaluate((node) => ({
-    text: getComputedStyle(node).color,
-    mark: getComputedStyle(node.querySelector('.tmt-ui-tab-mark')!).color,
-  }));
-  expect(look.mark).not.toBe(look.text);
   // It combines with the project filter: the waiting page is not in `ops`.
   await filterProject(page, 'ops');
   await expect(titles(page)).toHaveCount(0);
-  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
   await app(page).getByRole('button', { name: 'Remove project filter ops' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan']);
   const hash = new URL(page.url()).hash;
@@ -562,24 +577,16 @@ test('a page waiting on the viewer shows a dot in the waiting colour with the wo
   page,
 }) => {
   await mount(page);
-  const waiting = rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]');
+  const waiting = rows(page)
+    .filter({ hasText: 'Alpha plan' })
+    .locator('.tmt-page-list-stage[data-stage=needs]');
   await expect(waiting).toHaveText('Needs you · 1');
-  const colours = await app(page).evaluate((root) => {
-    const colour = (selector: string) => getComputedStyle(root.querySelector(selector)!).color;
-    return {
-      rowMark: colour('[data-waiting] .page-waiting-mark'),
-      word: colour('[data-waiting]'),
-      tabMark: colour('.tmt-ui-tab-mark'),
-    };
-  });
-  // The website badge uses the same semantic colour for its mark and readable word.
-  expect(colours.rowMark).toBe(colours.tabMark);
-  expect(colours.word).toBe(colours.rowMark);
+  await expect(waiting.locator('.tmt-page-list-stage-dot')).toBeVisible();
   // A row that waits is not otherwise marked: no rule, nothing that reads as a selection.
   await expect(rows(page).filter({ hasText: 'Alpha plan' })).not.toHaveAttribute('data-needs-you');
-  await expect(rows(page).filter({ hasText: 'Beta review' }).locator('[data-waiting]')).toHaveCount(
-    0,
-  );
+  await expect(
+    rows(page).filter({ hasText: 'Beta review' }).locator('.tmt-page-list-stage[data-stage=needs]'),
+  ).toHaveCount(0);
 });
 
 test('row actions show on hover and focus; a row opens in a new tab without leaving the list', async ({
@@ -587,7 +594,7 @@ test('row actions show on hover and focus; a row opens in a new tab without leav
 }) => {
   await mount(page);
   const row = rows(page).filter({ hasText: 'Beta review' });
-  const actions = row.locator('.page-row-shortcuts');
+  const actions = row.locator('.tmt-data-table-actions');
   await expect(actions).toHaveCSS('opacity', '0');
   await row.hover();
   await expect(actions).toHaveCSS('opacity', '1');
@@ -647,9 +654,9 @@ test('deleting from the menu names the page, says it cannot be undone, and remov
 }) => {
   await mount(page);
   const row = rows(page).filter({ hasText: 'Delta ops' });
-  await row.getByRole('button', { name: 'Actions for Delta ops' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Archive…' })).toBeVisible();
-  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  await row.getByRole('button', { name: 'More for Delta ops' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Archive' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
   const dialog = confirmDialog(page, 'Delete “Delta ops”?');
   await expect(dialog).toContainText(
     'The page, its comments and its attachments are deleted. This cannot be undone.',
@@ -673,14 +680,17 @@ test('an archived row offers Restore and Delete while keeping archive unavailabl
     .click();
   const row = rows(page).filter({ hasText: 'Archived spec' });
   await expect(row.getByRole('button', { name: /^Archive / })).toHaveCount(0);
-  await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
+  await row.getByRole('button', { name: 'More for Archived spec' }).click();
   await expect(page.getByRole('menuitem')).toHaveText([
-    'Manage page',
+    'Open in new tab',
+    'Pin',
+    'Manage…',
     'Projects…',
-    'Restore…',
-    'Delete…',
+    'Restore',
+    'Delete',
+    'Copy page ID',
   ]);
-  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
   await confirmDialog(page, 'Delete “Archived spec”?')
     .getByRole('button', { name: 'Delete page' })
     .click();
@@ -705,9 +715,9 @@ for (const width of [1440, 390]) {
       });
       await rows(page)
         .filter({ hasText: 'Gamma notes' })
-        .getByRole('button', { name: 'Actions for Gamma notes' })
+        .getByRole('button', { name: 'More for Gamma notes' })
         .click();
-      await page.getByRole('menuitem', { name: 'Archive…' }).click();
+      await page.getByRole('menuitem', { name: 'Archive' }).click();
       await confirmDialog(page, 'Archive “Gamma notes”?')
         .getByRole('button', { name: 'Archive page' })
         .click();
@@ -779,12 +789,15 @@ test('selecting pages adds the website bulk bar below the controls; Escape and C
   await mount(page);
   await expect(bulkBar(page)).toHaveCount(0);
   await selectRow(page, 'Alpha plan').check();
-  await expect(bulkBar(page).getByRole('status')).toHaveText('1 page selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('1 selected');
   await selectRow(page, 'Beta review').check();
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
   // The website keeps search available above the selection actions.
   await expect(search(page)).toBeVisible();
-  await expect(rows(page).filter({ hasText: 'Alpha plan' })).toHaveAttribute('data-selected', '');
+  await expect(rows(page).filter({ hasText: 'Alpha plan' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await page.keyboard.press('Escape');
   await expect(bulkBar(page)).toHaveCount(0);
   await expect(search(page)).toBeVisible();
@@ -798,12 +811,12 @@ test('a filter that hides a selected page drops it from the selection', async ({
   await mount(page);
   await selectRow(page, 'Alpha plan').check();
   await selectRow(page, 'Delta ops').check();
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
   await scopeTo(page, 'design');
-  await expect(bulkBar(page).getByRole('status')).toHaveText('1 page selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('1 selected');
   await scopeTo(page, 'All pages');
   // Delta ops is shown again but is not selected again: what was hidden was dropped.
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
 });
 
 test('bulk add and remove send one whole-set request for the selected pages that change', async ({
@@ -812,8 +825,8 @@ test('bulk add and remove send one whole-set request for the selected pages that
   await mount(page);
   await selectRow(page, 'Beta review').check();
   await selectRow(page, 'Gamma notes').check();
-  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
-  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
+  await bulkBar(page).getByRole('button', { name: 'Projects…' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'q4 plan' }).click();
   await expect(status(page)).toHaveText('Added 2 pages to q4 plan.');
   expect(await requests(page)).toEqual([
     {
@@ -824,13 +837,13 @@ test('bulk add and remove send one whole-set request for the selected pages that
       ],
     },
   ]);
-  // Adding it where it already is changes nothing, and says so.
-  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
-  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
-  await expect(status(page)).toHaveText('Nothing to change.');
+  // The unified picker reflects the completed add and does not send another write until toggled.
+  await expect(page.getByRole('menuitemcheckbox', { name: 'q4 plan' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
   expect(await requests(page)).toHaveLength(1);
-  await bulkBar(page).getByRole('button', { name: 'Remove from project' }).click();
-  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'q4 plan' }).click();
   await expect(status(page)).toHaveText('Removed 2 pages from q4 plan.');
   expect((await requests(page)).at(-1)!.changes.map((c) => c.projects)).toEqual([['design'], []]);
 });
@@ -839,8 +852,8 @@ test('a bulk add leaves a full page out and says so', async ({ page }) => {
   await mount(page, 'full');
   await selectRow(page, 'Full page').check();
   await selectRow(page, 'Gamma notes').check();
-  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
-  await page.getByRole('menuitem', { name: 'extra' }).click();
+  await bulkBar(page).getByRole('button', { name: 'Projects…' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'extra' }).click();
   await expect(status(page)).toHaveText(
     'Added 1 page to extra. 1 page is in 8 projects already and was skipped.',
   );
@@ -853,7 +866,7 @@ test('bulk archive confirms with the count and titles, then sends one statement 
   await mount(page);
   await selectRow(page, 'Beta review').check();
   await selectRow(page, 'Gamma notes').check();
-  await bulkBar(page).getByRole('button', { name: 'Archive…' }).click();
+  await bulkBar(page).getByRole('button', { name: 'Archive', exact: true }).click();
   const dialog = confirmDialog(page, 'Archive 2 pages?');
   await expect(dialog.getByRole('listitem')).toHaveText(['Beta review', 'Gamma notes']);
   await expect(dialog).toContainText('You can restore them from Archived.');
@@ -875,8 +888,9 @@ test('bulk delete in the Archived tab offers no archive and confirms the count',
     .getByRole('tab', { name: /^Archived/ })
     .click();
   await selectRow(page, 'Archived spec').check();
-  await expect(bulkBar(page).getByRole('button', { name: 'Archive…' })).toHaveCount(0);
-  await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
+  await expect(bulkBar(page).getByRole('button', { name: 'Archive', exact: true })).toHaveCount(0);
+  await bulkBar(page).getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
   const dialog = confirmDialog(page, 'Delete “Archived spec”?');
   await expect(dialog).toContainText('This cannot be undone.');
   await dialog.getByRole('button', { name: 'Delete page' }).click();
@@ -891,7 +905,8 @@ test('a refusal stops the batch, names the page and keeps the rest selected', as
   await page.evaluate(() => {
     window.__operationMode = 'refuse-second';
   });
-  await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
+  await bulkBar(page).getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
   await confirmDialog(page, 'Delete 3 pages?')
     .getByRole('button', { name: 'Delete pages' })
     .click();
@@ -904,7 +919,7 @@ test('a refusal stops the batch, names the page and keeps the rest selected', as
   ]);
   // The page that went is gone from the list; the two that did not are still selected.
   await expect(titles(page)).toHaveText(['Alpha plan', 'Gamma notes', 'Delta ops']);
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
 });
 
 test('list keys move, select, archive and open menus, and stay out of text fields, menus and dialogs', async ({
@@ -931,7 +946,7 @@ test('list keys move, select, archive and open menus, and stay out of text field
   await expect(selectRow(page, 'Alpha plan')).toBeChecked();
   await page.keyboard.press('j');
   await page.keyboard.press('x');
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
   // With a selection, e archives it; the dialog is modal, so no key reaches the list.
   await page.keyboard.press('e');
   const dialog = confirmDialog(page, 'Archive 2 pages?');
@@ -940,7 +955,7 @@ test('list keys move, select, archive and open menus, and stay out of text field
   await page.keyboard.press('j');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
   expect(await operations(page)).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(bulkBar(page)).toHaveCount(0);
@@ -968,6 +983,16 @@ test('a reader gets search, filters and the scope, but no project writes or arch
   page,
 }) => {
   await mount(page, 'unmanaged');
+  const readonlyRow = rows(page).filter({ hasText: 'Alpha plan' });
+  await expect(readonlyRow.getByRole('checkbox', { name: 'Select Alpha plan' })).toBeDisabled();
+  await expect(readonlyRow).toContainText('Read-only');
+  await expect(readonlyRow.getByRole('button', { name: /Archive Alpha plan/ })).toHaveCount(0);
+  await readonlyRow.getByRole('button', { name: 'More for Alpha plan' }).click();
+  for (const action of ['Manage…', 'Projects…', 'Archive', 'Delete'])
+    await expect(
+      page.getByRole('menuitem', { name: `${action} — Read-only access` }),
+    ).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
   await expect(app(page).getByRole('tab')).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await filterProject(page, 'ops');
@@ -1168,7 +1193,7 @@ test('choosing a project scopes the list, the project suggestions and the Needs 
   await expect(titles(page)).toHaveText(['Alpha plan']);
   await search(page).fill('ops');
   await search(page).press('Enter');
-  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await expect(app(page).getByText('No pages match', { exact: true })).toBeVisible();
   await scopeTo(page, 'All pages');
   await expect(scopeTrigger(page)).toBeVisible();
   expect(new URL(page.url()).hash).not.toContain('scope');
@@ -1236,7 +1261,7 @@ test('a page opened from a scoped list shows the project it came from and links 
 
 test('empty spaces and filters say what is missing', async ({ page }) => {
   await mount(page, 'none');
-  await expect(app(page).getByText('No pages in this space yet.')).toBeVisible();
+  await expect(app(page).getByText('No pages yet', { exact: true })).toBeVisible();
   await expect(app(page).getByRole('button', { name: 'Clear filters' })).toHaveCount(0);
 });
 
@@ -1245,11 +1270,13 @@ test('the page menu adds and removes a project with one whole-set request each',
 }) => {
   await mount(page);
   const gamma = rows(page).filter({ hasText: 'Gamma notes' });
-  await gamma.locator('.page-project-group').click();
+  await gamma.locator('.tmt-page-list-project-picker').click();
   const design = page.getByRole('menuitemcheckbox', { name: 'design' });
   await expect(design).toHaveAttribute('aria-checked', 'false');
   await design.click();
-  await expect(gamma.locator('.page-project-group-chip')).toBeVisible();
+  await expect(
+    gamma.locator('.tmt-page-list-project, .tmt-page-list-project-overflow'),
+  ).toBeVisible();
   await expect(app(page).locator('.page-list-status[role="status"]')).toHaveText('Projects saved.');
   expect(await requests(page)).toEqual([
     {
@@ -1257,9 +1284,10 @@ test('the page menu adds and removes a project with one whole-set request each',
       changes: [{ pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['design'] }],
     },
   ]);
-  await gamma.locator('.page-project-group').click();
   await page.getByRole('menuitemcheckbox', { name: 'design' }).click();
-  await expect(gamma.locator('.page-project-group-chip')).toHaveCount(0);
+  await expect(
+    gamma.locator('.tmt-page-list-project, .tmt-page-list-project-overflow'),
+  ).toHaveCount(0);
   expect((await requests(page)).at(-1)!.changes[0].projects).toEqual([]);
 });
 
@@ -1267,7 +1295,7 @@ test('a ninth project is refused before any request', async ({ page }) => {
   await mount(page);
   const alpha = rows(page).filter({ hasText: 'Alpha plan' });
   for (const name of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']) {
-    await alpha.locator('.page-project-group').click();
+    await alpha.locator('.tmt-page-list-project-picker').click();
     await page.getByRole('menuitem', { name: 'New project…' }).click();
     await app(page).getByRole('textbox', { name: 'Project name' }).fill(name);
     await app(page).getByRole('checkbox', { name: 'Alpha plan', exact: true }).check();
@@ -1275,12 +1303,14 @@ test('a ninth project is refused before any request', async ({ page }) => {
     await expect(app(page).getByRole('dialog')).toHaveCount(0);
   }
   expect((await requests(page)).length).toBe(6);
-  await expect(alpha.locator('.page-project-group')).toHaveAttribute(
+  await expect(alpha.locator('.tmt-page-list-project-picker')).toHaveAttribute(
     'title',
     /a1, a2, a3, a4, a5, a6, design, q4 plan/,
   );
-  await expect(alpha.locator('.page-project-group-chip')).toHaveText(['a1', '+7']);
-  await alpha.locator('.page-project-group').click();
+  await expect(alpha.locator('.tmt-page-list-project, .tmt-page-list-project-overflow')).toHaveText(
+    ['a1', '+7'],
+  );
+  await alpha.locator('.tmt-page-list-project-picker').click();
   await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeDisabled();
   await expect(page.getByRole('menuitemcheckbox', { name: 'ops' })).toBeDisabled();
   expect((await requests(page)).length).toBe(6);
@@ -1356,8 +1386,9 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   await expect(titles(page)).toHaveCount(0);
   await scopeTo(page, 'All pages');
   const gamma = app(page).locator('[data-page-id="c0000003-1111-4111-8111-000000000001"]');
-  await gamma.locator('.page-project-group').click();
+  await gamma.locator('.tmt-page-list-project-picker').click();
   await page.getByRole('menuitemcheckbox', { name: 'backlog' }).click();
+  await page.keyboard.press('Escape');
   await scopeTo(page, 'backlog');
   await expect(titles(page)).toHaveCount(1);
   expect((await requests(page)).at(-1)!.changes).toEqual([
@@ -1421,9 +1452,7 @@ test('rename is one request for every page in the project, archived included, an
   await dialog.getByRole('button', { name: 'Close Manage projects' }).click();
   // The renamed project keeps every page in the project filter.
   await scopeTo(page, 'current');
-  await expect(app(page).locator('[data-page-list-count] span').first()).toHaveText(
-    'Showing 50 of 130',
-  );
+  await expect(app(page).locator('[data-page-list-count]')).toHaveText('130 pages in this view');
 });
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
@@ -1492,10 +1521,10 @@ for (const width of [1440, 390])
       const beta = rows(page).filter({ hasText: 'Beta review' });
       await beta.hover();
       await page.screenshot({ path: await capturePath(`3746-row-actions-${width}-${theme}.png`) });
-      await beta.getByRole('button', { name: 'Actions for Beta review' }).click();
-      await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
+      await beta.getByRole('button', { name: 'More for Beta review' }).click();
+      await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`3746-row-menu-${width}-${theme}.png`) });
-      await page.getByRole('menuitem', { name: 'Delete…' }).click();
+      await page.getByRole('menuitem', { name: 'Delete' }).click();
       const confirm = confirmDialog(page, 'Delete “Beta review”?');
       await expect(confirm).toBeVisible();
       expect(await flat()).toBe(true);
@@ -1543,7 +1572,10 @@ for (const width of [1440, 390])
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-search-by-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await rows(page).filter({ hasText: 'Alpha plan' }).locator('.page-project-group').click();
+      await rows(page)
+        .filter({ hasText: 'Alpha plan' })
+        .locator('.tmt-page-list-project-picker')
+        .click();
       await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toBeVisible();
       await page.screenshot({
         path: await capturePath(`2588-projects-menu-${width}-${theme}.png`),
@@ -1591,54 +1623,23 @@ for (const width of [1440, 390, 320])
         );
       await selectRow(page, 'Alpha plan').check();
       await selectRow(page, 'Beta review').check();
-      const phone = width < 480;
-      const selected = phone ? '2 selected' : '2 pages selected';
-      await expect(bulkBar(page).getByRole('status')).toHaveText(selected);
+      await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-bulk-bar-${width}-${theme}.png`) });
-      if (phone) {
-        // One row: the count, an Actions menu and Clear.
-        const bar = await bulkBar(page).boundingBox();
-        expect(bar!.height).toBeLessThan(80);
-        await bulkBar(page).getByRole('button', { name: 'Actions' }).click();
-        await expect(page.getByRole('menuitem')).toHaveText([
-          'Add to project',
-          'Remove from project',
-          'Archive…',
-          'Delete…',
-        ]);
-      } else {
-        await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
-        await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
-      }
+      await bulkBar(page).getByRole('button', { name: 'Projects…' }).click();
+      await expect(page.getByRole('menuitemcheckbox')).toHaveText(['design', 'ops', 'q4 plan']);
+      await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-bulk-menu-${width}-${theme}.png`) });
-      if (phone) {
-        await page.getByRole('menuitem', { name: 'Add to project' }).click();
-        const choice = page.getByRole('dialog', { name: 'Add to project' });
-        await expect(choice.getByRole('button')).toContainText([
-          'design',
-          'ops',
-          'q4 plan',
-          'New project…',
-        ]);
-        expect(await flat()).toBe(true);
-        await page.screenshot({
-          path: await capturePath(`3746-bulk-choice-${width}-${theme}.png`),
-        });
-        await page.keyboard.press('Escape');
-        await bulkBar(page).getByRole('button', { name: 'Actions' }).click();
-        await page.getByRole('menuitem', { name: 'Delete…' }).click();
-      } else {
-        await page.keyboard.press('Escape');
-        await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
-      }
+      await page.keyboard.press('Escape');
+      await bulkBar(page).getByRole('button', { name: 'More', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
       const confirm = confirmDialog(page, 'Delete 2 pages?');
       await expect(confirm).toBeVisible();
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`3746-bulk-delete-${width}-${theme}.png`) });
       await confirm.getByRole('button', { name: 'Cancel' }).click();
-      await expect(bulkBar(page).getByRole('status')).toHaveText(selected);
+      await expect(bulkBar(page).getByRole('status')).toHaveText('2 selected');
     });
 
 /**
@@ -1655,14 +1656,23 @@ async function insideViewport(page: Page) {
     const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
       // Tab strips (the list's views, the phone module menu) scroll inside; their tabs may pass the
       // edge.
-      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list, .tmt-ui-module-menu'))
+      .filter(
+        (node) =>
+          !node.parentElement?.closest(
+            '.tmt-ui-tab-list, .tmt-ui-module-menu, [data-slot="tabs-bar-scroller"]',
+          ),
+      )
+      // Input contents and announcements are clipped by their owning visual container.
+      .filter(
+        (node) => !node.parentElement?.closest('.tmt-rich-input-text, .tmt-page-list-project'),
+      )
       // Screen-reader announcements are deliberately clipped outside the visual layout.
       .filter((node) => !node.closest('.tmt-ui-visually-hidden'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
-    const rows = [...document.querySelectorAll('#list-fixture .page-projects')]
-      .flatMap((row) => [...row.querySelectorAll('button')].map((b) => b.getBoundingClientRect()))
+    const rows = [...document.querySelectorAll('#list-fixture .tmt-page-list-project-picker')]
+      .map((button) => button.getBoundingClientRect())
       .filter((box) => box.right > column.right + 0.5 || box.left < column.left - 0.5).length;
     return { outside, rows, scroll: document.documentElement.scrollWidth - width };
   });
@@ -1682,15 +1692,18 @@ for (const width of [1440, 390, 320])
       }, theme);
       await expect(titles(page)).toHaveCount(5);
       // The group keeps both full names accessible while its first visible pill truncates.
-      const longGroup = rows(page).filter({ hasText: 'Long names' }).locator('.page-project-group');
+      const longGroup = rows(page)
+        .filter({ hasText: 'Long names' })
+        .locator('.tmt-page-list-project-picker');
       await expect(longGroup).toHaveAccessibleName(
         `Projects for Long names: ${'漢'.repeat(32)}, ${'W'.repeat(32)}`,
       );
-      await expect(longGroup.locator('.page-project-group-chip')).toHaveText([
-        '漢'.repeat(32),
-        '+1',
-      ]);
-      await expect(longGroup.locator('.page-project-group-chip').first()).toBeVisible();
+      await expect(
+        longGroup.locator('.tmt-page-list-project, .tmt-page-list-project-overflow'),
+      ).toHaveText(['漢'.repeat(32), '+1']);
+      await expect(
+        longGroup.locator('.tmt-page-list-project, .tmt-page-list-project-overflow').first(),
+      ).toBeVisible();
       await insideViewport(page);
       await search(page).click();
       for (const [typed, option] of [
@@ -1704,7 +1717,7 @@ for (const width of [1440, 390, 320])
         await page.keyboard.press('Enter');
       }
       await page.keyboard.type(` ${'z'.repeat(120)}`);
-      await expect(app(page).locator('[data-project-filter]')).toHaveCount(2);
+      await expect(app(page).locator('[data-kind=project]')).toHaveCount(2);
       await insideViewport(page);
       await page.screenshot({ path: await capturePath(`3745-search-${width}-${theme}.png`) });
     });
@@ -1788,8 +1801,8 @@ test('restoring an Archived row confirms and returns it to the active list after
   );
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(await operations(page)).toEqual([]);
-  await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
-  await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();
+  await row.getByRole('button', { name: 'More for Archived spec' }).click();
+  await page.getByRole('menuitem', { name: 'Restore', exact: true }).click();
   await dialog.getByRole('button', { name: 'Restore page', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(status(page)).toHaveText('Restored “Archived spec”.');
@@ -1814,8 +1827,8 @@ for (const width of [1440, 390])
       }, theme);
       await app(page).getByRole('tab', { name: 'Archived, 1' }).click();
       const row = rows(page).filter({ hasText: 'Archived spec' });
-      await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
-      await page.getByRole('menuitem', { name: 'Restore…', exact: true }).click();
+      await row.getByRole('button', { name: 'More for Archived spec' }).click();
+      await page.getByRole('menuitem', { name: 'Restore', exact: true }).click();
       const dialog = confirmDialog(page, 'Restore “Archived spec”?');
       await expect(dialog.getByRole('button', { name: 'Restore page', exact: true })).toBeVisible();
       expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
@@ -1891,7 +1904,7 @@ test('viewer project tags keep filtering without a picker or empty labelled list
   await expect(
     rows(page).filter({ hasText: 'Gamma notes' }).locator('ul[aria-label="Projects"]'),
   ).toHaveCount(0);
-  await expect(app(page).locator('.page-project-group')).toHaveCount(0);
+  await expect(app(page).locator('.tmt-page-list-project-picker')).toHaveCount(0);
   await design.click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   await expect(design).toHaveAttribute('aria-pressed', 'true');
@@ -1910,7 +1923,14 @@ for (const width of [1440, 390, 320])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const long = rows(page).filter({ hasText: 'Long names' });
-      const author = long.locator('.page-author');
+      if (width < 760) {
+        await long.getByRole('button', { name: /^More for/ }).click();
+        await expect(page.getByText(`Author: ${'W'.repeat(120)}`)).toBeVisible();
+        await page.keyboard.press('Escape');
+        await insideViewport(page);
+        return;
+      }
+      const author = long.locator('[data-role=person] .tmt-data-table-text');
       // The full label is the tooltip; the text on the row is one line, cut with an ellipsis.
       await expect(author).toHaveAttribute('title', 'W'.repeat(120));
       const shown = await author.evaluate((node) => {
@@ -1997,7 +2017,7 @@ for (const width of [390, 1440])
       await filterProject(page, 'old');
       await search(page).blur();
       await expect(app(page).locator('.page-list-hero')).toHaveCount(0);
-      const header = app(page).locator('.page-stage-tabs > .tmt-ui-tabs > .tmt-ui-tabs-header');
+      const header = app(page).locator('.tmt-page-list-tabs-row');
       const tabs = header.getByRole('tablist');
       const actions = header.locator('.page-list-actions');
       await expect(
@@ -2006,7 +2026,7 @@ for (const width of [390, 1440])
       await expect(actions.getByRole('button', { name: 'New page', exact: true })).toBeVisible();
       await expect(tabs.getByRole('tab').first()).toContainText('99+');
       const geometry = await header.evaluate((node) => {
-        const tabs = node.querySelector('[role="tablist"]')!.getBoundingClientRect();
+        const tabs = node.querySelector('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
         const actions = node.querySelector('.page-list-actions')!.getBoundingClientRect();
         return {
           tabTop: tabs.top,

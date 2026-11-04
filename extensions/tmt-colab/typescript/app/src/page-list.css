@@ -11,84 +11,12 @@
   overscroll-behavior: contain;
   /* Control height changes must not move the scroll offset across the observed boundary. */
   overflow-anchor: none;
+  padding: var(--tmt-ui-ref-space-5) var(--tmt-ui-ref-space-5) 120px;
 }
-
-.page-pins {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  flex: none;
-  padding: 0;
-  margin: 0 0 20px;
-  list-style: none;
-}
-
-.page-pins > li {
-  position: relative;
-  display: grid;
-  grid-template-columns: 29px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-  min-height: 86px;
-  padding: 19px;
-  border: 1px solid var(--tmt-ui-surface-rule);
-  border-radius: var(--tmt-ui-radius-l);
-  background: var(--tmt-ui-surface-sheet);
-}
-
-.page-pins > li > svg {
-  width: 29px;
-  height: 29px;
-  color: var(--tmt-ui-color-secondary);
-}
-
-.page-pins > li > .page-pin-mark {
-  position: absolute;
-  top: 13px;
-  right: 13px;
-  width: 12px;
-  height: 12px;
-  color: var(--tmt-ui-color-waiting);
-}
-
-.page-pins a {
-  display: block;
-  color: var(--tmt-ui-color-text);
-  font-weight: 620;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  line-height: 18px;
-}
-
-.page-pins a:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
-}
-
-.page-pin-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 8px;
-  font-size: 10px;
-  align-items: center;
-}
-
-.page-pin-meta > span {
-  overflow-wrap: anywhere;
-}
-
-.page-pins .page-pin-meta .page-stage {
-  padding: 0;
-  background: none;
-  border: 0;
-  color: var(--tmt-ui-color-secondary);
-  font: inherit;
-  font-size: 10px;
-}
-
-.page-pins .page-pin-meta .page-stage::before {
-  display: none;
+@media (max-width: 760px) {
+  .home[data-page-list] {
+    padding-inline: var(--tmt-ui-ref-space-4);
+  }
 }
 
 .page-stage-tabs {
@@ -236,10 +164,6 @@
 }
 
 /* The column labels sit on the page; only the rows take the sheet. */
-.home .page-list-table {
-  --tmt-ui-list-tracks: var(--page-columns);
-  background: transparent;
-}
 
 .page-list-table > [role='rowgroup'] {
   background: var(--tmt-ui-surface-sheet);
@@ -250,9 +174,7 @@
   display: contents;
 }
 
-.page-list-table .tmt-ui-list-columns,
-/* Internal row dividers stay square inside the rounded outer frame, as on the website. */
-.pages [data-page-id] {
+.page-list-table .tmt-ui-list-columns {
   display: grid;
   grid-template-columns: var(--page-columns);
   column-gap: 0;
@@ -272,39 +194,10 @@
   padding-inline-start: 14px;
 }
 
-.pages [data-page-id] {
-  position: relative;
-  align-items: center;
-  min-height: 64px;
-  padding-block: 0;
-  border-top: 0;
-  border-radius: 0;
-  height: auto;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
-}
-
-.pages [data-page-id] * {
-  min-width: 0;
-}
-
 .page-row-leading {
   grid-column: 1;
   grid-row: 1;
   padding-inline-start: 21px;
-}
-
-.pages [data-page-id] .page-row-title {
-  grid-column: 2;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  min-height: 18px;
-  overflow: visible;
-  position: relative;
-  white-space: normal;
-  font-size: 12px;
-  padding-inline: 42px 14px;
-  line-height: 15px;
 }
 
 .page-row-icon {
@@ -328,16 +221,6 @@
   color: var(--tmt-ui-color-waiting);
 }
 
-.pages .tmt-ui-list-title > a {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  overflow-wrap: anywhere;
-  font-weight: 550;
-  white-space: nowrap;
-}
-
 .page-row-projects {
   grid-column: 3;
   grid-row: 1 / 3;
@@ -357,8 +240,7 @@
   line-height: var(--tmt-ui-caption-line-height);
 }
 
-.page-stage,
-.pages [data-page-id] .page-waiting {
+.page-stage {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -391,26 +273,6 @@
   background: color-mix(in srgb, var(--tmt-ui-color-link) 12%, transparent);
 }
 
-.pages [data-page-id] .page-waiting {
-  color: var(--tmt-ui-color-waiting);
-  background: var(--tmt-ui-surface-waiting-soft);
-  padding: 3px 8px;
-  font-size: 10px;
-  font-weight: 400;
-  line-height: 14px;
-}
-
-.pages [data-page-id] .page-work {
-  margin-top: 0;
-  grid-column: 2;
-  grid-row: 2;
-  padding-inline: 42px 14px;
-  white-space: normal;
-  font-size: 9px;
-  line-height: 13px;
-  color: var(--tmt-ui-color-secondary);
-}
-
 .page-updated {
   grid-column: 5;
   grid-row: 1 / 3;
@@ -435,32 +297,8 @@
   font-size: 11px;
 }
 
-.pages [data-page-id] .tmt-ui-list-actions {
-  position: absolute;
-  inset-inline-end: 12px;
-  grid-column: 8;
-  grid-row: 1;
-  background: transparent;
-  border-radius: var(--tmt-ui-radius);
-}
-
 .page-row-shortcuts {
   display: flex;
-}
-
-.pages [data-page-id][data-selected] {
-  background: var(--tmt-ui-surface-selection);
-}
-
-.pages [data-page-id]:hover > .tmt-ui-list-actions,
-.pages [data-page-id]:focus-within > .tmt-ui-list-actions,
-.pages [data-page-id]:has([aria-expanded='true']) > .tmt-ui-list-actions {
-  background: var(--tmt-ui-surface-sheet);
-}
-
-.pages [data-page-id][data-selected]:hover > .tmt-ui-list-actions,
-.pages [data-page-id][data-selected]:focus-within > .tmt-ui-list-actions {
-  background: var(--tmt-ui-surface-selection);
 }
 
 .page-list-count {
@@ -474,26 +312,6 @@
   margin-top: 16px;
   border-top: 1px solid var(--tmt-ui-surface-rule);
   line-height: 14px;
-}
-
-.page-pin-project,
-.pages [data-page-id] .page-project {
-  border: 0;
-  border-radius: var(--tmt-ui-radius-s);
-  background: color-mix(
-    in srgb,
-    var(--project-ink, var(--tmt-ui-color-secondary)) 13%,
-    transparent
-  );
-  color: var(--project-ink, var(--tmt-ui-color-secondary));
-  font-size: 10px;
-  line-height: 1.15;
-  padding: 4px 7px;
-  min-height: 0;
-}
-
-.page-pin-project {
-  font-size: 9px;
 }
 
 .home .page-list-search-field.rich-input-field {
@@ -527,19 +345,7 @@
   padding-inline-start: 21px;
 }
 
-.pages [data-page-id]:last-child {
-  border-bottom: 0;
-}
-
 /* Keep sub-page progress in its own track so the primary title and metadata share a centre. */
-.pages [data-page-id]:has(.page-work) {
-  height: auto;
-  min-height: 70px;
-  /* The 28px project group retains the existing task-row density. */
-  row-gap: 4px;
-  padding-block: 12px;
-  align-content: center;
-}
 
 .page-row-projects,
 .page-row-stage,
@@ -548,27 +354,6 @@
 .page-row-access {
   grid-row: 1;
   padding-inline: 14px;
-}
-
-.pages [data-page-id] .page-projects {
-  gap: 4px;
-}
-
-.pages [data-page-id] .page-projects > li {
-  display: flex;
-}
-
-.pages [data-page-id] .page-stage {
-  padding: 4px 8px;
-  background: none;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 10px;
-  font-weight: 400;
-  line-height: 11px;
-  gap: 6px;
-  border-radius: var(--tmt-ui-radius-pill);
-  min-height: 20px;
-  box-sizing: border-box;
 }
 
 .page-updated,
@@ -593,62 +378,13 @@
   font-size: 13px;
 }
 
-.pages [data-page-id] .page-stage[data-page-stage='discussion'],
-.pages [data-page-id] .page-stage[data-page-stage='archived'] {
-  color: var(--tmt-ui-color-secondary);
-  background: var(--tmt-ui-surface-command);
-}
-
-.pages [data-page-id] .page-stage[data-page-stage='in-progress'] {
-  color: var(--tmt-ui-color-link);
-  background: color-mix(in srgb, var(--tmt-ui-color-link) 12%, transparent);
-}
-
-.pages [data-page-id] .page-stage[data-page-stage='done'] {
-  color: var(--tmt-ui-color-working);
-  background: var(--tmt-ui-surface-working-soft);
-}
-
-.pages [data-page-id] .page-project:focus-visible {
-  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
-  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
-  box-shadow: none;
-}
-
 .page-list-sort {
   display: inline-flex;
   flex: none;
   font-size: 12px;
 }
 
-.pages [data-page-id] .page-waiting-mark {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: var(--tmt-ui-radius-pill);
-  background: currentColor;
-}
-
-@media (hover: hover) {
-  .pages [data-page-id] .page-row-shortcuts {
-    opacity: 0;
-  }
-  .pages [data-page-id]:hover .page-row-shortcuts,
-  .pages [data-page-id]:focus-within .page-row-shortcuts,
-  .pages [data-page-id]:has([aria-expanded='true']) .page-row-shortcuts {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 760px) {
-  .page-pins {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  .page-pins > li {
-    padding: 17px;
-    min-height: 82px;
-  }
   .page-list-controls .page-list-search {
     flex: 1 1 0;
     margin: 0;
@@ -658,27 +394,11 @@
   }
   /* One wrapping line of details under the title: the row flows its cells' contents, the select
      control and the actions keep their corners. */
-  .pages [data-page-id],
-  .pages [data-page-id]:has(.page-work) {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 9px 8px;
-    min-height: 108px;
-    height: auto;
-    padding: 14px 12px 14px 36px;
-    align-content: start;
-  }
   .page-row-leading {
     position: absolute;
     inset-inline-start: 12px;
     top: 14px;
     padding: 2px 0 0;
-  }
-  .pages [data-page-id] .page-row-title,
-  .pages [data-page-id] .page-work {
-    flex: 1 0 100%;
-    padding-inline: 25px 22px;
   }
   .page-row-projects,
   .page-row-stage,
@@ -705,18 +425,10 @@
     order: 3;
   }
   /* Inset from the row's padding edge, where the old grid track placed it. */
-  .pages [data-page-id] .tmt-ui-list-actions {
-    position: absolute;
-    inset-inline-end: 5px;
-    top: 18px;
-  }
   .page-row-icon {
     inset-inline-start: 0;
     top: 0;
     transform: none;
-  }
-  .pages .tmt-ui-list-title > a {
-    white-space: normal;
   }
   .page-list-count {
     font-size: 9px;
@@ -744,25 +456,9 @@
   .page-row-projects {
     flex: 0 1 auto;
   }
-  .pages [data-page-id] .page-projects {
-    max-width: 100%;
-  }
 }
 
 /* Viewer project filters retain their owner; their pills share the group's exact text geometry. */
-.pages [data-page-id] .page-projects {
-  min-width: 0;
-}
-.pages [data-page-id] .page-project {
-  min-width: 0;
-  max-width: 100%;
-  min-height: 22px;
-  padding: 0 9px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-}
-.pages [data-page-id] .page-project > span,
 .page-row-access > span {
   display: block;
   min-width: 0;
@@ -785,17 +481,6 @@
   /* The hover actions occupy their 36px track plus part of Access. Reserve that space before
      ellipsizing, rather than painting the actions over the middle of a word (12px end inset,
      and 4px breathing room). Archived rows have no pin action. */
-  .pages [data-page-id] {
-    --page-access-clearance: calc(3 * var(--tmt-ui-host-icon-action-size) - 20px);
-  }
-  .pages [data-page-id]:has(.page-pin-action) {
-    --page-access-clearance: calc(4 * var(--tmt-ui-host-icon-action-size) - 20px);
-  }
-  .pages
-    [data-page-id]:has(.tmt-ui-list-actions):is(:hover, :focus-within, :has([aria-expanded='true']))
-    .page-row-access {
-    padding-inline-end: var(--page-access-clearance);
-  }
 }
 
 /* Home retains one search editor; only this row sticks inside the list's own viewport. */
@@ -806,7 +491,7 @@
 }
 .page-list-controls {
   position: sticky;
-  top: calc(-1 * var(--tmt-ui-page-padding-block));
+  top: calc(-1 * var(--tmt-ui-ref-space-5));
   z-index: 3;
 }
 .page-list-compact-create {
@@ -820,8 +505,8 @@
   box-sizing: border-box;
   flex-wrap: nowrap;
   padding-block: var(--tmt-ui-space-s);
-  margin-inline: calc(-1 * var(--tmt-ui-page-padding-inline));
-  padding-inline: var(--tmt-ui-page-padding-inline);
+  margin-inline: calc(-1 * var(--tmt-ui-ref-space-5));
+  padding-inline: var(--tmt-ui-ref-space-5);
   gap: var(--tmt-ui-space-s);
   background: var(--tmt-ui-surface-paper);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -857,12 +542,9 @@
   }
 }
 @media (max-width: 760px) {
-  .page-list-controls {
-    top: calc(-1 * var(--tmt-ui-page-compact-padding-block));
-  }
   .home[data-compact] .page-list-controls {
-    margin-inline: calc(-1 * var(--tmt-ui-page-compact-padding-inline));
-    padding-inline: var(--tmt-ui-page-compact-padding-inline);
+    margin-inline: calc(-1 * var(--tmt-ui-ref-space-4));
+    padding-inline: var(--tmt-ui-ref-space-4);
   }
 }
 @media (max-width: 760px) {
@@ -943,7 +625,7 @@
   display: inline-flex;
   flex: none;
 }
-.page-list-filter-menu > svg {
+:is(.page-list-filter-menu, .page-list-sort) > svg {
   position: absolute;
   z-index: 1;
   left: var(--tmt-ui-space-s);
@@ -953,14 +635,14 @@
   height: var(--tmt-ui-header-icon-size);
   pointer-events: none;
 }
-.page-list-filter-menu .tmt-ui-menu-trigger {
+:is(.page-list-filter-menu, .page-list-sort) .tmt-ui-menu-trigger {
   padding-inline-start: var(--tmt-ui-space-2xl);
 }
 @media (max-width: 760px) {
-  .page-list-filter-menu > svg {
+  :is(.page-list-filter-menu, .page-list-sort) > svg {
     display: none;
   }
-  .page-list-filter-menu .tmt-ui-menu-trigger {
+  :is(.page-list-filter-menu, .page-list-sort) .tmt-ui-menu-trigger {
     width: var(--tmt-ui-control-size-l);
     min-height: var(--tmt-ui-control-size-l);
     padding: 0;
@@ -1052,4 +734,39 @@
   display: inline-flex;
   flex: none;
   white-space: nowrap;
+}
+
+/* The shared input fills the list search slot. */
+.page-list-search-box > .tmt-rich-input {
+  flex: 1;
+  min-width: 0;
+}
+/* The sentinel stays measurable so the list can load its next visible rows. */
+.page-list-end {
+  height: 1px;
+  margin: 0;
+}
+
+/* The shared input supplies its own border; retain the wrapper for the search owner. */
+.home .page-list-search-box:has(> .tmt-rich-input) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.home .tmt-page-list-pins {
+  margin-bottom: var(--tmt-ui-ref-space-4);
+}
+
+@media (max-width: 760px) {
+  .cold-list-action-label {
+    display: none;
+  }
+}
+
+/* These list commands use icon-and-label buttons; selection remains in their menus. */
+.page-list-sort {
+  position: relative;
+}
+:is(.page-list-filter-menu, .page-list-sort) .tmt-ui-menu-trigger > .tmt-ui-icon {
+  display: none;
 }
