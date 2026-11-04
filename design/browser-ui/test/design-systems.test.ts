@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { livePatternSlugs, PatternPage } from '../docs/pattern-page.js';
 import {
   buildBundle,
   checkElements,
@@ -18,6 +21,15 @@ const builtIn = new URL('../../systems/tmt-gui/generated/bundle.json', import.me
 const sha256Hex = async (text: string) => createHash('sha256').update(text).digest('hex');
 const button = template.components.find((component) => component.tag === 'button')!;
 const legacyButton = { ...button, uiParts: undefined, source: 'export default () => () => null;' };
+
+it('renders every live pattern scene', () => {
+  expect(livePatternSlugs).toHaveLength(20);
+  for (const slug of livePatternSlugs) {
+    const markup = renderToStaticMarkup(createElement(PatternPage, { page: slug }));
+    expect(markup, slug).toContain('<h1>');
+    expect(markup, slug).toContain('data-tmt-ds-scope');
+  }
+});
 
 describe('buildBundle', () => {
   it('requires named shared parts to be declared on runtime 3 components', async () => {

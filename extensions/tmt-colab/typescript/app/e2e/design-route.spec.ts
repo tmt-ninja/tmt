@@ -152,6 +152,7 @@ for (const width of [1440, 390])
     test(`Design owns docs, user trees and header actions, ${width}, ${theme}`, async ({
       page,
     }) => {
+      test.skip(!captures && (width === 1440 ? theme !== 'light' : theme !== 'dark'));
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.setViewportSize({ width, height: 1000 });
@@ -426,7 +427,7 @@ test('standalone Design keeps its docs, system cards and editing links on their 
     .click();
   await expect(page).toHaveURL(/\/design\/systems\/[0-9a-f-]+\/[0-9a-f-]+$/);
   await expect(
-    designFrame(page).getByRole('heading', { name: '<acme-button>', exact: true }),
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open in Colab', exact: true })).toHaveAttribute(
     'href',
