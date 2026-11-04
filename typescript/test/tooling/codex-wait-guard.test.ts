@@ -665,6 +665,23 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       },
     ]);
     expect(JSON.stringify(received[0].body)).not.toContain('outside-content');
+
+    // A heredoc write skips the model, but running what it wrote is judged with its content.
+    const loop = 'while :; do gh pr checks 6041; sleep 60; done';
+    received = [];
+    answer = () => {
+      throw new Error('the judge must not be called for the write');
+    };
+    const write = `cat > scripts/wait-ci.sh <<'EOF'\n${loop}\nEOF`;
+    await c.guard({ ...bash(write), cwd: repo }, {}, hook);
+    expect(received).toEqual([]);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'skip' });
+    // The seat's shell writes the file; the hook only judged the call.
+    writeFileSync(path.join(repo, 'scripts', 'wait-ci.sh'), `${loop}\n`);
+    answer = verdict('deny', 'Runs a CI polling loop.');
+    await c.guard({ ...bash('sh scripts/wait-ci.sh'), cwd: repo }, {}, hook);
+    expect(sent().scripts).toEqual([{ path: 'scripts/wait-ci.sh', content: `${loop}\n` }]);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
   });
 
   it('summarizes the log over a window with the denominator, timings and cost', async () => {
