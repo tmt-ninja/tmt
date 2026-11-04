@@ -111,6 +111,19 @@ describe('checkElements', () => {
     const system = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     expect(checkElements([{ tag: 'tmt-ui-button', attrs: {} }], pin, system)).toEqual([]);
   });
+  it('skips only the host page elements it is given', async () => {
+    const system = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
+    const el = (tag: string) => ({ tag, attrs: {} });
+    const page = [el('tmt-question'), el('tmt-ui-button'), el('acme-button')];
+    expect(checkElements(page, pin, system, ['tmt-question'])).toEqual([
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: 2 },
+    ]);
+    // Without the host's list, its elements are foreign to the system like any other tag.
+    expect(checkElements(page, pin, system).map((finding) => finding.tag)).toEqual([
+      'tmt-question',
+      'acme-button',
+    ]);
+  });
   it('reports each of the five page check codes', async () => {
     bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     const el = (tag: string, attrs: Record<string, string> = {}) => ({ tag, attrs });

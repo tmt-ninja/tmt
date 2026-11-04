@@ -13,6 +13,7 @@ import {
   type Bundle,
   type Finding,
 } from '../../../../../design/systems/compiler.mjs';
+import { elements as ownElements } from '../../../contracts/vectors/page-elements-v1.json';
 
 /** The skeleton API this app runs bundles on: the page runtime's React and htm, plus cn. */
 export const SKELETON_RUNTIME = '2';
@@ -184,6 +185,13 @@ this.root.render(React.createElement(Component,props));}});});})();`;
 export const writesDesignSystemTags = (source: string) => /<tmt-ui-[a-z]/i.test(source);
 
 /** Every element of the page as `{tag, attrs}`, parsed inertly. */
+/** The design-system page check with Colab's own page elements skipped, from the contract's list. */
+export const checkPageElements = (
+  elements: Parameters<typeof checkElements>[0],
+  pin: Parameters<typeof checkElements>[1],
+  bundle: Bundle | null,
+) => checkElements(elements, pin, bundle, ownElements);
+
 function pageElements(source: string) {
   return [...new DOMParser().parseFromString(source, 'text/html').body.querySelectorAll('*')].map(
     (element) => ({
@@ -246,13 +254,13 @@ export async function loadDesignSystem(
   if (!named && !writesDesignSystemTags(source)) return undefined;
   const pin = named ? designSystemPin(source) : null;
   const elements = pageElements(source);
-  if (!named) return { style: '', script: findingsScript(checkElements(elements, null, null)) };
+  if (!named) return { style: '', script: findingsScript(checkPageElements(elements, null, null)) };
   if (!pin || !from) return noticeFrame('unknown-release');
   // A slow or stuck read never blanks the page: past the deadline it renders with the notice, and
   // the read goes on for the next open.
   const bundle = await Promise.race([outcome(pin, from), deadline()]);
   if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
   const frame = frameDesignSystem(bundle);
-  const findings = findingsScript(checkElements(elements, pin, bundle as unknown as Bundle));
+  const findings = findingsScript(checkPageElements(elements, pin, bundle as unknown as Bundle));
   return { style: frame.style, script: `${frame.script}${findings}` };
 }

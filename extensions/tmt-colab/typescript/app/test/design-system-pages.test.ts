@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
-import { bundleHash, DesignDraftError, noticeFrame } from '../src/design-system.js';
+import {
+  bundleHash,
+  checkPageElements,
+  DesignDraftError,
+  noticeFrame,
+} from '../src/design-system.js';
+import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
+import type { Bundle } from '../../../../../design/systems/compiler.mjs';
 import { GENERATED_NOTE, shippedBundle, syncBuiltInMirror } from '../src/design-mirror.js';
 import {
   adoptDesignSystem,
@@ -532,5 +539,28 @@ describe('built-in tmt GUI pages (#5969)', () => {
     for (const [id, page] of live)
       if (readBlock(page.source, 'origin')) expect(inTree.has(id), id).toBe(true);
     expect([...pages.values()].some((page) => page.archived)).toBe(true);
+  });
+});
+
+describe('the design-system page check on a Colab page (#6062)', () => {
+  it('skips every Colab page element and still reports a foreign tag', async () => {
+    const bundle = (await import('../../../../../design/systems/tmt-gui/generated/bundle.json'))
+      .default as unknown as Bundle;
+    const pin = { system: 'tmt-gui' };
+    const el = (tag: string) => ({ tag, attrs: {} });
+    expect(colabElements).toEqual(
+      expect.arrayContaining([
+        'tmt-question',
+        'tmt-questions',
+        'tmt-review',
+        'tmt-read',
+        'tmt-thread-ref',
+      ]),
+    );
+    const page = [...colabElements.map(el), el('tmt-ui-button')];
+    expect(checkPageElements(page, pin, bundle)).toEqual([]);
+    expect(checkPageElements([...page, el('acme-button')], pin, bundle)).toEqual([
+      { code: 'ds-prefix-mismatch', tag: 'acme-button', index: page.length },
+    ]);
   });
 });

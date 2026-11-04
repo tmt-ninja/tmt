@@ -73,5 +73,6 @@ export function checkElements(
   elements: { tag: string; attrs: Record<string, string> }[],
   pin: { system: string } | null,
   bundle: Bundle | null,
+  pageElements?: readonly string[],
 ): Finding[];
 export const findingText: Record<Finding['code'], (finding: Finding) => string>;

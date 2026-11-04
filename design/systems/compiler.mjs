@@ -8,8 +8,6 @@ export const RUNTIME = '2';
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
 const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
-/** Custom elements the page frame defines itself; they belong to no design system. */
-const FRAME_ELEMENTS = new Set(['tmt-icon', 'tmt-slot']);
 
 export class DesignSystemError extends Error {}
 const fail = (message) => {
@@ -125,13 +123,16 @@ export async function buildBundle(system, config, components, sha256Hex) {
 /**
  * The page check for design-system markup. `elements` is every element of the page as
  * `{tag, attrs}`; `pin` is the page's `tmt-ds` pin or null; `bundle` is the pinned bundle or null
- * when it cannot be read. Each finding is `{code, tag, attribute?, index}`.
+ * when it cannot be read. `pageElements` lists the host's own page elements, which belong to no
+ * design system; Colab passes its contract list (contracts/vectors/page-elements-v1.json). Each
+ * finding is `{code, tag, attribute?, index}`.
  */
-export function checkElements(elements, pin, bundle) {
+export function checkElements(elements, pin, bundle, pageElements = []) {
+  const own = new Set(pageElements);
   const findings = [];
   const candidates = elements
     .map((element, index) => ({ ...element, index }))
-    .filter(({ tag }) => tag.includes('-') && !FRAME_ELEMENTS.has(tag));
+    .filter(({ tag }) => tag.includes('-') && !own.has(tag));
   if (!pin) {
     for (const { tag, index } of candidates)
       if (tag.startsWith('tmt-ui-')) {

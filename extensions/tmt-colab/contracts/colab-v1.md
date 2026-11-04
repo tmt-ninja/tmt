@@ -2815,6 +2815,11 @@ decorative unless `label` is set; a name it does not have draws nothing. No netw
 sandbox rule changes. `page check` reports a `tmt-ui-*` class and a `tmt-icon` name the frame does not
 have (`unknown-ui-class`, `unknown-icon`, in the table below).
 
+Colab's own page elements (`tmt-icon`, `tmt-slot`, `tmt-question`, `tmt-questions`, `tmt-review`,
+`tmt-read`, `tmt-thread-ref`) belong to no design system. Their one list is
+[`vectors/page-elements-v1.json`](vectors/page-elements-v1.json); the design-system page check skips
+exactly those tags on a page that pins a system.
+
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
 author-pinned `<html data-theme>` with Colab's effective theme; the attribute is
