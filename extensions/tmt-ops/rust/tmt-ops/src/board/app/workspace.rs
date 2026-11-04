@@ -799,13 +799,16 @@ impl App {
             host,
         );
         if let Some(sources) = self.workspace_binding_sources() {
+            let defaults = crate::config::workspace_defaults(self.workspace_scope());
             for (event, action) in self.workspace_factory_actions() {
                 let source = sources.get(&event);
-                if source.is_some_and(|source| source == "workspace default")
-                    || ((matches!(event.as_str(), "e" | "i")
-                        || (self.shell.tab == OpsTab::Digest
-                            && matches!(event.as_str(), "u" | "[")))
-                        && source.is_none())
+                let unchanged = keys.get(&event) == defaults.get(&event);
+                if unchanged
+                    && (source.is_some_and(|source| source == "workspace default")
+                        || ((matches!(event.as_str(), "e" | "i")
+                            || (self.shell.tab == OpsTab::Digest
+                                && matches!(event.as_str(), "u" | "[")))
+                            && source.is_none()))
                 {
                     keys.insert(event, action);
                 }

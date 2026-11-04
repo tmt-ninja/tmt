@@ -1823,3 +1823,28 @@ fn digest_redesign_basis_remains_reachable_on_a_short_native_board() {
             .any(|(_, choice)| *choice == crate::board::app::Choice::DigestBasis)
     );
 }
+
+#[test]
+fn an_authored_u_binding_wins_on_the_digest_tab() {
+    use crate::{
+        action::{Action, Verb},
+        config::OpsKeyScope,
+    };
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = valued_board();
+    press(&mut app, '2');
+    select_worker(&mut app);
+    app.focus = 0;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .get_mut(&OpsKeyScope::Member)
+        .unwrap()
+        .insert("u".into(), Action::parse("copy {name}").unwrap());
+    assert_eq!(app.workspace_bindings()["u"].verb, Verb::Copy);
+}
