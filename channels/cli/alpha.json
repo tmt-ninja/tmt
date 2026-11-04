@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "cli",
   "channel": "alpha",
-  "version": "5.0.0-alpha.547",
-  "tag": "v5.0.0-alpha.547",
+  "version": "5.0.0-alpha.549",
+  "tag": "v5.0.0-alpha.549",
   "record": {
-    "url": "https://github.com/tmt-ninja/tmt/releases/download/v5.0.0-alpha.547/tmt-release-record.json",
+    "url": "https://github.com/tmt-ninja/tmt/releases/download/v5.0.0-alpha.549/tmt-release-record.json",
     "size": 1530,
-    "sha256": "06271a7c0ff58a243070e435ed5beec48cd38a41af69a176e43acc377c092fc3"
+    "sha256": "5edfcafd07d2ef443bc97084f5ae85d8beb4e631c718aa51ae330dafa95197ec"
   }
 }
