@@ -1024,7 +1024,8 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     const name = /name: (upgrade-assets-\$\{\{ inputs\.tag \}\})/.exec(fetch)?.[1];
     expect(name).toBeDefined();
     expect(fetch).toContain('actions/upload-artifact@');
-    expect(prove).toContain('actions/download-artifact@');
+    expect(prove).toContain('uses: ./.github/actions/download-artifact-retry');
+    expect(prove).toContain('timeout-minutes: 10');
     expect(prove).toContain(`name: ${name}`);
   });
 
