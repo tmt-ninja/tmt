@@ -22,7 +22,7 @@ import { currentLocation, replacePath, usePath } from './router.js';
 import { previewRoot } from './preview.js';
 import { applyStoredTheme } from '../src/theme.js';
 import { drawFramesInline } from '../gallery/kit.js';
-import { renderDocsPreview } from './inline-preview.js';
+import { renderDocsPreview } from './lazy-preview.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 
 // An old /docs or /mock URL, or the bare root, moves to its design system's route (#5821).

@@ -482,6 +482,11 @@
   background: var(--tmt-ui-color-waiting);
 }
 
+
+.gallery-topbar-fixture-controls {
+  padding: var(--tmt-ui-space-s);
+}
+
 }
 
 /* src/data-table/page-list.css */
@@ -1625,7 +1630,9 @@ code {
 }
 
 
-.docs-canvas:has([data-preview-frame]) {
+.docs-canvas:has([data-preview-frame]),
+.docs-canvas:has(.tmt-data-table),
+.docs-canvas:has(.tmt-rich-input) {
   display: block;
   min-width: 0;
 }

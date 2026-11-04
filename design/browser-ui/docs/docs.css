@@ -898,7 +898,9 @@ code {
 }
 
 /* A preview needs the whole available canvas width for its own size container. */
-.docs-canvas:has([data-preview-frame]) {
+.docs-canvas:has([data-preview-frame]),
+.docs-canvas:has(.tmt-data-table),
+.docs-canvas:has(.tmt-rich-input) {
   display: block;
   min-width: 0;
 }

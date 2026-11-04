@@ -72,23 +72,25 @@ export function textAtSurfaceEdge(page: Page, scope: string) {
         const filled = fills(style) && style.backgroundColor !== up?.backgroundColor;
         const bordered = drawn(style, 'Left') && drawn(style, 'Right');
         const box = element.getBoundingClientRect();
+        const scale = element.offsetWidth ? box.width / element.offsetWidth : 1;
         if (!filled && !bordered) {
           // A transparent scroll/clip container can hide glyphs before they reach a more
           // distant filled surface. Range bounds include those unpainted glyphs.
           if (style.overflowX !== 'visible' && element.clientWidth > 0) {
-            const clipLeft = box.left + element.clientLeft;
+            const clipLeft = box.left + element.clientLeft * scale;
             visibleLeft = Math.max(visibleLeft, clipLeft);
-            visibleRight = Math.min(visibleRight, clipLeft + element.clientWidth);
+            visibleRight = Math.min(visibleRight, clipLeft + element.clientWidth * scale);
             if (visibleRight <= visibleLeft) break;
           }
           continue;
         }
-        const left = visibleLeft - box.left - (parseFloat(style.borderLeftWidth) || 0);
-        const right = box.right - visibleRight - (parseFloat(style.borderRightWidth) || 0);
+        const left = (visibleLeft - box.left) / scale - (parseFloat(style.borderLeftWidth) || 0);
+        const right =
+          (box.right - visibleRight) / scale - (parseFloat(style.borderRightWidth) || 0);
         // Text outside its surface (scrolled away) is not on it.
         if (box.width > 4 && left > -1 && right > -1 && (left < 3 || right < 3))
           out.add(
-            `${element.tagName.toLowerCase()}.${String(element.className).split(' ').slice(0, 3).join('.')} left=${left.toFixed(0)} right=${right.toFixed(0)} «${node.textContent!.trim().slice(0, 30)}»`,
+            `${element.tagName.toLowerCase()}.${String(element.className).split(' ').slice(0, 3).join('.')} left=${left.toFixed(0)} right=${right.toFixed(0)} «${node.textContent!.trim().slice(0, 30)}» in ${element.closest('[data-preview-title]')?.getAttribute('data-preview-title') ?? 'gallery'}`,
           );
         break;
       }
@@ -123,11 +125,12 @@ export function controlRadii(page: Page, scope: string) {
       if (element.closest('.tmt-ui-chip, .tmt-ui-tabs, [data-tmt-ui]')) continue;
       const style = getComputedStyle(element);
       if (style.display === 'none') continue;
+      const localToken = style.getPropertyValue('--tmt-ui-radius').trim() || token;
       if (
-        style.borderTopLeftRadius !== token ||
-        style.borderTopRightRadius !== token ||
-        style.borderBottomRightRadius !== token ||
-        style.borderBottomLeftRadius !== token
+        style.borderTopLeftRadius !== localToken ||
+        style.borderTopRightRadius !== localToken ||
+        style.borderBottomRightRadius !== localToken ||
+        style.borderBottomLeftRadius !== localToken
       )
         off.set(
           `${element.tagName.toLowerCase()}.${String(element.className).split(' ').slice(0, 2).join('.')}`,
@@ -316,7 +319,7 @@ export function controlBoundaries(page: Page, scope: string) {
       const visible = (element: Element) =>
         getComputedStyle(element).display !== 'none' && element.getBoundingClientRect().width > 0;
       const name = (element: Element) =>
-        `${element.tagName.toLowerCase()}.${String(element.className).split(' ')[0]}`;
+        `${element.tagName.toLowerCase()}.${String(element.className).split(' ')[0]} in ${element.closest('[data-preview-title]')?.getAttribute('data-preview-title') ?? 'gallery'}`;
 
       const borders = { measured: 0, misses: new Set<string>() };
       const checks = [

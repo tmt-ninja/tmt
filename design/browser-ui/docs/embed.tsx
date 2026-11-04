@@ -12,7 +12,7 @@ import { previewRoot } from './preview.js';
 import { hostDocs } from './router.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 import { TuiMock } from './tui-nav.js';
-import { renderDocsPreview } from './inline-preview.js';
+import { renderDocsPreview } from './lazy-preview.js';
 
 export interface DesignDocsProps {
   /** The host path that holds the docs, such as `/colab/design`. */

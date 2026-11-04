@@ -138,3 +138,15 @@ describe('checkElements', () => {
     ]);
   });
 });
+
+it('keeps generated template pages iframe-free and names the deferred scene tags', () => {
+  const pages = JSON.parse(
+    readFileSync(new URL('../../systems/tmt-gui/generated/pages.json', import.meta.url), 'utf8'),
+  ) as { pages: { slug: string; html: string }[] }[];
+  const all = pages.flatMap((section) => section.pages);
+  expect(all.some((page) => /<iframe\b/i.test(page.html))).toBe(false);
+  for (const slug of ['page-list', 'data-table']) {
+    const page = all.find((entry) => entry.slug === slug);
+    expect(page?.html).toContain('Live preview returns with the page-view tags in #5981 part B.');
+  }
+});

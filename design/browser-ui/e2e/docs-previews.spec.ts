@@ -63,6 +63,7 @@ for (const width of [1440, 390]) {
     for (const path of paths) {
       await page.goto(`${docs}${path}`);
       await page.locator('main').first().waitFor();
+      await expect(page.locator('[data-scene-loading]')).toHaveCount(0);
       const result = await previewFaults(page);
       previews += result.count;
       faults.push(...result.faults.map((fault) => `${path}: ${fault}`));
@@ -149,6 +150,24 @@ test('an interactive pattern opens inside its scope without locking the docs', a
   await expect(dialog).toHaveCount(0);
 });
 
+for (const width of [390, 1440]) {
+  for (const [slug, selector] of [
+    ['data-table', '.tmt-data-table'],
+    ['rich-input', '.tmt-rich-input'],
+  ]) {
+    test(`the ${slug} hero fills its canvas at ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${docs}/ds/gui/components/${slug}`);
+      const canvas = page.locator('.docs-canvas-hero');
+      const control = canvas.locator(selector);
+      await expect(control).toBeVisible();
+      const [container, content] = await Promise.all([canvas.boundingBox(), control.boundingBox()]);
+      expect(content!.width).toBeGreaterThan(container!.width * 0.7);
+      expect(content!.x + content!.width).toBeLessThanOrEqual(container!.x + container!.width + 1);
+    });
+  }
+}
+
 test('a long header suffix stays on one line clear of its status', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${docs}/ds/gui/browser/header`);
@@ -187,6 +206,7 @@ test('captures the affected docs pages at both widths and themes', async ({ page
         await page.locator('main').first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         await expect(page.locator('iframe')).toHaveCount(0);
+        await expect(page.locator('[data-scene-loading]')).toHaveCount(0);
         await page.screenshot({
           path: testInfo.outputPath(`${route.replace('/', '-')}-${width}-${theme}.png`),
           fullPage: true,

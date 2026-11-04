@@ -147,7 +147,7 @@ function ShellHeader() {
   ) : null;
 }
 
-function ShellFrame({ params }: { params: URLSearchParams }) {
+export function ShellFrame({ params }: { params: URLSearchParams }) {
   const scope = useDsScope();
   const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
   const [mounted, setMounted] = useState(true);
@@ -229,7 +229,7 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
 
 /** The one TMT app: `startShellHost` owns the rail; a React module renders into its slot
  * through `HostedShell`, which sends the module menu to the host. */
-function HostedFrame() {
+export function HostedFrame() {
   const root = useRef<HTMLDivElement>(null);
   const scope = useDsScope();
   const scopeRoot = scope?.root;
@@ -277,7 +277,7 @@ function HostedFrame() {
   );
 }
 
-function DialogFrame({ params }: { params: URLSearchParams }) {
+export function DialogFrame({ params }: { params: URLSearchParams }) {
   const [open, setOpen] = useState(params.get('open') !== 'false');
   const confirm = params.get('presentation') === 'confirm';
   const deleting = confirm && params.get('intent') === 'delete';
@@ -339,7 +339,7 @@ function DialogFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
-function DrawerFrame({ params }: { params: URLSearchParams }) {
+export function DrawerFrame({ params }: { params: URLSearchParams }) {
   const [open, setOpen] = useState(params.get('open') !== 'false');
   return (
     <>
@@ -385,7 +385,7 @@ function DrawerFrame({ params }: { params: URLSearchParams }) {
 }
 
 /** Source presentation only: Save records one local activation and remains busy. */
-function SourceFrame({ params }: { params: URLSearchParams }) {
+export function SourceFrame({ params }: { params: URLSearchParams }) {
   const [open, setOpen] = useState(params.get('open') !== 'false');
   const [busy, setBusy] = useState(params.get('busy') === 'true');
   const [activations, setActivations] = useState(0);
@@ -434,7 +434,7 @@ function SourceFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
-function MenuFrame({ scoped }: { scoped: boolean }) {
+export function MenuFrame({ scoped }: { scoped: boolean }) {
   // A menu ignores the value it mounts with; the next value opens it once.
   const [request, setRequest] = useState(0);
   useLayoutEffect(() => {
@@ -453,7 +453,7 @@ function MenuFrame({ scoped }: { scoped: boolean }) {
   );
 }
 
-function NotificationsFrame({ scoped }: { scoped: boolean }) {
+export function NotificationsFrame({ scoped }: { scoped: boolean }) {
   const [active, setActive] = useState(!scoped);
   const events = useMemo<BrowserNotification[]>(
     () => [
@@ -476,9 +476,14 @@ function NotificationsFrame({ scoped }: { scoped: boolean }) {
   return (
     <>
       {scoped && (
-        <button type="button" onClick={() => setActive(true)}>
-          Show notifications
-        </button>
+        <div style={{ padding: 'var(--tmt-ui-space-s)' }}>
+          <BrowserAction
+            type="button"
+            variant="secondary"
+            label="Show notifications"
+            onActivate={() => setActive(true)}
+          />
+        </div>
       )}
       <BrowserNotifications
         pageKey="gallery"
@@ -522,7 +527,7 @@ function PanelReply({ send }: { send(): Promise<void> }) {
   );
 }
 
-function PanelFrame({ params }: { params: URLSearchParams }) {
+export function PanelFrame({ params }: { params: URLSearchParams }) {
   const scope = useDsScope();
   const stage = scope?.root;
   const [open, setOpen] = useState(params.get('open') !== 'false');
@@ -644,7 +649,7 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
-function GlyphFrame() {
+export function GlyphFrame() {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = host.current!;
