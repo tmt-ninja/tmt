@@ -14,11 +14,15 @@ const LAUNCH_READY: u8 = 0x27;
 const WAIT_LAUNCHER: u8 = 0x28;
 const PUBLISH_IF: u8 = 0x29;
 const CAPABILITIES: u8 = 0x2a;
+const RESUME: u8 = 0x2b;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
 const ERROR: u8 = 0xa3;
 const LAUNCHED: u8 = 0xa4;
+const CAPABILITY_FLAGS: u8 = 0xa5;
+/// Bit 0 of the capability flags: the supervisor answers `Control::Resume`.
+const RESUME_FLAG: u8 = 0x01;
 const KEY_LIMIT: usize = 128;
 const MARKER_LIMIT: usize = 2048;
 
@@ -26,7 +30,9 @@ const MARKER_LIMIT: usize = 2048;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Control {
     Inspect,
-    /// Ask whether conditional publication is supported.
+    /// Ask which optional controls are supported. A supervisor that answers at
+    /// all supports conditional publication; older ones reply `Applied(true)`,
+    /// newer ones `ControlReply::Capabilities` with further flags.
     Capabilities,
     /// Legacy v1 publication frame, retained for existing clients.
     Publish {
@@ -55,6 +61,9 @@ pub enum Control {
     LaunchReady {
         pane_pid: u32,
     },
+    /// Continue a member stopped by job control. Idempotent; a supervisor
+    /// that predates it closes the connection on the unknown kind.
+    Resume,
 }
 
 /// A reply to the one outstanding control on a connection. Output can precede it.
@@ -65,12 +74,21 @@ pub enum ControlReply {
         pane_pid: u32,
         key_idle_ms: Option<u64>,
         marker: Option<String>,
+        /// The member is stopped by job control. One trailing byte; a payload
+        /// from a supervisor that predates it omits the byte and reads as false.
+        paused: bool,
     },
     Applied(bool),
     Screen(String),
     Error(String),
     /// The committed binding marker accompanying a managed-launch receipt.
     Launched(String),
+    /// The answer to `Control::Capabilities` from a supervisor that has optional
+    /// controls beyond conditional publication. One flag byte; unknown bits are
+    /// ignored on read so later controls can add bits.
+    Capabilities {
+        resume: bool,
+    },
 }
 
 fn malformed() -> ProtocolError {
@@ -127,6 +145,7 @@ impl Frame for Control {
             Self::AwaitLaunch => AWAIT_LAUNCH,
             Self::WaitLauncher => WAIT_LAUNCHER,
             Self::LaunchReady { .. } => LAUNCH_READY,
+            Self::Resume => RESUME,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -159,7 +178,8 @@ impl Frame for Control {
             | Self::Capture
             | Self::Enter
             | Self::AwaitLaunch
-            | Self::WaitLauncher => {}
+            | Self::WaitLauncher
+            | Self::Resume => {}
         }
     }
     fn read(kind: u8, mut bytes: &[u8]) -> Result<Self, ProtocolError> {
@@ -170,6 +190,7 @@ impl Frame for Control {
             ENTER => Self::Enter,
             AWAIT_LAUNCH => Self::AwaitLaunch,
             WAIT_LAUNCHER => Self::WaitLauncher,
+            RESUME => Self::Resume,
             LAUNCH_READY => {
                 let pane_pid = u32::from_be_bytes(take(&mut bytes, 4)?.try_into().unwrap());
                 if pane_pid == 0 {
@@ -225,6 +246,7 @@ impl Frame for ControlReply {
             Self::Screen(_) => SCREEN,
             Self::Error(_) => ERROR,
             Self::Launched(_) => LAUNCHED,
+            Self::Capabilities { .. } => CAPABILITY_FLAGS,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -234,13 +256,16 @@ impl Frame for ControlReply {
                 pane_pid,
                 key_idle_ms,
                 marker,
+                paused,
             } => {
                 out.extend_from_slice(&supervisor_pid.to_be_bytes());
                 out.extend_from_slice(&pane_pid.to_be_bytes());
                 out.extend_from_slice(&key_idle_ms.unwrap_or(u64::MAX).to_be_bytes());
                 put(out, marker.as_deref().unwrap_or(""));
+                out.push(u8::from(*paused));
             }
             Self::Applied(value) => out.push(u8::from(*value)),
+            Self::Capabilities { resume } => out.push(if *resume { RESUME_FLAG } else { 0 }),
             Self::Screen(text) | Self::Error(text) | Self::Launched(text) => {
                 out.extend_from_slice(text.as_bytes())
             }
@@ -256,11 +281,19 @@ impl Frame for ControlReply {
                 }
                 let idle = u64::from_be_bytes(take(&mut bytes, 8)?.try_into().unwrap());
                 let marker = string(&mut bytes, MARKER_LIMIT)?;
+                let paused = match bytes {
+                    [] => false,
+                    [0] => false,
+                    [1] => true,
+                    _ => return Err(malformed()),
+                };
+                bytes = &[];
                 Self::State {
                     supervisor_pid,
                     pane_pid,
                     key_idle_ms: (idle != u64::MAX).then_some(idle),
                     marker: (!marker.is_empty()).then_some(marker),
+                    paused,
                 }
             }
             APPLIED => {
@@ -270,6 +303,14 @@ impl Frame for ControlReply {
                     _ => return Err(malformed()),
                 };
                 Self::Applied(answer)
+            }
+            CAPABILITY_FLAGS => {
+                let [flags] = take(&mut bytes, 1)? else {
+                    unreachable!("take returns exactly one byte")
+                };
+                Self::Capabilities {
+                    resume: flags & RESUME_FLAG != 0,
+                }
             }
             LAUNCHED => {
                 if bytes.len() > MARKER_LIMIT {

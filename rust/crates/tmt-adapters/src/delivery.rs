@@ -56,6 +56,9 @@ pub enum Delivery {
     /// The binding runs a plain program (named), not an agent: a paste would run as a
     /// command, so nothing is sent and the item stays held until an agent binds.
     NotAgent(String),
+    /// The built-in member is stopped by job control (Ctrl-Z): nothing is sent, and the
+    /// item stays held until `terminal.resume` (or the terminal) continues it.
+    MemberPaused,
     Transport(crate::host::DeliveryError),
 }
 
@@ -96,6 +99,8 @@ pub enum Availability {
     Unavailable,
     /// The live binding runs the named plain program, not an agent (`RECIPIENT_NOT_AGENT`).
     NotAgent(String),
+    /// The live built-in member is stopped by job control (`MEMBER_PAUSED`).
+    Paused,
 }
 
 /// An advisory consumer wake: it never satisfies the recipient's attention.
@@ -316,6 +321,13 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
                     .and_then(|binding| binding.session.plain_program.clone())
                 {
                     Some(program) => Availability::NotAgent(program),
+                    None if entry
+                        .binding
+                        .as_ref()
+                        .is_some_and(crate::host::member_paused) =>
+                    {
+                        Availability::Paused
+                    }
                     None => Availability::Ready,
                 },
                 _ => Availability::Unavailable,
@@ -359,6 +371,7 @@ fn send_messages(
         Availability::Unbound | Availability::Offline => return Ok(Delivery::Offline.into()),
         Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
         Availability::NotAgent(program) => return Ok(Delivery::NotAgent(program).into()),
+        Availability::Paused => return Ok(Delivery::MemberPaused.into()),
     }
     let Some(entry) = current(storage, identity)? else {
         return Ok(Delivery::Offline.into());

@@ -18,10 +18,11 @@ the code that produced them.
 A stream is one Unix socket per member. Core publishes where it is; a client never
 derives the path. Discovery is the extension API operation
 [`terminal.stream`](extension-api.md#terminal-stream): `{identityId}` answers
-`{identityId, host: "pty", socket, pane}` for a member whose current binding is on
+`{identityId, host: "pty", socket, pane, paused}` for a member whose current binding is on
 the built-in host and whose supervisor is running. Any other member, one with no
 binding, or one that has ended, is `TERMINAL_STREAM_UNAVAILABLE`, and a view shows no
-terminal for it.
+terminal for it. `paused` says the member is stopped by job control; the stream has no
+frame for it, and [`terminal.resume`](extension-api.md#resume-a-paused-member) continues it.
 
 ## Access
 

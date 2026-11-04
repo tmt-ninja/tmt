@@ -13,6 +13,11 @@ use nix::{
     fcntl::{FcntlArg, FdFlag, Flock, OFlag, fcntl},
     poll::{PollFd, PollFlags, PollTimeout, poll},
     pty::{Winsize, openpty},
+    sys::{
+        signal::{Signal, killpg},
+        wait::{WaitPidFlag, WaitStatus, waitpid},
+    },
+    unistd::{Pid, tcgetpgrp},
 };
 use std::{
     collections::VecDeque,
@@ -23,10 +28,9 @@ use std::{
     os::unix::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
-        process::ExitStatusExt,
     },
     path::PathBuf,
-    process::{Child, Command, ExitStatus},
+    process::{Child, Command},
     time::{Duration, Instant},
 };
 use tmt_pty_protocol::{
@@ -34,8 +38,11 @@ use tmt_pty_protocol::{
     Refusal, ServerMessage, Size, VERSION,
 };
 
-/// How often the program's end is checked when nothing else wakes the loop.
+/// How often the program's end and job-control state are checked when nothing
+/// else wakes the loop.
 const TICK: u16 = 200;
+/// The bound on one native read of the terminal's foreground group leader.
+const FOREGROUND_READ: Duration = Duration::from_millis(50);
 pub(super) const MAX_CLIENTS: usize = 16;
 /// A client that has not completed the handshake by then is dropped.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
@@ -222,6 +229,14 @@ pub struct Supervisor {
     last_key: Option<Instant>,
     launch_ready: bool,
     launcher_listening: bool,
+    /// The launcher reported stopped by job control and not yet continued.
+    launcher_stopped: bool,
+    /// The launcher is stopped, or the terminal's foreground group is another
+    /// group whose leader is stopped.
+    paused: bool,
+    /// The last foreground-group read and its answer; read at most once a tick,
+    /// however often output wakes the loop.
+    foreground: (Instant, bool),
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -334,6 +349,9 @@ impl Supervisor {
             last_key: None,
             launch_ready: false,
             launcher_listening: false,
+            launcher_stopped: false,
+            paused: false,
+            foreground: (Instant::now(), false),
             _files: files,
             _lock: lock,
         })
@@ -366,9 +384,13 @@ impl Supervisor {
                 }
             }
             self.sweep();
-            if let Some(status) = self.child.try_wait()? {
-                break exit_of(status);
+            if let Some(exit) = self.reap()? {
+                break exit;
             }
+            if self.foreground.0.elapsed() >= Duration::from_millis(TICK.into()) {
+                self.foreground = (Instant::now(), self.foreground_stopped());
+            }
+            self.paused = self.launcher_stopped || self.foreground.1;
         };
         if master_open {
             for _ in 0..256 {
@@ -380,6 +402,78 @@ impl Supervisor {
         self.broadcast(&ServerMessage::Exited(exit));
         self.flush_clients();
         Ok(())
+    }
+
+    /// The launcher leads its own session and process group, so its pid is its
+    /// group id.
+    fn launcher(&self) -> Pid {
+        Pid::from_raw(i32::try_from(self.child.id()).expect("a child pid fits a pid_t"))
+    }
+
+    /// Drains every status the launcher has reported since the last tick: a stop
+    /// or continue updates `launcher_stopped`, and an end is the member's exit.
+    fn reap(&mut self) -> io::Result<Option<Exit>> {
+        let flags = WaitPidFlag::WNOHANG | WaitPidFlag::WUNTRACED | WaitPidFlag::WCONTINUED;
+        loop {
+            match waitpid(self.launcher(), Some(flags)) {
+                Ok(WaitStatus::StillAlive) => return Ok(None),
+                Ok(WaitStatus::Stopped(..)) => self.launcher_stopped = true,
+                Ok(WaitStatus::Continued(_)) => self.launcher_stopped = false,
+                Ok(WaitStatus::Exited(_, code)) => return Ok(Some(Exit::Code(code))),
+                Ok(WaitStatus::Signaled(_, signal, _)) => {
+                    return Ok(Some(Exit::Signal(signal as i32)));
+                }
+                // Trace stops are not job control; nothing traces the launcher.
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                Ok(_) => {}
+                Err(Errno::EINTR) => {}
+                // The kernel reaped the launcher, but nix cannot name the signal
+                // that ended it (a real-time signal): the end is still reported.
+                Err(Errno::EINVAL) => return Ok(Some(Exit::Signal(0))),
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    /// The primary path for a real Ctrl-Z. The launcher leads its own session
+    /// and its parent (this supervisor) is in another session, so the
+    /// launcher's process group is orphaned and the kernel discards the
+    /// terminal's SIGTSTP for it and for a provider that shares it; only
+    /// SIGSTOP stops that group, which `reap` sees. A provider that runs in its
+    /// own process group as the terminal's foreground group is not orphaned: it
+    /// stops alone on Ctrl-Z while the launcher keeps running, and only this
+    /// read sees it. A failed read is not evidence of a stop.
+    fn foreground_stopped(&self) -> bool {
+        let Ok(group) = tcgetpgrp(self.master.as_fd()) else {
+            return false;
+        };
+        if group == self.launcher() || group.as_raw() <= 0 {
+            return false;
+        }
+        crate::process::job_stopped(
+            group.as_raw().unsigned_abs().into(),
+            Instant::now() + FOREGROUND_READ,
+        )
+    }
+
+    /// Continues the launcher's group and, when another group holds the
+    /// terminal, that group too. Continuing a running group changes nothing,
+    /// so a repeated resume is applied as well.
+    fn resume(&self) -> ControlReply {
+        let launcher = self.launcher();
+        let mut groups = vec![launcher];
+        if let Ok(group) = tcgetpgrp(self.master.as_fd())
+            && group != launcher
+            && group.as_raw() > 0
+        {
+            groups.push(group);
+        }
+        for group in groups {
+            if let Err(error) = killpg(group, Signal::SIGCONT) {
+                return ControlReply::Error(format!("the member could not be continued: {error}"));
+            }
+        }
+        ControlReply::Applied(true)
     }
 
     fn wait(&self, master_open: bool) -> io::Result<Ready> {
@@ -718,7 +812,8 @@ impl Supervisor {
                 }
                 ControlReply::Applied(matches)
             }
-            Control::Capabilities => ControlReply::Applied(true),
+            Control::Capabilities => ControlReply::Capabilities { resume: true },
+            Control::Resume => self.resume(),
             Control::Inspect => ControlReply::State {
                 supervisor_pid: std::process::id(),
                 pane_pid: self.child.id(),
@@ -726,6 +821,7 @@ impl Supervisor {
                     .last_key
                     .map(|at| u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX - 1)),
                 marker: self.marker.as_ref().map(|(_, marker)| marker.clone()),
+                paused: self.paused,
             },
             Control::Publish {
                 pane_pid,
@@ -863,11 +959,4 @@ fn winsize(size: Size) -> Winsize {
         ws_xpixel: 0,
         ws_ypixel: 0,
     }
-}
-
-fn exit_of(status: ExitStatus) -> Exit {
-    status
-        .code()
-        .map(Exit::Code)
-        .unwrap_or_else(|| Exit::Signal(status.signal().unwrap_or(0)))
 }

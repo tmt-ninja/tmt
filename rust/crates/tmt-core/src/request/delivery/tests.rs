@@ -318,6 +318,11 @@ fn every_send_now_refusal_has_one_pinned_sentence() {
             "DELIVERY_UNCERTAIN",
             "It may have been sent. Delivery is not confirmed, so do not send it again.",
         ),
+        (
+            SendNowUntyped::MemberPaused,
+            "MEMBER_PAUSED",
+            "Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume",
+        ),
     ] {
         assert_eq!((untyped.code(), untyped.message()), (code, sentence));
     }
