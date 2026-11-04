@@ -41,10 +41,11 @@ for (const theme of ['light', 'dark'] as const)
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       await page.goto('/?theme=' + theme + '#tabs');
-      const scope =
-        '#tabs .gallery-pair:has(.tmt-ui-tabs[data-wrap]) .gallery-column[data-theme="' +
-        theme +
-        '"]';
+      const pair = page.locator('#tabs .gallery-pair', {
+        has: page.locator('h3', { hasText: 'flat, wrapping' }),
+      });
+      await pair.evaluate((node) => node.setAttribute('data-audit-tabs', ''));
+      const scope = `#tabs [data-audit-tabs] .gallery-column[data-theme="${theme}"]`;
       const list = page.locator(scope).getByRole('tablist');
       const selected = list.locator('[aria-selected="true"]');
       await selected.scrollIntoViewIfNeeded();

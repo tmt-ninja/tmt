@@ -425,7 +425,7 @@ token. Title, announcement, mark and state words remain independent inputs. Host
 Tinted captions and state words keep their size and weight but use primary ink for contrast
 on every soft surface; decorative marks retain their tone colour.
 The gallery's `?frame=notice&theme=light|dark` renders the same Notice examples in isolation
-for command focus and contrast checks, without unrelated overlay-demo iframe focus owners.
+for command focus and contrast checks, without unrelated overlay-demo focus owners.
 
 Field requires stable `controlId`, distinct IDs for rendered description/error,
 and an explicit `renderControl` that spreads exactly the supplied ID, class and
@@ -645,6 +645,16 @@ pnpm --filter @tmt/browser-ui --fail-if-no-match check
 pnpm --filter @tmt/browser-ui --fail-if-no-match test
 ```
 
+## Nested design scopes
+
+`DsScope` is a sized, isolated stage for a design-system example or authored block. Supply its
+width and height; it owns a portal, size container, stacking context and local modal state. Its
+layers avoid the browser top layer, keep focus and scroll admission inside the stage, and leave
+controls outside it usable. Start preview overlays closed. The product's unscoped shell continues
+to use its normal viewport and browser top layer. Native shell hosts may pass the explicit
+`ShellLayerHost` to place their scoped layers in the same portal. Colab pages use an explicitly sized
+`data-tmt-ds-scope` wrapper; their page runtime supplies the portal.
+
 ## Gallery
 
 `gallery/` is a dev-only living gallery of the real tokens and components. Run it with
@@ -653,10 +663,9 @@ pnpm --filter @tmt/browser-ui --fail-if-no-match test
 `generated/ui.css`, `src/react.ts`, `src/shell.ts`, `src/ui` and `../tokens/tokens.json` exactly
 as products do; nothing is redrawn. It shows each demo in a light and a dark column scoped with
 `data-theme`, and pins hover/focus by mirroring the leaf's own `:hover`/`:focus-visible` rules
-onto gallery attributes (`gallery/force-states.ts`). The shell, dialog, drawer, open menu and
-notifications render in iframes of the gallery itself (`?frame=<name>&theme=<theme>`), because
-they need a viewport or the top layer; the phone shell is a 390px frame. `?frame=charts`
-shows the real chart demos without competing overlay frames for keyboard-focus checks. The gallery uses the website's system font stack without font requests and supplies Colab's host metrics.
+onto gallery attributes (`gallery/force-states.ts`). Previews use `DsScope` in the same document:
+the phone stage is 390px wide, while its overlays remain closed until opened. `?frame=charts`
+shows the real chart demos without competing preview layers for keyboard-focus checks. The gallery uses the website's system font stack without font requests and supplies Colab's host metrics.
 
 When mounted as a local preview route, a side outline (wide screens) or a header dropdown
 lists the sections and follows the scroll; the section's name is the page heading's suffix.

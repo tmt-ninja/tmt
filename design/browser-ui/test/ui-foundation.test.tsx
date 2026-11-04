@@ -2,15 +2,41 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
-import { cn, UiTheme, useUiPortalContainer } from '../src/ui/index.js';
+import { cn, DsScope, UiTheme, useUiPortalContainer } from '../src/ui/index.js';
 import { assertUiUtilities } from '../scripts/ui-source-policy.mjs';
+import { findDomScope } from '../src/ui/scope.js';
 import hashes from './fixtures/ui/legacy-hashes.json';
 
-it('retains exact existing Browser sources and checked static CSS from the accepted base', () => {
+it('retains the reviewed Browser source and static CSS baseline', () => {
   for (const [file, expected] of Object.entries(hashes.sha256)) {
     const bytes = readFileSync(new URL(`../${file}`, import.meta.url));
     expect(createHash('sha256').update(bytes).digest('hex'), file).toBe(expected);
   }
+});
+it('owns one local portal when a themed island is nested inside a design scope', () => {
+  function PortalConsumer() {
+    return <span>{useUiPortalContainer() === null ? 'Waiting for scope' : 'Ready'}</span>;
+  }
+  const html = renderToStaticMarkup(
+    <DsScope>
+      <UiTheme>
+        <PortalConsumer />
+      </UiTheme>
+    </DsScope>,
+  );
+  expect(html).toContain('data-tmt-ds-scope=""');
+  expect(html.match(/data-tmt-ui-portal=""/g)).toHaveLength(1);
+  expect(html).toContain('Waiting for scope');
+});
+it('finds the nearest DOM scope and its own portal across independent React roots', () => {
+  const portal = {} as HTMLElement;
+  const root = {
+    querySelector: (selector: string) =>
+      selector === ':scope > [data-tmt-ui-portal]' ? portal : null,
+  } as unknown as HTMLElement;
+  const node = { parentElement: { closest: () => root } } as unknown as HTMLElement;
+  expect(findDomScope(node)).toEqual({ root, portal });
+  expect(findDomScope({ parentElement: null } as unknown as HTMLElement)).toBeUndefined();
 });
 it('merges conflicting prefixed classes while preserving variants and unrelated legacy classes', () => {
   expect(cn('tmt:p-2 tmt:text-foreground', ['tmt:p-4'], { 'tmt:flex': true }, false)).toBe(

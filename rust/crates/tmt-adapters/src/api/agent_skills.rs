@@ -6,13 +6,13 @@ use crate::{
     config::ConfigPaths,
     delivery,
     host::{Host, OperationOptions},
-    runtime::skills::{self, SkillRoots},
+    runtime::skills::{self, InvocationSyntax, SkillRoot, SkillRoots, SkillSource},
     skill_installation::ProviderEnvironment,
     storage::Storage,
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tmt_core::binding::{BindingEvidence, evaluate_binding};
 
 #[derive(Deserialize)]
@@ -47,35 +47,64 @@ pub(super) fn list(
     let environment = ProviderEnvironment::capture()
         .map_err(|_| Fault::unavailable())?
         .with_data_root(&paths.global_dir);
-    let roots = roots(storage, id, &environment)?;
+    let (roots, driver) = roots(storage, id, &environment, &paths.global_dir)?;
     respond(
         &roots,
+        driver.as_deref(),
         &paths.global_dir.join("skill-assets"),
         if_stamp,
         crate::request_runtime::wall_time_ms(),
     )
 }
 
-/// The member's driver roots, or none for an unknown identity, an unknown
-/// driver or one without skill invocation.
+/// The member's remembered driver and the roots it reads. An unknown identity, an
+/// unknown driver or one without skill invocation reads only TMT's own published skills
+/// (#5924), from no provider path.
 fn roots(
     storage: &mut Storage,
     id: &str,
     environment: &ProviderEnvironment,
-) -> Result<SkillRoots, Fault> {
+    global: &Path,
+) -> Result<(SkillRoots, Option<String>), Fault> {
     let Some(entry) = delivery::current(storage, id).map_err(|_| Fault::unavailable())? else {
-        return Ok(SkillRoots::unsupported());
+        return Ok((tmt_only(global), None));
     };
-    let registry = crate::runtime::RuntimeRegistry::first_party();
-    let Some(lifecycle) = storage
+    // Only Core's remembered harness names the driver, never a path or a pane.
+    let harness = storage
         .remembered_driver(id)
         .map_err(|_| Fault::unavailable())?
-        .and_then(|driver| tmt_core::binding::session::HarnessId::new(&driver).ok())
-        .and_then(|harness| registry.lifecycle(&harness))
-    else {
-        return Ok(SkillRoots::unsupported());
+        .and_then(|driver| tmt_core::binding::session::HarnessId::new(&driver).ok());
+    let driver = harness.as_ref().map(|harness| harness.as_str().to_owned());
+    let registry = crate::runtime::RuntimeRegistry::first_party();
+    let roots = match harness
+        .as_ref()
+        .and_then(|harness| registry.lifecycle(harness))
+    {
+        Some(lifecycle) => lifecycle.skill_roots(environment, pane_cwd(&entry).as_deref()),
+        None => SkillRoots::unsupported(),
     };
-    Ok(lifecycle.skill_roots(environment, pane_cwd(&entry).as_deref()))
+    Ok(if roots.syntax == InvocationSyntax::Unsupported {
+        (tmt_only(global), driver)
+    } else {
+        (roots, driver)
+    })
+}
+
+/// TMT's own current skills: this tmt's bundle and each extension-owned skill's source,
+/// read through the same bounded walk as every other group. An unreadable record lists
+/// none rather than failing the read.
+fn tmt_only(global: &Path) -> SkillRoots {
+    SkillRoots {
+        syntax: InvocationSyntax::Unsupported,
+        roots: crate::skill_installation::published_sources(global)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|path| SkillRoot {
+                path,
+                source: SkillSource::Tmt,
+            })
+            .collect(),
+    }
 }
 
 /// The bound pane's current directory as its host reports it, if it does.
@@ -98,17 +127,19 @@ fn pane_cwd(entry: &tmt_core::binding::BindingEntry) -> Option<PathBuf> {
 
 fn respond(
     roots: &SkillRoots,
-    assets: &std::path::Path,
+    driver: Option<&str>,
+    assets: &Path,
     if_stamp: Option<&str>,
     now: u64,
 ) -> Result<Vec<u8>, Fault> {
-    let stamp = skills::stamp(roots, assets);
+    let stamp = skills::stamp(roots, assets, driver);
     let value = if if_stamp == Some(stamp.as_str()) {
         json!({"unchanged": true, "rootsStamp": stamp, "observedAtMs": now})
     } else {
         let list = skills::list(roots, assets);
         json!({
             "syntax": roots.syntax,
+            "driver": driver,
             "skills": list.skills,
             "truncated": list.truncated,
             "rootsStamp": stamp,

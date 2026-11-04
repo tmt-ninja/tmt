@@ -1,3 +1,4 @@
+import { useDsScope } from '../src/ui/theme.js';
 import {
   useCallback,
   useLayoutEffect,
@@ -158,9 +159,16 @@ function NativeTopBar({
   identity: Identity;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const scope = useDsScope();
+  const scopeRoot = scope?.root;
+  const scopePortal = scope?.portal;
+  const scoped = scope !== undefined;
   const latest = useRef({ common, activate, didMount });
   latest.current = { common, activate, didMount };
   useLayoutEffect(() => {
+    if (scoped && (!scopeRoot || !scopePortal)) return;
+    const layerHost =
+      scopeRoot && scopePortal ? { root: scopeRoot, portal: scopePortal } : undefined;
     const node = root.current!;
     const main = node.querySelector<HTMLElement>('.tmt-ui-shell-main')!;
     const fill = (slot: ShellTopBar, title: string) => {
@@ -243,11 +251,11 @@ function NativeTopBar({
       });
       const routes = destinations.map(([id, label]) => route(id, label, `/topbar-${id}/`));
       routes.push(route('home', 'Shared top bar', '/'));
-      const host = startShellHost(node, routes);
+      const host = startShellHost(node, routes, { layerHost });
       host.setCommonControls(latest.current.common);
       owner.current = host;
     } else {
-      const controls = mountShell(node, view, () => true);
+      const controls = mountShell(node, view, () => true, layerHost);
       controls.setCommonControls(latest.current.common);
       fill(controls.setTopBar(), 'Shared top bar');
       owner.current = controls;
@@ -256,7 +264,7 @@ function NativeTopBar({
       owner.current?.dispose();
       owner.current = null;
     };
-  }, [hosted, owner, gate, identity]);
+  }, [hosted, owner, gate, identity, scopeRoot, scopePortal, scoped]);
   useLayoutEffect(() => owner.current?.setCommonControls(common), [common, owner]);
   // Only the scaffold belongs to React. Its contents belong to the actual native host.
   return (

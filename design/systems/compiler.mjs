@@ -134,7 +134,9 @@ export function checkElements(elements, pin, bundle) {
     .filter(({ tag }) => tag.includes('-') && !FRAME_ELEMENTS.has(tag));
   if (!pin) {
     for (const { tag, index } of candidates)
-      if (tag.startsWith('tmt-ui-')) findings.push({ code: 'ds-not-pinned', tag, index });
+      if (tag.startsWith('tmt-ui-')) {
+        findings.push({ code: 'ds-not-pinned', tag, index });
+      }
     return findings;
   }
   if (!bundle) return [{ code: 'unknown-ds-release', tag: 'meta', index: -1 }];

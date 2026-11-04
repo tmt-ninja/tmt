@@ -25,6 +25,9 @@ vi.mock('react', async (original) => {
   const actual = await original<typeof import('react')>();
   return {
     ...actual,
+    useContext<T>(context: React.Context<T>) {
+      return resources.capture ? (undefined as T) : actual.useContext(context);
+    },
     useRef<T>(value: T) {
       if (!resources.capture) return actual.useRef(value);
       const ref = { current: value };

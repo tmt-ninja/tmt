@@ -263,6 +263,15 @@ impl SupervisedProbeRunner {
     }
 }
 
+/// Whether one native read finds `pid` stopped by job control (state T). A
+/// failed, late or unavailable read is not a stop.
+pub(crate) fn job_stopped(pid: u64, deadline: Instant) -> bool {
+    matches!(
+        process_info::observe(pid, deadline),
+        Some(runtime::ProcessObservation::Stopped(_))
+    )
+}
+
 impl CommandRunner for SupervisedProbeRunner {
     fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
         process_info::parent(pid, deadline)

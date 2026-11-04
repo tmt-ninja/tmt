@@ -272,6 +272,12 @@ Conversation responses, outgoing messages, inactive composer previews and Recent
 exchange previews use the same acquired identity inventory. Copy and annotation
 keep the original markup and exact source.
 
+In a message to an agent, type `/` at the start of a word to choose one of that recipient's
+reported skills. The menu filters names and descriptions; Enter or Tab inserts `/name`. On
+send, a chosen skill uses that agent's invocation syntax. Text you typed without choosing,
+including paths and a query dismissed with Esc, stays literal; editing a chosen name removes
+its special meaning. Plain programs do not show the skills menu.
+
 Click a link, or use left/right in the conversation's read focus and press Enter,
 to open its adjacent menu. The first arrow selects the first visible mention. Tab
 and BackTab keep switching panes; authored bindings take precedence. `j` uses that

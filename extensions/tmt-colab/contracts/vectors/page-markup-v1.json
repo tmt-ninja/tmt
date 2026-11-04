@@ -9915,6 +9915,17 @@
       ]
     },
     {
+      "name": "design-system-scope",
+      "scope": "checker",
+      "why": "Built-in design-system elements are valid both in page flow and inside a mockup stage.",
+      "source": [
+        "<tmt-ui-button>Outside</tmt-ui-button>",
+        "<div data-tmt-ds-scope><tmt-ui-button>Inside</tmt-ui-button></div>"
+      ],
+      "admitted": { "questions": [], "groups": [] },
+      "findings": []
+    },
+    {
       "name": "icon-names",
       "scope": "checker",
       "why": "A tmt-icon draws only a name the frame has, spelled in lowercase kebab-case; a missing, unknown or differently cased name draws nothing and is a finding.",

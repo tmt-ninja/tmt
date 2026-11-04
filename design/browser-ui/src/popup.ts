@@ -1,9 +1,12 @@
 import { browserMenuPosition } from './menu-position.js';
 
-const activePopups = new WeakMap<Document, () => void>();
+const activePopups = new WeakMap<Document | HTMLElement, () => void>();
 
 /** Menu and combobox surfaces share one replacement owner, without owning host commands. */
-export function claimBrowserPopup(document: Document, dismiss: () => void): () => void {
+export function claimBrowserPopup(
+  document: Document | HTMLElement,
+  dismiss: () => void,
+): () => void {
   activePopups.get(document)?.();
   activePopups.set(document, dismiss);
   return () => {
@@ -18,14 +21,24 @@ export function placeBrowserPopup(
 ): () => void {
   const view = anchor.ownerDocument.defaultView!;
   const viewport = view.visualViewport;
+  const scope = anchor.closest?.<HTMLElement>('[data-tmt-ds-scope]');
   const place = () => {
     if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
-    const bounds = {
-      left: viewport?.offsetLeft ?? 0,
-      top: viewport?.offsetTop ?? 0,
-      width: viewport?.width ?? view.innerWidth,
-      height: viewport?.height ?? view.innerHeight,
-    };
+    const scopeBox = scope?.getBoundingClientRect();
+    const bounds =
+      scope && scopeBox
+        ? {
+            left: scopeBox.left + scope.clientLeft,
+            top: scopeBox.top + scope.clientTop,
+            width: scope.clientWidth,
+            height: scope.clientHeight,
+          }
+        : {
+            left: viewport?.offsetLeft ?? 0,
+            top: viewport?.offsetTop ?? 0,
+            width: viewport?.width ?? view.innerWidth,
+            height: viewport?.height ?? view.innerHeight,
+          };
     surface.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
     const box = surface.getBoundingClientRect();
     const position = browserMenuPosition(
@@ -35,8 +48,8 @@ export function placeBrowserPopup(
       bounds,
     );
     Object.assign(surface.style, {
-      left: `${position.left}px`,
-      top: `${position.top}px`,
+      left: `${position.left - (scopeBox?.left ?? 0)}px`,
+      top: `${position.top - (scopeBox?.top ?? 0)}px`,
       maxHeight: `${position.maxHeight}px`,
     });
   };
@@ -53,6 +66,7 @@ export function placeBrowserPopup(
   });
   observer.observe(anchor);
   observer.observe(surface);
+  if (scope) observer.observe(scope);
   view.addEventListener('resize', place);
   view.addEventListener('scroll', place, true);
   viewport?.addEventListener('resize', place);

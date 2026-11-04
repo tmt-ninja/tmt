@@ -105,9 +105,10 @@ function bindingFixture(expanded?: boolean, grouped = false) {
     },
   };
   const state = { visible: false, expanded, focusVisible: false };
-  const wrapper = new EventTarget();
+  const wrapper = Object.assign(new EventTarget(), { closest: () => null });
   const button = Object.assign(new EventTarget(), {
     ownerDocument: document,
+    closest: () => null,
     isConnected: true,
     getClientRects: () => [1],
     getAttribute: () => (state.expanded === undefined ? null : String(state.expanded)),
@@ -138,6 +139,7 @@ function bindingFixture(expanded?: boolean, grouped = false) {
     getBoundingClientRect: () => ({ width: 100, height: 40 }),
   };
   const group = {
+    closest: () => null,
     ownerDocument: document,
     isConnected: true,
     getBoundingClientRect: () => ({
@@ -150,7 +152,7 @@ function bindingFixture(expanded?: boolean, grouped = false) {
     }),
   };
   const binding = bindIconActionTooltip(
-    wrapper as HTMLElement,
+    wrapper as unknown as HTMLElement,
     button as unknown as HTMLButtonElement,
     tooltip as unknown as HTMLElement,
     grouped ? { anchor: () => group as unknown as HTMLElement, side: 'above' } : undefined,

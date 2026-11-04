@@ -57,6 +57,14 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
                     {
                         value["plainProgram"] = program.into();
                     }
+                    // A built-in member stopped by job control; `terminal.resume` continues it.
+                    if storage
+                        .current_binding(id)
+                        .map_err(|_| Fault::unavailable())?
+                        .is_some_and(|binding| crate::host::member_paused(&binding))
+                    {
+                        value["paused"] = true.into();
+                    }
                     value
                 }
             },

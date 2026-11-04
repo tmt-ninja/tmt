@@ -70,6 +70,8 @@ const fixed = [
     ([name, value]) => `  --tmt-ui-font-${name}: ${value.stack.replaceAll('"', "'")};`,
   ),
   ...Object.entries(tokens.header).map(([name, value]) => `  --tmt-ui-header-${name}: ${value};`),
+  `  --tmt-ui-header-wide-height: ${tokens.header.height};`,
+  `  --tmt-ui-header-wide-padding-inline: ${tokens.header['padding-inline']};`,
   ...Object.entries(tokens.browser.metric).map(([name, value]) => `  --tmt-ui-${name}: ${value};`),
   motion('--tmt-ui-motion', '  '),
   ...typeParts('  ', false),
@@ -159,8 +161,11 @@ const shipped = (source) =>
       .replaceAll('\r\n', '\n')
       .replaceAll('__compact-max-width__', tokens.header['compact-max-width']),
   );
-const componentCss = `${fragments.map(shipped).join('\n')}\n`;
-export const authoredStaticCss = `${tokenCss}${componentCss}`;
+const beforeScopeCss = `${fragments.slice(0, 3).map(shipped).join('\n')}\n`;
+const afterScopeCss = `${fragments.slice(3).map(shipped).join('\n')}\n`;
+const componentCss = beforeScopeCss + afterScopeCss;
+const scopeCss = shipped(await readFile(new URL('src/ds-scope.css', home), 'utf8'));
+export const authoredStaticCss = `${tokenCss}${beforeScopeCss}${scopeCss}\n${afterScopeCss}`;
 /** The editorial layer (#5794), its own entry: the prose rules, then the table look applied to a bare
  * `table` in prose. The table rules are the marked region of table.css with the class rewritten, so
  * prose tables and `.tmt-ui-table` cannot differ. */
@@ -211,7 +216,12 @@ async function compileCss(source) {
     throw new Error('Static CSS compiler produced no stylesheet');
   return asset.source;
 }
-const compileStaticCss = async () => `${tokenCss}${await compileCss(componentCss)}`;
+// The marker lets the page frame place scope rules after tmt-ui while static.css remains one asset.
+// Property indentation is not semantic; omit it in the shipped tokens to keep the scope within
+// the existing compressed-size budget while retaining readable, stable token block boundaries.
+const shippedTokens = tokenCss.replace(/^ +(--)/gm, '$1');
+const compileStaticCss = async () =>
+  `${shippedTokens}${await compileCss(beforeScopeCss)}\n/* DS scope rules */\n${await compileCss(scopeCss)}\n/* DS scope end */\n${await compileCss(afterScopeCss)}`;
 const compileEditorialCss = async () =>
   `/* Generated: generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
 

@@ -473,3 +473,8 @@
 .page-table-chip[data-stage='needs'] .page-table-dot {
   background: var(--tmt-ui-color-waiting);
 }
+
+/* Fixture controls stay inset within a scaled stage. */
+.gallery-topbar-fixture-controls {
+  padding: var(--tmt-ui-space-s);
+}

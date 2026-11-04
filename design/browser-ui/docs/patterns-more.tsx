@@ -36,6 +36,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -55,6 +56,7 @@ import {
   TabsTrigger,
   TooltipProvider,
   UiTheme,
+  useDsScope,
 } from '../src/ui/index.js';
 import { ScaledFrame } from '../gallery/kit.js';
 import { guiRoot } from './routes.js';
@@ -64,8 +66,8 @@ import { blockPatterns } from './patterns-blocks.js';
 
 /**
  * The composed patterns (#5821 C): each is real components only, and its page shows it in an
- * iframe at the wide width and at 390, in light and dark, so a pattern is reviewed at the widths
- * it ships at. A frame is `?frame=pattern&slug=<slug>&state=<state>&theme=<theme>`.
+ * scope at the wide width and at 390, in light and dark, so a pattern is reviewed at the widths
+ * it ships at. Scene parameters select the pattern, state and theme without another document.
  */
 export interface PatternDoc {
   slug: string;
@@ -169,8 +171,9 @@ function ListControls() {
 }
 
 function FabWindow({ state }: { state: string }) {
+  const scope = useDsScope();
   const [open, setOpen] = useState<'chat' | 'comments' | null>(
-    state === 'closed' ? null : 'comments',
+    scope || state === 'closed' ? null : 'comments',
   );
   const resolved = state === 'resolved';
   return (
@@ -259,12 +262,21 @@ function FabWindow({ state }: { state: string }) {
 }
 
 function AddDialog() {
+  const scope = useDsScope();
+  const [search, setSearch] = useState('remote');
   return (
-    <Dialog open>
+    <Dialog defaultOpen={!scope}>
+      {scope && (
+        <DialogTrigger asChild>
+          <Button type="button">Add a sub-page</Button>
+        </DialogTrigger>
+      )}
       <DialogContent
         className="pattern-add-dialog"
         showCloseButton
-        initialFocus={() => document.querySelector<HTMLElement>('.pattern-add-command input')}
+        initialFocus={() =>
+          (scope?.root ?? document).querySelector<HTMLElement>('.pattern-add-command input')
+        }
       >
         <DialogHeader>
           <DialogTitle>Add a sub-page to “Theme B review”</DialogTitle>
@@ -273,7 +285,7 @@ function AddDialog() {
           </DialogDescription>
         </DialogHeader>
         <Command shouldFilter={false} className="pattern-add-command">
-          <CommandInput placeholder="Search pages" defaultValue="remote" />
+          <CommandInput placeholder="Search pages" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandGroup>
               <CommandItem>
@@ -293,7 +305,8 @@ function AddDialog() {
 }
 
 function NeedsYou({ state }: { state: string }) {
-  const [confirm, setConfirm] = useState(state === 'confirm');
+  const scope = useDsScope();
+  const [confirm, setConfirm] = useState(!scope && state === 'confirm');
   const items = [
     ['Answer', 'Which radius ships with B?', 'sample-lead'],
     ['Review', 'Release plan', 'sample-1'],
@@ -302,7 +315,7 @@ function NeedsYou({ state }: { state: string }) {
   ];
   return (
     <div className="pattern-needs">
-      <DropdownMenu defaultOpen={state === 'menu'} modal={false}>
+      <DropdownMenu defaultOpen={!scope && state === 'menu'} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button type="button" variant="ghost">
             <span className="pattern-dot" aria-hidden="true" /> Needs you{' '}
@@ -459,6 +472,8 @@ function LoadingError({ state }: { state: string }) {
 }
 
 function ConfirmNotify({ state }: { state: string }) {
+  const scope = useDsScope();
+  const [show, setShow] = useState(!scope);
   const events = useMemo<BrowserNotification[]>(
     () => [
       {
@@ -478,7 +493,12 @@ function ConfirmNotify({ state }: { state: string }) {
     [],
   );
   return state === 'confirm' ? (
-    <Dialog open>
+    <Dialog open={show} onOpenChange={setShow}>
+      {scope && (
+        <DialogTrigger asChild>
+          <Button type="button">Delete page</Button>
+        </DialogTrigger>
+      )}
       <DialogContent showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Delete “Weekly plan, week 44”?</DialogTitle>
@@ -497,12 +517,19 @@ function ConfirmNotify({ state }: { state: string }) {
       </DialogContent>
     </Dialog>
   ) : (
-    <BrowserNotifications
-      pageKey="pattern"
-      events={events}
-      suspended={false}
-      isEligible={() => true}
-    />
+    <>
+      {scope && (
+        <Button type="button" onClick={() => setShow(true)}>
+          Show notifications
+        </Button>
+      )}
+      <BrowserNotifications
+        pageKey="pattern"
+        events={show ? events : []}
+        suspended={false}
+        isEligible={() => true}
+      />
+    </>
   );
 }
 
@@ -658,7 +685,7 @@ export const morePatterns: PatternDoc[] = [
   ...blockPatterns,
 ];
 
-/** A pattern's frame page: the pattern alone, at the iframe's width and theme. */
+/** A pattern scene, rendered in its scope's width and theme. */
 export function PatternFrame({ params }: { params: URLSearchParams }) {
   const doc = morePatterns.find((pattern) => pattern.slug === params.get('slug'));
   const theme = params.get('theme') === 'light' ? 'light' : 'dark';

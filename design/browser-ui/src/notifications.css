@@ -17,7 +17,8 @@
   pointer-events: none;
   font-family: var(--tmt-ui-font-body);
 }
-.tmt-ui-notifications:popover-open {
+.tmt-ui-notifications:popover-open,
+.tmt-ui-notifications[data-tmt-ds-open] {
   display: flex;
   flex-direction: column;
   gap: var(--tmt-ui-space-xs);
@@ -122,4 +123,10 @@
     inset-inline-end: max(var(--tmt-ui-space-xs), env(safe-area-inset-right));
     width: min(360px, calc(100vw - 2 * var(--tmt-ui-space-xs)));
   }
+}
+
+/* Nested examples use the scope's dimensions rather than the host viewport. */
+[data-tmt-ds-scope] .tmt-ui-notifications {
+  width: min(360px, calc(100cqw - 2 * var(--tmt-ui-space-s)));
+  max-height: calc(100cqh - var(--tmt-ui-header-height) - 2 * var(--tmt-ui-space-s));
 }

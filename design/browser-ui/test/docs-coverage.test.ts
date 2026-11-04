@@ -39,6 +39,7 @@ const internal: Record<string, string> = {
   cn: 'class-name merge helper',
   UiTheme: 'the island root every entry renders inside; documented on the Introduction page',
   useUiPortalContainer: 'portal plumbing inside the layer parts',
+  useDsScope: 'the internal context hook behind DsScope-aware parts',
   useLayerController: 'overlay admission plumbing; the keyboard contract is on each layer entry',
   useMenuLayerHandoff: 'menu-to-layer focus handoff plumbing inside DropdownMenu',
   buttonVariants: 'the class recipe behind Button',
@@ -47,7 +48,7 @@ const internal: Record<string, string> = {
   surfaceVariants: 'the class recipe behind Surface',
   RichInputChipNode: 'the Lexical node behind the rich input chips',
 };
-const uiCss = new Set(['checkbox']); // also styles the ui Checkbox entry
+const uiCss = new Set(['checkbox', 'ds-scope']); // also styles the ui Checkbox entry
 const entries: Record<string, string> = {
   './static.css': 'every Browser entry',
   './editorial.css': 'Browser entry editorial',

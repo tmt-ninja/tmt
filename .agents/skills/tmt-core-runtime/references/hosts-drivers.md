@@ -305,6 +305,20 @@ stream through the public `terminal.stream` API rather than deriving socket path
   then submit Enter separately; Core owns the `!` rewrite, delay and SQLite delivery stages.
   Control clients drain output and disconnect promptly, including between paste and Enter;
   they never resize. Failed post-paste transport is uncertain and never replayed.
+- **Job control.** Ctrl-Z is never intercepted. On its existing tick (at most 200 ms) the
+  loop drains the launcher's `waitpid(WNOHANG | WUNTRACED | WCONTINUED)` statuses: a stop
+  sets launcher-stopped, a continue clears it, and an end is the exit as before. The
+  launcher leads an orphaned process group (its parent is in another session), so the
+  kernel discards SIGTSTP, Ctrl-Z included, for a provider that shares it; only SIGSTOP
+  stops that group. A provider in its own process group that holds the terminal does stop
+  on Ctrl-Z; while the launcher is not stopped, the loop reads the foreground group
+  (`tcgetpgrp`) and, when it differs, its leader's native state (T is stopped; a failed read
+  is not). `Inspect`'s `State` carries `paused` as one trailing byte that older supervisors
+  omit (read as false). `Capabilities` answers `Capabilities { resume }` (kind `0xa5`, one
+  flag byte, unknown bits ignored); older supervisors answer `Applied(true)`, which grants
+  conditional publication only. `Resume` (`0x2b`) sends SIGCONT to the launcher's group and
+  a different foreground group and is idempotent. Core sends it only after the resume flag
+  (`terminal.resume`), and refuses delivery to a paused member with `MEMBER_PAUSED`.
 - **Terminal stream.** [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md) publishes
   these frames as the owner-only local stream a view such as the Ops Terminal tab reads and types
   into. `Snapshot` is its one addition for a view that joins mid-session: the supervisor

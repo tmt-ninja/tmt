@@ -316,7 +316,7 @@ host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` a
 `tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
 fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
 `tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
-flocks, current screens, bounded startup output and live attach with a streamed initial screen; CLI restores terminal modes and attaches interactive new built-in launches after confirmation.
+flocks, current screens, job-control pause and resume, bounded startup output and live attach with a streamed initial screen; CLI restores terminal modes and attaches interactive new built-in launches after confirmation.
 [Terminal stream v1](contracts/terminal-stream-v1.md) and the
 [host reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host) own snapshots and lifecycle.
 
@@ -583,7 +583,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   `tmt colab serve` attaches to a running door, else starts a supervised one it alone stops.
   Colab reaches Remote only through its public CLI: no state files, no crate dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
-- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages built from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow a draft or lock a release; `tmt colab design` only reads.
+- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow drafts or lock releases; mockup stages render in a sized scope; `tmt colab design` only reads.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

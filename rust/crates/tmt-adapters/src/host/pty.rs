@@ -105,6 +105,8 @@ struct State {
     pane_pid: u64,
     marker: Option<BindingMarker>,
     idle: Option<u64>,
+    /// Stopped by job control (Ctrl-Z); see `resume`.
+    paused: bool,
 }
 fn state(socket: &str, pane: &str, deadline: Instant) -> Result<State, HostError> {
     decode_state(call(socket, pane, Control::Inspect, deadline)?)
@@ -116,6 +118,7 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         pane_pid,
         key_idle_ms,
         marker,
+        paused,
     } = reply
     else {
         return Err(error("the supervisor did not return state"));
@@ -139,7 +142,66 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         pane_pid: u64::from(pane_pid),
         marker,
         idle: key_idle_ms,
+        paused,
     })
+}
+
+/// What a supervisor's answer to `Control::Capabilities` grants beyond
+/// conditional publication, which every answer grants.
+struct Capabilities {
+    resume: bool,
+}
+
+/// Decodes a capabilities answer. A supervisor that predates the flags answers
+/// `Applied(true)`, which grants conditional publication only.
+fn capabilities(reply: ControlReply) -> Result<Capabilities, HostError> {
+    match reply {
+        ControlReply::Applied(true) => Ok(Capabilities { resume: false }),
+        ControlReply::Capabilities { resume } => Ok(Capabilities { resume }),
+        _ => Err(error("the supervisor returned invalid capabilities")),
+    }
+}
+
+/// Whether a built-in member is stopped by job control, from one fresh read of
+/// its supervisor. Any doubt (another host, an unreachable supervisor, another
+/// supervisor incarnation at that socket) is not a pause.
+pub(crate) fn member_paused(binding: &Binding) -> bool {
+    binding.server.host == HostKind::pty()
+        && state(
+            &binding.server.socket_path,
+            &binding.pane_id,
+            Instant::now() + BUDGET,
+        )
+        .is_ok_and(|state| state.paused && state.server_pid == binding.server.server_pid)
+}
+
+/// Why a built-in member was not resumed.
+#[derive(Debug)]
+pub(crate) enum ResumeError {
+    /// The member's supervisor predates `Control::Resume`; restarting the member
+    /// replaces it. Nothing was sent.
+    Unsupported,
+    /// The supervisor could not be reached or did not confirm; the member may
+    /// still be paused.
+    Unconfirmed,
+}
+
+/// Continues a built-in member stopped by job control. Support is decided from
+/// the supervisor's capabilities before anything is sent; a closed connection
+/// is a transport error, never a capability answer. Idempotent.
+pub(crate) fn resume(binding: &Binding) -> Result<(), ResumeError> {
+    let deadline = Instant::now() + BUDGET;
+    let (socket, pane) = (&binding.server.socket_path, &binding.pane_id);
+    let granted = call(socket, pane, Control::Capabilities, deadline)
+        .and_then(capabilities)
+        .map_err(|_| ResumeError::Unconfirmed)?;
+    if !granted.resume {
+        return Err(ResumeError::Unsupported);
+    }
+    match call(socket, pane, Control::Resume, deadline) {
+        Ok(ControlReply::Applied(true)) => Ok(()),
+        _ => Err(ResumeError::Unconfirmed),
+    }
 }
 
 fn verify_pair<R: CommandRunner>(
@@ -590,11 +652,11 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
         let socket = &binding.server.socket_path;
         let pane = &binding.pane_id;
         let conditional = match call(socket, pane, Control::Capabilities, self.deadline) {
-            Ok(ControlReply::Applied(value)) => value,
+            Ok(ControlReply::Applied(false)) => false,
+            Ok(reply) => capabilities(reply).map(|_| true)?,
             // Version 1 supervisors close a connection on an unknown control.
             Err(HostError::Pty(cause)) if cause.kind() == io::ErrorKind::UnexpectedEof => false,
             Err(cause) => return Err(cause),
-            _ => return Err(error("the supervisor returned invalid capabilities")),
         };
         let request = if conditional {
             Control::PublishIf {
@@ -634,10 +696,10 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
             Control::Capabilities,
             self.deadline,
         ) {
-            Ok(ControlReply::Applied(value)) => Ok(value),
+            Ok(ControlReply::Applied(false)) => Ok(false),
+            Ok(reply) => capabilities(reply).map(|_| true),
             Err(HostError::Pty(cause)) if cause.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
             Err(cause) => Err(cause),
-            _ => Err(error("the supervisor returned invalid capabilities")),
         }
     }
 
@@ -818,6 +880,7 @@ mod tests {
             pane_pid,
             marker: None,
             idle: None,
+            paused: false,
         };
         let runner = Counting {
             calls: Default::default(),
@@ -951,6 +1014,7 @@ mod tests {
                             pane_pid,
                             key_idle_ms: None,
                             marker: marker.clone(),
+                            paused: false,
                         }
                     }
                     ClientMessage::Control(Control::Publish {
@@ -1008,6 +1072,142 @@ mod tests {
         assert_eq!(observed.marker.unwrap().binding_id, "binding");
         assert!(!driver.conditional_clear(&binding).unwrap());
         handle.join().unwrap();
+    }
+
+    /// A fake supervisor at `pty_resume.sock` that answers each connection's one control
+    /// with `answer` (or closes it on `None`) and records every control it received.
+    fn fake_supervisor(
+        answer: impl Fn(&Control) -> Option<ControlReply> + Send + 'static,
+        connections: usize,
+    ) -> (
+        crate::test_support::TestDirectory,
+        Binding,
+        std::thread::JoinHandle<Vec<Control>>,
+    ) {
+        use std::{
+            io::{Read, Write},
+            os::unix::net::UnixListener,
+        };
+        use tmt_pty_protocol::{ClientMessage, Decoder, Frame, ServerMessage, Size, VERSION};
+        let root = crate::test_support::TestDirectory::new();
+        let directory = root.path.join("pty");
+        crate::private_file::ensure_private_directory(&directory).unwrap();
+        let socket = directory.join("pty_resume.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for _ in 0..connections {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(10)))
+                    .unwrap();
+                let mut decoder = Decoder::new();
+                let mut next = |stream: &mut std::os::unix::net::UnixStream| loop {
+                    if let Some(frame) = decoder.frame::<ClientMessage>().unwrap() {
+                        break frame;
+                    }
+                    let mut buf = [0; 4096];
+                    let n = stream.read(&mut buf).unwrap();
+                    assert!(n > 0);
+                    decoder.push(&buf[..n]).unwrap();
+                };
+                assert!(matches!(
+                    next(&mut stream),
+                    ClientMessage::Hello { version: VERSION }
+                ));
+                let welcome = ServerMessage::Welcome {
+                    version: VERSION,
+                    size: Size::new(80, 24).unwrap(),
+                };
+                stream.write_all(&welcome.encode()).unwrap();
+                let ClientMessage::Control(request) = next(&mut stream) else {
+                    panic!("expected a control");
+                };
+                if let Some(reply) = answer(&request) {
+                    stream
+                        .write_all(&ServerMessage::Control(reply).encode())
+                        .unwrap();
+                }
+                seen.push(request);
+            }
+            seen
+        });
+        let binding = Binding {
+            id: "binding".into(),
+            identity_id: "identity".into(),
+            server: ServerEvidence {
+                host: HostKind::pty(),
+                server_id: "server".into(),
+                socket_path: socket.to_string_lossy().into_owned(),
+                server_pid: 1,
+                server_start_time: "start".into(),
+            },
+            pane_id: "pty_resume".into(),
+            pane_pid: 2,
+            pane_incarnation: None,
+            session: Default::default(),
+        };
+        (root, binding, handle)
+    }
+
+    #[test]
+    fn a_supervisor_without_the_resume_flag_is_unsupported_and_never_sent_resume() {
+        // A supervisor from before the flags answers capabilities with `Applied(true)`.
+        let (_root, binding, handle) = fake_supervisor(
+            |request| match request {
+                Control::Capabilities => Some(ControlReply::Applied(true)),
+                other => panic!("sent {other:?} to a supervisor without resume"),
+            },
+            1,
+        );
+        assert!(matches!(resume(&binding), Err(ResumeError::Unsupported)));
+        assert_eq!(handle.join().unwrap(), vec![Control::Capabilities]);
+    }
+
+    #[test]
+    fn a_closed_capability_connection_is_a_transport_failure_not_unsupported() {
+        let (_root, binding, handle) = fake_supervisor(|_| None, 1);
+        assert!(matches!(resume(&binding), Err(ResumeError::Unconfirmed)));
+        assert_eq!(handle.join().unwrap(), vec![Control::Capabilities]);
+    }
+
+    #[test]
+    fn a_supervisor_with_the_resume_flag_is_sent_resume() {
+        let (_root, binding, handle) = fake_supervisor(
+            |request| {
+                Some(match request {
+                    Control::Capabilities => ControlReply::Capabilities { resume: true },
+                    Control::Resume => ControlReply::Applied(true),
+                    other => panic!("unexpected {other:?}"),
+                })
+            },
+            2,
+        );
+        resume(&binding).unwrap();
+        assert_eq!(
+            handle.join().unwrap(),
+            vec![Control::Capabilities, Control::Resume]
+        );
+    }
+
+    #[test]
+    fn a_state_from_a_supervisor_before_pausing_decodes_as_not_paused() {
+        let legacy = ControlReply::State {
+            supervisor_pid: 1,
+            pane_pid: 2,
+            key_idle_ms: None,
+            marker: None,
+            paused: false,
+        };
+        assert!(!decode_state(legacy).unwrap().paused);
+        let paused = ControlReply::State {
+            supervisor_pid: 1,
+            pane_pid: 2,
+            key_idle_ms: None,
+            marker: None,
+            paused: true,
+        };
+        assert!(decode_state(paused).unwrap().paused);
     }
 
     #[test]

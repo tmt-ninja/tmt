@@ -61,7 +61,7 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react'] },
 };
 // Modules with no edges at all, which every graph may import.
-const NEUTRAL = ['overlay.ts'];
+const NEUTRAL = ['overlay.ts', 'scoped-modal.ts'];
 const packageExports = JSON.parse(readFileSync(path.join(home, 'package.json'), 'utf8'))
   .exports as Record<string, string>;
 const directoryExports = Object.entries(packageExports).flatMap(([name, target]) => {
@@ -106,7 +106,11 @@ function violations(
   const graph = graphs.find((candidate) => inside(file, candidate.directory));
   const uiGraph = graph?.directory === path.join(sourceRoot, 'ui');
   const neutral = NEUTRAL.map((name) => path.join(sourceRoot, name));
-  const shellPortal = file === path.join(sourceRoot, 'browser-shell.tsx');
+  const scopedAdapters = ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx'];
+  const shellPortal = ['browser-shell.tsx', 'ui/scope.tsx'].some(
+    (name) => file === path.join(sourceRoot, name)
+  );
+  const scopedAdapter = scopedAdapters.some((name) => file === path.join(sourceRoot, name));
   // The root graph and ui/ admit exact peers; another declared graph admits its packages' subpaths.
   const admittedPeers = uiGraph
     ? ['react/jsx-runtime', ...UI_PACKAGES]
@@ -164,7 +168,9 @@ function violations(
       !target ||
       !inside(target, sourceRoot) ||
       neutral.includes(file) ||
-      (!reachable && !neutral.includes(target)) ||
+      (!reachable &&
+        !neutral.includes(target) &&
+        !(scopedAdapter && target === path.join(sourceRoot, 'ui/scope.tsx'))) ||
       (staticEntry && target !== path.join(sourceRoot, 'static.ts'))
     )
       failures.push(edge);
@@ -240,6 +246,13 @@ it('keeps each declared graph to its own packages, stylesheet and admitted graph
     const source = `import { admitsOverlayEscape } from '${edge.startsWith('.') ? edge : `./${edge}`}';`;
     expect(violations(file, source, false)).toEqual([]);
   }
+  for (const name of ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx'])
+    expect(
+      violations(path.join(production, name), "import {useDsScope} from './ui/scope.js';", false)
+    ).toEqual([]);
+  expect(violations(legacy, "import {useDsScope} from './ui/scope.js';", false)).toEqual([
+    './ui/scope.js',
+  ]);
   expect(violations(floating, "import { Chips } from '../chips.js';", false)).toEqual([
     '../chips.js',
   ]);
@@ -253,10 +266,12 @@ it('keeps the search entry free of every import', () => {
   expect(imports(file, "import type { ReactNode } from 'react';")).toEqual(['react']);
 });
 
-it('admits the bare portal peer only in the exact shell React adapter', () => {
+it('admits the bare portal peer only in the exact scoped React adapters', () => {
   const file = path.join(production, 'browser-shell.tsx');
   const source = "import {createPortal} from 'react-dom';";
   expect(violations(file, source, false)).toEqual([]);
+  for (const other of ['ui/scope.tsx'])
+    expect(violations(path.join(production, other), source, false)).toEqual([]);
   for (const other of [
     'header.tsx',
     'nested/browser-shell.tsx',

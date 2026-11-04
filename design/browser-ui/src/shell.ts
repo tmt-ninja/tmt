@@ -400,6 +400,12 @@ export interface ShellTools {
   readonly chip: HTMLElement;
 }
 
+/** Explicit nested layer host; omitted for the product's viewport and browser top layer. */
+export interface ShellLayerHost {
+  root: HTMLElement;
+  portal: HTMLElement;
+}
+
 export interface ShellControls {
   readonly tools: ShellTools;
   /** Root-only common bindings; route modules never receive this method. */
@@ -444,6 +450,7 @@ export function mountShell(
   root: HTMLElement,
   view: ShellView,
   select?: (id: string, href: string) => boolean,
+  layerHost?: ShellLayerHost,
 ): ShellControls {
   const document = root.ownerDocument;
   root.classList.add('tmt-ui-shell');
@@ -479,7 +486,7 @@ export function mountShell(
   const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
   const railSearch = document.createElement('div');
   railSearch.className = 'tmt-ui-rail-search-section';
-  const topBar = createShellTopBar(root, bar, open, railSearch);
+  const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
   bar.after(menu);
   // The cluster is the bar's second layer: it sits over the bar's right end and tells the host
   // header how much room to leave (`--tmt-ui-shell-tools-width`). A React shell draws the element
@@ -524,7 +531,7 @@ export function mountShell(
   tip.className = 'tmt-ui-rail-tip';
   tip.setAttribute('role', 'tooltip');
   tip.popover = 'manual';
-  root.append(tip);
+  (layerHost?.portal ?? root).append(tip);
   let release = () => {};
   // The row the tip stands beside, and a row a press is on: a click never pops its tip (#5911).
   let tipAnchor: HTMLElement | undefined;
@@ -533,18 +540,44 @@ export function mountShell(
     release();
     tipAnchor = undefined;
     if (tip.matches(':popover-open')) tip.hidePopover();
+    if (tip.hasAttribute('data-tmt-ds-open')) {
+      tip.hidden = true;
+      tip.removeAttribute('data-tmt-ds-open');
+    }
   };
   const showTip = (anchor: HTMLElement) => {
     const text = anchor.dataset.note;
     if (!text || root.dataset.drawer === 'open') return hideTip();
     release();
-    release = claimIconActionTooltip(document, hideTip);
+    const scope = layerHost?.root;
+    release = claimIconActionTooltip(scope ?? document, hideTip);
     tipAnchor = anchor;
     tip.textContent = text;
-    if (!tip.matches(':popover-open')) tip.showPopover();
+    if (scope) {
+      tip.removeAttribute('popover');
+      tip.hidden = false;
+      tip.setAttribute('data-tmt-ds-open', '');
+    } else {
+      if (!tip.hasAttribute('popover')) {
+        tip.hidden = false;
+        tip.popover = 'manual';
+      }
+      if (!tip.matches(':popover-open')) tip.showPopover();
+    }
     const box = anchor.getBoundingClientRect();
-    tip.style.left = `${box.right}px`;
-    tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
+    const bounds = scope?.getBoundingClientRect();
+    const origin = scope ? (tip.offsetParent?.getBoundingClientRect() ?? bounds) : undefined;
+    const left = bounds
+      ? Math.max(bounds.left, Math.min(box.right, bounds.right - tip.offsetWidth))
+      : box.right;
+    const top = bounds
+      ? Math.max(
+          bounds.top,
+          Math.min(box.top + (box.height - tip.offsetHeight) / 2, bounds.bottom - tip.offsetHeight),
+        )
+      : box.top + (box.height - tip.offsetHeight) / 2;
+    tip.style.left = `${left - (origin?.left ?? 0)}px`;
+    tip.style.top = `${top - (origin?.top ?? 0)}px`;
   };
   // Tips are the rail's, by delegation: a row only names its note, so a row kept across updates
   // keeps working, and the tip follows the pointer or keyboard focus, never a press or a focus
@@ -577,6 +610,8 @@ export function mountShell(
   };
   open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
   const close = (event: KeyboardEvent) => {
+    if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target)))
+      return;
     if (event.key === 'Escape' && root.dataset.drawer === 'open') {
       setDrawer(false);
       open.focus();
@@ -586,6 +621,7 @@ export function mountShell(
   // A press outside the open drawer closes it, as an overlay does.
   const outside = (event: PointerEvent) => {
     const target = event.target as Node;
+    if (layerHost && !layerHost.root.contains(target)) return;
     if (root.dataset.drawer === 'open' && !rail.contains(target) && !open.contains(target))
       setDrawer(false);
   };

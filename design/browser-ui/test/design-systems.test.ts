@@ -107,6 +107,10 @@ describe('validateComponent', () => {
 describe('checkElements', () => {
   const pin = { system: 'tmt-gui', version: '0.1.0', hash: 'sha256-x' };
   let bundle: Bundle;
+  it('accepts a valid component in page flow', async () => {
+    const system = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
+    expect(checkElements([{ tag: 'tmt-ui-button', attrs: {} }], pin, system)).toEqual([]);
+  });
   it('reports each of the five page check codes', async () => {
     bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     const el = (tag: string, attrs: Record<string, string> = {}) => ({ tag, attrs });
@@ -136,4 +140,16 @@ describe('checkElements', () => {
       { code: 'invalid-ds-prop', tag: 'tmt-ui-button', attribute: 'disabled', index: 4 },
     ]);
   });
+});
+
+it('keeps generated template pages iframe-free and names the deferred scene tags', () => {
+  const pages = JSON.parse(
+    readFileSync(new URL('../../systems/tmt-gui/generated/pages.json', import.meta.url), 'utf8'),
+  ) as { pages: { slug: string; html: string }[] }[];
+  const all = pages.flatMap((section) => section.pages);
+  expect(all.some((page) => /<iframe\b/i.test(page.html))).toBe(false);
+  for (const slug of ['page-list', 'data-table']) {
+    const page = all.find((entry) => entry.slug === slug);
+    expect(page?.html).toContain('Live preview returns with the page-view tags in #5981 part B.');
+  }
 });

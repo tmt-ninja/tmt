@@ -10,9 +10,9 @@ const cliSource = readFileSync(new URL('../../../../design/cli-style.md', import
 
 async function checkSample(page: Page, sample: Locator) {
   await sample.scrollIntoViewIfNeeded();
-  const iframe = sample.locator('iframe');
-  await expect(iframe).toBeVisible();
-  const query = new URL((await iframe.getAttribute('src'))!, page.url()).searchParams;
+  const preview = sample.locator('[data-preview-frame]');
+  await expect(preview).toBeVisible();
+  const query = new URL((await preview.getAttribute('data-preview-src'))!, page.url()).searchParams;
   const source = oracle.frames.find(
     (frame) =>
       frame.state === query.get('state') &&
@@ -23,7 +23,7 @@ async function checkSample(page: Page, sample: Locator) {
   expect(source, 'preview must select an existing oracle frame').toBeDefined();
   const from = Number(query.get('from')),
     to = Number(query.get('to'));
-  const frame = iframe.contentFrame().locator('tmt-tui-frame');
+  const frame = preview.locator('tmt-tui-frame');
   await expect(frame).toHaveAttribute('data-state', source!.state);
   await expect(frame).toHaveAttribute('data-look', source!.look);
   await expect(frame).toHaveAttribute('data-columns', String(source!.width));
@@ -54,7 +54,7 @@ async function checkPreviewBounds(page: Page) {
     for (const frame of document.querySelectorAll<HTMLElement>('[data-preview-frame]')) {
       const box = frame.getBoundingClientRect(),
         cell = frame.parentElement!.getBoundingClientRect(),
-        view = frame.querySelector('iframe')!.getBoundingClientRect();
+        view = frame.querySelector('[data-tmt-ds-scope]')!.getBoundingClientRect();
       if (
         box.left < cell.left - 0.5 ||
         box.right > cell.right + 0.5 ||
@@ -62,7 +62,7 @@ async function checkPreviewBounds(page: Page) {
         view.right > box.right + 0.5 ||
         view.bottom > box.bottom + 0.5
       )
-        faults.push(frame.querySelector('iframe')!.title);
+        faults.push(frame.dataset.previewTitle ?? '(untitled)');
     }
     if (document.documentElement.scrollWidth > innerWidth + 1)
       faults.push(

@@ -912,6 +912,17 @@ fn new_member_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// Recipient skills menu, including clipped height and every standard width.
+fn skills_picker_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::skills::tests::SCENES,
+        |_| grid(&[160, 120, 100, 80, 60], &[36, 8]),
+        |scene, look, _, _| crate::board::skills::tests::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
 /// The unread count under the pointer: one additive scene, appended so the style table keeps its order.
 fn unread_hover_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1243,6 +1254,7 @@ fn captures() -> Value {
         frames.extend(unread_overlay_frames(&mut styles));
         frames.extend(account_limits_frames(&mut styles));
         frames.extend(mention_picker_frames(&mut styles));
+        frames.extend(skills_picker_frames(&mut styles));
         frames.extend(visibility_frames(&mut styles));
         frames.extend(orchestration_frames(&mut styles));
         let styles = styles
