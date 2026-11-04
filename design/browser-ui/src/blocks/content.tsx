@@ -1,10 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { BrowserCheckbox } from '../checkbox.js';
 import { BrowserCommand } from '../command.js';
 import { BrowserNotice } from '../notice.js';
 import type { BrowserNoticeTone } from '../static.js';
 import { BrowserTable } from '../table.js';
-import { Checkbox } from '../ui/checkbox.js';
 import './blocks.css';
 
 
@@ -121,9 +121,10 @@ export function TodoBlock({
       data-overdue={overdue ? '' : undefined}
       style={indent ? ({ '--tmt-block-indent': indent } as CSSProperties) : undefined}
     >
-      <Checkbox
+      <BrowserCheckbox
         checked={checked}
-        onCheckedChange={(next) => onCheckedChange?.(next === true)}
+        readOnly={!onCheckedChange}
+        onChange={(event) => onCheckedChange?.(event.target.checked)}
         aria-label={label ?? (typeof children === 'string' ? children : undefined)}
       />
       <span className="tmt-block-todo-text">{children}</span>

@@ -938,8 +938,8 @@ description when it has one); a chip's remove control keeps its own `removeLabel
 `@tmt/browser-ui/blocks` holds the structured-page blocks (#5981) and imports its own
 `blocks.css`, so the shared page UI keeps its byte cap. The parts read the static `--tmt-ui-*`
 tokens; the host owns block data, editing, persistence, clipboard and timers. The entry reaches
-`./ui` and the root graph (`./react`) and reuses their parts rather than copying markup: the ui
-`Checkbox`, `BrowserTable` (its `hideNarrow` and `nowrap` column indexes only mark cells),
+the root graph (`./react`) and reuses its parts rather than copying markup: `BrowserCheckbox`,
+`BrowserTable` (its `hideNarrow` and `nowrap` column indexes only mark cells),
 `BrowserNotice` (`title` may be left out, `headingLevel="h3"`, `announcement="note"` gives
 `role="note"`) and `BrowserCommand`.
 
@@ -958,7 +958,7 @@ tokens; the host owns block data, editing, persistence, clipboard and timers. Th
   it never changes a block's type). Focus stays in the editor: drive `activeId` with
   `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows.
 - Content: `HeadingBlock` (levels 2 and 3 only; the page title is the GUI header's),
-  `TextBlock`, `ListItemBlock`, `TodoBlock` (the ui Checkbox), `TableBlock` (columns marked
+  `TextBlock`, `ListItemBlock`, `TodoBlock` (`BrowserCheckbox`), `TableBlock` (columns marked
   `hideNarrow` leave the view below 480px of the block's own width), `CardBlock` (the only
   framed and nesting block, one level, no resting shadow), `Callout` (the tinted notice as a note
   in four tones, each with its mark and word, `calloutLabels`), `CodeBlock` (header with filename,

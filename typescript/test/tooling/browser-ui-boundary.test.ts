@@ -58,7 +58,7 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   // './react' names the root graph: the shared static-drawing parts (table, notice, command).
-  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./ui', './react'] },
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react'] },
 };
 // Modules with no edges at all, which every graph may import.
 const NEUTRAL = ['overlay.ts'];
