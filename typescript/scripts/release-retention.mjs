@@ -381,5 +381,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log(JSON.stringify(plan, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, renderRetentionSummary(plan));
-  if (plan.status === 'refused') process.exitCode = 1;
+  if (plan.status === 'refused') {
+    console.error(`Release retention refused: ${plan.reason}`);
+    process.exitCode = 1;
+  }
 }

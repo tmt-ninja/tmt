@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { releaseCutHistory } from '../../scripts/release-cut.mjs';
@@ -585,4 +587,19 @@ describe('scheduled dry-run workflow', () => {
     expect(workflow).toContain('release-retention.mjs plan --draft-visibility public');
     expect(workflow).toContain('name: release-retention-plan');
   });
+});
+
+it('prints the refused plan reason to stderr while preserving JSON and exit failure', () => {
+  const script = fileURLToPath(new URL('../../scripts/release-retention.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [script, 'invalid-operation'], {
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
+    timeout: 5_000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(1);
+  const plan = JSON.parse(result.stdout);
+  expect(plan.status).toBe('refused');
+  expect(plan.reason).toContain('Usage: release-retention.mjs plan');
+  expect(result.stderr.trim()).toBe(`Release retention refused: ${plan.reason}`);
 });
