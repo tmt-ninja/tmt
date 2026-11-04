@@ -12,7 +12,7 @@ import {
 import { DesignSystemDialog } from './design-system-ui.js';
 import { DesignHeader } from './design-header.js';
 import { DesignPage, designPageHref } from './design-page.js';
-import { shippedBundle, syncBuiltInMirror } from './design-mirror.js';
+import { shippedBundle, shippedMirrorRevision, syncBuiltInMirror } from './design-mirror.js';
 import { ShownReleaseContext } from './embedded-page.js';
 const DesignDocs = lazy(() =>
   import('@tmt/browser-ui/docs-embed').then((module) => ({
@@ -191,9 +191,9 @@ export function DesignLibrary({
     if (!systems || !transport.management || mirroring.current) return;
     mirroring.current = true;
     const made = systems.find((entry) => entry.builtIn);
-    void shippedBundle()
-      .then(async (hash) => {
-        if (made?.builtIn?.bundle === hash) return;
+    void Promise.all([shippedBundle(), shippedMirrorRevision()])
+      .then(async ([hash, revision]) => {
+        if (made?.builtIn?.bundle === hash && made.builtIn.revision === revision) return;
         setNotice(made ? 'Updating the tmt GUI pages…' : 'Making the tmt GUI pages…');
         await syncBuiltInMirror(transport, made?.id);
         await refresh();

@@ -26,6 +26,15 @@
     },
     "disabled": {
       "type": "boolean"
+    },
+    "busy": {
+      "type": "boolean"
+    },
+    "busy-label": {
+      "type": "string"
+    },
+    "collapse-label": {
+      "type": "string"
     }
   },
   "slots": [
@@ -36,7 +45,7 @@
   "examples": [
     {
       "title": "Primary",
-      "markup": "<tmt-ui-button>Send</tmt-ui-button>",
+      "markup": "<tmt-ui-button>Send</tmt-ui-button> <tmt-ui-button variant=\"outline\">New timer</tmt-ui-button> <tmt-ui-button variant=\"ghost\">Cancel</tmt-ui-button>",
       "widths": [
         1440,
         390
@@ -92,7 +101,7 @@
     },
     {
       "title": "Disabled",
-      "markup": "<tmt-ui-button disabled>Send</tmt-ui-button>",
+      "markup": "<tmt-ui-button disabled>Send</tmt-ui-button> <tmt-ui-button busy busy-label=\"Sending\"></tmt-ui-button>",
       "widths": [
         1440,
         390

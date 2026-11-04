@@ -38,11 +38,21 @@ export interface MirrorOrigin {
   readonly files?: readonly string[];
   /** The root only: the shipped bundle hash the tree was generated from. */
   readonly bundle?: string;
+  /** Root only: the generated documentation and its page layout revision. */
+  readonly revision?: string;
 }
 
 interface DocSection {
   title: string;
-  pages: { slug: string; title: string; html: string; files?: string[] }[];
+  pages: {
+    slug: string;
+    title: string;
+    html: string;
+    files?: string[];
+    description?: string;
+    usage?: string;
+    dos?: [string, string][];
+  }[];
 }
 
 const escape = (text: string) =>
@@ -61,20 +71,23 @@ async function generated() {
     import('../../../../../design/systems/tmt-gui/generated/pages.json'),
     import('../../../../../design/systems/tmt-gui/generated/bundle.json'),
   ]);
-  const { system, components } = template as unknown as {
+  const { system, components, mirrorRevision } = template as unknown as {
     system: DesignSystemConfig;
     components: (ComponentDoc & { notes?: string })[];
+    mirrorRevision: string;
   };
   return {
     system,
     live: new Map(components.map((doc) => [doc.tag, doc])),
     sections: pages as unknown as DocSection[],
     hash: (bundle as unknown as { hash: string }).hash,
+    revision: mirrorRevision,
   };
 }
 
 /** The shipped bundle's hash: a mirror made from another build regenerates. */
 export const shippedBundle = async () => (await generated()).hash;
+export const shippedMirrorRevision = async () => (await generated()).revision;
 
 /** Make the mirror (no `rootId`) or regenerate it in place, and return its root page id. Pages are
  * opened one at a time, as listing does; a page already up to date is not edited.
@@ -155,7 +168,7 @@ async function tree(transport: PageTransport, root: string, archived?: ReadonlyS
 
 /** Write the tree under `root` from the shipped docs. */
 async function fill(transport: PageTransport, root: string) {
-  const { system, live, sections, hash } = await generated();
+  const { system, live, sections, hash, revision } = await generated();
   const archived = await archivedPages(transport);
   const pages = await tree(transport, root, archived);
   // A path's second page (a race between two syncs) is archived; the lowest id stays.
@@ -184,7 +197,7 @@ async function fill(transport: PageTransport, root: string) {
       const component = ['Components', 'Browser components'].includes(section.title)
         ? live.get(doc.slug)
         : undefined;
-      const body = component ? componentPageSource(component, system.prefix) : doc.html;
+      const body = component ? componentPageSource(component, system.prefix, doc) : doc.html;
       await write(transport, id, mirrorSource({ key, files: doc.files ?? [] }, body));
       if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
       made.push({ id, title: doc.title });
@@ -196,7 +209,11 @@ async function fill(transport: PageTransport, root: string) {
     );
   }
   const config: DesignSystemConfig = { ...system, id: root, components: entries, releases: [] };
-  await write(transport, root, mirrorSource({ key: '', bundle: hash }, rootPageSource(config)));
+  await write(
+    transport,
+    root,
+    mirrorSource({ key: '', bundle: hash, revision }, rootPageSource(config)),
+  );
   // A page whose docs entry is gone keeps its threads: archived, never deleted.
   await archive(
     transport,

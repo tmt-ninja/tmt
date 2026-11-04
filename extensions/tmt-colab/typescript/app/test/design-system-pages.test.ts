@@ -8,7 +8,12 @@ import {
 } from '../src/design-system.js';
 import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
 import type { Bundle } from '../../../../../design/systems/compiler.mjs';
-import { GENERATED_NOTE, shippedBundle, syncBuiltInMirror } from '../src/design-mirror.js';
+import {
+  GENERATED_NOTE,
+  shippedBundle,
+  shippedMirrorRevision,
+  syncBuiltInMirror,
+} from '../src/design-mirror.js';
 import {
   adoptDesignSystem,
   createDesignSystem,
@@ -524,16 +529,20 @@ describe('built-in tmt GUI pages (#5969)', () => {
     make('Notes');
     const rootId = await syncBuiltInMirror(transport);
     const root = pages.get(rootId)!;
-    expect(readBlock(root.source, 'origin')).toEqual({ key: '', bundle: await shippedBundle() });
+    const builtIn = { bundle: await shippedBundle(), revision: await shippedMirrorRevision() };
+    expect(readBlock(root.source, 'origin')).toEqual({ key: '', ...builtIn });
     const { systems } = await listDesignSystems(transport);
     const entry = systems.find((system) => system.id === rootId)!;
-    expect(entry.builtIn).toEqual({ bundle: await shippedBundle() });
+    expect(entry.builtIn).toEqual(builtIn);
     const button = entry.tree.children
       .find((node) => node.key === 'components')!
       .children.find((node) => node.key === 'components/button')!;
     const source = pages.get(button.id)!.source;
     expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
     expect(source).toContain(GENERATED_NOTE);
+    expect(source).toContain('<h1>Button</h1>');
+    expect(source).toContain('One primary button per surface');
+    expect(source).toContain("Do and don't");
     expect(readBlock<{ files: string[] }>(source, 'origin')!.files).toContain(
       'design/browser-ui/src/ui/button.tsx',
     );
@@ -568,6 +577,21 @@ describe('built-in tmt GUI pages (#5969)', () => {
   it('two syncs at once (two tabs or devices) end with one tree and one page per docs path', async () => {
     const { pages, make, transport } = space();
     make('Notes');
+    // Both devices see an empty space before either creates the mirrored root.
+    const home = transport.spaceHome;
+    let arrivals = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    transport.spaceHome = async (...args) => {
+      const snapshot = await home(...args);
+      if (++arrivals <= 2) {
+        if (arrivals === 2) release();
+        await together;
+      }
+      return snapshot;
+    };
     const [first, second] = await Promise.all([
       syncBuiltInMirror(transport),
       syncBuiltInMirror(transport),

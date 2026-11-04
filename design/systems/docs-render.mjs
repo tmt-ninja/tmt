@@ -89,7 +89,7 @@ export async function renderDocs() {
       {
         title: 'Components',
         pages: components.map((doc) =>
-          page(
+          ({ ...page(
             doc.slug,
             doc.name,
             h(ComponentTemplate, {
@@ -139,7 +139,7 @@ export async function renderDocs() {
               dos: doc.dos,
             }),
             componentFiles(doc.slug)
-          )
+          ), description: doc.description, usage: doc.usage, dos: doc.dos })
         ),
       },
       {
@@ -181,6 +181,7 @@ export async function renderDocs() {
           return {
             slug: tag,
             title: doc.name,
+            description: doc.description,
             html: '',
             files: sourceFiles('design/browser-ui/docs/browser-catalog.tsx'),
           };

@@ -78,6 +78,18 @@
      "design/browser-ui/src/ui/button.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "Starts an action. One primary button per surface takes the accent; everything else is outline, secondary or ghost.",
+    "usage": "import { Button } from '@tmt/browser-ui/ui';\n\n<Button type=\"button\">Send</Button>\n<Button type=\"button\" variant=\"outline\">New timer</Button>",
+    "dos": [
+     [
+      "do",
+      "Use one primary button for the action the surface exists for."
+     ],
+     [
+      "dont",
+      "Fill a destructive action with red. Delete is outlined text in the blocked colour."
+     ]
     ]
    },
    {
@@ -88,6 +100,18 @@
      "design/browser-ui/src/ui/badge.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "A short label for a kind, audience or state. Neutral by default; a state badge carries its mark and word.",
+    "usage": "import { Badge } from '@tmt/browser-ui/ui';\n\n<Badge>spec</Badge>\n<Badge variant=\"destructive\">✕ Blocked</Badge>",
+    "dos": [
+     [
+      "do",
+      "Pair a state with its mark: ✕ Blocked, ◆ Waiting."
+     ],
+     [
+      "dont",
+      "Fill a badge with the accent red; red fills belong to the primary action."
+     ]
     ]
    },
    {
@@ -100,7 +124,9 @@
      "design/browser-ui/src/tabs.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Switches between views of the same object. The selected tab carries the accent underline; its text stays the foreground.",
+    "usage": "import { Tabs, TabsList, TabsTrigger, TabsContent } from '@tmt/browser-ui/ui';\n\n<Tabs defaultValue=\"members\">\n  <TabsList variant=\"line\">\n    <TabsTrigger value=\"members\">Members</TabsTrigger>\n    <TabsTrigger value=\"timers\">Timers</TabsTrigger>\n  </TabsList>\n  <TabsContent value=\"members\">…</TabsContent>\n</Tabs>"
    },
    {
     "slug": "input",
@@ -110,7 +136,9 @@
      "design/browser-ui/src/ui/input.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A single-line field. Its frame is the soft rule; focus recolours the frame in the accent.",
+    "usage": "import { Input } from '@tmt/browser-ui/ui';\n\n<Input aria-label=\"Search agents\" placeholder=\"Search agents\" />"
    },
    {
     "slug": "textarea",
@@ -120,7 +148,9 @@
      "design/browser-ui/src/ui/textarea.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A multi-line field for messages and notes.",
+    "usage": "import { Textarea } from '@tmt/browser-ui/ui';\n\n<Textarea aria-label=\"Message\" placeholder=\"Message #sample-squad\" />"
    },
    {
     "slug": "select",
@@ -130,6 +160,14 @@
      "design/browser-ui/src/ui/select.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "Picks one value from a short list. The trigger is a field; the list opens as a popper under it.",
+    "usage": "import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@tmt/browser-ui/ui';\n\n<Select defaultValue=\"1d\">\n  <SelectTrigger aria-label=\"Range\"><SelectValue /></SelectTrigger>\n  <SelectContent>\n    <SelectItem value=\"1h\">Range 1h</SelectItem>\n    <SelectItem value=\"1d\">Range 1d</SelectItem>\n  </SelectContent>\n</Select>",
+    "dos": [
+     [
+      "dont",
+      "Use a native select; the list must take the tokens and the theme."
+     ]
     ]
    },
    {
@@ -142,7 +180,9 @@
      "design/browser-ui/src/checkbox.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Turns one option on or off inside a form; checked takes the accent.",
+    "usage": "import { Checkbox } from '@tmt/browser-ui/ui';\n\n<Checkbox defaultChecked aria-label=\"Show comments\" />"
    },
    {
     "slug": "switch",
@@ -152,7 +192,9 @@
      "design/browser-ui/src/ui/switch.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Turns a setting on or off at once, without a save step.",
+    "usage": "import { Switch } from '@tmt/browser-ui/ui';\n\n<Switch checked={on} onCheckedChange={setOn} aria-label=\"Notify me\" />"
    },
    {
     "slug": "dialog",
@@ -164,6 +206,14 @@
      "design/browser-ui/src/dialog.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "A modal question that blocks the page until it is answered. Keep it to one decision.",
+    "usage": "import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from '@tmt/browser-ui/ui';\n\n<Dialog>\n  <DialogTrigger asChild><Button type=\"button\">Move</Button></DialogTrigger>\n  <DialogContent>\n    <DialogHeader><DialogTitle>Move to project</DialogTitle></DialogHeader>\n  </DialogContent>\n</Dialog>",
+    "dos": [
+     [
+      "do",
+      "Name the action on the confirm button: “Move”, not “OK”."
+     ]
     ]
    },
    {
@@ -174,7 +224,9 @@
      "design/browser-ui/src/ui/sheet.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A drawer from the edge for settings and detail that keep the page in view.",
+    "usage": "import { Sheet, SheetTrigger, SheetContent } from '@tmt/browser-ui/ui';\n\n<Sheet>\n  <SheetTrigger asChild><Button type=\"button\">Open</Button></SheetTrigger>\n  <SheetContent side=\"right\">…</SheetContent>\n</Sheet>"
    },
    {
     "slug": "dropdown-menu",
@@ -184,7 +236,9 @@
      "design/browser-ui/src/ui/dropdown-menu.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A short list of commands on one object, opened from a button.",
+    "usage": "import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@tmt/browser-ui/ui';\n\n<DropdownMenu>\n  <DropdownMenuTrigger asChild><Button type=\"button\">Page actions</Button></DropdownMenuTrigger>\n  <DropdownMenuContent><DropdownMenuItem>Rename</DropdownMenuItem></DropdownMenuContent>\n</DropdownMenu>"
    },
    {
     "slug": "popover",
@@ -194,7 +248,9 @@
      "design/browser-ui/src/ui/popover.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Detail or a small form anchored to its trigger; it does not block the page.",
+    "usage": "import { Popover, PopoverTrigger, PopoverContent } from '@tmt/browser-ui/ui';\n\n<Popover>\n  <PopoverTrigger asChild><Button type=\"button\">Details</Button></PopoverTrigger>\n  <PopoverContent>…</PopoverContent>\n</Popover>"
    },
    {
     "slug": "tooltip",
@@ -204,7 +260,9 @@
      "design/browser-ui/src/ui/tooltip.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Names an icon-only control on hover and focus. Never the only place for content.",
+    "usage": "import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@tmt/browser-ui/ui';\n\n<Tooltip>\n  <TooltipTrigger asChild>…</TooltipTrigger>\n  <TooltipContent>Search pages</TooltipContent>\n</Tooltip>"
    },
    {
     "slug": "alert",
@@ -214,7 +272,9 @@
      "design/browser-ui/src/ui/alert.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A callout in the flow of the page: a method note, a caveat or a blocking problem.",
+    "usage": "import { Alert, AlertTitle, AlertDescription } from '@tmt/browser-ui/ui';\n\n<Alert>\n  <AlertTitle>Method</AlertTitle>\n  <AlertDescription>…</AlertDescription>\n</Alert>"
    },
    {
     "slug": "command",
@@ -226,7 +286,9 @@
      "design/browser-ui/src/command.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A searchable list of commands or destinations, the base of quick switchers.",
+    "usage": "import { Command, CommandInput, CommandList, CommandItem } from '@tmt/browser-ui/ui';\n\n<Command>\n  <CommandInput placeholder=\"Search\" />\n  <CommandList><CommandItem>Release plan</CommandItem></CommandList>\n</Command>"
    },
    {
     "slug": "separator",
@@ -236,7 +298,9 @@
      "design/browser-ui/src/ui/separator.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A hairline between groups of content.",
+    "usage": "import { Separator } from '@tmt/browser-ui/ui';\n\n<Separator />"
    },
    {
     "slug": "card",
@@ -247,6 +311,14 @@
      "design/browser-ui/src/card.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "A resting surface for one object: the sheet fill, the rule and the surface radius, with no shadow.",
+    "usage": "import { Card, CardHeader, CardTitle, CardContent } from '@tmt/browser-ui/ui';\n\n<Card>\n  <CardHeader><CardTitle>#sample-squad</CardTitle></CardHeader>\n  <CardContent>…</CardContent>\n</Card>",
+    "dos": [
+     [
+      "dont",
+      "Add a shadow to a resting card; only floating layers cast one."
+     ]
     ]
    },
    {
@@ -257,7 +329,9 @@
      "design/browser-ui/src/ui/skeleton.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A quiet placeholder while content loads. It does not pulse; a busy action uses the busy mark.",
+    "usage": "import { Skeleton } from '@tmt/browser-ui/ui';\n\n<Skeleton className=\"h-3 w-40\" />"
    },
    {
     "slug": "empty",
@@ -267,7 +341,9 @@
      "design/browser-ui/src/ui/empty.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "What a list shows when it has nothing yet, with one way forward.",
+    "usage": "import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@tmt/browser-ui/ui';\n\n<Empty>\n  <EmptyHeader><EmptyTitle>No timers yet</EmptyTitle></EmptyHeader>\n</Empty>"
    },
    {
     "slug": "ds-scope",
@@ -277,7 +353,9 @@
      "design/browser-ui/src/ds-scope.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A sized stage that confines component layers, responsive layout and modal effects.",
+    "usage": "import { DsScope, Button } from '@tmt/browser-ui/ui';\n\n<DsScope style={{ width: '100%', height: 320 }}><Button>Action</Button></DsScope>"
    },
    {
     "slug": "surface",
@@ -287,7 +365,9 @@
      "design/browser-ui/src/ui/surface.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A box at one elevation level: paper, sheet, raised, overlay or modal. Each pairs a fill with a hairline edge and one shadow level, since dark themes show shadows weakly.",
+    "usage": "import { Surface } from '@tmt/browser-ui/ui';\n\n<Surface level=\"sheet\">…</Surface>"
    },
    {
     "slug": "chips",
@@ -299,7 +379,9 @@
      "design/browser-ui/src/chips.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Chips holds a set of choices as small pills with a round remove, added from a combobox; Combobox picks one option from a filtered list. Backspace in an empty field removes the last chip. A chip owns its size, so no host control rule grows it.",
+    "usage": "import { Chips, Chip, Combobox, useLayerController } from '@tmt/browser-ui/ui';\n\nconst controller = useLayerController({ open, onOpenChange: setOpen });\n<Chips controller={controller} label=\"Recipients\" items={items} options={options}\n  query={query} onQueryChange={setQuery} onAdd={add} onRemove={remove} emptyLabel=\"No member matches\" />"
    },
    {
     "slug": "floating",
@@ -309,7 +391,9 @@
      "design/browser-ui/src/ui/floating.tsx",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "FloatingDock places a page’s floating actions at the bottom end and the one window an action opens above them. FloatingActions is the capsule; FloatingAction an action with its count and attention dot, pressed while its window is open. FloatingWindow sizes to its content up to the space above the actions.",
+    "usage": "import { FloatingDock, FloatingActions, FloatingAction, FloatingWindow, FloatingWindowAction } from '@tmt/browser-ui/ui';\n\n<FloatingDock top={headerHeight}>\n  {open && (\n    <FloatingWindow key={open} open label=\"Discussion\" onClose={close} header={<>…<FloatingWindowAction label=\"Resolve\" icon={<Check />} /></>}>\n      …\n    </FloatingWindow>\n  )}\n  <FloatingActions label=\"Page actions\">\n    <FloatingAction label=\"Comments (2)\" icon={<MessagesSquare />} count={2} expanded={open === 'comments'} onClick={toggle} />\n  </FloatingActions>\n</FloatingDock>"
    },
    {
     "slug": "rich-input",
@@ -320,7 +404,9 @@
      "design/browser-ui/src/rich-input/rich-input.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "One Lexical editor in two shapes: the single-line search with filter chips and the multi-line composer with mentions, a toolbar and an attachment slot. It ships in its own entry, so pages without it never load Lexical.",
+    "usage": "import { RichInput, emptyRichInputValue } from '@tmt/browser-ui/rich-input';\n\n<RichInput shape=\"multi\" label=\"Message\" value={value} onChange={setValue} onSubmit={send}\n  suggestions={[{ kind: 'mention', trigger: '@', options: (query) => … }]} />"
    },
    {
     "slug": "page-list",
@@ -329,7 +415,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Pinned page cards and project and stage chips for the Colab page list. The host owns links, data and actions.",
+    "usage": "import { PageListPins, PageListProjectChip, PageListStageChip, PageListTabs, PageListControls, PageListBulkActions, PageListRowMenu, PageListProjectPicker, PageListLoading, PageListError, PageListTable } from '@tmt/browser-ui/data-table';\n\n<PageListPins label=\"Pinned pages\" pages={pages} />"
    },
    {
     "slug": "data-table",
@@ -340,7 +428,9 @@
      "design/browser-ui/src/data-table/data-table.css",
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The dense table for lists such as the Colab page list: declared columns with a role and widths, a reserved actions column so hover actions never cover a cell, every cell on the first line so a sub-line never moves the menu, a sticky sortable header, selection with a bulk bar, loading, empty and error rows, and two-line cards under 760px (dataTablePhoneWidth). It ships in its own entry with its stylesheet.",
+    "usage": "import { DataTable } from '@tmt/browser-ui/data-table';\n\n<DataTable label=\"Pages\" rows={pages} rowKey={(page) => page.id} rowLabel={(page) => page.title}\n  columns={[{ id: 'title', header: 'Title', role: 'primary', min: 220, text: (page) => page.title, sub: progress },\n    { id: 'updated', header: 'Updated', role: 'time', min: 88, max: 104, sortable: true, text: (page) => page.updated }]}\n  sort={sort} onSortChange={setSort} selected={selected} onSelectedChange={setSelected}\n  actions={(page) => [{ id: 'pin', label: `Pin ${page.title}`, icon: <Pin />, onSelect: pin }]} menu={rowMenu} onOpen={openPage} />"
    },
    {
     "slug": "block-document",
@@ -349,7 +439,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The page column the blocks sit in: it holds the gutter for the one shared handle and is the container whose width decides the phone layout (480px), so a block page in a narrow pane collapses like a phone. Its stylesheet carries every block part.",
+    "usage": "import { BlockDocument, Block, TextBlock } from '@tmt/browser-ui/blocks';\n\n<BlockDocument>\n  <Block label=\"Paragraph: Blocks read as one document\"><TextBlock>…</TextBlock></Block>\n</BlockDocument>"
    },
    {
     "slug": "block",
@@ -358,6 +450,18 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
+    ],
+    "description": "Every block sits in the shell, and the shell draws nothing at rest: no border, fill or box, so the page reads as one document. Hover gives a light tint and selection a deeper one, never a border; the focus ring shows only for the keyboard. Each editor renders one BlockHandle (insert and the block menu, which is also the drag grip) inside the hovered or focused block, in the gutter 8px to its left. Under 480px of document width the handle hides: a tap selects and a long press opens the block menu as a sheet.",
+    "usage": "import { BlockDocument, Block, BlockHandle, BlockDropLine, BlockGhost, blockKeyAction } from '@tmt/browser-ui/blocks';\n\n<BlockDocument>\n  <Block label=\"Table: Ticket status\" kind=\"table\" selected={selected} tabIndex={-1}\n    onKeyDown={(event) => run(blockKeyAction(event, selecting))}>\n    {hovered && <BlockHandle onInsert={openInsert} onMenu={openMenu} onGripPointerDown={startDrag} />}\n    <TableBlock … />\n  </Block>\n</BlockDocument>\n// While dragging: the dragged block takes state=\"dragging\", BlockDropLine marks the landing place\n// and BlockGhost follows the pointer.",
+    "dos": [
+     [
+      "do",
+      "Render one handle per editor and move it to the hovered or focused block."
+     ],
+     [
+      "dont",
+      "Draw a border or a resting fill around a block; only the card block has a frame."
+     ]
     ]
    },
    {
@@ -367,7 +471,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind=\"actions\", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never \"turn into\"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows.",
+    "usage": "import { BlockMenu, BlockMenuGroup, BlockMenuItem, BlockMenuSeparator, BlockMenuEmpty, BlockMenuFooter, BlockKbd, blockActions, nextBlockMenuItem } from '@tmt/browser-ui/blocks';\n\n<BlockMenu label=\"Insert block\" activeId={`insert-${active}`} placement={phone ? 'sheet' : 'below'}>\n  <BlockMenuGroup>Basic</BlockMenuGroup>\n  <BlockMenuItem id=\"insert-table\" icon={<Table2 />} description=\"Columns and rows\" shortcut=\"/table\" active>Table</BlockMenuItem>\n  {!matches.length && <BlockMenuEmpty>No block matches.</BlockMenuEmpty>}\n  <BlockMenuFooter><span><BlockKbd>↑↓</BlockKbd> choose</span></BlockMenuFooter>\n</BlockMenu>\n<BlockMenu kind=\"actions\" label=\"Block actions\">\n  {blockActions.map((action) => <BlockMenuItem key={action.id} shortcut={action.shortcut} danger={action.danger}>{action.label}</BlockMenuItem>)}\n</BlockMenu>  // BlockMenuSeparator goes before Delete"
    },
    {
     "slug": "heading-block",
@@ -376,7 +482,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "## and ### only: the page title is the GUI header’s, never a block. Long headings wrap.",
+    "usage": "import { HeadingBlock } from '@tmt/browser-ui/blocks';\n\n<HeadingBlock level={2}>First block set</HeadingBlock>"
    },
    {
     "slug": "text-block",
@@ -385,7 +493,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Plain text with a few inline formats (bold, italic, inline code, links, @agent and @block chips), default or muted; empty, it shows its placeholder.",
+    "usage": "import { TextBlock } from '@tmt/browser-ui/blocks';\n\n<TextBlock tone=\"muted\">Secondary notes</TextBlock>"
    },
    {
     "slug": "list-item",
@@ -394,7 +504,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "One item is one block, so each moves and is mentioned on its own. Bullet or number, three indent levels (24px each, 16px on a phone).",
+    "usage": "import { ListItemBlock } from '@tmt/browser-ui/blocks';\n\n<ListItemBlock indent={1}>A nested item</ListItemBlock>"
    },
    {
     "slug": "todo",
@@ -403,7 +515,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The shared checkbox and the item text, struck through when done, with an assignee and a due date; overdue adds the blocked colour to text that already says so. On a phone the meta moves under the text.",
+    "usage": "import { TodoBlock } from '@tmt/browser-ui/blocks';\n\n<TodoBlock checked assignee={<Tag>gui-3</Tag>} due=\"11-03\">Move the question card</TodoBlock>"
    },
    {
     "slug": "table-block",
@@ -412,7 +526,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block.",
+    "usage": "import { TableBlock } from '@tmt/browser-ui/blocks';\n\n<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />"
    },
    {
     "slug": "card-block",
@@ -421,7 +537,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The only block that nests (one level) and the only one that draws a frame; resting, it has no shadow. The section variant is a label with no frame, to group cards.",
+    "usage": "import { CardBlock } from '@tmt/browser-ui/blocks';\n\n<CardBlock title=\"First block set\" meta=\"3 blocks\">{children}</CardBlock>"
    },
    {
     "slug": "callout",
@@ -430,7 +548,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The shared tinted notice in four tones (working, waiting, review, blocked), each with its mark and word (calloutLabels) so colour is never alone; role note.",
+    "usage": "import { Callout } from '@tmt/browser-ui/blocks';\n\n<Callout tone=\"waiting\" heading=\"Look before merging\">The pull request stays a draft.</Callout>"
    },
    {
     "slug": "code-block",
@@ -439,7 +559,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A header with the filename (cut with an ellipsis), the language and Copy, over wrapped monospace text; the host copies and sets copied. variant=\"command\" is the shared one-line command.",
+    "usage": "import { CodeBlock } from '@tmt/browser-ui/blocks';\n\n<CodeBlock filename=\"answered-strip.css\" language=\"CSS\" text={source} onCopy={copy} copied={copied} />"
    },
    {
     "slug": "block-mention",
@@ -448,7 +570,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A chip naming a block by its type and opening text, in a paragraph or a comment; with href it scrolls to the block and selects it.",
+    "usage": "import { BlockMention } from '@tmt/browser-ui/blocks';\n\n<BlockMention icon={<Table2 />} href=\"#b-6\">Table: Ticket status</BlockMention>"
    },
    {
     "slug": "block-toast",
@@ -457,7 +581,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "The status line after a delete or a move, with Undo and its key. The host places it at the bottom centre, times it out and restores the blocks; Cmd/Ctrl+Z does the same.",
+    "usage": "import { BlockToast } from '@tmt/browser-ui/blocks';\n\n<BlockToast onUndo={restore}>Deleted 1 block (Table)</BlockToast>"
    },
    {
     "slug": "question-block",
@@ -466,7 +592,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A question with choices or a short answer; Other always provides a text answer.",
+    "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
    },
    {
     "slug": "image-block",
@@ -475,7 +603,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A compact image collection with captions, a viewer and optional file cards.",
+    "usage": "import { ImageBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<ImageBlock images={images} layout=\"carousel\" />"
    },
    {
     "slug": "mockup-block",
@@ -484,7 +614,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A sized design-system stage with device widths and theme controls.",
+    "usage": "import { MockupBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<MockupBlock system=\"tmt-gui\" version=\"follow\">…</MockupBlock>"
    },
    {
     "slug": "work-bundle",
@@ -493,7 +625,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "A page reference with its admitted metadata and independently retained work. ConnectedWorkBundle subscribes through the host’s read-only source.",
+    "usage": "import { WorkBundle } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<WorkBundle page=\"page-id\" data={page} work=\"Start with the phone drawer.\" />"
    },
    {
     "slug": "page-view",
@@ -502,7 +636,9 @@
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
-    ]
+    ],
+    "description": "Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data.",
+    "usage": "import { PageView } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<PageView title=\"Spec pages\" rows={pages} />"
    }
   ]
  },
@@ -512,6 +648,7 @@
    {
     "slug": "browser-avatar",
     "title": "Avatar",
+    "description": "Initials on a seat colour for a person or agent; avatarInitials derives them.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -520,6 +657,7 @@
    {
     "slug": "busy-mark",
     "title": "Busy mark",
+    "description": "The busy dots. useBusyMark waits busyMarkDelayMs before showing and holds busyMarkHoldMs once shown, so a quick action never flickers.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -528,6 +666,7 @@
    {
     "slug": "section",
     "title": "Section",
+    "description": "A titled page section with its rule and spacing.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -536,6 +675,7 @@
    {
     "slug": "disclosure",
     "title": "Disclosure",
+    "description": "A summary that opens more detail in place.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -544,6 +684,7 @@
    {
     "slug": "brand-mark",
     "title": "Brand mark",
+    "description": "The tmt mark and the lockup with the wordmark, drawn from the brand-mark roles.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -552,6 +693,7 @@
    {
     "slug": "browser-checkbox",
     "title": "Checkbox (Browser)",
+    "description": "The Browser checkbox with its label, mixed and disabled states.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -560,6 +702,7 @@
    {
     "slug": "status-tile",
     "title": "Status tile",
+    "description": "A state with its mark, word and count, alone or as a row of tiles.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -568,6 +711,7 @@
    {
     "slug": "action",
     "title": "Action",
+    "description": "The Browser action button in its primary, secondary, text and danger variants, with busy and disabled states.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -576,6 +720,7 @@
    {
     "slug": "toggle",
     "title": "Toggle",
+    "description": "A pressed or unpressed action, for a view setting that stays on.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -584,6 +729,7 @@
    {
     "slug": "header",
     "title": "Header",
+    "description": "The page header: title, caption and actions on the header metrics.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -592,6 +738,7 @@
    {
     "slug": "notice",
     "title": "Notice",
+    "description": "A card-level message with a tone mark, heading, body and actions.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -600,6 +747,7 @@
    {
     "slug": "pager",
     "title": "Pager",
+    "description": "Previous and next with the position, for a list longer than a page.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -608,6 +756,7 @@
    {
     "slug": "list",
     "title": "List and list table",
+    "description": "Rows with a lead, title, meta and actions, the list table with its column rules and the page subheader.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -616,6 +765,7 @@
    {
     "slug": "choice",
     "title": "Choice",
+    "description": "Single and multiple choice rows for a question, with an Other answer.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -624,6 +774,7 @@
    {
     "slug": "menu",
     "title": "Menu",
+    "description": "The Browser menu and its host for non-React pages: items, radio and checkbox items, disabled rows and submenus.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -632,6 +783,7 @@
    {
     "slug": "icon-action",
     "title": "Icon action",
+    "description": "A square action named by its tooltip label; text and filled variants.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -640,6 +792,7 @@
    {
     "slug": "field",
     "title": "Field",
+    "description": "A labelled control with its help and error text and the field edge and focus.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -648,6 +801,7 @@
    {
     "slug": "count-chip",
     "title": "Count chip",
+    "description": "A number with its tone: neutral, waiting or blocked; countText formats it.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -656,6 +810,7 @@
    {
     "slug": "table",
     "title": "Table",
+    "description": "A data table with its header, numeric columns and compact scroll.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -664,6 +819,7 @@
    {
     "slug": "browser-command",
     "title": "Command (Browser)",
+    "description": "The command field with its results list and keyboard selection.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -672,6 +828,7 @@
    {
     "slug": "browser-tabs",
     "title": "Tabs (Browser)",
+    "description": "The Browser tabs with counts and wrapping. New work uses the ui Tabs and its TabsBar.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -680,6 +837,7 @@
    {
     "slug": "browser-chips",
     "title": "Chips (Browser)",
+    "description": "Chips with an add popup and remove controls, and state chips with a mark and word.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -688,6 +846,7 @@
    {
     "slug": "dialog-drawer-panel",
     "title": "Dialog, drawer and panel",
+    "description": "The Browser dialog (modal and confirm), drawer and non-modal panel, with the drawer header, Esc and focus return.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -696,6 +855,7 @@
    {
     "slug": "shell",
     "title": "Shell and rail",
+    "description": "The product frame: the top bar, the module rail with its menus, counts and attention dot, and the content slot. Hover and drag reveal row actions with the swap crossfade.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -704,6 +864,7 @@
    {
     "slug": "notifications",
     "title": "Notifications",
+    "description": "Transient notifications stacked at the corner, with their actions and dismissal.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -712,6 +873,7 @@
    {
     "slug": "card-meter",
     "title": "Card and meter",
+    "description": "The static card with a meter and its glyphs and a small chart.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -720,6 +882,7 @@
    {
     "slug": "overview",
     "title": "Overview pieces",
+    "description": "The page head, banner, facts, stats and state marks an overview page composes, with the shared glyphs.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -728,6 +891,7 @@
    {
     "slug": "editorial",
     "title": "Editorial prose",
+    "description": "Long-form prose on the type ramp: headings, lists, quotes, code and tables.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -736,6 +900,7 @@
    {
     "slug": "visually-hidden",
     "title": "Visually hidden",
+    "description": "Text for assistive technology only, such as a count’s full sentence.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
@@ -744,6 +909,7 @@
    {
     "slug": "chart",
     "title": "Chart",
+    "description": "Bar, line and stacked charts on the chart roles, with axes, legend and tooltip.",
     "html": "<div class=\"tmt-design-docs\"></div>",
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"

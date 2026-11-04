@@ -108,7 +108,7 @@ async function openGuiButton(page: Page) {
   await tree.getByRole('link', { name: /^Button/ }).click();
   await expect(page).toHaveURL(/\/ds\/gui\/components\/button$/);
   const frame = designFrame(page);
-  await expect(frame.getByRole('heading', { name: '<tmt-ui-button>', exact: true })).toBeVisible();
+  await expect(frame.getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
   // One quiet line: the files stay in the origin block (#6060).
   await expect(frame.locator('[data-tmt-ds-generated]')).toHaveText(
     'Generated from design/browser-ui; change it through a PR, since edits here are replaced.',
@@ -144,7 +144,7 @@ test('a Browser component page opens with a live chart example', async ({ page }
   await expect(tree).toBeVisible({ timeout: 60_000 });
   await tree.getByRole('link', { name: /^Chart/ }).click();
   const frame = designFrame(page);
-  await expect(frame.getByRole('heading', { name: '<tmt-ui-chart>', exact: true })).toBeVisible();
+  await expect(frame.getByRole('heading', { name: 'Chart', exact: true })).toBeVisible();
   await expect(frame.getByRole('img', { name: /Activity/ })).toBeVisible();
 });
 for (const width of [1440, 390])
@@ -165,9 +165,10 @@ for (const width of [1440, 390])
         page.getByRole('button', { name: 'New design system', exact: true }),
       ).toBeVisible();
       await openGuiButton(page);
+      await capture(page, `design-gui-button-${width}-${theme}.png`);
       await expectGuiBrand(page);
       const withDesignDocs = await chromePaint(page);
-      await capture(page, `design-gui-button-${width}-${theme}.png`);
+      await capture(page, `design-gui-brand-${width}-${theme}.png`);
       await pickSystem(page, 'tmt TUI');
       await docsMenu(page);
       await page.locator('.docs-nav a[href$="/ds/tui/roles"]').click();
@@ -213,7 +214,7 @@ for (const width of [1440, 390])
         .getByRole('link', { name: /^Button\s*brio-button$/ })
         .click();
       await expect(
-        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
       ).toBeVisible();
       await expect(
         designFrame(page).getByRole('heading', { name: 'Props', exact: true }),
@@ -332,7 +333,7 @@ for (const width of [1440, 390])
         .toBe(0);
       await page.goBack();
       await expect(
-        designFrame(page).getByRole('heading', { name: '<brio-button>', exact: true }),
+        designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
       ).toBeVisible();
       expect(errors).toEqual([]);
       expect(

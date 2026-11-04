@@ -5525,11 +5525,12 @@ The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:des
 owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each
 page follows `tmt-gui`, starts with a note that it is generated from `design/browser-ui`, and holds a
 `data-tmt-ds="origin"` block `{key, files}` (its docs path, such as `components/button`, and the repo
-files it is generated from); the root's block also names the shipped bundle hash. When this build
-ships another hash, the owner device rewrites each page in place by `key`, keeping ids and threads,
-makes pages for new keys and archives (never deletes) pages whose key is gone. Several owner tabs or
-devices may sync at once; they converge on one tree: a new page holds its `origin` block as soon as
-it exists, a sync reuses a root or child it finds by `key` before making one, and a closing pass
+files it is generated from); the root's block also names the shipped bundle hash and the generated
+documentation revision. When either changes, the owner device rewrites each page in place by `key`,
+keeping ids and threads, makes pages for new keys and archives (never deletes) pages whose key is
+gone. Several owner tabs or devices may sync at once; they converge on one tree: a new page holds
+its `origin` block as soon as it exists, a sync reuses a root or child it finds by `key` before
+making one, and a closing pass
 archives any second root's tree and any second page for a `key`, keeping the lowest page ID.
 Regeneration rewrites a page's whole source, so a thread anchored on text that changed keeps its
 discussion but may lose its quote anchor. `/design/ds/gui` shows this tree once it exists; there is

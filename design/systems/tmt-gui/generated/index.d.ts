@@ -6,6 +6,9 @@ export interface ButtonProps {
   variant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
   size?: "default" | "xs" | "sm" | "lg";
   disabled?: boolean;
+  busy?: boolean;
+  "busy-label"?: string;
+  "collapse-label"?: string;
   children?: ReactNode;
   icon?: ReactNode;
 }

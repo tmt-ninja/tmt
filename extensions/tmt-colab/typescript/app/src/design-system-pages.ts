@@ -435,7 +435,16 @@ const docs = {
 /** A component page: its block (what publish compiles), then its docs in the tmt GUI docs' own
  * component layout (the system CSS carries their scoped styles): notes, the live examples and the
  * props table. */
-export function componentPageSource(doc: ComponentDoc & { notes?: string }, prefix: string) {
+export function componentPageSource(
+  doc: ComponentDoc & { notes?: string },
+  prefix: string,
+  presentation?: {
+    title: string;
+    description?: string;
+    usage?: string;
+    dos?: readonly (readonly [string, string])[];
+  },
+) {
   const tag = `${prefix}-${doc.tag}`;
   const rows = Object.entries(doc.props)
     .map(
@@ -443,28 +452,33 @@ export function componentPageSource(doc: ComponentDoc & { notes?: string }, pref
         `<tr><td><code>${escape(name)}</code></td><td>${escape(spec.enum ? spec.enum.join(' · ') : (spec.type ?? ''))}</td><td>${escape(spec.default ?? '')}</td></tr>`,
     )
     .join('');
-  const examples = exampleIds(doc.examples ?? [])
-    .map(({ id, example }) => {
-      const markup = example.markup.replaceAll('tmt-ui-', `${prefix}-`);
-      // The example root holds its label, the live elements and their markup: a comment anywhere in
-      // it quotes all three, and the label keeps the quote unique when two examples share markup. Its
-      // id is the anchor a point-and-fix link opens the page at.
-      const anchor = escape(`${doc.tag}:${id}`);
-      return `<section class="docs-variant"><h3>${escape(example.title)}</h3><div id="${anchor}" data-ds-example="${anchor}"><p class="${docs.label}">${anchor}</p><div class="docs-canvas">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
-    })
-    .join('\n');
+  const examples = exampleIds(doc.examples ?? []).map(({ id, example }) => {
+    const markup = example.markup.replaceAll('tmt-ui-', `${prefix}-`);
+    // The example root holds its label, the live elements and their markup: a comment anywhere in
+    // it quotes all three, and the label keeps the quote unique when two examples share markup. Its
+    // id is the anchor a point-and-fix link opens the page at.
+    const anchor = escape(`${doc.tag}:${id}`);
+    return { title: example.title, anchor, markup };
+  });
+  const drawExample = ({ title, anchor, markup }: (typeof examples)[number], hero = false) =>
+    `<section class="docs-variant${hero ? ' docs-hero' : ''}"><h3>${escape(title)}</h3><div id="${anchor}" data-ds-example="${anchor}"><p class="${docs.label} ds-example-label">${anchor}</p><div class="docs-canvas${hero ? ' docs-canvas-hero' : ''}">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+  const [hero, ...variants] = examples;
   // The block keeps what publish compiles; the notes and examples live only in the HTML below, so an
   // agent's patch of an example has one place to change.
   const { notes: _notes, examples: _examples, ...compiled } = doc;
   return `${blockHtml('component', compiled)}
 <div class="tmt-design-docs"><article class="docs-article">
-<h1>&lt;${tag}&gt;</h1>
-<div class="docs-lead">${doc.notes ?? ''}</div>
+<h1>${presentation ? escape(presentation.title) : `&lt;${tag}&gt;`}</h1>
+${presentation?.description ? `<p class="docs-lead">${escape(presentation.description)}</p>` : ''}
+${hero ? drawExample(hero, true) : ''}
+${presentation?.usage && hero ? `<h2>Usage</h2><div class="docs-snippet"><pre><code>${escape(hero.markup)}</code></pre></div>` : ''}
 <h2>Variants and states</h2>
-${examples}
+${variants.map((example) => drawExample(example)).join('\n')}
 <h2>Props</h2>
 <table class="docs-props"><thead><tr><th scope="col">Prop</th><th scope="col">Values</th><th scope="col">Default</th></tr></thead><tbody>${rows}</tbody></table>
 <p>Slots: ${doc.slots.map((slot) => `<code>${escape(slot)}</code>`).join(', ')}</p>
+${presentation?.dos?.length ? `<h2>Do and don't</h2><div class="docs-dos">${presentation.dos.map(([kind, text]) => `<div class="docs-do" data-kind="${escape(kind)}"><b>${kind === 'do' ? 'Do' : 'Don’t'}</b><p>${escape(text)}</p></div>`).join('')}</div>` : ''}
+<div>${doc.notes ?? ''}</div>
 </article></div>`;
 }
 
@@ -486,7 +500,14 @@ export function rootPageSource(config: DesignSystemConfig) {
 /** One section of the tmt GUI docs a new system copies: its title and its static doc pages. */
 interface DocSection {
   title: string;
-  pages: { slug: string; title: string; html: string }[];
+  pages: {
+    slug: string;
+    title: string;
+    html: string;
+    description?: string;
+    usage?: string;
+    dos?: [string, string][];
+  }[];
 }
 
 /** A section page: its title and a link to each of its pages. */
@@ -536,7 +557,7 @@ async function fillFromTemplate(
           const id = await make(
             sectionPage,
             doc.title,
-            component ? componentPageSource(component, prefix) : doc.html,
+            component ? componentPageSource(component, prefix, doc) : doc.html,
           );
           if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
           made.push({ id, title: doc.title });
@@ -602,8 +623,8 @@ export interface DesignSystemEntry {
   config: DesignSystemConfig;
   /** The root page and the pages under it, in the root's sub-page order. */
   tree: DesignTreeNode;
-  /** The built-in tmt GUI's generated tree (#5969): the shipped bundle it was made from. */
-  builtIn?: { bundle: string };
+  /** The built-in tmt GUI's generated tree (#5969): its bundle and documentation revision. */
+  builtIn?: { bundle: string; revision?: string };
 }
 const TREE_DEPTH = 4;
 async function treeOf(
@@ -644,10 +665,12 @@ function entryOf(
   id: string,
   config: DesignSystemConfig,
   tree: DesignTreeNode,
-  origin?: { bundle?: string },
+  origin?: { bundle?: string; revision?: string },
 ): DesignSystemEntry {
   return {
-    ...(origin?.bundle && { builtIn: { bundle: origin.bundle } }),
+    ...(origin?.bundle && {
+      builtIn: { bundle: origin.bundle, ...(origin.revision && { revision: origin.revision }) },
+    }),
     id,
     name: config.name,
     prefix: config.prefix,
@@ -690,7 +713,7 @@ export async function listDesignSystems(
             root.id,
             config,
             await treeOf(transport, root, titles, 0, archived),
-            readBlock<{ bundle?: string }>(root.source, 'origin'),
+            readBlock<{ bundle?: string; revision?: string }>(root.source, 'origin'),
           )
         );
       });
