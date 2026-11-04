@@ -299,7 +299,9 @@ stream through the public `terminal.stream` API rather than deriving socket path
   `EndpointLost` (a new pane PID in the same pane) and is replaced as for a resume in a new
   pane. Until the launcher publishes, `State` says `relaunching`, and every reader except the
   launcher itself (the pane process) gets no snapshot (`PtyDriver::snapshot_from`), so its
-  probe is `Unknown` and no reconcile drops the binding the launcher would restore. Delivery
+  probe is `Unknown` and no reconcile drops the binding the launcher would restore. `relaunching`
+  always ends: the launcher's exit restores the member, and a launcher that has not published
+  within 90 s (past Core's 60 s admission wait) is hung up, then killed after 2 s. Delivery
   to a kept terminal with no agent (`ended`, or a shell) is refused with `MEMBER_ENDED`, and
   restore skips such a member as `ended`. A relaunched launcher that ends before publishing its marker (a refused resume)
   restores the previous member PID and marker, so the binding is unchanged. `tmt run`/`tmt

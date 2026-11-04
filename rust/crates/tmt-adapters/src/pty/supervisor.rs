@@ -68,6 +68,10 @@ const RECLAIM_ENTRIES: usize = 64;
 /// How long a program hung up by `Control::Close` may take to end before its
 /// groups are killed.
 const HANGUP_GRACE: Duration = Duration::from_secs(2);
+/// How long a relaunched agent launcher may run without publishing its marker before
+/// it is hung up, which restores the member it replaced. Longer than Core's wait for
+/// the admission (`host::pty`'s 60 s), so a launch Core still awaits is never cut.
+const RELAUNCH_ADMISSION: Duration = Duration::from_secs(90);
 
 /// Where and how to run one member.
 pub struct Launch {
@@ -239,6 +243,11 @@ pub struct Supervisor {
     /// publishes its own marker. A launcher that ends before that (a refused resume)
     /// never bound, so they are restored and the member's binding is unchanged.
     replaced: Option<(u32, Option<(String, String)>)>,
+    /// When the relaunched launcher started, and when it was hung up for missing its
+    /// admission (`RELAUNCH_ADMISSION`); both end with `replaced`.
+    relaunched_at: Instant,
+    admission_hangup: Option<Instant>,
+    admission: Duration,
     /// How the last program ended, while no program runs.
     ended: Option<Exit>,
     /// The terminal's device. A relaunch opens it again rather than keeping a
@@ -367,6 +376,9 @@ impl Supervisor {
             master: File::from(terminal.master),
             member_pid: child.id(),
             replaced: None,
+            relaunched_at: Instant::now(),
+            admission_hangup: None,
+            admission: RELAUNCH_ADMISSION,
             child: Some(child),
             child_kind: None,
             ended: None,
@@ -424,6 +436,7 @@ impl Supervisor {
             if let Some(exit) = self.reap(WaitPidFlag::WNOHANG)? {
                 self.ended_with(exit);
             }
+            self.enforce_admission();
             if self.closing {
                 break;
             }
@@ -435,6 +448,32 @@ impl Supervisor {
         self.hang_up()?;
         self.flush_clients();
         Ok(())
+    }
+
+    /// A relaunched launcher that has not published within `admission` never bound: it
+    /// is hung up (SIGHUP, then SIGKILL after `HANGUP_GRACE`), and its end restores the
+    /// member it replaced, so `relaunching` always ends.
+    fn enforce_admission(&mut self) {
+        if self.replaced.is_none() || self.relaunched_at.elapsed() < self.admission {
+            return;
+        }
+        let signals: &[Signal] = match self.admission_hangup {
+            None => &[Signal::SIGHUP, Signal::SIGCONT],
+            Some(at) if at.elapsed() >= HANGUP_GRACE => &[Signal::SIGKILL],
+            Some(_) => return,
+        };
+        for group in self.groups() {
+            for signal in signals {
+                let _ = killpg(group, *signal);
+            }
+        }
+        self.admission_hangup = Some(Instant::now());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_admission(mut self, admission: Duration) -> Self {
+        self.admission = admission;
+        self
     }
 
     /// Tells the clients the program ended, after its last output, and keeps the
@@ -651,6 +690,8 @@ impl Supervisor {
             // A new launcher binds and publishes its own marker; the old one
             // belonged to the program that ended.
             self.replaced = Some((self.member_pid, self.marker.take()));
+            self.relaunched_at = Instant::now();
+            self.admission_hangup = None;
             self.member_pid = child.id();
             self.launch_ready = false;
             self.launcher_listening = false;

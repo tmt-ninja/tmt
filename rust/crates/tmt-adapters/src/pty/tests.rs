@@ -40,10 +40,16 @@ struct Member {
 
 impl Member {
     fn start(program: &[&str]) -> Self {
+        Self::start_with(program, |supervisor| supervisor)
+    }
+
+    fn start_with(program: &[&str], configure: impl FnOnce(Supervisor) -> Supervisor) -> Self {
         let root = TestDirectory::new();
         let directory = root.path.join("pty");
-        let supervisor = Supervisor::start(launch(&directory, "pty_test", program))
-            .expect("start the supervisor");
+        let supervisor = configure(
+            Supervisor::start(launch(&directory, "pty_test", program))
+                .expect("start the supervisor"),
+        );
         let pid = supervisor.program_pid();
         Self {
             _root: root,
@@ -1579,20 +1585,94 @@ fn a_relaunched_launcher_that_never_binds_leaves_the_member_as_it_was() {
         client.control(refusal, WAIT).unwrap(),
         ControlReply::Applied(true)
     );
+    assert!(relaunching(&member), "the launcher has not published yet");
     client.input(b"two\r").unwrap();
     collect(&mut client, exited(Exit::Code(1)));
     let ControlReply::State {
         pane_pid,
         marker,
         ended,
+        relaunching,
+        ..
+    } = control(&member, Control::Inspect)
+    else {
+        panic!("not a state");
+    };
+    // Relaunching ends with the launcher, and the member reads as before: ended, kept.
+    assert_eq!(
+        (pane_pid, marker.as_deref(), ended, relaunching),
+        (member.pid, Some("kept-marker"), Some(Exit::Code(1)), false)
+    );
+    drop(client);
+    member.finish().unwrap();
+}
+
+fn relaunching(member: &Member) -> bool {
+    matches!(
+        control(member, tmt_pty_protocol::Control::Inspect),
+        tmt_pty_protocol::ControlReply::State {
+            relaunching: true,
+            ..
+        }
+    )
+}
+
+#[test]
+fn a_relaunched_launcher_that_misses_its_admission_is_hung_up_and_the_member_restored() {
+    use tmt_pty_protocol::{Control, ControlReply, RelaunchKind};
+    let member = Member::start_with(&["sh", "-c", "read l; echo first:$l"], |supervisor| {
+        supervisor.with_admission(Duration::from_millis(500))
+    });
+    let mut client = member.connect();
+    client.input(b"one\r").unwrap();
+    collect(&mut client, exited(Exit::Code(0)));
+    assert_eq!(
+        control(
+            &member,
+            Control::PublishIf {
+                pane_pid: member.pid,
+                key: "binding".into(),
+                expected_key: None,
+                marker: "kept-marker".into(),
+            }
+        ),
+        ControlReply::Applied(true)
+    );
+    // A launcher that hangs before it binds, and ignores the hang-up: it is killed.
+    let hung = Control::Relaunch {
+        kind: RelaunchKind::Resume,
+        program: [
+            "sh",
+            "-c",
+            "trap '' HUP; echo hung; while :; do sleep 1; done",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    };
+    assert_eq!(
+        client.control(hung, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert!(relaunching(&member));
+    collect(&mut client, exited(Exit::Signal(Signal::SIGKILL as i32)));
+    let ControlReply::State {
+        pane_pid,
+        marker,
+        ended,
+        relaunching,
         ..
     } = control(&member, Control::Inspect)
     else {
         panic!("not a state");
     };
     assert_eq!(
-        (pane_pid, marker.as_deref(), ended),
-        (member.pid, Some("kept-marker"), Some(Exit::Code(1)))
+        (pane_pid, marker.as_deref(), ended, relaunching),
+        (
+            member.pid,
+            Some("kept-marker"),
+            Some(Exit::Signal(Signal::SIGKILL as i32)),
+            false
+        )
     );
     drop(client);
     member.finish().unwrap();
