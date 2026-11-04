@@ -10,6 +10,7 @@ import { admitsOverlayEscape, restoreOverlayFocus } from '../overlay.js';
 import { Button } from './button.js';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip.js';
 import { cn } from './utils.js';
+import { useDsScope } from './theme.js';
 
 /**
  * The floating dock (#5821): a page's floating actions at the bottom end, and the one window an
@@ -26,11 +27,15 @@ export function FloatingDock({
 }: ComponentProps<'div'> & {
   /** The host's top bar height in px, which the window stays below. */ top?: number;
 }) {
+  const scope = useDsScope();
   return (
     <div
       data-slot="floating-dock"
       className={cn(
-        'tmt:pointer-events-none tmt:fixed tmt:right-(--tmt-foundation-floating-gutter) tmt:bottom-(--tmt-foundation-floating-gutter) tmt:z-(--tmt-foundation-z-floating) tmt:flex tmt:flex-col tmt:items-end tmt:gap-3 tmt:max-[760px]:left-(--tmt-foundation-floating-gutter) tmt:[&>*]:pointer-events-auto',
+        'tmt:pointer-events-none tmt:fixed tmt:right-(--tmt-foundation-floating-gutter) tmt:bottom-(--tmt-foundation-floating-gutter) tmt:z-(--tmt-foundation-z-floating) tmt:flex tmt:flex-col tmt:items-end tmt:gap-3 tmt:[&>*]:pointer-events-auto',
+        scope
+          ? 'tmt:@max-[760px]:left-(--tmt-foundation-floating-gutter)'
+          : 'tmt:max-[760px]:left-(--tmt-foundation-floating-gutter)',
         className,
       )}
       style={{ '--tmt-floating-top': `${top}px`, ...style } as React.CSSProperties}
@@ -151,6 +156,7 @@ export function FloatingWindow({
   onClose(reason: FloatingWindowCloseReason, event: SyntheticEvent): void;
   returnFocus?(): HTMLElement | null;
 }) {
+  const scope = useDsScope();
   const surface = useRef<HTMLElement>(null);
   const fallback = useRef(returnFocus);
   fallback.current = returnFocus;
@@ -178,7 +184,10 @@ export function FloatingWindow({
       aria-label={label}
       data-slot="floating-window"
       className={cn(
-        'tmt:box-border tmt:flex tmt:w-(--tmt-foundation-dock-width) tmt:max-w-full tmt:max-h-[calc(100dvh-var(--tmt-floating-top)-var(--tmt-foundation-floating-action-size)-var(--tmt-foundation-floating-gutter)*2-var(--tmt-foundation-spacing-unit)*5)] tmt:flex-col tmt:overflow-hidden tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:font-body tmt:text-popover-foreground tmt:shadow-overlay tmt:outline-none tmt:max-[760px]:w-full tmt:origin-bottom-right tmt:animate-rise-in',
+        'tmt:box-border tmt:flex tmt:w-(--tmt-foundation-dock-width) tmt:max-w-full tmt:flex-col tmt:overflow-hidden tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:font-body tmt:text-popover-foreground tmt:shadow-overlay tmt:outline-none tmt:origin-bottom-right tmt:animate-rise-in',
+        scope
+          ? 'tmt:@max-[760px]:w-full tmt:max-h-[calc(100cqh-var(--tmt-floating-top)-var(--tmt-foundation-floating-action-size)-var(--tmt-foundation-floating-gutter)*2-var(--tmt-foundation-spacing-unit)*5)]'
+          : 'tmt:max-[760px]:w-full tmt:max-h-[calc(100dvh-var(--tmt-floating-top)-var(--tmt-foundation-floating-action-size)-var(--tmt-foundation-floating-gutter)*2-var(--tmt-foundation-spacing-unit)*5)]',
         className,
       )}
       onKeyDown={(event) => {

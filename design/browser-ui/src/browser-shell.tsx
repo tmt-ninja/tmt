@@ -18,6 +18,7 @@ import {
 } from './shell.js';
 import { createPortal } from 'react-dom';
 import type { ShellSlot } from './shell-host.js';
+import { useDsScope } from './ui/theme.js';
 
 export interface BrowserShellProps {
   view: ShellView;
@@ -73,7 +74,9 @@ export const useShellTools = () => useContext(ShellToolsContext);
 /** React hosts inside the one TMT web shell; the rail and menu use the shared static renderer. */
 export function BrowserShell({ view, select, children, commonControls }: BrowserShellProps) {
   const root = useRef<HTMLDivElement>(null);
+  const scope = useDsScope();
   const controls = useRef<ShellControls | null>(null);
+  const [mounted, setMounted] = useState(false);
   const [bar, setBar] = useState<HTMLDivElement | null>(null);
   const [search, setSearch] = useState<HTMLDivElement | null>(null);
   const [chip, setChip] = useState<HTMLDivElement | null>(null);
@@ -83,17 +86,25 @@ export function BrowserShell({ view, select, children, commonControls }: Browser
   common.current = commonControls;
   latest.current = select;
   useLayoutEffect(() => {
-    controls.current = mountShell(root.current!, view, (id, href) =>
-      Boolean(latest.current?.(id, href)),
+    if (scope && (!scope.root || !scope.portal)) return;
+    const layerHost =
+      scope?.root && scope.portal ? { root: scope.root, portal: scope.portal } : undefined;
+    controls.current = mountShell(
+      root.current!,
+      view,
+      (id, href) => Boolean(latest.current?.(id, href)),
+      layerHost,
     );
     controls.current.setCommonControls(common.current);
+    setMounted(true);
     return () => {
       controls.current?.dispose();
       controls.current = null;
+      setMounted(false);
     };
-    // The renderer mounts once; later views go through update below.
+    // The renderer mounts once per layer host; later views go through update below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scope?.root, scope?.portal]);
   useLayoutEffect(() => {
     controls.current?.update(view);
   }, [view]);
@@ -116,7 +127,9 @@ export function BrowserShell({ view, select, children, commonControls }: Browser
           <ShellBar value={bar}>
             <ShellToolsContext.Provider value={tools}>
               <TopBarReady.Provider value={ready}>
-                <TopBar.Provider value={adopt}>{bar && tools ? children : null}</TopBar.Provider>
+                <TopBar.Provider value={adopt}>
+                  {bar && tools && mounted ? children : null}
+                </TopBar.Provider>
               </TopBarReady.Provider>
             </ShellToolsContext.Provider>
           </ShellBar>

@@ -4,6 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { Slot } from 'radix-ui';
 
 import { cn } from './utils.js';
+import { useDsScope } from './theme.js';
 
 const buttonVariants = cva(
   "tmt:bg-transparent tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&_svg]:pointer-events-none tmt:[&_svg]:shrink-0 tmt:[&_svg:not([class*='size-'])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)",
@@ -64,6 +65,7 @@ function Button({
      */
     collapseLabel?: string;
   } & ({ busy?: false; busyLabel?: string } | { busy: true; busyLabel: string })) {
+  const scope = useDsScope();
   const Comp = asChild ? Slot.Root : 'button';
   const blocked = disabled || busy;
   if (busy && !busyLabel) throw new Error('Busy Button requires a visible busyLabel');
@@ -94,7 +96,10 @@ function Button({
   const labelled = collapseLabel ? (
     <>
       {children}
-      <span data-slot="button-label" className="tmt:max-[760px]:sr-only">
+      <span
+        data-slot="button-label"
+        className={scope ? 'tmt:@max-[760px]:sr-only' : 'tmt:max-[760px]:sr-only'}
+      >
         {collapseLabel}
       </span>
     </>
@@ -116,7 +121,9 @@ function Button({
       className={cn(
         buttonVariants({ variant, size }),
         collapseLabel &&
-          'tmt:h-(--tmt-foundation-control-size-l) tmt:max-[760px]:w-(--tmt-foundation-control-size-l) tmt:max-[760px]:px-0',
+          (scope
+            ? 'tmt:h-(--tmt-foundation-control-size-l) tmt:@max-[760px]:w-(--tmt-foundation-control-size-l) tmt:@max-[760px]:px-0'
+            : 'tmt:h-(--tmt-foundation-control-size-l) tmt:max-[760px]:w-(--tmt-foundation-control-size-l) tmt:max-[760px]:px-0'),
         className,
       )}
       aria-label={collapseLabel}

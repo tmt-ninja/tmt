@@ -204,6 +204,7 @@ export function startShellHost(
   options: {
     failed?(main: HTMLElement, route: ShellRoute, error: unknown): void;
     sessions?: ShellSessions;
+    layerHost?: import('./shell.js').ShellLayerHost;
   } = {},
 ): ShellHost {
   const document = root.ownerDocument;
@@ -273,10 +274,15 @@ export function startShellHost(
     }
     return { rail, menu };
   };
-  const controls: ShellControls = mountShell(root, view(), (id, href) => {
-    if (select?.(id, href)) return true;
-    return go(href);
-  });
+  const controls: ShellControls = mountShell(
+    root,
+    view(),
+    (id, href) => {
+      if (select?.(id, href)) return true;
+      return go(href);
+    },
+    options.layerHost,
+  );
   const paint = () => controls.update(view());
 
   const describe = (known?: string) => {

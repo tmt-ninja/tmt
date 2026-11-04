@@ -399,6 +399,7 @@ pub fn codes() -> Vec<&'static str> {
         "attachment-ref-too-many",
         "attachment-ref-unresolved",
         "attachment-ref-ambiguous",
+        "ds-outside-scope",
         "unknown-ui-class",
         "unknown-icon",
     ]);

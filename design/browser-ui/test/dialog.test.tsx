@@ -12,6 +12,7 @@ const hooks = vi.hoisted(() => ({
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   useId: () => 'fixture-dialog-title',
+  useContext: () => undefined,
   useRef: (value: unknown) => {
     const index = hooks.index++;
     return (hooks.refs[index] ??= { current: value });
@@ -73,6 +74,7 @@ function fixture(restoreFocus = true) {
   const node = {
     open: false,
     ownerDocument: { activeElement: origin },
+    closest: () => null,
     contains: (value: unknown) => value === target,
     showModal: vi.fn(function (this: { open: boolean }) {
       this.open = true;

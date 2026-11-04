@@ -36,16 +36,19 @@ publishing is their step in the Design tab.
 
 1. Put the `meta` line from `show` first in the page, exactly as printed:
    `<meta name="tmt-ds" content="<system>@<version>#sha256-...">`. One pin per page.
-2. Build with that release's tags only. Start from its `examples`, keep their markup shape, and
+2. Put the release's components inside an explicitly sized scope, for example
+   `<div data-tmt-ds-scope style="width:100%;height:24rem">...</div>`. Each scope owns its
+   overlays, focus and responsive size; controls outside it stay usable. Start overlays closed.
+3. Build with that release's tags only. Start from its `examples`, keep their markup shape, and
    set only the listed props with listed values. Put content in the default slot, or in a named
    slot with `slot="<name>"`.
-3. Follow the release's `principles`, for example one primary action per surface.
-4. Plain HTML can sit around the components for layout and text. Do not restyle a component's
+4. Follow the release's `principles`, for example one primary action per surface.
+5. Plain HTML can sit around the components for layout and text. Do not restyle a component's
    inside with your own CSS; choose its props instead.
 
 The page shows design-system problems inside its frame: a tag from another prefix, an unknown
-component, an invalid prop value, or a pin that cannot be read. Fix every one before you hand the
-page over. `tmt colab page check` covers the HTML rules, not these.
+component, a component outside a scope, an invalid prop value, or a pin that cannot be read. Fix every one before you hand the
+page over. `tmt colab page check` catches built-in `tmt-ui-*` tags outside a scope; the page checks custom prefixes after resolving the pinned bundle.
 
 ## Versions
 

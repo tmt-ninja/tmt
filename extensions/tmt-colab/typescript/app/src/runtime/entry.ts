@@ -2,6 +2,7 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
+import { installScopePortals } from './ds-scope.js';
 
 /**
  * The bundled page runtime (#1693): what an opted-in page's own script finds on `window.tmt`, with
@@ -15,3 +16,6 @@ const runtime = Object.freeze({
   icons,
 });
 Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });
+
+// Component scopes can be present in the initial page or inserted by the page later.
+if (typeof document !== 'undefined') installScopePortals(document);

@@ -109,7 +109,8 @@
     overlay var(--tmt-ui-motion-fast) allow-discrete,
     display var(--tmt-ui-motion-fast) allow-discrete;
 }
-.tmt-ui-icon-action-tooltip:popover-open {
+.tmt-ui-icon-action-tooltip:popover-open,
+.tmt-ui-icon-action-tooltip[data-tmt-ds-open] {
   opacity: 1;
 }
 @starting-style {

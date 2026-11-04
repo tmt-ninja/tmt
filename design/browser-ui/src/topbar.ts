@@ -3,7 +3,9 @@ import { bindIconActionTooltip } from './icon-action-tooltip.js';
 import { mountBrowserMenu } from './menu-host.js';
 import { browserUiClasses as c, countText } from './static.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { setStoredTheme, THEMES, type ThemeChoice } from './theme.js';
+import { applyTheme, setStoredTheme, THEMES, type ThemeChoice } from './theme.js';
+import { enterScopedModal, trapScopedTab } from './scoped-modal.js';
+import type { ShellLayerHost } from './shell.js';
 
 export type ShellRemoteStatus =
   | { kind: 'confirmed'; liveSessions: number; href: string }
@@ -28,6 +30,7 @@ export function createShellTopBar(
   bar: Element,
   navigation: HTMLButtonElement,
   railSearch?: HTMLElement,
+  layerHost?: ShellLayerHost,
 ) {
   const document = root.ownerDocument;
   const view = document.defaultView!;
@@ -130,8 +133,10 @@ export function createShellTopBar(
     right.append(statusSlot, common, actions);
     header.append(left, right);
 
+    const scope = layerHost?.root;
+    const themeRoot = scope ?? document.documentElement;
     const choice = (): ThemeChoice => {
-      const explicit = document.documentElement.getAttribute('data-theme');
+      const explicit = themeRoot.getAttribute('data-theme');
       return explicit === 'light' || explicit === 'dark' ? explicit : 'system';
     };
     const themeOptions = () => ({
@@ -142,11 +147,12 @@ export function createShellTopBar(
         label: key === 'system' ? 'System' : key === 'light' ? 'Light' : 'Dark',
         checked: choice() === key,
       })),
-      onSelect: (key: ThemeChoice) => setStoredTheme(key, document.documentElement),
+      onSelect: (key: ThemeChoice) =>
+        scope ? applyTheme(key, scope) : setStoredTheme(key, document.documentElement),
     });
     const themeMenu = mountBrowserMenu(theme, themeOptions());
     const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
-    observeTheme.observe(document.documentElement, {
+    observeTheme.observe(themeRoot, {
       attributes: true,
       attributeFilter: ['data-theme'],
     });
@@ -174,9 +180,15 @@ export function createShellTopBar(
     footer.append(close);
     dialog.append(dialogHeader, body, footer);
     let origin: Element | null = null;
+    let releaseScope: (() => void) | undefined;
+    let scrim: HTMLElement | undefined;
     const dismiss = () => {
       if (!dialog.open) return;
       dialog.close();
+      releaseScope?.();
+      releaseScope = undefined;
+      scrim?.remove();
+      scrim = undefined;
       dialog.remove();
       restoreOverlayFocus(origin, () => remote);
     };
@@ -185,8 +197,29 @@ export function createShellTopBar(
       themeMenu.close();
       remoteHelp.binding.dismiss();
       origin = document.activeElement;
-      header.append(dialog);
-      dialog.showModal();
+      if (scope) {
+        scrim = document.createElement('div');
+        scrim.className = 'tmt-ui-scope-scrim';
+        scrim.setAttribute('data-tmt-ds-scrim', '');
+        scrim.addEventListener('click', (event) => {
+          if (event.isTrusted) dismiss();
+        });
+        layerHost!.portal.append(scrim, dialog);
+        releaseScope = enterScopedModal(scope, dialog);
+        try {
+          dialog.show();
+        } catch (error) {
+          releaseScope();
+          releaseScope = undefined;
+          scrim.remove();
+          scrim = undefined;
+          dialog.remove();
+          throw error;
+        }
+      } else {
+        header.append(dialog);
+        dialog.showModal();
+      }
       close.focus();
     };
     close.onclick = (event) => {
@@ -198,6 +231,7 @@ export function createShellTopBar(
       if (event.isTrusted) dismiss();
     };
     dialog.onkeydown = (event) => {
+      if (scope) trapScopedTab(event, dialog);
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
       event.stopPropagation();
@@ -227,6 +261,7 @@ export function createShellTopBar(
     const shortcut = (event: KeyboardEvent) => {
       if (
         !event.isTrusted ||
+        (scope && (!(event.target instanceof Node) || !scope.contains(event.target))) ||
         event.defaultPrevented ||
         event.repeat ||
         event.isComposing ||
@@ -281,6 +316,11 @@ export function createShellTopBar(
         searchHelp.binding.dispose();
         remoteHelp.binding.dispose();
         if (dialog.open) dialog.close();
+        releaseScope?.();
+        releaseScope = undefined;
+        scrim?.remove();
+        scrim = undefined;
+        dialog.remove();
         railSearch?.replaceChildren();
         root.prepend(navigation);
         delete root.dataset.topbar;

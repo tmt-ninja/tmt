@@ -896,3 +896,9 @@ code {
   width: 30%;
   height: 10px;
 }
+
+/* A preview needs the whole available canvas width for its own size container. */
+.docs-canvas:has([data-preview-frame]) {
+  display: block;
+  min-width: 0;
+}

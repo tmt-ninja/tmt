@@ -94,6 +94,20 @@ describe('validateComponent', () => {
 describe('checkElements', () => {
   const pin = { system: 'tmt-gui', version: '0.1.0', hash: 'sha256-x' };
   let bundle: Bundle;
+  it('warns only for known design-system components outside their scope', async () => {
+    const system = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
+    expect(
+      checkElements(
+        [
+          { tag: 'tmt-ui-button', attrs: {}, insideScope: false },
+          { tag: 'tmt-ui-button', attrs: {}, insideScope: true },
+          { tag: 'tmt-icon', attrs: {}, insideScope: false },
+        ],
+        pin,
+        system,
+      ),
+    ).toEqual([{ code: 'ds-outside-scope', tag: 'tmt-ui-button', index: 0 }]);
+  });
   it('reports each of the five page check codes', async () => {
     bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     const el = (tag: string, attrs: Record<string, string> = {}) => ({ tag, attrs });

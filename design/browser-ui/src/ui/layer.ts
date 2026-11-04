@@ -9,6 +9,8 @@ import {
   type Ref,
 } from 'react';
 import { assignRefs } from './utils.js';
+import { enterScopedModal, trapScopedTab } from '../scoped-modal.js';
+import { useDsScope } from './theme.js';
 
 export type LayerCloseReason =
   | 'escape'
@@ -35,10 +37,14 @@ export interface LayerController {
 
 /** The open hosted layers, bottom to top. Radix keeps a layer on its stack until its exit has played,
  * so a leaving layer hands its Escape to the top open one here instead of swallowing it. */
-const openLayers = new Set<Pick<LayerController, 'requestClose'>>();
+const openLayers = new Map<HTMLElement | null, Set<Pick<LayerController, 'requestClose'>>>();
+const layerOwner = new WeakMap<LayerController['requestClose'], HTMLElement | null>();
 
 /** Host state remains authoritative. Raw open=false/unmount bypasses this admission. */
 export function useLayerController(options: LayerControllerOptions): LayerController {
+  const scope = useDsScope();
+  const owner = scope?.root ?? null;
+  const waitingForScope = !!scope && !scope.root;
   const current = useRef(options);
   const closing = useRef(false);
   if (current.current.open !== options.open) closing.current = false;
@@ -61,12 +67,18 @@ export function useLayerController(options: LayerControllerOptions): LayerContro
   const requestOpen = useCallback(() => {
     if (!current.current.open) current.current.onOpenChange(true);
   }, []);
+  layerOwner.set(requestClose, owner);
   useLayoutEffect(() => {
-    if (!options.open) return;
+    if (!options.open || waitingForScope) return;
     const entry = { requestClose };
-    openLayers.add(entry);
-    return () => void openLayers.delete(entry);
-  }, [options.open, requestClose]);
+    let layers = openLayers.get(owner);
+    if (!layers) openLayers.set(owner, (layers = new Set()));
+    layers.add(entry);
+    return () => {
+      layers.delete(entry);
+      if (!layers.size) openLayers.delete(owner);
+    };
+  }, [options.open, requestClose, owner, waitingForScope]);
   return { open: options.open, requestOpen, requestClose };
 }
 
@@ -196,7 +208,10 @@ export function admitLayerDismiss(
   event.preventDefault();
   if (!controller.open) {
     // A leaving layer takes no dismissal: its Escape goes to the open layer under it at once.
-    if (reason === 'escape') [...openLayers].at(-1)?.requestClose('escape', event);
+    if (reason === 'escape') {
+      const layers = openLayers.get(layerOwner.get(controller.requestClose) ?? null);
+      if (layers) [...layers].at(-1)?.requestClose('escape', event);
+    }
     return;
   }
   const detail: unknown = 'detail' in event ? event.detail : undefined;
@@ -221,15 +236,16 @@ export function observeLayerViewport(
   const view = node.ownerDocument.defaultView;
   if (!view) return () => {};
   const viewport = view.visualViewport;
+  const scope = node.closest?.<HTMLElement>('[data-tmt-ds-scope]');
   const measure = () => {
     const spacing = Number.parseFloat(
       view.getComputedStyle(node).getPropertyValue('--tmt-foundation-spacing-unit'),
     );
     const gutter = Number.isFinite(spacing) ? spacing * 2 : 0;
-    const left = viewport?.offsetLeft ?? 0;
-    const top = viewport?.offsetTop ?? 0;
-    const width = viewport?.width ?? view.innerWidth;
-    const height = viewport?.height ?? view.innerHeight;
+    const left = scope ? 0 : (viewport?.offsetLeft ?? 0);
+    const top = scope ? 0 : (viewport?.offsetTop ?? 0);
+    const width = scope?.clientWidth ?? viewport?.width ?? view.innerWidth;
+    const height = scope?.clientHeight ?? viewport?.height ?? view.innerHeight;
     update({
       '--tmt-layer-left': `${left}px`,
       '--tmt-layer-top': `${top}px`,
@@ -240,12 +256,15 @@ export function observeLayerViewport(
       '--tmt-layer-gutter': `${gutter}px`,
     } as CSSProperties);
   };
+  const observer = scope && view.ResizeObserver ? new view.ResizeObserver(measure) : undefined;
+  if (scope) observer?.observe(scope);
   measure();
   view.addEventListener('resize', measure);
   view.addEventListener('scroll', measure, { capture: true });
   viewport?.addEventListener('resize', measure);
   viewport?.addEventListener('scroll', measure);
   return () => {
+    observer?.disconnect();
     view.removeEventListener('resize', measure);
     view.removeEventListener('scroll', measure, { capture: true });
     viewport?.removeEventListener('resize', measure);
@@ -268,4 +287,29 @@ export function useLayerSurface(
   );
   useLayoutEffect(() => (node ? observeLayerViewport(node, setViewportStyle) : undefined), [node]);
   return { ref, viewportStyle };
+}
+
+/** Bind a non-modal Radix surface to its nearest scope's local modal owner. */
+export function useScopedLayer(forwardedRef: Ref<HTMLDivElement>) {
+  const scope = useDsScope();
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const ref = useCallback(
+    (element: HTMLDivElement | null) => {
+      assignRefs(element, setNode, forwardedRef);
+    },
+    [forwardedRef],
+  );
+  useLayoutEffect(() => {
+    if (scope?.root && node) return enterScopedModal(scope.root, node);
+  }, [scope?.root, node]);
+  return {
+    ref,
+    scope,
+    onKeyDown(event: KeyboardEvent) {
+      if (scope && node) trapScopedTab(event, node);
+    },
+    outsideScope(target: EventTarget | null) {
+      return !!scope?.root && target instanceof Node && !scope.root.contains(target);
+    },
+  };
 }

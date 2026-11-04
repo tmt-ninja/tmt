@@ -26,12 +26,12 @@ const previewFaults = (page: Page) =>
     const slack = 0.5;
     const frames = [...document.querySelectorAll<HTMLElement>('[data-preview-frame]')];
     const faults: string[] = [];
-    const name = (frame: HTMLElement) => frame.querySelector('iframe')?.title ?? '(untitled)';
+    const name = (frame: HTMLElement) => frame.dataset.previewTitle ?? '(untitled)';
     const boxes = frames.map((frame) => frame.getBoundingClientRect());
     frames.forEach((frame, index) => {
       const box = boxes[index]!;
       const cell = frame.parentElement!.getBoundingClientRect();
-      const view = frame.querySelector('iframe')!.getBoundingClientRect();
+      const view = frame.querySelector('[data-tmt-ds-scope]')!.getBoundingClientRect();
       if (box.left < cell.left - slack || box.right > cell.right + slack)
         faults.push(
           `${name(frame)}: box ${box.left}-${box.right} leaves cell ${cell.left}-${cell.right}`,
@@ -97,7 +97,7 @@ test('the preview check catches a frame that keeps its full width', async ({ pag
 test('the 390 tabs-row preview shows the phone row', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${docs}/ds/gui/patterns/tabs-row`);
-  const phone = page.frameLocator('iframe[title="Tabs row with actions Default 390 dark"]');
+  const phone = page.locator('[data-preview-title="Tabs row with actions Default 390 dark"]');
   const actions = phone.locator('[data-slot="button"]');
   await expect(actions).toHaveCount(2);
   const [first, second] = [await actions.nth(0).boundingBox(), await actions.nth(1).boundingBox()];
@@ -105,4 +105,108 @@ test('the 390 tabs-row preview shows the phone row', async ({ page }) => {
   expect(second!.width).toBeCloseTo(first!.width, 0);
   await expect(phone.getByRole('tab', { name: /All/ })).toBeVisible();
   await expect(phone.getByRole('button', { name: 'New page' })).toBeVisible();
+});
+
+for (const viewport of [390, 1440]) {
+  test(`page-list previews use their scope width at viewport ${viewport}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    await page.goto(`${docs}/ds/gui/components/page-list`);
+    await expect(page.locator('iframe')).toHaveCount(0);
+    for (const [stage, expectedColumns] of [
+      [390, 1],
+      [1440, 3],
+    ] as const) {
+      const preview = page.locator(`[data-preview-title="Page list ${stage} light"]`);
+      const pins = preview.locator('.tmt-page-list-pins');
+      await expect(pins).toBeVisible();
+      expect(
+        await pins.evaluate((node) => getComputedStyle(node).gridTemplateColumns.split(' ').length),
+      ).toBe(expectedColumns);
+    }
+  });
+}
+
+test('an interactive pattern opens inside its scope without locking the docs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${docs}/ds/gui/patterns/add-dialog`);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  const stage = page.locator('[data-preview-frame]').first();
+  const outside = page.locator('nav.docs-nav a').first();
+  await expect(stage.getByRole('dialog')).toHaveCount(0);
+  await stage.getByRole('button', { name: 'Add a sub-page' }).click();
+  const dialog = stage.getByRole('dialog', { name: /Add a sub-page/ });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate((node) => node.matches(':modal'))).toBe(false);
+  expect(
+    await page.locator('body').evaluate((node) => ({
+      inert: node.hasAttribute('inert'),
+      hidden: node.hasAttribute('aria-hidden'),
+      overflow: node.style.overflow,
+    })),
+  ).toEqual({ inert: false, hidden: false, overflow: '' });
+  await expect(outside).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test('captures the affected docs pages at both widths and themes', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const routes = [
+    'components/data-table',
+    'components/rich-input',
+    'browser/dialog-drawer-panel',
+    'browser/header',
+    'browser/notifications',
+  ];
+  await page.goto(`${docs}/ds/gui`);
+  for (const width of [390, 1440])
+    for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((value) => localStorage.setItem('tmt-ui-theme', value), theme);
+      for (const route of routes) {
+        await page.goto(`${docs}/ds/gui/${route}`);
+        await page.locator('main').first().waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        await expect(page.locator('iframe')).toHaveCount(0);
+        await page.screenshot({
+          path: testInfo.outputPath(`${route.replace('/', '-')}-${width}-${theme}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  expect(errors).toEqual([]);
+});
+
+test('a phone shell preview uses its own width and opens its drawer locally', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${docs}/ds/gui/browser/shell`);
+  const pair = page
+    .locator('.gallery-pair')
+    .filter({ has: page.getByRole('heading', { name: 'Phone (390 px, ≤900 px layout)' }) });
+  const stage = pair.locator('[data-preview-frame]').first();
+  const opener = stage.getByRole('button', { name: 'Open navigation' });
+  await expect(opener).toBeVisible();
+  expect(
+    await stage.locator('.tmt-ui-header').first().evaluate((node) => getComputedStyle(node).height),
+  ).toBe('56px');
+  await expect(opener).toHaveAttribute('aria-expanded', 'false');
+  await opener.click();
+  await expect(opener).toHaveAttribute('aria-expanded', 'true');
+  await expect(stage.getByRole('navigation', { name: 'TMT' })).toBeVisible();
+});
+
+test('a wide shell preview stays wide inside a phone viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(`${docs}/ds/gui/browser/shell`);
+  const pair = page.locator('.gallery-pair').filter({
+    has: page.getByRole('heading', { name: 'BrowserShell · rail expanded with module menu' }),
+  });
+  const stage = pair.locator('[data-preview-frame]').first();
+  await expect(stage.getByRole('navigation', { name: 'TMT' })).toBeVisible();
+  expect(
+    await stage.locator('.tmt-ui-header').first().evaluate((node) => getComputedStyle(node).height),
+  ).toBe('62px');
+  await expect(stage.locator('.tmt-ui-shell-open')).toBeHidden();
 });

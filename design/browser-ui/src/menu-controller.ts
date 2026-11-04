@@ -127,12 +127,23 @@ export function createMenuController<Key extends string, Event extends MenuActiv
       return;
     }
     if (detach) return detach;
-    const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+    const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
+    const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
+    const outside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !node.contains(event.target) &&
+        !anchor.contains(event.target)
+      )
+        close(false);
+    };
+    scope?.addEventListener('pointerdown', outside, true);
     let position: (() => void) | undefined;
     const cleanup = () => {
       if (detach !== cleanup) return;
       detach = undefined;
       position?.();
+      scope?.removeEventListener('pointerdown', outside, true);
       release();
       if (node.open) node.close();
       // React effect replay keeps the node connected; only actual removal owes a close.
@@ -143,7 +154,8 @@ export function createMenuController<Key extends string, Event extends MenuActiv
     };
     detach = cleanup;
     try {
-      node.showModal();
+      if (scope) node.show();
+      else node.showModal();
       position = placeBrowserPopup(anchor, node, () => close(false));
       if (!snapshot.open) return cleanup;
       report(true);

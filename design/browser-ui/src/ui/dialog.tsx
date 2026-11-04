@@ -4,13 +4,14 @@ import { Dialog as Primitive } from 'radix-ui';
 import { XIcon } from 'lucide-react';
 import { Button } from './button.js';
 import { cn } from './utils.js';
-import { useUiPortalContainer } from './theme.js';
+import { useDsScope, useUiPortalContainer } from './theme.js';
 import {
   LayerAdmission,
   admitLayerDismiss,
   useLayerAdmission,
   useLayerFocus,
   useLayerSurface,
+  useScopedLayer,
   type LayerController,
   type LayerFocusOptions,
 } from './layer.js';
@@ -20,10 +21,12 @@ export function Dialog({
   controller,
   ...props
 }: ComponentProps<typeof Primitive.Root> & { controller?: LayerController }) {
+  const scope = useDsScope();
   return (
     <LayerAdmission.Provider value={controller}>
       <Primitive.Root
         {...props}
+        {...(scope ? { modal: false } : {})}
         {...(controller
           ? {
               open: controller.open,
@@ -51,8 +54,11 @@ export function DialogOverlay({
   ...props
 }: ComponentProps<typeof Primitive.Overlay>) {
   const controller = useLayerAdmission();
+  const scope = useDsScope();
+  const Overlay = scope ? 'div' : Primitive.Overlay;
   return (
-    <Primitive.Overlay
+    <Overlay
+      data-tmt-ds-scrim={scope ? '' : undefined}
       data-slot="dialog-overlay"
       className={cn(
         'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:inset-0 tmt:z-(--tmt-foundation-z-layer) tmt:bg-(--tmt-foundation-scrim)',
@@ -80,6 +86,7 @@ export function DialogContent({
   onCloseAutoFocus,
   onEscapeKeyDown,
   onInteractOutside,
+  onKeyDown,
   ref,
   style,
   ...props
@@ -87,13 +94,14 @@ export function DialogContent({
   const controller = useLayerAdmission();
   const focus = useLayerFocus({ initialFocus, returnFocus, focusFallback }, true);
   const surface = useLayerSurface(ref);
+  const scoped = useScopedLayer(surface.ref);
   return (
     <DialogPortal>
       <DialogOverlay />
       <Primitive.Content
         data-slot="dialog-content"
         {...props}
-        ref={surface.ref}
+        ref={scoped.ref}
         className={cn(
           'tmt:box-border tmt:font-body tmt:text-(length:--tmt-foundation-command-size) tmt:fixed tmt:left-[calc(var(--tmt-layer-left,0px)+var(--tmt-layer-width,100vw)/2)] tmt:top-[calc(var(--tmt-layer-top,0px)+var(--tmt-layer-height,100dvh)/2)] tmt:-translate-x-1/2 tmt:-translate-y-1/2 tmt:z-(--tmt-foundation-z-layer) tmt:grid tmt:gap-4 tmt:w-full tmt:max-w-[min(var(--tmt-layer-available-width,100vw),calc(var(--tmt-foundation-spacing-unit)*128))] tmt:max-h-(--tmt-layer-available-height) tmt:overflow-y-auto tmt:overscroll-contain tmt:border-solid tmt:border-layer-boundary tmt:border-(length:--tmt-foundation-rule-width) tmt:bg-background tmt:text-foreground tmt:p-6 tmt:outline-none',
           'tmt:rounded-surface tmt:shadow-elevation-3',
@@ -111,11 +119,19 @@ export function DialogContent({
           onCloseAutoFocus?.(event);
           focus.onCloseAutoFocus(event);
         }}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          scoped.onKeyDown(event.nativeEvent);
+        }}
         onEscapeKeyDown={(event) => {
           onEscapeKeyDown?.(event);
           admitLayerDismiss(event, controller, 'escape');
         }}
         onInteractOutside={(event) => {
+          if (scoped.outsideScope(event.detail.originalEvent.target)) {
+            event.preventDefault();
+            return;
+          }
           onInteractOutside?.(event);
           admitLayerDismiss(
             event,

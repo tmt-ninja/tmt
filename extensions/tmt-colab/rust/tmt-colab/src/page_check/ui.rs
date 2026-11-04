@@ -42,6 +42,15 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             code,
             questions_skipped: None,
         };
+        // Published non-TMT prefixes are checked after their pinned bundle is resolved in the
+        // page runtime; this offline checker can identify the built-in prefix without a bundle.
+        if tree.name(id).starts_with("tmt-ui-")
+            && !tree
+                .ancestors(id)
+                .any(|ancestor| tree.attr(ancestor, "data-tmt-ds-scope").is_some())
+        {
+            report.findings.push(finding("ds-outside-scope"));
+        }
         // One finding per element, however many of its tokens are unknown.
         if tree.attr(id, "class").is_some_and(|value| {
             value

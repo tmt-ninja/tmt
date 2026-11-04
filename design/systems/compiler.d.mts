@@ -53,7 +53,7 @@ export interface Bundle {
   hash: string;
 }
 export interface Finding {
-  code: 'ds-not-pinned' | 'unknown-ds-release' | 'ds-prefix-mismatch' | 'unknown-ds-component' | 'invalid-ds-prop';
+  code: 'ds-not-pinned' | 'unknown-ds-release' | 'ds-prefix-mismatch' | 'unknown-ds-component' | 'invalid-ds-prop' | 'ds-outside-scope';
   tag: string;
   attribute?: string;
   index: number;
@@ -70,7 +70,7 @@ export function buildBundle(
   sha256Hex: (text: string) => Promise<string>,
 ): Promise<Bundle>;
 export function checkElements(
-  elements: { tag: string; attrs: Record<string, string> }[],
+  elements: { tag: string; attrs: Record<string, string>; insideScope?: boolean }[],
   pin: { system: string; version: string; hash: string } | null,
   bundle: Bundle | null,
 ): Finding[];

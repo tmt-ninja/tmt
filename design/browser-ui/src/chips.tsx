@@ -148,13 +148,34 @@ export function BrowserChips({
     const node = dialog.current;
     const anchor = trigger.current;
     if (!open || !node || !anchor) return;
-    const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
-    node.showModal();
-    report(true);
-    const disposePosition = placeBrowserPopup(anchor, node, () => close(false));
-    input.current?.focus();
+    const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
+    const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
+    const outside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !node.contains(event.target) &&
+        !anchor.contains(event.target)
+      )
+        close(false);
+    };
+    scope?.addEventListener('pointerdown', outside, true);
+    let disposePosition: () => void;
+    try {
+      if (scope) node.show();
+      else node.showModal();
+      report(true);
+      disposePosition = placeBrowserPopup(anchor, node, () => close(false));
+      input.current?.focus();
+    } catch (error) {
+      scope?.removeEventListener('pointerdown', outside, true);
+      release();
+      if (node.open) node.close();
+      report(false);
+      throw error;
+    }
     return () => {
       disposePosition();
+      scope?.removeEventListener('pointerdown', outside, true);
       release();
       node.close();
       queueMicrotask(() => {

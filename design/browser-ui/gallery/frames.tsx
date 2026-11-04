@@ -1,5 +1,5 @@
 import { BrowserManageList } from '../src/manage-list/index.js';
-import { UiTheme } from '../src/ui/index.js';
+import { UiTheme, useDsScope } from '../src/ui/index.js';
 import { CompactControlsFrame } from './compact-controls-frame.js';
 import { UiContrastFrame } from './ui-contrast-frame.js';
 import { FloatingFrame } from './floating-frame.js';
@@ -52,7 +52,7 @@ import { createIcon } from '../src/glyph.js';
  * shell's viewport layout and the top-layer overlays, which cannot share one page side by side.
  */
 
-const origin = location.origin;
+const origin = typeof location === 'undefined' ? 'http://localhost' : location.origin;
 const answer: ShellAnswer = {
   version: 1,
   modules: [
@@ -148,6 +148,7 @@ function ShellHeader() {
 }
 
 function ShellFrame({ params }: { params: URLSearchParams }) {
+  const scope = useDsScope();
   const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
   const [mounted, setMounted] = useState(true);
   const scrollFixture = params.has('projects');
@@ -184,10 +185,9 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
     return { rail: shellRail(shown, place, colab), menu };
   }, [params, projects, scrollFixture]);
   useEffect(() => {
-    const shell = document.querySelector<HTMLElement>('.tmt-ui-shell')!;
-    if (params.get('drawer') === 'open')
-      shell.querySelector<HTMLButtonElement>('.tmt-ui-shell-open')!.click();
-  }, [params]);
+    if (scope || params.get('drawer') !== 'open') return;
+    document.querySelector<HTMLButtonElement>('.tmt-ui-shell .tmt-ui-shell-open')?.click();
+  }, [params, scope]);
   if (!mounted) return <p>Shell disposed</p>;
   return (
     <BrowserShell view={view} select={() => true}>
@@ -231,20 +231,31 @@ function ShellFrame({ params }: { params: URLSearchParams }) {
  * through `HostedShell`, which sends the module menu to the host. */
 function HostedFrame() {
   const root = useRef<HTMLDivElement>(null);
+  const scope = useDsScope();
+  const scopeRoot = scope?.root;
+  const scopePortal = scope?.portal;
+  const scoped = scope !== undefined;
   const [slot, setSlot] = useState<ShellSlot>();
   useLayoutEffect(() => {
     // The frame is a page of this gallery (`/design/?frame=hosted`), so its one route is that page:
     // a route the host does not know would reload the frame and then rewrite its address.
-    const host = startShellHost(root.current!, [
-      {
-        id: 'colab',
-        paths: [window.location.pathname],
-        rail: 'colab',
-        load: async () => ({ mount: setSlot }),
-      },
-    ]);
+    if (scoped && (!scopeRoot || !scopePortal)) return;
+    const layerHost =
+      scopeRoot && scopePortal ? { root: scopeRoot, portal: scopePortal } : undefined;
+    const host = startShellHost(
+      root.current!,
+      [
+        {
+          id: 'colab',
+          paths: [window.location.pathname],
+          rail: 'colab',
+          load: async () => ({ mount: setSlot }),
+        },
+      ],
+      { layerHost },
+    );
     return () => host.dispose();
-  }, []);
+  }, [scopeRoot, scopePortal, scoped]);
   const menu = useMemo(() => describedMenu(answer.modules[0]!, { origin, href: `${origin}/` }), []);
   return (
     <div ref={root} className="tmt-ui-shell">
@@ -423,10 +434,12 @@ function SourceFrame({ params }: { params: URLSearchParams }) {
   );
 }
 
-function MenuFrame() {
+function MenuFrame({ scoped }: { scoped: boolean }) {
   // A menu ignores the value it mounts with; the next value opens it once.
   const [request, setRequest] = useState(0);
-  useLayoutEffect(() => setRequest(1), []);
+  useLayoutEffect(() => {
+    if (!scoped) setRequest(1);
+  }, [scoped]);
   return (
     <div className="gallery-frame-menu">
       <BrowserMenu
@@ -440,7 +453,8 @@ function MenuFrame() {
   );
 }
 
-function NotificationsFrame() {
+function NotificationsFrame({ scoped }: { scoped: boolean }) {
+  const [active, setActive] = useState(!scoped);
   const events = useMemo<BrowserNotification[]>(
     () => [
       {
@@ -460,12 +474,19 @@ function NotificationsFrame() {
     [],
   );
   return (
-    <BrowserNotifications
-      pageKey="gallery"
-      events={events}
-      suspended={false}
-      isEligible={() => true}
-    />
+    <>
+      {scoped && (
+        <button type="button" onClick={() => setActive(true)}>
+          Show notifications
+        </button>
+      )}
+      <BrowserNotifications
+        pageKey="gallery"
+        events={active ? events : []}
+        suspended={false}
+        isEligible={() => true}
+      />
+    </>
   );
 }
 
@@ -502,19 +523,30 @@ function PanelReply({ send }: { send(): Promise<void> }) {
 }
 
 function PanelFrame({ params }: { params: URLSearchParams }) {
+  const scope = useDsScope();
+  const stage = scope?.root;
   const [open, setOpen] = useState(params.get('open') !== 'false');
   const hostClose = params.get('host-close');
   const keepMounted = params.get('keep-mounted') === 'true';
   const failReply = useRef<(() => void) | null>(null);
-  const [width, setWidth] = useState(window.innerWidth);
+  const [width, setWidth] = useState(
+    stage?.clientWidth ?? (typeof window === 'undefined' ? 1440 : window.innerWidth),
+  );
   const [refusals, setRefusals] = useState(0);
   const [pageActions, setPageActions] = useState(0);
   const [showOpener, setShowOpener] = useState(true);
   useEffect(() => {
+    if (stage) {
+      const resize = () => setWidth(stage.clientWidth);
+      const observer = new ResizeObserver(resize);
+      observer.observe(stage);
+      resize();
+      return () => observer.disconnect();
+    }
     const resize = () => setWidth(window.innerWidth);
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
-  }, []);
+  }, [stage]);
   const mode = width >= 1180 ? 'column' : width > 760 ? 'card' : 'sheet';
   return (
     <div className="gallery-panel-demo" data-mode={mode} data-open={open || undefined}>
@@ -563,7 +595,7 @@ function PanelFrame({ params }: { params: URLSearchParams }) {
             }
             mode={mode}
             focusFallback={() =>
-              Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+              Array.from((stage ?? document).querySelectorAll<HTMLButtonElement>('button')).find(
                 (node) => node.textContent === 'Page action',
               ) ?? null
             }
@@ -673,9 +705,9 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
     case 'topbar':
       return <TopBarFrame params={params} />;
     case 'menu':
-      return <MenuFrame />;
+      return <MenuFrame scoped={params.get('scope') === 'true'} />;
     case 'notifications':
-      return <NotificationsFrame />;
+      return <NotificationsFrame scoped={params.get('scope') === 'true'} />;
     case 'theme-b':
       return <ThemeBFrame params={params} />;
     case 'tabs-bar':
@@ -756,7 +788,7 @@ export function ShellSection() {
       />
       <FramePair title="Phone (390 px, ≤900 px layout)" frame="shell" width={390} height={560} />
       <FramePair
-        title="Phone with the navigation drawer open"
+        title="Phone navigation drawer"
         frame="shell"
         width={390}
         height={560}

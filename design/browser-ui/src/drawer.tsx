@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+import { useDsScope } from './ui/theme.js';
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
 import { DrawerHeader } from './drawer-header.js';
 import { useModalDialog } from './modal-dialog.js';
@@ -46,29 +48,49 @@ export function BrowserDrawer({
   ...attributes
 }: BrowserDrawerProps) {
   const label = useId();
-  const modal = useModalDialog({ open, onDismiss, focusFallback });
+  const scope = useDsScope();
+  const { scoped, ...modal } = useModalDialog({
+    open,
+    onDismiss,
+    focusFallback,
+    portal: scope?.portal,
+  });
   if (!open && !keepMounted) return null;
-  return (
-    <dialog
-      {...attributes}
-      {...modal}
-      className={`tmt-ui-drawer ${className}`}
-      data-panel={panel}
-      data-width={width}
-      data-state={open ? 'open' : 'closed'}
-      aria-labelledby={label}
-    >
-      <DrawerHeader
-        title={title}
-        caption={caption}
-        headerActions={headerActions}
-        label={label}
-        onClose={(event) => onDismiss('close', event)}
-      />
-      {notice && <div className="tmt-ui-drawer-notice">{notice}</div>}
-      <div className="tmt-ui-drawer-body">{children}</div>
-      {actions !== undefined && <footer className="tmt-ui-drawer-actions">{actions}</footer>}
-      {overlay}
-    </dialog>
+  if (scope && !scope.portal) return null;
+  const content = (
+    <>
+      {open && scoped && (
+        <div
+          className="tmt-ui-scope-scrim"
+          data-tmt-ds-scrim=""
+          onClick={(event) => {
+            event.stopPropagation();
+            if (event.isTrusted) onDismiss('backdrop', event);
+          }}
+        />
+      )}
+      <dialog
+        {...attributes}
+        {...modal}
+        className={`tmt-ui-drawer ${className}`}
+        data-panel={panel}
+        data-width={width}
+        data-state={open ? 'open' : 'closed'}
+        aria-labelledby={label}
+      >
+        <DrawerHeader
+          title={title}
+          caption={caption}
+          headerActions={headerActions}
+          label={label}
+          onClose={(event) => onDismiss('close', event)}
+        />
+        {notice && <div className="tmt-ui-drawer-notice">{notice}</div>}
+        <div className="tmt-ui-drawer-body">{children}</div>
+        {actions !== undefined && <footer className="tmt-ui-drawer-actions">{actions}</footer>}
+        {overlay}
+      </dialog>
+    </>
   );
+  return scope?.portal ? createPortal(content, scope.portal) : content;
 }

@@ -38,6 +38,7 @@ function fixture(document?: object, start = true, replaceSelection = false) {
     },
   };
   const anchor = {
+    closest: () => null,
     ownerDocument,
     isConnected: true,
     getClientRects: () => [1],

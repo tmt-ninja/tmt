@@ -49,6 +49,13 @@ whole page is one block: its inside is yours, its width is the column.
 
 Questions and review controls that Colab draws sit on the same column.
 
+## Design-system blocks
+
+Wrap published design-system components in a `data-tmt-ds-scope` element with an explicit height
+and width. The scope is a containing block and size container; choose a height appropriate to the
+content and let the block scroll when necessary. The usual page layout still owns the top-level
+block's width and gutters. See [components](components.md) for an example.
+
 ## Two declarations
 
 Both go on a top-level block. They are the only way to change the frame.

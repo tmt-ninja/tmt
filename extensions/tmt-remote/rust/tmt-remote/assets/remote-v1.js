@@ -3069,11 +3069,11 @@ function outsideOverlay(node, x, y) {
 //#region ../../../../design/browser-ui/src/icon-action-tooltip.ts
 var activeTooltips = /* @__PURE__ */ new WeakMap();
 /** Help has one ephemeral owner per document, independent of menu/dialog state. */
-function claimIconActionTooltip(document, dismiss) {
-	activeTooltips.get(document)?.();
-	activeTooltips.set(document, dismiss);
+function claimIconActionTooltip(owner, dismiss) {
+	activeTooltips.get(owner)?.();
+	activeTooltips.set(owner, dismiss);
 	return () => {
-		if (activeTooltips.get(document) === dismiss) activeTooltips.delete(document);
+		if (activeTooltips.get(owner) === dismiss) activeTooltips.delete(owner);
 	};
 }
 function iconActionTooltipPosition(anchor, tooltipWidth, tooltipHeight, viewport, gutter, side) {
@@ -3099,14 +3099,17 @@ function placeIconActionTooltip(anchor, tooltip, side) {
 	const view = anchor.ownerDocument.defaultView;
 	if (!view) return () => {};
 	const viewport = view.visualViewport;
+	const scope = anchor.closest("[data-tmt-ds-scope]");
 	const place = () => {
 		const box = anchor.getBoundingClientRect();
 		if (!anchor.isConnected || !box.width || !box.height) {
 			if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+			if (scope) tooltip.hidden = true;
 			return;
 		}
 		const gutter = Number.parseFloat(view.getComputedStyle(tooltip).paddingTop) || 0;
-		const bounds = {
+		const scopeBox = scope?.getBoundingClientRect();
+		const bounds = scopeBox ?? {
 			left: viewport?.offsetLeft ?? 0,
 			top: viewport?.offsetTop ?? 0,
 			width: viewport?.width ?? view.innerWidth,
@@ -3115,14 +3118,16 @@ function placeIconActionTooltip(anchor, tooltip, side) {
 		tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
 		const tooltipBox = tooltip.getBoundingClientRect();
 		const next = iconActionTooltipPosition(box, tooltipBox.width, Math.max(tooltipBox.height, tooltip.scrollHeight), bounds, gutter, side);
-		tooltip.style.left = `${next.left}px`;
-		tooltip.style.top = `${next.top}px`;
+		const containing = scope ? tooltip.offsetParent?.getBoundingClientRect() ?? scopeBox : void 0;
+		tooltip.style.left = `${next.left - (containing?.left ?? 0)}px`;
+		tooltip.style.top = `${next.top - (containing?.top ?? 0)}px`;
 		tooltip.style.maxHeight = `${next.maxHeight}px`;
 	};
 	place();
 	const observer = new ResizeObserver(place);
 	observer.observe(anchor);
 	observer.observe(tooltip);
+	if (scope) observer.observe(scope);
 	view.addEventListener("resize", place);
 	view.addEventListener("scroll", place, true);
 	viewport?.addEventListener("resize", place);
@@ -3152,6 +3157,12 @@ function guardEscapeFocus(document) {
 function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 	const document = button.ownerDocument;
 	const view = document.defaultView;
+	const scope = wrapper.closest("[data-tmt-ds-scope]");
+	if (scope) {
+		tooltip.removeAttribute("popover");
+		tooltip.hidden = true;
+	}
+	const isOpen = () => scope ? !tooltip.hidden : tooltip.matches(":popover-open");
 	let hovered = false;
 	let focused = false;
 	let dismissed = false;
@@ -3167,14 +3178,17 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 		release?.();
 		release = void 0;
 		document.removeEventListener("keydown", escape, true);
-		if (tooltip.matches(":popover-open")) tooltip.hidePopover();
+		if (scope) {
+			tooltip.hidden = true;
+			tooltip.removeAttribute("data-tmt-ds-open");
+		} else if (tooltip.matches(":popover-open")) tooltip.hidePopover();
 	};
 	const dismiss = () => {
 		dismissed = true;
 		close();
 	};
 	const escape = (event) => {
-		if (event.key !== "Escape" || !tooltip.matches(":popover-open")) return;
+		if (event.key !== "Escape" || !isOpen() || scope && !scope.contains(event.target)) return;
 		dismiss();
 		guardEscapeFocus(document);
 	};
@@ -3183,11 +3197,14 @@ function bindIconActionTooltip(wrapper, button, tooltip, placement) {
 			close();
 			return;
 		}
-		if (tooltip.matches(":popover-open")) return;
+		if (isOpen()) return;
 		const anchor = placement ? placement.anchor() : button;
 		if (!anchor?.isConnected) return;
-		release = claimIconActionTooltip(document, dismiss);
-		tooltip.showPopover();
+		release = claimIconActionTooltip(scope ?? document, dismiss);
+		if (scope) {
+			tooltip.hidden = false;
+			tooltip.setAttribute("data-tmt-ds-open", "");
+		} else tooltip.showPopover();
 		position = placeIconActionTooltip(anchor, tooltip, placement?.side);
 		document.addEventListener("keydown", escape, true);
 	};
@@ -3277,9 +3294,16 @@ function claimBrowserPopup(document, dismiss) {
 function placeBrowserPopup(anchor, surface, dismiss) {
 	const view = anchor.ownerDocument.defaultView;
 	const viewport = view.visualViewport;
+	const scope = anchor.closest?.("[data-tmt-ds-scope]");
 	const place = () => {
 		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
-		const bounds = {
+		const scopeBox = scope?.getBoundingClientRect();
+		const bounds = scope && scopeBox ? {
+			left: scopeBox.left + scope.clientLeft,
+			top: scopeBox.top + scope.clientTop,
+			width: scope.clientWidth,
+			height: scope.clientHeight
+		} : {
 			left: viewport?.offsetLeft ?? 0,
 			top: viewport?.offsetTop ?? 0,
 			width: viewport?.width ?? view.innerWidth,
@@ -3289,8 +3313,8 @@ function placeBrowserPopup(anchor, surface, dismiss) {
 		const box = surface.getBoundingClientRect();
 		const position = browserMenuPosition(anchor.getBoundingClientRect(), box.width, Math.max(box.height, surface.scrollHeight + surface.offsetHeight - surface.clientHeight), bounds);
 		Object.assign(surface.style, {
-			left: `${position.left}px`,
-			top: `${position.top}px`,
+			left: `${position.left - (scopeBox?.left ?? 0)}px`,
+			top: `${position.top - (scopeBox?.top ?? 0)}px`,
 			maxHeight: `${position.maxHeight}px`
 		});
 	};
@@ -3305,6 +3329,7 @@ function placeBrowserPopup(anchor, surface, dismiss) {
 	});
 	observer.observe(anchor);
 	observer.observe(surface);
+	if (scope) observer.observe(scope);
 	view.addEventListener("resize", place);
 	view.addEventListener("scroll", place, true);
 	viewport?.addEventListener("resize", place);
@@ -3415,12 +3440,18 @@ function createMenuController(options) {
 			return;
 		}
 		if (detach) return detach;
-		const release = claimBrowserPopup(anchor.ownerDocument, () => close(false));
+		const scope = anchor.closest("[data-tmt-ds-scope]");
+		const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
+		const outside = (event) => {
+			if (event.target instanceof Node && !node.contains(event.target) && !anchor.contains(event.target)) close(false);
+		};
+		scope?.addEventListener("pointerdown", outside, true);
 		let position;
 		const cleanup = () => {
 			if (detach !== cleanup) return;
 			detach = void 0;
 			position?.();
+			scope?.removeEventListener("pointerdown", outside, true);
 			release();
 			if (node.open) node.close();
 			queueMicrotask(() => {
@@ -3430,7 +3461,8 @@ function createMenuController(options) {
 		};
 		detach = cleanup;
 		try {
-			node.showModal();
+			if (scope) node.show();
+			else node.showModal();
 			position = placeBrowserPopup(anchor, node, () => close(false));
 			if (!snapshot.open) return cleanup;
 			report(true);
@@ -5351,9 +5383,84 @@ function setStoredTheme(choice, root, store = browserStore()) {
 	applyTheme(choice, root);
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/scoped-modal.ts
+var states = /* @__PURE__ */ new WeakMap();
+function apply(scope, state) {
+	for (const [node, inert] of state.originalInert) if (inert === null) node.removeAttribute("inert");
+	else node.setAttribute("inert", inert);
+	state.originalInert.clear();
+	const dialog = state.stack.at(-1);
+	if (!dialog) return;
+	for (let child = dialog; child && child !== scope;) {
+		const parent = child.parentElement;
+		if (!parent) break;
+		for (const sibling of parent.children) {
+			if (sibling === child) continue;
+			if (sibling === child.previousElementSibling && (sibling.matches("[data-tmt-ds-scrim]") || sibling.querySelector("[data-tmt-ds-scrim]"))) continue;
+			if (!state.originalInert.has(sibling)) state.originalInert.set(sibling, sibling.getAttribute("inert"));
+			sibling.setAttribute("inert", "");
+		}
+		child = parent;
+	}
+}
+/** The returned cleanup restores the prior state and can safely be called more than once. */
+function enterScopedModal(scope, dialog) {
+	if (!scope.contains(dialog)) throw new Error("Scoped modal must belong to its scope");
+	let state = states.get(scope);
+	if (!state) {
+		state = {
+			stack: [],
+			originalInert: /* @__PURE__ */ new Map(),
+			overflow: scope.style.getPropertyValue("overflow"),
+			overflowPriority: scope.style.getPropertyPriority("overflow")
+		};
+		states.set(scope, state);
+		scope.style.setProperty("overflow", "hidden");
+	}
+	const owner = state;
+	owner.stack.push(dialog);
+	apply(scope, owner);
+	let active = true;
+	return () => {
+		if (!active) return;
+		active = false;
+		const index = owner.stack.lastIndexOf(dialog);
+		if (index >= 0) owner.stack.splice(index, 1);
+		apply(scope, owner);
+		if (!owner.stack.length) {
+			if (owner.overflow) scope.style.setProperty("overflow", owner.overflow, owner.overflowPriority);
+			else scope.style.removeProperty("overflow");
+			states.delete(scope);
+		}
+	};
+}
+/** Keep Tab inside the active modal only while keyboard focus is already in its scope. */
+function trapScopedTab(event, dialog) {
+	if (event.key !== "Tab" || event.defaultPrevented) return;
+	const scope = dialog.closest("[data-tmt-ds-scope]");
+	if (scope && states.get(scope)?.stack.at(-1) !== dialog) return;
+	const nodes = [...dialog.querySelectorAll("a[href], button, input, select, textarea, [tabindex]:not([tabindex=\"-1\"])")].filter((node) => node.tabIndex >= 0 && !node.matches(":disabled") && !node.closest("[inert]") && node.getClientRects().length > 0 && node.ownerDocument.defaultView?.getComputedStyle(node).visibility !== "hidden");
+	if (!nodes.length) {
+		event.preventDefault();
+		dialog.focus();
+		return;
+	}
+	const active = dialog.ownerDocument.activeElement;
+	const first = nodes[0];
+	const last = nodes[nodes.length - 1];
+	const index = nodes.findIndex((node) => node === active);
+	if (event.shiftKey && index <= 0) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && (index < 0 || index === nodes.length - 1)) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/topbar.ts
 /** Internal renderer shared by native and React shells. */
-function createShellTopBar(root, bar, navigation, railSearch) {
+function createShellTopBar(root, bar, navigation, railSearch, layerHost) {
 	const document = root.ownerDocument;
 	const view = document.defaultView;
 	let options;
@@ -5452,8 +5559,10 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		common.append(theme, remoteHelp.wrapper);
 		right.append(statusSlot, common, actions);
 		header.append(left, right);
+		const scope = layerHost?.root;
+		const themeRoot = scope ?? document.documentElement;
 		const choice = () => {
-			const explicit = document.documentElement.getAttribute("data-theme");
+			const explicit = themeRoot.getAttribute("data-theme");
 			return explicit === "light" || explicit === "dark" ? explicit : "system";
 		};
 		const themeOptions = () => ({
@@ -5464,11 +5573,11 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 				label: key === "system" ? "System" : key === "light" ? "Light" : "Dark",
 				checked: choice() === key
 			})),
-			onSelect: (key) => setStoredTheme(key, document.documentElement)
+			onSelect: (key) => scope ? applyTheme(key, scope) : setStoredTheme(key, document.documentElement)
 		});
 		const themeMenu = mountBrowserMenu(theme, themeOptions());
 		const observeTheme = new MutationObserver(() => themeMenu.update(themeOptions()));
-		observeTheme.observe(document.documentElement, {
+		observeTheme.observe(themeRoot, {
 			attributes: true,
 			attributeFilter: ["data-theme"]
 		});
@@ -5496,9 +5605,15 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 		footer.append(close);
 		dialog.append(dialogHeader, body, footer);
 		let origin = null;
+		let releaseScope;
+		let scrim;
 		const dismiss = () => {
 			if (!dialog.open) return;
 			dialog.close();
+			releaseScope?.();
+			releaseScope = void 0;
+			scrim?.remove();
+			scrim = void 0;
 			dialog.remove();
 			restoreOverlayFocus(origin, () => remote);
 		};
@@ -5507,8 +5622,29 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 			themeMenu.close();
 			remoteHelp.binding.dismiss();
 			origin = document.activeElement;
-			header.append(dialog);
-			dialog.showModal();
+			if (scope) {
+				scrim = document.createElement("div");
+				scrim.className = "tmt-ui-scope-scrim";
+				scrim.setAttribute("data-tmt-ds-scrim", "");
+				scrim.addEventListener("click", (event) => {
+					if (event.isTrusted) dismiss();
+				});
+				layerHost.portal.append(scrim, dialog);
+				releaseScope = enterScopedModal(scope, dialog);
+				try {
+					dialog.show();
+				} catch (error) {
+					releaseScope();
+					releaseScope = void 0;
+					scrim.remove();
+					scrim = void 0;
+					dialog.remove();
+					throw error;
+				}
+			} else {
+				header.append(dialog);
+				dialog.showModal();
+			}
 			close.focus();
 		};
 		close.onclick = (event) => {
@@ -5520,6 +5656,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 			if (event.isTrusted) dismiss();
 		};
 		dialog.onkeydown = (event) => {
+			if (scope) trapScopedTab(event, dialog);
 			if (event.key !== "Escape" || event.defaultPrevented) return;
 			event.preventDefault();
 			event.stopPropagation();
@@ -5546,7 +5683,7 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 			if (event.isTrusted) openSearch(sidebarSearch);
 		};
 		const shortcut = (event) => {
-			if (!event.isTrusted || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
+			if (!event.isTrusted || scope && (!(event.target instanceof Node) || !scope.contains(event.target)) || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.key.toLowerCase() !== "k" || event.altKey || event.shiftKey || (command ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey)) return;
 			if (event.composedPath().some((node) => node instanceof view.HTMLElement && (node.isContentEditable || node.closest("input,textarea,select,[role=\"textbox\"],[role=\"combobox\"]")))) return;
 			event.preventDefault();
 			openSearch(view.matchMedia("(max-width: 900px)").matches ? search : sidebarSearch);
@@ -5580,6 +5717,11 @@ function createShellTopBar(root, bar, navigation, railSearch) {
 				searchHelp.binding.dispose();
 				remoteHelp.binding.dispose();
 				if (dialog.open) dialog.close();
+				releaseScope?.();
+				releaseScope = void 0;
+				scrim?.remove();
+				scrim = void 0;
+				dialog.remove();
 				railSearch?.replaceChildren();
 				root.prepend(navigation);
 				delete root.dataset.topbar;
@@ -5863,7 +6005,7 @@ var branchIds = 0;
 * area; phones show the same nested tree inside the navigation drawer. `select` may take over a plain click
 * on an item (an SPA route or Colab's search); it returns true when it handled the click.
 */
-function mountShell(root, view, select) {
+function mountShell(root, view, select, layerHost) {
 	const document = root.ownerDocument;
 	root.classList.add("tmt-ui-shell");
 	const open = document.createElement("button");
@@ -5896,7 +6038,7 @@ function mountShell(root, view, select) {
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
 	const railSearch = document.createElement("div");
 	railSearch.className = "tmt-ui-rail-search-section";
-	const topBar = createShellTopBar(root, bar, open, railSearch);
+	const topBar = createShellTopBar(root, bar, open, railSearch, layerHost);
 	bar.after(menu);
 	const slotOf = (parent, name) => {
 		const existing = parent.querySelector(`:scope > .tmt-ui-shell-tools-${name}`);
@@ -5932,7 +6074,7 @@ function mountShell(root, view, select) {
 	tip.className = "tmt-ui-rail-tip";
 	tip.setAttribute("role", "tooltip");
 	tip.popover = "manual";
-	root.append(tip);
+	(layerHost?.portal ?? root).append(tip);
 	let release = () => {};
 	let tipAnchor;
 	let pressed;
@@ -5940,18 +6082,37 @@ function mountShell(root, view, select) {
 		release();
 		tipAnchor = void 0;
 		if (tip.matches(":popover-open")) tip.hidePopover();
+		if (tip.hasAttribute("data-tmt-ds-open")) {
+			tip.hidden = true;
+			tip.removeAttribute("data-tmt-ds-open");
+		}
 	};
 	const showTip = (anchor) => {
 		const text = anchor.dataset.note;
 		if (!text || root.dataset.drawer === "open") return hideTip();
 		release();
-		release = claimIconActionTooltip(document, hideTip);
+		const scope = layerHost?.root;
+		release = claimIconActionTooltip(scope ?? document, hideTip);
 		tipAnchor = anchor;
 		tip.textContent = text;
-		if (!tip.matches(":popover-open")) tip.showPopover();
+		if (scope) {
+			tip.removeAttribute("popover");
+			tip.hidden = false;
+			tip.setAttribute("data-tmt-ds-open", "");
+		} else {
+			if (!tip.hasAttribute("popover")) {
+				tip.hidden = false;
+				tip.popover = "manual";
+			}
+			if (!tip.matches(":popover-open")) tip.showPopover();
+		}
 		const box = anchor.getBoundingClientRect();
-		tip.style.left = `${box.right}px`;
-		tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
+		const bounds = scope?.getBoundingClientRect();
+		const origin = scope ? tip.offsetParent?.getBoundingClientRect() ?? bounds : void 0;
+		const left = bounds ? Math.max(bounds.left, Math.min(box.right, bounds.right - tip.offsetWidth)) : box.right;
+		const top = bounds ? Math.max(bounds.top, Math.min(box.top + (box.height - tip.offsetHeight) / 2, bounds.bottom - tip.offsetHeight)) : box.top + (box.height - tip.offsetHeight) / 2;
+		tip.style.left = `${left - (origin?.left ?? 0)}px`;
+		tip.style.top = `${top - (origin?.top ?? 0)}px`;
 	};
 	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
 	rail.addEventListener("pointerover", (event) => {
@@ -6450,7 +6611,7 @@ function startShellHost(root, routes, options = {}) {
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
-	});
+	}, options.layerHost);
 	const paint = () => controls.update(view());
 	const describe = (known) => {
 		if (asked) return;

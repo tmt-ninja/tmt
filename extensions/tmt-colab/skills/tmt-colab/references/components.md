@@ -6,6 +6,12 @@ Group related text in one block, and run `tmt colab page check FILE` before publ
 
 ## Design system
 
+Published design-system component tags belong inside an explicitly sized
+`<div data-tmt-ds-scope style="width:100%;height:24rem">...</div>`. Its overlays and responsive
+size stay within that block; controls outside the block remain usable. The scope does not replace
+the page's release pin. Use `tmt-design-system` for the pinned tags and their properties.
+
+
 Every page frame carries the product's own component classes (`tmt-ui-*`), the design tokens and the
 `tmt-icon` element: nothing to import, no network. The markup below is the whole promise; the frame
 holds other `tmt-ui-*` classes that are not documented and may change. Your own CSS wins over these

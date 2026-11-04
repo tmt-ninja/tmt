@@ -21,8 +21,8 @@ import { TuiMock } from './tui-nav.js';
 import { currentLocation, replacePath, usePath } from './router.js';
 import { previewRoot } from './preview.js';
 import { applyStoredTheme } from '../src/theme.js';
-import { frameFor } from '../gallery/frames.js';
-import { PatternFrame } from './patterns-more.js';
+import { drawFramesInline } from '../gallery/kit.js';
+import { renderDocsPreview } from './inline-preview.js';
 import { canonicalPath, colabMockBase, tuiMockBase } from './routes.js';
 
 // An old /docs or /mock URL, or the bare root, moves to its design system's route (#5821).
@@ -47,25 +47,13 @@ function Root() {
   return <DocsApp path={current} />;
 }
 
-// A gallery frame (`?frame=`): the iframe demos of the Browser entries, in palette B and the theme
-// the frame names. Any other page takes the browser-ui theme stored for this browser, else the device.
-const params = new URLSearchParams(location.search);
-const frame = params.get('frame');
-if (frame) {
-  document.documentElement.dataset.frame = frame;
-  const theme = params.get('theme');
-  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-} else applyStoredTheme();
+// Every docs preview stays in this document so its components remain inspectable.
+applyStoredTheme();
 previewRoot(document.documentElement);
+drawFramesInline(renderDocsPreview);
 setPaletteBFavicon();
 createRoot(document.querySelector('#root')!).render(
   <StrictMode>
-    {frame === 'pattern' ? (
-      <PatternFrame params={params} />
-    ) : frame ? (
-      frameFor(frame, params)
-    ) : (
-      <Root />
-    )}
+    <Root />
   </StrictMode>,
 );

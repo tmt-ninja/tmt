@@ -211,3 +211,21 @@ test('the page check shows its findings on the page', async ({ page }) => {
   await expect(frame.getByRole('button', { name: 'Fine' })).toBeVisible();
   await expect(frame.getByRole('status', { name: 'Design system check' })).toHaveCount(0);
 });
+
+test('a pinned page scopes published components and warns on unscoped tags', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <button id="outside">Outside</button>
+     <div data-tmt-ds-scope style="width:320px;height:180px"><tmt-ui-button>Inside</tmt-ui-button></div>
+     <tmt-ui-button>Unscoped</tmt-ui-button>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await expect(scope.locator(':scope > [data-tmt-ui-portal]')).toHaveCount(1);
+  await expect(scope.getByRole('button', { name: 'Inside' })).toBeVisible();
+  await expect(frame.locator('[data-tmt-ds-findings]')).toContainText(
+    'needs a parent with data-tmt-ds-scope',
+  );
+  await frame.locator('#outside').click();
+  await expect(frame.locator('#outside')).toBeFocused();
+});

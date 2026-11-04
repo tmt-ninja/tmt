@@ -22,6 +22,9 @@ export async function withDocs(use) {
   try {
     const load = (path) => server.ssrLoadModule(path);
     const { UiTheme } = await load('/src/ui/theme.tsx');
+    const { drawFramesInline } = await load('/gallery/kit.tsx');
+    const { renderDocsPreview } = await load('/docs/inline-preview.tsx');
+    drawFramesInline(renderDocsPreview);
     // The docs render inside the UI island, as on the docs site; the page keeps only its content.
     const island = '<div data-tmt-ui="" data-tmt-theme="light">';
     const portal = '<div data-tmt-ui-portal=""></div></div>';
