@@ -507,6 +507,83 @@
   ]
  },
  {
+  "title": "Browser components",
+  "pages": [
+   {
+    "slug": "browser-avatar",
+    "title": "Avatar",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "busy-mark",
+    "title": "Busy mark",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "section",
+    "title": "Section",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "disclosure",
+    "title": "Disclosure",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "brand-mark",
+    "title": "Brand mark",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "browser-checkbox",
+    "title": "Checkbox (Browser)",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "status-tile",
+    "title": "Status tile",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "action",
+    "title": "Action",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "toggle",
+    "title": "Toggle",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   }
+  ]
+ },
+ {
   "title": "Patterns",
   "pages": [
    {

@@ -17,12 +17,13 @@ const template = JSON.parse(
 const builtIn = new URL('../../systems/tmt-gui/generated/bundle.json', import.meta.url);
 const sha256Hex = async (text: string) => createHash('sha256').update(text).digest('hex');
 const button = template.components[0]!;
+const legacyButton = { ...button, uiParts: undefined, source: 'export default () => () => null;' };
 
 describe('buildBundle', () => {
   it('requires named shared parts to be declared on runtime 3 components', async () => {
     const system = { ...template.system, runtime: '3' };
     const page = {
-      ...button,
+      ...legacyButton,
       parts: ['PageListTable'],
       source: 'export default ({ parts }) => parts.PageListTable;',
     };
@@ -37,7 +38,7 @@ describe('buildBundle', () => {
     ).rejects.toThrow('shared part');
   });
   it('admits only named runtime 3 data capabilities', async () => {
-    const component = { ...button, data: ['page'] };
+    const component = { ...legacyButton, data: ['page'] };
     const system = { ...template.system, runtime: '3' };
     expect((await buildBundle('x', system, [component], sha256Hex)).components[0]?.data).toEqual([
       'page',
@@ -50,13 +51,28 @@ describe('buildBundle', () => {
     ).rejects.toThrow('data capability');
   });
   it('requires nested system tags to exist in the same runtime 3 bundle', async () => {
-    const nested = { ...button, tag: 'composite', requires: ['button'] };
+    const nested = { ...legacyButton, tag: 'composite', requires: ['button'] };
     const system = { ...template.system, runtime: '3' };
     await expect(buildBundle('x', system, [nested], sha256Hex)).rejects.toThrow(
       'missing component dependency',
     );
-    const built = await buildBundle('x', system, [button, nested], sha256Hex);
+    const built = await buildBundle('x', system, [legacyButton, nested], sha256Hex);
     expect(built.components[1]?.requires).toEqual(['button']);
+  });
+  it('admits only named runtime 4 UI parts', async () => {
+    const system = { ...template.system, runtime: '4' };
+    expect((await buildBundle('x', system, [button], sha256Hex)).components[0]?.uiParts).toEqual([
+      'Button',
+    ]);
+    await expect(
+      buildBundle('x', { ...system, runtime: '3' }, [button], sha256Hex),
+    ).rejects.toThrow('UI part');
+    await expect(
+      buildBundle('x', system, [{ ...button, uiParts: ['Other'] }], sha256Hex),
+    ).rejects.toThrow('UI part');
+    await expect(
+      buildBundle('x', system, [{ ...button, uiParts: ['Button', 'Button'] }], sha256Hex),
+    ).rejects.toThrow('UI part');
   });
   it('rebuilds the checked-in built-in bundle from the template', async () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
@@ -93,6 +109,16 @@ describe('buildBundle', () => {
       'tmt-ui-mockup-block',
       'tmt-ui-question-block',
       'tmt-ui-image-block',
+      'tmt-ui-browser-avatar',
+      'tmt-ui-busy-mark',
+      'tmt-ui-section',
+      'tmt-ui-disclosure',
+      'tmt-ui-ds-scope',
+      'tmt-ui-brand-mark',
+      'tmt-ui-browser-checkbox',
+      'tmt-ui-status-tile',
+      'tmt-ui-action',
+      'tmt-ui-toggle',
     ]);
   });
 

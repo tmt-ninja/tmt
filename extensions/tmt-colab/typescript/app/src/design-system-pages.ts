@@ -530,7 +530,9 @@ async function fillFromTemplate(
       const made: { id: string; title: string }[] = [];
       await withPage(transport, sectionId, async (sectionPage) => {
         for (const doc of section.pages) {
-          const component = section.title === 'Components' ? live.get(doc.slug) : undefined;
+          const component = ['Components', 'Browser components'].includes(section.title)
+            ? live.get(doc.slug)
+            : undefined;
           const id = await make(
             sectionPage,
             doc.title,

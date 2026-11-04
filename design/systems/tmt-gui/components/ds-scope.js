@@ -1,0 +1,2 @@
+// Runtime 4 supplies the real isolated browser-ui stage.
+export default ({ React, ui }) => (props) => React.createElement(ui.DsScope, props);

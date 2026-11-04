@@ -258,3 +258,79 @@ export interface ImageBlockProps {
   variant?: "image" | "file";
   children?: ReactNode;
 }
+
+/** <tmt-ui-browser-avatar>: props from its schema, slots as nodes. */
+export interface BrowserAvatarProps {
+  name?: string;
+  kind?: "person" | "agent";
+  size?: "m" | "s";
+  decorative?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-busy-mark>: props from its schema, slots as nodes. */
+export interface BusyMarkProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-section>: props from its schema, slots as nodes. */
+export interface SectionProps {
+  heading?: string;
+  variant?: "label" | "title";
+  divided?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-disclosure>: props from its schema, slots as nodes. */
+export interface DisclosureProps {
+  summary?: string;
+  divided?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-ds-scope>: props from its schema, slots as nodes. */
+export interface DsScopeProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-brand-mark>: props from its schema, slots as nodes. */
+export interface BrandMarkProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-browser-checkbox>: props from its schema, slots as nodes. */
+export interface BrowserCheckboxProps {
+  checked?: boolean;
+  disabled?: boolean;
+  indeterminate?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-status-tile>: props from its schema, slots as nodes. */
+export interface StatusTileProps {
+  label?: string;
+  value?: string;
+  tone?: "waiting" | "blocked" | "working" | "review" | "muted" | "info";
+  numeric?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-action>: props from its schema, slots as nodes. */
+export interface ActionProps {
+  label?: string;
+  variant?: "text" | "primary" | "secondary" | "destructive" | "ghost";
+  disabled?: boolean;
+  busy?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-toggle>: props from its schema, slots as nodes. */
+export interface ToggleProps {
+  label?: string;
+  pressed?: boolean;
+  disabled?: boolean;
+  children?: ReactNode;
+}

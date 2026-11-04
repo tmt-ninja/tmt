@@ -5482,6 +5482,14 @@ the current system prefix so a copied system does not draw tags from another sys
 Runtime 3 separately permits a component to declare the `page` data capability: it reads only the
 referenced page's bounded display metadata through the current viewer's admitted transport. The
 frame is not given a transport, management methods or an arbitrary page-read function.
+Runtime 4 retains runtime 3's capabilities and adds `ui`, a renderer-owned namespace of named
+browser-ui parts running on the page runtime's React. A component declares its needed names in
+`uiParts`; the version 4 allowlist contains `Button`, `DsScope`, `BrowserAvatar`, `BusyMark`,
+`BrowserSection`, `BrowserDisclosure`, `BrandMark`, `BrowserCheckbox`, `BrowserStatusTile`,
+`BrowserAction` and `BrowserToggle`. Unknown, duplicate, undeclared,
+or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
+does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
+as needing a newer TMT.
 When an owner page includes `tmt-ui-page-view`, its frame receives a bounded, read-only projection
 of the admitted page list: at most 200 records and 64 KiB, with page identifiers, titles, projects,
 stage, update label, author and access only. The subscription ends with the frame and follows the

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "disclosure",
+  "source": "disclosure.js",
+  "props": {
+    "summary": {
+      "type": "string"
+    },
+    "divided": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserDisclosure"
+  ],
+  "examples": [
+    {
+      "title": "BrowserDisclosure",
+      "markup": "<tmt-ui-disclosure summary=\"Details\">Content</tmt-ui-disclosure>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

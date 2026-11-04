@@ -121,6 +121,46 @@ test('an attribute change re-renders the component', async ({ page }) => {
   );
 });
 
+test('runtime 4 renders Browser parts and keeps native disclosure interactive', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-browser-avatar name="Alex Kim" kind="agent"></tmt-ui-browser-avatar>
+     <label><tmt-ui-browser-checkbox></tmt-ui-browser-checkbox> Select</label>
+     <tmt-ui-toggle label="Grid view"></tmt-ui-toggle>
+     <tmt-ui-section heading="Details"><tmt-ui-disclosure summary="More">Hello</tmt-ui-disclosure></tmt-ui-section>`,
+  );
+  await expect(frame.getByRole('img', { name: 'Alex Kim' })).toBeVisible();
+  const checkbox = frame.getByRole('checkbox', { name: 'Select' });
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+  const toggle = frame.getByRole('button', { name: 'Grid view' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(frame.getByRole('heading', { name: 'Details' })).toBeVisible();
+  const details = frame.locator('details');
+  await expect(details).not.toHaveAttribute('open');
+  await frame.getByText('More', { exact: true }).click();
+  await expect(details).toHaveAttribute('open', '');
+  await expect(frame.getByText('Hello', { exact: true })).toBeVisible();
+});
+
+test('the design-system scope tag creates one stage portal for nested components', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-ds-scope><tmt-ui-button>Inside</tmt-ui-button></tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('tmt-ui-ds-scope [data-tmt-ds-scope]');
+  await expect(scope.getByRole('button', { name: 'Inside' })).toBeVisible();
+  await expect(scope.locator(':scope > [data-tmt-ui-portal]')).toHaveCount(1);
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

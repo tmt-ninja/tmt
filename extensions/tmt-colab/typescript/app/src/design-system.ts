@@ -12,6 +12,7 @@ import {
   findingText,
   DATA_CAPABILITIES,
   SHARED_PARTS,
+  UI_PARTS,
   type Bundle,
   type Finding,
 } from '../../../../../design/systems/compiler.mjs';
@@ -21,7 +22,8 @@ import dataTableCss from '@tmt/browser-ui/data-table.css?inline';
 
 /** Runtime 2's skeleton remains supported unchanged alongside runtime 3. */
 export const SKELETON_RUNTIME = '2';
-const supportsRuntime = (runtime: string) => runtime === SKELETON_RUNTIME || runtime === '3';
+const supportsRuntime = (runtime: string) => [SKELETON_RUNTIME, '3', '4'].includes(runtime);
+const hasSharedCapabilities = (runtime: string) => runtime === '3' || runtime === '4';
 const MARKER = 'tmt-ds';
 /** The bootstrap's caps for the two strings, mirrored in renderer.html. */
 export const DS_SCRIPT_BYTES = 512 * 1024;
@@ -47,6 +49,7 @@ export interface DesignSystemComponent {
   readonly slots: readonly string[];
   readonly parts?: readonly string[];
   readonly data?: readonly string[];
+  readonly uiParts?: readonly string[];
   readonly requires?: readonly string[];
   readonly css: string;
   readonly code: string;
@@ -75,7 +78,7 @@ function supportsCapabilities(bundle: DesignSystemBundle): boolean {
   return bundle.components.every(
     (component) =>
       (component.requires === undefined ||
-        (bundle.runtime === '3' &&
+        (hasSharedCapabilities(bundle.runtime) &&
           Array.isArray(component.requires) &&
           new Set(component.requires).size === component.requires.length &&
           component.requires.every(
@@ -93,12 +96,17 @@ function supportsCapabilities(bundle: DesignSystemBundle): boolean {
         const names = component[field];
         return (
           names === undefined ||
-          (bundle.runtime === '3' &&
+          (hasSharedCapabilities(bundle.runtime) &&
             Array.isArray(names) &&
             new Set(names).size === names.length &&
             names.every((name) => allowed.includes(name)))
         );
-      }),
+      }) &&
+      (component.uiParts === undefined ||
+        (bundle.runtime === '4' &&
+          Array.isArray(component.uiParts) &&
+          new Set(component.uiParts).size === component.uiParts.length &&
+          component.uiParts.every((name) => UI_PARTS.includes(name)))),
   );
 }
 
@@ -201,14 +209,14 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
     const data = component.data ?? [];
     if (
       !Array.isArray(parts) ||
-      (parts.length && bundle.runtime !== '3') ||
+      (parts.length && !hasSharedCapabilities(bundle.runtime)) ||
       new Set(parts).size !== parts.length ||
       parts.some((part) => !SHARED_PARTS.includes(part))
     )
       throw new Error(`Invalid shared parts for ${component.tag}`);
     if (
       !Array.isArray(data) ||
-      (data.length && bundle.runtime !== '3') ||
+      (data.length && !hasSharedCapabilities(bundle.runtime)) ||
       new Set(data).size !== data.length ||
       data.some((name) => !DATA_CAPABILITIES.includes(name))
     )
@@ -216,12 +224,13 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   }
   if (!supportsCapabilities(bundle)) throw new Error('Invalid component dependency');
   const meta = JSON.stringify(
-    bundle.components.map(({ tag, props, slots, parts, data }) => ({
+    bundle.components.map(({ tag, props, slots, parts, data, uiParts }) => ({
       tag,
       props,
       slots,
       parts: parts ?? [],
       data: data ?? [],
+      uiParts: uiParts ?? [],
     })),
   ).replace(/</g, '\\u003c');
   // An element is only its rendered component's host, except at the top of the page: there it is
@@ -239,7 +248,7 @@ const factories=[${bundle.components.map(({ code }) => `(function(){${code}})()`
 if(!t||!t.React||!t.html||!t.createRoot)return;
 const React=t.React,cn=(...parts)=>parts.filter(Boolean).join(' ');
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
-meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const skeleton=Object.freeze(${bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
+meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name)||!t.ui||!Object.hasOwn(t.ui,name))throw new Error('Undeclared UI part: '+String(name));return t.ui[name];}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
 connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}this.root=t.createRoot(this);}this.paint();}
 attributeChangedCallback(){if(this.root)this.paint();}

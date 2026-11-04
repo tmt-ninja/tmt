@@ -4,7 +4,18 @@ import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
 import { PageListTable } from '@tmt/browser-ui/data-table';
-import { UiTheme } from '@tmt/browser-ui/ui';
+import { Button, DsScope, UiTheme } from '@tmt/browser-ui/ui';
+import {
+  BrandMark,
+  BrowserAction,
+  BrowserAvatar,
+  BrowserCheckbox,
+  BrowserDisclosure,
+  BrowserSection,
+  BrowserStatusTile,
+  BrowserToggle,
+  BusyMark,
+} from '@tmt/browser-ui/react';
 
 type ViewRows =
   | {
@@ -171,6 +182,19 @@ const runtime = Object.freeze({
     PageListTable: SharedPageListTable,
   }),
   sharedData: Object.freeze({ page: useWorkPage }),
+  ui: Object.freeze({
+    Button,
+    DsScope,
+    BrowserAvatar,
+    BrowserAction,
+    BrandMark,
+    BrowserCheckbox,
+    BrowserDisclosure,
+    BrowserSection,
+    BrowserStatusTile,
+    BrowserToggle,
+    BusyMark,
+  }),
 });
 Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });
 

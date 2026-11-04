@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "section",
+  "source": "section.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "variant": {
+      "enum": [
+        "label",
+        "title"
+      ]
+    },
+    "divided": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserSection"
+  ],
+  "examples": [
+    {
+      "title": "BrowserSection",
+      "markup": "<tmt-ui-section heading=\"Details\">Content</tmt-ui-section>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

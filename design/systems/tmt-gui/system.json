@@ -5,7 +5,7 @@
   "name": "tmt GUI",
   "prefix": "tmt-ui",
   "version": "0.1.0",
-  "runtime": "3",
+  "runtime": "4",
   "tokens": {
     "source": "design/tokens/tokens.json"
   },
@@ -102,6 +102,36 @@
     },
     {
       "doc": "components/image-block.json"
+    },
+    {
+      "doc": "components/browser-avatar.json"
+    },
+    {
+      "doc": "components/busy-mark.json"
+    },
+    {
+      "doc": "components/section.json"
+    },
+    {
+      "doc": "components/disclosure.json"
+    },
+    {
+      "doc": "components/ds-scope.json"
+    },
+    {
+      "doc": "components/brand-mark.json"
+    },
+    {
+      "doc": "components/browser-checkbox.json"
+    },
+    {
+      "doc": "components/status-tile.json"
+    },
+    {
+      "doc": "components/action.json"
+    },
+    {
+      "doc": "components/toggle.json"
     }
   ],
   "principles": {

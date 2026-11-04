@@ -16,7 +16,7 @@ const componentFiles = (slug) =>
       `design/browser-ui/${stem}.css`,
     ]),
     'design/browser-ui/docs/catalog.tsx',
-    'design/browser-ui/docs/catalog-more.tsx',
+    'design/browser-ui/docs/catalog-more.tsx'
   );
 const browserUi = createRequire(`${root}package.json`);
 
@@ -43,7 +43,11 @@ export async function withDocs(use) {
     const portal = '<div data-tmt-ui-portal=""></div></div>';
     const render = (node) => {
       const html = renderToStaticMarkup(
-        React.createElement(UiTheme, { theme: 'light' }, React.createElement(() => node())),
+        React.createElement(
+          UiTheme,
+          { theme: 'light' },
+          React.createElement(() => node())
+        )
       );
       if (!html.startsWith(island) || !html.endsWith(portal))
         throw new Error('The docs island markup changed');
@@ -64,18 +68,22 @@ export async function renderDocs() {
   return withDocs(async ({ load, render, React }) => {
     const h = React.createElement;
     const { components } = await load('/docs/catalog.tsx');
+    const { browserDocs } = await load('/docs/browser-catalog.tsx');
     const { tokenPages } = await load('/docs/tokens.tsx');
     const { patterns } = await load('/docs/patterns.tsx');
     const { morePatterns } = await load('/docs/patterns-more.tsx');
     const { Article, ComponentTemplate } = await load('/docs/templates.tsx');
     const page = (slug, title, node, files) => ({ slug, title, html: render(() => node), files });
-    const tokenFiles = sourceFiles('design/tokens/tokens.json', 'design/browser-ui/docs/tokens.tsx');
+    const tokenFiles = sourceFiles(
+      'design/tokens/tokens.json',
+      'design/browser-ui/docs/tokens.tsx'
+    );
     const article = (title, lead, ...children) => h(Article, { title, lead }, ...children);
     return [
       {
         title: 'Foundations',
         pages: tokenPages.map((doc) =>
-          page(doc.slug, doc.title, article(doc.title, doc.lead, h(doc.render)), tokenFiles),
+          page(doc.slug, doc.title, article(doc.title, doc.lead, h(doc.render)), tokenFiles)
         ),
       },
       {
@@ -98,21 +106,64 @@ export async function renderDocs() {
                     ? h('tmt-ui-page-view', {
                         label,
                         'group-by': doc.slug === 'data-table' ? 'none' : 'state',
-                        ...(doc.slug === 'data-table' && index === 1 ? { selectable: true, selected: 'two' } : {}),
-                        ...(doc.slug === 'data-table' && index === 2 ? { density: 'comfortable' } : {}),
-                        ...(doc.slug === 'data-table' && index >= 4 ? { state: ['loading', 'empty', 'error'][index - 4] } : {}),
+                        ...(doc.slug === 'data-table' && index === 1
+                          ? { selectable: true, selected: 'two' }
+                          : {}),
+                        ...(doc.slug === 'data-table' && index === 2
+                          ? { density: 'comfortable' }
+                          : {}),
+                        ...(doc.slug === 'data-table' && index >= 4
+                          ? { state: ['loading', 'empty', 'error'][index - 4] }
+                          : {}),
                         rows: JSON.stringify([
-                          { id: 'one', name: 'Structured pages', projects: ['spec'], stage: 'Awaiting decision', updated: 'Today', author: 'gui-lead' },
-                          { id: 'two', name: 'Night execution plan', projects: ['night'], stage: 'In progress', updated: 'Yesterday', author: 'night-lead' },
+                          {
+                            id: 'one',
+                            name: 'Structured pages',
+                            projects: ['spec'],
+                            stage: 'Awaiting decision',
+                            updated: 'Today',
+                            author: 'gui-lead',
+                          },
+                          {
+                            id: 'two',
+                            name: 'Night execution plan',
+                            projects: ['night'],
+                            stage: 'In progress',
+                            updated: 'Yesterday',
+                            author: 'night-lead',
+                          },
                         ]),
                       })
                     : h(node),
               })),
               dos: doc.dos,
             }),
-            componentFiles(doc.slug),
-          ),
+            componentFiles(doc.slug)
+          )
         ),
+      },
+      {
+        title: 'Browser components',
+        pages: [
+          ['avatar', 'browser-avatar'],
+          ['busy-mark', 'busy-mark'],
+          ['section', 'section'],
+          ['disclosure', 'disclosure'],
+          ['brand', 'brand-mark'],
+          ['browser-checkbox', 'browser-checkbox'],
+          ['status-tile', 'status-tile'],
+          ['action', 'action'],
+          ['toggle', 'toggle'],
+        ].map(([slug, tag]) => {
+          const doc = browserDocs.find((entry) => entry.slug === slug);
+          if (!doc) throw new Error(`Missing Browser component docs: ${slug}`);
+          return {
+            slug: tag,
+            title: doc.name,
+            html: '',
+            files: sourceFiles('design/browser-ui/docs/browser-catalog.tsx'),
+          };
+        }),
       },
       {
         title: 'Patterns',
@@ -122,8 +173,8 @@ export async function renderDocs() {
               doc.slug,
               doc.title,
               article(doc.title, doc.lead, h(doc.render)),
-              sourceFiles('design/browser-ui/docs/patterns.tsx'),
-            ),
+              sourceFiles('design/browser-ui/docs/patterns.tsx')
+            )
           ),
           ...morePatterns.map((doc) => {
             // A state too heavy for one page (a long table, say) is named, not drawn.
@@ -135,8 +186,16 @@ export async function renderDocs() {
               h('section', { key: state.label, className: 'docs-variant' }, [
                 h('h3', { key: 'h' }, state.label),
                 state.heavy
-                  ? h('p', { key: 'p', className: 'docs-motion-line' }, 'Too large to draw on this page; see it on the tmt GUI docs.')
-                  : h('div', { key: 'c', className: 'docs-canvas', dangerouslySetInnerHTML: { __html: state.html } }),
+                  ? h(
+                      'p',
+                      { key: 'p', className: 'docs-motion-line' },
+                      'Too large to draw on this page; see it on the tmt GUI docs.'
+                    )
+                  : h('div', {
+                      key: 'c',
+                      className: 'docs-canvas',
+                      dangerouslySetInnerHTML: { __html: state.html },
+                    }),
               ]);
             return page(
               doc.slug,
@@ -146,9 +205,13 @@ export async function renderDocs() {
                 doc.lead,
                 ...states.map(body),
                 h('h2', { key: 'rules' }, 'Rules'),
-                h('ul', { key: 'list' }, doc.rules.map((rule) => h('li', { key: rule }, rule))),
+                h(
+                  'ul',
+                  { key: 'list' },
+                  doc.rules.map((rule) => h('li', { key: rule }, rule))
+                )
               ),
-              sourceFiles('design/browser-ui/docs/patterns-more.tsx'),
+              sourceFiles('design/browser-ui/docs/patterns-more.tsx')
             );
           }),
         ],

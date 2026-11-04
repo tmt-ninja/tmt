@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "status-tile",
+  "source": "status-tile.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "value": {
+      "type": "string"
+    },
+    "tone": {
+      "enum": [
+        "waiting",
+        "blocked",
+        "working",
+        "review",
+        "muted",
+        "info"
+      ]
+    },
+    "numeric": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserStatusTile"
+  ],
+  "examples": [
+    {
+      "title": "BrowserStatusTile",
+      "markup": "<tmt-ui-status-tile label=\"Page\" value=\"Available\"></tmt-ui-status-tile>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

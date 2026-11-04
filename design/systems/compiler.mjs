@@ -9,9 +9,24 @@ export const RUNTIME = '2';
 /** Runtime 3 adds only these explicitly declared host-provided parts. */
 export const SHARED_PARTS = ['PageListTable'];
 export const DATA_CAPABILITIES = ['page'];
+/** Runtime 4's renderer-owned browser-ui exports. */
+export const UI_PARTS = [
+  'Button',
+  'DsScope',
+  'BrowserAvatar',
+  'BusyMark',
+  'BrowserSection',
+  'BrowserDisclosure',
+  'BrandMark',
+  'BrowserCheckbox',
+  'BrowserStatusTile',
+  'BrowserAction',
+  'BrowserToggle',
+];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
-const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
+const GLOBAL_ATTRIBUTES =
+  /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
 
 export class DesignSystemError extends Error {}
 const fail = (message) => {
@@ -40,11 +55,13 @@ export function validateSystem(config, where = 'design system') {
   if (typeof config.name !== 'string' || !config.name) fail(`${where}: needs a name`);
   if (typeof config.prefix !== 'string' || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(config.prefix))
     fail(`${where}: prefix must be lowercase words joined by hyphens`);
-  if (![RUNTIME, '3'].includes(config.runtime)) fail(`${where}: unsupported runtime ${config.runtime}`);
+  if (![RUNTIME, '3', '4'].includes(config.runtime))
+    fail(`${where}: unsupported runtime ${config.runtime}`);
   if (typeof config.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.version))
     fail(`${where}: version must be major.minor.patch`);
   if (typeof config.tokens?.css !== 'string') fail(`${where}: tokens.css must be CSS text`);
-  if (/<!--|<\/style/i.test(config.tokens.css)) fail(`${where}: tokens may not contain <!-- or </style`);
+  if (/<!--|<\/style/i.test(config.tokens.css))
+    fail(`${where}: tokens may not contain <!-- or </style`);
 }
 
 /** A component source is one `export default <factory>`, with no imports and no outside reach. */
@@ -65,7 +82,9 @@ export function checkSource(source, where) {
     'globalThis',
   ])
     if (new RegExp(`\\b${banned}\\b`).test(code))
-      fail(`${where}: uses ${banned}; a component reads only the skeleton (${SKELETON.join(', ')})`);
+      fail(
+        `${where}: uses ${banned}; a component reads only the skeleton (${SKELETON.join(', ')})`
+      );
   if (/<!--|<\/script/i.test(source)) fail(`${where}: may not contain <!-- or </script`);
 }
 
@@ -99,22 +118,46 @@ export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
   components.forEach((doc) => {
-    for (const [field, allowed] of [['parts', SHARED_PARTS], ['data', DATA_CAPABILITIES]]) {
+    for (const [field, allowed] of [
+      ['parts', SHARED_PARTS],
+      ['data', DATA_CAPABILITIES],
+    ]) {
       const names = doc[field];
       if (names === undefined) continue;
-      if (config.runtime !== '3') fail(`${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`);
-      if (!Array.isArray(names) || new Set(names).size !== names.length ||
-          names.some((name) => typeof name !== 'string' || !allowed.includes(name)))
-        fail(`${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`);
+      if (!['3', '4'].includes(config.runtime))
+        fail(
+          `${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`
+        );
+      if (
+        !Array.isArray(names) ||
+        new Set(names).size !== names.length ||
+        names.some((name) => typeof name !== 'string' || !allowed.includes(name))
+      )
+        fail(
+          `${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`
+        );
     }
+  });
+  components.forEach((doc) => {
+    if (doc.uiParts === undefined) return;
+    if (
+      config.runtime !== '4' ||
+      !Array.isArray(doc.uiParts) ||
+      new Set(doc.uiParts).size !== doc.uiParts.length ||
+      doc.uiParts.some((name) => typeof name !== 'string' || !UI_PARTS.includes(name))
+    )
+      fail(`${doc.tag}: unknown or duplicate UI part`);
   });
   const tags = components.map((doc) => doc.tag);
   if (new Set(tags).size !== tags.length) fail('two components share a tag');
   for (const doc of components) {
     if (doc.requires === undefined) continue;
-    if (config.runtime !== '3' || !Array.isArray(doc.requires) ||
-        new Set(doc.requires).size !== doc.requires.length ||
-        doc.requires.some((tag) => typeof tag !== 'string' || tag === doc.tag || !tags.includes(tag)))
+    if (
+      !['3', '4'].includes(config.runtime) ||
+      !Array.isArray(doc.requires) ||
+      new Set(doc.requires).size !== doc.requires.length ||
+      doc.requires.some((tag) => typeof tag !== 'string' || tag === doc.tag || !tags.includes(tag))
+    )
       fail(`${doc.tag}: invalid or missing component dependency`);
   }
   const body = {
@@ -132,6 +175,7 @@ export async function buildBundle(system, config, components, sha256Hex) {
       slots: doc.slots,
       ...(doc.parts === undefined ? {} : { parts: doc.parts }),
       ...(doc.data === undefined ? {} : { data: doc.data }),
+      ...(doc.uiParts === undefined ? {} : { uiParts: doc.uiParts }),
       ...(doc.requires === undefined ? {} : { requires: doc.requires }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
@@ -192,7 +236,8 @@ export function checkElements(elements, pin, bundle, pageElements = []) {
 
 /** One line per finding, for people. */
 export const findingText = {
-  'ds-not-pinned': (f) => `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
+  'ds-not-pinned': (f) =>
+    `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
   'unknown-ds-release': () => 'The pinned design system release cannot be read.',
   'ds-prefix-mismatch': (f) => `<${f.tag}> is not from the pinned design system.`,
   'unknown-ds-component': (f) => `<${f.tag}> is not a component of the pinned design system.`,

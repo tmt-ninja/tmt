@@ -181,7 +181,9 @@ async function fill(transport: PageTransport, root: string) {
     for (const doc of section.pages) {
       const key = `${sectionKey}/${doc.slug}`;
       const id = await place(sectionId, key, doc.title);
-      const component = section.title === 'Components' ? live.get(doc.slug) : undefined;
+      const component = ['Components', 'Browser components'].includes(section.title)
+        ? live.get(doc.slug)
+        : undefined;
       const body = component ? componentPageSource(component, system.prefix) : doc.html;
       await write(transport, id, mirrorSource({ key, files: doc.files ?? [] }, body));
       if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });

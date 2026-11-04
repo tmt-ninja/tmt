@@ -33,6 +33,7 @@ function load(value: DesignSystemBundle) {
         createRoot: () => {},
         sharedParts: { PageListTable: table },
         sharedData: { page: () => undefined },
+        ui: { Button: table },
       },
     },
     customElements: { get: () => undefined, define: (name: string) => defined.push(name) },
@@ -69,6 +70,15 @@ describe('design-system shared parts', () => {
     expect(load(allowed)).toEqual(['test-page']);
     const unknown = { ...base, components: [{ ...base.components[0]!, data: ['arbitrary'] }] };
     expect(() => load(unknown)).toThrow('Invalid data capabilities');
+  });
+  it('admits only declared runtime 4 UI parts', () => {
+    const base = bundle('4', 'return ({ui}) => ui.Button;');
+    expect(() => load(base)).toThrow('Undeclared UI part');
+    const allowed = { ...base, components: [{ ...base.components[0]!, uiParts: ['Button'] }] };
+    expect(load(allowed)).toEqual(['test-page']);
+    expect(() => load({ ...allowed, runtime: '3' })).toThrow('Invalid component dependency');
+    const unknown = { ...base, components: [{ ...base.components[0]!, uiParts: ['Other'] }] };
+    expect(() => load(unknown)).toThrow('Invalid component dependency');
   });
   it('reports a newer-runtime notice for a valid release with an unknown capability', async () => {
     const base = bundle('3', 'return () => null;');

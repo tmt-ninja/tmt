@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "action",
+  "source": "action.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "variant": {
+      "enum": [
+        "text",
+        "primary",
+        "secondary",
+        "destructive",
+        "ghost"
+      ]
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "busy": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserAction"
+  ],
+  "examples": [
+    {
+      "title": "BrowserAction",
+      "markup": "<tmt-ui-action label=\"Save\" variant=\"primary\"></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

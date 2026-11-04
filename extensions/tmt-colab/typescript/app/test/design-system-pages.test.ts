@@ -201,6 +201,7 @@ describe('template, publish and the renderer source', () => {
       hash: release!.bundle,
     });
     expect(bundle!.components.map((component) => component.tag).sort()).toEqual([
+      'acme-action',
       'acme-alert',
       'acme-badge',
       'acme-block',
@@ -208,12 +209,18 @@ describe('template, publish and the renderer source', () => {
       'acme-block-mention',
       'acme-block-menu',
       'acme-block-toast',
+      'acme-brand-mark',
+      'acme-browser-avatar',
+      'acme-browser-checkbox',
+      'acme-busy-mark',
       'acme-button',
       'acme-callout',
       'acme-card',
       'acme-card-block',
       'acme-checkbox',
       'acme-code-block',
+      'acme-disclosure',
+      'acme-ds-scope',
       'acme-empty',
       'acme-heading-block',
       'acme-image-block',
@@ -222,8 +229,10 @@ describe('template, publish and the renderer source', () => {
       'acme-mockup-block',
       'acme-page-view',
       'acme-question-block',
+      'acme-section',
       'acme-separator',
       'acme-skeleton',
+      'acme-status-tile',
       'acme-surface',
       'acme-switch',
       'acme-table-block',
@@ -231,6 +240,7 @@ describe('template, publish and the renderer source', () => {
       'acme-text-block',
       'acme-textarea',
       'acme-todo',
+      'acme-toggle',
       'acme-work-bundle',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
@@ -346,10 +356,11 @@ describe('template, publish and the renderer source', () => {
       children: [
         { title: 'Foundations', kind: 'page' },
         { title: 'Components', kind: 'page' },
+        { title: 'Browser components', kind: 'page' },
         { title: 'Patterns', kind: 'page' },
       ],
     });
-    const [foundations, components, patterns] = systems[0]!.tree.children;
+    const [foundations, components, browser, patterns] = systems[0]!.tree.children;
     expect(foundations!.children.map((page) => page.title)).toContain('Colour');
     // Every page shows its title; a component page also names its tag.
     expect(components!.children.find((page) => page.kind === 'component')).toMatchObject({
@@ -357,6 +368,10 @@ describe('template, publish and the renderer source', () => {
       tag: 'button',
     });
     expect(components!.children.length).toBeGreaterThan(20);
+    expect(browser!.children.find((page) => page.tag === 'browser-avatar')).toMatchObject({
+      title: 'Avatar',
+      kind: 'component',
+    });
     expect(patterns!.children.length).toBeGreaterThan(10);
     const listed = withoutDesignSystems(await transport.spaceHome());
     expect(listed.pages.map((page) => page.id)).toEqual([note]);

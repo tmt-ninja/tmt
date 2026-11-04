@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-avatar",
+  "source": "browser-avatar.js",
+  "props": {
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "person",
+        "agent"
+      ]
+    },
+    "size": {
+      "enum": [
+        "m",
+        "s"
+      ]
+    },
+    "decorative": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserAvatar"
+  ],
+  "examples": [
+    {
+      "title": "BrowserAvatar",
+      "markup": "<tmt-ui-browser-avatar name=\"Alex\" kind=\"agent\"></tmt-ui-browser-avatar>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}
