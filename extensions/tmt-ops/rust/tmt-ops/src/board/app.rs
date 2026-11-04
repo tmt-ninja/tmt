@@ -4630,6 +4630,19 @@ impl App {
         if self.menu.is_some() {
             return self.menu_mouse(event);
         }
+        // Jump to latest (#5920) sits over the reader's body, so it takes a press anywhere in its
+        // box before any handler of what lies beneath it (#6051).
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self
+                .conversation
+                .borrow()
+                .jump_hit
+                .is_some_and(|area| area.contains((event.column, event.row).into()))
+        {
+            self.scroll_pane(Pane::Replies, Step::Bottom);
+            return Effect::None;
+        }
         if self.resize_mouse(event, now) {
             if event.kind == MouseEventKind::Down(MouseButton::Left) {
                 self.focus_at(event.column, event.row);
@@ -4859,17 +4872,6 @@ impl App {
             }
         }
 
-        if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && !self.loading()
-            && self
-                .conversation
-                .borrow()
-                .jump_hit
-                .is_some_and(|area| area.contains((event.column, event.row).into()))
-        {
-            self.scroll_pane(Pane::Replies, Step::Bottom);
-            return Effect::None;
-        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self

@@ -1,8 +1,8 @@
 //! Jump to latest (#5920): while the reader is scrolled away from the bottom, a boxed button
-//! sits over the bottom-right of the body, `↓ Jump to latest · N new` with `End` on its lower
-//! edge. It covers content without moving a line; a click does what End does. N counts the
-//! messages painted since the reader left the bottom. A body too small for the box gets one
-//! line, `↓ Latest · End`.
+//! sits over the bottom-right of the body, `↓ Jump to latest · N new` inside a plain border
+//! (#6051). It covers content without moving a line; a click anywhere in it does what End does.
+//! N counts the messages painted since the reader left the bottom. A body too small for the box
+//! gets one line, `↓ Latest`.
 use super::Session;
 use crate::look::Look;
 use ratatui::{
@@ -80,18 +80,14 @@ fn paint(frame: &mut Frame, new: usize, body: Rect, look: Look) -> Option<Rect> 
                 Span::styled(label, look.role(Role::Text)),
                 Span::styled(" │", border),
             ]),
-            Line::from(vec![
-                Span::styled("╰─ ", border),
-                Span::styled("End", look.role(Role::Text)),
-                Span::styled(format!(" {}╯", rule(width - 8)), border),
-            ]),
+            Line::styled(format!("╰{}╯", rule(width - 2)), border),
         ];
         crate::board::view::overlay_lines(frame, area, lines.into());
         return Some(area);
     }
     let short = Line::from(vec![
         Span::styled(" ↓ ", look.role(Role::Accent)),
-        Span::styled("Latest · End ", look.role(Role::Text)),
+        Span::styled("Latest ", look.role(Role::Text)),
     ]);
     let width = short.width() as u16;
     if body.width < width {
@@ -130,14 +126,14 @@ mod tests {
     }
 
     #[test]
-    fn the_button_counts_new_messages_and_names_end_on_its_lower_edge() {
+    fn the_button_counts_new_messages_inside_a_plain_border() {
         let (rows, hit) = shown(60, 8, 3);
         assert_eq!(
             rows[5..],
             [
                 "                               ╭──────────────────────────╮",
                 "                               │ ↓ Jump to latest · 3 new │",
-                "                               ╰─ End ────────────────────╯",
+                "                               ╰──────────────────────────╯",
             ]
         );
         assert_eq!(hit, Some(Rect::new(31, 5, 28, 3)));
@@ -152,8 +148,32 @@ mod tests {
     #[test]
     fn a_small_body_gets_one_line_and_a_tiny_one_none() {
         let (rows, hit) = shown(24, 3, 3);
-        assert_eq!(rows[2], "         ↓ Latest · End");
-        assert_eq!(hit, Some(Rect::new(8, 2, 16, 1)));
-        assert_eq!(shown(10, 3, 3).1, None);
+        assert_eq!(rows[2], "               ↓ Latest");
+        assert_eq!(hit, Some(Rect::new(14, 2, 10, 1)));
+        assert_eq!(shown(9, 3, 3).1, None);
+    }
+
+    /// #6051: a double-width character cut by the box's left edge is blanked, so the border shows.
+    #[test]
+    fn a_wide_character_under_the_edge_leaves_the_border_whole() {
+        let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+        terminal
+            .draw(|frame| {
+                let body = frame.area();
+                let wide = "問".repeat(30);
+                for y in 0..8 {
+                    frame
+                        .buffer_mut()
+                        .set_string(0, y, &wide, ratatui::style::Style::default());
+                }
+                paint(frame, 3, body, Look::default());
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        // The box starts at an odd column, the second half of a wide character.
+        for (y, corner) in [(5, "╭"), (6, "│"), (7, "╰")] {
+            assert_eq!(buffer[(31, y)].symbol(), corner);
+            assert_eq!(buffer[(30, y)].symbol(), " ", "row {y}");
+        }
     }
 }

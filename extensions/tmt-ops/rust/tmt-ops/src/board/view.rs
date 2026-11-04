@@ -304,15 +304,24 @@ pub(in crate::board) fn render_frame(
 }
 
 /// Lines painted over a finished frame in `area`, each cell reset first so nothing beneath
-/// shows through: the Colab chip card and Jump to latest.
+/// shows through: the Colab chip card and Jump to latest. A double-width character cut by either
+/// edge is blanked too, so its other half cannot draw over the overlay's border (#6051).
 pub(in crate::board) fn overlay_lines(
     frame: &mut Frame,
     area: Rect,
     lines: Vec<ratatui::text::Line<'_>>,
 ) {
+    use unicode_width::UnicodeWidthStr;
     let area = area.intersection(frame.area());
     let buffer = frame.buffer_mut();
     for y in area.top()..area.bottom() {
+        if area.left() > buffer.area.left() && buffer[(area.left() - 1, y)].symbol().width() > 1 {
+            buffer[(area.left() - 1, y)].set_symbol(" ");
+        }
+        if area.right() < buffer.area.right() && buffer[(area.right() - 1, y)].symbol().width() > 1
+        {
+            buffer[(area.right(), y)].set_symbol(" ");
+        }
         for x in area.left()..area.right() {
             buffer[(x, y)].reset();
         }
