@@ -9,14 +9,22 @@ export interface BrowserTableProps {
   rows: readonly (readonly ReactNode[])[];
   /** Right-align, tabulate and monospace every column after the first. */
   numeric?: boolean;
+  /** Column indexes a narrow container may hide (`data-hide-narrow`); the host's CSS decides when. */
+  hideNarrow?: readonly number[];
+  /** Column indexes whose cells never wrap (`data-nowrap`). */
+  nowrap?: readonly number[];
 }
-export function BrowserTable({ label, columns, rows, numeric }: BrowserTableProps) {
+export function BrowserTable({ label, columns, rows, numeric, hideNarrow, nowrap }: BrowserTableProps) {
+  const cell = (index: number) => ({
+    'data-hide-narrow': hideNarrow?.includes(index) ? '' : undefined,
+    'data-nowrap': nowrap?.includes(index) ? '' : undefined,
+  });
   return (
     <table className={c.table} aria-label={label} data-numeric={numeric || undefined}>
       <thead>
         <tr>
-          {columns.map((column) => (
-            <th key={column} scope="col">
+          {columns.map((column, index) => (
+            <th key={column} scope="col" {...cell(index)}>
               {column}
             </th>
           ))}
@@ -25,9 +33,13 @@ export function BrowserTable({ label, columns, rows, numeric }: BrowserTableProp
       <tbody>
         {rows.map((row, index) => (
           <tr key={index}>
-            <th scope="row">{row[0]}</th>
+            <th scope="row" {...cell(0)}>
+              {row[0]}
+            </th>
             {row.slice(1).map((value, column) => (
-              <td key={column}>{value}</td>
+              <td key={column} {...cell(column + 1)}>
+                {value}
+              </td>
             ))}
           </tr>
         ))}

@@ -1,19 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { Checkbox } from '../ui/index.js';
+import { BrowserCommand } from '../command.js';
+import { BrowserNotice } from '../notice.js';
+import type { BrowserNoticeTone } from '../static.js';
+import { BrowserTable } from '../table.js';
+import { Checkbox } from '../ui/checkbox.js';
 import './blocks.css';
 
-// The entry reaches only ./ui. The static table, tinted notice and command exist only in the root
-// graph, so it draws them by their stable class names, as the tmt GUI ports do (#6032 review).
-const c = {
-  table: 'tmt-ui-table',
-  notice: 'tmt-ui-notice',
-  noticeEyebrow: 'tmt-ui-notice-eyebrow',
-  noticeHeading: 'tmt-ui-notice-heading',
-  noticeBody: 'tmt-ui-notice-body',
-  command: 'tmt-ui-command',
-  commandText: 'tmt-ui-command-text',
-} as const;
 
 const empty = (children: ReactNode) =>
   children === undefined || children === null || children === '';
@@ -159,34 +152,17 @@ export interface TableBlockProps {
 
 /** A table block: the shared table, collapsing on its own width (a container query), not the viewport's. */
 export function TableBlock({ label, columns = [], rows = [] }: TableBlockProps) {
-  const cell = (index: number) => ({
-    'data-hide-narrow': columns[index]?.hideNarrow ? '' : undefined,
-    'data-nowrap': columns[index]?.nowrap ? '' : undefined,
-  });
+  const indexes = (pick: (column: TableBlockColumn) => boolean | undefined) =>
+    columns.flatMap((column, index) => (pick(column) ? [index] : []));
   return (
     <div data-slot="table-block" className="tmt-block-table">
-      <table className={c.table} aria-label={label}>
-        <thead>
-          <tr>
-            {columns.map((column, index) => (
-              <th key={column.name} scope="col" {...cell(index)}>
-                {column.name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, at) => (
-            <tr key={at}>
-              {row.map((value, index) => (
-                <td key={index} {...cell(index)}>
-                  {value}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <BrowserTable
+        label={label}
+        columns={columns.map((column) => column.name)}
+        rows={rows}
+        hideNarrow={indexes((column) => column.hideNarrow)}
+        nowrap={indexes((column) => column.nowrap)}
+      />
     </div>
   );
 }
@@ -215,35 +191,38 @@ export function CardBlock({ variant = 'card', title, meta, children }: CardBlock
   );
 }
 
-export type CalloutTone = 'working' | 'waiting' | 'review' | 'blocked';
+export type CalloutTone = Exclude<BrowserNoticeTone, 'muted'>;
 /** Each tone's mark and word, so a tone never relies on colour alone. */
-export const calloutEyebrows: Record<CalloutTone, string> = {
-  working: '● Working',
-  waiting: '◆ Waiting on you',
-  review: '◇ In review',
-  blocked: '✗ Blocked',
+export const calloutLabels: Record<CalloutTone, [mark: string, word: string]> = {
+  working: ['●', 'Working'],
+  waiting: ['◆', 'Waiting on you'],
+  review: ['◇', 'In review'],
+  blocked: ['✗', 'Blocked'],
 };
 
 export interface CalloutProps {
   tone?: CalloutTone;
-  eyebrow?: string;
-  heading?: ReactNode;
+  /** Replaces the tone's word, such as "Needs you". */
+  label?: string;
+  heading?: string;
   children?: ReactNode;
 }
 
-/** A passage the reader must notice: the shared tinted notice, without a box of its own. */
-export function Callout({ tone = 'working', eyebrow, heading, children }: CalloutProps) {
+/** A passage the reader must notice: the shared tinted notice, as a note, without a box of its own. */
+export function Callout({ tone = 'working', label, heading, children }: CalloutProps) {
+  const [mark, word] = calloutLabels[tone];
   return (
-    <div
-      data-slot="callout"
-      role="note"
-      className={`${c.notice} tmt-block-callout`}
-      data-tone={tone}
-      data-tinted=""
-    >
-      <div className={c.noticeEyebrow}>{eyebrow ?? calloutEyebrows[tone]}</div>
-      {heading !== undefined && <h3 className={c.noticeHeading}>{heading}</h3>}
-      <div className={c.noticeBody}>{children}</div>
+    <div data-slot="callout" className="tmt-block-callout">
+      <BrowserNotice
+        tone={tone}
+        variant="tinted"
+        announcement="note"
+        mark={mark}
+        stateLabel={label ?? word}
+        title={heading}
+        headingLevel="h3"
+        body={children}
+      />
     </div>
   );
 }
@@ -276,13 +255,7 @@ export function CodeBlock({
   copiedLabel = 'Copied',
 }: CodeBlockProps) {
   if (variant === 'command')
-    return (
-      <div className={c.command}>
-        <pre className={c.commandText}>
-          <code>{text}</code>
-        </pre>
-      </div>
-    );
+    return <BrowserCommand text={text} />;
   return (
     <div data-slot="code-block" className="tmt-block-code">
       <div className="tmt-block-code-head">

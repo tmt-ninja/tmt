@@ -183,7 +183,7 @@ export const blockComponents: ComponentDoc[] = [
         'Callout block',
         'callout',
         'Callout',
-        'The shared tinted notice in four tones (working, waiting, review, blocked), each with its mark and word (calloutEyebrows) so colour is never alone; role note.',
+        'The shared tinted notice in four tones (working, waiting, review, blocked), each with its mark and word (calloutLabels) so colour is never alone; role note.',
         '<Callout tone="waiting" heading="Look before merging">The pull request stays a draft.</Callout>',
         520,
       ],

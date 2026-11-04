@@ -13,7 +13,7 @@
       ],
       "default": "working"
     },
-    "eyebrow": {
+    "label": {
       "type": "string"
     },
     "heading": {
@@ -28,7 +28,7 @@
     "module": "/src/blocks/content.tsx",
     "component": "Callout",
     "parts": [],
-    "compose": "<Callout tone=\"{tone}\" eyebrow=\"{eyebrow}\" heading=\"{heading}\">{children}</Callout>"
+    "compose": "<Callout tone=\"{tone}\" label=\"{label}\" heading=\"{heading}\">{children}</Callout>"
   },
   "examples": [
     {

@@ -35,7 +35,7 @@ export {
   TableBlock,
   TextBlock,
   TodoBlock,
-  calloutEyebrows,
+  calloutLabels,
 } from './content.js';
 export type {
   CalloutProps,

@@ -175,7 +175,7 @@ export interface CardBlockProps {
 /** <tmt-ui-callout>: props from its schema, slots as nodes. */
 export interface CalloutProps {
   tone?: "working" | "waiting" | "review" | "blocked";
-  eyebrow?: string;
+  label?: string;
   heading?: string;
   children?: ReactNode;
 }

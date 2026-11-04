@@ -8,11 +8,12 @@ export interface BrowserNoticeProps {
   mark: ReactNode;
   stateLabel: string;
   eyebrow?: string;
-  title: string;
+  /** Left out, the notice has no heading (a callout block's plain passage). */
+  title?: string;
   body: ReactNode;
   actions?: ReactNode;
   /** `none` renders the title as a styled block, for a sample that must stay out of the page's heading outline. */
-  headingLevel?: 'h2' | 'none';
+  headingLevel?: 'h2' | 'h3' | 'none';
 }
 export function BrowserNotice({
   tone,
@@ -26,7 +27,7 @@ export function BrowserNotice({
   actions,
   headingLevel = 'h2',
 }: BrowserNoticeProps) {
-  const Title: ElementType = headingLevel === 'none' ? 'div' : 'h2';
+  const Title: ElementType = headingLevel === 'none' ? 'div' : headingLevel;
   return (
     <section
       className={c.notice}
@@ -39,7 +40,7 @@ export function BrowserNotice({
         <span aria-hidden="true">{mark}</span>
         <span>{stateLabel}</span>
       </div>
-      <Title className={c.noticeHeading}>{title}</Title>
+      {title !== undefined && <Title className={c.noticeHeading}>{title}</Title>}
       <div className={c.noticeBody}>{body}</div>
       {actions !== undefined && <div className={c.noticeActions}>{actions}</div>}
     </section>

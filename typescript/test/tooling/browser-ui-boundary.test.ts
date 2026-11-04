@@ -57,7 +57,8 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   },
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
-  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
+  // './react' names the root graph: the shared static-drawing parts (table, notice, command).
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./ui', './react'] },
 };
 // Modules with no edges at all, which every graph may import.
 const NEUTRAL = ['overlay.ts'];
@@ -71,14 +72,20 @@ interface Graph {
   directory: string;
   packages: string[];
   graphs: string[];
+  /** The graph may also reach the root graph: src files outside every directory graph. */
+  root: boolean;
 }
+const ROOT_GRAPH = './react';
 function graphsOf(sourceRoot: string): Graph[] {
   return directoryExports.map(({ name, directory }) => ({
     directory: path.join(sourceRoot, directory),
     packages: GRAPH_POLICIES[name]?.packages ?? [],
-    graphs: (GRAPH_POLICIES[name]?.graphs ?? []).map((other) =>
-      path.join(sourceRoot, directoryExports.find((entry) => entry.name === other)!.directory)
-    ),
+    graphs: (GRAPH_POLICIES[name]?.graphs ?? [])
+      .filter((other) => other !== ROOT_GRAPH)
+      .map((other) =>
+        path.join(sourceRoot, directoryExports.find((entry) => entry.name === other)!.directory)
+      ),
+    root: GRAPH_POLICIES[name]?.graphs?.includes(ROOT_GRAPH) ?? false,
   }));
 }
 const inside = (file: string, directory: string) => file.startsWith(`${directory}/`);
@@ -146,9 +153,13 @@ function violations(
       { moduleResolution: ts.ModuleResolutionKind.Bundler, ...options },
       ts.sys
     ).resolvedModule?.resolvedFileName;
+    const inRoot = !graphs.some((other) => target && inside(target, other.directory));
     const reachable = graph
-      ? [graph.directory, ...graph.graphs].some((directory) => target && inside(target, directory))
-      : !graphs.some((other) => target && inside(target, other.directory));
+      ? [graph.directory, ...graph.graphs].some(
+          (directory) => target && inside(target, directory)
+        ) ||
+        (graph.root && inRoot)
+      : inRoot;
     if (
       !target ||
       !inside(target, sourceRoot) ||

@@ -1071,7 +1071,7 @@
 .tmt-block-card-body > .tmt-block {
   margin-top: 0;
 }
-.tmt-block-callout.tmt-ui-notice {
+.tmt-block-callout > .tmt-ui-notice {
   margin: 0;
 }
 .tmt-block-code {
