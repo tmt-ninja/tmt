@@ -180,6 +180,19 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         let seat = &mut report.seats[0];
         seat.input = 0;
         seat.output = 0;
+        seat.model_totals = Some(vec![]);
+        let id = seat.who.id.as_deref().unwrap();
+        let member = doc["members"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|member| member["identityId"].as_str() == Some(id))
+            .unwrap();
+        member["savings"]["estimatedInputTokensAvoided"] = serde_json::json!(0);
+        member["savings"]["percent"] = serde_json::Value::Null;
+        for point in member["savings"]["series"].as_array_mut().unwrap() {
+            point["estimatedInputTokensAvoided"] = serde_json::json!(0);
+        }
         if let Some(series) = seat.window_series.as_mut() {
             for point in &mut series.points {
                 point.tokens = 0;
