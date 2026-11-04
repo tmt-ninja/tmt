@@ -6,6 +6,7 @@ import {
   type ShellMenuInteractions,
 } from './shell-menu-interactions.js';
 import { countText } from './static.js';
+import { keyTurn } from './trusted-activation.js';
 import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from './topbar.js';
 export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
 
@@ -709,39 +710,19 @@ export function mountShell(
       button.append(icon(document, mark));
       tipFor(button, action.label);
     } else button.textContent = action.label;
-    let keyTurn: Event | undefined;
+    // Plain DOM listeners: the key turn lasts until the next task (see keyTurn).
+    const turn = keyTurn('task');
     const recordKey = (event: KeyboardEvent) => {
       if (
-        event.defaultPrevented ||
-        !event.isTrusted ||
-        !(
-          (event.key === 'Enter' && event.type === 'keydown') ||
-          (event.key === ' ' && event.type === 'keyup')
-        )
+        (event.key === 'Enter' && event.type === 'keydown') ||
+        (event.key === ' ' && event.type === 'keyup')
       )
-        return;
-      keyTurn = event;
-      // #6016: native listeners may run a microtask checkpoint between handlers of the same key.
-      // Expire at the next task; TrustedMenuItem's React handler can use a microtask instead.
-      setTimeout(() => {
-        if (keyTurn === event) keyTurn = undefined;
-      }, 0);
+        turn.record(event);
     };
     button.addEventListener('keydown', recordKey);
     button.addEventListener('keyup', recordKey);
     button.onclick = (event) => {
-      const origin = keyTurn?.target;
-      const target = event.target;
-      const matchingKey =
-        !keyTurn?.defaultPrevented &&
-        origin instanceof Node &&
-        target instanceof Node &&
-        origin.contains(target)
-          ? keyTurn
-          : undefined;
-      // #6016 will move this import-free trust check to a neutral home shared with UI.
-      const admitted = event.isTrusted || matchingKey?.isTrusted === true;
-      if (admitted) keyTurn = undefined;
+      const admitted = turn.admit(event);
       if (event.defaultPrevented || !admitted || button.disabled) return;
       setDrawer(false);
       activate();

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { composeTrustedHandler, trustedActivation } from '../src/ui/trusted-activation.js';
+import { composeTrustedHandler, keyTurn, trustedActivation } from '../src/trusted-activation.js';
 
 it('refuses synthetic pointer and key activations, including a synthetic click after a synthetic key', () => {
   const click = new Event('click');
@@ -63,4 +63,55 @@ it('forwards caller key handlers on both trusted menu components', async () => {
   expect(received).toHaveLength(2);
   expect(caller).toHaveBeenCalledTimes(2);
   vi.doUnmock('../src/ui/dropdown-menu.js');
+});
+
+// The tests run without a DOM: a small Node stand-in gives targets containment, and plain objects
+// stand in for trusted events, which a script cannot create.
+class FakeNode {
+  constructor(readonly parent?: FakeNode) {}
+  contains(other: FakeNode | undefined): boolean {
+    for (let node = other; node; node = node.parent) if (node === this) return true;
+    return false;
+  }
+}
+const event = (isTrusted: boolean, target: FakeNode) =>
+  ({ isTrusted, defaultPrevented: false, target }) as unknown as Event;
+
+it('a key turn admits one synthetic click inside the element that took the trusted key', () => {
+  vi.stubGlobal('Node', FakeNode);
+  try {
+    const button = new FakeNode();
+    const label = new FakeNode(button);
+    const elsewhere = new FakeNode();
+    const turn = keyTurn('task');
+    expect(turn.admit(event(true, elsewhere))).toBe(true);
+    expect(turn.admit(event(false, label))).toBe(false);
+    turn.record(event(false, button));
+    expect(turn.admit(event(false, label))).toBe(false);
+    turn.record(event(true, button));
+    expect(turn.admit(event(false, elsewhere))).toBe(false);
+    expect(turn.admit(event(false, label))).toBe(true);
+    expect(turn.admit(event(false, label))).toBe(false);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('a task key turn outlives microtasks and a microtask one does not', async () => {
+  vi.stubGlobal('Node', FakeNode);
+  try {
+    const button = new FakeNode();
+    const task = keyTurn('task');
+    const micro = keyTurn('microtask');
+    task.record(event(true, button));
+    micro.record(event(true, button));
+    await Promise.resolve();
+    expect(micro.admit(event(false, button))).toBe(false);
+    expect(task.admit(event(false, button))).toBe(true);
+    task.record(event(true, button));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(task.admit(event(false, button))).toBe(false);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

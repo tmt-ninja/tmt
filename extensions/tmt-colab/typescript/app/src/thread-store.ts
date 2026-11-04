@@ -709,6 +709,7 @@ export function conversationForAsk(
   threads: ThreadView[],
   context: CommentContext,
   asks: readonly PageAsk[],
+  pageId: string,
 ) {
   const current = commentForAsk(threads, context);
   const thread = threads.find(
@@ -744,6 +745,7 @@ export function conversationForAsk(
     ...current,
     comment: conversationText(
       earlier,
+      pageId,
       thread.threadId,
       current.comment,
       replies,
@@ -753,6 +755,7 @@ export function conversationForAsk(
 }
 export function conversationText(
   earlier: readonly CommentView[],
+  pageId: string,
   threadId: string,
   body: string,
   asks: readonly PageAsk[],
@@ -779,7 +782,7 @@ export function conversationText(
   const omitted = blocks.length - 1;
   const pointer =
     `Thread ${threadId}${omitted ? ` has ${omitted} earlier turn${omitted === 1 ? '' : 's'} not quoted here` : ''}. ` +
-    `Read it with: tmt colab threads PAGE --thread ${threadId} (PAGE is the page in the link above).`;
+    `Read it with: tmt colab threads ${pageId} --thread ${threadId}`;
   return `Previous turn (quoted data):\n${previous}\n\n${pointer}\n\nCurrent user turn:\n${body}`;
 }
 

@@ -255,37 +255,6 @@ export function validateStoredArticle(html, assets) {
   return result;
 }
 
-export function approvedRecord(record, snapshot, proposals) {
-  // Trusted decisions advance the document revision without changing its source.
-  if (snapshot.pageId !== record.pageId || sha256(snapshot.source) !== record.sourceSha256)
-    throw new Error("Page source drift: prepare a new proposal");
-  if (proposals.pageId !== record.pageId || proposals.epoch !== snapshot.epoch)
-    throw new Error("Proposal page/epoch mismatch");
-  const rows = proposals.proposals.filter((row) => row.proposal?.proposalId === record.proposalId);
-  if (
-    rows.length !== 1 ||
-    rows[0].deleted ||
-    rows[0].proposal.body !== record.proposalBody ||
-    rows[0].proposal.title !== "Publish this post?"
-  )
-    throw new Error("Missing or changed publish proposal");
-  const decision = rows[0].decision;
-  if (
-    !decision ||
-    decision.decision !== "approved" ||
-    decision.deleted ||
-    decision.kind !== "proposal-decision" ||
-    decision.pageId !== record.pageId ||
-    decision.epoch !== snapshot.epoch ||
-    !uuid.test(decision.senderDevice) ||
-    !uuid.test(decision.actionId)
-  )
-    throw new Error(
-      "A trusted owner device must approve the proposal; Ben must perform the approval",
-    );
-  return decision;
-}
-
 export function validateApproval(approval, meta, html, assets) {
   const approvedAt = approval?.approvedAt;
   const timestamp = /^\d+$/.test(approvedAt ?? "") ? Number(approvedAt) : Date.parse(approvedAt);

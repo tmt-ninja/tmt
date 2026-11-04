@@ -452,8 +452,10 @@ mod tests {
             ),
         ] {
             let mut app = reader(&format!("Plan on this page: {PAGE} see box 4."));
-            app.member_links.borrow_mut().titles =
-                super::super::colab::Titles::with(move |_| title.map(str::to_owned));
+            app.member_links.borrow_mut().titles = super::super::colab::Titles::with(
+                move |_| title.map(str::to_owned),
+                std::time::Duration::from_secs(10),
+            );
             let text = screen(&app);
             assert!(
                 text.contains("Plan on this page: ▤ Colab · 36b98efb ↗ see box 4."),

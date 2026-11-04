@@ -381,7 +381,13 @@
 .page-list-sort {
   display: inline-flex;
   flex: none;
-  font-size: 12px;
+}
+/* The shared field's line is one control tall inside its own border; here the whole field is one
+   control tall, level with the Filter and Sort buttons beside it. */
+.page-list-search-box .tmt-rich-input {
+  --tmt-foundation-control-size-l: calc(
+    var(--tmt-ui-control-size-l) - 2 * var(--tmt-ui-rule-width)
+  );
 }
 
 @media (max-width: 760px) {

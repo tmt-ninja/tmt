@@ -61,7 +61,7 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react', './ui', './data-table'] },
 };
 // Modules with no edges at all, which every graph may import.
-const NEUTRAL = ['overlay.ts', 'scoped-modal.ts'];
+const NEUTRAL = ['overlay.ts', 'scoped-modal.ts', 'trusted-activation.ts'];
 const packageExports = JSON.parse(readFileSync(path.join(home, 'package.json'), 'utf8'))
   .exports as Record<string, string>;
 const directoryExports = Object.entries(packageExports).flatMap(([name, target]) => {

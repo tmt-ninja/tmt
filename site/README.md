@@ -93,7 +93,7 @@ translation has its own `ja/`, `zh-hant/` or `zh-hans/` subdirectory with the sa
 `article.html`, `meta.json`, `approval.json`, `scripts/` and raster `images/` files
 as needed. Metadata `slug` identifies the English post and `language` identifies
 the variant. English must exist before importing translations; each language
-requires its own proposal and trusted owner approval of its exact bytes.
+requires its own explicit owner authorization of its exact content and metadata.
 
 English URLs remain `${SITE_BASE}blog/` and `blog/posts/<slug>/`. Other languages
 use `blog/<language>/` and `blog/<language>/posts/<slug>/`. The link switcher keeps
@@ -174,10 +174,9 @@ would go down. A daily tmt-mkt Squad cron commits the result as a data-only PR.
 Optional post metadata `keyNumber` is exactly `{ "value": "2.9×", "label": "tokens per line" }`.
 Both fields must be nonempty text without control characters; `value` is bounded
 to 32 characters and `label` to 100. Index and topic rows escape and render it
-in the key-number column; omitted values leave that column empty. The proposal
-body shows it and its exact metadata bytes are approval-bound. Adding or changing
-it requires a new owner-approved proposal, just like tags. Existing approved
-posts are never decorated by the template or silently rewritten.
+in the key-number column; omitted values leave that column empty. Like tags, it is
+approval-bound in `meta.json`; an `editorial.json` override can change it after
+publication under the editorial policy below.
 
 ### Tags
 
@@ -212,41 +211,41 @@ project, with strict markup validation and no automatic browser opening.
 
 ```sh
 pnpm blog:colab draft /private/path/source.html /private/path/meta.json
-pnpm blog:colab prepare PAGE_UUID /private/path/meta.json
-# Ben reviews the proposal and clicks Approve from a trusted owner device.
-pnpm blog:colab publish PROPOSAL_UUID
+# Run only after the owner explicitly authorizes this post and its metadata.
+pnpm blog:colab import PAGE_UUID /private/path/meta.json APPROVED_BY INSTRUCTION
 pnpm check
 pnpm build
 ```
 
-Prepare inventories each article module/hash and the external-request policy in
-the proposal. Import checks the page identity, full-source SHA-256, proposal body,
-trusted decision and artifact hash, then re-reads source before writing. Any
-source change requires a new proposal. Agents must never approve proposals or
-pair browsers. Colab authenticates any paired owner device, not Ben's human
-identity; Ben controls those devices and performs approval operationally.
-
-Approval evidence retains the prepared page revision. The opaque document
-revision may advance when a decision or discussion is stored; an unchanged
-full-source hash preserves the content binding across those updates.
-The trusted decision's timestamp is retained as returned by Colab (a decimal
-millisecond string); stored ISO timestamps also remain valid.
-
 Owner authorization (owner decision, 4 November 2026): the Colab `proposal`
-commands are gone from the current CLI, and the owner may authorize a post
-directly. `pnpm blog:colab import PAGE_UUID meta.json APPROVED_BY INSTRUCTION`
-captures the page like `publish` and writes an `approval.json` with
-`method: "owner-instruction"`, who authorized it, their instruction, the page
-revision, the full-source SHA-256 and the artifact hash. Validation accepts it
-only with all of those fields and the matching artifact hash. Agents run it only
-on the owner's explicit instruction for that post, and quote that instruction.
+commands are gone from the current CLI. `draft` and `import` are the supported
+blog importer commands; `prepare` and `publish` are no longer available.
+Agents run `import` only on the owner's explicit instruction for that post,
+quoting that instruction in `INSTRUCTION` and naming the owner in `APPROVED_BY`.
+Quote shell arguments containing spaces. The CLI records this authorization; it
+does not authenticate the person named in those arguments or obtain approval.
 
-The importer reads source and authenticated proposal state through the public
-CLI, never discussion exports. `.private/` review records and temporary
-attachments are local; attachments are removed after capture. Do not commit full
-Colab pages, exports, conversations or pending drafts. CI checks canonical
-article/assets and recorded hashes; it cannot authenticate Colab without private
-keys. Review the content and approval evidence in the PR.
+Import captures the page and verified attachments through the public CLI and
+writes `approval.json` with `method: "owner-instruction"`, who authorized it,
+their instruction, the captured page revision, the full-source SHA-256, an import
+timestamp and the artifact hash. Validation requires all fields and a matching
+hash of the canonical article, scripts, images and metadata. The import timestamp
+records capture, not the time the owner gave the instruction. Review those bytes
+and the authorization evidence together in the PR; changed content needs renewed
+authorization.
+
+Existing Colab approval records remain valid: their page/proposal identifiers,
+source hash, prepared revision, trusted-device decision fields and artifact hash
+are still checked at build time. Their decision timestamps retain Colab's decimal
+millisecond strings or stored ISO timestamps. New imports do not query proposal
+state or generate those legacy records.
+
+The importer never reads discussion exports. `.private/drafts` holds local draft
+pages and `.private/post-*` holds import staging until the post is moved into
+`src/posts`; failed writes remove staging. Temporary attachments are removed
+after capture. Do not commit full Colab pages, exports, conversations or pending
+drafts. CI checks canonical article/assets and recorded hashes; it cannot
+authenticate owner instructions or historical Colab decisions.
 
 Intentional `type=module` snippets become content-addressed source files, then
 Vite bundles them into external assets. They must be self-contained: build-time
@@ -258,13 +257,14 @@ an article is sandboxed. Inline event handlers and external resource URLs are
 rejected; inline article CSS cannot load resources.
 
 Import refuses to overwrite an existing language variant. For a revision, privately
-back up the variant, prepare and approve a new proposal, remove that variant's
+back up the variant, obtain the owner's authorization for the revision, remove that variant's
 tracked directory in the feature branch and import again. For English, back up
 the entire slug directory first; after importing the approved English revision,
 restore its translation directories unchanged before checking the result.
 Review the complete diff and restore the backup if import fails. Changing English
 does not approve or rewrite existing translations. Never edit committed
-article/assets or metadata without renewing approval.
+article/assets or approval-bound metadata without renewed owner authorization.
+The `editorial.json` policy above applies separately to tags and key numbers.
 
 Only the existing `Build site` job checks/builds, prunes and verifies the blog-only
 output before uploading `dist-pages`. `verify-dist --pages` rejects non-blog

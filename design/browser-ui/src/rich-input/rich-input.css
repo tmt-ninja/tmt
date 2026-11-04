@@ -47,6 +47,11 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+/* The wrapper draws the only focus ring; a host's global :focus-visible frame must not add a second
+   one around the editable inside it. */
+.tmt-rich-input-text:focus-visible {
+  outline: none;
+}
 .tmt-rich-input[data-shape='single'] .tmt-rich-input-text {
   overflow: hidden;
   white-space: nowrap;
@@ -79,6 +84,7 @@
   height: var(--tmt-foundation-chip-height);
   margin: 0 2px;
   padding: 0 2px 0 calc(var(--tmt-foundation-spacing-unit) * 2);
+  border: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-border);
   border-radius: var(--tmt-foundation-radius-pill);
   background: var(--tmt-foundation-secondary);
   color: var(--tmt-foundation-secondary-foreground);

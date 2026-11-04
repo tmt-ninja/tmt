@@ -34,11 +34,16 @@ function fixture() {
     recipient: thread.status!.recipients[0],
     thread: structuredClone(thread),
   };
-  return { own, read, thread, context };
+  return { own, read, thread, context, scope: f.scope };
 }
 it('readmits a committed person Resolve and exact frozen discussion without inventing a comment or operation', () => {
   const x = fixture();
-  const origin = statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice);
+  const origin = statusNotificationForAsk(
+    x.read(),
+    x.context,
+    x.thread.status!.senderDevice,
+    x.scope.pageId,
+  );
   expect(origin).toMatchObject({
     thread: x.thread.threadId,
     messageIds: [],
@@ -64,13 +69,20 @@ it('readmits a committed person Resolve and exact frozen discussion without inve
     const pristine = structuredClone(x.context);
     mutate();
     expect(() =>
-      statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice),
+      statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice, x.scope.pageId),
     ).toThrow();
     x.context = pristine;
   }
-  expect(() => statusNotificationForAsk(x.read(), x.context, crypto.randomUUID())).toThrow();
   expect(() =>
-    statusNotificationForAsk([x.thread, x.thread], x.context, x.thread.status!.senderDevice),
+    statusNotificationForAsk(x.read(), x.context, crypto.randomUUID(), x.scope.pageId),
+  ).toThrow();
+  expect(() =>
+    statusNotificationForAsk(
+      [x.thread, x.thread],
+      x.context,
+      x.thread.status!.senderDevice,
+      x.scope.pageId,
+    ),
   ).toThrow();
 });
 it('projects admitted pre-ledger failure, held, refused and uncertain outcomes after reload without dispatch capability', () => {
@@ -193,7 +205,7 @@ it('a later effective status prevents preparation from a superseded Resolve', ()
     };
     x.own[action.senderDevice].messages[discussionKey(action)] = action;
     expect(() =>
-      statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice),
+      statusNotificationForAsk(x.read(), x.context, x.thread.status!.senderDevice, x.scope.pageId),
     ).toThrow();
   }
 });
