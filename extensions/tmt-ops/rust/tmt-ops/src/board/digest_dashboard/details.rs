@@ -296,7 +296,9 @@ pub(super) fn panel(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<String> 
     {
         lines.extend(inline.lines());
     }
-    if let Some((status, _)) = app.labels.digest() {
+    if !selected.all
+        && let Some((status, _)) = app.labels.digest()
+    {
         lines.push(format!(
             "Status observed: {}",
             model::observation_time(Some(status.observed_at_ms), now_ms, &zone(app))

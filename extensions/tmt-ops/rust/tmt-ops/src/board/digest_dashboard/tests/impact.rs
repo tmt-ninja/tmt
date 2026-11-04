@@ -170,7 +170,13 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         member
     }).collect();
     if scene == "digest-zero-and-no-source" && report.seats.len() >= 2 {
-        report.seats.remove(0);
+        let missing = report.seats.remove(0);
+        report
+            .unavailable
+            .push(crate::board::usage_report::model::Unavailable {
+                who: missing.who,
+                reason: "no usage source".into(),
+            });
         let seat = &mut report.seats[0];
         seat.input = 0;
         seat.output = 0;
@@ -552,5 +558,20 @@ fn chart_axis_stays_inside_the_plot_and_shows_the_selected_window() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
+    let _no_commands = crate::runner::forbid_commands();
+    for (scene, expected) in [
+        ("digest-zero-and-no-source", "no usage source"),
+        ("digest-populated-timer", "check status"),
+        ("digest-all-readonly", "Details · all"),
+        ("digest-dollar-totals", "$ window totals; chart stays TOK"),
+    ] {
+        let mut app = capture_case(scene, crate::look::Look::default());
+        let shown = paint(&mut app, 160, 50);
+        assert!(shown.contains(expected), "{scene}: {expected}: {shown}");
     }
 }
