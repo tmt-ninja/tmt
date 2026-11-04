@@ -19,6 +19,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Accessible context",
+      "markup": "<p>3 <tmt-ui-visually-hidden>unread messages</tmt-ui-visually-hidden></p>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

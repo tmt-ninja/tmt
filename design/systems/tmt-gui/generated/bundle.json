@@ -1903,6 +1903,14 @@
     {
      "title": "BrowserMenu",
      "markup": "<tmt-ui-menu label=\"Options\" items=\"Open,Archive\"></tmt-ui-menu>"
+    },
+    {
+     "title": "Page actions",
+     "markup": "<tmt-ui-menu label=\"Page actions\" items=\"Rename,Duplicate,Archive\"></tmt-ui-menu>"
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-menu label=\"Options\"></tmt-ui-menu>"
     }
    ],
    "css": "",
@@ -2448,6 +2456,14 @@
     {
      "title": "Dialog-Drawer-Panel",
      "markup": "<tmt-ui-dialog-drawer-panel label=\"Details\" kind=\"dialog\">Content</tmt-ui-dialog-drawer-panel>"
+    },
+    {
+     "title": "Drawer",
+     "markup": "<tmt-ui-dialog-drawer-panel label=\"Page details\" kind=\"drawer\">Details about the page.</tmt-ui-dialog-drawer-panel>"
+    },
+    {
+     "title": "Panel",
+     "markup": "<tmt-ui-dialog-drawer-panel label=\"Settings\" kind=\"panel\">Adjust your settings.</tmt-ui-dialog-drawer-panel>"
     }
    ],
    "css": "",
@@ -2471,6 +2487,10 @@
     {
      "title": "Shell",
      "markup": "<tmt-ui-shell items=\"Colab,Design,Remote\">Content</tmt-ui-shell>"
+    },
+    {
+     "title": "Modules",
+     "markup": "<tmt-ui-shell items=\"Home,Colab,Design,Remote\">Your workspace</tmt-ui-shell>"
     }
    ],
    "css": "",
@@ -2497,6 +2517,10 @@
     {
      "title": "Notifications",
      "markup": "<tmt-ui-notifications label=\"Notify\" message=\"A reply arrived\"></tmt-ui-notifications>"
+    },
+    {
+     "title": "Reply",
+     "markup": "<tmt-ui-notifications label=\"Show reply\" message=\"A member replied to your discussion\"></tmt-ui-notifications>"
     }
    ],
    "css": "",
@@ -2522,6 +2546,14 @@
     {
      "title": "BrowserCardMeter",
      "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"72\"></tmt-ui-card-meter>"
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"0\"></tmt-ui-card-meter>"
+    },
+    {
+     "title": "Full",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"100\"></tmt-ui-card-meter>"
     }
    ],
    "css": "",
@@ -2547,6 +2579,10 @@
     {
      "title": "BrowserOverview",
      "markup": "<tmt-ui-overview heading=\"Your team\" description=\"Current activity\">Overview</tmt-ui-overview>"
+    },
+    {
+     "title": "Overview with facts",
+     "markup": "<tmt-ui-overview heading=\"Workspace\" description=\"A view of current work\"><tmt-ui-status-tile label=\"Working\" value=\"3\" tone=\"working\" numeric></tmt-ui-status-tile></tmt-ui-overview>"
     }
    ],
    "css": "",
@@ -2565,6 +2601,10 @@
     {
      "title": "BrowserEditorial",
      "markup": "<tmt-ui-editorial><h2>Notes</h2><p>Long-form content.</p></tmt-ui-editorial>"
+    },
+    {
+     "title": "Article",
+     "markup": "<tmt-ui-editorial><h2>Page heading</h2><p>A short introduction to the work.</p><p>A second paragraph adds context.</p></tmt-ui-editorial>"
     }
    ],
    "css": "",
@@ -2583,6 +2623,10 @@
     {
      "title": "BrowserVisuallyHidden",
      "markup": "<tmt-ui-visually-hidden>Accessible label</tmt-ui-visually-hidden>"
+    },
+    {
+     "title": "Accessible context",
+     "markup": "<p>3 <tmt-ui-visually-hidden>unread messages</tmt-ui-visually-hidden></p>"
     }
    ],
    "css": "",
@@ -2608,11 +2652,15 @@
     {
      "title": "BrowserChart",
      "markup": "<tmt-ui-chart label=\"Activity\" values=\"3,7,5\"></tmt-ui-chart>"
+    },
+    {
+     "title": "Progress",
+     "markup": "<tmt-ui-chart label=\"Progress\" values=\"1,2,4,6,8\"></tmt-ui-chart>"
     }
    ],
    "css": "",
    "code": "return ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n"
   }
  ],
- "hash": "sha256-3b2abdddaadbfcfcb9bc63d89a626c25137df72f1743b112e697db6283c85633"
+ "hash": "sha256-3ab596ba03e6926775223bc0145bf540690b74542775019987ee7c8e95ff97b4"
 }

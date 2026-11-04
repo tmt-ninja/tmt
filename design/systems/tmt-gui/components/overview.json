@@ -26,6 +26,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Overview with facts",
+      "markup": "<tmt-ui-overview heading=\"Workspace\" description=\"A view of current work\"><tmt-ui-status-tile label=\"Working\" value=\"3\" tone=\"working\" numeric></tmt-ui-status-tile></tmt-ui-overview>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

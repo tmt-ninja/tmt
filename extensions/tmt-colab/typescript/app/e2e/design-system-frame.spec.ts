@@ -161,6 +161,23 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
+test('Browser overlay and meter examples use their real parts', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-dialog-drawer-panel label="Page details" kind="drawer">Details about the page.</tmt-ui-dialog-drawer-panel>
+     <tmt-ui-card-meter heading="Allowance" value="100"></tmt-ui-card-meter>`,
+  );
+  await expect(frame.getByRole('meter', { name: 'Allowance' })).toHaveAttribute(
+    'aria-valuenow',
+    '100',
+  );
+  await frame.getByRole('button', { name: 'Open Page details' }).click();
+  await expect(frame.getByText('Details about the page.')).toBeVisible();
+  await frame.getByRole('button', { name: /Close Page details/ }).click();
+  await expect(frame.getByText('Details about the page.')).toBeHidden();
+});
+
 test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({
   page,
 }) => {

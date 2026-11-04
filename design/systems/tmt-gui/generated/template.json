@@ -2787,6 +2787,22 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Page actions",
+     "markup": "<tmt-ui-menu label=\"Page actions\" items=\"Rename,Duplicate,Archive\"></tmt-ui-menu>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-menu label=\"Options\"></tmt-ui-menu>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "export default ({ React, ui }) => ({ label = 'Options', items = '' }) =>\n  React.createElement(ui.BrowserMenu, { label, triggerText: label,\n    items: items.split(',').map((item) => item.trim()).filter(Boolean).map((item) => ({ key: item, label: item })),\n    onSelect: () => {} });\n",
@@ -3509,6 +3525,22 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Drawer",
+     "markup": "<tmt-ui-dialog-drawer-panel label=\"Page details\" kind=\"drawer\">Details about the page.</tmt-ui-dialog-drawer-panel>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Panel",
+     "markup": "<tmt-ui-dialog-drawer-panel label=\"Settings\" kind=\"panel\">Adjust your settings.</tmt-ui-dialog-drawer-panel>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// The selected real Browser overlay retains its open state locally.\nexport default ({ React, ui }) => function Overlay({ label = 'Details', kind = 'dialog', children }) {\n  const [open, setOpen] = React.useState(false);\n  const h = React.createElement;\n  const Part = kind === 'drawer' ? ui.BrowserDrawer : kind === 'panel' ? ui.BrowserPanel : ui.BrowserDialog;\n  return h(ui.UiTheme, null, h(ui.BrowserAction, { type: 'button', label: `Open ${label}`, variant: 'secondary', onActivate: () => setOpen(true) }),\n    h(Part, { open, title: label, mode: kind === 'panel' ? 'card' : undefined, onDismiss: () => setOpen(false) }, children));\n};\n",
@@ -3534,6 +3566,14 @@
     {
      "title": "Shell",
      "markup": "<tmt-ui-shell items=\"Colab,Design,Remote\">Content</tmt-ui-shell>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Modules",
+     "markup": "<tmt-ui-shell items=\"Home,Colab,Design,Remote\">Your workspace</tmt-ui-shell>",
      "widths": [
       1440,
       390
@@ -3570,6 +3610,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Reply",
+     "markup": "<tmt-ui-notifications label=\"Show reply\" message=\"A member replied to your discussion\"></tmt-ui-notifications>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// The real notifications surface receives an example event when activated.\nexport default ({ React, ui }) => function Notifications({ label = 'Notify', message = 'A reply arrived' }) {\n  const [events, setEvents] = React.useState([]);\n  const h = React.createElement;\n  return h(React.Fragment, null,\n    h(ui.BrowserAction, { type: 'button', label, variant: 'secondary', onActivate: () => setEvents([{ id: String(Date.now()), destination: 'Chat', firstLine: message, onActivate: () => {} }]) }),\n    h(ui.BrowserNotifications, { pageKey: 'example', events, suspended: false, isEligible: () => true }));\n};\n",
@@ -3597,6 +3645,22 @@
     {
      "title": "BrowserCardMeter",
      "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"72\"></tmt-ui-card-meter>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"0\"></tmt-ui-card-meter>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Full",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"100\"></tmt-ui-card-meter>",
      "widths": [
       1440,
       390
@@ -3632,6 +3696,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Overview with facts",
+     "markup": "<tmt-ui-overview heading=\"Workspace\" description=\"A view of current work\"><tmt-ui-status-tile label=\"Working\" value=\"3\" tone=\"working\" numeric></tmt-ui-status-tile></tmt-ui-overview>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "export default ({ React, ui }) => (props) => React.createElement(ui.BrowserOverview, props);\n",
@@ -3656,6 +3728,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Article",
+     "markup": "<tmt-ui-editorial><h2>Page heading</h2><p>A short introduction to the work.</p><p>A second paragraph adds context.</p></tmt-ui-editorial>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "export default ({ React, ui }) => (props) => React.createElement(ui.BrowserEditorial, props);\n",
@@ -3676,6 +3756,14 @@
     {
      "title": "BrowserVisuallyHidden",
      "markup": "<tmt-ui-visually-hidden>Accessible label</tmt-ui-visually-hidden>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Accessible context",
+     "markup": "<p>3 <tmt-ui-visually-hidden>unread messages</tmt-ui-visually-hidden></p>",
      "widths": [
       1440,
       390
@@ -3711,11 +3799,19 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Progress",
+     "markup": "<tmt-ui-chart label=\"Progress\" values=\"1,2,4,6,8\"></tmt-ui-chart>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "export default ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n",
    "css": ""
   }
  ],
- "mirrorRevision": "0e03a1568b1be87258e972229a8d3974fbb45ef0c8670cfed1c30ebb62c7c664"
+ "mirrorRevision": "1e549d5247880b363eda515bf93fcd9381ed0961f1310fd8dbe4937a9f1cfd9e"
 }

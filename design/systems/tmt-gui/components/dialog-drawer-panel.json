@@ -34,6 +34,22 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Drawer",
+      "markup": "<tmt-ui-dialog-drawer-panel label=\"Page details\" kind=\"drawer\">Details about the page.</tmt-ui-dialog-drawer-panel>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Panel",
+      "markup": "<tmt-ui-dialog-drawer-panel label=\"Settings\" kind=\"panel\">Adjust your settings.</tmt-ui-dialog-drawer-panel>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

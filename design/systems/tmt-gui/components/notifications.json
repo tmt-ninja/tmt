@@ -27,6 +27,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Reply",
+      "markup": "<tmt-ui-notifications label=\"Show reply\" message=\"A member replied to your discussion\"></tmt-ui-notifications>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

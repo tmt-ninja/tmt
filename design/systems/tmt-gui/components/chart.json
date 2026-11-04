@@ -26,6 +26,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Progress",
+      "markup": "<tmt-ui-chart label=\"Progress\" values=\"1,2,4,6,8\"></tmt-ui-chart>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }
