@@ -105,7 +105,7 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. Restricted holds retain one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide in request preparation: refuse before storing or hold for a person until `talks.resume`. Jobs share request acceptance; adapter `tick` owns their clock, CLI timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. Restricted holds keep one pending marker per identity; the shared wake clock and tagged checklists admit and settle summaries. Sending rules and talk limits refuse or hold in request preparation. Jobs share request acceptance; adapter `tick` owns their clock, CLI timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -116,7 +116,7 @@ recomputed selection or bare skips.
 `tmt-command-output` owns shared command output/errors and formatting.
 Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
 help, `Interaction` and `progress`. This presentation leaf has no TMT
-dependencies; the architecture guard enforces that boundary.
+dependencies; the architecture guard enforces it.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
@@ -287,7 +287,7 @@ the durable identity inbox, which settles `queued`. Unbound identity delivery us
 the foreground observer and recipient pull. The [request contract](contracts/request-response-v1.md)
 owns behavior and limits.
 
-Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md) and one [price file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects, status reads.
+Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md) and one [price file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects; status reads.
 A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off; an `auto` member is held like an interval one until [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery).
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
@@ -408,13 +408,13 @@ own module/drawing boundaries and verification.
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
   `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS; checklists and legacy job sources live in
+  Ops uses CAS; checklists and legacy jobs live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  Jobs/runs belong to Core; Ops imports legacy ones once.
+  Core owns jobs/runs; Ops imports legacy ones once.
   `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
-  Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
-  its store tracks one CLI and one board warning, and the board worker forwards the latter.
-  No Ops configuration/checklist data enters `config.json` or Core storage.
+  Cron's v1 conversion exports conflicting source bytes privately before commit;
+  its store tracks one CLI and one board warning; the board worker forwards the latter.
+  No Ops config/checklist data enters `config.json` or Core storage.
   Confirmed lead changes separately offer the global squad-lead union through Core's
   orchestration preview/consent/CAS; Core owns that list and its permission checks.
 - **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
