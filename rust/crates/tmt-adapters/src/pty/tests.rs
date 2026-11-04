@@ -295,6 +295,43 @@ fn a_control_answer_after_an_unread_exit_on_the_same_connection_is_still_the_ans
 }
 
 #[test]
+fn a_waiting_control_ends_with_the_program_instead_of_running_out_its_time() {
+    let member = Member::start(&["sh", "-c", "read l"]);
+    let mut wrapper = member.connect();
+    let waiting = std::thread::spawn(move || {
+        let started = Instant::now();
+        let reply = wrapper.control(tmt_pty_protocol::Control::WaitLauncher, WAIT);
+        (reply, started.elapsed())
+    });
+    // No launcher listens, so only the program's exit can answer the wait.
+    let mut client = member.connect();
+    client.input(b"\r").unwrap();
+    let (reply, took) = waiting.join().unwrap();
+    // A wait already queued ends with the exit; one that arrives after it is refused.
+    match reply {
+        Err(error) => assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof),
+        Ok(reply) => assert!(
+            matches!(reply, tmt_pty_protocol::ControlReply::Error(_)),
+            "{reply:?}"
+        ),
+    }
+    assert!(took < WAIT, "the wait ended with the exit, not its timeout");
+    wait_ended(&member.directory, &member.id);
+    // After the exit, both waits are answered at once.
+    for request in [
+        tmt_pty_protocol::Control::WaitLauncher,
+        tmt_pty_protocol::Control::AwaitLaunch,
+    ] {
+        assert!(matches!(
+            member.connect().control(request, WAIT).unwrap(),
+            tmt_pty_protocol::ControlReply::Error(_)
+        ));
+    }
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
 fn a_program_runs_to_the_end_with_nobody_attached() {
     // More output than any terminal or socket buffer holds: it finishes only if
     // the supervisor keeps reading while no client is there.

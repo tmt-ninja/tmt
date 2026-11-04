@@ -993,6 +993,13 @@ impl Supervisor {
     /// Controls share the supervisor's serialization with the stream. No control
     /// creates key activity, resizes the terminal or captures scrollback.
     fn control(&mut self, index: usize, request: Control) {
+        // Nothing runs to listen or launch after the program ended, so a wait that
+        // arrives then is answered at once instead of never.
+        if matches!(request, Control::WaitLauncher | Control::AwaitLaunch) && self.child.is_none() {
+            let answer = ControlReply::Error("the program has ended".into());
+            self.clients[index].queue(&ServerMessage::Control(answer));
+            return;
+        }
         if request == Control::WaitLauncher && !self.launcher_listening {
             self.clients[index].wait_launcher = true;
             return;

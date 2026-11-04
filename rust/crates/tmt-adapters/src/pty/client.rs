@@ -174,6 +174,9 @@ impl Connection {
         let mut payload = Vec::new();
         request.write_payload(&mut payload);
         Control::read(request.kind(), &payload).map_err(invalid)?;
+        // A request that waits for the program is answered by its exit; any other is
+        // answered at once, and an exit queued ahead of that answer is live output.
+        let waits = matches!(request, Control::WaitLauncher | Control::AwaitLaunch);
         let deadline = Instant::now() + timeout;
         self.stream
             .set_write_timeout(Some(timeout.max(Duration::from_millis(1))))?;
@@ -182,11 +185,9 @@ impl Connection {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.receive(remaining)? {
                 Some(ServerMessage::Control(answer)) => return Ok(answer),
-                // A kept terminal stays connected after its program exits, so an exit
-                // that lands before the answer is live output too.
-                Some(
-                    ServerMessage::Output(_) | ServerMessage::Resized(_) | ServerMessage::Exited(_),
-                ) => {}
+                Some(ServerMessage::Output(_) | ServerMessage::Resized(_)) => {}
+                // A kept terminal stays connected after its program exits.
+                Some(ServerMessage::Exited(_)) if !waits => {}
                 Some(_) => {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
