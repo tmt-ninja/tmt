@@ -25,12 +25,16 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "digest-zero-and-no-source",
     "digest-dollar-totals",
     "digest-all-readonly",
+    "digest-spec",
 ];
 
 pub(in crate::board) fn capture_case(
     scene: &str,
     look: crate::look::Look,
 ) -> crate::board::app::App {
+    if scene == "digest-spec" {
+        return spec_fixture(look);
+    }
     let mut app = super::layout::fixture();
     // Oracle clocks use the same fixed zone as the neighboring Digest captures.
     app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
@@ -122,6 +126,28 @@ pub(in crate::board) fn capture_case(
     app
 }
 
+#[test]
+fn aggregate_chart_keeps_observed_buckets_when_a_source_is_missing() {
+    let look = crate::look::Look::default();
+    let app = capture_case("digest-zero-and-no-source", look);
+    let rows = app.workspace_rows();
+    let ids: Vec<_> = rows.iter().filter_map(super::super::metrics::id).collect();
+    let points = super::super::summary::capture_buckets(&app, &ids);
+    assert!(!points.is_empty());
+    assert!(
+        points
+            .iter()
+            .all(|point| point.used.is_some() && point.saved.is_some())
+    );
+    assert!(
+        super::super::metrics::token_text(super::super::metrics::tokens(
+            super::super::metrics::report(&app),
+            &ids
+        ))
+        .starts_with('≥')
+    );
+}
+
 /// Rich contract-shaped observations for the chart, selected panel and inline control matrix.
 fn install_chart(app: &mut App, scene: &str, now: u64) {
     use crate::board::usage_report::{
@@ -169,6 +195,16 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*(i+1)*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
+    if scene == "digest-spec-review" {
+        doc["global"] = serde_json::json!({"enabled":true,"text":"on · auto"});
+        doc["tick"] = serde_json::json!({"lastAtMs":now - 30_000});
+        for member in doc["members"].as_array_mut().unwrap() {
+            member["labels"] = serde_json::json!([{"text":"Auto","colorClass":"text","action":{
+                "kind":"choose","argv":["digest",member["identityId"],"{value}"],
+                "options":[{"label":"Auto","value":"auto"},{"label":"1m","value":"1m"},{"label":"Off","value":"off"},{"label":"Use default","value":"default"}],"current":"auto"
+            }}]);
+        }
+    }
     if scene == "digest-zero-and-no-source" && report.seats.len() >= 2 {
         let missing = report.seats.remove(0);
         report
@@ -307,7 +343,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
     for scene in SCENES.iter().filter(|scene| **scene != "impact-basis") {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
-        for label in ["Range", "used TOK", "Saved ·", "Models", "Timers"] {
+        for label in ["Range", "█ used  █ saved", "Saved ·", "Models", "Timers"] {
             assert!(shown.contains(label), "{scene}: {label}: {shown}");
         }
         let sum = super::super::savings(&app);
@@ -317,12 +353,19 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
         if *scene == "impact-mixed-prices" {
             assert!(sum.cost.conflict);
         }
+        let tok_chart = summary_lines(&app, 160, 8);
         app.digest_cost = true;
         let compact = summary_lines(&app, 160, 3);
         assert!(compact[1].contains("Window list-price equivalent"));
         assert!(compact[1].contains("not a bill"));
         let full = summary_lines(&app, 160, 8);
-        assert!(full[1].contains("used TOK") && !full[1].contains("used $"));
+        assert!(full[1].contains("█ used  █ saved"));
+        for row in [2, 3] {
+            assert_eq!(
+                full[row].chars().take(83).collect::<String>(),
+                tok_chart[row].chars().take(83).collect::<String>()
+            );
+        }
     }
 }
 
@@ -581,10 +624,201 @@ fn review_scenes_prove_unavailable_zero_timer_and_all_scope() {
         ("digest-zero-and-no-source", "no usage source"),
         ("digest-populated-timer", "check status"),
         ("digest-all-readonly", "Details · all"),
-        ("digest-dollar-totals", "$ window totals; chart stays TOK"),
+        ("digest-dollar-totals", "≈ $ saved"),
     ] {
         let mut app = capture_case(scene, crate::look::Look::default());
         let shown = paint(&mut app, 160, 50);
         assert!(shown.contains(expected), "{scene}: {expected}: {shown}");
     }
+}
+
+/// A populated, source-shaped Digest fixture shared by the oracle and review capture.
+pub(in crate::board) fn spec_fixture(look: crate::look::Look) -> crate::board::app::App {
+    use crate::board::{
+        limits::{Provider, Reading, Standing, Window},
+        usage_report::{
+            Delivery,
+            model::{Pair, Traffic, Unavailable, Who},
+        },
+    };
+    let now = 1_791_600_000_000u64;
+    let mut app = capture_case("digest-populated-timer", look);
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let room = workspace.roster.squads[0].room_id.clone();
+    let template = workspace.roster.members[MEMBER].clone();
+    let target = workspace.rows.iter_mut().find(|(target, _)| matches!(target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if identity_id == MEMBER)).unwrap();
+    target.1["name"] = serde_json::json!("tui-1");
+    workspace.roster.members.get_mut(MEMBER).unwrap().name = "tui-1".into();
+    for i in 7..20 {
+        let id = format!("40000000-0000-4000-8000-{i:012}");
+        let name = if i == 18 {
+            "ben".into()
+        } else if i == 19 {
+            "builder".into()
+        } else {
+            format!("agent-{i}")
+        };
+        let mut member = template.clone();
+        member.id = id.clone();
+        member.name = name.clone();
+        workspace.roster.members.insert(id.clone(), member);
+        workspace.roster.squads[0].members.push(id.clone());
+        workspace.rows.insert(
+            crate::board::workspace::OpsTarget::Member {
+                room_id: Some(room.clone()),
+                identity_id: id.clone(),
+            },
+            serde_json::json!({"id":id,"name":name,"state":"working"}),
+        );
+    }
+    let ids: Vec<_> = workspace.roster.members.keys().cloned().collect();
+    workspace.identity_ids = ids.clone().into();
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    let template = report.seats[0].clone();
+    report.seats = ids
+        .iter()
+        .map(|id| {
+            let mut seat = template.clone();
+            seat.who.id = Some(id.clone());
+            seat
+        })
+        .collect();
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report),
+    });
+    install_chart(&mut app, "digest-spec-review", now);
+    let mut report = super::super::metrics::report(&app).unwrap().clone();
+    report.unavailable = report
+        .seats
+        .drain(18..)
+        .map(|s| Unavailable {
+            who: s.who,
+            reason: "no usage source".into(),
+        })
+        .collect();
+    let selected = report
+        .seats
+        .iter_mut()
+        .find(|s| s.who.id.as_deref() == Some(MEMBER))
+        .unwrap();
+    let total = selected.total();
+    selected.model_totals = Some(vec![
+        ("claude-opus-5-5".into(), total * 7 / 10),
+        ("claude-sonnet-5-5".into(), total * 2 / 10),
+        ("gpt-6-sol".into(), total - total * 9 / 10),
+    ]);
+    let who = |id: &String| Who {
+        id: Some(id.clone()),
+        name: None,
+        retired: false,
+    };
+    report.exchange = Some(
+        Traffic::from_pairs(
+            now - 86_400_000,
+            now,
+            ids[..4]
+                .iter()
+                .enumerate()
+                .flat_map(|(i, a)| {
+                    ids[..4].iter().enumerate().map(move |(j, b)| Pair {
+                        sender: who(a),
+                        recipient: who(b),
+                        kind: "talk".into(),
+                        count: ((i + 1) * (j + 1)) as u64,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap(),
+    );
+    app.usage_report.apply(Delivery {
+        since: DigestWindow::Day.range(),
+        result: Ok(report),
+    });
+    app.limits = Some(
+        [("claude", 65.0), ("codex", 46.0)]
+            .into_iter()
+            .map(|(name, left)| Standing {
+                current: None,
+                provider: Provider::named(name),
+                latest: Some(Reading {
+                    observed_at_ms: now - 60_000,
+                    weekly: Window {
+                        left,
+                        resets_at_ms: now + 86_400_000,
+                    },
+                    short: None,
+                }),
+                burn: Some(0.4),
+                trend: None,
+                rates: Default::default(),
+            })
+            .collect(),
+    );
+    app.workspace_reconcile();
+    select_worker(&mut app);
+    app
+}
+
+/// Read-only filled-data capture for comparing the shipped panel with the approved spec.
+#[test]
+#[ignore = "task-owned Digest spec capture; does not record oracle fixtures"]
+fn capture_digest_spec_review() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    };
+    let now = 1_791_600_000_000u64;
+    crate::status::with_now_ms(now, || {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        let mut app = spec_fixture(look);
+        let capture = |app: &mut App| {
+            let mut t = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            t.draw(|f| {
+                crate::board::view::prepare(app, f.area());
+                crate::board::view::render(f, app);
+            })
+            .unwrap();
+            let b = t.backend().buffer();
+            let lines: Vec<String> = (0..36)
+                .map(|y| (0..160).map(|x| b[(x, y)].symbol()).collect())
+                .collect();
+            let styles: Vec<Vec<String>> = (0..36)
+                .map(|y| {
+                    (0..160)
+                        .map(|x| {
+                            let c = &b[(x, y)];
+                            format!(
+                                "fg={:?} bg={:?} underline={:?} modifiers={:?}",
+                                c.fg, c.bg, c.underline_color, c.modifier
+                            )
+                        })
+                        .collect()
+                })
+                .collect();
+            serde_json::json!({"lines":lines,"styles":styles})
+        };
+        let before = capture(&mut app);
+        let effect = app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
+        if let Effect::Act(Request::DigestOpen(ask)) = effect {
+            app.open_digest(crate::board::digest::Granted {
+                ask,
+                actor: crate::management::ManagementActor {
+                    id: "user".into(),
+                    name: "Ben".into(),
+                },
+            });
+        } else {
+            panic!("the o capture must open Digest editing: {effect:?}");
+        }
+        let after = capture(&mut app);
+        let out = std::env::var("DIGEST_SPEC_CAPTURE_OUT").unwrap();
+        std::fs::write(out,serde_json::to_string_pretty(&serde_json::json!({"before":before,"after_o":after,"fixture":{"members":20,"usage_sources":18,"models":3,"exchange_matrix":"4x4","timers":1,"allowances":2}})).unwrap()).unwrap();
+    });
 }

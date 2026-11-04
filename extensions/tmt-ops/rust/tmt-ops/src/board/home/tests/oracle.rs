@@ -998,7 +998,12 @@ fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
         for scene in crate::board::digest_dashboard::tests::impact::SCENES {
-            for (width, height) in [(160, 50), (120, 40), (100, 32)] {
+            let sizes: &[(u16, u16)] = if *scene == "digest-spec" {
+                &[(160, 36)]
+            } else {
+                &[(160, 50), (120, 40), (100, 32)]
+            };
+            for &(width, height) in sizes {
                 let mut app =
                     crate::board::digest_dashboard::tests::impact::capture_case(scene, look);
                 if *scene == "impact-basis" {
