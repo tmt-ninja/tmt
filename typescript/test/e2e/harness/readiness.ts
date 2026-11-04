@@ -71,9 +71,10 @@ export async function waitForProcessExit(
 
 export async function waitForCapture(
   readCapture: () => string,
-  predicate: (output: string) => boolean
+  predicate: (output: string) => boolean,
+  timeoutMs = 10_000
 ): Promise<string> {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const output = readCapture();
     if (predicate(output)) return output;

@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { processState, type ProcessState } from '../e2e/harness/cleanup.js';
-import { waitForProcessExit } from '../e2e/harness/readiness.js';
+import { waitForCapture, waitForProcessExit } from '../e2e/harness/readiness.js';
 
 type Kill = (target: number, signal: 0) => unknown;
 
@@ -120,5 +120,52 @@ describe('E2E wait for process exit', () => {
   it('keeps waiting through a transient unknown state', async () => {
     const probe = sequence({ 1: ['unknown', 'unknown', 'absent'] });
     await expect(waitForProcessExit([1], probe, 1_000)).resolves.toEqual({ outcome: 'exited' });
+  });
+});
+
+describe('E2E capture readiness', () => {
+  it('keeps polling beyond two seconds and returns as soon as the predicate matches', async () => {
+    vi.useFakeTimers();
+    try {
+      const started = Date.now();
+      const capture = () => (Date.now() - started >= 3_000 ? 'ready pane' : 'painting');
+      const result = waitForCapture(capture, (output) => output === 'ready pane');
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(result).resolves.toBe('ready pane');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times out at the default deadline with the latest pane', async () => {
+    vi.useFakeTimers();
+    try {
+      const started = Date.now();
+      const result = waitForCapture(
+        () => `pane at ${Date.now() - started}`,
+        () => false
+      );
+      const assertion = expect(result).rejects.toThrow('pane at 10000');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('honors a per-call deadline override without waiting for the default', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = waitForCapture(
+        () => 'still loading',
+        () => false,
+        100
+      );
+      const assertion = expect(result).rejects.toThrow('still loading');
+      await vi.advanceTimersByTimeAsync(100);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
