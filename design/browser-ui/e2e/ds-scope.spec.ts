@@ -250,7 +250,11 @@ test('the unscoped shell keeps the browser top layer', async ({ page }) => {
 test('the scoped rail tooltip belongs to its scope portal', async ({ page }) => {
   await page.goto(fixture);
   const shell = page.locator('[data-tmt-ds-scope]').nth(2);
+  await shell.evaluate((node) => {
+    (node as HTMLElement).style.width = '1000px';
+  });
   const item = shell.locator('.tmt-ui-rail [data-id]').first();
+  await expect(item).toBeVisible();
   await item.evaluate((node) => node.setAttribute('data-note', 'Unavailable in this scope'));
   await item.hover();
   const tooltip = shell.locator('[data-tmt-ui-portal] .tmt-ui-rail-tip');

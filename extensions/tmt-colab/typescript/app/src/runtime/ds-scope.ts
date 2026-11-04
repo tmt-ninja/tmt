@@ -1,4 +1,4 @@
-/** A page may introduce scopes before or after its pinned components are registered. Each scope
+/** A page may introduce scopes before or after its design-system components are registered. Each scope
  * owns one portal shared by those components' independently mounted React roots. */
 export function installScopePortals(document: Document): () => void {
   const selector = '[data-tmt-ds-scope]';

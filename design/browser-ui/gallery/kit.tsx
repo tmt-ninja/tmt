@@ -110,8 +110,8 @@ export function drawFramesInline(render: InlineFrame | undefined) {
 }
 
 /**
- * An iframe preview that keeps its true layout width and scales down to fit its cell, so a wide
- * viewport never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
+ * A scoped preview that keeps its true layout width and scales down to fit its cell, so a wide
+ * stage never spills into a neighbour and never clips (#5821). The wrapper is the preview's box;
  * docs e2e holds it inside its parent cell.
  */
 export function ScaledFrame({

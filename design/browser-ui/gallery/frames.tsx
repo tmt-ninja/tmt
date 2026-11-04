@@ -48,8 +48,8 @@ import { UiOverlayFrame } from './ui-overlays.js';
 import { createIcon } from '../src/glyph.js';
 
 /*
- * Frames are real pages of this gallery (`?frame=<name>&theme=<theme>`) shown in iframes, for the
- * shell's viewport layout and the top-layer overlays, which cannot share one page side by side.
+ * Gallery scenes can render as standalone pages or inside a DsScope. The scope gives each scene
+ * its own layout, portal and overlay boundaries when examples share a page.
  */
 
 const origin = typeof location === 'undefined' ? 'http://localhost' : location.origin;

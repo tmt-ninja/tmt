@@ -6141,6 +6141,7 @@ function mountShell(root, view, select, layerHost) {
 	};
 	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
 	const close = (event) => {
+		if (layerHost && (!(event.target instanceof Node) || !layerHost.root.contains(event.target))) return;
 		if (event.key === "Escape" && root.dataset.drawer === "open") {
 			setDrawer(false);
 			open.focus();
@@ -6149,6 +6150,7 @@ function mountShell(root, view, select, layerHost) {
 	document.addEventListener("keydown", close);
 	const outside = (event) => {
 		const target = event.target;
+		if (layerHost && !layerHost.root.contains(target)) return;
 		if (root.dataset.drawer === "open" && !rail.contains(target) && !open.contains(target)) setDrawer(false);
 	};
 	document.addEventListener("pointerdown", outside);

@@ -149,6 +149,23 @@ test('an interactive pattern opens inside its scope without locking the docs', a
   await expect(dialog).toHaveCount(0);
 });
 
+test('a long header suffix stays on one line clear of its status', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${docs}/ds/gui/browser/header`);
+  const heading = page.locator('.tmt-ui-heading-suffix').last();
+  await expect(heading).toBeVisible();
+  await expect(heading).toHaveText('· draft');
+  const geometry = await heading.evaluate((node) => {
+    const text = node.querySelector('span')!;
+    const status = node.closest('.tmt-ui-header')!.querySelector('.tmt-ui-status')!;
+    const a = text.getBoundingClientRect();
+    const b = status.getBoundingClientRect();
+    return { lines: text.getClientRects().length, right: a.right, statusLeft: b.left };
+  });
+  expect(geometry.lines).toBe(1);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.statusLeft);
+});
+
 test('captures the affected docs pages at both widths and themes', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
@@ -189,7 +206,10 @@ test('a phone shell preview uses its own width and opens its drawer locally', as
   const opener = stage.getByRole('button', { name: 'Open navigation' });
   await expect(opener).toBeVisible();
   expect(
-    await stage.locator('.tmt-ui-header').first().evaluate((node) => getComputedStyle(node).height),
+    await stage
+      .locator('.tmt-ui-header')
+      .first()
+      .evaluate((node) => getComputedStyle(node).height),
   ).toBe('56px');
   await expect(opener).toHaveAttribute('aria-expanded', 'false');
   await opener.click();
@@ -206,7 +226,10 @@ test('a wide shell preview stays wide inside a phone viewport', async ({ page })
   const stage = pair.locator('[data-preview-frame]').first();
   await expect(stage.getByRole('navigation', { name: 'TMT' })).toBeVisible();
   expect(
-    await stage.locator('.tmt-ui-header').first().evaluate((node) => getComputedStyle(node).height),
+    await stage
+      .locator('.tmt-ui-header')
+      .first()
+      .evaluate((node) => getComputedStyle(node).height),
   ).toBe('62px');
   await expect(stage.locator('.tmt-ui-shell-open')).toBeHidden();
 });
