@@ -2,6 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { servePageRuntime } from './page-runtime.js';
+/** The selected product mark's shape, as product-brand.spec reads it. */
+const brandShape = readFileSync(
+  new URL('../../../../../design/browser-ui/src/brand-mark.svg', import.meta.url),
+  'utf8',
+).match(/<path[^>]* d="([^"]+)"/)![1]!;
 const nativePolicy = readFileSync(
   new URL('../../../rust/tmt-colab/src/browser_policy.rs', import.meta.url),
   'utf8',
@@ -90,6 +95,36 @@ async function docsMenu(page: Page) {
 }
 /** The reader frame of the open Design page. */
 const designFrame = (page: Page) => page.locator('.design-workspace iframe').first().contentFrame();
+/** The built-in tmt GUI as pages (#5969): the owner's first Design visit makes them, and `/ds/gui`
+ * shows them. Open Button from the page tree. */
+async function openGuiButton(page: Page) {
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  const toggle = page.locator('.design-nav-toggle');
+  if (page.viewportSize()!.width <= 900) {
+    await expect(toggle).toBeVisible({ timeout: 60_000 });
+    await toggle.click();
+  }
+  await expect(tree).toBeVisible({ timeout: 60_000 });
+  await tree.getByRole('link', { name: /^Button/ }).click();
+  await expect(page).toHaveURL(/\/ds\/gui\/components\/button$/);
+  const frame = designFrame(page);
+  await expect(frame.getByRole('heading', { name: '<tmt-ui-button>', exact: true })).toBeVisible();
+  await expect(frame.locator('[data-tmt-ds-generated]')).toContainText(
+    'design/browser-ui/src/ui/button.tsx',
+  );
+}
+/** The owner's generated Brand page draws the product mark (the brand spec covers the viewer's
+ * code docs). */
+async function expectGuiBrand(page: Page) {
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  const toggle = page.locator('.design-nav-toggle');
+  if (!(await tree.isVisible())) await toggle.click();
+  await tree.getByRole('link', { name: /^Brand/ }).click();
+  await expect(page).toHaveURL(/\/ds\/gui\/[a-z-]+\/brand$/);
+  const marks = designFrame(page).locator('svg.tmt-brand-mark');
+  await expect(marks.first()).toBeVisible();
+  expect(await marks.first().locator('path').first().getAttribute('d')).toBe(brandShape);
+}
 async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
@@ -105,23 +140,21 @@ for (const width of [1440, 390])
       // The docs follow the GUI theme (#5866): here the device's, since nothing is stored.
       await page.emulateMedia({ colorScheme: theme });
       await open(page);
-      await expect(page.locator('.tmt-design-docs')).toHaveAttribute('data-theme', theme);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveCount(1);
       await expect(page.locator('.tmt-ui-rail [aria-current="page"]')).toHaveText('Design');
       await expect(page.locator('.colab-route .tmt-ui-rail-sub')).toHaveCount(0);
       await expect(
         page.getByRole('button', { name: 'New design system', exact: true }),
       ).toBeVisible();
-      await docsMenu(page);
-      await page.locator('.docs-nav').getByRole('link', { name: 'Button', exact: true }).click();
-      await expect(page).toHaveURL(new RegExp(`${base}/ds/gui/components/button$`));
-      await expect(page.locator('.docs-main h1')).toHaveText('Button');
+      await openGuiButton(page);
+      await expectGuiBrand(page);
       const withDesignDocs = await chromePaint(page);
       await capture(page, `design-gui-button-${width}-${theme}.png`);
       await pickSystem(page, 'tmt TUI');
       await docsMenu(page);
       await page.locator('.docs-nav a[href$="/ds/tui/roles"]').click();
       await expect(page).toHaveURL(new RegExp(`${base}/ds/tui/roles$`));
+      await expect(page.locator('.tmt-design-docs')).toHaveAttribute('data-theme', theme);
       await expect(page.locator('.docs-main h1')).toContainText('Roles');
       await expect(page.locator('tmt-tui-frame').first()).toContainText('worker');
       await capture(page, `design-tui-roles-${width}-${theme}.png`);
@@ -335,8 +368,7 @@ test('standalone Design keeps its docs, system cards and editing links on their 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await open(page, true, '/design');
   await expect(page).toHaveURL(/\/design\/ds\/gui$/);
-  await page.locator('.docs-nav').getByRole('link', { name: 'Button', exact: true }).click();
-  await expect(page).toHaveURL(/\/design\/ds\/gui\/components\/button$/);
+  await openGuiButton(page);
   await pickSystem(page, 'Acme');
   await expect(designFrame(page).getByRole('heading', { name: 'Acme', exact: true })).toBeVisible();
   // A link in the system's home page to one of its pages stays in Design.

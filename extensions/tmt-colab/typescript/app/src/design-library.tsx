@@ -11,7 +11,8 @@ import {
 } from './design-system-pages.js';
 import { DesignSystemDialog } from './design-system-ui.js';
 import { DesignHeader } from './design-header.js';
-import { DesignPage } from './design-page.js';
+import { DesignPage, designPageHref } from './design-page.js';
+import { shippedBundle, syncBuiltInMirror } from './design-mirror.js';
 import { ShownReleaseContext } from './embedded-page.js';
 const DesignDocs = lazy(() =>
   import('@tmt/browser-ui/docs-embed').then((module) => ({
@@ -21,27 +22,29 @@ const DesignDocs = lazy(() =>
 import { designBase } from './entry.js';
 import { browserUiClasses } from '@tmt/browser-ui/static';
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-function findPage(node: DesignTreeNode, id: string): DesignTreeNode | undefined {
-  return encodeURIComponent(node.id) === id
+function findPage(
+  node: DesignTreeNode,
+  matches: (node: DesignTreeNode) => boolean,
+): DesignTreeNode | undefined {
+  return matches(node)
     ? node
-    : node.children.map((child) => findPage(child, id)).find(Boolean);
+    : node.children.map((child) => findPage(child, matches)).find(Boolean);
 }
 function Tree({
   node,
   current,
-  rootId,
-  prefix,
+  system,
   base,
   navigate,
 }: {
   node: DesignTreeNode;
   current: string;
-  rootId: string;
-  prefix: string;
+  system: DesignSystemEntry;
   base: string;
   navigate(href: string): void;
 }) {
-  const href = `${base}/systems/${encodeURIComponent(rootId)}/${encodeURIComponent(node.id)}`;
+  const href = designPageHref(system, base, node);
+  const prefix = system.prefix;
   return (
     <li>
       <a
@@ -70,8 +73,7 @@ function Tree({
               key={child.id}
               node={child}
               current={current}
-              rootId={rootId}
-              prefix={prefix}
+              system={system}
               base={base}
               navigate={navigate}
             />
@@ -145,22 +147,57 @@ export function DesignLibrary({
     void refresh();
     return () => read.current?.abort();
   }, [refresh]);
-  const selected = systems?.find(
-    (entry) =>
-      path === `${base}/systems/${encodeURIComponent(entry.id)}` ||
-      path.startsWith(`${base}/systems/${encodeURIComponent(entry.id)}/`),
-  );
+  // The built-in tmt GUI's pages (#5969): once the space has them, `/ds/gui` shows them, by docs
+  // path, so what is annotated is what the route shows.
+  const mirror = systems?.find((entry) => entry.builtIn);
+  const guiPath = path === `${base}/ds/gui` || path.startsWith(`${base}/ds/gui/`);
+  const selected =
+    (guiPath ? mirror : undefined) ??
+    systems?.find(
+      (entry) =>
+        !entry.builtIn &&
+        (path === `${base}/systems/${encodeURIComponent(entry.id)}` ||
+          path.startsWith(`${base}/systems/${encodeURIComponent(entry.id)}/`)),
+    );
   const userPath = path.startsWith(`${base}/systems/`);
   const pagePart = selected
-    ? path.slice(`${base}/systems/${encodeURIComponent(selected.id)}`.length).replace(/^\//, '')
+    ? path
+        .slice(
+          selected.builtIn
+            ? `${base}/ds/gui`.length
+            : `${base}/systems/${encodeURIComponent(selected.id)}`.length,
+        )
+        .replace(/^\//, '')
     : '';
   const page = selected
     ? pagePart
-      ? findPage(selected.tree, pagePart)
+      ? findPage(selected.tree, (node) =>
+          selected.builtIn
+            ? node.key === decodeURIComponent(pagePart)
+            : encodeURIComponent(node.id) === pagePart,
+        )
       : selected.tree
     : undefined;
   const builtin = path.startsWith(`${base}/ds/tui`) ? 'tui' : 'gui';
-  const current = selected ? `user:${selected.id}` : userPath ? 'unknown' : builtin;
+  const current =
+    selected && !selected.builtIn ? `user:${selected.id}` : userPath ? 'unknown' : builtin;
+  // The owner device makes the built-in pages, and regenerates them when this build ships another
+  // tmt GUI; once per Design visit.
+  const mirroring = useRef(false);
+  useEffect(() => {
+    if (!systems || !transport.management || mirroring.current) return;
+    mirroring.current = true;
+    const made = systems.find((entry) => entry.builtIn);
+    void shippedBundle()
+      .then(async (hash) => {
+        if (made?.builtIn?.bundle === hash) return;
+        setNotice(made ? 'Updating the tmt GUI pages…' : 'Making the tmt GUI pages…');
+        await syncBuiltInMirror(transport, made?.id);
+        await refresh();
+        setNotice(undefined);
+      })
+      .catch((failure: unknown) => setError(errorText(failure)));
+  }, [systems, transport, refresh]);
   // One publish at a time: a second activation before the first re-renders would upload a second
   // bundle and then fail on a stale base, leaving an orphan attachment.
   const publishingNow = useRef(false);
@@ -222,7 +259,9 @@ export function DesignLibrary({
                 },
               ]
             : []),
-          ...(systems ?? []).map((entry) => ({ id: `user:${entry.id}`, name: entry.name })),
+          ...(systems ?? [])
+            .filter((entry) => !entry.builtIn)
+            .map((entry) => ({ id: `user:${entry.id}`, name: entry.name })),
         ]}
         onSelect={(id) =>
           go(
@@ -233,7 +272,7 @@ export function DesignLibrary({
         }
         actions={
           <>
-            {selected && (
+            {selected && !selected.builtIn && (
               <BrowserMenu
                 label="Shown version"
                 valueLabel={shownVersion ? `Release ${shownVersion}` : 'Draft'}
@@ -281,7 +320,7 @@ export function DesignLibrary({
                     }}
                   />
                 </span>
-                {selected && (
+                {selected && !selected.builtIn && (
                   <BrowserAction
                     type="button"
                     variant="primary"
@@ -336,7 +375,7 @@ export function DesignLibrary({
             {notice}
           </p>
         )}
-        {userPath ? (
+        {userPath || selected ? (
           <>
             {loading && <p role="status">Loading design systems…</p>}
             {!loading && !error && !selected && (
@@ -361,8 +400,7 @@ export function DesignLibrary({
                     <Tree
                       node={selected.tree}
                       current={page?.id ?? ''}
-                      rootId={selected.id}
-                      prefix={selected.prefix}
+                      system={selected}
                       base={base}
                       navigate={go}
                     />

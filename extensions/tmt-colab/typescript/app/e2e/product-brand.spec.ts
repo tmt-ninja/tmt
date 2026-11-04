@@ -26,10 +26,14 @@ for (const width of [1440, 390])
             { theme, palette },
           );
           // The existing private in-memory space mounts the real router and shell, with no host data.
+          // Design mounts as a viewer: the owner device would generate the tmt GUI pages (#5969) and
+          // show those instead; this spec checks the code docs' brand mark (design-route covers the
+          // generated pages).
+          const owner = !path.startsWith('/design');
           await page.route('**/src/main.tsx', (route) =>
             route.fulfill({
               contentType: 'text/javascript',
-              body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${path}');`,
+              body: `import {mountDesign} from '/test/design-route-browser.tsx'; void mountDesign('${path}', ${owner});`,
             }),
           );
           await page.goto(path);

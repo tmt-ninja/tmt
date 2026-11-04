@@ -3,7 +3,22 @@ import type { DesignSystemEntry, DesignTreeNode } from './design-system-pages.js
 import type { PageRouting } from './page-routing.js';
 import { EmbeddedPageContext } from './embedded-page.js';
 
-const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.flatMap(treeIds)];
+const treeNodes = (node: DesignTreeNode): DesignTreeNode[] => [
+  node,
+  ...node.children.flatMap(treeNodes),
+];
+
+/** A Design page's address: the built-in tmt GUI's pages by their docs path under `/ds/gui`
+ * (#5969), a space's own system's pages by id. */
+export function designPageHref(
+  system: Pick<DesignSystemEntry, 'id' | 'builtIn'>,
+  base: string,
+  node: Pick<DesignTreeNode, 'id' | 'key'>,
+) {
+  return system.builtIn && node.key !== undefined
+    ? `${base}/ds/gui${node.key ? `/${node.key}` : ''}`
+    : `${base}/systems/${encodeURIComponent(system.id)}/${encodeURIComponent(node.id)}`;
+}
 
 /** A Design page's links: pages of the selected tree stay in Design (with their anchor); any other
  * page opens as it would in Colab. Under the shell's root `/design` mount the router's base is `/`,
@@ -11,19 +26,17 @@ const treeIds = (node: DesignTreeNode): string[] => [node.id, ...node.children.f
  * address instead, as a document navigation. */
 export function designPageRouting(
   colab: PageRouting,
-  system: Pick<DesignSystemEntry, 'id' | 'tree'>,
+  system: Pick<DesignSystemEntry, 'id' | 'tree' | 'builtIn'>,
   base: string,
   to: { navigate(href: string): void; leave(href: string): void },
 ): PageRouting {
-  const ids = treeIds(system.tree);
+  const nodes = treeNodes(system.tree);
   // A page route names the whole id; a `/p/<prefix>` link in the page names its start.
   const design = (route: string) => {
     const [, kind, key] = /^\/(pages|short)\/([^/?#]+)$/.exec(route) ?? [];
-    const id =
-      key && ids.find((entry) => (kind === 'pages' ? entry === key : entry.startsWith(key)));
-    return id
-      ? `${base}/systems/${encodeURIComponent(system.id)}/${encodeURIComponent(id)}`
-      : undefined;
+    const node =
+      key && nodes.find(({ id }) => (kind === 'pages' ? id === key : id.startsWith(key)));
+    return node ? designPageHref(system, base, node) : undefined;
   };
   const atRoot = base === '/design';
   const colabHref = (route: string, search?: string) =>
