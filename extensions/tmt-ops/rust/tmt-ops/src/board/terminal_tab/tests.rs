@@ -961,7 +961,7 @@ fn while_typing_the_footer_names_only_the_way_out() {
     shown(&mut app);
     app.apply_terminal(1, StreamEvent::Screen(frame("hi")));
     assert!(
-        text(&app).contains("p pin"),
+        text(&app).contains("q quit"),
         "the list's hints before typing"
     );
     app.key(key(KeyCode::Enter, KeyModifiers::NONE));
