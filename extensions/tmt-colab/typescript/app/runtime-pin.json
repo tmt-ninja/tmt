@@ -10,8 +10,8 @@
   "files": [
     {
       "path": "assets/colab-runtime.js",
-      "sha256": "b6479e91109c1b86e10cdf5a660c345d7b959d00d9206c5e89012ca24585bb19",
-      "length": 686752
+      "sha256": "f1b041094bf392beea8591afec301e0326eba0fd00961b01659a25df92c1772f",
+      "length": 696260
     },
     {
       "path": "assets/colab-runtime.css",

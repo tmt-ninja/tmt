@@ -5487,7 +5487,10 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `uiParts`; the version 4 allowlist contains `Button`, `DsScope`, `BrowserAvatar`, `BusyMark`,
 `BrowserSection`, `BrowserDisclosure`, `BrandMark`, `BrowserCheckbox`, `BrowserStatusTile`,
 `BrowserAction`, `BrowserToggle`, `Badge`, `Input`, `Textarea`, `Separator`, `Surface`,
-`Skeleton`, `Switch` and `Checkbox`. Unknown, duplicate, undeclared,
+`Skeleton`, `Switch`, `Checkbox`, `Card`, `CardHeader`, `CardTitle`, `CardDescription`,
+`CardAction`, `CardContent`, `CardFooter`, `Alert`, `AlertTitle`, `AlertDescription`, `Empty`,
+`EmptyHeader`, `EmptyMedia`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `Tabs`, `TabsList`
+and `TabsTrigger`. Unknown, duplicate, undeclared,
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.

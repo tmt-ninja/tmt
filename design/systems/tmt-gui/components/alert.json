@@ -19,21 +19,6 @@
     "default"
   ],
   "css": "alert.css",
-  "ui": {
-    "module": "/src/ui/alert.tsx",
-    "component": "Alert",
-    "dims": {
-      "variant": [
-        "default",
-        "destructive"
-      ]
-    },
-    "parts": [
-      "AlertTitle",
-      "AlertDescription"
-    ],
-    "compose": "<Alert variant=\"{variant}\"><AlertTitle if=\"heading\">{heading}</AlertTitle><AlertDescription>{children}</AlertDescription></Alert>"
-  },
   "examples": [
     {
       "title": "Default",
@@ -51,5 +36,10 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Alert",
+    "AlertTitle",
+    "AlertDescription"
   ]
 }

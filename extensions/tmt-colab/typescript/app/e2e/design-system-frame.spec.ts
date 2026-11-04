@@ -166,7 +166,8 @@ test('real UI checkbox and switch respond to user activation', async ({ page }) 
     page,
     `<meta name="tmt-ds" content="${pin}">
     <tmt-ui-checkbox label="Include"></tmt-ui-checkbox>
-    <tmt-ui-switch label="Enabled"></tmt-ui-switch>`,
+    <tmt-ui-switch label="Enabled"></tmt-ui-switch>
+    <tmt-ui-tabs items="One,Two"></tmt-ui-tabs>`,
   );
   const checkbox = frame.getByRole('checkbox', { name: 'Include' });
   const toggle = frame.getByRole('switch', { name: 'Enabled' });
@@ -174,6 +175,8 @@ test('real UI checkbox and switch respond to user activation', async ({ page }) 
   await toggle.click();
   await expect(checkbox).toHaveAttribute('aria-checked', 'true');
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await frame.getByRole('tab', { name: 'Two' }).click();
+  await expect(frame.getByRole('tab', { name: 'Two' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {

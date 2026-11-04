@@ -17,19 +17,6 @@
     "footer"
   ],
   "css": "card.css",
-  "ui": {
-    "module": "/src/ui/card.tsx",
-    "component": "Card",
-    "parts": [
-      "CardHeader",
-      "CardTitle",
-      "CardDescription",
-      "CardAction",
-      "CardContent",
-      "CardFooter"
-    ],
-    "compose": "<Card><CardHeader if=\"heading\"><CardTitle>{heading}</CardTitle><CardDescription if=\"description\">{description}</CardDescription><CardAction if=\"action\">{action}</CardAction></CardHeader><CardContent>{children}</CardContent><CardFooter if=\"footer\">{footer}</CardFooter></Card>"
-  },
   "examples": [
     {
       "title": "With a title",
@@ -47,5 +34,14 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Card",
+    "CardHeader",
+    "CardTitle",
+    "CardDescription",
+    "CardAction",
+    "CardContent",
+    "CardFooter"
   ]
 }

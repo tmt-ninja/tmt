@@ -15,15 +15,6 @@
     "default"
   ],
   "css": "tabs.css",
-  "ui": {
-    "module": "/src/ui/tabs.tsx",
-    "component": "Tabs",
-    "compose": "<Tabs value=\"{value}\"><TabsList><TabsTrigger each=\"items\" value=\"{item}\">{item}</TabsTrigger></TabsList>{children}</Tabs>",
-    "sample": {
-      "items": "One,Two",
-      "value": "One"
-    }
-  },
   "examples": [
     {
       "title": "Views",
@@ -41,5 +32,10 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Tabs",
+    "TabsList",
+    "TabsTrigger"
   ]
 }
