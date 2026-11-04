@@ -118,6 +118,11 @@ function violations(
   }
   if (forbiddenLoads(file, source)) failures.push('unproved runtime input');
   for (const edge of imports(file, source)) {
+    // The scope bridge is used by both graphs: it must remain a React-only leaf.
+    if (file === path.join(sourceRoot, 'ui/scope.tsx') && !['react', 'react-dom'].includes(edge)) {
+      failures.push(edge);
+      continue;
+    }
     if (!edge.startsWith('.') && !edge.startsWith('/')) {
       const resolved = ts.resolveModuleName(
         edge,
@@ -254,6 +259,14 @@ it('keeps the search entry free of every import', () => {
   expect(imports(file, "import type { ReactNode } from 'react';")).toEqual(['react']);
 });
 
+it('keeps the scope bridge independent of UI internals and UI-only packages', () => {
+  const file = path.join(production, 'ui/scope.tsx');
+  const actual = readFileSync(file, 'utf8');
+  expect(imports(file, actual).sort()).toEqual(['react', 'react-dom']);
+  expect(violations(file, actual, false)).toEqual([]);
+  for (const edge of ['./utils.js', 'radix-ui', 'react-dom/client'])
+    expect(violations(file, `${actual}\nimport '${edge}';`, false)).toContain(edge);
+});
 it('admits the bare portal peer only in the exact scoped React adapters', () => {
   const file = path.join(production, 'browser-shell.tsx');
   const source = "import {createPortal} from 'react-dom';";
