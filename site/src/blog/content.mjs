@@ -289,7 +289,21 @@ export function approvedRecord(record, snapshot, proposals) {
 export function validateApproval(approval, meta, html, assets) {
   const approvedAt = approval?.approvedAt;
   const timestamp = /^\d+$/.test(approvedAt ?? "") ? Number(approvedAt) : Date.parse(approvedAt);
-  if (
+  const text = (value, limit) =>
+    typeof value === "string" && value.trim() !== "" && value.length <= limit;
+  if (approval?.method === "owner-instruction") {
+    if (
+      approval.decision !== "approved" ||
+      !text(approval.approvedBy, 100) ||
+      !text(approval.instruction, 500) ||
+      !uuid.test(approval.pageId) ||
+      !hash.test(approval.sourceSha256 ?? "") ||
+      !text(approval.pageRevision, 200) ||
+      typeof approvedAt !== "string" ||
+      !Number.isFinite(timestamp)
+    )
+      throw new Error("Missing or invalid owner authorization");
+  } else if (
     !approval ||
     approval.decision !== "approved" ||
     !uuid.test(approval.pageId) ||

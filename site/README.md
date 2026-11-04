@@ -232,6 +232,15 @@ full-source hash preserves the content binding across those updates.
 The trusted decision's timestamp is retained as returned by Colab (a decimal
 millisecond string); stored ISO timestamps also remain valid.
 
+Owner authorization (owner decision, 4 November 2026): the Colab `proposal`
+commands are gone from the current CLI, and the owner may authorize a post
+directly. `pnpm blog:colab import PAGE_UUID meta.json APPROVED_BY INSTRUCTION`
+captures the page like `publish` and writes an `approval.json` with
+`method: "owner-instruction"`, who authorized it, their instruction, the page
+revision, the full-source SHA-256 and the artifact hash. Validation accepts it
+only with all of those fields and the matching artifact hash. Agents run it only
+on the owner's explicit instruction for that post, and quote that instruction.
+
 The importer reads source and authenticated proposal state through the public
 CLI, never discussion exports. `.private/` review records and temporary
 attachments are local; attachments are removed after capture. Do not commit full
