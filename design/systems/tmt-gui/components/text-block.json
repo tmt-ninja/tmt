@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "text-block",
+  "source": "text-block.js",
+  "props": {
+    "tone": {
+      "enum": [
+        "default",
+        "muted"
+      ],
+      "default": "default"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "text-block.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "TextBlock",
+    "parts": [],
+    "compose": "<TextBlock tone=\"{tone}\">{children}</TextBlock>"
+  },
+  "examples": [
+    {
+      "title": "Default and muted",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Paragraph\"><tmt-ui-text-block>A paragraph wraps at the column width and holds a chip for a block, <tmt-ui-block-mention href=\"#b-6\">Table: Ticket status</tmt-ui-block-mention>.</tmt-ui-text-block></tmt-ui-block><tmt-ui-block label=\"Paragraph\"><tmt-ui-text-block tone=\"muted\">Secondary notes use the muted tone.</tmt-ui-text-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

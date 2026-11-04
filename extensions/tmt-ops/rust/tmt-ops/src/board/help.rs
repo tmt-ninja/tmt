@@ -408,10 +408,15 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ]));
     }
     sections.push(section("digest-estimate", "Digest estimate", &[
-        ("window", "Choose Digest estimate window in workspace settings: 1d, 7d or all time; the choice is shared by member, squad and Digest views."),
+        ("window", "Digest Range selects 1d, 7d or 30d for its chart, list and panel; [ and ] change it independently of Agents."),
         ("Est. ctx avoided", "Estimated context input tokens avoided by delivering messages together. Assumes each message would otherwise have been delivered on its own. Not billed tokens, not cost, not turns saved."),
-        ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. All time starts when each member's Digest began recording."),
-        ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by every view. In Agents, click the TOK or ≈$ word of the column heading (hover shows the unit it switches to), or any TOK figure, to switch the column between tokens and cost; the sort for that column is the one mark cell before the word. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Digest Details lists the price table behind it."),
+        ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. A null 30d percentage stays unavailable until Core has full gap-free coverage."),
+        ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by Agents views; Digest u changes window totals only and its chart stays TOK. In Agents, click the TOK or ≈$ word of the column heading (hover shows the unit it switches to), or any TOK figure, to switch the column between tokens and cost; the sort for that column is the one mark cell before the word. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Estimate basis lists the price table behind it."),
+    ]));
+    sections.push(section("digest-tab", "Digest tab", &[
+        ("chart", "TOK used plus estimated saved input; Per bar combines whole hourly (1d) or daily (7d/30d) buckets. No dollar bars or invented finer data."),
+        ("panel", "One selected-agent panel: Delivery, Saved, Models and Timers; Estimate basis opens sources. All is read-only. Next eligible is not a send promise."),
+        ("o mode", "Up/Down field, Left/Right value, Enter apply or open chooser, Esc discard. Auto caps and Interval use the public Digest writer; Use default removes the override. Workspace switches stay in settings."),
     ]));
     sections.push(section("chat-delivery", "chat delivery", &[
         ("direct message", "A person's eligible message goes straight to the agent's pane. Core settles the oldest open request after delivery; capture hooks do not decide eligibility."),

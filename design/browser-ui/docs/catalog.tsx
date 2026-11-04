@@ -1,4 +1,5 @@
-import { blockComponents } from './blocks-catalog.js';
+import { blockComponents } from './catalog-blocks.js';
+import { blockComponents as partBComponents } from './blocks-catalog.js';
 import { moreComponents, moreVariants } from './catalog-more.js';
 import { useState, type ReactNode } from 'react';
 import { Info, Search } from 'lucide-react';
@@ -590,4 +591,5 @@ export const components: ComponentDoc[] = [
   })),
   ...moreComponents,
   ...blockComponents,
+  ...partBComponents,
 ];

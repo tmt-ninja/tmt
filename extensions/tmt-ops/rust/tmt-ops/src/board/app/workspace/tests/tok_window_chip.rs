@@ -169,7 +169,7 @@ fn the_agents_range_and_the_digest_window_are_separate_settings() {
     assert!(chip(&app).is_some());
     app.shell.tab = OpsTab::Digest;
     let digest = paint(&app, 160, 40).join("\n");
-    assert!(digest.contains("Window   1d ▾"), "{digest}");
+    assert!(digest.contains("1d ▾"), "{digest}");
     assert!(
         !app.workspace_strip_hits
             .borrow()

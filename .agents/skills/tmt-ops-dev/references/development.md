@@ -107,8 +107,8 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   and the flat `Traffic` flow of [#5441](https://github.com/tmt-ninja/tmt/issues/5441) it
   measures 67.1 to 69.0 MB (3 interleaved pairs, Rust 1.98.1; main 81.7 to 85.4 MB). A flow
   report of 10,000 senders is under 1 MB in that representation, and the projection's
-  per-sender busiest-recipient map is sized once; do not reintroduce a per-sender map
-  node or a map grown by doubling there without re-measuring this probe.
+  current Digest projection shares that traffic without a separate busiest-recipient map;
+  do not add per-sender map nodes or unbounded growth without re-measuring this probe.
   An overage is not cleared by being within a percentage of main. Run
   main and candidate once, back to back on the same quiet machine and build mode;
   the ANSI probe's candidate whole-process user+system CPU must be

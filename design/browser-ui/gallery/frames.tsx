@@ -3,6 +3,7 @@ import { UiTheme, useDsScope } from '../src/ui/index.js';
 import { CompactControlsFrame } from './compact-controls-frame.js';
 import { UiContrastFrame } from './ui-contrast-frame.js';
 import { FloatingFrame } from './floating-frame.js';
+import { BlocksFrame } from './blocks-frame.js';
 import { DataTableFrame } from './data-table-frame.js';
 import { PageListFrame } from './page-list-frame.js';
 import { RichInputFrame } from './rich-input-frame.js';
@@ -719,6 +720,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <TabsBarFrame params={params} />;
     case 'rich-input':
       return <RichInputFrame params={params} />;
+    case 'blocks':
+      return <BlocksFrame params={params} />;
     case 'data-table':
       return <DataTableFrame params={params} />;
     case 'page-list':

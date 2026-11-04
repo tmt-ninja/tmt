@@ -24,7 +24,7 @@ use std::{collections::BTreeSet, rc::Rc};
 mod controls;
 mod dropdown;
 mod render;
-pub(in crate::board) use render::{demand, overview_demand, render_controls, render_panel};
+pub(in crate::board) use render::{overview_demand, render_controls, render_panel};
 #[cfg(test)]
 pub(in crate::board) mod tests;
 

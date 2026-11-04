@@ -13,6 +13,7 @@ const sources = [
   '../generated/editorial.css',
   '../gallery/gallery.css',
   '../src/data-table/page-list.css',
+  '../src/blocks/blocks.css',
   '../docs/docs.css',
   '../docs/mock-colab.css',
   '../docs/mock-reader.css',

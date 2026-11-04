@@ -10,6 +10,7 @@ pub enum OpsUiAction {
     SavingsUnit,
     UsageControls,
     CycleTokRange,
+    DigestPreviousWindow,
     Inspect,
     MonitorDetails,
     Edit,
@@ -263,6 +264,13 @@ const SPECS: &[OpsUiSpec] = &[
         "cycle-tok-range",
         "TOK range",
         "cycle the shared Agents and Digest TOK range",
+        12
+    ),
+    spec!(
+        DigestPreviousWindow,
+        "digest-previous-window",
+        "previous range",
+        "select the preceding Digest window",
         12
     ),
     spec!(

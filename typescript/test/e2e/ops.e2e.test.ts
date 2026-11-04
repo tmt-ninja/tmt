@@ -1569,6 +1569,36 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       const state = durableState(fixture);
       const beforeRequests = requestAttempts(fixture);
       {
+        // The Actions menu overlays the settings list, so pick the focused marker from
+        // the appropriate side and wait for each move before sending the next key.
+        const selectRow = async (label: string, side: 'left' | 'right') => {
+          const selected = (screen: string): string | undefined => {
+            const rows = screen.split('\n').flatMap((line) => {
+              return [...line.matchAll(/›([^│]*)/g)].map((match) => ({
+                index: match.index ?? 0,
+                text: match[1].trim(),
+              }));
+            });
+            rows.sort((a, b) => (side === 'left' ? a.index - b.index : b.index - a.index));
+            return rows[0]?.text;
+          };
+          let screen = await fixture.waitForCapture(
+            (output) => selected(output) !== undefined,
+            shell.pane
+          );
+          for (let step = 0; step < 60; step++) {
+            const current = selected(screen);
+            if (current === label || current?.startsWith(`${label} `)) return;
+            fixture.tmux(['send-keys', '-t', shell.pane, 'Down']);
+            screen = await fixture.waitForCapture(
+              (output) => selected(output) !== undefined && selected(output) !== current,
+              shell.pane
+            );
+          }
+          throw new Error(
+            `Could not select ${label} after 60 steps.\n${fixture.tmux(['capture-pane', '-p', '-t', shell.pane])}`
+          );
+        };
         fixture.tmux([
           'send-keys',
           '-t',
@@ -1586,20 +1616,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           (screen) => screen.includes('Enter apply or open') && screen.includes('Actions'),
           shell.pane
         );
-        // Down saturates on the final entry (the selected squad's settings link); Up steps over the
-        // rule and Panels to Actions, which precedes them. Preceding preference choices may grow.
-        // Enter applies only the painted row, so it waits for Actions to show as focused.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Up', 'Up']);
-        await fixture.waitForCapture((screen) => /›\s*Actions\b/.test(screen), shell.pane);
+        await selectRow('Actions', 'left');
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         // The Actions menu opens as a layer over the ? panel.
         await fixture.waitForCapture(
           (screen) => screen.includes('Enter runs · Esc closes'),
           shell.pane
         );
-        // Checklist can be below the viewport until the action menu scrolls to it.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down')]);
-        await fixture.waitForCapture((screen) => /›\s*Checklist\b/.test(screen), shell.pane);
+        await selectRow('Checklist', 'right');
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
         // ↓ on the empty list reaches the Filter chip; → moves to Actions.

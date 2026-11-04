@@ -704,8 +704,11 @@ fn shortest_digest_body_keeps_its_last_member_row_instead_of_a_chart_summary() {
         // The workspace has no boundary band, so the shortest frame is one row lower.
         let shortest = text(&paint(&mut app, 60, 7));
         assert!(!app.usage_chart.borrow().visible);
-        assert!(shortest.contains("Window") && shortest.contains("TOK used"));
-        assert!(shortest.contains("○ Saved = context"));
+        assert!(shortest.contains("Range") && shortest.contains("TOK "));
+        assert!(
+            !shortest.contains("used TOK"),
+            "no unreadable bars in the compact band"
+        );
         assert!(!app.hits.borrow().iter().any(|hit| hit.row().is_some()));
         // The reserved band takes two more rows than the old summary; the first
         // admitted member row still wins over an optional chart at the new minimum.
@@ -823,7 +826,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
 fn demand_bounds_cells_hits_and_remaining_target_budget() {
     crate::status::with_now_ms(fixtures::NOW, || {
         for populated in [false, true] {
-            for tab in [OpsTab::Agents, OpsTab::Digest] {
+            for tab in [OpsTab::Agents] {
                 for width in [0, 37, 38, 53, 54, 60, 100, 160] {
                     for height in 0..=44 {
                         let mut app = board();
@@ -831,7 +834,7 @@ fn demand_bounds_cells_hits_and_remaining_target_budget() {
                             fixtures::populate(&mut app);
                         }
                         app.shell.tab = tab;
-                        let used = demand(&app, width, height, fixtures::NOW);
+                        let used = overview_demand(&app, width, height, fixtures::NOW);
                         assert!(used <= height);
                         let rect = Rect::new(2, 2, width, used);
                         let mut terminal = Terminal::new(TestBackend::new(164, 48)).unwrap();
@@ -872,7 +875,7 @@ fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover(
     let mut original = Terminal::new(TestBackend::new(100, 36)).unwrap();
     let used = crate::status::with_now_ms(fixtures::NOW, || {
         fixtures::populate(&mut app);
-        let used = demand(&app, area.width, area.height, fixtures::NOW);
+        let used = overview_demand(&app, area.width, area.height, fixtures::NOW);
         original
             .draw(|frame| {
                 render_panel(

@@ -277,6 +277,16 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       bash('git show HEAD:package.json'),
       bash("sed -n '1,20p' package.json"),
       { tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' } },
+      // One status read is not a wait; only repeating it is.
+      bash('gh pr view 6041 --json state,mergedAt'),
+      bash('gh pr checks 6041'),
+      bash('gh issue view 6003 --comments'),
+      bash('gh run view 123 --log-failed'),
+      bash("gh api repos/tmt-ninja/tmt/pulls/6041 --jq '.head.sha'"),
+      bash('gh api -X GET repos/tmt-ninja/tmt/issues/6003/comments'),
+      // Writing a file from a quoted heredoc runs nothing, whatever the text says.
+      bash("cat > notes.md <<'EOF'\nWaiting on CI: sleep 60 until green.\nEOF"),
+      bash("cat <<'NOTES' >> state/notes.md\nline\nNOTES\n"),
     ];
     for (const payload of allowed) {
       const result = await c.guard(payload);
@@ -303,6 +313,15 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       bash('cat `sleep 9`'),
       bash('cat a\nsleep 9'),
       bash('cat "$(sleep 9)"'),
+      bash('gh pr checks 6041 --watch'),
+      bash('gh run watch 123'),
+      bash('gh pr view 6041 && sleep 60'),
+      bash('gh api repos/tmt-ninja/tmt/issues/6003/comments -f body=hi'),
+      bash('gh api -X POST repos/tmt-ninja/tmt/issues'),
+      bash('gh api'),
+      bash('cat > notes.md <<EOF\n$(sleep 9)\nEOF'),
+      bash("cat > notes.md <<'EOF'\nx\nEOF\nsleep 60"),
+      bash("cat > run.sh <<'EOF' && sh run.sh\nsleep 9\nEOF"),
       { tool_name: 'functions.wait', tool_input: { cell_id: '1' } },
       { tool_name: 'wait_agent', tool_input: { timeout_ms: 600000 } },
     ];
@@ -356,6 +375,53 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received[0].body.system).toContain(
       'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
     );
+  });
+
+  it('skips the model for the pinned host-health gate only, and judges anything else', async () => {
+    const c = newCase();
+    const gate = path.join(
+      c.dir,
+      '.config/tmt/notes/ada473fa-8c4d-4b12-9686-b44a77791a4b/host-health.sh'
+    );
+    mkdirSync(path.dirname(gate), { recursive: true });
+    writeExecutable(gate, '#!/bin/sh\necho GO\n', 0o755);
+    const pinned = execFileSync('shasum', ['-a', '256', gate], { encoding: 'utf8' }).split(' ')[0];
+    const source = readFileSync(script, 'utf8').replace(
+      /const HOST_HEALTH_SHA256 = '[0-9a-f]+';/,
+      `const HOST_HEALTH_SHA256 = '${pinned}';`
+    );
+    const { repo, hook } = scratchRepository(c.dir, source);
+    const guard = (command: string) => c.guard({ ...bash(command), cwd: repo }, {}, hook);
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    for (const command of [`${gate} --gate`, `sh ${gate} --gate`, `bash ${gate} --gate 2>&1`]) {
+      expect((await guard(command)).stdout, command).toBe('');
+    }
+    expect(received).toEqual([]);
+    for (const line of c.lines()) {
+      expect(line).toMatchObject({ verdict: 'skip', reason: 'host-health' });
+    }
+
+    answer = verdict('deny', 'Waits in the main session.');
+    const copy = path.join(c.dir, 'host-health.sh');
+    writeFileSync(copy, readFileSync(gate));
+    const judged = [
+      `${gate} --gate-once`,
+      `${gate} --gate --again`,
+      `${gate}`,
+      `${gate} --gate; sleep 60`,
+      `until ${gate} --gate; do sleep 60; done`,
+      `sh ${copy} --gate`,
+    ];
+    for (const command of judged) await guard(command);
+    expect(received).toHaveLength(judged.length);
+    // Any other content is judged, even at the pinned path.
+    writeFileSync(gate, '#!/bin/sh\nsleep 600\n');
+    await guard(`${gate} --gate`);
+    expect(received).toHaveLength(judged.length + 1);
+    expect(received[0].body.system).toContain('One status read');
+    expect(received[0].body.system).toContain('Writing or editing a file is not a wait');
   });
 
   it('is inert outside this repository, and logs every call when switched off', async () => {
@@ -599,6 +665,23 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       },
     ]);
     expect(JSON.stringify(received[0].body)).not.toContain('outside-content');
+
+    // A heredoc write skips the model, but running what it wrote is judged with its content.
+    const loop = 'while :; do gh pr checks 6041; sleep 60; done';
+    received = [];
+    answer = () => {
+      throw new Error('the judge must not be called for the write');
+    };
+    const write = `cat > scripts/wait-ci.sh <<'EOF'\n${loop}\nEOF`;
+    await c.guard({ ...bash(write), cwd: repo }, {}, hook);
+    expect(received).toEqual([]);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'skip' });
+    // The seat's shell writes the file; the hook only judged the call.
+    writeFileSync(path.join(repo, 'scripts', 'wait-ci.sh'), `${loop}\n`);
+    answer = verdict('deny', 'Runs a CI polling loop.');
+    await c.guard({ ...bash('sh scripts/wait-ci.sh'), cwd: repo }, {}, hook);
+    expect(sent().scripts).toEqual([{ path: 'scripts/wait-ci.sh', content: `${loop}\n` }]);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
   });
 
   it('summarizes the log over a window with the denominator, timings and cost', async () => {

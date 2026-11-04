@@ -7,7 +7,7 @@ mod model;
 mod render;
 mod summary;
 pub(in crate::board) use allowance::Scroll as AllowanceScroll;
-pub(in crate::board) use details::{Basis as EstimateBasis, Tab as DetailsTab};
+pub(in crate::board) use details::Basis as EstimateBasis;
 pub(in crate::board) use render::open_basis;
 mod table;
 
@@ -18,7 +18,6 @@ use crate::board::{
 };
 use crate::labels::digest::SavingsSummary;
 use std::{
-    collections::HashMap,
     rc::{self, Rc},
     sync::{self, Arc},
 };
@@ -28,6 +27,13 @@ pub(in crate::board) struct Cache {
     held: Option<(Key, Projection)>,
     savings: Option<(SavingsKey, Rc<SavingsSummary>)>,
     held_text: Option<(SavingsKey, Rc<str>)>,
+    chart: Option<Chart>,
+}
+
+struct Chart {
+    key: SavingsKey,
+    report: Option<Arc<Report>>,
+    points: Rc<[summary::Bucket]>,
 }
 
 /// The admitted rows' saved sum is one read of one status; the projection key leaves labels out
@@ -66,33 +72,6 @@ impl SavingsKey {
 struct Projection {
     rows: Rc<[OpsTreeRow]>,
     exchanges: Rc<[crate::board::exchange_matrix::ExchangeParticipant]>,
-    talks: Rc<Talks>,
-}
-
-/// Whom each sender wrote to most, found once per report so a frame never searches the traffic.
-#[derive(Default)]
-pub(super) struct Talks(HashMap<Arc<str>, (Option<Arc<str>>, u64)>);
-
-impl Talks {
-    fn of(report: Option<&Report>) -> Self {
-        let Some(traffic) = report.and_then(|report| report.exchange.as_ref()) else {
-            return Self::default();
-        };
-        // Sized once: a map grown by doubling while it fills leaves its peak in the process.
-        let mut talks = HashMap::with_capacity(traffic.busiest_flows().count());
-        talks.extend(
-            traffic.busiest_flows().filter_map(|flow| {
-                Some((flow.sender.clone()?, (flow.recipient.clone(), flow.count)))
-            }),
-        );
-        Self(talks)
-    }
-
-    /// The recipient (`None` when the report could not identify it) and its message count.
-    pub(super) fn busiest(&self, id: &str) -> Option<(Option<&str>, u64)> {
-        let (recipient, count) = self.0.get(id)?;
-        Some((recipient.as_deref(), *count))
-    }
 }
 
 struct Key {
@@ -119,6 +98,7 @@ impl Cache {
     pub fn clear(&mut self) {
         self.held = None;
         self.savings = None;
+        self.chart = None;
     }
 
     /// Holds the projection `build` makes for `key`. The stale one is released first: it pins
@@ -160,12 +140,7 @@ fn projection(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Projection {
             metrics::report(app).and_then(|report| report.exchange.as_ref()),
         )
         .into();
-        let talks = Rc::new(Talks::of(metrics::report(app)));
-        Projection {
-            rows,
-            exchanges,
-            talks,
-        }
+        Projection { rows, exchanges }
     })
 }
 
@@ -185,6 +160,39 @@ pub(in crate::board) fn rows(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<[
 
 /// The saved sum over the admitted rows, shared by the summary tiles, Details for `all` and the
 /// table's `all` row.
+pub(super) fn chart_buckets(app: &App) -> Rc<[summary::Bucket]> {
+    let Some(snapshot) = app.workspace_snapshot() else {
+        return Rc::from([]);
+    };
+    let rows = projection(app, snapshot).rows;
+    let key = SavingsKey::of(app, &rows);
+    let report = app.usage_report.retained_report(app.digest_range());
+    let mut cache = app.digest_rows.borrow_mut();
+    if let Some(Chart {
+        key: held,
+        report: old,
+        points,
+    }) = &cache.chart
+        && held.matches(&key)
+        && match (old, &report) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    {
+        return points.clone();
+    }
+    cache.chart = None;
+    let ids = rows.iter().filter_map(metrics::id).collect::<Vec<_>>();
+    let points: Rc<[summary::Bucket]> = summary::capture_buckets(app, &ids).into();
+    cache.chart = Some(Chart {
+        key,
+        report,
+        points: points.clone(),
+    });
+    points
+}
+
 pub(super) fn savings(app: &App) -> Rc<SavingsSummary> {
     let Some(snapshot) = app.workspace_snapshot() else {
         return Rc::new(metrics::savings(app, &[]));
@@ -200,11 +208,6 @@ pub(super) fn savings(app: &App) -> Rc<SavingsSummary> {
     let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
     let summary = Rc::new(metrics::savings(app, &ids));
     cache.savings.insert((key, summary)).1.clone()
-}
-
-pub(super) fn talks(app: &App) -> Rc<Talks> {
-    app.workspace_snapshot()
-        .map_or_else(Default::default, |snapshot| projection(app, snapshot).talks)
 }
 
 fn exchange_participants(app: &App) -> Rc<[crate::board::exchange_matrix::ExchangeParticipant]> {

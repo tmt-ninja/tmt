@@ -27,6 +27,8 @@
     "./blocks": "./src/blocks/index.ts",
     "./blocks.css": "./src/blocks/blocks.css",
     "./data-table": "./src/data-table/index.ts",
+    "./data-table.css": "./src/data-table/data-table.css",
+    "./page-list.css": "./src/data-table/page-list.css",
     "./manage-list": "./src/manage-list/index.ts"
   },
   "scripts": {

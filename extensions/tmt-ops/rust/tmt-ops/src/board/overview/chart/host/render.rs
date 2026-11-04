@@ -2,18 +2,6 @@
 use super::*;
 use ratatui::{Frame, buffer::Buffer};
 
-fn list_capacity(app: &App, area: Rect) -> usize {
-    let Some(placement) = app.workspace_placement(area) else {
-        return 0;
-    };
-    let Some(mut list) = placement.list else {
-        return 0;
-    };
-    // Reserve the existing outline and Digest's table header. Overview also
-    // reserves a monitor header so the M01 host can integrate without squeezing rows.
-    list.height = list.height.saturating_sub(3);
-    crate::board::scroll::Scrolls::viewport(list, app.workspace_rows().len())
-}
 fn display(app: &App, data: &Series, selection: Selection) -> super::super::model::Series {
     let mut view = project::display(data, selection).expect("validated interval projection");
     if app.shell.tab == OpsTab::Agents && quotas_visible(app) {
@@ -89,39 +77,6 @@ pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now:
     }
 }
 
-pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, now: u64) -> u16 {
-    if app.shell.tab == OpsTab::Agents {
-        return overview_demand(app, width, target_row_budget, now);
-    }
-    if width == 0 || target_row_budget <= 1 || app.workspace_snapshot().is_none() {
-        return 0;
-    }
-    let state = app.usage_chart.borrow();
-    let grid = Grid::new(
-        u64::from(state.selection.each_minutes) * 60_000,
-        u64::from(state.selection.range_minutes) * 60_000,
-        now,
-    )
-    .expect("admitted chart clock");
-    let data = if let Some(data) = state.observed.as_ref().filter(|data| data.grid == grid) {
-        Rc::clone(data)
-    } else {
-        Rc::new(app.usage_series(state.selection, now))
-    };
-    let used = chart_rows(app, &data, state.selection);
-    if data
-        .buckets
-        .iter()
-        .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
-        && width >= 40
-        && fits_chart(app, &data, state.selection, width)
-        && target_row_budget >= used
-        && list_capacity(app, Rect::new(0, used, width, target_row_budget - used)) >= 6
-    {
-        return used;
-    }
-    u16::from(list_capacity(app, Rect::new(0, 1, width, target_row_budget - 1)) > 0)
-}
 pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let look = app.look();
     let mut state = app.usage_chart.borrow_mut();

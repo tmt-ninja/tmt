@@ -172,6 +172,7 @@ fn published_savings_keep_the_supplied_window_coverage_and_known_zero() {
                 gap: None,
                 cost: None,
                 percent: None,
+                series: None,
             })
         );
     }
@@ -768,4 +769,25 @@ fn the_tick_record_is_a_time_null_or_absent_and_anything_else_refuses_the_status
         document["tick"] = malformed;
         assert!(parse(&document).is_none(), "{}", document["tick"]);
     }
+}
+
+#[test]
+fn digest_redesign_month_window_keeps_nullable_percent_without_guessing() {
+    let raw = savings("30d", 0, 2_592_000_000, 100);
+    let saved = Savings::parse(&raw).expect("30d savings must be admitted");
+    assert_eq!(saved.tokens, Some(100));
+    assert!(
+        saved.percent.is_none(),
+        "missing supplier percentage stays unavailable"
+    );
+}
+
+#[test]
+fn digest_redesign_month_percent_lights_up_when_supplied() {
+    let mut raw = savings("30d", 0, 2_592_000_000, 100);
+    raw["percent"] = json!({"basisPoints":1000,"estimatedInputTokensAvoided":100,"observedInputTokens":900,"fromMs":0,"throughMs":2_592_000_000u64});
+    assert_eq!(
+        Savings::parse(&raw).unwrap().percent.unwrap().basis_points,
+        1000
+    );
 }

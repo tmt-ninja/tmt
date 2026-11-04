@@ -47,6 +47,8 @@ pub(super) fn fixture() -> App {
                 name: None,
                 retired: false,
             },
+            model_totals: None,
+            window_series: None,
             model_inputs: None,
             input: (i as u64 + 1) * 1000,
             output: 100,
@@ -357,7 +359,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     let mut app = fixture();
     let selected = app.workspace.selected.clone();
     let shown = paint(&mut app, 80, 40);
-    assert!(shown.contains("ACTIVITY · last 1d"));
+    assert!(shown.contains("ACTIVITY"));
     assert!(!shown.contains("SHARE"));
     assert!(!shown.contains("≈ $ USED"));
     assert!(shown.contains("Details"));
@@ -378,12 +380,16 @@ fn another_window_never_relabels_supplier_savings_and_absent_digest_keeps_core_e
     app.labels = Default::default();
     let shown = paint(&mut app, 160, 40);
     assert!(shown.contains("28.7k"), "{shown}");
-    assert!(shown.contains("Install: tmt extension install digest"));
+    assert!(
+        super::super::details::panel(&app, 121_000, app.selected_row())
+            .join(" ")
+            .contains("tmt extension install digest")
+    );
     assert!(shown.contains("from\\to"));
     app.digest_window = crate::config::DigestWindow::Week;
     let shown = paint(&mut app, 160, 40);
-    assert!(shown.contains("Window   7d ▾"), "{shown}");
-    assert!(shown.contains("Est. ctx avoided —"), "{shown}");
+    assert!(shown.contains("7d ▾"), "{shown}");
+    assert!(shown.contains("saved —"), "{shown}");
 }
 
 #[test]
@@ -395,7 +401,7 @@ fn digest_details_toggle_uses_config_cas_and_usage_controls_have_the_existing_ow
     app.workspace_reconcile();
     paint(&mut app, 160, 40);
     let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
-        key(&mut app, KeyCode::Char('e'))
+        app.perform(&crate::action::Action::parse("monitor-details").unwrap())
     else {
         panic!("details toggle must use the existing saved preference");
     };
@@ -405,10 +411,10 @@ fn digest_details_toggle_uses_config_cas_and_usage_controls_have_the_existing_ow
     paint(&mut app, 160, 40);
     crate::board::app::workspace::tests::open_usage_controls(&mut app);
     paint(&mut app, 160, 40);
-    assert!(app.usage_chart.borrow().focused());
-    key(&mut app, KeyCode::Enter);
-    paint(&mut app, 160, 40);
-    assert!(app.usage_controls);
+    assert_eq!(
+        app.menu.as_ref().map(|menu| menu.title.as_str()),
+        Some("Per bar")
+    );
     assert!(app.input.is_none());
 }
 
@@ -684,29 +690,19 @@ fn digest_event_draw_timing() {
 }
 
 #[test]
-fn input_price_qualification_is_shown_once_by_the_visible_amount() {
+fn list_price_is_kept_out_of_the_list_and_totals_name_the_estimate() {
     let _no_commands = crate::runner::forbid_commands();
     for width in [160, 100, 80, 60] {
         let mut app = fixture();
         let shown = paint(&mut app, width, 60);
-        assert_eq!(
-            shown
-                .matches("Input tokens at list price; not a bill.")
-                .count(),
-            1,
-            "width={width}: {shown}"
-        );
-        if width < 100 {
-            assert!(shown.contains("≈ $ used — usage incomplete"));
-        }
-        // The columns a narrow pane drops are named once; a pane that has them says nothing.
+        assert!(!shown.contains("≈ $ USED"));
+        assert!(shown.contains("not a bill"), "{shown}");
         let hint = super::super::table::painted_width(&app).and_then(|width| {
             super::super::table::narrow_hint(width, app.savings_unit(), usize::MAX)
         });
         assert_eq!(
             shown.matches("Widen to ").count(),
-            usize::from(hint.is_some()),
-            "width={width}: {shown}"
+            usize::from(hint.is_some())
         );
     }
 }

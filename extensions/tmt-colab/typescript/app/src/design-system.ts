@@ -15,8 +15,8 @@ import {
   type Bundle,
   type Finding,
 } from '../../../../../design/systems/compiler.mjs';
-import pageListCss from '../../../../../design/browser-ui/src/data-table/page-list.css?inline';
-import dataTableCss from '../../../../../design/browser-ui/src/data-table/data-table.css?inline';
+import pageListCss from '@tmt/browser-ui/page-list.css?inline';
+import dataTableCss from '@tmt/browser-ui/data-table.css?inline';
 
 /** The skeleton API this app runs bundles on: the page runtime's React and htm, plus cn. */
 export const SKELETON_RUNTIME = '2';

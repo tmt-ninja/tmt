@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
-import { PageListTable } from '../../../../../../design/browser-ui/src/data-table/page-list-table.js';
-import { UiTheme } from '../../../../../../design/browser-ui/src/ui/theme.js';
+import { PageListTable } from '@tmt/browser-ui/data-table';
+import { UiTheme } from '@tmt/browser-ui/ui';
 
 type ViewRows =
   | {
