@@ -7,7 +7,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "parse5";
 import {
-  approvedRecord,
   articleFromSource,
   artifactHash,
   attr,
@@ -118,80 +117,7 @@ export async function capture(pageId, call = tmt) {
   return { snapshot, ...extractArticle(raw, images) };
 }
 
-export async function prepare({ root, pageId, meta, call = tmt }) {
-  if (!uuid.test(pageId)) throw new Error("Use a full page UUID");
-  metadata(meta);
-  const first = await capture(pageId, call);
-  const artifactSha256 = artifactHash(meta, first.html, first.assets);
-  const proposalId = randomUUID();
-  const inventory = first.scripts.length
-    ? first.scripts.map(({ path, sha256 }) => `- ${path}: SHA-256 ${sha256}`).join("\n")
-    : "- None";
-  const proposalBody = `Publish this post?\n\nTitle: ${meta.title}\nSlug: ${meta.slug}\nDate: ${meta.date}\nLanguage: ${meta.language}\nSummary: ${meta.summary}\nTags: ${meta.tags?.length ? meta.tags.map((tag) => "#" + tag).join(", ") : "None"}\nKey number: ${meta.keyNumber ? meta.keyNumber.value + " · " + meta.keyNumber.label : "None"}\n\nApproved artifact SHA-256: ${artifactSha256}\n\nArticle modules (exact source is in this page):\n${inventory}\n\nExternal resource/data origins: none allowed by the site CSP. Outbound HTTPS links remain reader actions.\n\nApprove authorizes importing this exact article, scripts, images and metadata into the blog repository for PR review and merge-triggered publication. Discussions and proposals are excluded. Any source revision change requires a new proposal.`;
-  if (Buffer.byteLength(proposalBody) > 4096)
-    throw new Error("Proposal inventory exceeds Colab limit; reduce scripts or split the post");
-  const directory = join(root, ".private/proposals");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const path = join(directory, proposalId + ".json");
-  const record = { pageId, proposalId, meta, artifactSha256, proposalBody, state: "preparing" };
-  await writeFile(path, stableJson(record), { mode: 0o600, flag: "wx" });
-  const added = await call(
-    "proposal",
-    "add",
-    pageId,
-    "--id",
-    proposalId,
-    "--title",
-    "Publish this post?",
-    "--body",
-    proposalBody,
-  );
-  if (added.proposalId !== proposalId || added.placed !== true)
-    throw new Error(
-      `Proposal placement uncertain. Inspect ${pageId}/${proposalId}; do not create a duplicate`,
-    );
-  const current = await capture(pageId, call);
-  if (artifactHash(meta, current.html, current.assets) !== artifactSha256)
-    throw new Error("Article changed while preparing; this proposal must not be published");
-  Object.assign(record, {
-    state: "awaiting-approval",
-    pageRevision: current.snapshot.revision,
-    sourceSha256: sha256(current.snapshot.source),
-  });
-  await writeFile(path, stableJson(record), { mode: 0o600 });
-  return { pageId, proposalId, pageRevision: record.pageRevision, artifactSha256, record: path };
-}
-
-export async function publish({ root, proposalId, call = tmt }) {
-  if (!uuid.test(proposalId)) throw new Error("Use the full proposal UUID");
-  const record = JSON.parse(
-    await readFile(join(root, ".private/proposals", proposalId + ".json"), "utf8"),
-  );
-  if (record.state !== "awaiting-approval" || record.proposalId !== proposalId)
-    throw new Error("Proposal preparation is incomplete");
-  const captured = await capture(record.pageId, call);
-  const proposals = await call("proposal", "ls", record.pageId);
-  const decision = approvedRecord(record, captured.snapshot, proposals);
-  if (artifactHash(record.meta, captured.html, captured.assets) !== record.artifactSha256)
-    throw new Error("Approved article or image bytes changed");
-  const confirmed = await call("page", "read", record.pageId);
-  approvedRecord(record, confirmed, proposals);
-  const approval = {
-    decision: "approved",
-    pageId: record.pageId,
-    proposalId,
-    pageRevision: record.pageRevision,
-    sourceSha256: record.sourceSha256,
-    approverDevice: decision.senderDevice,
-    actionId: decision.actionId,
-    approvedAt: decision.at,
-    artifactSha256: record.artifactSha256,
-  };
-  return writePost({ root, meta: record.meta, captured, approval });
-}
-
-// The owner may authorize a post directly instead of through a Colab proposal (owner decision,
-// 2026-11-04). The record names who authorized it and binds the exact page revision and artifact.
+// Record the owner's explicit authorization and bind the captured revision and artifact.
 export async function importAuthorized({
   root,
   pageId,
@@ -218,6 +144,7 @@ export async function importAuthorized({
 }
 
 async function writePost({ root, meta, captured, approval }) {
+  await mkdir(join(root, ".private"), { recursive: true, mode: 0o700 });
   const staging = await mkdtemp(join(root, ".private/post-"));
   let committed = false;
   try {
@@ -270,14 +197,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       sourcePath: first,
       meta: JSON.parse(await readFile(second, "utf8")),
     });
-  else if (command === "prepare" && first && second)
-    result = await prepare({
-      root: resolve("."),
-      pageId: first,
-      meta: JSON.parse(await readFile(second, "utf8")),
-    });
-  else if (command === "publish" && first && !second)
-    result = await publish({ root: resolve("."), proposalId: first });
   else if (command === "import" && first && second && process.argv[5] && process.argv[6])
     result = await importAuthorized({
       root: resolve("."),
@@ -288,7 +207,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     });
   else
     throw new Error(
-      "Usage: pnpm blog:colab draft source.html metadata.json | pnpm blog:colab prepare PAGE_UUID metadata.json | pnpm blog:colab publish PROPOSAL_UUID | pnpm blog:colab import PAGE_UUID metadata.json APPROVED_BY INSTRUCTION",
+      "Usage: pnpm blog:colab draft source.html metadata.json | pnpm blog:colab import PAGE_UUID metadata.json APPROVED_BY INSTRUCTION",
     );
   console.log(stableJson(result));
 }

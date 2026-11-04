@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { draft, capture, prepare, publish } from "../src/blog/colab.mjs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { sha256, artifactHash } from "../src/blog/content.mjs";
+import { draft, capture, importAuthorized } from "../src/blog/colab.mjs";
 import { readPosts } from "../src/blog/site.mjs";
 
 const pageId = "10000000-0000-4000-8000-000000000001";
-const device = "30000000-0000-4000-8000-000000000001";
-const actionId = "40000000-0000-4000-8000-000000000001";
+const authorization = { approvedBy: "Owner", instruction: "Publish this post." };
 const meta = {
   slug: "approved-post",
   title: "Approved title",
@@ -22,48 +25,15 @@ function fakeColab() {
     source:
       '<article id="blog-article"><p>Public body</p><script type="module">document.body.dataset.example = "yes";</script></article><aside>Private note</aside>',
     revision: "before",
-    decision: null,
     calls: [],
   };
   const call = async (...args) => {
     state.calls.push(args);
     if (args[0] === "page" && args[1] === "read")
       return { pageId, epoch: "1", revision: state.revision, source: state.source };
-    if (args[0] === "proposal" && args[1] === "add") {
-      state.id = args[args.indexOf("--id") + 1];
-      state.body = args[args.indexOf("--body") + 1];
-      state.source += `<tmt-proposal data-id="${state.id}"></tmt-proposal>`;
-      state.revision = "after-proposal-placement";
-      return { proposalId: state.id, placed: true };
-    }
-    if (args[0] === "proposal" && args[1] === "ls")
-      return {
-        pageId,
-        epoch: "1",
-        proposals: [
-          {
-            deleted: false,
-            proposal: { proposalId: state.id, title: "Publish this post?", body: state.body },
-            decision: state.decision,
-          },
-        ],
-      };
     throw new Error("Unexpected native call: " + args.join(" "));
   };
-  const approve = () => {
-    state.revision = "after-trusted-decision";
-    state.decision = {
-      decision: "approved",
-      deleted: false,
-      kind: "proposal-decision",
-      pageId,
-      epoch: "1",
-      senderDevice: device,
-      actionId,
-      at: "1792152000000",
-    };
-  };
-  return { state, call, approve };
+  return { state, call };
 }
 
 async function world(run) {
@@ -124,105 +94,53 @@ test("draft adds the newly created page to the blog project using the current CL
     assert.equal(calls.length, 2);
   }));
 
-test("prepared proposal inventories exact scripts; trusted approval imports only public output", async () =>
+test("owner-authorized import works without a prior draft and binds only public output", async () =>
   world(async (root) => {
     const fake = fakeColab();
-    const result = await prepare({ root, pageId, meta, call: fake.call });
-    assert.match(fake.state.body, /Article modules/);
-    assert.match(fake.state.body, /scripts\/[a-f0-9]{64}\.mjs/);
-    assert.match(fake.state.body, /External resource\/data origins: none/);
-    assert.equal(result.pageRevision, "after-proposal-placement");
-    const saved = await readFile(result.record, "utf8");
-    assert.doesNotMatch(saved, /Public body|Private note|document.body/);
-    fake.approve();
-    await publish({ root, proposalId: result.proposalId, call: fake.call });
+    const started = Date.now();
+    const imported = await importAuthorized({
+      root,
+      pageId,
+      meta,
+      ...authorization,
+      call: fake.call,
+    });
     const posts = await readPosts(join(root, "src/posts"));
     assert.equal(posts.length, 1);
     assert.doesNotMatch(posts[0].html, /Private note|tmt-proposal/);
-    assert.equal(Object.keys(posts[0].assets).length, 1);
-    assert.equal(
-      fake.state.calls.some((args) => ["export", "threads"].includes(args[0])),
-      false,
+    const scripts = Object.keys(posts[0].assets);
+    assert.equal(scripts.length, 1);
+    assert.match(scripts[0], /^scripts\/[a-f0-9]{64}\.mjs$/);
+    assert.equal(posts[0].assets[scripts[0]].toString(), 'document.body.dataset.example = "yes";');
+    const approval = JSON.parse(await readFile(join(imported.path, "approval.json"), "utf8"));
+    assert.deepEqual(approval, {
+      decision: "approved",
+      method: "owner-instruction",
+      ...authorization,
+      pageId,
+      pageRevision: fake.state.revision,
+      sourceSha256: sha256(fake.state.source),
+      approvedAt: approval.approvedAt,
+      artifactSha256: artifactHash(meta, posts[0].html, posts[0].assets),
+    });
+    assert.ok(
+      Date.parse(approval.approvedAt) >= started && Date.parse(approval.approvedAt) <= Date.now(),
     );
-    assert.equal(
-      (await readdir(join(root, ".private"))).some((path) => path.startsWith("post-")),
-      false,
-    );
+    assert.equal(imported.artifactSha256, approval.artifactSha256);
+    assert.deepEqual(fake.state.calls, [["page", "read", pageId]]);
+    assert.deepEqual(await readdir(join(root, ".private")), []);
   }));
 
-test("pending and declined decisions refuse without public files", async () =>
-  world(async (root) => {
-    const fake = fakeColab();
-    const result = await prepare({ root, pageId, meta, call: fake.call });
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /must approve/,
-    );
-    fake.approve();
-    fake.state.decision.decision = "declined";
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /must approve/,
-    );
-    assert.deepEqual(await readdir(join(root, "src/posts")), []);
-  }));
-
-test("trusted approval may advance the document revision while source stays identical", async () =>
-  world(async (root) => {
-    const fake = fakeColab();
-    const result = await prepare({ root, pageId, meta, call: fake.call });
-    const preparedSource = fake.state.source;
-    fake.approve();
-    assert.notEqual(fake.state.revision, result.pageRevision);
-    assert.equal(fake.state.source, preparedSource);
-    await publish({ root, proposalId: result.proposalId, call: fake.call });
-    const posts = await readPosts(join(root, "src/posts"));
-    assert.equal(posts.length, 1);
-    assert.match(posts[0].html, /Public body/);
-    const approval = JSON.parse(
-      await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8"),
-    );
-    const record = JSON.parse(await readFile(result.record, "utf8"));
-    assert.equal(approval.pageRevision, result.pageRevision);
-    assert.equal(approval.sourceSha256, record.sourceSha256);
-    assert.equal(approval.artifactSha256, result.artifactSha256);
-    assert.equal(approval.actionId, actionId);
-    assert.equal(approval.approvedAt, fake.state.decision.at);
-  }));
-
-test("changed full source refuses even with the prepared revision and unchanged article", async () =>
-  world(async (root) => {
-    const fake = fakeColab();
-    const result = await prepare({ root, pageId, meta, call: fake.call });
-    fake.approve();
-    fake.state.revision = result.pageRevision;
-    fake.state.source = fake.state.source.replace("Private note", "Changed private note");
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /source drift/,
-    );
-    assert.deepEqual(await readdir(join(root, "src/posts")), []);
-  }));
-
-test("changed bytes, missing proposal and wrong epoch each refuse independently", async () => {
-  for (const mutate of [
-    (fake) => {
-      fake.state.source = fake.state.source.replace("Public body", "Changed body");
-    },
-    (fake) => {
-      fake.state.id = "20000000-0000-4000-8000-000000000002";
-    },
-    (fake) => {
-      fake.state.decision.epoch = "2";
-    },
-  ])
+test("missing owner attribution or instruction refuses import and cleans staging", async () => {
+  for (const invalid of [{ approvedBy: "" }, { instruction: "" }, { instruction: undefined }])
     await world(async (root) => {
       const fake = fakeColab();
-      const result = await prepare({ root, pageId, meta, call: fake.call });
-      fake.approve();
-      mutate(fake);
-      await assert.rejects(publish({ root, proposalId: result.proposalId, call: fake.call }));
+      await assert.rejects(
+        importAuthorized({ root, pageId, meta, ...authorization, ...invalid, call: fake.call }),
+        /invalid owner authorization/,
+      );
       assert.deepEqual(await readdir(join(root, "src/posts")), []);
+      assert.deepEqual(await readdir(join(root, ".private")), []);
     });
 });
 
@@ -231,130 +149,123 @@ test("capture rejects remote images before any attachment call", async () => {
   fake.state.source =
     '<article id="blog-article"><img src="https://example.com/x.png" alt="x"></article>';
   await assert.rejects(capture(pageId, fake.call), /full verified Colab attachment IDs/);
-  assert.equal(
-    fake.state.calls.some((args) => args[0] === "attachment"),
-    false,
-  );
+  assert.deepEqual(fake.state.calls, [["page", "read", pageId]]);
 });
 
-test("repeated import refuses to overwrite existing post and cleans staging", async () =>
+test("repeated import preserves the existing post and cleans staging", async () =>
   world(async (root) => {
     const fake = fakeColab();
-    const result = await prepare({ root, pageId, meta, call: fake.call });
-    fake.approve();
-    await publish({ root, proposalId: result.proposalId, call: fake.call });
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /already exists/,
-    );
-    assert.equal((await readPosts(join(root, "src/posts"))).length, 1);
-    assert.equal(
-      (await readdir(join(root, ".private"))).some((path) => path.startsWith("post-")),
-      false,
-    );
+    const options = { root, pageId, meta, ...authorization, call: fake.call };
+    const imported = await importAuthorized(options);
+    const originalApproval = await readFile(join(imported.path, "approval.json"), "utf8");
+    const originalPosts = await readPosts(join(root, "src/posts"));
+    fake.state.source = fake.state.source.replace("Public body", "Replacement body");
+    await assert.rejects(importAuthorized(options), /already exists/);
+    assert.deepEqual(await readPosts(join(root, "src/posts")), originalPosts);
+    assert.equal(await readFile(join(imported.path, "approval.json"), "utf8"), originalApproval);
+    assert.deepEqual(await readdir(join(root, ".private")), []);
   }));
 
-test("each language requires its own approval and imports beside English without overwriting it", async () =>
+test("each language needs owner authorization and imports beside English without overwriting it", async () =>
   world(async (root) => {
     const english = fakeColab();
-    const prepared = await prepare({ root, pageId, meta, call: english.call });
-    english.approve();
-    await publish({ root, proposalId: prepared.proposalId, call: english.call });
+    await importAuthorized({ root, pageId, meta, ...authorization, call: english.call });
     const original = await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8");
     for (const language of ["ja", "zh-hant", "zh-hans"]) {
       const fake = fakeColab();
-      const result = await prepare({ root, pageId, meta: { ...meta, language }, call: fake.call });
-      assert.match(fake.state.body, new RegExp(`Language: ${language}`));
+      const options = {
+        root,
+        pageId,
+        meta: { ...meta, language },
+        ...authorization,
+        call: fake.call,
+      };
       await assert.rejects(
-        publish({ root, proposalId: result.proposalId, call: fake.call }),
-        /must approve/,
+        importAuthorized({ ...options, instruction: "" }),
+        /invalid owner authorization/,
       );
-      fake.approve();
-      const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
+      const imported = await importAuthorized(options);
       assert.equal(imported.path, join(root, "src/posts", meta.slug, language));
       assert.equal(imported.language, language);
       const record = JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8"));
       assert.equal(record.language, language);
-      await assert.rejects(
-        publish({ root, proposalId: result.proposalId, call: fake.call }),
-        /already exists/,
-      );
+      await assert.rejects(importAuthorized(options), /already exists/);
     }
     assert.equal(
       await readFile(join(root, "src/posts", meta.slug, "approval.json"), "utf8"),
       original,
     );
     assert.equal((await readPosts(join(root, "src/posts"))).length, 4);
+    assert.deepEqual(await readdir(join(root, ".private")), []);
   }));
 
-test("a translation cannot publish before English or reuse an English artifact approval", async () =>
+test("a translation cannot import before English and leaves no staged post", async () =>
   world(async (root) => {
     const fake = fakeColab();
-    const result = await prepare({
-      root,
-      pageId,
-      meta: { ...meta, language: "ja" },
-      call: fake.call,
-    });
-    fake.approve();
     await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
+      importAuthorized({
+        root,
+        pageId,
+        meta: { ...meta, language: "ja" },
+        ...authorization,
+        call: fake.call,
+      }),
       /English post before/,
     );
     assert.deepEqual(await readdir(join(root, "src/posts")), []);
-    const record = JSON.parse(await readFile(result.record, "utf8"));
-    record.meta.language = "en";
-    await writeFile(result.record, JSON.stringify(record));
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /bytes changed/,
-    );
-    assert.deepEqual(await readdir(join(root, "src/posts")), []);
+    assert.deepEqual(await readdir(join(root, ".private")), []);
   }));
 
-test("proposal shows approved tags and changing tags after preparation refuses import", async () =>
+test("imported metadata binds tags and key numbers in the stored authorization", async () =>
   world(async (root) => {
     const fake = fakeColab();
-    const tagged = { ...meta, tags: ["design", "colab"] };
-    const result = await prepare({ root, pageId, meta: tagged, call: fake.call });
-    assert.match(fake.state.body, /Tags: #design, #colab/);
-    fake.approve();
-    const record = JSON.parse(await readFile(result.record, "utf8"));
-    record.meta.tags = ["workflow"];
-    await writeFile(result.record, JSON.stringify(record));
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /bytes changed/,
-    );
-    assert.deepEqual(await readdir(join(root, "src/posts")), []);
-    record.meta.tags = tagged.tags;
-    await writeFile(result.record, JSON.stringify(record));
-    const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
-    assert.deepEqual(
-      JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8")).tags,
-      tagged.tags,
-    );
+    const keyed = {
+      ...meta,
+      tags: ["design", "colab"],
+      keyNumber: { value: "2.9×", label: "tokens per line" },
+    };
+    const imported = await importAuthorized({
+      root,
+      pageId,
+      meta: keyed,
+      ...authorization,
+      call: fake.call,
+    });
+    const path = join(imported.path, "meta.json");
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), keyed);
+    for (const changed of [
+      { ...keyed, tags: ["workflow"] },
+      { ...keyed, keyNumber: { ...keyed.keyNumber, value: "3×" } },
+    ]) {
+      await writeFile(path, JSON.stringify(changed));
+      await assert.rejects(readPosts(join(root, "src/posts")), /hash mismatch/);
+    }
+    await writeFile(path, JSON.stringify(keyed));
+    assert.deepEqual((await readPosts(join(root, "src/posts")))[0].meta, keyed);
   }));
 
-test("proposal shows the key number and changing it refuses import", async () =>
+test("retired prepare and publish commands fail with current usage before contacting Colab", async () =>
   world(async (root) => {
-    const fake = fakeColab();
-    const keyed = { ...meta, keyNumber: { value: "2.9×", label: "tokens per line" } };
-    const result = await prepare({ root, pageId, meta: keyed, call: fake.call });
-    assert.match(fake.state.body, /Key number: 2\.9× · tokens per line/);
-    fake.approve();
-    const record = JSON.parse(await readFile(result.record, "utf8"));
-    record.meta.keyNumber.value = "3×";
-    await writeFile(result.record, JSON.stringify(record));
-    await assert.rejects(
-      publish({ root, proposalId: result.proposalId, call: fake.call }),
-      /bytes changed/,
-    );
-    record.meta.keyNumber = keyed.keyNumber;
-    await writeFile(result.record, JSON.stringify(record));
-    const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
-    assert.deepEqual(
-      JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8")).keyNumber,
-      keyed.keyNumber,
-    );
+    const execute = promisify(execFile);
+    const entry = fileURLToPath(new URL("../src/blog/colab.mjs", import.meta.url));
+    for (const args of [
+      ["prepare", pageId, "missing-meta.json"],
+      ["publish", pageId],
+    ])
+      await assert.rejects(
+        execute(process.execPath, [entry, ...args], {
+          cwd: root,
+          env: { TMT_EXECUTABLE: join(root, "missing-tmt"), TMT_AGENT: "1", BROWSER: "true" },
+        }),
+        (error) => {
+          assert.equal(error.code, 1);
+          assert.match(error.stderr, /Usage: pnpm blog:colab draft .*pnpm blog:colab import/);
+          assert.doesNotMatch(
+            error.stderr,
+            /blog:colab prepare|blog:colab publish|ENOENT|Colab command failed/,
+          );
+          return true;
+        },
+      );
+    assert.deepEqual(await readdir(root), ["src"]);
   }));
