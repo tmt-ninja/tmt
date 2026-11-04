@@ -24,6 +24,7 @@ mod committed;
 mod copy;
 pub(in crate::board) mod exchange;
 mod history;
+pub(in crate::board) mod jump;
 pub(super) mod layout;
 pub(in crate::board) mod note_source;
 pub(super) mod outgoing;
@@ -154,6 +155,8 @@ pub(super) struct State {
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
     pub send_now_hit: Option<SendNowHit>,
+    /// The Jump to latest button painted this frame (#5920); a click does what End does.
+    pub jump_hit: Option<Rect>,
     /// The request a send-now is running for; its chip is disabled until Core answers.
     pub send_now_pending: Option<String>,
     source_surfaces: Vec<source::Surface>,
@@ -210,6 +213,8 @@ struct Session {
     stale: bool,
     anchor: NotesCursor,
     follow: bool,
+    /// Timeline entries painted when the reader left the bottom, for Jump to latest's count.
+    seen: Option<std::collections::BTreeSet<String>>,
     change: Change,
     outgoing: std::collections::VecDeque<outgoing::Entry>,
     before_send: Option<Reply>,
@@ -250,6 +255,7 @@ impl Default for Session {
             stale: false,
             anchor: Default::default(),
             follow: true,
+            seen: None,
             change: Change::Current,
             outgoing: Default::default(),
             before_send: None,
@@ -275,6 +281,20 @@ impl Default for Session {
 }
 
 impl Session {
+    /// Every follow change goes through here, so Jump to latest's count (#5920) starts from
+    /// what was painted when the reader last left the bottom, and is dropped on return.
+    pub(in crate::board) fn set_follow(&mut self, follow: bool) {
+        self.follow = follow;
+        if follow {
+            self.seen = None;
+        } else if self.seen.is_none() {
+            self.seen = self
+                .rendered
+                .as_ref()
+                .map(|rendered| rendered.timeline_entries.iter().cloned().collect());
+        }
+    }
+
     /// A replaced request must not steal the text somebody is reading. It is
     /// admitted when follow resumes; appending to the same source keeps its anchor.
     fn update(&mut self, incoming: Option<Reply>) {
@@ -560,7 +580,7 @@ impl App {
                         .saturating_add(super::scroll::Scrolls::viewport(area, content))
                         >= content
                 });
-        session.follow = matches!(step, Step::Bottom) || forward && at_bottom;
+        session.set_follow(matches!(step, Step::Bottom) || forward && at_bottom);
         if session.follow {
             session.change = Change::Current;
         } else if let Some(rendered) = &session.rendered {
@@ -638,6 +658,7 @@ fn render_target(
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().send_now_hit = None;
+    app.conversation.borrow_mut().jump_hit = None;
     app.conversation.borrow_mut().response_area = None;
     app.conversation.borrow_mut().painted_answers.clear();
     let row = target

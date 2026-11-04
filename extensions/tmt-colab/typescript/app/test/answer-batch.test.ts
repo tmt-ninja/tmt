@@ -56,7 +56,6 @@ function threadWith(
     deviceAuthor?: boolean;
     body?: string;
     anchored?: boolean;
-    proposal?: boolean;
   } = {},
 ): ThreadView {
   const ref: DiscussionRef = { writer: ME, id: id(100 + n) };
@@ -87,7 +86,6 @@ function threadWith(
     at: '1',
     anchor: options.anchored === false ? null : { exact: `${q.title}?`, prefix: '', suffix: '' },
     resolved: false,
-    ...(options.proposal ? { proposal: { proposalId: id(9) } } : {}),
     comments: [comment],
   } as unknown as ThreadView;
 }
@@ -162,8 +160,7 @@ it('a batch origin refuses anything but this device’s answers to one group, in
   );
   // an answer to a different question than the one it is submitted for
   refuse([ok[0], threadWith(2, questions[2], 'Ada'), ok[2]], batchOf(ok));
-  // a thread that is a proposal or has no anchor is not a question thread
-  refuse([ok[0], threadWith(2, questions[1], 'Ada', { proposal: true }), ok[2]], batchOf(ok));
+  // A thread without an anchor is not a question thread.
   refuse([ok[0], threadWith(2, questions[1], 'Ada', { anchored: false }), ok[2]], batchOf(ok));
   // a stale comment revision, and another device asking
   const stale = batchOf(ok);

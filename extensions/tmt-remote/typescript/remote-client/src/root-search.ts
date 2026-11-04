@@ -19,6 +19,7 @@ export interface SearchModule {
     container: HTMLElement,
     options: {
       registry: SearchRegistry;
+      session?: { open(signal?: AbortSignal): Promise<unknown>; forget(previous: unknown): void };
       navigate(pageId: string): Promise<unknown>;
       pageHref(pageId: string): string;
       go(href: string): Promise<unknown>;
@@ -72,6 +73,7 @@ export function navigationSnapshot(
 }
 
 export interface RootSearchOptions {
+  session?: { open(signal?: AbortSignal): Promise<unknown>; forget(previous: unknown): void };
   load(entry: string): Promise<SearchModule>;
   container(): HTMLElement;
   failed(message: string): void;
@@ -174,6 +176,7 @@ export class RootSearch {
         const go = async (href: string) => this.options.navigate(href);
         this.session = module.mountSearchSession(this.host, {
           registry: this.registry,
+          session: this.options.session,
           navigate: (id) => go(pageHref(id)),
           pageHref,
           go,

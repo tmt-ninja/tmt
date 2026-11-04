@@ -175,7 +175,6 @@ export async function generate({
     ".nojekyll": "",
   };
   for (const [path, bytes] of Object.entries(publicFiles)) await write(path, bytes);
-  await copyFile(join(root, "src/blog/team-tmt.png"), join(output, "team-tmt.png"));
   await copyFile(join(root, "src/blog/mark.svg"), join(output, "mark.svg"));
   await copyFile(join(root, "src/blog/favicon.png"), join(output, "favicon.png"));
   await copyFile(join(root, "src/blog/og.png"), join(output, "og.png"));
@@ -192,7 +191,6 @@ export async function blogBuild({
 }) {
   root = await realpath(root);
   const generated = await generate({ root, base, origin, development, demo, repository });
-  const readFileTeamMark = await readFile(join(root, "src/blog/team-tmt.png"));
   const readFileMark = await readFile(join(root, "src/blog/mark.svg"));
   const readFileFavicon = await readFile(join(root, "src/blog/favicon.png"));
   const readFileShareCard = await readFile(join(root, "src/blog/og.png"));
@@ -222,7 +220,6 @@ export async function blogBuild({
           this.emitFile({ type: "asset", fileName: `blog/${path}`, source });
         // Layout URLs already include SITE_BASE. vite-ignore leaves them unchanged in dev
         // and build; this plugin owns the file instead of Vite inlining or rebasing it.
-        this.emitFile({ type: "asset", fileName: "blog/team-tmt.png", source: readFileTeamMark });
         this.emitFile({ type: "asset", fileName: "blog/mark.svg", source: readFileMark });
         this.emitFile({ type: "asset", fileName: "blog/favicon.png", source: readFileFavicon });
         this.emitFile({ type: "asset", fileName: "blog/og.png", source: readFileShareCard });

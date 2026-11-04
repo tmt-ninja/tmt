@@ -7,16 +7,12 @@ import {
   requireValue,
   spaceId,
   text,
-  coreId,
 } from '@tmt/colab-client';
 import type { OwnState } from './fold-protocol.js';
 import {
   foldThreadStatus,
   statusKey,
   validateStatus,
-  validateDecision,
-  foldProposalDecision,
-  type ProposalDecisionRecord,
   type ThreadStatusRecord,
   type ThreadStatusView,
   type ThreadNotificationRecord,
@@ -50,43 +46,7 @@ export interface ThreadRecord extends DiscussionRecordScope {
   threadId: string;
   anchor: QuoteSelector | null;
   resolved: boolean;
-  proposal?: Proposal;
 }
-export interface Proposal {
-  proposalId: string;
-  title: string;
-  body: string;
-  proposer: { machineId: string; agentId: string; label: string };
-}
-export function validateProposal(value: unknown): asserts value is Proposal {
-  exactKeys(value, ['proposalId', 'title', 'body', 'proposer']);
-  generatedId(value.proposalId as string);
-  requireValue(
-    typeof value.title === 'string' && value.title.length > 0 && [...value.title].length <= 200,
-  );
-  requireValue(
-    typeof value.body === 'string' && value.body.length > 0 && text(value.body).length <= 4096,
-  );
-  exactKeys(value.proposer, ['machineId', 'agentId', 'label']);
-  generatedId(value.proposer.machineId as string);
-  coreId(value.proposer.agentId as string);
-  requireValue(
-    typeof value.proposer.label === 'string' &&
-      value.proposer.label.length > 0 &&
-      [...value.proposer.label].length <= 64,
-  );
-}
-const proposalKey = (value?: Proposal) =>
-  value
-    ? JSON.stringify([
-        value.proposalId,
-        value.title,
-        value.body,
-        value.proposer.machineId,
-        value.proposer.agentId,
-        value.proposer.label,
-      ])
-    : '';
 export interface CommentRecord extends DiscussionRecordScope {
   kind: 'comment';
   /** Stable binding to one registered question; immutable across comment revisions. */
@@ -102,9 +62,7 @@ export type DiscussionRecord =
   | ThreadRecord
   | CommentRecord
   | ThreadStatusRecord
-  | ThreadNotificationRecord
-  | ProposalDecisionRecord;
-// Proposal decisions share the admitted status path, not the resolution field.
+  | ThreadNotificationRecord;
 export interface CommentView extends CommentRecord {
   /** Projection only: authenticated device provenance, never an author-supplied record field. */
   readonly deviceAuthor?: boolean;
@@ -118,7 +76,6 @@ export interface ThreadView extends ThreadRecord {
   status?: ThreadStatusView;
   statuses?: ThreadStatusView[];
   notifications?: ThreadNotificationRecord[];
-  decision?: ProposalDecisionRecord;
 }
 
 /** The same authenticated writer comparison used by the conversation's Yours controls. */
@@ -139,7 +96,6 @@ export function validateRef(value: unknown): asserts value is DiscussionRef {
   generatedId(value.id as string);
 }
 export function discussionKey(record: DiscussionRecord) {
-  if (record.kind === 'proposal-decision') return `${record.actionId}:proposal-decision`;
   if (record.kind === 'thread-status' || record.kind === 'thread-notification')
     return statusKey(record);
   return `${record.kind === 'thread' ? record.threadId : record.messageId}:${record.revision}`;
@@ -166,28 +122,11 @@ export function validateDiscussionRecord(
     'at',
   ];
   if (r.kind === 'thread') {
-    exactKeys(r, [
-      ...scope,
-      'threadId',
-      'anchor',
-      'resolved',
-      ...(Object.hasOwn(r, 'proposal') ? ['proposal'] : []),
-    ]);
+    exactKeys(r, [...scope, 'threadId', 'anchor', 'resolved']);
     requireValue(root === 'threads' && typeof r.resolved === 'boolean');
     generatedId(r.threadId as string);
     if (r.anchor !== null) validateSelector(r.anchor);
     requireValue(!r.deleted || r.anchor === null);
-    if (Object.hasOwn(r, 'proposal')) {
-      validateProposal(r.proposal);
-      requireValue(
-        r.proposal.proposalId === r.threadId &&
-          r.proposal.proposalId !== r.senderDevice &&
-          r.anchor === null,
-      );
-    }
-  } else if (r.kind === 'proposal-decision') {
-    requireValue(root === 'messages');
-    validateDecision(r);
   } else if (r.kind === 'thread-status' || r.kind === 'thread-notification') {
     requireValue(root === 'messages');
     validateStatus(r);
@@ -274,12 +213,6 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
   for (const record of records.slice(1)) {
     if (BigInt(record.revision) !== BigInt(previous.revision) + 1n || previous.deleted) return;
     if (
-      record.kind === 'thread' &&
-      first.kind === 'thread' &&
-      proposalKey(record.proposal) !== proposalKey(first.proposal)
-    )
-      return;
-    if (
       record.kind === 'comment' &&
       previous.kind === 'comment' &&
       (record.thread.writer !== previous.thread.writer ||
@@ -321,7 +254,6 @@ export function readThreads(
   const comments: CommentView[] = [];
   const statuses: Omit<ThreadStatusView, 'depth'>[] = [];
   const notifications: ThreadNotificationRecord[] = [];
-  const decisions: ProposalDecisionRecord[] = [];
   for (const [writer, roots] of Object.entries(own)) {
     // A signing key exists only for a writer admitted by Admission.readAuthor. Threads and
     // comments count from any such writer, a bridge included. Status actions count only
@@ -334,13 +266,9 @@ export function readThreads(
           !value ||
           typeof value !== 'object' ||
           Array.isArray(value) ||
-          ![
-            'thread',
-            'comment',
-            'thread-status',
-            'thread-notification',
-            'proposal-decision',
-          ].includes(String(value.kind))
+          !['thread', 'comment', 'thread-status', 'thread-notification'].includes(
+            String(value.kind),
+          )
         )
           continue;
         try {
@@ -358,10 +286,6 @@ export function readThreads(
           if (value.kind === 'thread-status') {
             if (!statusWriter(writer)) continue;
             statuses.push({ ...structuredClone(value), ref: { writer, id: value.actionId } });
-            continue;
-          }
-          if (value.kind === 'proposal-decision') {
-            if (statusWriter(writer)) decisions.push(structuredClone(value));
             continue;
           }
           if (value.kind !== 'thread' && value.kind !== 'comment') continue;
@@ -407,8 +331,6 @@ export function readThreads(
     else notificationsByStatus.set(key, [notification]);
   }
   for (const thread of threads.values()) {
-    if (thread.proposal && !thread.deleted)
-      thread.decision = foldProposalDecision(thread.ref, decisions);
     Object.assign(
       thread,
       foldThreadStatus(

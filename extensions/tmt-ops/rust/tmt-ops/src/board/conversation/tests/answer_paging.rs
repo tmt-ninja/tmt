@@ -363,7 +363,7 @@ fn capture_and_coverage_captions_keep_data_and_never_create_request_authority() 
         assert!(
             lines
                 .iter()
-                .any(|line| line == " │ ◌ answer truncated · full text in the agent's pane"),
+                .any(|line| line == "  ◌ answer truncated · full text in the agent's pane"),
             "truncation belongs inside the answer gutter: {lines:#?}"
         );
         assert!(text.contains("Answer 0"));

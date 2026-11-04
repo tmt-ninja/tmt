@@ -84,12 +84,11 @@ pub(in crate::board) fn header(
     Line::from(spans)
 }
 
-pub(in crate::board) fn feedback(text: Line<'static>, look: Look) -> Line<'static> {
-    let mut spans = vec![
-        Span::raw(" "),
-        Span::styled("│", look.role(Role::Dim)),
-        Span::raw(" "),
-    ];
+/// Cells before a message body: one deeper than its header, with no rule (#5920).
+pub(in crate::board) const BODY_INDENT: usize = 2;
+
+pub(in crate::board) fn feedback(text: Line<'static>) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ".repeat(BODY_INDENT))];
     spans.extend(text.spans);
     Line::from(spans)
 }
@@ -119,11 +118,7 @@ pub(in crate::board) fn feedback_content(text: &str, look: Look) -> Line<'static
 }
 
 pub(in crate::board) fn body(line: Line<'static>, look: Look) -> Line<'static> {
-    let mut spans = vec![
-        Span::raw(" "),
-        Span::styled("│", look.role(Role::Dim)),
-        Span::raw(" "),
-    ];
+    let mut spans = vec![Span::raw(" ".repeat(BODY_INDENT))];
     // The Markdown owner supplies neutral links, filled code and muted quotes.
     // Add the shared gutter without flattening those authored block styles.
     let line_style = line.style;
@@ -135,9 +130,7 @@ pub(in crate::board) fn body(line: Line<'static>, look: Look) -> Line<'static> {
 }
 pub(in crate::board) fn waiting(look: Look) -> Line<'static> {
     Line::from(vec![
-        Span::raw(" "),
-        Span::styled("│", look.role(Role::Dim)),
-        Span::raw(" "),
+        Span::raw(" ".repeat(BODY_INDENT)),
         Span::styled("Open request", look.role(Role::Dim)),
     ])
 }
@@ -287,7 +280,8 @@ mod markdown_tests {
         let look = Look::default();
         let track = look.role(Role::Text).patch(look.role(Role::Track));
         let code = body(Line::styled("code", track), look);
-        assert_eq!(code.spans[3].style, track);
+        assert_eq!(code.spans[0].content, "  ", "an indent, no rule (#5920)");
+        assert_eq!(code.spans[1].style, track);
         let quote = body(
             Line::from(vec![
                 Span::styled("▎ ", look.role(Role::Dim)),
@@ -295,7 +289,7 @@ mod markdown_tests {
             ]),
             look,
         );
-        assert_eq!(quote.spans[3].style, look.role(Role::Dim));
-        assert_eq!(quote.spans[4].style, look.role(Role::Muted));
+        assert_eq!(quote.spans[1].style, look.role(Role::Dim));
+        assert_eq!(quote.spans[2].style, look.role(Role::Muted));
     }
 }

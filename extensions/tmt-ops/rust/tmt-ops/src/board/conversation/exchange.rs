@@ -54,6 +54,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
         state.send_now_hit = None;
+        state.jump_hit = None;
         state.response_area = None;
         state.painted_answers.clear();
     }

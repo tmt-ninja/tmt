@@ -28,7 +28,6 @@ it.each([
   ['messages', 'ask-state'],
   ['messages', 'thread-status'],
   ['messages', 'thread-notification'],
-  ['messages', 'proposal-decision'],
   ['replies', 'ask-reply'],
 ])('keeps the admitted record kind %s/%s', (root, kind) => {
   expect(publicationDiagnostic({ ...diagnostic, root, kind })).toEqual({

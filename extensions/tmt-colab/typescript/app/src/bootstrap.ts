@@ -27,8 +27,8 @@ const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
-/** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
-export const NEEDS_YOU_MAX = 350;
+/** 50 readings + 50 answer blocks + 50 reviews. */
+export const NEEDS_YOU_MAX = 150;
 const COMMENTS_MAX = 4_294_967_295;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels, summaries, work rows and
  * parents (about 1.9 MB) fit. */
@@ -82,12 +82,12 @@ export function pageProgress(value: unknown): asserts value is PageProgress {
   );
 }
 
-/** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
+/** What the owner derives for the list: comment count, waiting items and the creator. */
 export interface PageActivity {
   comments: number;
-  /** At least one undecided, unresolved proposal; in v1 the mark means "a proposal awaits you". */
+  /** At least one reading, answer block or review awaits the owner. */
   waiting: boolean;
-  /** Pending proposals, readings, answer blocks and reviews; one count per target ID. */
+  /** Pending readings, answer blocks and reviews; one count per target ID. */
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;

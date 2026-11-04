@@ -1958,3 +1958,174 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
         );
     }
 }
+
+#[test]
+fn retired_proposal_records_leave_other_threads_readable_and_writer_appendable() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use yrs::{Any, Doc, Map, ReadTxn, StateVector, Transact, Update, updates::decoder::Decode};
+    let vector: Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/discussion-v1.json"
+    ))
+    .unwrap();
+    let thread = vector["thread"].clone();
+    let writer = thread["senderDevice"].as_str().unwrap();
+    let legacy_id = "00000000-0000-4000-8000-000000000099";
+    let mut legacy = thread.clone();
+    legacy["threadId"] = serde_json::json!(legacy_id);
+    legacy["anchor"] = Value::Null;
+    legacy["proposal"] = serde_json::json!({
+        "proposalId": legacy_id,
+        "title": "Retired proposal",
+        "body": "Keep these historical bytes.",
+        "proposer": {"machineId":"40000000-0000-4000-8000-000000000001", "agentId":"50000000-0000-1000-8000-000000000001", "label":"Proposer"}
+    });
+    let decision = serde_json::json!({
+        "version":1, "kind":"proposal-decision", "spaceId":thread["spaceId"],
+        "pageId":thread["pageId"], "epoch":"1", "senderDevice":writer,
+        "revision":"1", "deleted":false, "deviceName":"First browser", "at":"0",
+        "actionId":"60000000-0000-4000-8000-000000000002",
+        "thread":{"writer":writer,"id":legacy_id}, "previous":null, "decision":"approved"
+    });
+    let legacy_key = format!("{legacy_id}:1");
+    let decision_key = "60000000-0000-4000-8000-000000000002:proposal-decision";
+    let thread_key = format!("{}:1", thread["threadId"].as_str().unwrap());
+    let doc = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        doc.get_or_insert_map(root);
+    }
+    for (root, key, value) in [
+        ("threads", legacy_key.as_str(), &legacy),
+        ("threads", thread_key.as_str(), &thread),
+        ("messages", decision_key, &decision),
+    ] {
+        doc.get_or_insert_map(root).insert(
+            &mut doc.transact_mut(),
+            key,
+            Any::from_json(&value.to_string()).unwrap(),
+        );
+    }
+    let original = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let request = |records: Option<Vec<OwnRecord>>| {
+        let input = serde_json::to_vec(&WireBatch {
+            version: 1,
+            records,
+            namespace: Namespace::Own,
+            baseline: URL_SAFE_NO_PAD.encode(&original),
+            updates: Vec::<String>::new(),
+            merge_only: false,
+            rebuild: false,
+        })
+        .unwrap();
+        let mut output = Vec::new();
+        child::request_for_test(input.as_slice(), None, &mut output, &mut |_, _, _| {}).unwrap();
+        serde_json::from_slice::<WireResult>(&output).unwrap()
+    };
+    let opened = request(None);
+    let collision = serde_json::to_vec(&WireBatch {
+        version: 1,
+        records: Some(vec![OwnRecord {
+            root: "threads".into(),
+            key: legacy_key.clone(),
+            value: {
+                let mut next = thread.clone();
+                next["threadId"] = serde_json::json!(legacy_id);
+                next
+            },
+        }]),
+        namespace: Namespace::Own,
+        baseline: URL_SAFE_NO_PAD.encode(&original),
+        updates: Vec::<String>::new(),
+        merge_only: false,
+        rebuild: false,
+    })
+    .unwrap();
+    assert!(
+        child::request_for_test(
+            collision.as_slice(),
+            None,
+            &mut Vec::new(),
+            &mut |_, _, _| {}
+        )
+        .is_err()
+    );
+    let modified = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        modified.get_or_insert_map(root);
+    }
+    modified
+        .transact_mut()
+        .apply_update(Update::decode_v1(&original).unwrap())
+        .unwrap();
+    let vector_before = modified.transact().state_vector();
+    modified
+        .get_or_insert_map("messages")
+        .remove(&mut modified.transact_mut(), decision_key);
+    let removed = modified
+        .transact()
+        .encode_state_as_update_v1(&vector_before);
+    let removed_input = serde_json::to_vec(&WireBatch {
+        version: 1,
+        records: None,
+        namespace: Namespace::Own,
+        baseline: URL_SAFE_NO_PAD.encode(&original),
+        updates: vec![URL_SAFE_NO_PAD.encode(&removed)],
+        merge_only: false,
+        rebuild: false,
+    })
+    .unwrap();
+    assert!(
+        child::request_for_test(
+            removed_input.as_slice(),
+            None,
+            &mut Vec::new(),
+            &mut |_, _, _| {}
+        )
+        .is_err()
+    );
+    assert_eq!(opened.projection["threads"][&thread_key], thread);
+    assert!(opened.projection["threads"].get(&legacy_key).is_none());
+    assert!(opened.projection["messages"].get(decision_key).is_none());
+    let mut comment = vector["comment"].clone();
+    comment["senderDevice"] = serde_json::json!(writer);
+    let comment_key = format!("{}:1", comment["messageId"].as_str().unwrap());
+    let appended = request(Some(vec![OwnRecord {
+        root: "messages".into(),
+        key: comment_key.clone(),
+        value: comment.clone(),
+    }]));
+    assert_eq!(appended.projection["messages"][&comment_key], comment);
+    let own = BTreeMap::from([(writer.to_owned(), appended.projection.clone())]);
+    let keys = BTreeMap::from([(writer.to_owned(), [7; 32])]);
+    let scope = crate::export::conversations::Capture {
+        space_id: vector["scope"]["spaceId"].as_str().unwrap(),
+        page_id: vector["scope"]["pageId"].as_str().unwrap(),
+        epoch: "1",
+        title: "Page",
+        head: crate::export::conversations::Head {
+            revision: "1".into(),
+            statement_hash: "00".repeat(32),
+        },
+    };
+    let listed = crate::export::conversations::threads(&scope, &own, &keys, &BTreeSet::new());
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, thread["threadId"].as_str().unwrap());
+    assert_eq!(listed[0].comments.len(), 1);
+    doc.transact_mut()
+        .apply_update(Update::decode_v1(&binary(&appended.merged, UPDATE_BYTES).unwrap()).unwrap())
+        .unwrap();
+    let threads = doc.get_or_insert_map("threads");
+    let messages = doc.get_or_insert_map("messages");
+    let tx = doc.transact();
+    for (map, key, expected) in [
+        (threads, legacy_key.as_str(), legacy),
+        (messages, decision_key, decision),
+    ] {
+        let value = map.get(&tx, key).unwrap();
+        let yrs::Out::Any(value) = value else {
+            panic!("historical record changed type")
+        };
+        assert_eq!(serde_json::to_value(value).unwrap(), expected);
+    }
+}

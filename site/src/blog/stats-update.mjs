@@ -111,10 +111,17 @@ export async function sessionFiles({ codexRoot, claudeRoot }) {
   return [...codex, ...claude];
 }
 
-// Rescans only files whose size or modification time changed since the cached run.
+// Rescans only files whose size or modification time changed since the cached run. Providers
+// delete old session logs (Claude Code after 30 days), so a cached file that no longer exists keeps
+// its intervals: the metrics are cumulative and that history does not change.
 export async function sessionIntervals(files, cache) {
-  const next = { version: cacheVersion, since, files: {} };
   const reuse = cache?.version === cacheVersion && cache.since === since ? cache.files : {};
+  const present = new Set(files.map(({ path }) => path));
+  const next = {
+    version: cacheVersion,
+    since,
+    files: Object.fromEntries(Object.entries(reuse).filter(([path]) => !present.has(path))),
+  };
   let scanned = 0;
   for (const { path, requireCwd } of files) {
     const { size, mtimeMs } = await stat(path);

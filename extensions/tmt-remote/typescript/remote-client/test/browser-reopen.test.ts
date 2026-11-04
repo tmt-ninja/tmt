@@ -42,14 +42,15 @@ async function fixture() {
       if (mode === 'unavailable' || (mode === 'late-unavailable' && mounts === 2))
         return new Response('', { status: 503 });
       return Response.json({
-        machineId: door.descriptor.machineId,
+        machineId: ['different-machine', 'different-malformed'].includes(mode)
+          ? crypto.randomUUID()
+          : door.descriptor.machineId,
         address: door.descriptor.address,
-        windowId:
-          mode === 'malformed'
-            ? 'invalid'
-            : mode === 'stale' && mounts === 2
-              ? crypto.randomUUID()
-              : door.descriptor.windowId,
+        windowId: ['malformed', 'different-malformed'].includes(mode)
+          ? 'invalid'
+          : mode === 'stale' && mounts === 2
+            ? crypto.randomUUID()
+            : door.descriptor.windowId,
         extension: null,
         mount: null,
       });
@@ -94,6 +95,26 @@ async function fixture() {
     },
   };
 }
+for (const [mode, reason, detail] of [
+  ['different-machine', 'mismatch', 'identity-mismatch'],
+  ['different-malformed', 'transient', 'unverifiable-response'],
+] as const) {
+  test(`classifies a ${mode} door without admitting`, async () => {
+    const f = await fixture();
+    f.mode(mode);
+    try {
+      await assert.rejects(
+        reopenSession(undefined, { signal: new AbortController().signal }),
+        (error) =>
+          error instanceof ReopenSessionError && error.reason === reason && error.detail === detail,
+      );
+      assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
 test('previous-session recovery makes one fresh admission and rechecks only the descriptor on refusal', async () => {
   const f = await fixture();
   try {

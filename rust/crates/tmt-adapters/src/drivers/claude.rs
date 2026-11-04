@@ -720,6 +720,14 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
                     .as_ref()
                     .and_then(|previous| previous.value.rate_limits.clone())
             });
+            // Driver-state windows use the legacy shape; compare that shape too so reading the
+            // same account-store observation does not advance the consumption sequence.
+            let mut limits = limits;
+            if let Some(limits) = limits.as_mut() {
+                for window in &mut limits.windows {
+                    window.observed_at_ms = None;
+                }
+            }
             if state.value.rate_limits != limits {
                 state.value.rate_limits = limits;
                 // A cache update is new source evidence even without new token

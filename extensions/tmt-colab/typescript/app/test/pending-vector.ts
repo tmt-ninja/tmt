@@ -1,6 +1,6 @@
 /** Admitted projection fixtures shared with the native summary; no fixture body proves a signature. */
 import type { PageView } from '../src/transport.js';
-import type { Proposal, QuoteSelector, ThreadView } from '../src/thread-records.js';
+import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 
 export interface PendingVector {
   name: string;
@@ -12,8 +12,6 @@ export interface PendingVector {
     anchor: QuoteSelector | null;
     deleted?: boolean;
     resolved?: boolean;
-    decided?: boolean;
-    proposal?: Proposal;
     status?: { actor: 'person' | 'agent'; resolved: boolean };
     comments: { writer: string; id: string; body: string; sequence: string; deleted: boolean }[];
   }[];
@@ -46,7 +44,6 @@ export function pendingVectorData(
       anchor: row.anchor,
       resolved: row.resolved ?? false,
       deleted: row.deleted ?? false,
-      proposal: row.proposal,
       comments: row.comments.map((comment) => ({
         ...stamp,
         senderDevice: comment.writer,
@@ -74,20 +71,6 @@ export function pendingVectorData(
               recipients: [],
               ref,
               depth: 1,
-            },
-          }
-        : {}),
-      ...(row.decided !== undefined
-        ? {
-            decision: {
-              ...stamp,
-              senderDevice: row.writer,
-              kind: 'proposal-decision',
-              actionId: row.id,
-              thread: ref,
-              previous: null,
-              decision: 'approved',
-              deleted: !row.decided,
             },
           }
         : {}),

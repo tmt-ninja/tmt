@@ -720,6 +720,24 @@ test('empty explicit submit keeps Send disabled without an alert', async ({ page
   await expect(page.getByRole('button', { name: /^Send/ })).toBeDisabled();
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
 });
+for (const surface of ['annotation', 'reply', 'chat'])
+  test(`${surface}: an empty notice slot leaves no gap above the text`, async ({ page }) => {
+    const input = await mount(page, { surface });
+    await expect(page.locator('.annotation-notice-slot')).toBeHidden();
+    const gap = await input.evaluate((node) => {
+      const surface = node.closest('.rich-input-surface')!;
+      const field = node.getBoundingClientRect().top;
+      const children = [...surface.children].filter((child) => !child.contains(node));
+      const above = children.filter((child) => {
+        const box = child.getBoundingClientRect();
+        return (
+          box.height > 0 && box.bottom <= field && getComputedStyle(child).position !== 'absolute'
+        );
+      });
+      return above.map((child) => child.className);
+    });
+    expect(gap).toEqual([]);
+  });
 for (const surface of ['annotation', 'chat'])
   for (const [width, theme] of [
     [1440, 'light'],
@@ -737,13 +755,23 @@ for (const surface of ['annotation', 'chat'])
         const host = document.getElementById('annotation-fixture')!;
         host.style.maxHeight = '280px';
         host.style.overflowY = 'auto';
+        // Every surface keeps its history or quote above the composer; the notice floats over it.
+        host.style.display = 'flex';
+        host.style.flexDirection = 'column';
+        const history = document.createElement('div');
+        history.style.flex = '1 0 48px';
+        host.prepend(history);
       }, theme);
       await input.fill('Kept draft.\n'.repeat(20));
       await input.press('ControlOrMeta+End');
+      const field = () => input.evaluate((node) => node.getBoundingClientRect().toJSON());
+      const before = await field();
       await input.press('Enter');
       const alert = page.getByRole('alert');
       await expect(alert).toHaveText(`✗ ${messageSendCopy('S12')} (ref S12)`);
       await expect(alert).toBeInViewport();
+      // The notice takes no room: the field stays exactly where it was.
+      expect(await field()).toEqual(before);
       expect(
         await alert.evaluate((node) => {
           const box = node.getBoundingClientRect();

@@ -47,7 +47,7 @@ Each top-level element is a block with its own gap, so group related text in one
 `<div>` instead of leaving headings and paragraphs loose under `<body>`. A wrapper that holds the
 whole page is one block: its inside is yours, its width is the column.
 
-Questions, review controls and proposal cards that Colab draws sit on the same column.
+Questions and review controls that Colab draws sit on the same column.
 
 ## Two declarations
 
