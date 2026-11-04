@@ -15,6 +15,7 @@ export function installScopePortals(document: Document): () => void {
     }
   };
   mount(document);
+  // A document-wide subtree observer admits later stages; frame teardown disconnects it.
   const observer = new MutationObserver((records) => {
     for (const record of records)
       for (const node of record.addedNodes) if (node instanceof Element) mount(node);

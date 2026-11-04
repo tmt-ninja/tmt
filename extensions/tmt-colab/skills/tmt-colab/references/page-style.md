@@ -10,9 +10,9 @@ set both a body background and a text colour, or neither. The starter below is o
 page column, section spacing, and the `muted` and `waiting` classes. The layer and the starter sit in the
 `tmt-starter` layer, so the components and your own CSS win over both.
 
-Published component tags need an explicitly sized `data-tmt-ds-scope` block: it contains their
-interactive layers and responds to its own size. Plain prose and the documented static classes can
-remain outside it. See [components](components.md) and [layout](layout.md).
+Published component tags can sit directly in page flow. An explicitly sized `data-tmt-ds-scope`
+is for a device-sized mockup stage: it contains interactive layers and responds to its own size.
+See [components](components.md) and [layout](layout.md).
 
 Keep the look flat and shadow-free, with a mark plus a word for every state (for example, "◆ Waiting"),
 never colour alone. Colour only the waiting mark, with the starter's `waiting` class

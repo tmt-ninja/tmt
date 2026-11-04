@@ -38,9 +38,10 @@ the person that publishing is their step in the Design tab.
 1. Put the `meta` line from `show` first in the page, exactly as printed:
    `<meta name="tmt-ds" content="<system>">`. One system per page. Use `lockMeta` instead only when
    the person asks for a page that must not change, for example a signed-off mockup.
-2. Put the system's components inside an explicitly sized scope, for example
-   `<div data-tmt-ds-scope style="width:100%;height:24rem">...</div>`. Each scope owns its
-   overlays, focus and responsive size; controls outside it stay usable. Start overlays closed.
+2. Put components directly in page flow. For a device-sized mockup stage, wrap them in an
+   explicitly sized scope such as `<div data-tmt-ds-scope style="width:390px;height:844px">`.
+   Each stage owns its overlays, focus and responsive size; controls outside it stay usable.
+   Start overlays closed.
 3. Build with the system's tags only. Start from its `examples`, keep their markup shape, and
    set only the listed props with listed values. Put content in the default slot, or in a named
    slot with `slot="<name>"`.
@@ -49,11 +50,9 @@ the person that publishing is their step in the Design tab.
    inside with your own CSS; choose its props instead.
 
 The page shows design-system problems inside its frame: a tag from another prefix, an unknown
-component, a component outside a scope, an invalid prop value, a draft that does not compile, or a
+component, an invalid prop value, a draft that does not compile, or a
 pin that cannot be read. A page that follows the draft is checked against the draft, so a renamed
-component or prop shows up there. Fix every one before handing the page over. `tmt colab page check`
-catches built-in `tmt-ui-*` tags outside a scope; the page checks custom prefixes after resolving
-the system.
+component or prop shows up there. Fix every one before handing the page over. The page checks custom prefixes after resolving the system.
 
 ## Versions
 

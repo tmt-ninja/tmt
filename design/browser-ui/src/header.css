@@ -56,7 +56,7 @@ svg.tmt-ui-mark {
   gap: var(--tmt-ui-header-gap);
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
-  /* The title gives way to the suffix and the caption. */
+  /* The title is the last to give way: the suffix and the caption shrink first. */
   flex: 0 1 auto;
 }
 .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-caption {
@@ -67,9 +67,8 @@ svg.tmt-ui-mark {
 .tmt-ui-heading-suffix {
   display: flex;
   align-items: center;
-  /* Keep the suffix readable as the title gives way. */
-  flex: 0 0 auto;
-  white-space: nowrap;
+  /* The caption gives way first, then the suffix (its own text ellipsizes), and the title last. */
+  flex: 0 4 auto;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
   font: var(--tmt-ui-header-title-weight)

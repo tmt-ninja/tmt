@@ -133,16 +133,15 @@ export function checkElements(elements, pin, bundle) {
     .map((element, index) => ({ ...element, index }))
     .filter(({ tag }) => tag.includes('-') && !FRAME_ELEMENTS.has(tag));
   if (!pin) {
-    for (const { tag, index, insideScope } of candidates)
+    for (const { tag, index } of candidates)
       if (tag.startsWith('tmt-ui-')) {
         findings.push({ code: 'ds-not-pinned', tag, index });
-        if (insideScope === false) findings.push({ code: 'ds-outside-scope', tag, index });
       }
     return findings;
   }
   if (!bundle) return [{ code: 'unknown-ds-release', tag: 'meta', index: -1 }];
   const components = new Map(bundle.components.map((component) => [component.tag, component]));
-  for (const { tag, attrs, index, insideScope } of candidates) {
+  for (const { tag, attrs, index } of candidates) {
     const component = components.get(tag);
     if (!component) {
       findings.push({
@@ -152,7 +151,6 @@ export function checkElements(elements, pin, bundle) {
       });
       continue;
     }
-    if (insideScope === false) findings.push({ code: 'ds-outside-scope', tag, index });
     for (const [name, value] of Object.entries(attrs)) {
       if (GLOBAL_ATTRIBUTES.test(name)) continue;
       const spec = component.props[name];
@@ -169,7 +167,6 @@ export function checkElements(elements, pin, bundle) {
 
 /** One line per finding, for people. */
 export const findingText = {
-  'ds-outside-scope': (f) => `<${f.tag}> needs a parent with data-tmt-ds-scope.`,
   'ds-not-pinned': (f) => `<${f.tag}> needs the page to pin a design system (<meta name="tmt-ds">).`,
   'unknown-ds-release': () => 'The pinned design system release cannot be read.',
   'ds-prefix-mismatch': (f) => `<${f.tag}> is not from the pinned design system.`,

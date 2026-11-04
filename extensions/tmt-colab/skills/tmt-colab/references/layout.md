@@ -51,10 +51,10 @@ Questions and review controls that Colab draws sit on the same column.
 
 ## Design-system blocks
 
-Wrap published design-system components in a `data-tmt-ds-scope` element with an explicit height
-and width. The scope is a containing block and size container; choose a height appropriate to the
-content and let the block scroll when necessary. The usual page layout still owns the top-level
-block's width and gutters. See [components](components.md) for an example.
+Published design-system components can sit directly in page flow. To show a device-sized
+mockup stage, wrap its components in a `data-tmt-ds-scope` element with explicit width and height.
+The stage contains overlays and responds to its own size. The usual page layout still owns the
+top-level block's width and gutters. See [components](components.md).
 
 ## Two declarations
 

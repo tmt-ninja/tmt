@@ -188,7 +188,6 @@ function pageElements(source: string) {
   return [...new DOMParser().parseFromString(source, 'text/html').body.querySelectorAll('*')].map(
     (element) => ({
       tag: element.localName,
-      insideScope: !!element.parentElement?.closest('[data-tmt-ds-scope]'),
       attrs: Object.fromEntries([...element.attributes].map((a) => [a.name, a.value])),
     }),
   );

@@ -29,6 +29,7 @@ import {
   type BrowserTab,
   BusyMark,
 } from '../src/react.js';
+import { DsScope } from '../src/ui/theme.js';
 import { ActionExample } from './action-example.js';
 import { Cell, Cells, FramePair, Pair, Section, noop, type Theme } from './kit.js';
 
@@ -134,7 +135,7 @@ export function HeaderSection() {
         stacked
       >
         {(theme) => (
-          <div style={{ maxWidth: 560 }}>
+          <DsScope style={{ width: '100%', maxWidth: 560, height: 80 }}>
             <BrowserHeader
               productLabel="Colab"
               headingLevel="none"
@@ -143,7 +144,7 @@ export function HeaderSection() {
               headingSuffix={<span>· draft</span>}
               status={<span>◆ 2 need you</span>}
             />
-          </div>
+          </DsScope>
         )}
       </Pair>
     </Section>

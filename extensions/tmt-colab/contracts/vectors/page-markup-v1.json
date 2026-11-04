@@ -9917,15 +9917,13 @@
     {
       "name": "design-system-scope",
       "scope": "checker",
-      "why": "Built-in design-system elements need a scope ancestor; other elements and scoped components do not warn.",
+      "why": "Built-in design-system elements are valid both in page flow and inside a mockup stage.",
       "source": [
         "<tmt-ui-button>Outside</tmt-ui-button>",
         "<div data-tmt-ds-scope><tmt-ui-button>Inside</tmt-ui-button></div>"
       ],
       "admitted": { "questions": [], "groups": [] },
-      "findings": [
-        { "element": "tmt-ui-button", "ordinal": 1, "id": null, "line": 1, "severity": "warning", "code": "ds-outside-scope" }
-      ]
+      "findings": []
     },
     {
       "name": "icon-names",
