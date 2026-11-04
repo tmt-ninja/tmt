@@ -1,5 +1,4 @@
-import { createPortal } from 'react-dom';
-import { useDsScope } from './ui/theme.js';
+import { scopePortal, useDsScope } from './ui/scope.js';
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
 import { DrawerHeader } from './drawer-header.js';
 import { useModalDialog } from './modal-dialog.js';
@@ -92,5 +91,5 @@ export function BrowserDrawer({
       </dialog>
     </>
   );
-  return scope?.portal ? createPortal(content, scope.portal) : content;
+  return scope?.portal ? scopePortal(content, scope.portal) : content;
 }

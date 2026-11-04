@@ -18,7 +18,7 @@ import {
 } from './shell.js';
 import { createPortal } from 'react-dom';
 import type { ShellSlot } from './shell-host.js';
-import { useDsScope } from './ui/theme.js';
+import { useDsScope } from './ui/scope.js';
 
 export interface BrowserShellProps {
   view: ShellView;

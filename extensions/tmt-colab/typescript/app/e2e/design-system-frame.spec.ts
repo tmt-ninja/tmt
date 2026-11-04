@@ -225,7 +225,7 @@ test('the page check shows its findings on the page', async ({ page }) => {
   );
   frame = await mount(
     page,
-    `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Fine</tmt-ui-button>`,
+    `<meta name="tmt-ds" content="${pin}"><div data-tmt-ds-scope><tmt-ui-button>Fine</tmt-ui-button></div>`,
   );
   await expect(frame.getByRole('button', { name: 'Fine' })).toBeVisible();
   await expect(frame.getByRole('status', { name: 'Design system check' })).toHaveCount(0);

@@ -3,8 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { servePageRuntime } from './page-runtime.js';
 
-const fixedOrder = '@layer colab-frame,tmt-starter,theme,base,tmt-ui;';
-const previousOrder = '@layer colab-frame,tmt-starter,tmt-ui;';
+const fixedOrder = '@layer colab-frame,tmt-starter,theme,base,tmt-ui,tmt-ds-scope;';
+const previousOrder = '@layer colab-frame,tmt-starter,tmt-ui,tmt-ds-scope;';
 const captures = process.env.COLAB_DESIGN_CAPTURE_DIR;
 for (const kind of ['plain', 'tailwind'] as const) {
   test(`layer prelude before and after on an existing ${kind} author page`, async ({ page }) => {

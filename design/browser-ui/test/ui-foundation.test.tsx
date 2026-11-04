@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { cn, DsScope, UiTheme, useUiPortalContainer } from '../src/ui/index.js';
 import { assertUiUtilities } from '../scripts/ui-source-policy.mjs';
-import { findDomScope } from '../src/ui/theme.js';
+import { findDomScope } from '../src/ui/scope.js';
 import hashes from './fixtures/ui/legacy-hashes.json';
 
 it('retains the reviewed Browser source and static CSS baseline', () => {

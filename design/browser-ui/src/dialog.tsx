@@ -1,5 +1,4 @@
-import { createPortal } from 'react-dom';
-import { useDsScope } from './ui/theme.js';
+import { scopePortal, useDsScope } from './ui/scope.js';
 import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
 import { X, TriangleAlert } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
@@ -100,5 +99,5 @@ export function BrowserDialog({
       </dialog>
     </>
   );
-  return scope?.portal ? createPortal(content, scope.portal) : content;
+  return scope?.portal ? scopePortal(content, scope.portal) : content;
 }

@@ -1,55 +1,14 @@
+import { useContext, useLayoutEffect, useState, type ReactNode } from 'react';
 import {
-  createContext,
-  useContext,
-  useLayoutEffect,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
-import { createPortal } from 'react-dom';
+  PortalContainer,
+  Scope,
+  findDomScope,
+  scopePortal,
+  useDsScope,
+  type ScopeValue,
+} from './scope.js';
+export { DsScope, useDsScope } from './scope.js';
 
-const PortalContainer = createContext<HTMLElement | null | undefined>(undefined);
-interface ScopeValue {
-  root: HTMLElement | null;
-  portal: HTMLElement | null;
-}
-const Scope = createContext<ScopeValue | undefined>(undefined);
-
-/** One nested design stage owns its local portal and containing element. */
-export function DsScope({
-  children,
-  className,
-  style,
-}: {
-  children: ReactNode;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const [root, setRoot] = useState<HTMLDivElement | null>(null);
-  const [portal, setPortal] = useState<HTMLDivElement | null>(null);
-  return (
-    <div data-tmt-ds-scope="" className={className} style={style} ref={setRoot}>
-      <Scope.Provider value={{ root, portal }}>
-        <PortalContainer.Provider value={portal}>
-          {children}
-          <div data-tmt-ui-portal="" ref={setPortal} />
-        </PortalContainer.Provider>
-      </Scope.Provider>
-    </div>
-  );
-}
-
-/** The closest nested stage, or undefined for the product's top-level viewport. */
-export function useDsScope(): ScopeValue | undefined {
-  return useContext(Scope);
-}
-/** Custom elements mount separate React roots, so context alone cannot cross their DOM boundary. */
-export function findDomScope(node: HTMLElement): ScopeValue | undefined {
-  const root = node.parentElement?.closest<HTMLElement>('[data-tmt-ds-scope]');
-  return root
-    ? { root, portal: root.querySelector<HTMLElement>(':scope > [data-tmt-ui-portal]') }
-    : undefined;
-}
 export type UiThemeMode = 'light' | 'dark' | 'system';
 
 /** A local variable/utility namespace. Never sets document or body theme. */
@@ -90,7 +49,7 @@ export function UiTheme({
           {children}
           {scope ? (
             scope.portal &&
-            createPortal(
+            scopePortal(
               <div
                 data-tmt-ui=""
                 data-tmt-theme={theme}
