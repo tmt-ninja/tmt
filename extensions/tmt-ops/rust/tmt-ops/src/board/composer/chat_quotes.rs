@@ -189,15 +189,6 @@ impl Input {
         })
     }
 
-    /// The sent body. A chosen mention is written with its agent's current name, when
-    /// `name` knows it, so a rename between insert and send names the same agent.
-    pub(in crate::board) fn quoted_message_named(
-        &self,
-        name: &dyn Fn(&str) -> Option<String>,
-    ) -> String {
-        self.quoted_message_with(name, &|_| None)
-    }
-
     /// The sent body, with each chosen skill written as `skill` says for the recipient
     /// (#5924). Only a fold chosen from the skills menu converts; typed text never does.
     pub(in crate::board) fn quoted_message_with(

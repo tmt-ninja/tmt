@@ -24,186 +24,18 @@ use tmt_tui::components::{Candidate, Completion, Editor, strip};
 
 /// The one trigger for every recipient; the sent form follows the recipient's syntax.
 pub(super) const TRIGGER: &str = "/";
-/// A chosen skill is an expanded fold over its `/name` text whose label holds the name;
-/// editing the text drops the fold, and with it the conversion.
-const SKILL: &str = "tmt-skill:";
 /// A held report is asked again, by stamp, at most this often while its composer is open.
 const REFRESH: Duration = Duration::from_secs(30);
 /// Menu rows above the hint row, headers included, as the `@` picker shows.
 const ROWS: usize = 6;
 
-/// The skill a chosen fold stands for.
-pub(super) fn chosen(fold: &tmt_tui::components::Fold) -> Option<&str> {
-    fold.label.strip_prefix(SKILL)
-}
+mod report;
+mod send;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Syntax {
-    /// The name follows this character: Claude Code `/`, Codex `$`.
-    Prefix(char),
-    /// No skill invocation: the menu lists TMT's skills and writes a sentence.
-    Unsupported,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Group {
-    Tmt,
-    Own,
-    Project,
-}
-
-impl Group {
-    fn kind(self) -> &'static str {
-        match self {
-            Self::Tmt => "tmt",
-            Self::Own => "own",
-            Self::Project => "project",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Skill {
-    pub name: String,
-    pub description: String,
-    pub group: Group,
-}
-
-/// One member's `skills.list` answer. Every name and description is display data.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Report {
-    pub syntax: Syntax,
-    pub driver: Option<String>,
-    pub skills: Vec<Skill>,
-    stamp: String,
-}
-
-impl Report {
-    pub(super) fn parse(value: &Value) -> Option<Self> {
-        let syntax = match value["syntax"]["kind"].as_str()? {
-            "prefix" => {
-                let sigil = value["syntax"]["sigil"].as_str()?;
-                let mut chars = sigil.chars();
-                let (Some(sigil), None) = (chars.next(), chars.next()) else {
-                    return None;
-                };
-                Syntax::Prefix(sigil)
-            }
-            "unsupported" => Syntax::Unsupported,
-            _ => return None,
-        };
-        let skills = value["skills"]
-            .as_array()?
-            .iter()
-            .filter_map(|skill| {
-                let group = match skill["source"]["group"].as_str()? {
-                    "tmt" => Group::Tmt,
-                    "user" | "plugin" => Group::Own,
-                    "project" => Group::Project,
-                    _ => return None,
-                };
-                Some(Skill {
-                    name: skill["name"].as_str()?.to_owned(),
-                    description: skill["description"].as_str().unwrap_or_default().to_owned(),
-                    group,
-                })
-            })
-            .collect();
-        Some(Self {
-            syntax,
-            driver: value["driver"].as_str().map(str::to_owned),
-            skills,
-            stamp: value["rootsStamp"].as_str()?.to_owned(),
-        })
-    }
-
-    /// How a chosen skill is written for this recipient.
-    pub(super) fn sent(&self, name: &str) -> String {
-        match self.syntax {
-            Syntax::Prefix(sigil) => format!("{sigil}{name}"),
-            Syntax::Unsupported => format!("Please use {name}:"),
-        }
-    }
-
-    /// The hint's example of what a chosen skill becomes.
-    fn sent_as(&self) -> String {
-        match self.syntax {
-            Syntax::Prefix(sigil) => format!("sent as {sigil}name"),
-            Syntax::Unsupported => "sent as a sentence".to_owned(),
-        }
-    }
-
-    fn own_title(&self) -> String {
-        match self.driver.as_deref() {
-            Some("claude") => "Claude Code's own".to_owned(),
-            Some("codex") => "Codex's own".to_owned(),
-            _ => "The agent's own".to_owned(),
-        }
-    }
-
-    fn candidates(&self) -> Vec<(Candidate, String)> {
-        self.skills
-            .iter()
-            .map(|skill| {
-                (
-                    Candidate {
-                        id: format!("skill:{}", skill.name),
-                        kind: skill.group.kind().to_owned(),
-                        label: skill.name.clone(),
-                        insertion: format!("{TRIGGER}{}", skill.name),
-                    },
-                    skill.description.clone(),
-                )
-            })
-            .collect()
-    }
-
-    fn skill(&self, id: &str) -> Option<&Skill> {
-        let name = id.strip_prefix("skill:")?;
-        self.skills.iter().find(|skill| skill.name == name)
-    }
-}
-
-/// One read for the board's I/O lane.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::board) struct Task {
-    identity: String,
-    stamp: Option<String>,
-}
-
-#[derive(Debug)]
-enum Outcome {
-    Report(Report),
-    Unchanged,
-    /// An older Core, a refusal or a failed read: no skills, never an error to show.
-    Unavailable,
-}
-
-#[derive(Debug)]
-pub(in crate::board) struct Completed {
-    identity: String,
-    outcome: Outcome,
-}
-
-/// Runs on the I/O lane, never on paint or input.
-pub(in crate::board) fn complete(core: &Core, task: Task) -> Completed {
-    let mut input = json!({"identityId": task.identity});
-    if let Some(stamp) = &task.stamp {
-        input["ifStamp"] = json!(stamp);
-    }
-    let outcome = match core.api("skills.list", input) {
-        Ok(value) if value["unchanged"] == json!(true) && task.stamp.is_some() => {
-            Outcome::Unchanged
-        }
-        Ok(value) => Report::parse(&value).map_or(Outcome::Unavailable, Outcome::Report),
-        Err(_) => Outcome::Unavailable,
-    };
-    Completed {
-        identity: task.identity,
-        outcome,
-    }
-}
-
+pub(in crate::board) use report::{Completed, Task, complete};
+use report::{Group, Outcome, Report};
+pub(super) use send::chosen;
+use send::insert_skill;
 struct Entry {
     /// `None` when the member's agent reports no skills Ops can show.
     report: Option<Report>,
@@ -421,37 +253,6 @@ impl App {
     }
 }
 
-/// Replace the typed token with a skill fold over `/name`, then a space, all or nothing.
-fn insert_skill(editor: &mut Editor, range: std::ops::Range<usize>, candidate: &Candidate) -> bool {
-    let Some(name) = candidate.id.strip_prefix("skill:") else {
-        return false;
-    };
-    let mut next = editor.clone();
-    let start = range.start;
-    if !next.replace_range(range, "", MESSAGE_LIMIT)
-        || !next.insert_folded(
-            &candidate.insertion,
-            format!("{SKILL}{name}"),
-            MESSAGE_LIMIT,
-        )
-    {
-        return false;
-    }
-    let Some(id) = next
-        .folds()
-        .iter()
-        .find(|fold| fold.source.start == start && chosen(fold).is_some())
-        .map(|fold| fold.id)
-    else {
-        return false;
-    };
-    if !next.set_expanded(id, true) || !next.insert(" ", MESSAGE_LIMIT) {
-        return false;
-    }
-    *editor = next;
-    true
-}
-
 /// One menu row: a group title or a match by its index in the completion.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Row {
@@ -519,9 +320,9 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
             let sent = report.map_or_else(|| "sent as /name".to_owned(), Report::sent_as);
             // A narrow menu drops the key hints before it cuts the recipient.
             let info = [
-                format!("Skills · {TRIGGER} · ↑↓ choose · Tab insert · {sent} to {to}"),
-                format!("Skills · {TRIGGER} · Tab insert · {sent} to {to}"),
-                format!("{TRIGGER}  Tab insert  {sent} to {to}"),
+                format!("Skills · {TRIGGER} · ↑↓ choose · ⏎/Tab insert · {sent} to {to}"),
+                format!("Skills · {TRIGGER} · ⏎/Tab insert · {sent} to {to}"),
+                format!("{TRIGGER}  ⏎/Tab insert  {sent} to {to}"),
                 format!("{sent} to {to}"),
             ]
             .into_iter()

@@ -1341,7 +1341,7 @@ fn text_typed_after_a_quote_is_sent_outside_it() {
     assert_eq!(&input.text.as_str()[fold.source.end..], "\n\n");
     assert_eq!(input.text.cursor(), input.text.as_str().len());
     assert!(input.text.insert("my reply", usize::MAX));
-    let body = input.quoted_message_named(&|_| None);
+    let body = input.quoted_message_with(&|_| None, &|_| None);
     assert_eq!(body, "> \"quoted words\"\n\nmy reply");
     assert!(outside_quote(&body, "my reply"), "{body}");
 
@@ -1349,7 +1349,7 @@ fn text_typed_after_a_quote_is_sent_outside_it() {
     let end = input.text.folds()[0].source.end;
     input.text.replace_range(end..end + 1, "", usize::MAX);
     assert_eq!(&input.text.as_str()[end..], "\nmy reply");
-    let body = input.quoted_message_named(&|_| None);
+    let body = input.quoted_message_with(&|_| None, &|_| None);
     assert!(outside_quote(&body, "my reply"), "{body}");
     assert!(!outside_quote(&body, "quoted words"), "{body}");
 }
@@ -1368,7 +1368,7 @@ fn removing_a_quote_takes_the_empty_line_it_added_while_that_line_is_empty() {
     input.retain_quote_sources();
     assert_eq!(input.text.as_str(), "Q1\n\nQ3\n\n");
     assert_eq!(
-        input.quoted_message_named(&|_| None),
+        input.quoted_message_with(&|_| None, &|_| None),
         "> \"Q1\"\n\n> \"Q3\"\n\n"
     );
     let last = input.text.folds()[1].clone();
@@ -1415,7 +1415,7 @@ fn chip_navigation_and_removal_keep_the_editor_draft() {
     input.retain_quote_sources();
     assert_eq!(input.inline_quotes.len(), 2);
     assert_eq!(
-        input.quoted_message_named(&|_| None),
+        input.quoted_message_with(&|_| None, &|_| None),
         "> \"quote 0\"\n\n\n\n> \"quote 2\"\n\n"
     );
 }
@@ -1636,7 +1636,7 @@ fn inline_quotes_normalize_their_breaks_and_keep_existing_draft_crlf() {
     let input = app.input.as_ref().unwrap();
     assert_eq!(input.text.folds().len(), 3);
     assert_eq!(
-        input.quoted_message_named(&|_| None),
+        input.quoted_message_with(&|_| None, &|_| None),
         "漢字 e\u{301}\n> \"first question\"\n\nanswer one\n> \"second\"\n\nanswer two\n> \"third\"\n\nanswer three\r\nlater\r\n"
     );
 }
@@ -1702,7 +1702,7 @@ fn terminal_cr_quotes_normalize_and_keep_the_existing_draft() {
         assert_eq!(after.text.cursor(), after.text.as_str().len());
         assert_eq!(after.draft_key, before.draft_key);
         assert_eq!(
-            after.quoted_message_named(&|_| None),
+            after.quoted_message_with(&|_| None, &|_| None),
             format!("> \"held quote\"\n\nmy text\n> \"{excerpt}\"\n\n")
         );
     }

@@ -77,6 +77,7 @@ impl Job {
             Self::Jump { .. } => "Jumping…",
             Self::AcknowledgeAnswers(_) => "Acknowledging answers…",
             Self::Notes(_) => "Reading the checklist…",
+            Self::Skills(_) => "Reading skills…",
             Self::Versions => "Reading the versions…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",

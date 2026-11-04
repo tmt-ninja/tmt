@@ -30,7 +30,9 @@ pub(in crate::board) fn codex() -> Report {
     report(json!({"kind": "prefix", "sigil": "$"}), Some("codex"))
 }
 pub(in crate::board) fn unsupported() -> Report {
-    report(json!({"kind": "unsupported"}), Some("gemini"))
+    let mut report = report(json!({"kind": "unsupported"}), Some("gemini"));
+    report.skills.retain(|skill| skill.group == Group::Tmt);
+    report
 }
 
 /// A member's Talk composer, with `held` as the member's skills read.
@@ -212,4 +214,62 @@ fn an_older_core_or_a_malformed_answer_is_no_skills() {
     }))
     .unwrap();
     assert_eq!(older.driver, None);
+}
+
+/// Visual proof of the recipient skills menu and its non-menu states.
+pub(in crate::board) const SCENES: &[&str] = &[
+    "skills-claude",
+    "skills-codex",
+    "skills-filtered",
+    "skills-unsupported",
+    "skills-loading",
+    "skills-empty",
+    "skills-dismissed",
+    "skills-mid-message",
+];
+
+pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    let held = match scene {
+        "skills-loading" => None,
+        "skills-empty" => {
+            let mut report = claude();
+            report.skills.clear();
+            Some(Some(report))
+        }
+        "skills-codex" | "skills-mid-message" => Some(Some(codex())),
+        "skills-unsupported" => Some(Some(unsupported())),
+        _ => Some(Some(claude())),
+    };
+    let mut app = composer(held);
+    app.view.as_mut().unwrap().look = look;
+    app.paste(match scene {
+        "skills-filtered" => "/colab",
+        "skills-dismissed" => "/tmt-colab",
+        "skills-mid-message" => "Please /colab",
+        _ => "/",
+    });
+    if scene == "skills-dismissed" {
+        key(&mut app, KeyCode::Esc);
+    }
+    app
+}
+
+#[test]
+fn duplicate_names_keep_their_own_group_and_description() {
+    let mut report = claude();
+    let mut other = report.skills[0].clone();
+    other.group = Group::Project;
+    other.description = "Project-specific description".into();
+    report.skills.push(other);
+    let candidates = report.candidates();
+    let first = &candidates[0].0;
+    let last = &candidates.last().unwrap().0;
+    assert_eq!(first.label, last.label);
+    assert_ne!(first.id, last.id);
+    assert_eq!(report.skill(&first.id).unwrap().group, Group::Tmt);
+    assert_eq!(report.skill(&last.id).unwrap().group, Group::Project);
+    assert_eq!(
+        report.skill(&last.id).unwrap().description,
+        "Project-specific description"
+    );
 }
