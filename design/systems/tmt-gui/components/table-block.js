@@ -1,0 +1,16 @@
+// The TableBlock (unported: its columns and rows are lists) (#5981): plain JavaScript and htm on the skeleton (React, html, cn). It draws
+// browser-ui's TableBlock classes from src/blocks/blocks.css; the drift check cannot compose a list prop.
+export default ({ html }) => {
+  const list = (text, by) => String(text ?? '').split(by).map((item) => item.trim()).filter(Boolean);
+  return function TableBlock({ label, columns, rows, 'hide-narrow': hideNarrow }) {
+    const names = list(columns, ',');
+    const hidden = new Set(list(hideNarrow, ','));
+    const cell = (index) => (hidden.has(names[index]) ? '' : undefined);
+    return html`<div data-slot="table-block" className="tmt-block-table">
+      <table className="tmt-ui-table" aria-label=${label}>
+        <thead><tr>${names.map((name, index) => html`<th key=${name} scope="col" data-hide-narrow=${cell(index)}>${name}</th>`)}</tr></thead>
+        <tbody>${list(rows, ';').map((row, at) => html`<tr key=${at}>${row.split('|').map((value, index) => html`<td key=${index} data-hide-narrow=${cell(index)}>${value.trim()}</td>`)}</tr>`)}</tbody>
+      </table>
+    </div>`;
+  };
+};

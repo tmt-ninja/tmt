@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "block-menu",
+  "source": "block-menu.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "insert",
+        "actions"
+      ],
+      "default": "insert"
+    },
+    "placement": {
+      "enum": [
+        "below",
+        "above",
+        "sheet"
+      ],
+      "default": "below"
+    },
+    "items": {
+      "type": "string"
+    },
+    "active": {
+      "type": "string"
+    },
+    "hints": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "block-menu.css",
+  "ui": {
+    "module": "/src/blocks/block-menu.tsx",
+    "component": "BlockMenu",
+    "parts": [],
+    "compose": "<BlockMenu label=\"{label}\" kind=\"{kind}\" placement=\"{placement}\"><BlockMenuItem each=\"items\">{item}</BlockMenuItem><BlockMenuFooter if=\"hints\"><span><BlockKbd>↑↓</BlockKbd> choose</span><span><BlockKbd>Enter</BlockKbd> insert</span><span><BlockKbd>Esc</BlockKbd> close</span></BlockMenuFooter></BlockMenu>"
+  },
+  "examples": [
+    {
+      "title": "Insert menu",
+      "markup": "<tmt-ui-block-menu label=\"Insert block\" items=\"Paragraph, Heading, Table, To-do, Question, Code\" active=\"Table\" hints></tmt-ui-block-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Block menu",
+      "markup": "<tmt-ui-block-menu label=\"Block actions\" kind=\"actions\" items=\"Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete\"></tmt-ui-block-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Phone sheet",
+      "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do\"></tmt-ui-block-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

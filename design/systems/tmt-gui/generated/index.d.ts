@@ -97,3 +97,107 @@ export interface TabsProps {
   value?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-block-document>: props from its schema, slots as nodes. */
+export interface BlockDocumentProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-block>: props from its schema, slots as nodes. */
+export interface BlockProps {
+  label?: string;
+  kind?: "heading" | "text" | "list-item" | "todo" | "table" | "card" | "callout" | "code";
+  state?: "idle" | "hover" | "selected" | "dragging";
+  selected?: boolean;
+  readonly?: boolean;
+  handle?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-block-menu>: props from its schema, slots as nodes. */
+export interface BlockMenuProps {
+  label?: string;
+  kind?: "insert" | "actions";
+  placement?: "below" | "above" | "sheet";
+  items?: string;
+  active?: string;
+  hints?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-heading-block>: props from its schema, slots as nodes. */
+export interface HeadingBlockProps {
+  level?: "2" | "3";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-text-block>: props from its schema, slots as nodes. */
+export interface TextBlockProps {
+  tone?: "default" | "muted";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-list-item>: props from its schema, slots as nodes. */
+export interface ListItemProps {
+  marker?: "bullet" | "number";
+  number?: string;
+  indent?: "0" | "1" | "2";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-todo>: props from its schema, slots as nodes. */
+export interface TodoProps {
+  checked?: boolean;
+  assignee?: string;
+  due?: string;
+  overdue?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-table-block>: props from its schema, slots as nodes. */
+export interface TableBlockProps {
+  label?: string;
+  columns?: string;
+  rows?: string;
+  "hide-narrow"?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-card-block>: props from its schema, slots as nodes. */
+export interface CardBlockProps {
+  variant?: "card" | "section";
+  heading?: string;
+  meta?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-callout>: props from its schema, slots as nodes. */
+export interface CalloutProps {
+  tone?: "working" | "waiting" | "review" | "blocked";
+  eyebrow?: string;
+  heading?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-code-block>: props from its schema, slots as nodes. */
+export interface CodeBlockProps {
+  language?: string;
+  filename?: string;
+  variant?: "block" | "command";
+  copied?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-block-mention>: props from its schema, slots as nodes. */
+export interface BlockMentionProps {
+  href?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-block-toast>: props from its schema, slots as nodes. */
+export interface BlockToastProps {
+  undo?: string;
+  shortcut?: string;
+  children?: ReactNode;
+}

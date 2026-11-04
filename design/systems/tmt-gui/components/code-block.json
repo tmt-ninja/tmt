@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "code-block",
+  "source": "code-block.js",
+  "props": {
+    "language": {
+      "type": "string"
+    },
+    "filename": {
+      "type": "string"
+    },
+    "variant": {
+      "enum": [
+        "block",
+        "command"
+      ],
+      "default": "block"
+    },
+    "copied": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "code-block.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "CodeBlock",
+    "parts": [],
+    "compose": "<CodeBlock text=\"{children}\" language=\"{language}\" filename=\"{filename}\" variant=\"{variant}\" copied=\"{copied}\"></CodeBlock>"
+  },
+  "examples": [
+    {
+      "title": "With a filename",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Code\" kind=\"code\"><tmt-ui-code-block filename=\"extensions/tmt-colab/typescript/app/src/components/answered-strip.css\" language=\"CSS\">.answered-strip.question-line { display: flex; gap: 8px; }</tmt-ui-code-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Language only, copied; and a command",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Code\" kind=\"code\"><tmt-ui-code-block language=\"Shell\" copied>pnpm --filter @tmt/browser-ui test</tmt-ui-code-block></tmt-ui-block><tmt-ui-block label=\"Code\" kind=\"code\"><tmt-ui-code-block variant=\"command\">tmt colab block ls 838644c2 --json</tmt-ui-code-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

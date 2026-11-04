@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "block-mention",
+  "source": "block-mention.js",
+  "props": {
+    "href": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "block-mention.css",
+  "ui": {
+    "module": "/src/blocks/mention.tsx",
+    "component": "BlockMention",
+    "parts": [],
+    "compose": "<BlockMention href=\"{href}\">{children}</BlockMention>"
+  },
+  "examples": [
+    {
+      "title": "In a paragraph",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Paragraph\"><tmt-ui-text-block>See <tmt-ui-block-mention href=\"#b-6\">Table: Ticket status</tmt-ui-block-mention> and <tmt-ui-block-mention>To-do: Move the question card</tmt-ui-block-mention>.</tmt-ui-text-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "callout",
+  "source": "callout.js",
+  "props": {
+    "tone": {
+      "enum": [
+        "working",
+        "waiting",
+        "review",
+        "blocked"
+      ],
+      "default": "working"
+    },
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "callout.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "Callout",
+    "parts": [],
+    "compose": "<Callout tone=\"{tone}\" eyebrow=\"{eyebrow}\" heading=\"{heading}\">{children}</Callout>"
+  },
+  "examples": [
+    {
+      "title": "Four tones",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Callout\" kind=\"callout\"><tmt-ui-callout tone=\"waiting\" heading=\"Look on the local site before merging\">The pull request stays a draft until the trial build is checked.</tmt-ui-callout></tmt-ui-block><tmt-ui-block label=\"Callout\" kind=\"callout\"><tmt-ui-callout>gui-3 is merging origin/main into the stack.</tmt-ui-callout></tmt-ui-block><tmt-ui-block label=\"Callout\" kind=\"callout\"><tmt-ui-callout tone=\"review\">tmt-gui-lead is reviewing #5984.</tmt-ui-callout></tmt-ui-block><tmt-ui-block label=\"Callout\" kind=\"callout\"><tmt-ui-callout tone=\"blocked\">The mockup block waits for #5980; a long body wraps and is never cut.</tmt-ui-callout></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

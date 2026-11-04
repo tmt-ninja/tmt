@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "card-block",
+  "source": "card-block.js",
+  "props": {
+    "variant": {
+      "enum": [
+        "card",
+        "section"
+      ],
+      "default": "card"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "card-block.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "CardBlock",
+    "parts": [],
+    "compose": "<CardBlock variant=\"{variant}\" title=\"{heading}\" meta=\"{meta}\">{children}</CardBlock>"
+  },
+  "examples": [
+    {
+      "title": "Card with nested blocks",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Card\" kind=\"card\"><tmt-ui-card-block heading=\"A long card title wraps, and its meta follows on the right or drops below\" meta=\"2 blocks\"><tmt-ui-block label=\"Paragraph\"><tmt-ui-text-block>A paragraph in the card.</tmt-ui-text-block></tmt-ui-block><tmt-ui-block label=\"Callout\" kind=\"callout\"><tmt-ui-callout>A callout in the card.</tmt-ui-callout></tmt-ui-block></tmt-ui-card-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Section: a label, no frame",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Section\" kind=\"card\"><tmt-ui-card-block variant=\"section\" heading=\"Section\"><tmt-ui-text-block>Only a label heading and no frame.</tmt-ui-text-block></tmt-ui-card-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}
