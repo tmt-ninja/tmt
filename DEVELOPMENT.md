@@ -289,8 +289,10 @@ Start it, end the turn and let its one message wake you; the script's header own
 its final states, bounds, log and exit codes.
 
 For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](scripts/hooks/codex-wait-guard.mjs) is an
-optional `PreToolUse` hook that denies wait- and poll-shaped calls inside this repository;
-its header owns the checks, key, log and switch. It sees a wait only when it starts: Codex
+optional `PreToolUse` hook that asks a model to judge every call inside this repository, except
+a short allowlist of calls that cannot wait, and denies waits and polls (in shadow mode it only
+logs them). Every judged call's redacted input leaves the machine; its header owns the checks,
+what is sent and redacted, the key cache, the log, `stats` and the switch. It sees a wait only when it starts: Codex
 gives hooks no event for a `write_stdin` re-poll of a running session or for code-mode
 `functions.wait`, so this rule and the waker remain the fix.
 
