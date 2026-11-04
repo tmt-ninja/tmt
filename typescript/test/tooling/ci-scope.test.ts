@@ -18,6 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
+import { COMPONENT_SHARDS } from '../../scripts/colab-acceptance-shards.mjs';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { QUALIFIER_README, qualifierCommands } from '../../scripts/remote-squads-qualifier.mjs';
 import {
@@ -4097,9 +4098,11 @@ describe('required CI gate', () => {
     expect(app).not.toContain('--with-deps');
     // Whole-file shards retain separate concurrency groups and evidence; none cancels another.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]');
     expect(app).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 11 component)"'
+      `shard: [${Array.from({ length: COMPONENT_SHARDS }, (_, index) => index + 1).join(', ')}]`
+    );
+    expect(app).toContain(
+      `shard_files="$(node scripts/colab-acceptance-shards.mjs \${{ matrix.shard }} ${COMPONENT_SHARDS} component)"`
     );
     expect(app).not.toContain('--shard=');
     expect(app).toContain('--reporter=dot,json');
