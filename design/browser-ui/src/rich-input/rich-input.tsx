@@ -32,6 +32,7 @@ import {
   $selectRichInputRange,
   type RichInputRange,
 } from './document.js';
+import { chooseSuggestion, notifyChipRemoval } from './actions.js';
 import './rich-input.css';
 
 /** A chip in the value: its kind (`mention`, `project`, ...), its text and where it sits. */
@@ -55,6 +56,9 @@ export interface RichInputOption {
 export interface RichInputSuggestion {
   kind: string;
   trigger: string;
+  /** Opt in to case-insensitive triggers and multi-word queries. */
+  caseInsensitive?: boolean;
+  allowSpaces?: boolean;
   options(query: string): readonly RichInputOption[];
 }
 export interface RichInputProps {
@@ -66,6 +70,18 @@ export interface RichInputProps {
   onChange(value: RichInputValue): void;
   /** Enter, without Shift and outside an IME composition. */
   onSubmit?(value: RichInputValue): void;
+  /** Return true to handle a suggestion as an action rather than inserting a chip. */
+  onSuggestionChoose?(
+    kind: string,
+    option: RichInputOption,
+    valueWithoutQuery: RichInputValue,
+  ): boolean;
+  /** A chip was removed from the edited value, including by keyboard. */
+  onChipRemove?(value: RichInputValue): void;
+  /** Escape when no suggestions are open. */
+  onEscape?(): void;
+  /** A host with a listbox may expose the input as a combobox. */
+  role?: 'combobox';
   suggestions?: readonly RichInputSuggestion[];
   removeLabel?(kind: string, text: string): string;
   disabled?: boolean;
@@ -140,10 +156,12 @@ function openQuery(
   const before = value.value.slice(0, caret);
   let best: Omit<Open, 'active'> | undefined;
   for (const source of sources) {
-    const start = before.lastIndexOf(source.trigger);
+    const start = source.caseInsensitive
+      ? before.toLocaleLowerCase().lastIndexOf(source.trigger.toLocaleLowerCase())
+      : before.lastIndexOf(source.trigger);
     if (start < 0 || (start > 0 && !/\s/.test(before[start - 1]!))) continue;
     const query = before.slice(start + source.trigger.length);
-    if (/\s/.test(query)) continue;
+    if (!source.allowSpaces && /\s/.test(query)) continue;
     if (value.chips.some((chip) => start < chip.range.end && caret > chip.range.start)) continue;
     if (!best || start > best.start)
       best = { source, start, caret, options: source.options(query).slice(0, 8) };
@@ -246,7 +264,10 @@ function Editor(props: RichInputProps) {
           });
           return;
         }
-        if (!same(next, props.value)) props.onChange(next);
+        if (!same(next, props.value)) {
+          props.onChange(next);
+          notifyChipRemoval(props.value, next, props.onChipRemove);
+        }
         const found = openQuery(next, caret, props.suggestions ?? []);
         const was = openRef.current;
         setOpen(
@@ -265,10 +286,38 @@ function Editor(props: RichInputProps) {
     const shown = openRef.current;
     if (!shown) return;
     setOpen(undefined);
-    insertChip(editor, editor.getEditorState().read($read), shown, option);
+    const value = editor.getEditorState().read($read);
+    const removedLength = shown.caret - shown.start;
+    const withoutQuery: RichInputValue = {
+      value: value.value.slice(0, shown.start) + value.value.slice(shown.caret),
+      chips: value.chips.map((chip) =>
+        chip.range.start >= shown.caret
+          ? {
+              ...chip,
+              range: {
+                start: chip.range.start - removedLength,
+                end: chip.range.end - removedLength,
+              },
+            }
+          : chip,
+      ),
+    };
+    if (
+      chooseSuggestion(current.current.onSuggestionChoose, shown.source.kind, option, withoutQuery)
+    ) {
+      editor.update(
+        () => {
+          $write(withoutQuery);
+          $selectRichInputRange(shown.start, shown.start);
+        },
+        { tag: HISTORY_PUSH_TAG, discrete: true },
+      );
+    } else insertChip(editor, value, shown, option);
   };
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     const native = event.nativeEvent;
+    if (event.target instanceof HTMLElement && event.target.closest('.tmt-rich-input-chip-remove'))
+      return;
     if (!native.isTrusted || native.isComposing || editor.isComposing() || native.keyCode === 229)
       return;
     const shown = openRef.current;
@@ -298,6 +347,11 @@ function Editor(props: RichInputProps) {
         return;
       }
     }
+    if (event.key === 'Escape' && props.onEscape) {
+      consume();
+      props.onEscape();
+      return;
+    }
     if (event.key !== 'Enter') return;
     if (event.shiftKey && props.shape === 'multi') return;
     consume();
@@ -311,11 +365,15 @@ function Editor(props: RichInputProps) {
       data-shape={props.shape}
       data-disabled={props.disabled || undefined}
       data-empty={!props.value.value || undefined}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(undefined);
+      }}
     >
       <div className="tmt-rich-input-line">
         {props.leading && <span className="tmt-rich-input-leading">{props.leading}</span>}
         <ContentEditable
           className="tmt-rich-input-text"
+          role={props.role}
           aria-label={props.label}
           aria-multiline={multi}
           aria-disabled={props.disabled || undefined}
@@ -338,7 +396,9 @@ function Editor(props: RichInputProps) {
               role="option"
               aria-selected={index === open.active}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choose(option)}
+              onClick={(event) => {
+                if (event.nativeEvent.isTrusted) choose(option);
+              }}
             >
               {option.label ?? option.text}
             </li>

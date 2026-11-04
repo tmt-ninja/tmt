@@ -65,9 +65,15 @@
   content: attr(data-placeholder);
   pointer-events: none;
 }
+.tmt-rich-input-chip-host {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
 .tmt-rich-input-chip {
   display: inline-flex;
   box-sizing: border-box;
+  max-width: 100%;
   align-items: center;
   gap: 2px;
   height: var(--tmt-foundation-chip-height);
@@ -81,7 +87,13 @@
   vertical-align: middle;
   white-space: nowrap;
 }
+.tmt-rich-input-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tmt-rich-input-chip-remove {
+  flex: none;
   display: inline-grid;
   box-sizing: border-box;
   place-items: center;
@@ -107,11 +119,12 @@
   left: 0;
   z-index: var(--tmt-foundation-z-layer);
   box-sizing: border-box;
-  min-width: 12rem;
+  min-width: min(12rem, 100%);
+  max-width: 100%;
   max-height: 16rem;
   margin: 0;
   padding: var(--tmt-foundation-spacing-unit);
-  overflow-y: auto;
+  overflow: hidden auto;
   border: var(--tmt-foundation-rule-width) solid var(--tmt-foundation-layer-boundary);
   border-radius: var(--tmt-foundation-radius);
   background: var(--tmt-foundation-popover);
@@ -120,6 +133,9 @@
   list-style: none;
 }
 .tmt-rich-input-list > li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: calc(var(--tmt-foundation-spacing-unit) * 1.5) var(--tmt-foundation-item-padding);
   border-radius: var(--tmt-foundation-radius-s);
   cursor: default;

@@ -12,6 +12,7 @@ export const SCOPE = '.tmt-design-docs';
 const sources = [
   '../generated/editorial.css',
   '../gallery/gallery.css',
+  '../src/data-table/page-list.css',
   '../docs/docs.css',
   '../docs/mock-colab.css',
   '../docs/mock-reader.css',

@@ -1029,8 +1029,7 @@ state, a React component.
 `@tmt/browser-ui/ui` is a separate React presentation entry; import its checked
 `@tmt/browser-ui/ui.css` explicitly. `cn`, `UiTheme` and `useUiPortalContainer`
 provide its foundation; the allocated primitive exports are described below.
-Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; selection exports the Command family, Combobox, Chip and Chips (see [Controlled selection](#controlled-selection-slice4)). No consumer migration or candidate-5
-page replica is included. The existing `./react`, `./static` and `./static.css` entries stay
+Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; selection exports the Command family, Combobox, Chip and Chips (see [Controlled selection](#controlled-selection-slice4)). Colab's page list uses the shared PageList parts in `@tmt/browser-ui/data-table` and the `@tmt/browser-ui/rich-input` entry; the host owns navigation, selection, data and actions. The existing `./react`, `./static` and `./static.css` entries stay
 unchanged; static never loads React, Radix, cmdk or the new UI graph.
 
 The [browser component contracts](../gui-components.md) retain generation and

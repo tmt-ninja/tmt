@@ -287,7 +287,7 @@ test('Save uses the effective list scope when a removed project falls back to Al
   await expect(dialog.getByRole('status')).toHaveText('5 pages');
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Current view');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.locator('#list-fixture .pages [data-page-id]')).toHaveCount(5);
+  await expect(page.locator('#list-fixture .page-list-table [data-page-id]')).toHaveCount(5);
 });
 
 test('explicit pinned projects become project shortcuts once, in order; automatic ones do not', async ({
@@ -424,7 +424,10 @@ test('the side menu lists the shortcuts, selects exactly one row and opens the l
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#list-fixture .tmt-ui-topbar-title-current')).toHaveText('Mine');
   // A page opened from that list keeps the shortcut selected.
-  await page.locator('#list-fixture .pages [data-page-id] .tmt-ui-list-title > a').first().click();
+  await page
+    .locator('#list-fixture .page-list-table [data-page-id] .tmt-ui-list-title > a')
+    .first()
+    .click();
   await expect(page).toHaveURL(/#\/pages\//);
   await expect(selected(page)).toHaveCount(1);
   await expect(railShortcuts(page)).toHaveAttribute('aria-current', 'page');
@@ -495,7 +498,10 @@ test('sidebar edit, delete and keyboard reorder keep shortcut identity and focus
       .filter({ has: page.getByText(name, { exact: true }) });
   await expect(railShortcuts(page)).toHaveCount(3);
   await railShortcuts(page).filter({ hasText: 'First' }).click();
-  await page.locator('#list-fixture .pages [data-page-id] .tmt-ui-list-title > a').first().click();
+  await page
+    .locator('#list-fixture .page-list-table [data-page-id] .tmt-ui-list-title > a')
+    .first()
+    .click();
   await expect(page).toHaveURL(/#\/pages\//);
   await row('Third').hover();
   await row('Third').getByRole('button', { name: 'Edit Third' }).click();
@@ -740,7 +746,7 @@ for (const width of [390, 1440])
       await expect(hero.getByRole('button', { name: /New page/i })).toBeVisible();
       const filter = page.getByRole('button', { name: 'Filter', exact: true });
       if (width === 390) {
-        await expect(page.locator('#list-fixture .tmt-ui-tab-list')).toHaveCSS(
+        await expect(page.locator('#list-fixture [data-slot="tabs-list"]')).toHaveCSS(
           'flex-wrap',
           'nowrap',
         );
@@ -751,7 +757,7 @@ for (const width of [390, 1440])
         expect(Math.abs(sortBox.y - box.y)).toBeLessThanOrEqual(1);
         await expect(page.getByRole('combobox', { name: 'Search pages' })).toHaveAttribute(
           'data-placeholder',
-          'Search pages…',
+          'Search pages, or type project:',
         );
         expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(

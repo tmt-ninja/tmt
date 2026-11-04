@@ -4,16 +4,7 @@ import { ShortcutDialog } from './shortcut-dialogs.js';
 import type { Shortcut } from './shortcuts.js';
 import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
-import {
-  BrowserAction,
-  BrowserIconAction,
-  BrowserListTable,
-  BrowserMenu,
-  BrowserTabs,
-  BrowserCheckbox,
-  BrowserChip,
-  type BrowserTab,
-} from '@tmt/browser-ui/react';
+import { BrowserMenu, BrowserChip, type BrowserTab } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import {
   Archive,
@@ -21,19 +12,25 @@ import {
   ArrowDownUp,
   Bookmark,
   ExternalLink,
-  Funnel,
+  ListFilter,
   Pencil,
   Pin,
   Plus,
 } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   ProjectWriting,
   ManageProjectsDialog,
   NewProjectDialog,
   projectFailureText,
 } from './project-dialogs.js';
-import { PageRowProjects } from './page-projects.js';
 import { pinFailureText } from './pins.js';
 import {
   applyProjectChanges,
@@ -41,7 +38,6 @@ import {
   waitingCount,
   filterPages,
   projectCounts,
-  projectTone,
   withProject,
   type PageSort,
   type ProjectChange,
@@ -59,159 +55,56 @@ import {
 import { ShortcutMenuRequestSlot } from './shortcut-menu-request.js';
 import { inScope, knownScope, writeScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
+import { RetentionHint } from './retention-hint.js';
+import { CopyCommand } from './copy-command.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
 import { operationStatus } from './page-operation-status.js';
 import { usePageListKeys } from './page-list-keys.js';
 import { useShownRows } from './page-list-rows.js';
-import { BulkBar } from './bulk-bar.js';
 import { NewPageDialog } from './new-page-dialog.js';
 import { pageTitle } from './page-index.js';
 import {
   editFromSearch,
-  PageListSearch,
+  SharedPageListSearch,
   searchFromEdit,
   toggleProject,
   type SearchEdit,
 } from './page-list-search.js';
-import { pageListColumns, pageListRow, PinnedPages } from './page-list-items.js';
-import { RetentionHint } from './retention-hint.js';
+import { HomeTitleLink } from './home-titles.js';
+import { PAGE_LIMIT } from './page-projects.js';
+import {
+  Button,
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+  UiTheme,
+} from '@tmt/browser-ui/ui';
+import {
+  PageListTable,
+  PageListControls,
+  PageListPins,
+  PageListTabs,
+  PageListBulkActions,
+  PageListRowMenu,
+  PageListProjectPicker,
+} from '@tmt/browser-ui/data-table';
+import { countText } from '@tmt/browser-ui/static';
+import { pageUpdate } from './page-index.js';
+import '@tmt/browser-ui/ui.css';
+import { getTheme, subscribeTheme } from './theme.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
 import { AppHeader } from './app-header.js';
 
 const t = text.pageList;
-const columnLabels = {
-  select: '',
-  title: t.titleColumn,
-  projects: t.projectColumn,
-  stage: t.stageColumn,
-  updated: t.updatedColumn,
-  author: t.authorColumn,
-  access: t.accessColumn,
-  actions: '',
-} as const;
 const rootRoute = getRouteApi('__root__');
 const homeRoute = getRouteApi('/');
 export { validateHomeSearch, type HomeSearch } from './page-list-filter.js';
 import { pageListFilter, type HomeSearch } from './page-list-filter.js';
-
-/** The ⋯ menu: management and the actions a phone has no room for beside the row. */
-function PageListActions({
-  page,
-  operate,
-  manage,
-  projects,
-}: {
-  page: PageSummary;
-  manage(): void;
-  projects(): void;
-  operate(operation: PageOperation, page: PageSummary): void;
-}) {
-  const port = rootRoute.useRouteContext().transport.management;
-  return (
-    <BrowserMenu
-      label={text.pageActionsFor(pageTitle(page))}
-      description={
-        <>
-          <p>Page ID: {page.id}</p>
-          <RetentionHint page={page} />
-        </>
-      }
-      items={
-        port
-          ? [
-              { key: 'manage', label: text.managePage },
-              { key: 'projects', label: text.projectsItem },
-              page.archived
-                ? { key: 'restore', label: t.restoreItem }
-                : { key: 'archive', label: t.archiveItem },
-              { key: 'delete', label: t.deleteItem, separated: true },
-            ]
-          : []
-      }
-      onSelect={(key) =>
-        key === 'manage'
-          ? manage()
-          : key === 'projects'
-            ? projects()
-            : operate(
-                key === 'archive'
-                  ? 'page.archive'
-                  : key === 'restore'
-                    ? 'page.unarchive'
-                    : 'page.delete',
-                page,
-              )
-      }
-    />
-  );
-}
-
-/** Open the page in another tab: the row's link does it with a modifier, a row action without one. */
-function OpenInNewTabAction({ page }: { page: PageSummary }) {
-  const router = useRouter();
-  return (
-    <span className="page-open-tab">
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={t.openInNewTab(pageTitle(page))}
-        icon={<ExternalLink />}
-        onActivate={() => {
-          const location = router.buildLocation({
-            to: '/pages/$pageId',
-            params: { pageId: page.id },
-          });
-          window.open(router.history.createHref(location.href), '_blank', 'noopener');
-        }}
-      />
-    </span>
-  );
-}
-
-/** Pins the page to the top of the list, or takes the pin away; an archived page has none. */
-function PagePinAction({
-  page,
-  busy,
-  toggle,
-}: {
-  page: PageSummary;
-  busy: boolean;
-  toggle(): void;
-}) {
-  if (page.archived) return null;
-  return (
-    <span className="page-pin-action">
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={page.pinned ? t.unpinPage(pageTitle(page)) : t.pinPage(pageTitle(page))}
-        icon={<Pin />}
-        pressed={page.pinned === true}
-        busy={busy}
-        onActivate={toggle}
-      />
-    </span>
-  );
-}
-
-/** A phone has the same item in the ⋯ menu. */
-function PageArchiveAction({ page, operate }: { page: PageSummary; operate(): void }) {
-  return (
-    <span className="page-archive-action">
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={page.archived ? t.restorePage(pageTitle(page)) : t.archivePage(pageTitle(page))}
-        icon={page.archived ? <ArchiveRestore /> : <Archive />}
-        hasPopup="dialog"
-        onActivate={operate}
-      />
-    </span>
-  );
-}
 
 /**
  * A stage tab with no page. While the list is still reading the pages' sub-pages it says so instead of
@@ -257,6 +150,7 @@ function StageEmpty({
 }
 
 export function Home() {
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const phone = useMedia('(max-width: 760px)');
   const space = homeRoute.useLoaderData();
   const { transport, space: spaceId } = rootRoute.useRouteContext();
@@ -342,7 +236,9 @@ export function Home() {
     tab('done', t.tabDone, stages.done),
     tab('archived', t.tabArchived, archivedInScope),
   ];
-  const pages = filterPages(scoped, filter, sort);
+  const [sortDirection, setSortDirection] = useState<'ascending' | 'descending'>('ascending');
+  const filteredPages = filterPages(scoped, filter, sort);
+  const pages = sortDirection === 'ascending' ? filteredPages : [...filteredPages].reverse();
   const section = useRef<HTMLElement>(null);
   const listEnd = useRef<HTMLParagraphElement>(null);
   const controlsBoundary = useRef<HTMLDivElement>(null);
@@ -379,7 +275,7 @@ export function Home() {
     root.addEventListener('scroll', measure, { passive: true });
     const resize = new ResizeObserver(measure);
     resize.observe(root);
-    for (const node of root.querySelectorAll('.page-pins, .tmt-ui-tabs-header'))
+    for (const node of root.querySelectorAll('.tmt-page-list-pins, .tmt-ui-tabs-header'))
       resize.observe(node);
     observer.observe(boundary);
     return () => {
@@ -514,12 +410,30 @@ export function Home() {
   >();
   const [operation, setOperation] = useState<{ kind: PageOperation; pages: PageSummary[] }>();
   const [operating, setOperating] = useState(false);
+  const operationReturn = useRef<HTMLElement | null>(null);
+  function openRowOperation(kind: PageOperation, page: PageSummary) {
+    const row = [...(section.current?.querySelectorAll<HTMLElement>('[data-page-id]') ?? [])].find(
+      (element) => element.dataset.pageId === page.id,
+    );
+    operationReturn.current = row?.querySelector<HTMLElement>('.tmt-data-table-menu') ?? null;
+    setOperation({ kind, pages: [page] });
+  }
+  function cancelOperation() {
+    const target = operationReturn.current;
+    operationReturn.current = null;
+    setOperation(undefined);
+    if (target)
+      requestAnimationFrame(() => {
+        if (target.isConnected) target.focus({ preventScroll: true });
+      });
+  }
   const [newPage, setNewPage] = useState(false);
   // The list owns the dialog even when a refreshed list no longer contains its page.
   const [managedPage, setManagedPage] = useState<Pick<PageSummary, 'id' | 'title'>>();
+  const managedReturn = useRef<HTMLElement | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   // Only pages the list shows count: a filter, a tab or a refresh drops the rest from the selection.
-  const chosen = pages.filter((page) => selectedIds.has(page.id));
+  const chosen = port ? pages.filter((page) => selectedIds.has(page.id)) : [];
   function toggleSelected(pageId: string) {
     setSelectedIds((previous) => {
       const next = new Set(previous);
@@ -533,6 +447,7 @@ export function Home() {
     setOperating(true);
     const batch = await runPageOperations(port, targets, kind);
     setOperating(false);
+    operationReturn.current = null;
     setOperation(undefined);
     setStatus(operationStatus(batch, kind, targets.length));
     const finished = new Set(batch.done.map((page) => page.id));
@@ -580,8 +495,9 @@ export function Home() {
     clearSelection: () => setSelectedIds(new Set()),
     projects: openProjects,
     archive: (pageId) => {
-      if (archived) return;
-      const targets = pageId === undefined ? chosen : pages.filter((page) => page.id === pageId);
+      const targets = (
+        pageId === undefined ? chosen : pages.filter((page) => page.id === pageId)
+      ).filter((page) => !page.archived);
       if (targets.length) setOperation({ kind: 'page.archive', pages: targets });
     },
   });
@@ -613,6 +529,10 @@ export function Home() {
         : { text: writing.failureText(outcome.failure), failed: true },
     );
   }
+  function openInNewTab(pageId: string) {
+    const location = router.buildLocation({ to: '/pages/$pageId', params: { pageId } });
+    window.open(router.history.createHref(location.href), '_blank', 'noopener');
+  }
   const [pinning, setPinning] = useState<string>();
   async function togglePin(page: PageSummary) {
     if (pinning) return;
@@ -640,97 +560,104 @@ export function Home() {
   const controls = (
     <>
       <div className="page-list-controls-boundary" ref={controlsBoundary} aria-hidden="true" />
-      <div className="page-list-controls">
-        <div className="page-list-search">
-          <div className="page-list-search-box">
-            <div className="page-list-condition-chips">
-              {scope && (
-                <BrowserChip
-                  label={text.shortcuts.project(scope)}
-                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.project(scope))}
-                  onRemove={() => {
-                    writeScope(spaceId, undefined);
-                    setSearch({ scope: undefined });
-                  }}
-                />
-              )}
-              {(search.state
-                ? Array.isArray(search.state)
-                  ? search.state
-                  : [search.state]
-                : []
-              ).map((state) => (
-                <BrowserChip
-                  key={state}
-                  label={text.shortcuts.filterState(text.workBand.taskState[state])}
-                  removeLabel={text.shortcuts.removeCondition(text.workBand.taskState[state])}
-                  onRemove={() => {
-                    const remaining = (
-                      Array.isArray(search.state) ? search.state : [search.state]
-                    ).filter(
-                      (item): item is NonNullable<typeof item> =>
-                        item !== undefined && item !== state,
-                    );
-                    setSearch({ state: remaining.length ? remaining : undefined });
-                  }}
-                />
-              ))}
-              {search.needs && (
-                <BrowserChip
-                  label={text.shortcuts.needsMe}
-                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.needsMe)}
-                  onRemove={() => setSearch({ needs: undefined })}
-                />
-              )}
-              {search.includeArchived && (
-                <BrowserChip
-                  label={text.shortcuts.includeArchived}
-                  removeLabel={text.shortcuts.removeCondition(text.shortcuts.includeArchived)}
-                  onRemove={() => setSearch({ includeArchived: undefined })}
-                />
-              )}
-              {search.archived && (
-                <BrowserChip
-                  label={text.shortcuts.archivedOnly}
-                  removeLabel={text.shortcuts.removeCondition(text.archived)}
-                  onRemove={() => chooseView('all')}
-                />
-              )}
-              {search.stage && (
-                <BrowserChip
-                  label={text.shortcuts.stage(search.stage)}
-                  removeLabel={text.shortcuts.removeCondition(search.stage)}
-                  onRemove={() => setSearch({ stage: undefined })}
-                />
-              )}
+      <PageListControls
+        className="page-list-controls"
+        stuck={compact}
+        search={
+          <div className="page-list-search">
+            <div className="page-list-search-box">
+              <div className="page-list-condition-chips">
+                {scope && (
+                  <BrowserChip
+                    label={text.shortcuts.project(scope)}
+                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.project(scope))}
+                    onRemove={() => {
+                      writeScope(spaceId, undefined);
+                      setSearch({ scope: undefined });
+                    }}
+                  />
+                )}
+                {(search.state
+                  ? Array.isArray(search.state)
+                    ? search.state
+                    : [search.state]
+                  : []
+                ).map((state) => (
+                  <BrowserChip
+                    key={state}
+                    label={text.shortcuts.filterState(text.workBand.taskState[state])}
+                    removeLabel={text.shortcuts.removeCondition(text.workBand.taskState[state])}
+                    onRemove={() => {
+                      const remaining = (
+                        Array.isArray(search.state) ? search.state : [search.state]
+                      ).filter(
+                        (item): item is NonNullable<typeof item> =>
+                          item !== undefined && item !== state,
+                      );
+                      setSearch({ state: remaining.length ? remaining : undefined });
+                    }}
+                  />
+                ))}
+                {search.needs && (
+                  <BrowserChip
+                    label={text.shortcuts.needsMe}
+                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.needsMe)}
+                    onRemove={() => setSearch({ needs: undefined })}
+                  />
+                )}
+                {search.includeArchived && (
+                  <BrowserChip
+                    label={text.shortcuts.includeArchived}
+                    removeLabel={text.shortcuts.removeCondition(text.shortcuts.includeArchived)}
+                    onRemove={() => setSearch({ includeArchived: undefined })}
+                  />
+                )}
+                {search.archived && (
+                  <BrowserChip
+                    label={text.shortcuts.archivedOnly}
+                    removeLabel={text.shortcuts.removeCondition(text.archived)}
+                    onRemove={() => chooseView('all')}
+                  />
+                )}
+                {search.stage && (
+                  <BrowserChip
+                    label={text.shortcuts.stage(search.stage)}
+                    removeLabel={text.shortcuts.removeCondition(search.stage)}
+                    onRemove={() => setSearch({ stage: undefined })}
+                  />
+                )}
+              </div>
+              <SharedPageListSearch
+                placeholder="Search pages, or type project:"
+                edit={edit}
+                onChange={setEdit}
+                resetKey={resetKey}
+                projects={counts}
+                authors={authors}
+                stages={HOME_STAGES.map((name) => ({
+                  name,
+                  count: name === 'all' ? activeInScope.length : stages[name],
+                }))}
+                onStage={(stage) => chooseView(stage as HomeStage)}
+                onApply={apply}
+                onClear={() => {
+                  if (!filtered && edit.value === '' && edit.tokens.length === 0) {
+                    (document.activeElement as HTMLElement | null)?.blur();
+                    return;
+                  }
+                  clearFilters();
+                }}
+              />
             </div>
-            <PageListSearch
-              edit={edit}
-              onChange={setEdit}
-              resetKey={resetKey}
-              projects={counts}
-              authors={authors}
-              stages={HOME_STAGES.map((name) => ({
-                name,
-                count: name === 'all' ? activeInScope.length : stages[name],
-              }))}
-              onStage={(stage) => chooseView(stage as HomeStage)}
-              onApply={apply}
-              onClear={() => {
-                if (!filtered && edit.value === '' && edit.tokens.length === 0) {
-                  (document.activeElement as HTMLElement | null)?.blur();
-                  return;
-                }
-                clearFilters();
-              }}
-            />
           </div>
+        }
+        filter={
           <span className="page-list-filter-menu">
-            <Funnel aria-hidden="true" />
+            <ListFilter aria-hidden="true" />
             <BrowserMenu
               label={text.shortcuts.filter}
               triggerText={phone ? undefined : text.shortcuts.filter}
-              icon={<Funnel />}
+              icon={<ListFilter />}
               popupLayout="grouped"
               items={[
                 ...(['todo', 'in-progress', 'done'] as const).map((state, index) => ({
@@ -800,94 +727,68 @@ export function Home() {
               }}
             />
           </span>
-        </div>
-        <span className="page-list-sort">
-          <BrowserMenu
-            label={`${t.sort}: ${sortLabel}`}
-            triggerText={phone ? undefined : sortLabel}
-            icon={<ArrowDownUp />}
-            items={(['updated', 'title'] as const).map((key) => ({
-              key,
-              label: t.sortOptions[key],
-              role: 'menuitemradio' as const,
-              checked: sort === key,
-            }))}
-            onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-          />
-        </span>
-        <span className="page-list-compact-create" inert={!compact}>
-          {phone ? (
-            <BrowserIconAction
-              type="button"
-              variant="primary"
-              label={t.newPage}
-              icon={<Plus />}
-              onActivate={() => setNewPage(true)}
+        }
+        sort={
+          <span className="page-list-sort">
+            <ArrowDownUp aria-hidden="true" />
+            <BrowserMenu
+              label={`${t.sort}: ${sortLabel}`}
+              triggerText={phone ? undefined : t.sort}
+              icon={<ArrowDownUp />}
+              items={(['updated', 'title'] as const).map((key) => ({
+                key,
+                label: t.sortOptions[key],
+                role: 'menuitemradio' as const,
+                checked: sort === key,
+              }))}
+              onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
             />
-          ) : (
-            <BrowserAction
+          </span>
+        }
+        trailing={
+          <span className="page-list-compact-create" inert={!compact}>
+            <Button
               type="button"
-              variant="primary"
-              presentation="compact"
-              label={t.newPage}
-              leadingIcon={<Plus />}
-              onActivate={() => setNewPage(true)}
-            />
-          )}
-        </span>
-      </div>
+              collapseLabel={t.newPage}
+              onClick={(event) => {
+                if (event.nativeEvent.isTrusted) setNewPage(true);
+              }}
+            >
+              <Plus aria-hidden="true" />
+            </Button>
+          </span>
+        }
+      />
     </>
   );
-  const newPageAction = phone ? (
-    <BrowserIconAction
+  const newPageAction = (
+    <Button
       type="button"
-      variant="primary"
-      label={t.newPage}
-      icon={<Plus />}
-      onActivate={() => setNewPage(true)}
-    />
-  ) : (
-    <BrowserAction
-      type="button"
-      variant="primary"
-      label={t.newPage}
-      leadingIcon={<Plus />}
-      onActivate={() => setNewPage(true)}
-    />
+      collapseLabel={t.newPage}
+      onClick={(event) => {
+        if (event.nativeEvent.isTrusted) setNewPage(true);
+      }}
+    >
+      <Plus aria-hidden="true" />
+    </Button>
   );
   const listActions = (
     <div className="page-list-actions">
       {port && (
-        <>
-          <span className="page-list-shortcut-wide">
-            <BrowserAction
-              type="button"
-              variant="secondary"
-              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-              leadingIcon={currentShortcut ? <Pencil /> : <Bookmark />}
-              disabled={!shortcuts.store}
-              onActivate={() => {
-                shortcutFromMenu.current = false;
-                setShortcutTarget(undefined);
-                setShortcutDialog(currentShortcut ? 'edit' : 'save');
-              }}
-            />
-          </span>
-          <span className="page-list-shortcut-phone">
-            <BrowserIconAction
-              type="button"
-              variant="secondary"
-              label={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
-              icon={currentShortcut ? <Pencil /> : <Bookmark />}
-              disabled={!shortcuts.store}
-              onActivate={() => {
-                shortcutFromMenu.current = false;
-                setShortcutTarget(undefined);
-                setShortcutDialog(currentShortcut ? 'edit' : 'save');
-              }}
-            />
-          </span>
-        </>
+        <Button
+          type="button"
+          variant="outline"
+          collapseLabel={currentShortcut ? text.shortcuts.edit : text.shortcuts.saveAs}
+          disabled={!shortcuts.store}
+          onClick={(event) => {
+            if (!event.nativeEvent.isTrusted) return;
+            shortcutFromMenu.current = false;
+            setShortcutTarget(undefined);
+            setShortcutDialog(currentShortcut ? 'edit' : 'save');
+          }}
+        >
+          {currentShortcut ? <Pencil aria-hidden="true" /> : <Bookmark aria-hidden="true" />}
+        </Button>
       )}
       <span className="page-list-create" inert={compact}>
         {newPageAction}
@@ -897,22 +798,6 @@ export function Home() {
   const content = (
     <>
       {controls}
-      {chosen.length > 0 ? (
-        <BulkBar
-          count={chosen.length}
-          projects={projectNames}
-          carried={projectNames.filter((name) =>
-            chosen.some((page) => page.projects?.includes(name)),
-          )}
-          archiving={!archived}
-          onAdd={(name) => void changeProject(name, true)}
-          onRemove={(name) => void changeProject(name, false)}
-          onNewProject={() => setDialog({ kind: 'new', initial: chosen.map((page) => page.id) })}
-          onArchive={() => setOperation({ kind: 'page.archive', pages: chosen })}
-          onDelete={() => setOperation({ kind: 'page.delete', pages: chosen })}
-          onClear={() => setSelectedIds(new Set())}
-        />
-      ) : null}
 
       {showNeeds && !port ? (
         <button
@@ -940,145 +825,256 @@ export function Home() {
       </p>
       {pages.length ? (
         <div className="page-list-scroll">
-          <BrowserListTable
-            label={text.pages}
-            className="page-list-table pages"
-            columns={pageListColumns.map((id) => ({
-              id,
-              label: columnLabels[id],
-              header:
-                id === 'select' ? (
-                  port ? (
-                    <BrowserCheckbox
-                      aria-label={t.selectAllPages}
-                      checked={pages.length > 0 && chosen.length === pages.length}
-                      indeterminate={chosen.length > 0 && chosen.length < pages.length}
-                      onChange={(event) =>
-                        setSelectedIds(
-                          event.target.checked ? new Set(pages.map((page) => page.id)) : new Set(),
-                        )
-                      }
-                    />
-                  ) : (
-                    ''
-                  )
-                ) : undefined,
-            }))}
-            rows={pages.slice(0, drawn).map((p) =>
-              pageListRow({
-                page: p,
-                hints: titleHints,
-                scope: scope,
-                now: now,
-                selected: selectedIds.has(p.id),
-                leading: port ? (
-                  <BrowserCheckbox
-                    aria-label={t.selectPage(pageTitle(p))}
-                    checked={selectedIds.has(p.id)}
-                    onChange={() => toggleSelected(p.id)}
-                  />
-                ) : undefined,
-                projects: port ? (
-                  <PageRowProjects
-                    page={p}
-                    names={projectNames}
-                    openRequest={
-                      projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
-                    }
-                    open={() => openProjects(p.id)}
-                    toggle={(page, name) => void toggleOnPage(page, name)}
-                    create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
-                  />
-                ) : p.projects?.length ? (
-                  <ul className="page-projects" aria-label={t.projects}>
-                    {p.projects.map((name) => (
-                      <li key={name}>
-                        <button
-                          type="button"
-                          className="page-project"
-                          title={name}
-                          data-project-tone={projectTone(name)}
-                          aria-pressed={filter.projects.includes(name)}
-                          onClick={(event) => {
-                            if (event.isTrusted) replaceDraft(toggleProject(edit, name));
-                          }}
-                        >
-                          <span>{name}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null,
-                actions: port ? (
-                  <>
-                    <span className="page-row-shortcuts">
-                      <OpenInNewTabAction page={p} />
-                      <PagePinAction
-                        page={p}
-                        busy={pinning === p.id}
-                        toggle={() => void togglePin(p)}
-                      />
-                      <PageArchiveAction
-                        page={p}
-                        operate={() =>
-                          setOperation({
-                            kind: p.archived ? 'page.unarchive' : 'page.archive',
-                            pages: [p],
-                          })
-                        }
-                      />
-                    </span>
-                    <PageListActions
-                      page={p}
-                      manage={() => setManagedPage({ id: p.id, title: p.title })}
-                      projects={() => openProjects(p.id)}
-                      operate={(kind, page) => setOperation({ kind, pages: [page] })}
-                    />
-                  </>
-                ) : undefined,
-              }),
-            )}
-          />
-          <p className="page-list-count" data-page-list-count ref={listEnd}>
-            <span>{t.showing(Math.min(drawn, pages.length), pages.length)}</span>
-            <span>{port ? t.ownerAccess : t.viewerAccess}</span>
+          <p className="tmt-page-list-result-count" data-page-list-count>
+            {pages.length} {pages.length === 1 ? 'page' : 'pages'} in this view
           </p>
+          <UiTheme theme={theme}>
+            <PageListTable
+              className="page-list-table"
+              rows={pages.slice(0, drawn).map((page) => {
+                const name = pageTitle(page);
+                const stage = pageStage(page);
+                const waiting = page.summary?.waiting;
+                const updated = pageUpdate(page.lastUpdateAtMs, now);
+                const projectNamesForPage = new Set(page.projects ?? []);
+                return {
+                  id: page.id,
+                  name,
+                  title: (
+                    <span className="tmt-ui-list-title tmt-data-table-text">
+                      <HomeTitleLink page={page} hints={titleHints} scope={scope} />
+                    </span>
+                  ),
+                  projects: page.projects ?? [],
+                  activeProjects: filter.projects,
+                  onProjectFilter: !port
+                    ? (project: string) => replaceDraft(toggleProject(edit, project))
+                    : undefined,
+                  projectPicker: port ? (
+                    <PageListProjectPicker
+                      label={`${t.projectsFor(name)}${page.projects?.length ? `: ${page.projects.join(', ')}` : ''}`}
+                      selectedOrder={page.projects}
+                      projects={projectNames.map((project) => ({
+                        name: project,
+                        checked: projectNamesForPage.has(project),
+                        disabledReason:
+                          projectNamesForPage.size >= PAGE_LIMIT &&
+                          !projectNamesForPage.has(project)
+                            ? t.pageFull
+                            : undefined,
+                      }))}
+                      open={projectsRequest?.pageId === page.id}
+                      onOpenChange={(open) =>
+                        open ? openProjects(page.id) : setProjectsRequest(undefined)
+                      }
+                      onProject={(project, checked) => {
+                        if (projectNamesForPage.has(project) !== checked)
+                          void toggleOnPage(page, project);
+                      }}
+                      newDisabledReason={
+                        projectNamesForPage.size >= PAGE_LIMIT ? t.pageFull : undefined
+                      }
+                      onNewProject={() => {
+                        setProjectsRequest(undefined);
+                        setDialog({ kind: 'new', initial: [page.id] });
+                      }}
+                    />
+                  ) : undefined,
+                  stage: waiting
+                    ? {
+                        id: 'needs',
+                        label: `${t.waitingForYou}${page.summary && page.summary.needsYou > 0 ? ` · ${page.summary.needsYou}` : ''}`,
+                      }
+                    : page.archived
+                      ? { id: 'archived', label: text.archived }
+                      : stage
+                        ? { id: stage, label: t.stageNames[stage] }
+                        : undefined,
+                  progress:
+                    page.summary?.work && page.summary.work.total > 0
+                      ? t.subpagesDone(page.summary.work.done, page.summary.work.total)
+                      : undefined,
+                  updated: updated.label,
+                  updatedDateTime: updated.dateTime,
+                  updatedTitle: updated.absolute,
+                  author: page.summary?.author ?? '',
+                  access: !port
+                    ? 'Read-only'
+                    : page.sharing === 'private'
+                      ? text.private
+                      : text.shared,
+                  private: page.sharing === 'private',
+                  readOnly: !port,
+                  pinned: page.pinned && !page.archived,
+                };
+              })}
+              selected={selectedIds}
+              onSelectedChange={setSelectedIds}
+              selectionKeys={port ? pages.map((page) => page.id) : []}
+              sort={{ column: sort, direction: sortDirection }}
+              onSortChange={(next) => {
+                setSortDirection(next.direction);
+                setSearch({ sort: next.column === 'title' ? 'title' : undefined });
+              }}
+              onOpen={(row) =>
+                void router.navigate({
+                  to: '/pages/$pageId',
+                  params: { pageId: row.id },
+                  ...(scope === undefined ? {} : { state: { scope } as never }),
+                })
+              }
+              actions={(row) => {
+                const page = pages.find((item) => item.id === row.id)!;
+                return [
+                  {
+                    id: 'open',
+                    label: t.openInNewTab(row.name),
+                    icon: <ExternalLink />,
+                    onSelect: () => openInNewTab(row.id),
+                  },
+                  ...(!page.archived
+                    ? [
+                        {
+                          id: 'pin',
+                          pressed: !!page.pinned,
+                          label: page.pinned ? t.unpinPage(row.name) : t.pinPage(row.name),
+                          icon: <Pin />,
+                          onSelect: () => void togglePin(page),
+                        },
+                      ]
+                    : []),
+                  {
+                    id: 'archive',
+                    hasPopup: 'dialog' as const,
+                    label: page.archived ? t.restorePage(row.name) : t.archivePage(row.name),
+                    icon: page.archived ? <ArchiveRestore /> : <Archive />,
+                    onSelect: () =>
+                      setOperation({
+                        kind: page.archived ? 'page.unarchive' : 'page.archive',
+                        pages: [page],
+                      }),
+                  },
+                ];
+              }}
+              menu={(row) => {
+                const page = pages.find((item) => item.id === row.id)!;
+                return (
+                  <PageListRowMenu
+                    archived={!!page.archived}
+                    readOnly={!port}
+                    pinned={page.pinned}
+                    onOpenInNewTab={() => openInNewTab(page.id)}
+                    onPin={port && !page.archived ? () => void togglePin(page) : undefined}
+                    onManage={() => {
+                      const row = [
+                        ...(section.current?.querySelectorAll<HTMLElement>('[data-page-id]') ?? []),
+                      ].find((element) => element.dataset.pageId === page.id);
+                      managedReturn.current =
+                        row?.querySelector<HTMLElement>('.tmt-data-table-menu') ?? null;
+                      setManagedPage({ id: page.id, title: page.title });
+                    }}
+                    onProjects={() => openProjects(page.id)}
+                    onArchive={() =>
+                      openRowOperation(page.archived ? 'page.unarchive' : 'page.archive', page)
+                    }
+                    onDelete={() => openRowOperation('page.delete', page)}
+                    onCopyId={async () => {
+                      try {
+                        await navigator.clipboard.writeText(page.id);
+                        setStatus({ text: 'Page ID copied.', failed: false });
+                      } catch {
+                        setStatus({ text: 'Could not copy page ID.', failed: true });
+                      }
+                    }}
+                    footer={<RetentionHint page={page} />}
+                  />
+                );
+              }}
+              bulkActions={() => (
+                <PageListBulkActions
+                  projects={projectNames.map((name) => ({
+                    name,
+                    checked: chosen.every((page) => page.projects?.includes(name))
+                      ? true
+                      : chosen.some((page) => page.projects?.includes(name))
+                        ? 'indeterminate'
+                        : false,
+                  }))}
+                  canArchive={chosen.some((page) => !page.archived)}
+                  canRestore={chosen.some((page) => page.archived)}
+                  onProject={(name, checked) => void changeProject(name, checked)}
+                  onNewProject={() =>
+                    setDialog({ kind: 'new', initial: chosen.map((page) => page.id) })
+                  }
+                  onArchive={() =>
+                    setOperation({
+                      kind: 'page.archive',
+                      pages: chosen.filter((page) => !page.archived),
+                    })
+                  }
+                  onRestore={() =>
+                    setOperation({
+                      kind: 'page.unarchive',
+                      pages: chosen.filter((page) => page.archived),
+                    })
+                  }
+                  onDelete={() => setOperation({ kind: 'page.delete', pages: chosen })}
+                />
+              )}
+            />
+          </UiTheme>
+          <p className="page-list-end" ref={listEnd} aria-hidden="true" />
         </div>
       ) : (
-        <div className="page-list-empty">
-          {filter.stage && scoped.length === 0 && space.pages.length ? (
-            <StageEmpty
-              stage={filter.stage}
-              scope={scope}
-              reading={reading && unreported > 0}
-              choose={chooseView}
-            />
-          ) : scope !== undefined && scoped.length === 0 ? (
-            <p>{archived ? t.noArchivedInProject(scope) : t.noPagesInProject(scope)}</p>
-          ) : filtered && scoped.length ? (
-            <>
-              <p>{t.noMatch}</p>
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={t.clearFilters}
-                onActivate={clearFilters}
+        <UiTheme theme={theme}>
+          <Empty className="page-list-empty">
+            {filter.stage && scoped.length === 0 && space.pages.length ? (
+              <StageEmpty
+                stage={filter.stage}
+                scope={scope}
+                reading={reading && unreported > 0}
+                choose={chooseView}
               />
-            </>
-          ) : archived ? (
-            <p>{t.noArchived}</p>
-          ) : space.pages.length ? (
-            <p>{t.noActive}</p>
-          ) : (
-            <p>
-              {text.intro} {text.empty}
-              <code className="tmt-ui-code">
-                tmt colab page create --title "Notes" --layout column
-              </code>
-              .
-            </p>
-          )}
-        </div>
+            ) : scope !== undefined && scoped.length === 0 ? (
+              <p>{archived ? t.noArchivedInProject(scope) : t.noPagesInProject(scope)}</p>
+            ) : filtered && scoped.length ? (
+              <>
+                <EmptyHeader>
+                  <EmptyTitle>No pages match</EmptyTitle>
+                  <EmptyDescription>
+                    Nothing in this view matches the search and filters.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={(event) => {
+                      if (event.nativeEvent.isTrusted) clearFilters();
+                    }}
+                  >
+                    {t.clearFilters}
+                  </Button>
+                </EmptyContent>
+              </>
+            ) : archived ? (
+              <p>{t.noArchived}</p>
+            ) : space.pages.length ? (
+              <p>{t.noActive}</p>
+            ) : (
+              <>
+                <EmptyHeader>
+                  <EmptyTitle>No pages yet</EmptyTitle>
+                  <EmptyDescription>Pages are created on your machine.</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  {port && <CopyCommand command={t.newPageCommand} enabled />}
+                  {newPageAction}
+                </EmptyContent>
+              </>
+            )}
+          </Empty>
+        </UiTheme>
       )}
     </>
   );
@@ -1093,7 +1089,7 @@ export function Home() {
         title={currentShortcut?.name ?? scope ?? text.pageList.allPages}
         remote={{ deviceName: transport.backendName }}
       />
-      {!port && listActions}
+      {!port && <UiTheme theme={theme}>{listActions}</UiTheme>}
       {shortcuts.error && <p role="alert">{shortcuts.error}</p>}
       {shortcutDialog && shortcuts.store && (
         <ShortcutDialog
@@ -1135,18 +1131,26 @@ export function Home() {
           onSaved={savedShortcut}
         />
       )}
-      <PinnedPages
-        pages={
-          port && !archived
+      <UiTheme theme={theme}>
+        <PageListPins
+          label={t.pinnedPages}
+          pages={(port && !archived
             ? inScope(
                 homePages.filter((page) => page.pinned && !page.archived),
                 scope,
               )
             : []
-        }
-        hints={titleHints}
-        scope={scope}
-      />
+          ).map((page) => {
+            const stage = pageStage(page);
+            return {
+              id: page.id,
+              title: <HomeTitleLink page={page} hints={titleHints} scope={scope} />,
+              projects: page.projects ?? [],
+              stage: page.archived ? text.archived : stage ? t.stageNames[stage] : undefined,
+            };
+          })}
+        />
+      </UiTheme>
       <NewPageDialog
         open={newPage}
         onClose={() => setNewPage(false)}
@@ -1158,19 +1162,21 @@ export function Home() {
       />
       {port ? (
         <div className="page-stage-tabs">
-          <BrowserTabs
-            label={t.views}
-            status={listActions}
-            variant="flat"
-            tabs={viewTabs}
-            selected={view}
-            onSelect={(id) => chooseView(id as HomeView)}
-          >
-            {(current) => (current.id === view ? content : null)}
-          </BrowserTabs>
+          <UiTheme theme={theme}>
+            <PageListTabs
+              label={t.views}
+              actions={listActions}
+              views={viewTabs}
+              formatCount={countText}
+              value={view}
+              onChange={(id) => chooseView(id as HomeView)}
+            >
+              {content}
+            </PageListTabs>
+          </UiTheme>
         </div>
       ) : (
-        content
+        <UiTheme theme={theme}>{content}</UiTheme>
       )}
       {port && (
         <>
@@ -1179,7 +1185,15 @@ export function Home() {
               pageId={managedPage.id}
               title={managedPage.title}
               open
-              close={() => setManagedPage(undefined)}
+              close={() => {
+                const target = managedReturn.current;
+                managedReturn.current = null;
+                setManagedPage(undefined);
+                if (target)
+                  requestAnimationFrame(() => {
+                    if (target.isConnected) target.focus({ preventScroll: true });
+                  });
+              }}
             />
           )}
           <PageOperationDialog
@@ -1187,7 +1201,7 @@ export function Home() {
             titles={operation ? operation.pages.map(pageTitle) : []}
             busy={operating}
             onConfirm={() => void confirmOperation()}
-            onCancel={() => setOperation(undefined)}
+            onCancel={cancelOperation}
           />
           <NewProjectDialog
             open={dialog?.kind === 'new'}

@@ -18,7 +18,7 @@ async function mount(page: Page, size: Size = 'stages', hash = '/') {
   );
 }
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
+const rows = (page: Page) => app(page).locator('.page-list-table [data-page-id]');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const tab = (page: Page, name: string | RegExp) => app(page).getByRole('tab', { name });
@@ -240,11 +240,10 @@ for (const width of [1440, 390, 320])
   test(`every stage tab is keyboard reachable in the strip: ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page);
-    const strip = app(page).getByRole('tablist');
+    const strip = app(page).locator('[data-slot="tabs-bar-scroller"]');
     const names = [/^All/, /^Needs you/, /^Discussion/, /^In progress/, /^Done/, /^Archived/];
     if (width <= 390)
       expect(await strip.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
-    expect(await strip.evaluate((node) => getComputedStyle(node).maskImage)).toBe('none');
     const tops = await app(page)
       .getByRole('tab')
       .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top));
@@ -258,7 +257,7 @@ for (const width of [1440, 390, 320])
       await expect
         .poll(() =>
           tab(page, name).evaluate((node) => {
-            const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
+            const bounds = node.closest('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
             const box = node.getBoundingClientRect();
             return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
           }),
@@ -287,7 +286,7 @@ for (const width of [390, 320])
       await expect
         .poll(() =>
           selected.evaluate((node) => {
-            const bounds = node.closest('[role="tablist"]')!.getBoundingClientRect();
+            const bounds = node.closest('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
             const box = node.getBoundingClientRect();
             return box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
           }),

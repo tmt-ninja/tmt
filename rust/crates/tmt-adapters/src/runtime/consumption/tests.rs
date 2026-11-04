@@ -1131,6 +1131,28 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
         "a typical Codex state keeps its limits in the opaque bound"
     );
 
+    // Claude's account-store window ages must not change the opaque member state bytes.
+    let mut timed = limited.clone();
+    let limits = timed.value.rate_limits.as_mut().unwrap();
+    limits.provider = "claude".into();
+    limits.windows[0].observed_at_ms = Some(limits.observed_at_ms);
+    let mut untimed = timed.clone();
+    untimed.value.rate_limits.as_mut().unwrap().windows[0].observed_at_ms = None;
+    assert_eq!(timed.document(), untimed.document());
+    let timed_state = driver_state::after_observation(None, Some(timed), None).unwrap();
+    let untimed_state = driver_state::after_observation(None, Some(untimed), None).unwrap();
+    assert_eq!(timed_state.document(), untimed_state.document());
+    assert!(
+        driver_state::state_consumption(&timed_state)
+            .unwrap()
+            .value
+            .rate_limits
+            .unwrap()
+            .windows[0]
+            .observed_at_ms
+            .is_none()
+    );
+
     // Sweep the attribution size across the bound. Whatever the size, the
     // counters survive, limits go no later than attribution, and some size
     // loses only the limits.
@@ -1145,6 +1167,7 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
             window_minutes: 20_000,
             used_percent: 1.0,
             resets_at_ms: 1_791_948_558_000,
+            observed_at_ms: None,
         });
     let mut only_limits_lost = false;
     for length in 1..=118 {

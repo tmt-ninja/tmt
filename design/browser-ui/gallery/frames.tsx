@@ -2,6 +2,7 @@ import { CompactControlsFrame } from './compact-controls-frame.js';
 import { UiContrastFrame } from './ui-contrast-frame.js';
 import { FloatingFrame } from './floating-frame.js';
 import { DataTableFrame } from './data-table-frame.js';
+import { PageListFrame } from './page-list-frame.js';
 import { RichInputFrame } from './rich-input-frame.js';
 import { TabsBarFrame } from './tabs-bar-frame.js';
 import { ChartsSection } from './charts.js';
@@ -681,6 +682,8 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <RichInputFrame params={params} />;
     case 'data-table':
       return <DataTableFrame params={params} />;
+    case 'page-list':
+      return <PageListFrame params={params} />;
     case 'floating':
       return <FloatingFrame params={params} />;
     case 'ui-contrast':

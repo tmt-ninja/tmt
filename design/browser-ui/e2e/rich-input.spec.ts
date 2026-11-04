@@ -120,3 +120,19 @@ test('the focus ring sits on the wrapper', async ({ page }) => {
   await expect(wrapper).toHaveCSS('outline-style', 'solid');
   await expect(search(page)).toHaveCSS('outline-style', 'none');
 });
+
+test('a non-chip choice and chip removal notify the list owner without submitting', async ({
+  page,
+}) => {
+  await page.goto('/?frame=rich-input&list-actions=1');
+  await search(page).click();
+  await page.keyboard.type('stage:do');
+  await page.getByRole('option', { name: 'Done' }).click();
+  await expect(page.locator('[data-choice]')).toHaveAttribute('data-choice', 'stage:done');
+  await expect.poll(() => read(page, 'search')).toEqual({ value: '', chips: [] });
+  await page.keyboard.type('project:de');
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Remove filter project:design' }).click();
+  await expect(page.locator('[data-removals]')).toHaveAttribute('data-removals', '1');
+  expect(await read(page, 'sent')).toEqual([]);
+});

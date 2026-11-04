@@ -1,3 +1,4 @@
+import { PageListPins, PageListProjectChip, PageListStageChip } from '../src/data-table/index.js';
 import { useState, type ReactNode } from 'react';
 import {
   Bookmark,
@@ -547,17 +548,112 @@ export const moreComponents: ComponentDoc[] = [
     variants: [
       ['Composer', () => <RichInputDemo shape="multi" />],
       [
+        'Optional search props',
+        () => (
+          <table>
+            <thead>
+              <tr>
+                <th>Prop</th>
+                <th>Behavior</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <code>onSuggestionChoose</code>
+                </td>
+                <td>
+                  Return true to handle a suggestion as an action instead of inserting a chip;
+                  receives the edited value without the query.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <code>onChipRemove</code>
+                </td>
+                <td>Receives the resulting value when a chip is removed.</td>
+              </tr>
+              <tr>
+                <td>
+                  <code>onEscape</code>
+                </td>
+                <td>Handles Escape when no suggestion list is open.</td>
+              </tr>
+            </tbody>
+          </table>
+        ),
+      ],
+      [
         'Keyboard contract',
         () => (
           <ul className="docs-list">
             <li>Enter submits; Shift+Enter adds a line in the composer.</li>
             <li>A trigger opens suggestions: arrows move, Enter or Tab inserts the chip.</li>
             <li>Esc closes the suggestion list and stops there, so a window around stays open.</li>
-            <li>Backspace after a chip removes it; nothing acts during an IME composition.</li>
+            <li>
+              Backspace after a chip removes it; nothing acts during an IME composition. Optional
+              onChipRemove reports the edited value to its host.
+            </li>
+            <li>
+              Optional onSuggestionChoose can handle a suggestion as an action instead of inserting
+              a chip; onEscape handles Escape when no list is open.
+            </li>
             <li>Paste is plain text; on the single line a pasted break becomes a space.</li>
           </ul>
         ),
       ],
+    ],
+  },
+  {
+    slug: 'page-list',
+    name: 'Page list',
+    description:
+      'Pinned page cards and project and stage chips for the Colab page list. The host owns links, data and actions.',
+    preview: () => (
+      <PageListPins
+        label="Pinned pages"
+        pages={[
+          {
+            id: 'one',
+            title: <a href="#one">Theme B review</a>,
+            projects: ['design'],
+            stage: 'In progress',
+          },
+        ]}
+      />
+    ),
+    usage: `${importLine('data-table', 'PageListPins', 'PageListProjectChip', 'PageListStageChip', 'PageListTabs', 'PageListControls', 'PageListBulkActions', 'PageListRowMenu', 'PageListProjectPicker', 'PageListLoading', 'PageListError', 'PageListTable')}<PageListPins label="Pinned pages" pages={pages} />`,
+    variants: [
+      [
+        'Project and stage',
+        () => (
+          <>
+            {row(
+              <PageListProjectChip key="project" name="design" />,
+              <PageListStageChip key="stage" stage="in-progress" label="In progress" />,
+            )}
+          </>
+        ),
+      ],
+      ...([390, 1440] as const).map(
+        (width) =>
+          [
+            `${width} light and dark`,
+            () => (
+              <div className="docs-frame-pair">
+                {(['light', 'dark'] as const).map((theme) => (
+                  <ScaledFrame
+                    key={theme}
+                    title={`Page list ${width} ${theme}`}
+                    src={`${guiRoot}?frame=page-list&theme=${theme}`}
+                    width={width}
+                    height={width === 390 ? 440 : 240}
+                  />
+                ))}
+              </div>
+            ),
+          ] as [string, () => ReactNode],
+      ),
     ],
   },
   {
