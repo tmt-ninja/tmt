@@ -917,3 +917,55 @@ fn a_folded_header_uses_the_first_known_input_clock() {
         assert!(screen.contains(QUESTION));
     });
 }
+
+/// #6051: a click anywhere in the Jump to latest box returns the reader to the bottom, with or
+/// without new messages.
+#[test]
+fn a_click_in_the_jump_box_reaches_the_bottom_with_or_without_new_messages() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for scene in ["jump-latest-new", "jump-latest-none"] {
+        crate::status::with_now_ms(NOW, || {
+            let mut app = setup(jump_document(8), false);
+            draw(&app, 160);
+            app.scroll_pane(
+                crate::config::Pane::Replies,
+                crate::board::scroll::Step::Top,
+            );
+            if scene == "jump-latest-new" {
+                apply_timeline(&mut app, jump_document(9));
+            }
+            let screen = draw(&app, 160);
+            assert!(screen.contains("Jump to latest"), "{scene}: {screen}");
+            for spot in 0..3 {
+                if spot > 0 {
+                    app.scroll_pane(
+                        crate::config::Pane::Replies,
+                        crate::board::scroll::Step::Top,
+                    );
+                    draw(&app, 160);
+                }
+                let hit = app.conversation.borrow().jump_hit.expect("painted box");
+                let (column, row) = [
+                    (hit.x + hit.width / 2, hit.y + 1),
+                    (hit.x + 1, hit.y),
+                    (hit.right() - 2, hit.bottom() - 1),
+                ][spot];
+                app.mouse(
+                    MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        column,
+                        row,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    std::time::Instant::now(),
+                );
+                let effect_loading = app.loading();
+                let screen = draw(&app, 160);
+                assert!(
+                    app.conversation.borrow().jump_hit.is_none(),
+                    "{scene} click at {column},{row} (loading {effect_loading}) left the reader up:\n{screen}"
+                );
+            }
+        });
+    }
+}

@@ -954,11 +954,11 @@ WSL, `xdg-open` with a graphical session. Over SSH there is none unless `opener`
 set: Open shows "no browser here" and Copy stays. A failure to start it is reported in
 the status line.
 
-A bare address of a page on this machine's Colab (`http://127.0.0.1:PORT/colab/p/ID`,
-also `localhost` and `[::1]`) shows in a conversation as a fixed-width chip
+A bare address of a page on this machine's Colab (`http://127.0.0.1:PORT/colab/p/ID` or
+the older `/p/ID`, also `localhost` and `[::1]`) shows in a conversation as a fixed-width chip
 `▤ Colab · ID ↗` (the first eight characters of the page ID). Hovering or focusing it
-shows a card with the page title, read once from `tmt colab show` (or "Title
-unavailable" when Colab is not serving or has no access); a click or Enter opens the
+shows a card with the page title, read from `tmt colab show` (or "Title unavailable" when
+Colab is not serving or has no access, read again after ten seconds); a click or Enter opens the
 page with the same opener, without the popover. Copying a selection over the chip
 copies the address.
 
@@ -1591,9 +1591,9 @@ resumes follow. Resize and new output alone keep it paused. A replaced response
 stays visible while paused. A vanished source is labelled separately, not presented as new
 output.
 While the reader has lines below its view, a boxed `↓ Jump to latest · N new` button
-(End on its lower edge; N counts messages that arrived since you scrolled away, omitted
-when none) covers the bottom-right corner without moving any line; clicking it does what
-End does. A small pane shows `↓ Latest · End` instead. Message bodies sit two cells in,
+(N counts messages that arrived since you scrolled away, omitted when none) covers the
+bottom-right corner without moving any line; clicking anywhere in it does what End does. A
+small pane shows `↓ Latest` instead. Message bodies sit two cells in,
 under their header, with no rule beside them.
 
 Each acquired settled reply is a separate message with its own author and age,
