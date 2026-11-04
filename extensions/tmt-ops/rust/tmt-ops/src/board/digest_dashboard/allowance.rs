@@ -4,7 +4,6 @@
 use crate::board::{
     app::App,
     limits::{Outcome, Provider, Row, Spent},
-    overview::cron_counts::GlyphSet,
     usage_report::{View, model::Seat},
 };
 use ratatui::{
@@ -17,10 +16,6 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-/// The summary's allowance tile: narrowest (a whole row, rule and margins) and widest, beside
-/// the amount tiles.
-const TILE_MINIMUM: u16 = 54;
-const TILE_MAXIMUM: u16 = 68;
 const SOURCE: usize = 8;
 const LEFT: usize = 5;
 
@@ -125,123 +120,44 @@ impl Scroll {
     }
 }
 
-/// Providers with a sampled weekly window: the rows the allowance shows, without projecting.
-fn sampled(app: &App) -> usize {
-    app.limits.as_deref().map_or(0, |standings| {
-        standings
-            .iter()
-            .filter(|standing| standing.latest.is_some())
-            .count()
-    })
-}
-
 /// A frame that paints no allowance leaves no wheel target behind.
 pub(super) fn forget(app: &App) {
     app.digest_allowance.area.set(Rect::default());
 }
 
-/// The width the tile takes from `spare` columns: none without a sampled provider or room.
-pub(super) fn tile_width(app: &App, spare: u16) -> u16 {
-    if spare < TILE_MINIMUM || sampled(app) == 0 {
-        forget(app);
-        0
-    } else {
-        spare.min(TILE_MAXIMUM)
-    }
-}
-
-/// The heading and provider rows wanted under the amounts when the tile has no room beside
-/// them (`spare` columns); none when it fits beside or nothing is sampled.
-pub(super) fn stacked_rows(app: &App, spare: u16) -> u16 {
-    match sampled(app) {
-        0 => 0,
-        _ if spare >= TILE_MINIMUM => 0,
-        rows => u16::try_from(rows + 1).unwrap_or(u16::MAX),
-    }
-}
-
-/// The heading and one row per provider: what is left, when it runs out or that it lasts,
-/// and when it resets. Beside the amounts a rule sets the tile off; stacked under them the
-/// rows align with the amounts. More providers than rows scroll inside the area.
-pub(super) fn paint_rows(frame: &mut Frame, app: &App, area: Rect, beside: bool) {
-    let now = crate::status::now_ms();
-    let look = app.look();
-    let rows = rows(app, now);
-    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
-    let ascii = matches!(app.cron_glyphs, GlyphSet::Ascii);
-    let visible = usize::from(area.height.saturating_sub(1));
-    let hidden = rows.len().saturating_sub(visible);
+/// One fitted allowance line; wheel changes the leading provider when several do not fit.
+pub(super) fn paint_inline(frame: &mut Frame, app: &App, area: Rect) {
+    let rows = rows(app, crate::status::now_ms());
     let scroll = &app.digest_allowance;
     scroll.area.set(area);
-    scroll.hidden.set(hidden);
-    scroll.offset.set(scroll.offset.get().min(hidden));
-    let rule = if ascii { "|" } else { "│" };
-    let body = Rect::new(
-        area.x + 2,
-        area.y,
-        area.width.saturating_sub(4),
-        area.height,
-    );
-    for y in (area.y..area.bottom()).filter(|_| beside) {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(area.x, y, 1, 1),
-            Line::styled(rule, look.role(Role::Dim)),
-        );
-    }
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect { height: 1, ..body },
-        Line::from(vec![
-            Span::styled("ALLOWANCE LEFT  ", look.role(Role::Muted)),
-            Span::styled(
-                format!(
-                    "{} provider{}",
-                    rows.len(),
-                    if rows.len() == 1 { "" } else { "s" }
-                ),
-                look.role(Role::Muted),
-            ),
-        ]),
-    );
-    for (index, row) in rows
-        .iter()
-        .skip(scroll.offset.get())
-        .take(visible)
-        .enumerate()
-    {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(body.x, body.y + 1 + index as u16, body.width, 1),
-            tile_row(row, &zone, ascii, look),
-        );
-    }
-    if hidden > 0 {
-        let track = Rect::new(area.right() - 1, area.y + 1, 1, area.height - 1);
-        let (up, thumb, down) = if ascii {
-            ("^", "#", "v")
-        } else {
-            ("▲", "█", "▼")
-        };
-        let span = usize::from(track.height).saturating_sub(2).max(1);
-        let at = scroll.offset.get() * span.saturating_sub(1) / hidden.max(1);
-        for (y, mark) in (track.y..track.bottom()).zip(0..) {
-            let glyph = if mark == 0 {
-                up
-            } else if y + 1 == track.bottom() {
-                down
-            } else if mark - 1 == at {
-                thumb
-            } else {
-                " "
-            };
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect::new(track.x, y, 1, 1),
-                Line::styled(glyph, look.role(Role::Muted)),
+    scroll.hidden.set(rows.len().saturating_sub(1));
+    scroll
+        .offset
+        .set(scroll.offset.get().min(scroll.hidden.get()));
+    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+    let mut spans = vec![Span::styled("Allowance ", app.look().role(Role::Muted))];
+    if rows.is_empty() {
+        spans.push(Span::styled("unavailable", app.look().role(Role::Muted)));
+    } else {
+        for (i, row) in rows.iter().skip(scroll.offset.get()).enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(" · "));
+            }
+            spans.extend(
+                tile_row(
+                    row,
+                    &zone,
+                    matches!(
+                        app.cron_glyphs,
+                        crate::board::overview::cron_counts::GlyphSet::Ascii
+                    ),
+                    app.look(),
+                )
+                .spans,
             );
         }
     }
+    strip::paint_left(frame.buffer_mut(), area, Line::from(spans));
 }
 
 fn tile_row(

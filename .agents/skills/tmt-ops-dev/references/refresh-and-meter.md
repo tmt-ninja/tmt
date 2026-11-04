@@ -80,7 +80,7 @@
   combine summed numerators over one exact interval and are recomputed once, never added or
   averaged; each unit keeps its own coverage and a `conflict` flag. The root `pricing`
   table (with its `origin`: fetched, cached or built-in) is read-only metadata for the
-  Digest Details; the board never opens its sources and never fetches prices itself.
+  Digest Estimate basis; the board never opens its sources and never fetches prices itself.
   Details observation times use the shared relative-age wording plus local `HH:MM`;
   absent, zero, future or invalid instants show `unknown`, never a fabricated age.
   The Measure Digest table (`overview/summary.rs`) calls it over the visible roster, so
@@ -105,8 +105,11 @@
   labels. `App::usage_report_want` supplies the saved TOK range and the acquired
   roster's immutable UUID inventory while Digest is selected or Agents uses a
   non-hour range. One public `x flow --since W --bucket W` read aggregates traffic;
-  batches of at most 32 identities read `consumption.history` twice: one exact
-  aggregate for the selected range and 24 hourly buckets for activity. The first
+  batches of at most 32 identities read `consumption.history` for one exact
+  selected-range aggregate and 24 hourly activity buckets. Digest additionally requests
+  the selected 7d/30d daily series (1d reuses the hourly series); range, inventory and
+  selected-series demand share the existing cancellation owner. Model shares use the
+  aggregate's input plus output with an explicit unattributed remainder. The first
   successful history response supplies `throughMs`; every later aggregate and
   activity request of that refresh pins the same echoed cut, while `asOfMs`
   remains the actual admission time. Core's echoed window bounds own closed-window

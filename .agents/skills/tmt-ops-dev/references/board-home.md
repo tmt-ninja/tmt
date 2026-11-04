@@ -268,47 +268,35 @@ Attention keeps priority over a truncated named-layer caption.
 projects the selected member or squad through the shared board components.
 Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 Core usage/traffic and supplier-owned Digest status through `digest_dashboard`:
-three reserved rows (Usage, Impact and its dim estimate definition), TOK-ranked
-table with read-only `all`, six-level 24-hour activity,
-Exchanges and details. The existing Digest report/query/scope cache also holds the
-full admitted exchange ranking: shared `exchange_matrix::by_traffic` orders by
-sent plus received, then name and UUID before the shared painter fits at most five
-and retains an off-list selection in the last slot. Cursor and viewport changes
-reuse those facts. Known-empty traffic and unavailable traffic stay distinct.
-Wide frames place Exchanges above details; narrower frames
-stack the table and details, with Tab exposing Exchanges. Enter on a real member
-opens its Agents Talk pane; `all` grants no recipient or Digest mutation.
-The canonical roster owns membership and action admission.
-`digest_dashboard::summary` paints the top of the tab: a status row (supplier switch
-text, held, tick; `Window 1d ▾` and `Estimate basis…` on the right), a rule, the TOK USED,
-SAVED · estimate and ≈ LIST PRICE SAVED tiles with separate member coverage, the allowance
-(a tile beside the amounts, or rows stacked under them, clipped to what the table keeps)
-and the definition line. With fewer than 17 rows or 54 columns it folds the
-amounts onto one line. The window is `App::digest_window` (1d/7d), a view-state control
-(`controls.digestWindow`), not Config: it selects the supplier window and, on this tab,
-the usage report range (`App::digest_range`), independently of the Agents TOK range. A
-choice takes effect at once with no write. A money field that cannot fit whole stays in
-Details; it is never clipped into a partial amount. `digest_dashboard::details` builds Details as three tabs (`App::digest_details`, session
-state): Impact (usage and saved amounts), Delivery (supplier mode, setter, held, clocks;
-for `all` the switch, held total, members per mode and tick) and Evidence (source windows,
-observation times, price table with full sources, method). Each line has one tab. Chips
-are `Choice::DigestDetails` hits and `digest-details` (`]`) steps through them; the shown
-chip reads `▸ <tab>`, since some looks tell a selected chip apart only by a nearby shade.
-`Estimate basis…` (status row and Impact) opens `Overlay::EstimateBasis`, a light-dismiss
-peek modal over the same Evidence lines; `y` copies the distinct price sources through
-`Request::Copy`. Configure is deferred
-to the delivery-settings panel; no placeholder control is painted. These figures do not
-change `savings_unit`. Missing/stale evidence, confirmed zero and incompatible price
-versions remain distinct.
-`digest_dashboard::table` fits whole tracks: AGENT yields width first; ≈ $ USED (observed
-input at list price), SAVED and ≈ $ SAVED come before SHARE and TALKS TO, which return only
-when they fit beside full agent names; below 94 columns money leaves, below 76 the activity
-strip. The footer names the columns width left out (a count when the names do not fit). SAVED follows the shared
-`savings_unit`, and its heading is a `Choice::SavingsUnit` hit through the existing Config
-CAS; under the cost unit ≈ $ SAVED steps aside rather than repeat it. `all` and the summary
-tiles read one `SavingsSummary` held in the Digest cache, keyed by weak pointers to the held
-status and the cached admitted rows, the status's staleness and the window; a member cell reads
-its own status entry. A sum that leaves members out reads as a bound (`≥`), a percent never does.
+a cached TOK used/saved chart with window totals and one-line allowance, a TOK-ranked
+fixed-column table, Exchanges and one selected-agent panel. `App::digest_window` selects
+1d/7d/30d independently of Agents, with local TOK/$ totals presentation and whole-source
+bucket coalescing. The chart never fabricates dollar or hourly savings buckets.
+`usage_report::Request::window_series` adds the selected daily series only for Digest;
+1d reuses the existing hourly read. The same bounded acquisition owner and deadline apply.
+Model totals/remainder and bucket coverage are validated before publication; paint only
+joins matching held clocks. The chart cache keys the held report, supplier generation,
+admitted UUID rows and range; cursor movement does not reacquire or rebuild it.
+
+`digest_dashboard::table` fits AGENT/STATE/ACTIVITY/TOK/SAVED/SAVED %/HELD/MODE whole.
+Names yield first; gray dots mean missing observations, known zero stays zero, and explicit
+source absence spans the numeric tracks as `no usage source`. SAVED and SAVED % stay in
+fixed units; the local totals switch never mutates `workspace.savings_unit`. The shared
+`SavingsSummary` retains independent token, cost and percent coverage and refuses mixed
+source windows or price versions. Partial sums use bounds, percentages name coverage.
+
+`exchange_matrix` ranks sent plus received then name/UUID, fits at most five participants
+and retains the selected UUID. Wide and stacked layouts keep Exchanges above the single
+Delivery/Saved/Models/Timers panel; Enter opens the selected member in Agents Talk.
+`all` has no action target. Full source windows, price addresses and method remain behind
+`Estimate basis…`, using the existing light-dismiss modal and copy owner.
+
+`board::digest::Inline` holds an unsubmitted member mode/cap draft and the existing admitted
+actor. `o` requests authorization on the action lane; ↑↓ selects fields, ←→ changes values,
+Enter uses the public Digest writer (or existing interval/cap menu), and Esc discards.
+Only an entirely painted focused field grants submission. Late authorization after close
+cannot reopen it. The all row is read-only; workspace policy uses existing settings.
+No new worker, paint I/O or local policy writer is introduced.
 
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views. An explicit message

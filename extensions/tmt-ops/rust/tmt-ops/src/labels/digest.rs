@@ -46,6 +46,63 @@ pub struct Savings {
     pub gap: Option<String>,
     pub cost: Option<Cost>,
     pub percent: Option<Percent>,
+    pub series: Option<Vec<SavingsBucket>>,
+}
+
+/// Supplier buckets share Core's closed usage intervals; gaps never turn into zero.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavingsBucket {
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub tokens: Option<u64>,
+    pub complete: bool,
+}
+
+fn savings_series(value: &Value) -> Option<Vec<SavingsBucket>> {
+    let rows = value.as_array()?;
+    if !matches!(rows.len(), 7 | 24 | 30) {
+        return None;
+    }
+    let mut last = None;
+    rows.iter()
+        .map(|row| {
+            let from = number(row.get("fromMs")?)?;
+            let to = number(row.get("toMs")?)?;
+            let tokens = nullable(row, "estimatedInputTokensAvoided")?;
+            let complete = row["complete"].as_bool()?;
+            let gap = row.get("gap")?;
+            if to <= from
+                || last.is_some_and(|previous| previous != from)
+                || (complete && (tokens.is_none() || !gap.is_null()))
+                || (!gap.is_null() && tokens.is_some())
+            {
+                return None;
+            }
+            last = Some(to);
+            Some(SavingsBucket {
+                from_ms: from,
+                to_ms: to,
+                tokens,
+                complete,
+            })
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LastDelivery {
+    pub settled_at_ms: u64,
+    pub messages: u64,
+    pub batches: u64,
+}
+impl LastDelivery {
+    fn parse(row: &Value) -> Option<Self> {
+        Some(Self {
+            settled_at_ms: number(row.get("settledAtMs")?)?,
+            messages: number(row.get("messages")?)?,
+            batches: number(row.get("batches")?)?,
+        })
+    }
 }
 
 /// A list-price quote of the token figure at one evidenced model's standard
@@ -60,7 +117,7 @@ pub struct Cost {
 }
 
 /// The share of observed input that the estimate would have avoided, over whole
-/// closed minutes of the 1d or 7d window.
+/// closed minutes of the 1d, 7d or 30d window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Percent {
     pub basis_points: u16,
@@ -102,6 +159,9 @@ pub struct Member {
     pub held_count: Option<u64>,
     pub stats_observed_at_ms: Option<u64>,
     pub next_send_at_ms: Option<u64>,
+    pub next_eligible_at_ms: Option<u64>,
+    pub last_delivery: Option<LastDelivery>,
+    pub auto_caps: Option<(u64, u64)>,
     pub time_to_send_ms: Option<u64>,
     pub savings: Option<Savings>,
 }
@@ -361,6 +421,7 @@ impl Savings {
             gap,
             cost,
             percent,
+            series: value.get("series").and_then(savings_series),
         })
     }
 }
@@ -537,6 +598,14 @@ impl Member {
             held_count,
             stats_observed_at_ms: nullable(row, "statsObservedAtMs")?,
             next_send_at_ms,
+            next_eligible_at_ms: row.get("nextEligibleAtMs").and_then(number),
+            last_delivery: row.get("lastDelivery").and_then(LastDelivery::parse),
+            auto_caps: row.get("autoCaps").and_then(|caps| {
+                Some((
+                    number(caps.get("maxWaitMs")?)?,
+                    number(caps.get("maxCount")?)?,
+                ))
+            }),
             time_to_send_ms,
             savings: row.get("savings").and_then(Savings::parse),
         })

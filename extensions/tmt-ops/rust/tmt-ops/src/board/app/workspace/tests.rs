@@ -2623,6 +2623,8 @@ pub(in crate::board) fn install_hourly_tokens(
             name: None,
             retired: false,
         },
+        model_totals: None,
+        window_series: None,
         model_inputs: None,
         input: cells.iter().sum(),
         output: 0,

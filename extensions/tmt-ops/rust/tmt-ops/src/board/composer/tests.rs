@@ -1050,7 +1050,7 @@ fn colab_link_and_exact_source_context_survive_composer_reader_and_tab_transitio
         assert_eq!(app.workspace.selected, selected);
     }
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE)),
+        app.perform(&crate::action::Action::parse("open").unwrap()),
         Effect::Act(Request::Open {
             link: url.into(),
             opener: None

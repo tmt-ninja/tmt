@@ -32,18 +32,49 @@ pub(super) fn token_text(reading: Option<(u128, bool)>) -> String {
         )
     })
 }
-pub(super) fn share(part: Option<(u128, bool)>, total: Option<(u128, bool)>) -> String {
-    match (part, total) {
-        (Some((part, false)), Some((total, false))) if total > 0 => {
-            format!("{}%", part.saturating_mul(100) / total)
-        }
-        _ => "—".into(),
-    }
-}
 pub(super) fn activity(report: Option<&Report>, ids: &[&str]) -> Vec<Option<u64>> {
     let Some(report) = report else {
         return vec![None; 24];
     };
+    if let Some(first) = ids
+        .iter()
+        .find_map(|id| report.seat(id)?.window_series.as_ref())
+    {
+        let mut values = vec![Some(0u64); first.points.len()];
+        for id in ids {
+            let series = report
+                .seat(id)
+                .and_then(|seat| seat.window_series.as_ref())
+                .filter(|series| {
+                    series.from_ms == first.from_ms
+                        && series.bucket_ms == first.bucket_ms
+                        && series.points.len() == first.points.len()
+                });
+            for (i, value) in values.iter_mut().enumerate() {
+                *value = value
+                    .zip(
+                        series
+                            .and_then(|series| series.points.get(i))
+                            .filter(|point| point.complete),
+                    )
+                    .and_then(|(sum, point)| sum.checked_add(point.tokens));
+            }
+        }
+        return values;
+    }
+    if matches!(
+        report.since,
+        crate::config::TokRange::Week | crate::config::TokRange::Month
+    ) {
+        return vec![
+            None;
+            if report.since == crate::config::TokRange::Week {
+                7
+            } else {
+                30
+            }
+        ];
+    }
     let mut values = vec![None; 24];
     let mut boundaries = None;
     let mut unknown = [false; 24];

@@ -9,12 +9,14 @@ use std::time::{Duration, Instant};
 pub struct Request {
     pub range: TokRange,
     pub identities: std::sync::Arc<[String]>,
+    pub window_series: bool,
 }
 impl Request {
     /// Identities come from the acquired roster's unique, ordered UUID keys.
     pub fn new(range: TokRange, identities: impl Into<std::sync::Arc<[String]>>) -> Self {
         Self {
             range,
+            window_series: false,
             identities: identities.into(),
         }
     }
@@ -107,6 +109,8 @@ fn seat(
     }
     Ok((
         Seat {
+            model_totals: model_totals(bucket),
+            window_series: None,
             model_inputs: model_inputs(bucket),
             who: who(id),
             input: number(&bucket["inputTokens"])?,
@@ -158,39 +162,94 @@ fn model_inputs(bucket: &Value) -> Option<Vec<(String, u64)>> {
     .then_some(models)
 }
 
-fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
-    let (_, day) = window(series, id, 86_400_000)?;
-    let from = number(&day["fromMs"])?;
-    if day["bucketMs"] != 3_600_000 {
-        return Err("Activity is not hourly.".into());
+fn model_totals(bucket: &Value) -> Option<Vec<(String, u64)>> {
+    let raw = bucket["byModel"].as_array()?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut used = 0u64;
+    let mut result = Vec::new();
+    for row in raw {
+        let name = row["modelId"].as_str()?;
+        if name.is_empty() || !seen.insert(name) {
+            return None;
+        }
+        let tokens = number(&row["inputTokens"])
+            .ok()?
+            .checked_add(number(&row["outputTokens"]).ok()?)?;
+        used = used.checked_add(tokens)?;
+        result.push((name.to_owned(), tokens));
     }
-    let raw = day["buckets"]
+    let total = number(&bucket["inputTokens"])
+        .ok()?
+        .checked_add(number(&bucket["outputTokens"]).ok()?)?;
+    if used > total {
+        return None;
+    }
+    if used < total {
+        result.push(("unattributed".into(), total - used));
+    }
+    Some(result)
+}
+fn window_series(
+    series: &Value,
+    id: &str,
+    range: TokRange,
+) -> Result<super::model::WindowSeries, String> {
+    let (_, window) = window(series, id, range.milliseconds())?;
+    let from = number(&window["fromMs"])?;
+    let bucket = if matches!(range, TokRange::Week | TokRange::Month) {
+        86_400_000
+    } else {
+        3_600_000
+    };
+    let count = usize::try_from(range.milliseconds() / bucket).unwrap_or(0);
+    let raw = window["buckets"]
         .as_array()
-        .ok_or("Missing hourly observations.")?;
-    if raw.len() != 24 {
-        return Err("Activity must contain 24 hourly observations.".into());
+        .ok_or("Missing series buckets.")?;
+    if window["bucketMs"] != bucket || raw.len() != count {
+        return Err("Mismatched series resolution.".into());
     }
-    let mut tokens = [0; 24];
-    let mut complete = [false; 24];
-    for (index, point) in raw.iter().enumerate() {
-        let expected = from + index as u64 * 3_600_000;
-        if point["fromMs"] != expected || point["toMs"] != expected + 3_600_000 {
-            return Err("Mismatched hourly interval.".into());
+    let mut points = Vec::with_capacity(count);
+    for (i, point) in raw.iter().enumerate() {
+        let start = from
+            .checked_add(i as u64 * bucket)
+            .ok_or("Invalid bucket clock.")?;
+        if point["fromMs"] != start || point["toMs"] != start + bucket {
+            return Err("Mismatched series interval.".into());
         }
         let covered = number(&point["coveredMs"])?;
-        if covered > 3_600_000
-            || (point["complete"] == true && covered != 3_600_000)
+        let complete = point["complete"]
+            .as_bool()
+            .ok_or("Missing series coverage.")?;
+        if covered > bucket
+            || (complete && covered != bucket)
             || number(&point["cachedInputTokens"])? > number(&point["inputTokens"])?
         {
-            return Err("Invalid hourly coverage.".into());
+            return Err("Invalid series coverage.".into());
         }
-        tokens[index] = number(&point["inputTokens"])? + number(&point["outputTokens"])?;
-        complete[index] = point["complete"]
-            .as_bool()
-            .ok_or("Missing hourly coverage.")?;
+        points.push(super::model::Point {
+            tokens: number(&point["inputTokens"])?
+                .checked_add(number(&point["outputTokens"])?)
+                .ok_or("Unsafe token total.")?,
+            complete,
+        });
     }
-    Ok(HourlySeries::new(from, tokens, complete))
+    Ok(super::model::WindowSeries {
+        from_ms: from,
+        bucket_ms: bucket,
+        points,
+    })
 }
+fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
+    let series = window_series(series, id, TokRange::Day)?;
+    let mut tokens = [0; 24];
+    let mut complete = [false; 24];
+    for ((tokens, complete), point) in tokens.iter_mut().zip(&mut complete).zip(series.points) {
+        *tokens = point.tokens;
+        *complete = point.complete;
+    }
+    Ok(HourlySeries::new(series.from_ms, tokens, complete))
+}
+
 fn traffic(document: &Value) -> Result<Traffic, String> {
     let since_ms = number(&document["sinceMs"])?;
     let observed_at_ms = number(&document["observedAtMs"])?;
@@ -291,6 +350,20 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
         };
         let totals = read(request.range.milliseconds(), 1);
         let series = read(86_400_000u64, 24);
+        let selected = request.window_series.then(|| {
+            if request.range == TokRange::Day {
+                series.clone()
+            } else {
+                read(
+                    request.range.milliseconds(),
+                    if request.range == TokRange::Week {
+                        7
+                    } else {
+                        30
+                    },
+                )
+            }
+        });
         if let Ok(totals) = &totals
             && let Some(observed) = totals["asOfMs"].as_u64()
         {
@@ -302,7 +375,11 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
                 .map_err(Clone::clone)
                 .and_then(|totals| seat(totals, series.as_ref(), id, request.range));
             match found {
-                Ok((seat, warning)) => {
+                Ok((mut seat, warning)) => {
+                    seat.window_series = selected
+                        .as_ref()
+                        .and_then(|selected| selected.as_ref().ok())
+                        .and_then(|document| window_series(document, id, request.range).ok());
                     if let Some(message) = warning {
                         report.warnings.push(Warning {
                             section: format!("activity:{id}"),

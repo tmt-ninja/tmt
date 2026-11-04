@@ -190,6 +190,14 @@ impl App {
     }
 
     pub(in crate::board) fn cycle_tok_range(&mut self) -> Effect {
+        if self.shell.tab == OpsTab::Digest {
+            let windows = crate::config::DigestWindow::ALL;
+            let at = windows
+                .iter()
+                .position(|window| *window == self.digest_window())
+                .unwrap_or(0);
+            return self.select_digest_window(windows[(at + 1) % windows.len()]);
+        }
         self.select_tok_range(self.tok_range().next())
     }
 
@@ -217,10 +225,12 @@ impl App {
             || (self.shell.tab == OpsTab::Agents
                 && (self.tok_money() || self.right_tab == super::super::shell::RightTab::Measure)))
             .then(|| {
-                super::super::usage_report::Request::new(
+                let mut request = super::super::usage_report::Request::new(
                     range,
                     std::sync::Arc::clone(&snapshot.identity_ids),
-                )
+                );
+                request.window_series = self.shell.tab == OpsTab::Digest;
+                request
             })
     }
     pub(in crate::board) fn digest_window_menu(&mut self) -> Effect {
@@ -258,6 +268,7 @@ impl App {
         window: crate::config::DigestWindow,
     ) -> Effect {
         self.digest_window = window;
+        self.digest_each = 1;
         Effect::None
     }
     pub(in crate::board) fn savings_unit(&self) -> crate::config::SavingsUnit {
@@ -266,9 +277,12 @@ impl App {
                 snapshot.preferences.savings_unit
             })
     }
-    /// One click or key on any savings figure moves every surface to the next
-    /// unit; the choice is the shared preference, never a view-local state.
+    /// Digest toggles its own totals; other surfaces update the shared preference.
     pub(in crate::board) fn cycle_savings_unit(&mut self) -> Effect {
+        if self.shell.tab == OpsTab::Digest {
+            self.digest_cost = !self.digest_cost;
+            return Effect::None;
+        }
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
         };
@@ -784,10 +798,16 @@ impl App {
             host,
         );
         if let Some(sources) = self.workspace_binding_sources() {
+            let defaults = crate::config::workspace_defaults(self.workspace_scope());
             for (event, action) in self.workspace_factory_actions() {
                 let source = sources.get(&event);
-                if source.is_some_and(|source| source == "workspace default")
-                    || (matches!(event.as_str(), "e" | "i") && source.is_none())
+                let unchanged = keys.get(&event) == defaults.get(&event);
+                if unchanged
+                    && (source.is_some_and(|source| source == "workspace default")
+                        || ((matches!(event.as_str(), "e" | "i")
+                            || (self.shell.tab == OpsTab::Digest
+                                && matches!(event.as_str(), "u" | "[")))
+                            && source.is_none()))
                 {
                     keys.insert(event, action);
                 }
@@ -805,11 +825,18 @@ impl App {
 
     fn workspace_factory_actions(&self) -> Bindings {
         let mut keys = Bindings::new();
-        if self.shell.tab == OpsTab::Digest && self.focused() == Pane::Rows {
-            keys.insert(
-                "e".into(),
-                Action::parse("monitor-details").expect("Digest details action"),
-            );
+        if self.shell.tab == OpsTab::Digest {
+            for (key, action) in [
+                ("o", "digest"),
+                ("u", "savings-unit"),
+                ("[", "digest-previous-window"),
+                ("]", "cycle-tok-range"),
+            ] {
+                keys.insert(
+                    key.into(),
+                    Action::parse(action).expect("Digest factory action"),
+                );
+            }
         }
         if self.shell.tab == OpsTab::Agents
             && !self.flat_agents()
@@ -1101,6 +1128,16 @@ impl App {
             QuotaDetails => return self.open_quota_details(),
             SavingsUnit => return self.cycle_savings_unit(),
             CycleTokRange => return self.cycle_tok_range(),
+            DigestPreviousWindow => {
+                let windows = crate::config::DigestWindow::ALL;
+                let at = windows
+                    .iter()
+                    .position(|window| *window == self.digest_window())
+                    .unwrap_or(0);
+                return self
+                    .select_digest_window(windows[(at + windows.len() - 1) % windows.len()]);
+            }
+            UsageControls if self.shell.tab == OpsTab::Digest => return self.digest_bars_menu(),
             UsageControls => return super::super::overview::chart::host::focus(self),
             Unread => return self.workspace_unread(),
             Help => {
@@ -1227,7 +1264,7 @@ impl App {
                 if self.shell.tab != crate::board::shell::OpsTab::Digest {
                     return self.say("Details tabs are on the Digest tab.");
                 }
-                return self.show_digest_details(self.digest_details.next());
+                return self.say("Digest uses one panel; Estimate basis opens its sources.");
             }
             WorkspaceSnapshots => return self.open_recovery(),
             OpenWeb => return Effect::Act(Request::OpenWeb),
@@ -1390,8 +1427,8 @@ impl App {
                 return self.workspace_management(action);
             }
             ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
-            | UsageControls | CycleTokRange | Unread | Help | Quit | ScrollUp | ScrollDown
-            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            | UsageControls | CycleTokRange | DigestPreviousWindow | Unread | Help | Quit
+            | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

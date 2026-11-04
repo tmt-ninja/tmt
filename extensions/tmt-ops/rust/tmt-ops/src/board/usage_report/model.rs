@@ -56,9 +56,18 @@ impl HourlySeries {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct WindowSeries {
+    pub from_ms: u64,
+    pub bucket_ms: u64,
+    pub points: Vec<Point>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Seat {
     /// Exact per-model input attribution, absent when the source cannot provide it.
     pub model_inputs: Option<Vec<(String, u64)>>,
+    pub model_totals: Option<Vec<(String, u64)>>,
+    pub window_series: Option<WindowSeries>,
     pub who: Who,
     pub input: u64,
     pub output: u64,
@@ -115,15 +124,6 @@ pub struct Flow {
     pub sender: Option<Arc<str>>,
     pub recipient: Option<Arc<str>>,
     pub count: u64,
-}
-
-/// The flow with the most messages; the lower recipient wins a tie.
-fn busiest(flows: &[Flow]) -> Option<&Flow> {
-    flows.iter().max_by(|a, b| {
-        a.count
-            .cmp(&b.count)
-            .then_with(|| b.recipient.cmp(&a.recipient))
-    })
 }
 
 /// Message volume of the window, flat and sorted by `(sender, recipient)`. Ids are shared
@@ -198,14 +198,6 @@ impl Traffic {
             .flows
             .partition_point(|flow| flow.sender.as_deref() <= sender);
         &self.flows[start..end]
-    }
-
-    /// What each named sender sent most, one pass over the sorted flows.
-    pub fn busiest_flows(&self) -> impl Iterator<Item = &Flow> {
-        self.flows
-            .chunk_by(|a, b| a.sender == b.sender)
-            .filter(|sender| sender[0].sender.is_some())
-            .filter_map(busiest)
     }
 
     /// The count one named sender sent one named recipient, when there is such a flow.
@@ -294,38 +286,6 @@ mod tests {
                 .or_default() += pair.count;
         }
         messages
-    }
-
-    #[test]
-    fn each_named_sender_has_its_busiest_flow_and_the_lower_recipient_wins_a_tie() {
-        let mut pairs = mixed();
-        pairs.extend([
-            pair(Some("c"), Some("y"), "talk", 3),
-            pair(Some("c"), Some("x"), "reply", 3),
-            pair(Some("c"), Some("z"), "talk", 2),
-        ]);
-        let traffic = Traffic::from_pairs(0, 1, pairs).unwrap();
-        let busiest: Vec<_> = traffic
-            .busiest_flows()
-            .map(|flow| {
-                (
-                    flow.sender.as_deref().unwrap(),
-                    flow.recipient.as_deref(),
-                    flow.count,
-                )
-            })
-            .collect();
-        // The sender nobody could identify has no entry; `a` talks most to an unknown peer.
-        assert_eq!(
-            busiest,
-            [
-                ("B", None, 4),
-                ("a", None, 6),
-                ("aa", Some("a"), 7),
-                ("b", Some("a"), 5),
-                ("c", Some("x"), 3),
-            ]
-        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Fit whole metric tracks; the hourly strip never changes its clock granularity.
+//! Fixed Digest metric tracks with whole-window activity and explicit missing evidence.
 use super::metrics;
 use crate::board::{
     app::{App, Hit, HitTarget},
@@ -23,54 +23,29 @@ pub(super) enum Field {
     State,
     Activity,
     Tokens,
-    Share,
-    /// The supplier's saved estimate in the shared savings unit.
+    Percent,
+    /// The supplier's saved token estimate for the selected window.
     Saved,
-    /// Observed input at list price.
-    Cost,
-    /// The saved estimate at list price; steps aside while [`Field::Saved`] already shows money.
-    SavedCost,
-    Digest,
-    Talks,
+    Held,
+    Mode,
 }
 
 /// Columns a pane may leave out for width, in the order the hint names them.
-const OPTIONAL: [(Field, &str); 5] = [
+const OPTIONAL: [(Field, &str); 3] = [
     (Field::Activity, "activity"),
-    (Field::Share, "share"),
-    (Field::Cost, "price"),
-    (Field::SavedCost, "saved price"),
-    (Field::Talks, "recipients"),
+    (Field::Percent, "saved percent"),
+    (Field::Mode, "mode"),
 ];
 
 pub(super) fn tracks(width: u16, unit: SavingsUnit) -> Vec<(Field, u16)> {
     use Field::*;
-    let wide = width >= 94;
-    let mut fields = vec![
-        (Agent, if wide { 12 } else { 14 }),
-        (State, if wide { 12 } else { 13 }),
-    ];
-    // An 80-column terminal keeps the hourly strip; AGENT keeps nine cells there.
+    let _ = unit; // The unit affects window totals, never the list's fixed columns.
+    let mut fields = vec![(Agent, 14u16), (State, 12u16)];
     if width >= 76 {
-        fields.push((Activity, 24));
+        fields.push((Activity, if width >= 112 { 24 } else { 12 }));
     }
-    fields.extend([(Tokens, if wide { 7 } else { 8 }), (Saved, 7)]);
-    if wide {
-        fields.push((Cost, 8));
-        if unit != SavingsUnit::Cost {
-            fields.push((SavedCost, 9));
-        }
-    }
-    fields.push((Digest, 10));
-    // Share, then recipients, come back once they fit beside full-width agent names; the
-    // Exchanges matrix beside the list keeps showing who talks to whom.
-    if wide && span(&fields) + 6 <= width {
-        let at = fields.iter().position(|(field, _)| *field == Saved);
-        fields.insert(at.unwrap_or(fields.len()), (Share, 5));
-    }
-    if wide && span(&fields) + 10 <= width {
-        fields.push((Talks, 9));
-    }
+    fields.extend([(Tokens, 7), (Saved, 7), (Percent, 8), (Held, 6), (Mode, 8)]);
+
     // Agent names yield first. Metrics are either whole or omitted.
     fields[0].1 = fields[0]
         .1
@@ -97,7 +72,7 @@ fn span(fields: &[(Field, u16)]) -> u16 {
 
 /// Names the columns `width` leaves out and the width that shows them all, or counts them when
 /// the names do not fit `room`; `None` when none is missing. A unit choice is not a missing
-/// column: ≈ $ SAVED is only named while it can show.
+/// column: the totals unit never changes the list.
 pub(super) fn narrow_hint(width: u16, unit: SavingsUnit, room: usize) -> Option<String> {
     let shown = tracks(width, unit);
     let all = tracks(u16::MAX, unit);
@@ -127,27 +102,13 @@ pub(super) fn narrow_hint(width: u16, unit: SavingsUnit, room: usize) -> Option<
     }
 }
 /// The width the table's tracks fit in this frame; `None` while the list is not painted.
+#[cfg(test)]
 pub(super) fn painted_width(app: &App) -> Option<u16> {
     app.digest_placement(app.conversation.borrow().area)
         .list
         .map(crate::board::pane_chrome::content_area)
         .filter(|inside| !inside.is_empty())
         .map(|inside| inside.width)
-}
-/// Whether the painted table carries the hourly strip; Details shows it when it does not.
-pub(super) fn activity_shown(app: &App) -> bool {
-    painted_width(app).is_some_and(|width| {
-        tracks(width, app.savings_unit())
-            .iter()
-            .any(|(field, _)| matches!(field, Field::Activity))
-    })
-}
-pub(super) fn price_column_shown(app: &App) -> bool {
-    painted_width(app).is_some_and(|width| {
-        tracks(width, app.savings_unit())
-            .iter()
-            .any(|(field, _)| matches!(field, Field::Cost))
-    })
 }
 pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<Span<'static>> {
     let max = values.iter().flatten().copied().max().unwrap_or(0);
@@ -160,8 +121,8 @@ pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<S
                 app.look().role(Role::Dim)
             };
             let (text, style) = match value {
-                None => ("?", empty_style),
-                Some(0) => ("·", empty_style),
+                None => ("·", empty_style),
+                Some(0) => (" ", empty_style),
                 Some(n) => {
                     let level = exchange_matrix::level(*n, max).unwrap_or(0);
                     let style = screen::neutral_ramp(&app.look().theme, app.look().depth, level);
@@ -177,9 +138,6 @@ pub(super) fn hourly(app: &App, values: &[Option<u64>], selected: bool) -> Vec<S
         })
         .collect()
 }
-/// Qualifies every list-price figure the table shows.
-pub(super) const PRICE_NOTE: &str = "Input tokens at list price; not a bill.";
-
 pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let mut inside =
         crate::board::pane_chrome::paint(frame, app, area, Pane::Rows, "Agents by TOK");
@@ -193,22 +151,13 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         let caption = match field {
             Field::Agent => "AGENT",
             Field::State => "STATE",
-            Field::Activity => "ACTIVITY · last 1d →",
+            Field::Activity => "ACTIVITY",
             Field::Tokens => "TOK",
-            Field::Share => "SHARE",
-            Field::Saved => "SAVED ▾",
-            Field::Cost => "≈ $ USED",
-            Field::SavedCost => "≈ $ SAVED",
-            Field::Digest => "DIGEST",
-            Field::Talks => "TALKS TO",
+            Field::Percent => "SAVED %",
+            Field::Saved => "SAVED",
+            Field::Held => "HELD",
+            Field::Mode => "MODE",
         };
-        if matches!(field, Field::Saved) {
-            // The heading names the unit switch the summary and Details share.
-            app.workspace_strip_hits.borrow_mut().push((
-                Rect::new(x, inside.y, *width, 1),
-                crate::board::app::Choice::SavingsUnit,
-            ));
-        }
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(x, inside.y, *width, 1),
@@ -222,10 +171,8 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     inside.y += 1;
     inside.height -= 1;
     let rows = app.workspace_rows();
-    let ids: Vec<_> = rows.iter().filter_map(metrics::id).collect();
     // A percent is never marked as a bound, so a partial one names its coverage here.
-    let coverage = (unit == SavingsUnit::Percent)
-        .then(|| super::savings(app))
+    let coverage = Some(super::savings(app))
         .filter(|sum| sum.percent.value.is_some() && sum.percent.included < sum.total)
         .map(|sum| {
             format!(
@@ -233,24 +180,20 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                 sum.percent.included, sum.total
             )
         });
-    let notes = fields
-        .iter()
-        .any(|(field, _)| matches!(field, Field::Cost))
-        .then_some(PRICE_NOTE.to_owned())
-        .into_iter()
-        .chain(coverage)
-        .collect::<Vec<_>>()
-        .join(" · ");
-    // A narrow pane drops whole columns; say which, so a missing price is not a missing feature.
+    let notes = coverage.unwrap_or_default();
+    // A narrow pane drops whole columns and names what is omitted.
     let room = usize::from(inside.width)
         .saturating_sub(unicode_width::UnicodeWidthStr::width(notes.as_str()))
         .saturating_sub(if notes.is_empty() { 0 } else { 3 });
-    let footer = [Some(notes), narrow_hint(inside.width, unit, room)]
-        .into_iter()
-        .flatten()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
+    let footer = [
+        Some(format!("· = no observation · blank = 0 · {notes}")),
+        narrow_hint(inside.width, unit, room),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" · ");
     if inside.height > 1 && !footer.is_empty() {
         strip::paint_left(
             frame.buffer_mut(),
@@ -263,8 +206,6 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
         inside.height -= 1;
     }
     let report = metrics::report(app);
-    let talks = super::talks(app);
-    let total = metrics::tokens(report, &ids);
     {
         let mut starts = app.row_starts.borrow_mut();
         starts.clear();
@@ -303,10 +244,10 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 let row_ids = metrics::identities(row, &rows);
                 let reading = metrics::tokens(report, &row_ids);
-                // Both saved columns read one summary per row.
+                // Tokens and percent read one supplied summary per row.
                 let row_saved = fields
                     .iter()
-                    .any(|(field, _)| matches!(field, Field::Saved | Field::SavedCost))
+                    .any(|(field, _)| matches!(field, Field::Saved | Field::Percent))
                     .then(|| row_savings(app, row, &row_ids));
                 let mut x = cell.x;
                 for (field, width) in &fields {
@@ -328,28 +269,79 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         );
                         continue;
                     }
+                    if matches!(
+                        field,
+                        Field::Activity | Field::Tokens | Field::Saved | Field::Percent
+                    ) && report.is_some_and(|report| {
+                        row_ids.iter().all(|id| {
+                            report.seat(id).is_none()
+                                && report
+                                    .unavailable
+                                    .iter()
+                                    .any(|missing| missing.who.id.as_deref() == Some(*id))
+                        })
+                    }) {
+                        if matches!(field, Field::Activity)
+                            || !fields.iter().any(|(f, _)| matches!(f, Field::Activity))
+                                && matches!(field, Field::Tokens)
+                        {
+                            let end = fields
+                                .iter()
+                                .scan(cell.x, |x, (f, w)| {
+                                    let start = *x;
+                                    *x += *w + 1;
+                                    Some((f, start + w))
+                                })
+                                .filter(|(f, _)| {
+                                    matches!(
+                                        f,
+                                        Field::Activity
+                                            | Field::Tokens
+                                            | Field::Saved
+                                            | Field::Percent
+                                    )
+                                })
+                                .map(|(_, end)| end)
+                                .max()
+                                .unwrap_or(slot.right());
+                            strip::paint_left(
+                                frame.buffer_mut(),
+                                Rect::new(slot.x, slot.y, end.saturating_sub(slot.x), 1)
+                                    .intersection(cell),
+                                Line::styled(
+                                    "no usage source",
+                                    if selected {
+                                        app.look().selection()
+                                    } else {
+                                        app.look().role(Role::Dim)
+                                    },
+                                ),
+                            );
+                        }
+                        continue;
+                    }
                     let spans = if matches!(field, Field::Activity) {
-                        hourly(app, &metrics::activity(report, &row_ids), selected)
+                        let values = metrics::activity(report, &row_ids);
+                        let each = values.len().div_ceil(usize::from(slot.width).max(1)).max(1);
+                        let values = values
+                            .chunks(each)
+                            .map(|values| {
+                                values
+                                    .iter()
+                                    .try_fold(0u64, |sum, n| sum.checked_add((*n)?))
+                            })
+                            .collect::<Vec<_>>();
+                        hourly(app, &values, selected)
                     } else {
                         let text = match (field, &row_saved) {
-                            (Field::Saved, Some(summary)) => saved(summary, unit),
-                            // The ≈ $ heading already qualifies the money; the cell does not
-                            // repeat the ≈.
-                            (Field::SavedCost, Some(summary)) => {
-                                saved(summary, SavingsUnit::Cost).replacen('≈', "", 1)
-                            }
-                            _ => value(app, row, *field, &talks, reading, total, &row_ids),
+                            (Field::Saved, Some(summary)) => saved(summary, SavingsUnit::Tokens),
+                            (Field::Percent, Some(summary)) => saved(summary, SavingsUnit::Percent),
+                            _ => value(app, row, *field, reading, &row_ids),
                         };
                         // Numeric tracks never show a clipped amount.
-                        let text = if matches!(
-                            field,
-                            Field::Tokens
-                                | Field::Share
-                                | Field::Saved
-                                | Field::Cost
-                                | Field::SavedCost
-                        ) && unicode_width::UnicodeWidthStr::width(text.as_str())
-                            > usize::from(*width)
+                        let text = if matches!(field, Field::Tokens | Field::Percent | Field::Saved)
+                            && unicode_width::UnicodeWidthStr::width(text.as_str())
+                                > usize::from(*width)
                         {
                             "—".into()
                         } else {
@@ -368,15 +360,6 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
                         )]
                     };
                     strip::paint_left(frame.buffer_mut(), slot, Line::from(spans));
-                    if matches!(field, Field::Digest)
-                        && metrics::id(row).is_some_and(|id| {
-                            super::model::labels(&app.labels, id)
-                                .iter()
-                                .any(|(_, _, choice)| *choice)
-                        })
-                    {
-                        app.chip_hits.borrow_mut().push((slot, index));
-                    }
                 }
                 app.hits.borrow_mut().push(Hit {
                     x: cell.x,
@@ -392,9 +375,7 @@ fn value(
     app: &App,
     row: &OpsTreeRow,
     field: Field,
-    talks: &super::Talks,
     reading: Option<(u128, bool)>,
-    total: Option<(u128, bool)>,
     ids: &[&str],
 ) -> String {
     match field {
@@ -402,31 +383,13 @@ fn value(
         Field::State => "—".into(),
         Field::Activity => unreachable!(),
         Field::Tokens => metrics::token_text(reading),
-        Field::Share => metrics::share(reading, total),
-        // The ≈ $ headings already qualify their money; the cells do not repeat the ≈.
-        Field::Cost => metrics::input_price(app, metrics::report(app), ids)
-            .map_or("—".into(), |micros| {
-                crate::board::savings::usd_compact(micros).replacen('≈', "", 1)
-            }),
-        Field::Saved | Field::SavedCost => unreachable!(),
-        Field::Digest if metrics::id(row).is_none() => {
+        Field::Percent => unreachable!("percent reads the supplied savings summary"),
+        Field::Saved => unreachable!(),
+        Field::Held if metrics::id(row).is_none() => {
             metrics::held(app, ids).map_or("—".into(), |count| format!("{count} held"))
         }
-        Field::Digest => {
-            let mode = metrics::mode(app, metrics::id(row));
-            if metrics::id(row).is_some_and(|id| {
-                super::model::labels(&app.labels, id)
-                    .iter()
-                    .any(|(_, _, choice)| *choice)
-            }) {
-                format!("{mode} ▾")
-            } else {
-                mode
-            }
-        }
-        Field::Talks => metrics::id(row)
-            .and_then(|id| talks.busiest(id))
-            .map_or("—".into(), |(id, _)| metrics::name(app, id)),
+        Field::Mode => metrics::mode(app, metrics::id(row)),
+        Field::Held => metrics::held(app, ids).map_or("—".into(), |count| count.to_string()),
     }
 }
 
@@ -442,7 +405,7 @@ fn row_savings(app: &App, row: &OpsTreeRow, ids: &[&str]) -> Rc<SavingsSummary> 
 /// One unit's amount: missing or uncombinable values read `—`, a known zero reads `0`, and a
 /// sum that leaves members out reads as a lower bound, like TOK. A percent is a ratio, not a
 /// sum, so it is never marked as a bound.
-fn saved(summary: &SavingsSummary, unit: SavingsUnit) -> String {
+pub(super) fn saved(summary: &SavingsSummary, unit: SavingsUnit) -> String {
     let (amount, included) = match unit {
         SavingsUnit::Tokens => (
             summary

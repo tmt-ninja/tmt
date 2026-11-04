@@ -589,3 +589,181 @@ fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+fn inline_board() -> App {
+    let mut app = app();
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    assert!(matches!(
+        app.digest_row(app.selected),
+        Effect::Act(Request::DigestOpen(_))
+    ));
+    app.open_digest(granted("default"));
+    app
+}
+fn paint_inline(app: &mut App, height: u16) {
+    let mut terminal = Terminal::new(TestBackend::new(160, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(app, frame.area());
+            crate::board::view::render(frame, app);
+        })
+        .unwrap();
+}
+#[test]
+fn digest_redesign_inline_modes_apply_only_after_paint_and_escape_discards() {
+    let _no_commands = crate::runner::forbid_commands();
+    for (steps, value) in [(0, "auto"), (2, "off"), (3, "default")] {
+        let mut app = inline_board();
+        for _ in 0..steps {
+            press(&mut app, KeyCode::Right);
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::None,
+            "unpainted fields have no authority"
+        );
+        paint_inline(&mut app, 50);
+        let set = digest_request(press(&mut app, KeyCode::Enter));
+        assert!(set.argv.iter().any(|arg| arg == value));
+        assert!(app.digest_inline.is_none());
+    }
+    let mut app = inline_board();
+    press(&mut app, KeyCode::Right);
+    assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+    assert!(app.digest_inline.is_none());
+    assert!(app.menu.is_none());
+}
+#[test]
+fn digest_redesign_inline_interval_and_caps_use_public_dropdown_writers() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = inline_board();
+    press(&mut app, KeyCode::Right);
+    paint_inline(&mut app, 50);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(app.menu.as_ref().unwrap().title, "Interval");
+    assert_eq!(
+        menu_labels(&app),
+        [
+            "Default (Auto)  (current)",
+            "Auto",
+            "1m",
+            "5m",
+            "10m",
+            "30m",
+            "1h",
+            "20s (custom)",
+            "Off",
+            "Custom…"
+        ]
+    );
+    highlight(&mut app, "5m");
+    let set = digest_request(press(&mut app, KeyCode::Enter));
+    assert!(set.argv.iter().any(|arg| arg == "5m"));
+    for (field, label, flag, value) in [
+        (1, "Max hold 600s", "--max-wait", "600000ms"),
+        (2, "Max messages 20", "--max-count", "20"),
+    ] {
+        let mut app = inline_board();
+        app.digest_inline.as_mut().unwrap().caps = Some((300000, 5));
+        for _ in 0..field {
+            press(&mut app, KeyCode::Down);
+        }
+        paint_inline(&mut app, 50);
+        press(&mut app, KeyCode::Enter);
+        highlight(&mut app, label);
+        let set = digest_request(press(&mut app, KeyCode::Enter));
+        assert!(set.argv.windows(2).any(|args| args == [flag, value]));
+    }
+}
+
+#[test]
+fn digest_inline_custom_choice_uses_the_granted_writer() {
+    let mut app = inline_board();
+    press(&mut app, KeyCode::Right);
+    paint_inline(&mut app, 50);
+    press(&mut app, KeyCode::Enter);
+    highlight(&mut app, "Custom…");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.input.is_some());
+    type_in(&mut app, "20s");
+    let set = digest_request(press(&mut app, KeyCode::Enter));
+    assert!(set.argv.iter().any(|arg| arg == "20s"));
+}
+
+#[test]
+fn digest_inline_freezes_the_requested_row_not_the_selected_member() {
+    let mut app = app();
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    const OTHER: &str = "66666666-6666-4666-8666-666666666666";
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut other = workspace.roster.members[MEMBER].clone();
+    other.id = OTHER.into();
+    other.name = "other".into();
+    workspace.roster.members.insert(OTHER.into(), other);
+    workspace.roster.squads[0].members.push(OTHER.into());
+    let target = OpsTarget::Member {
+        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
+        identity_id: OTHER.into(),
+    };
+    workspace
+        .rows
+        .insert(target.clone(), json!({"id": OTHER, "name": "other"}));
+    app.labels = Supplied::from_rows(vec![(
+        "digest".into(),
+        [(OTHER.into(), vec![label("Auto", Some(choose("default")))])].into(),
+    )]);
+    app.selected = app
+        .workspace_rows()
+        .iter()
+        .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
+        .unwrap();
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    assert_ne!(index, app.selected);
+    let Effect::Act(Request::DigestOpen(ask)) = app.digest_row(index) else {
+        panic!("access request expected")
+    };
+    assert_eq!(ask.member, "other");
+    assert_eq!(app.digest_inline.as_ref().unwrap().target, target);
+}
+#[test]
+fn digest_redesign_short_inline_form_cannot_submit_and_late_grants_stay_closed() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = inline_board();
+    paint_inline(&mut app, 8);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.menu.is_none());
+    press(&mut app, KeyCode::Esc);
+    app.open_digest(granted("default"));
+    assert!(app.digest_inline.is_none());
+    assert!(app.menu.is_none());
+}
+
+#[test]
+fn digest_redesign_inline_fields_reveal_before_applying_at_compact_sizes() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = inline_board();
+    app.digest_inline.as_mut().unwrap().caps = Some((300_000, 5));
+    for _ in 0..2 {
+        app.key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Down,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+    }
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    assert!(app.digest_inline.as_ref().unwrap().visible.get());
+    app.key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Enter,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(app.menu.as_ref().unwrap().title, "Max messages");
+}

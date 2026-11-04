@@ -60,6 +60,8 @@ fn report_for_member(app: &mut App) {
             name: None,
             retired: false,
         },
+        model_totals: None,
+        window_series: None,
         model_inputs: Some(vec![("gpt-6-sol".into(), 1_000_000)]),
         input: 1_000_000,
         output: 100,
