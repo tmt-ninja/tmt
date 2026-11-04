@@ -71,7 +71,7 @@ export function buildBundle(
 ): Promise<Bundle>;
 export function checkElements(
   elements: { tag: string; attrs: Record<string, string>; insideScope?: boolean }[],
-  pin: { system: string; version: string; hash: string } | null,
+  pin: { system: string } | null,
   bundle: Bundle | null,
 ): Finding[];
 export const findingText: Record<Finding['code'], (finding: Finding) => string>;

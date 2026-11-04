@@ -80,7 +80,11 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageSnapshot, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
-import { EmbeddedPageContext, type EmbeddedPageProps } from './embedded-page.js';
+import {
+  EmbeddedPageContext,
+  ShownReleaseContext,
+  type EmbeddedPageProps,
+} from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
@@ -1901,7 +1905,11 @@ function OpenPage({
     contentRevision,
     admitted: !discussionPending && !liveError && !archived,
   });
-  const designSystems = useMemo(() => pageDesignSystems(transport), [transport]);
+  const shownRelease = useContext(ShownReleaseContext);
+  const designSystems = useMemo(
+    () => pageDesignSystems(transport, shownRelease),
+    [transport, shownRelease],
+  );
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,

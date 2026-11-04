@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { BrowserAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserMenu } from '@tmt/browser-ui/react';
 import type { PageTransport } from './transport.js';
 import {
   listDesignSystems,
@@ -12,6 +12,7 @@ import {
 import { DesignSystemDialog } from './design-system-ui.js';
 import { DesignHeader } from './design-header.js';
 import { DesignPage } from './design-page.js';
+import { ShownReleaseContext } from './embedded-page.js';
 const DesignDocs = lazy(() =>
   import('@tmt/browser-ui/docs-embed').then((module) => ({
     default: module.DesignDocs,
@@ -102,6 +103,8 @@ export function DesignLibrary({
   const [creating, setCreating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // The release the header shows for each system in place of its draft (#5967).
+  const [shown, setShown] = useState<Readonly<Record<string, string>>>({});
   const workspace = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const section = workspace.current;
@@ -186,15 +189,20 @@ export function DesignLibrary({
     });
   const repin = () =>
     run(async () => {
-      const pages = await pinDesignTree(transport, selected!.id, unpinned!.pin);
+      const pages = await pinDesignTree(transport, selected!.id);
       setUnpinned(pages.length ? { pin: unpinned!.pin, pages } : undefined);
-      if (!pages.length) setNotice('Every page now uses the published version.');
+      if (!pages.length) setNotice('Every page now follows the draft.');
     });
   // The workspace is the scroller here, so a new page starts at its top.
   const open = (href: string) => {
     navigate(href);
     if (workspace.current) workspace.current.scrollTop = 0;
   };
+  const shownVersion = selected && shown[selected.id];
+  const shownRelease = useCallback(
+    (system: string) => (system === selected?.id ? shownVersion : undefined),
+    [selected?.id, shownVersion],
+  );
   const go = (href: string) => {
     setNavOpen(false);
     open(href);
@@ -225,6 +233,30 @@ export function DesignLibrary({
         }
         actions={
           <>
+            {selected && (
+              <BrowserMenu
+                label="Shown version"
+                valueLabel={shownVersion ? `Release ${shownVersion}` : 'Draft'}
+                items={[
+                  {
+                    key: '',
+                    label: 'Draft',
+                    role: 'menuitemradio' as const,
+                    checked: !shownVersion,
+                  },
+                  ...[...selected.config.releases].reverse().map((release) => ({
+                    key: release.version,
+                    label: `Release ${release.version}`,
+                    role: 'menuitemradio' as const,
+                    checked: release.version === shownVersion,
+                  })),
+                ]}
+                onSelect={(version) => {
+                  const { [selected.id]: _left, ...rest } = shown;
+                  setShown(version ? { ...rest, [selected.id]: version } : rest);
+                }}
+              />
+            )}
             {page && (
               <a
                 className={browserUiClasses.action}
@@ -289,7 +321,7 @@ export function DesignLibrary({
         )}
         {unpinned && (
           <p className="design-feedback" role="alert">
-            {`Published, but these pages still use the previous version: ${unpinned.pages.join(', ')}.`}{' '}
+            {`Published, but these pages do not follow the draft yet: ${unpinned.pages.join(', ')}.`}{' '}
             <BrowserAction
               type="button"
               variant="text"
@@ -337,14 +369,16 @@ export function DesignLibrary({
                   </ul>
                 </nav>
                 {page ? (
-                  <DesignPage
-                    key={page.id}
-                    pageId={page.id}
-                    system={selected}
-                    base={base}
-                    anchor={anchor}
-                    navigate={go}
-                  />
+                  <ShownReleaseContext.Provider value={shownRelease}>
+                    <DesignPage
+                      key={`${page.id}@${shownVersion ?? 'draft'}`}
+                      pageId={page.id}
+                      system={selected}
+                      base={base}
+                      anchor={anchor}
+                      navigate={go}
+                    />
+                  </ShownReleaseContext.Provider>
                 ) : (
                   <p role="alert">This page is not in the selected design-system tree.</p>
                 )}

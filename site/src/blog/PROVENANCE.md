@@ -40,6 +40,9 @@ Verified original Colab source commit: `2981a7ba178cc60c35a8c42445f11377e1e4b205
   (Ultra, formerly Max 20x, $26–35; Max 5x ~$17; Codex Pro 200 $9.7; Pro 100 $9.5)
   in the same palette.
   SHA-256: `356b46f2f0749757269e8c6fb83cf0c159f8685f76c69a1161cec38c05956658`.
+  `shugyo-week-1.png` plots that article's Claude weekly allowance for 28 October to
+  3 November 2026 with its Sunday forecast fork and "30% → 12%" in the same palette.
+  SHA-256: `2de8fcaace675f4c4a46c2c51831d992b4177c63c657e849442143363b4fef9b`.
   `half-the-token-price.png` charts that article's high-effort Terra ÷ Sol ratios for
   23–30 October 2026 (2.9× tokens per line, 3.9× lead fixes, 1.0× dollars per
   1,000 lines) in the same palette.

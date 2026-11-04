@@ -11,3 +11,8 @@ export interface EmbeddedPageProps {
 /** The Colab page view a lazy module hosts (#5866). The router provides it, so Design shows Colab
  * pages without importing the router (which would split the router out of the Colab module). */
 export const EmbeddedPageContext = createContext<ComponentType<EmbeddedPageProps> | null>(null);
+/** The release the Design header shows for a system in place of its draft (#5967); undefined, or
+ * a system it does not name, shows the draft. */
+export const ShownReleaseContext = createContext<
+  ((system: string) => string | undefined) | undefined
+>(undefined);

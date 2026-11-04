@@ -28,7 +28,14 @@ async function mount(page: Page, source: string, served: unknown = bundle, layou
         onState: (state: string) => {
           host.dataset.state = state;
         },
-        designSystem: async () => served,
+        designSystem: {
+          release: async () => served,
+          draft: async () => {
+            if (!served) throw new Error('No draft');
+            return served;
+          },
+          watch: () => () => {},
+        },
         ...(layout ? { layout } : {}),
       });
     },
@@ -125,6 +132,14 @@ test('a bundle that does not match the pin draws a notice instead', async ({ pag
   await expect(frame.getByRole('button')).toHaveCount(0);
 });
 
+test('a page that names the system without a lock draws its draft (#5967)', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+});
+
 test('an unreadable release and a malformed pin both say so', async ({ page }) => {
   let frame = await mount(
     page,
@@ -134,7 +149,7 @@ test('an unreadable release and a malformed pin both say so', async ({ page }) =
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
   frame = await mount(
     page,
-    `<meta name="tmt-ds" content="tmt-gui"><tmt-ui-button>Save</tmt-ui-button>`,
+    `<meta name="tmt-ds" content="tmt-gui@1"><tmt-ui-button>Save</tmt-ui-button>`,
   );
   await expect(frame.getByRole('alert')).toContainText('release this TMT does not have');
 });
@@ -159,7 +174,11 @@ test('a bad pin never stands in for a real release, and a stuck read ends in a n
           {
             signal: new AbortController().signal,
             onState: (state: string) => (host.dataset.state = state),
-            designSystem: served,
+            designSystem: {
+              release: served,
+              draft: served,
+              watch: () => () => {},
+            },
           },
         );
         return performance.now() - started;
