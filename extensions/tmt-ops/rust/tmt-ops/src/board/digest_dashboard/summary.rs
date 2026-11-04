@@ -212,7 +212,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let width = usize::from(chart_width);
     let start_width = start.width();
     let end_width = end.width();
-    if width >= start_width + end_width + 1 {
+    if width > start_width + end_width {
         let mut labels = vec![(0, start), (width - end_width, end)];
         let mid_x = width.saturating_sub(middle.width()) / 2;
         if mid_x > start_width && mid_x + middle.width() < width - end_width {
