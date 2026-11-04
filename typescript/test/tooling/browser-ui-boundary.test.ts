@@ -45,6 +45,7 @@ const UI_PACKAGES = [
 ];
 const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> = {
   './ui': { packages: UI_PACKAGES },
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./ui', './data-table'] },
   './rich-input': {
     packages: [
       'react',
