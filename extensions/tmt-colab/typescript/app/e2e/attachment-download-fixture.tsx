@@ -4,8 +4,9 @@ import type { AttachmentBinding } from '../src/attachment-service.js';
 import type { attachment } from '@tmt/colab-client';
 
 export function mountDownloadFixture() {
-  const state = window as unknown as { reads: number };
+  const state = window as unknown as { reads: number; failDownload: boolean };
   state.reads = 0;
+  state.failDownload = false;
   const descriptor = {
     attachmentId: '11111111-1111-4111-8111-111111111111',
     filename: 'example.png',
@@ -16,6 +17,7 @@ export function mountDownloadFixture() {
     scope: () => 'current',
     open: async () => {
       state.reads += 1;
+      if (state.failDownload) throw new Error('offline');
       return new Uint8Array([1]);
     },
   } as unknown as AttachmentBinding;

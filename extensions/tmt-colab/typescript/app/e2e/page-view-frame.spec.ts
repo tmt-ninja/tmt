@@ -26,9 +26,10 @@ test('verified custom-prefix components receive only their declared data', async
     };
     const host = document.createElement('div');
     document.body.prepend(host);
+    (window as unknown as { admittedPages: string[] }).admittedPages = [];
     await mountRenderer(
       host,
-      '<meta name="tmt-ds" content="acme"><acme-page-view></acme-page-view><acme-work-bundle page="project-1"></acme-work-bundle>',
+      '<meta name="tmt-ds" content="acme"><acme-page-view></acme-page-view><acme-work-bundle page="project-1"></acme-work-bundle><acme-button page="not-admitted">Test</acme-button>',
       {
         signal: new AbortController().signal,
         onState: () => {},
@@ -52,7 +53,8 @@ test('verified custom-prefix components receive only their declared data', async
           return () => {};
         },
         workBundle: {
-          subscribe: (_page: string, _signal: AbortSignal, publish: (row: unknown) => void) => {
+          subscribe: (page: string, _signal: AbortSignal, publish: (row: unknown) => void) => {
+            (window as unknown as { admittedPages: string[] }).admittedPages.push(page);
             publish({
               id: 'project-1',
               title: 'Custom work',
@@ -68,6 +70,9 @@ test('verified custom-prefix components receive only their declared data', async
   const frame = page.frameLocator('iframe[title="Page content"]');
   await expect(frame.getByText('Custom list')).toBeVisible();
   await expect(frame.getByText('Custom work')).toBeVisible();
+  expect(
+    await page.evaluate(() => (window as unknown as { admittedPages: string[] }).admittedPages),
+  ).toEqual(['project-1']);
 });
 
 test('attachment download requires parent confirmation and current admission', async ({ page }) => {
@@ -86,10 +91,19 @@ test('attachment download requires parent confirmation and current admission', a
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(await page.evaluate(() => (window as unknown as { reads: number }).reads)).toBe(0);
   await page.getByRole('button', { name: 'Request', exact: true }).click();
+  await page.evaluate(() => {
+    (window as unknown as { failDownload: boolean }).failDownload = true;
+  });
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { failDownload: boolean }).failDownload = false;
+  });
   await dialog.getByRole('button', { name: 'Download', exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { reads: number }).reads))
-    .toBe(1);
+    .toBe(2);
+  await expect(dialog).toHaveCount(0);
 });
 
 for (const width of [1440, 390]) {
@@ -331,6 +345,16 @@ for (const width of [1440, 390]) {
     );
     await frame.getByRole('button', { name: 'Send' }).click();
     await expect(form).toHaveAttribute('data-answer', /Something else/);
+    const question = frame.locator('tmt-ui-question-block');
+    await question.evaluate((node) => {
+      node.setAttribute('answer', 'Something else');
+      node.setAttribute('state', 'answered');
+    });
+    const answered = question.getByRole('button', { name: /Which screen\? Something else/ });
+    await expect(answered).toHaveAttribute('aria-expanded', 'false');
+    await expect(answered).toHaveCSS('height', '32px');
+    await answered.click();
+    await expect(question.getByRole('button', { name: 'Send' })).toBeVisible();
   });
   test(`image viewer stays inside its scope and restores focus at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
