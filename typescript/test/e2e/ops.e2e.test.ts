@@ -556,8 +556,12 @@ renameSync(output+'.tmp',output);
         await fixture.waitForCapture((screen) => /^[ \t]*[▸▾] product\b/m.test(screen), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Home']);
         // The detail header names the selected tree row; ▸ only indicates expansion.
-        const selectedSquad = (screen: string) =>
-          /\bMeasure[ \t]+[─━]+[ \t]+(.+?)[ \t]+[─━]+/.exec(screen)?.[1];
+        const selectedSquad = (screen: string) => {
+          const talkRow = screen.split('\n').find((line) => /\bTalk\b/.test(line));
+          return /[─━]{2,}[ \t]+(.+?)[ \t]+[─━]{2,}/.exec(
+            talkRow?.slice(talkRow.indexOf('Talk')) ?? ''
+          )?.[1];
+        };
         await fixture.waitForCapture(
           (screen) => selectedSquad(screen) === 'Common pool',
           shell.pane
