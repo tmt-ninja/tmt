@@ -58,10 +58,10 @@
         "steps": [
           "uses:actions/checkout@v4",
           "uses:actions/setup-node@v4",
-          "uses:actions/download-artifact@v4",
+          "uses:./.github/actions/download-artifact-retry",
           "name:Attach the bundle to the draft release"
         ],
-        "sha256": "1491ba96f11ca4420142a3ebf530068ee4f1a49eb664cf0ead162014f2f133ea",
+        "sha256": "d93054797c6e34572a9bd06aa0b883bba6bd2297ae59b00377b0372ef10860b8",
         "releaseOnly": "Uploading to a real draft, re-reading asset digests and attaching the completeness marker require an allocated draft and publication privileges."
       },
       "record-failure": {
@@ -201,7 +201,7 @@
           "name:Install trusted CLI verification dependencies",
           "name:Install pinned Rust for version-only resolution",
           "id:version",
-          "uses:actions/download-artifact@v4",
+          "uses:./.github/actions/download-artifact-retry",
           "name:Warm the macOS toolchain lookup",
           "name:Build independent expected Colab app bytes",
           "name:Execute final archive and bootstrap with the matching target process",
@@ -209,7 +209,7 @@
           "name:Capture the final CLI preparation report",
           "name:Retain the matching-host verification report"
         ],
-        "sha256": "8a5e36b6fba79c00f5bf62d485bd27f823e5716efe42c760ec5d72d0c2bee508",
+        "sha256": "15a5170da303aa5fef5209976ee1786f722b0e7cf9ef55eb4333f262a33e81fc",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -228,12 +228,12 @@
         "steps": [
           "uses:actions/checkout@v4",
           "uses:actions/setup-node@v4",
-          "uses:actions/download-artifact@v4",
+          "uses:./.github/actions/download-artifact-retry",
           "name:Stage the candidate with the published releases it upgrades from",
           "id:assess",
           "name:Hand the assets to the proof"
         ],
-        "sha256": "a0498eb9e7823642faa199aa374c2a2f2a55694b81435ca28cedbfaf051764c3",
+        "sha256": "0226aec4177b1de1dde7d8acfeaa0c412448473d82593a031e96261957cc2137",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -351,13 +351,13 @@
           "name:Install Rust for version-only resolution and adapter acceptance",
           "name:Restore Rust dependencies for version-only resolution and adapter acceptance",
           "name:Inject the reviewed draft version for upgrade proof and #575 acceptance",
-          "uses:actions/download-artifact@v4",
+          "uses:./.github/actions/download-artifact-retry",
           "name:Prove last-published and declared-floor installation and bootstrap recovery",
           "name:Prove the real-archive CLI upgrade adapter",
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "0367bde2c500814d525fdef4e38b684550329966866b985c3d5b915280dcdac6",
+        "sha256": "229def336edb1ef4f226976ef2905fc06b6f3e85291d8247ced475e3e1f2c4e5",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -376,11 +376,11 @@
         "steps": [
           "uses:actions/checkout@v4",
           "uses:actions/setup-node@v4",
-          "uses:actions/download-artifact@v4",
+          "uses:./.github/actions/download-artifact-retry",
           "id:failure",
           "name:Fail a release the proof cannot run for"
         ],
-        "sha256": "7b63f062c9f0e24f4d9c3942e2852cf898185efdbda93cf6fcb8f39dbddf84ba",
+        "sha256": "d49f208791179e561ec23a2ac974f650a1e1c821e8feedfc99915ccabff5d5fc",
         "mainPush": [
           {
             "workflow": "release-rehearsal.yml",
@@ -856,26 +856,6 @@
       },
       "releaseOnly": "GitHub's public releases/latest pointer and its download redirect exist only after publication and can name the previous alpha for minutes; no pull request can reproduce that propagation. The injected-clock tests cover the bounded lag deadline."
     },
-    "2197": {
-      "release": {
-        "workflow": "native-release-upgrade.yml",
-        "job": "fetch",
-        "step": "name:Download and check the release assets"
-      },
-      "preMerge": [
-        {
-          "workflow": "ci.yml",
-          "job": "unit-tests",
-          "selection": {
-            "kind": "ci-scope",
-            "output": "native_scope",
-            "value": "full"
-          },
-          "coverage": "policy",
-          "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
-        }
-      ]
-    },
     "1806": {
       "release": {
         "workflow": "native-release-prepare.yml",
@@ -929,6 +909,26 @@
           },
           "coverage": "policy",
           "tests": ["typescript/test/tooling/release-workflow.test.ts"]
+        }
+      ]
+    },
+    "2197": {
+      "release": {
+        "workflow": "native-release-upgrade.yml",
+        "job": "fetch",
+        "step": "name:Download and check the release assets"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-upgrade.test.ts"]
         }
       ]
     },

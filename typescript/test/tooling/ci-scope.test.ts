@@ -3615,6 +3615,20 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
+  it('bounds chrome-only disk cleanup before trace production (#4742)', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = ci.split('\n  colab-chrome:\n')[1].split(/\n  [a-z][a-z-]*:\n/)[0];
+    expect(ci.match(/name: Reserve disk headroom for chrome traces/g)).toHaveLength(1);
+    expect(job).toContain('timeout-minutes: 2');
+    expect(job).toContain(
+      'sudo timeout 90s rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup'
+    );
+    expect(job).toContain('Chrome disk headroom cleanup:');
+    expect(job.indexOf('Reserve disk headroom')).toBeLessThan(
+      job.indexOf('Run the cross-screen chrome spec')
+    );
+  });
+
   // #5743: hosted blob storage failed every internal retry of an artifact download in a
   // merge group and a release, while other jobs downloaded the same artifact minutes later.
   it('retries each CI and release-manifest artifact download once, then fails closed', () => {
@@ -3653,6 +3667,23 @@ describe('required CI gate', () => {
       // Two failed attempts and the backoff took about 8.5 minutes on 10-30.
       for (const caller of callers)
         expect(caller.body, `${file}: ${caller.name}`).toMatch(/\n\s+timeout-minutes: 10\n/);
+    }
+
+    for (const file of [
+      'native-release-bundle.yml',
+      'native-release-prepare.yml',
+      'native-release-upgrade-prove.yml',
+    ]) {
+      const workflow = read(`.github/workflows/${file}`);
+      const raw = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: actions/download-artifact@')
+      );
+      expect(raw.length, file).toBe(file === 'native-release-prepare.yml' ? 2 : 0);
+      const bounded = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: ./.github/actions/download-artifact-retry')
+      );
+      expect(bounded.length, file).toBeGreaterThan(0);
+      for (const step of bounded) expect(step.body).toContain('timeout-minutes: 10');
     }
 
     const prepare = read('.github/workflows/native-release-prepare.yml');
@@ -4485,6 +4516,10 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(job.indexOf('native-qualify.mjs')).toBeLessThan(
       job.indexOf('extensions/tmt-colab/scripts/cloud-sync-emulator.mjs')
     );
+    expect(job).toContain('shell: bash');
+    expect(job).toContain('tee "$RUNNER_TEMP/workspace-proof/colab-cloud-sync.log"');
+    expect(job).toContain('tail -n 120');
+    expect(job).toContain('steps.cloud-sync.outcome');
     const runner = readFileSync(
       new URL('../../../extensions/tmt-colab/scripts/cloud-sync-emulator.mjs', import.meta.url),
       'utf8'

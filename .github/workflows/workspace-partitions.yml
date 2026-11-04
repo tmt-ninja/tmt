@@ -107,9 +107,17 @@ jobs:
         timeout-minutes: 8
         run: node extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs
       - name: Prove Colab cloud sync between real serves and Colab Rules
+        id: cloud-sync
         if: inputs.scope == 'full' && inputs.native-sync
         timeout-minutes: 8
-        run: node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs
+        # #5987: retain output even when the runner truncates the job log.
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/workspace-proof"
+          node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs 2>&1 | tee "$RUNNER_TEMP/workspace-proof/colab-cloud-sync.log"
+      - name: Print the failed Colab cloud sync evidence
+        if: failure() && steps.cloud-sync.outcome == 'failure'
+        run: tail -n 120 "$RUNNER_TEMP/workspace-proof/colab-cloud-sync.log"
       - name: Test Ops and architecture
         if: inputs.scope == 'ops'
         working-directory: rust

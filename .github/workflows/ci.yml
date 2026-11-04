@@ -289,6 +289,15 @@ jobs:
           executable="$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "socket" and .executable != null) | .executable' "$RUNNER_TEMP/chrome-fixture-build.json")"
           test -x "$executable"
           echo "executable=$executable" >> "$GITHUB_OUTPUT"
+      # #4742: this Linux browser job uses Node/Rust, not hosted .NET/Haskell/Android.
+      - name: Reserve disk headroom for chrome traces
+        timeout-minutes: 2
+        run: |
+          df -h
+          started=$SECONDS
+          sudo timeout 90s rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h
+          echo "Chrome disk headroom cleanup: $((SECONDS - started)) seconds" >> "$GITHUB_STEP_SUMMARY"
       - name: Run the cross-screen chrome spec without skips
         env:
           COLAB_CHROME_REQUIRED: '1'
