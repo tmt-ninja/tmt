@@ -24,6 +24,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Vertical",
+      "markup": "<tmt-ui-separator orientation=\"vertical\"></tmt-ui-separator>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "uiParts": [

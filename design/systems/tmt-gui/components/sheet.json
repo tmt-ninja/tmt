@@ -32,6 +32,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Details",
+      "markup": "<tmt-ui-sheet label=\"Open details\" heading=\"Page details\">The page information appears here.</tmt-ui-sheet>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

@@ -472,7 +472,7 @@
    "examples": [
     {
      "title": "Default",
-     "markup": "<tmt-ui-badge>spec</tmt-ui-badge>",
+     "markup": "<tmt-ui-badge>spec</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Private</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>",
      "widths": [
       1440,
       390
@@ -537,6 +537,14 @@
     {
      "title": "Horizontal",
      "markup": "<tmt-ui-separator></tmt-ui-separator>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Vertical",
+     "markup": "<tmt-ui-separator orientation=\"vertical\"></tmt-ui-separator>",
      "widths": [
       1440,
       390
@@ -628,6 +636,22 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Email",
+     "markup": "<tmt-ui-input type=\"email\" placeholder=\"name@example.com\"></tmt-ui-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Password",
+     "markup": "<tmt-ui-input type=\"password\" placeholder=\"Password\"></tmt-ui-input>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "uiParts": [
@@ -655,6 +679,14 @@
     {
      "title": "Default",
      "markup": "<tmt-ui-textarea placeholder=\"Write a note\"></tmt-ui-textarea>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-textarea placeholder=\"Read only\" disabled></tmt-ui-textarea>",
      "widths": [
       1440,
       390
@@ -921,6 +953,14 @@
     {
      "title": "Modal",
      "markup": "<tmt-ui-surface level=\"modal\">A dialog above the scrim.</tmt-ui-surface>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Paper",
+     "markup": "<tmt-ui-surface level=\"paper\">The page surface.</tmt-ui-surface>",
      "widths": [
       1440,
       390
@@ -2342,6 +2382,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Confirm",
+     "markup": "<tmt-ui-dialog label=\"Open confirmation\" heading=\"Confirm action\">Review the change before continuing.</tmt-ui-dialog>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Dialog({ label = 'Open dialog', heading = 'Dialog', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.Dialog, null, h(ui.DialogTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.DialogContent, null, h(ui.DialogTitle, null, heading), h(ui.DialogDescription, null, children))));\n};\n",
@@ -2379,6 +2427,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Details",
+     "markup": "<tmt-ui-sheet label=\"Open details\" heading=\"Page details\">The page information appears here.</tmt-ui-sheet>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Sheet({ label = 'Open sheet', heading = 'Sheet', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.Sheet, null, h(ui.SheetTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.SheetContent, null, h(ui.SheetTitle, null, heading), h(ui.SheetDescription, null, children))));\n};\n",
@@ -2407,6 +2463,14 @@
     {
      "title": "Popover",
      "markup": "<tmt-ui-popover>Example content</tmt-ui-popover>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Help",
+     "markup": "<tmt-ui-popover label=\"Help\">More information about this control.</tmt-ui-popover>",
      "widths": [
       1440,
       390
@@ -2443,6 +2507,14 @@
     {
      "title": "Dropdown-Menu",
      "markup": "<tmt-ui-dropdown-menu items=\"First,Second\"></tmt-ui-dropdown-menu>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Page actions",
+     "markup": "<tmt-ui-dropdown-menu label=\"Page actions\" items=\"Rename,Archive\"></tmt-ui-dropdown-menu>",
      "widths": [
       1440,
       390
@@ -3056,6 +3128,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Priority",
+     "markup": "<tmt-ui-select label=\"Priority\" items=\"Low,Normal,High\"></tmt-ui-select>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// Runtime 4 supplies the real Select and its parts.\nexport default ({ React, ui }) => function Select({ label = 'Select', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.UiTheme, null, h(ui.Select, null,\n    h(ui.SelectTrigger, { 'aria-label': label }, h(ui.SelectValue, { placeholder: label })),\n    h(ui.SelectContent, null, ...choices.map((item) => h(ui.SelectItem, { key: item, value: item }, item)))));\n};\n",
@@ -3085,6 +3165,14 @@
     {
      "title": "Tooltip",
      "markup": "<tmt-ui-tooltip label=\"Help\">More information</tmt-ui-tooltip>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Keyboard help",
+     "markup": "<tmt-ui-tooltip label=\"Keyboard shortcuts\">See available shortcuts</tmt-ui-tooltip>",
      "widths": [
       1440,
       390
@@ -3119,6 +3207,14 @@
     {
      "title": "Command",
      "markup": "<tmt-ui-command label=\"Search\" items=\"Open,Close\"></tmt-ui-command>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Page commands",
+     "markup": "<tmt-ui-command label=\"Find a page\" items=\"Release plan,Notes,Project\"></tmt-ui-command>",
      "widths": [
       1440,
       390
@@ -3189,6 +3285,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Agents",
+     "markup": "<tmt-ui-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-chips>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// The real Chips control owns its layer; the example keeps a local selection.\nexport default ({ React, ui }) => {\n  const h = React.createElement;\n  function Control({ label, choices }) {\n    const [open, setOpen] = React.useState(false);\n    const [query, setQuery] = React.useState('');\n    const [items, setItems] = React.useState([]);\n    const controller = ui.useLayerController({ open, onOpenChange: setOpen });\n    const options = choices.filter((name) => !items.includes(name) && name.toLowerCase().includes(query.toLowerCase()))\n      .map((name) => ({ id: name, label: name }));\n    return h(ui.Chips, { label, controller, query, onQueryChange: setQuery, options,\n      emptyLabel: 'No matches', items: items.map((name) => ({ id: name, label: name, removeLabel: `Remove ${name}` })),\n      onAdd: (option) => { setItems((current) => [...current, option.id]); setQuery(''); },\n      onRemove: (item) => setItems((current) => current.filter((name) => name !== item.id)) });\n  }\n  return ({ label = 'People', items = '' }) => h(ui.UiTheme, null,\n    h(Control, { label, choices: items.split(',').map((item) => item.trim()).filter(Boolean) }));\n};\n",
@@ -3220,6 +3324,22 @@
     {
      "title": "Data-Table",
      "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\" rows=\"Alex,Ready;Sam,Draft\"></tmt-ui-data-table>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\"></tmt-ui-data-table>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Projects",
+     "markup": "<tmt-ui-data-table label=\"Projects\" columns=\"Name,Status\" rows=\"Colab,Active;Remote,Ready\"></tmt-ui-data-table>",
      "widths": [
       1440,
       390
@@ -3291,6 +3411,22 @@
     {
      "title": "Rich input",
      "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Write a message\"></tmt-ui-rich-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Single line",
+     "markup": "<tmt-ui-rich-input label=\"Search\" shape=\"single\" placeholder=\"Search\"></tmt-ui-rich-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Read only\" disabled></tmt-ui-rich-input>",
      "widths": [
       1440,
       390
@@ -3581,5 +3717,5 @@
    "css": ""
   }
  ],
- "mirrorRevision": "08ad04ddfa45b45e612fee3707c3e8f1ca14f8d4c5fcc7ba937b85d3f1f4f02a"
+ "mirrorRevision": "0e03a1568b1be87258e972229a8d3974fbb45ef0c8670cfed1c30ebb62c7c664"
 }

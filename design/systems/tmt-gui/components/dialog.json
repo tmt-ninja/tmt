@@ -32,6 +32,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Confirm",
+      "markup": "<tmt-ui-dialog label=\"Open confirmation\" heading=\"Confirm action\">Review the change before continuing.</tmt-ui-dialog>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

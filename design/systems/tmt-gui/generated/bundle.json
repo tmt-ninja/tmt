@@ -115,7 +115,7 @@
    "examples": [
     {
      "title": "Default",
-     "markup": "<tmt-ui-badge>spec</tmt-ui-badge>"
+     "markup": "<tmt-ui-badge>spec</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Private</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>"
     },
     {
      "title": "Outline",
@@ -158,6 +158,10 @@
     {
      "title": "Horizontal",
      "markup": "<tmt-ui-separator></tmt-ui-separator>"
+    },
+    {
+     "title": "Vertical",
+     "markup": "<tmt-ui-separator orientation=\"vertical\"></tmt-ui-separator>"
     }
    ],
    "css": "",
@@ -225,6 +229,14 @@
     {
      "title": "Disabled",
      "markup": "<tmt-ui-input placeholder=\"Read only\" disabled></tmt-ui-input>"
+    },
+    {
+     "title": "Email",
+     "markup": "<tmt-ui-input type=\"email\" placeholder=\"name@example.com\"></tmt-ui-input>"
+    },
+    {
+     "title": "Password",
+     "markup": "<tmt-ui-input type=\"password\" placeholder=\"Password\"></tmt-ui-input>"
     }
    ],
    "css": "",
@@ -250,6 +262,10 @@
     {
      "title": "Default",
      "markup": "<tmt-ui-textarea placeholder=\"Write a note\"></tmt-ui-textarea>"
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-textarea placeholder=\"Read only\" disabled></tmt-ui-textarea>"
     }
    ],
    "css": "",
@@ -446,6 +462,10 @@
     {
      "title": "Modal",
      "markup": "<tmt-ui-surface level=\"modal\">A dialog above the scrim.</tmt-ui-surface>"
+    },
+    {
+     "title": "Paper",
+     "markup": "<tmt-ui-surface level=\"paper\">The page surface.</tmt-ui-surface>"
     }
    ],
    "css": "",
@@ -1580,6 +1600,10 @@
     {
      "title": "Dialog",
      "markup": "<tmt-ui-dialog>Example content</tmt-ui-dialog>"
+    },
+    {
+     "title": "Confirm",
+     "markup": "<tmt-ui-dialog label=\"Open confirmation\" heading=\"Confirm action\">Review the change before continuing.</tmt-ui-dialog>"
     }
    ],
    "css": "",
@@ -1611,6 +1635,10 @@
     {
      "title": "Sheet",
      "markup": "<tmt-ui-sheet>Example content</tmt-ui-sheet>"
+    },
+    {
+     "title": "Details",
+     "markup": "<tmt-ui-sheet label=\"Open details\" heading=\"Page details\">The page information appears here.</tmt-ui-sheet>"
     }
    ],
    "css": "",
@@ -1637,6 +1665,10 @@
     {
      "title": "Popover",
      "markup": "<tmt-ui-popover>Example content</tmt-ui-popover>"
+    },
+    {
+     "title": "Help",
+     "markup": "<tmt-ui-popover label=\"Help\">More information about this control.</tmt-ui-popover>"
     }
    ],
    "css": "",
@@ -1667,6 +1699,10 @@
     {
      "title": "Dropdown-Menu",
      "markup": "<tmt-ui-dropdown-menu items=\"First,Second\"></tmt-ui-dropdown-menu>"
+    },
+    {
+     "title": "Page actions",
+     "markup": "<tmt-ui-dropdown-menu label=\"Page actions\" items=\"Rename,Archive\"></tmt-ui-dropdown-menu>"
     }
    ],
    "css": "",
@@ -2121,6 +2157,10 @@
     {
      "title": "Select",
      "markup": "<tmt-ui-select label=\"State\" items=\"Ready,Draft\"></tmt-ui-select>"
+    },
+    {
+     "title": "Priority",
+     "markup": "<tmt-ui-select label=\"Priority\" items=\"Low,Normal,High\"></tmt-ui-select>"
     }
    ],
    "css": "",
@@ -2148,6 +2188,10 @@
     {
      "title": "Tooltip",
      "markup": "<tmt-ui-tooltip label=\"Help\">More information</tmt-ui-tooltip>"
+    },
+    {
+     "title": "Keyboard help",
+     "markup": "<tmt-ui-tooltip label=\"Keyboard shortcuts\">See available shortcuts</tmt-ui-tooltip>"
     }
    ],
    "css": "",
@@ -2176,6 +2220,10 @@
     {
      "title": "Command",
      "markup": "<tmt-ui-command label=\"Search\" items=\"Open,Close\"></tmt-ui-command>"
+    },
+    {
+     "title": "Page commands",
+     "markup": "<tmt-ui-command label=\"Find a page\" items=\"Release plan,Notes,Project\"></tmt-ui-command>"
     }
    ],
    "css": "",
@@ -2230,6 +2278,10 @@
     {
      "title": "Chips",
      "markup": "<tmt-ui-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-chips>"
+    },
+    {
+     "title": "Agents",
+     "markup": "<tmt-ui-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-chips>"
     }
    ],
    "css": "",
@@ -2259,6 +2311,14 @@
     {
      "title": "Data-Table",
      "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\" rows=\"Alex,Ready;Sam,Draft\"></tmt-ui-data-table>"
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\"></tmt-ui-data-table>"
+    },
+    {
+     "title": "Projects",
+     "markup": "<tmt-ui-data-table label=\"Projects\" columns=\"Name,Status\" rows=\"Colab,Active;Remote,Ready\"></tmt-ui-data-table>"
     }
    ],
    "css": "",
@@ -2318,6 +2378,14 @@
     {
      "title": "Rich input",
      "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Write a message\"></tmt-ui-rich-input>"
+    },
+    {
+     "title": "Single line",
+     "markup": "<tmt-ui-rich-input label=\"Search\" shape=\"single\" placeholder=\"Search\"></tmt-ui-rich-input>"
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Read only\" disabled></tmt-ui-rich-input>"
     }
    ],
    "css": "",
@@ -2546,5 +2614,5 @@
    "code": "return ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n"
   }
  ],
- "hash": "sha256-4a101920a6d350dbe7453b6b2f84a6786e5c589fffe10268c6a3d690001d15ea"
+ "hash": "sha256-3b2abdddaadbfcfcb9bc63d89a626c25137df72f1743b112e697db6283c85633"
 }

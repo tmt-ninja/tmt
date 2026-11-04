@@ -35,6 +35,22 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Single line",
+      "markup": "<tmt-ui-rich-input label=\"Search\" shape=\"single\" placeholder=\"Search\"></tmt-ui-rich-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Read only\" disabled></tmt-ui-rich-input>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

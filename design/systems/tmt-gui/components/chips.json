@@ -28,6 +28,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Agents",
+      "markup": "<tmt-ui-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-chips>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

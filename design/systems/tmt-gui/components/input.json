@@ -40,6 +40,22 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Email",
+      "markup": "<tmt-ui-input type=\"email\" placeholder=\"name@example.com\"></tmt-ui-input>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Password",
+      "markup": "<tmt-ui-input type=\"password\" placeholder=\"Password\"></tmt-ui-input>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "uiParts": [

@@ -28,6 +28,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Keyboard help",
+      "markup": "<tmt-ui-tooltip label=\"Keyboard shortcuts\">See available shortcuts</tmt-ui-tooltip>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

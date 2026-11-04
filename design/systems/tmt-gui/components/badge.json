@@ -23,7 +23,7 @@
   "examples": [
     {
       "title": "Default",
-      "markup": "<tmt-ui-badge>spec</tmt-ui-badge>",
+      "markup": "<tmt-ui-badge>spec</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Private</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">\u2715 Blocked</tmt-ui-badge>",
       "widths": [
         1440,
         390

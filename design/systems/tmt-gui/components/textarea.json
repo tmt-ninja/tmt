@@ -23,6 +23,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-textarea placeholder=\"Read only\" disabled></tmt-ui-textarea>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "uiParts": [

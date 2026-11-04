@@ -121,6 +121,25 @@ test('Browser catalog examples render their states and interactive controls', as
   await expect(frame.getByRole('table', { name: 'Pages' }).first()).toBeVisible();
 });
 
+test('component catalog examples retain interactive dialogs and disabled input', async ({
+  page,
+}) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-dialog label="Open confirmation" heading="Confirm action">Review the change.</tmt-ui-dialog>
+     <tmt-ui-rich-input label="Message" shape="multi" placeholder="Read only" disabled></tmt-ui-rich-input>
+     <tmt-ui-button busy busy-label="Sending"></tmt-ui-button>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Sending' })).toHaveAttribute('aria-busy', 'true');
+  await expect(frame.locator('tmt-ui-rich-input [contenteditable]')).toHaveAttribute(
+    'contenteditable',
+    'false',
+  );
+  await frame.getByRole('button', { name: 'Open confirmation' }).click();
+  await expect(frame.getByRole('dialog')).toContainText('Confirm action');
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test(`a pinned GUI page uses palette B in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });

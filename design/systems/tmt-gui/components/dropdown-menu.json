@@ -31,6 +31,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Page actions",
+      "markup": "<tmt-ui-dropdown-menu label=\"Page actions\" items=\"Rename,Archive\"></tmt-ui-dropdown-menu>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }
