@@ -464,3 +464,23 @@ test('sidebar shortcuts reorder and delete survive a real served-page reload', a
     await expect(labels).toHaveText(['Second shortcut']);
   });
 });
+
+test('a page-list Pin is confirmed by the real owner and survives a reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const device = await pairBrowser(world, 'page-list-pin');
+    const created = createPage(world, 'Pin target', '<p>Pin target.</p>');
+    const page = await openPage(door, device, created);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${door.address}/x/colab/`);
+    await expect(homeList(page)).toBeVisible();
+    const row = page.getByRole('row').filter({ hasText: 'Pin target' });
+    await row.hover();
+    await row.getByRole('button', { name: /^Pin Pin target/ }).click();
+    await expect(page.getByText('Pinned “Pin target”.')).toBeVisible();
+    await expect(page.getByText(/The result is unknown/)).toHaveCount(0);
+    await expect(page.getByRole('list', { name: 'Pinned pages' })).toContainText('Pin target');
+    await page.reload();
+    await expect(page.getByRole('list', { name: 'Pinned pages' })).toContainText('Pin target');
+  });
+});

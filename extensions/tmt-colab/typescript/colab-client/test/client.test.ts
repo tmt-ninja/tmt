@@ -396,6 +396,13 @@ it('signs display-only label requests with an empty revision and log operations 
   await expect(c.managementInput({ ...created, page: management.page })).rejects.toThrow();
   await expect(c.managementInput({ ...created, expectedRevision: '1' })).rejects.toThrow();
   for (const name of ['page.kind', 'page.new']) expect(() => c.operation(name)).toThrow();
+  // #6049: a pin names its own page and no head, like the project writes the owner accepts.
+  const pin = { ...projects, operation: 'page.pin' };
+  await expect(c.managementInput(pin)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...pin, expectedRevision: '1' })).rejects.toThrow();
+  await expect(c.managementInput({ ...pin, page: c.SPACE_SCOPE_PAGE })).rejects.toThrow();
+  expect(() => c.managementOperation('page.pin')).not.toThrow();
+  expect(() => c.operation('page.pin')).toThrow();
 });
 
 describe('binary envelope v2 (#5876)', () => {

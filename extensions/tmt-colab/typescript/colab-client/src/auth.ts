@@ -88,9 +88,16 @@ export function operation(value: string): void {
   requireValue(OPERATIONS.includes(value));
 }
 /** Display-only operations change owner-store state without a log statement; only management
- * requests name them. `page.new` (#5866) is the owner device's new top-level page: the owner makes
- * it at its own head, so it names no revision either. */
-const UNREVISIONED_OPERATIONS = ['page.projects', 'project.manage', 'page.kind', 'page.new'];
+ * requests name them (`page.pin` pins or unpins the page it names, #4356). `page.new` (#5866) is
+ * the owner device's new top-level page: the owner makes it at its own head, so it names no revision
+ * either. */
+const UNREVISIONED_OPERATIONS = [
+  'page.projects',
+  'project.manage',
+  'page.pin',
+  'page.kind',
+  'page.new',
+];
 /** The page a space-level request names: the frame binds one page and a project change or a new
  * page has none. Only `project.manage` and `page.new` may name it. */
 export const SPACE_SCOPE_PAGE = '00000000-0000-4000-8000-000000000000';
