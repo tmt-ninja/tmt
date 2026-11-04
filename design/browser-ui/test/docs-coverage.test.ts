@@ -10,7 +10,10 @@ import { readdirSync, readFileSync } from 'node:fs';
  */
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const catalog =
-  read('docs/catalog.tsx') + read('docs/catalog-more.tsx') + read('docs/catalog-blocks.tsx');
+  read('docs/catalog.tsx') +
+  read('docs/catalog-more.tsx') +
+  read('docs/catalog-blocks.tsx') +
+  read('docs/blocks-catalog.tsx');
 const browserCatalog = read('docs/browser-catalog.tsx');
 const covered = read('gallery/covered.ts');
 
@@ -67,7 +70,10 @@ const entries: Record<string, string> = {
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
   './data-table': 'Components entry data-table',
-  './blocks': 'Components entries block through block-toast',
+  './data-table.css': 'Styles for the data-table entry',
+  './page-list.css': 'Styles for the page-list parts',
+  './blocks': 'Components entries for structured blocks',
+  './blocks.css': 'Styles for structured block entries',
   './manage-list': 'Browser entry shell (ordered management list and dialog)',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',

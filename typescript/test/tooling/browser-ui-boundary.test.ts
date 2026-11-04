@@ -58,7 +58,7 @@ const GRAPH_POLICIES: Record<string, { packages: string[]; graphs?: string[] }> 
   './data-table': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   './manage-list': { packages: ['react', 'lucide-react'], graphs: ['./ui'] },
   // './react' names the root graph: the shared static-drawing parts (table, notice, command).
-  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react'] },
+  './blocks': { packages: ['react', 'lucide-react'], graphs: ['./react', './ui', './data-table'] },
 };
 // Modules with no edges at all, which every graph may import.
 const NEUTRAL = ['overlay.ts', 'scoped-modal.ts'];
@@ -126,6 +126,11 @@ function violations(
   }
   if (forbiddenLoads(file, source)) failures.push('unproved runtime input');
   for (const edge of imports(file, source)) {
+    // The scope bridge is used by both graphs: it must remain a React-only leaf.
+    if (file === path.join(sourceRoot, 'ui/scope.tsx') && !['react', 'react-dom'].includes(edge)) {
+      failures.push(edge);
+      continue;
+    }
     if (!edge.startsWith('.') && !edge.startsWith('/')) {
       const resolved = ts.resolveModuleName(
         edge,
@@ -266,8 +271,9 @@ it('lets only a graph that declares the root graph reach root modules', () => {
   const legacy = path.join(production, 'header.tsx');
   // ./blocks declares './react', so it reaches the shared root parts.
   expect(violations(blocks, "import { BrowserTable } from '../table.js';", false)).toEqual([]);
-  // It reaches no other entry, and no package beyond its own.
-  for (const edge of ['../ui/index.js', '../rich-input/index.js'])
+  // Its UI and table dependencies are explicit; unrelated entries remain unreachable.
+  expect(violations(blocks, "import { Button } from '../ui/index.js';", false)).toEqual([]);
+  for (const edge of ['../rich-input/index.js'])
     expect(violations(blocks, `import { Button } from '${edge}';`, false)).toEqual([edge]);
   expect(violations(blocks, "import { $getRoot } from 'lexical';", false)).toEqual(['lexical']);
   // Root modules never reach into the entry.
@@ -286,6 +292,14 @@ it('keeps the search entry free of every import', () => {
   expect(imports(file, "import type { ReactNode } from 'react';")).toEqual(['react']);
 });
 
+it('keeps the scope bridge independent of UI internals and UI-only packages', () => {
+  const file = path.join(production, 'ui/scope.tsx');
+  const actual = readFileSync(file, 'utf8');
+  expect(imports(file, actual).sort()).toEqual(['react', 'react-dom']);
+  expect(violations(file, actual, false)).toEqual([]);
+  for (const edge of ['./utils.js', 'radix-ui', 'react-dom/client'])
+    expect(violations(file, `${actual}\nimport '${edge}';`, false)).toContain(edge);
+});
 it('admits the bare portal peer only in the exact scoped React adapters', () => {
   const file = path.join(production, 'browser-shell.tsx');
   const source = "import {createPortal} from 'react-dom';";

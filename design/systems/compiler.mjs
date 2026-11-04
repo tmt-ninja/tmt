@@ -3,8 +3,12 @@
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
 export const SCHEMA = 1;
-/** The skeleton API a bundle runs on (runtime 2): the page runtime's React and htm, plus cn. */
+/** Default runtime 2 retains its original React, html and cn skeleton. Runtime 3 adds the
+ * system prefix plus explicitly declared, allowlisted parts and data capabilities. */
 export const RUNTIME = '2';
+/** Runtime 3 adds only these explicitly declared host-provided parts. */
+export const SHARED_PARTS = ['PageListTable'];
+export const DATA_CAPABILITIES = ['page'];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
 const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
@@ -36,7 +40,7 @@ export function validateSystem(config, where = 'design system') {
   if (typeof config.name !== 'string' || !config.name) fail(`${where}: needs a name`);
   if (typeof config.prefix !== 'string' || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(config.prefix))
     fail(`${where}: prefix must be lowercase words joined by hyphens`);
-  if (config.runtime !== RUNTIME) fail(`${where}: runtime ${config.runtime} is not ${RUNTIME}`);
+  if (![RUNTIME, '3'].includes(config.runtime)) fail(`${where}: unsupported runtime ${config.runtime}`);
   if (typeof config.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.version))
     fail(`${where}: version must be major.minor.patch`);
   if (typeof config.tokens?.css !== 'string') fail(`${where}: tokens.css must be CSS text`);
@@ -94,14 +98,31 @@ export function validateComponent(doc, where = 'component') {
 export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
+  components.forEach((doc) => {
+    for (const [field, allowed] of [['parts', SHARED_PARTS], ['data', DATA_CAPABILITIES]]) {
+      const names = doc[field];
+      if (names === undefined) continue;
+      if (config.runtime !== '3') fail(`${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`);
+      if (!Array.isArray(names) || new Set(names).size !== names.length ||
+          names.some((name) => typeof name !== 'string' || !allowed.includes(name)))
+        fail(`${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`);
+    }
+  });
   const tags = components.map((doc) => doc.tag);
   if (new Set(tags).size !== tags.length) fail('two components share a tag');
+  for (const doc of components) {
+    if (doc.requires === undefined) continue;
+    if (config.runtime !== '3' || !Array.isArray(doc.requires) ||
+        new Set(doc.requires).size !== doc.requires.length ||
+        doc.requires.some((tag) => typeof tag !== 'string' || tag === doc.tag || !tags.includes(tag)))
+      fail(`${doc.tag}: invalid or missing component dependency`);
+  }
   const body = {
     schema: SCHEMA,
     system,
     name: config.name,
     version: config.version,
-    runtime: RUNTIME,
+    runtime: config.runtime,
     prefix: config.prefix,
     tokensCss: config.tokens.css,
     principles: config.principles ?? null,
@@ -109,6 +130,9 @@ export async function buildBundle(system, config, components, sha256Hex) {
       tag: `${config.prefix}-${doc.tag}`,
       props: doc.props,
       slots: doc.slots,
+      ...(doc.parts === undefined ? {} : { parts: doc.parts }),
+      ...(doc.data === undefined ? {} : { data: doc.data }),
+      ...(doc.requires === undefined ? {} : { requires: doc.requires }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
         markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),

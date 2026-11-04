@@ -13,6 +13,8 @@ import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import type { PageLayout } from './page-layout.js';
+import type { PageViewRecord } from './page-view-source.js';
+import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { switcherModifiers, type SwitcherKeyRequest } from './quick-switcher-key.js';
@@ -196,6 +198,8 @@ export async function mountRenderer(
     onState(state: RenderState): void;
     /** Untrusted link request; activation proves recent interaction, never which link. */
     onLink?(request: PageLinkRequest, active: boolean): void;
+    /** Untrusted frame claim; the parent must confirm a current-page attachment before opening it. */
+    onAttachmentDownload?(reference: string): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -223,6 +227,9 @@ export async function mountRenderer(
     layout?: PageLayout;
     /** Reads the bundle a page pins with `<meta name="tmt-ds">` (#5821); absent draws the notice. */
     designSystem?: DesignSystemSource;
+    /** Read-only bounded page-list projection, subscribed only for a page-view tag. */
+    pageView?: (publish: (rows: PageViewRecord[]) => void, failed: () => void) => () => void;
+    workBundle?: WorkBundleSource;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -283,6 +290,11 @@ export async function mountRenderer(
   let stopped = false,
     loads = 0,
     ready = false;
+  let stopPageView: (() => void) | undefined;
+  const stopWorkBundles: (() => void)[] = [];
+  let admittedTags:
+    | { pageViewTags?: readonly string[]; pageDataTags?: readonly string[] }
+    | undefined;
   const channel = new MessageChannel();
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
@@ -450,6 +462,8 @@ export async function mountRenderer(
       });
     }
     stopped = true;
+    stopPageView?.();
+    stopWorkBundles.forEach((stop) => stop());
     stopTheme();
     options.onSlots?.([]);
     options.onEditLocks?.([]);
@@ -479,6 +493,21 @@ export async function mountRenderer(
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
+    if (
+      ready &&
+      Object.keys(value).length === 3 &&
+      value.type === 'colab.render.attachment-download' &&
+      value.renderId === snapshot.renderId &&
+      typeof value.reference === 'string' &&
+      IMAGE_REFERENCE.test(value.reference)
+    ) {
+      const token = value.reference.slice('colab-attachment:'.length);
+      const matches = imageInput.descriptors.filter((item) =>
+        token.length === 8 ? item.attachmentId.startsWith(token) : item.attachmentId === token,
+      );
+      if (matches.length === 1) options.onAttachmentDownload?.(matches[0]!.attachmentId);
+      return;
+    }
     if (ready && pageLinkRequest(value, snapshot.renderId)) {
       options.onLink?.(value, navigator.userActivation?.isActive === true);
       return;
@@ -630,6 +659,69 @@ export async function mountRenderer(
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
     images(imageInput);
+    const sourceElements = [
+      ...new DOMParser().parseFromString(source, 'text/html').querySelectorAll('*'),
+    ];
+    const listTags = new Set(admittedTags?.pageViewTags ?? []);
+    const dataTags = new Set(admittedTags?.pageDataTags ?? []);
+    if (sourceElements.some((element) => listTags.has(element.localName))) {
+      const unavailable = () => {
+        if (!stopped)
+          channel.port1.postMessage({
+            type: 'colab.render.page-view',
+            renderId: snapshot.renderId,
+            rows: null,
+          });
+      };
+      stopPageView = options.pageView?.((rows) => {
+        if (!stopped)
+          channel.port1.postMessage({
+            type: 'colab.render.page-view',
+            renderId: snapshot.renderId,
+            rows,
+          });
+      }, unavailable);
+      if (!options.pageView) unavailable();
+    }
+    const workPages = new Set(
+      sourceElements
+        .filter((element) => dataTags.has(element.localName) && element.hasAttribute('page'))
+        .map((node) => node.getAttribute('page') ?? '')
+        .filter((page) => /^[A-Za-z0-9_-]{1,128}$/.test(page))
+        .slice(0, 20),
+    );
+    for (const page of workPages) {
+      const send = (data: unknown) => {
+        const message = {
+          type: 'colab.render.work-bundle',
+          renderId: snapshot.renderId,
+          page,
+          data,
+        };
+        if (stopped) return;
+        channel.port1.postMessage(
+          new TextEncoder().encode(JSON.stringify(message)).byteLength <= 16 * 1024
+            ? message
+            : { ...message, data: null },
+        );
+      };
+      if (!options.workBundle) {
+        send(null);
+        continue;
+      }
+      try {
+        stopWorkBundles.push(
+          options.workBundle.subscribe(
+            page,
+            options.signal,
+            (data) => send(data ?? null),
+            () => send(null),
+          ),
+        );
+      } catch {
+        send(null);
+      }
+    }
     options.onState('ready');
   };
   // A message the port cannot deliver may have been the answer to an update: mount afresh.
@@ -1339,6 +1431,7 @@ export async function mountRenderer(
     let bundle: PageRuntime | undefined;
     const ds = await designSystem;
     if (stopped) return;
+    admittedTags = ds;
     if (runtime) {
       try {
         bundle = await runtime;
@@ -1355,7 +1448,7 @@ export async function mountRenderer(
         theme: getTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(bundle ? { runtime: bundle } : {}),
-        ...(bundle && ds ? { ds } : {}),
+        ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
       },
       '*',
       [channel.port2],

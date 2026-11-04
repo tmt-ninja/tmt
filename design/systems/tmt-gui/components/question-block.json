@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "question-block",
+  "source": "question-block.js",
+  "requires": ["button"],
+  "props": {
+    "label": {"type": "string"},
+    "agent": {"type": "string"},
+    "kind": {"enum": ["single", "multiple", "short"], "default": "single"},
+    "choices": {"type": "string", "default": "[]"},
+    "state": {"enum": ["waiting", "answered", "dismissed"], "default": "waiting"},
+    "answer": {"type": "string"}
+  },
+  "slots": ["default"],
+  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "examples": [{
+    "title": "Choose or write an answer",
+    "markup": "<tmt-ui-question-block label=\"Which screen first?\" agent=\"gui-lead\" choices='[&quot;Insert menu&quot;,&quot;Block handle&quot;]'></tmt-ui-question-block>",
+    "widths": [1440, 390]
+  }]
+}

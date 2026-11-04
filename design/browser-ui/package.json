@@ -24,9 +24,12 @@
     "./test-fixtures/*": "./test/fixtures/*",
     "./list-table": "./src/list-table-host.ts",
     "./rich-input": "./src/rich-input/index.ts",
+    "./blocks": "./src/blocks/index.ts",
+    "./blocks.css": "./src/blocks/blocks.css",
     "./data-table": "./src/data-table/index.ts",
-    "./manage-list": "./src/manage-list/index.ts",
-    "./blocks": "./src/blocks/index.ts"
+    "./data-table.css": "./src/data-table/data-table.css",
+    "./page-list.css": "./src/data-table/page-list.css",
+    "./manage-list": "./src/manage-list/index.ts"
   },
   "scripts": {
     "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write && node scripts/generate-brand.mjs --write && node scripts/generate-docs-embed-css.mjs --write",

@@ -91,12 +91,21 @@ export async function renderDocs() {
               usage: doc.usage,
               variants: doc.variants.map(([label, node], index) => ({
                 label,
-                // These two React-only scene families have no page tags yet. Keep their
-                // document text and restore the live scenes with #5981 part B.
+                // The page frame resolves this bundle tag live, without a frame or a scene registry.
                 render:
                   (doc.slug === 'page-list' && index > 0) ||
                   (doc.slug === 'data-table' && index < 7)
-                    ? h('p', null, 'Live preview returns with the page-view tags in #5981 part B.')
+                    ? h('tmt-ui-page-view', {
+                        label,
+                        'group-by': doc.slug === 'data-table' ? 'none' : 'state',
+                        ...(doc.slug === 'data-table' && index === 1 ? { selectable: true, selected: 'two' } : {}),
+                        ...(doc.slug === 'data-table' && index === 2 ? { density: 'comfortable' } : {}),
+                        ...(doc.slug === 'data-table' && index >= 4 ? { state: ['loading', 'empty', 'error'][index - 4] } : {}),
+                        rows: JSON.stringify([
+                          { id: 'one', name: 'Structured pages', projects: ['spec'], stage: 'Awaiting decision', updated: 'Today', author: 'gui-lead' },
+                          { id: 'two', name: 'Night execution plan', projects: ['night'], stage: 'In progress', updated: 'Yesterday', author: 'night-lead' },
+                        ]),
+                      })
                     : h(node),
               })),
               dos: doc.dos,

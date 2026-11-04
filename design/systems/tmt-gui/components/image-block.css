@@ -1,0 +1,104 @@
+.tmt-image-block {
+  container: tmt-image-block / inline-size;
+}
+.tmt-image-block-list {
+  display: flex;
+  gap: var(--tmt-ui-space-s);
+  overflow-x: auto;
+}
+.tmt-image-block :is(button, a) {
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-image-block button:focus-visible,
+.tmt-image-block a:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+.tmt-image-block[data-layout='grid'] .tmt-image-block-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.tmt-image-block figure {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.tmt-image-block figure img {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+.tmt-image-block[data-size='s'] figure img {
+  max-height: 140px;
+}
+.tmt-image-block[data-size='m'] figure img {
+  max-height: 180px;
+}
+.tmt-image-block[data-size='l'] figure img {
+  max-height: 240px;
+}
+.tmt-image-block[data-size='s'] figure {
+  width: 10rem;
+}
+.tmt-image-block[data-size='m'] figure {
+  width: 20rem;
+  max-width: 100%;
+}
+.tmt-image-block[data-size='l'] figure {
+  width: 100%;
+}
+.tmt-image-block-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+}
+.tmt-image-block-viewer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s);
+}
+.tmt-image-block-viewer-canvas {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  min-height: 0;
+  touch-action: none;
+}
+.tmt-image-block-viewer-canvas img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+.tmt-image-block-files {
+  display: grid;
+  gap: var(--tmt-ui-space-s);
+}
+.tmt-image-block-file {
+  display: flex;
+  gap: var(--tmt-ui-space-s);
+  padding: var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+}
+@container tmt-image-block (max-width: 480px) {
+  .tmt-image-block-controls button {
+    display: none;
+  }
+  .tmt-image-block[data-size='s'] figure img {
+    max-height: 96px;
+  }
+  .tmt-image-block[data-size='m'] figure img {
+    max-height: 120px;
+  }
+  .tmt-image-block[data-size='l'] figure img {
+    max-height: 160px;
+  }
+}

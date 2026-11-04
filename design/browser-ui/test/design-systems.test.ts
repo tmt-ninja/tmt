@@ -19,6 +19,45 @@ const sha256Hex = async (text: string) => createHash('sha256').update(text).dige
 const button = template.components[0]!;
 
 describe('buildBundle', () => {
+  it('requires named shared parts to be declared on runtime 3 components', async () => {
+    const system = { ...template.system, runtime: '3' };
+    const page = {
+      ...button,
+      parts: ['PageListTable'],
+      source: 'export default ({ parts }) => parts.PageListTable;',
+    };
+    const bundle = await buildBundle('x', system, [page], sha256Hex);
+    expect(bundle.runtime).toBe('3');
+    expect(bundle.components[0]?.parts).toEqual(['PageListTable']);
+    await expect(
+      buildBundle('x', { ...template.system, runtime: '2' }, [page], sha256Hex),
+    ).rejects.toThrow('runtime 3');
+    await expect(
+      buildBundle('x', system, [{ ...page, parts: ['Other'] }], sha256Hex),
+    ).rejects.toThrow('shared part');
+  });
+  it('admits only named runtime 3 data capabilities', async () => {
+    const component = { ...button, data: ['page'] };
+    const system = { ...template.system, runtime: '3' };
+    expect((await buildBundle('x', system, [component], sha256Hex)).components[0]?.data).toEqual([
+      'page',
+    ]);
+    await expect(
+      buildBundle('x', { ...system, runtime: '2' }, [component], sha256Hex),
+    ).rejects.toThrow('runtime 3');
+    await expect(
+      buildBundle('x', system, [{ ...component, data: ['arbitrary'] }], sha256Hex),
+    ).rejects.toThrow('data capability');
+  });
+  it('requires nested system tags to exist in the same runtime 3 bundle', async () => {
+    const nested = { ...button, tag: 'composite', requires: ['button'] };
+    const system = { ...template.system, runtime: '3' };
+    await expect(buildBundle('x', system, [nested], sha256Hex)).rejects.toThrow(
+      'missing component dependency',
+    );
+    const built = await buildBundle('x', system, [button, nested], sha256Hex);
+    expect(built.components[1]?.requires).toEqual(['button']);
+  });
   it('rebuilds the checked-in built-in bundle from the template', async () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     expect(JSON.parse(readFileSync(builtIn, 'utf8'))).toEqual(bundle);
@@ -49,6 +88,11 @@ describe('buildBundle', () => {
       'tmt-ui-code-block',
       'tmt-ui-block-mention',
       'tmt-ui-block-toast',
+      'tmt-ui-page-view',
+      'tmt-ui-work-bundle',
+      'tmt-ui-mockup-block',
+      'tmt-ui-question-block',
+      'tmt-ui-image-block',
     ]);
   });
 
@@ -155,7 +199,7 @@ describe('checkElements', () => {
   });
 });
 
-it('keeps generated template pages iframe-free and names the deferred scene tags', () => {
+it('keeps generated template pages iframe-free and restores page-view tags', () => {
   const pages = JSON.parse(
     readFileSync(new URL('../../systems/tmt-gui/generated/pages.json', import.meta.url), 'utf8'),
   ) as { pages: { slug: string; html: string }[] }[];
@@ -163,6 +207,6 @@ it('keeps generated template pages iframe-free and names the deferred scene tags
   expect(all.some((page) => /<iframe\b/i.test(page.html))).toBe(false);
   for (const slug of ['page-list', 'data-table']) {
     const page = all.find((entry) => entry.slug === slug);
-    expect(page?.html).toContain('Live preview returns with the page-view tags in #5981 part B.');
+    expect(page?.html).toContain('<tmt-ui-page-view');
   }
 });

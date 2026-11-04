@@ -492,7 +492,25 @@
             [...doc.documentElement.attributes].map((a) => [a.name, a.value]),
           ]);
         }
-        function install(renderId, port, theme, layout, boundSource) {
+        function install(renderId, port, theme, layout, boundSource, withRuntime) {
+          // Installed before the page runtime and removed when it registers. Author scripts run
+          // afterwards and cannot impersonate a message from the private renderer port.
+          let blockSink;
+          const pendingBlocks = [];
+          if (withRuntime)
+            Object.defineProperty(window, '__colabBlockData', {
+              configurable: true,
+              value: (sink) => {
+                if (typeof sink !== 'function' || blockSink) return;
+                blockSink = sink;
+                delete window.__colabBlockData;
+                for (const value of pendingBlocks.splice(0)) blockSink(value);
+              },
+            });
+          const sendBlockData = (value) => {
+            if (blockSink) blockSink(value);
+            else if (pendingBlocks.length < 21) pendingBlocks.push(value);
+          };
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
           // Only a framed layout selects the column rules; every page gets the frame's marker lane.
@@ -703,6 +721,14 @@
           function configureImages(next) {
             if (next !== imageRequestId) imageResults.clear();
             imageRequestId = next;
+            // A live component can remove its images; do not retain detached React trees.
+            for (const [reference, items] of images) {
+              const live = items.filter(
+                (item) => item.image.isConnected || item.placeholder?.isConnected,
+              );
+              if (live.length) images.set(reference, live);
+              else images.delete(reference);
+            }
             // Retain original image attributes across authority/generation resets.
             for (const items of images.values())
               for (const item of items) imagePlaceholder(item, 'unavailable');
@@ -856,6 +882,18 @@
             if (href === null || href === undefined) return;
             // Never let an ordinary link navigate this isolated document, including a refused URL.
             event.preventDefault();
+            if (
+              link.hasAttribute('download') &&
+              /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
+                href,
+              )
+            ) {
+              parent.postMessage(
+                { type: 'colab.render.attachment-download', renderId, reference: href },
+                '*',
+              );
+              return;
+            }
             if (!href.startsWith('#')) {
               if (utf8.encode(href).length > 8 * 1024) return;
               parent.postMessage(
@@ -2429,6 +2467,29 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.work-bundle' &&
+              Object.keys(v).length === 4 &&
+              v.renderId === renderId &&
+              typeof v.page === 'string' &&
+              /^[A-Za-z0-9_-]{1,128}$/.test(v.page) &&
+              (v.data === null ||
+                (v.data && typeof v.data === 'object' && !Array.isArray(v.data))) &&
+              utf8.encode(JSON.stringify(v)).length <= 16 * 1024
+            ) {
+              sendBlockData({ type: 'work-bundle', page: v.page, data: v.data });
+              return;
+            }
+            if (
+              v?.type === 'colab.render.page-view' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              (v.rows === null || (Array.isArray(v.rows) && v.rows.length <= 200)) &&
+              utf8.encode(JSON.stringify(v)).length <= 66 * 1024
+            ) {
+              sendBlockData({ type: 'page-view', rows: v.rows });
+              return;
+            }
+            if (
               v?.type === 'colab.render.source' &&
               Object.keys(v).length === 4 &&
               typeof v.requestId === 'string' &&
@@ -2870,6 +2931,22 @@
             resolve();
           };
           const observer = new MutationObserver((mutations) => {
+            // Custom-element parts can insert attachment images after the initial page scan.
+            // Scan only additions containing a new reference, not our own resolved image updates.
+            if (
+              imageRequestId &&
+              mutations.some(
+                (m) =>
+                  m.type === 'childList' &&
+                  [...m.addedNodes].some(
+                    (node) =>
+                      node instanceof Element &&
+                      (node.matches('img[src^="colab-attachment:"]') ||
+                        node.querySelector('img[src^="colab-attachment:"]')),
+                  ),
+              )
+            )
+              configureImages(imageRequestId);
             if (
               mutations.some(
                 (m) =>
@@ -3157,12 +3234,22 @@
           const port = event.ports[0];
           // The temporary callback transfers no authority; it runs before author HTML.
           window.__colabRenderStart = () =>
-            install(value.renderId, port, value.theme, value.layout, value.source);
+            install(
+              value.renderId,
+              port,
+              value.theme,
+              value.layout,
+              value.source,
+              !!value.runtime && !!value.ds,
+            );
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           const runtime = value.runtime
             ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
             : '';
+          // Even if the runtime failed to initialize, author scripts never receive the one-shot hook.
+          const closeBlockRegistration =
+            value.runtime && value.ds ? '<script>delete window.__colabBlockData;<\/script>' : '';
           // A pinned design system brings the runtime, whose reset outranks the editorial layer; a page
           // that did not ask for the runtime itself keeps the editorial ramp for its text (#5917).
           // BEGIN GENERATED DS PROSE
@@ -3182,7 +3269,7 @@
           const design = usesDesign(value.source) ? ' data-colab-design' : '';
           document.open();
           document.write(
-            `<!doctype html><html${design}><head>${acknowledgement}${runtime}${ds}</head><body>${value.source}</body></html>`,
+            `<!doctype html><html${design}><head>${acknowledgement}${runtime}${closeBlockRegistration}${ds}</head><body>${value.source}</body></html>`,
           );
           document.close();
         };

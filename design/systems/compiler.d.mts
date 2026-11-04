@@ -1,6 +1,8 @@
 // Types for compiler.mjs, the design-system compiler the Colab app shares with compile.mjs.
 export const SCHEMA: 1;
 export const RUNTIME: '2';
+export const SHARED_PARTS: readonly string[];
+export const DATA_CAPABILITIES: readonly string[];
 export const SKELETON: readonly string[];
 export class DesignSystemError extends Error {}
 export interface PropSpec {
@@ -14,6 +16,9 @@ export interface ComponentDoc {
   tag: string;
   props: Record<string, PropSpec>;
   slots: string[];
+  parts?: string[];
+  data?: string[];
+  requires?: string[];
   examples?: { title: string; markup: string; widths?: number[] }[];
   source: string;
   css: string;
@@ -46,6 +51,9 @@ export interface Bundle {
     tag: string;
     props: Record<string, PropSpec>;
     slots: string[];
+    parts?: string[];
+    data?: string[];
+    requires?: string[];
     examples: { title: string; markup: string }[];
     css: string;
     code: string;

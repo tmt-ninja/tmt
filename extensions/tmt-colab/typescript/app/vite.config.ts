@@ -86,6 +86,18 @@ export default defineConfig(({ mode }) => ({
       },
     },
     {
+      // Shared-part styles travel in the declaring component's bundle CSS, rather than in every
+      // runtime page. The library build also emits those imported CSS files; do not ship that copy.
+      name: 'colab-runtime-shared-parts-css',
+      apply: () => mode === 'runtime',
+      enforce: 'post',
+      generateBundle(_options, bundle) {
+        const css = bundle['colab-app.css'];
+        if (css?.type !== 'asset') throw new Error('Missing runtime shared-part CSS');
+        delete bundle['colab-app.css'];
+      },
+    },
+    {
       name: 'colab-renderer-policy',
       configureServer(server) {
         // Use the native policy owner, avoiding a second dev-only policy copy.
