@@ -340,7 +340,14 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     let mut app = workspace_board();
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
-    let order = ["⏎ chat", "j host", "o open", "down next", "up previous"];
+    let order = [
+        "⏎ chat",
+        "e edit",
+        "n new",
+        "r rename",
+        "down next",
+        "up previous",
+    ];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -372,21 +379,20 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut app = workspace_board();
     workspace_keys(&mut app, "[bind]\nenter = \"talk\"\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
-    assert!(plain.contains("⏎ chat") && plain.contains("j host"));
-    assert!(plain.contains("r chat") && !plain.contains("o open"));
+    assert!(plain.contains("⏎ chat") && plain.contains("r chat"));
+    let open = crate::action::Action::parse("open").unwrap();
+    assert!(!super::footer::row_allows(&app, &open));
     workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let ready = hints(&app, usize::MAX);
-    assert!(
-        ready.contains("r chat") && ready.contains("o open"),
-        "{ready}"
-    );
+    assert!(ready.contains("r chat"), "{ready}");
+    assert!(super::footer::row_allows(&app, &open));
     workspace_row(&mut app)["waitingOnYou"] = Value::Null;
     assert!(hints(&app, usize::MAX).contains("r chat"));
     app.select(0);
     let pool = hints(&app, usize::MAX);
     assert!(
-        !pool.contains("⏎ chat") && !pool.contains("j host") && !pool.contains("o open"),
+        !pool.contains("⏎ chat") && !pool.contains("r chat"),
         "{pool}"
     );
     assert!(pool.contains("/ search") && pool.ends_with("? help  q quit"));
@@ -428,7 +434,8 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
         text.contains("Z chat"),
         "stable first effective key represents duplicate action"
     );
-    assert!(text.contains("t copy"));
+    assert!(!text.contains("t copy"), "copy stays in Help: {text}");
+    assert!(help_lines(&app).iter().any(|line| line.starts_with("t  ")));
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE)),
         Effect::None
