@@ -39,5 +39,6 @@ export function useShortcuts(space: string | undefined) {
     store,
     items: state.store === store ? state.items : [],
     error: state.store === store ? state.error : undefined,
+    retry: refresh,
   };
 }

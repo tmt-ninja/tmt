@@ -1,6 +1,9 @@
 //! Exact original bytes behind the declared transport projection. Syntax and
 //! scope checks here never replace certificate, membership or epoch admission.
-use super::{Field, Fields, Invalid, Resource, decode, encode, integer, text};
+use super::{
+    CHUNK_BYTES, Field, Fields, Invalid, LOG_ENVELOPE_BYTES, MAX_CHUNKS, Resource, binary, decode,
+    encode, integer, text,
+};
 use tmt_colab_model::{crypto, object, values};
 use tmt_extension_objects::{Sha256Hex, sync};
 
@@ -10,8 +13,9 @@ pub struct Original {
     pub header: object::Header,
     pub hash: [u8; 32],
 }
+/// A cloud original: the v2 bytes of one row or of one object's ordered chunks.
 fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original, Invalid> {
-    let envelope = object::Envelope::from_json(&bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(&bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != text(fields, "space")?
@@ -29,11 +33,11 @@ fn original(bytes: Vec<u8>, fields: &Fields, kinds: &[&str]) -> Result<Original,
     })
 }
 /// Compare unsigned routing fields with the sealed header/hash before admission.
-/// The returned bytes are exactly those received, including JSON whitespace.
+/// The returned bytes are the local v2 form of the original received.
 pub fn log(document: &sync::Document) -> Result<Original, Invalid> {
     let fields = decode(Resource::Log, document)?;
     let result = original(
-        text(&fields, "envelope")?.as_bytes().to_vec(),
+        binary(&fields, "envelope", LOG_ENVELOPE_BYTES)?,
         &fields,
         &["update"],
     )?;
@@ -55,19 +59,19 @@ pub fn checkpoint_documents(fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Do
 }
 /// The chunk records of one exact object, each a whole-field create under the same routing.
 fn chunk_documents(mut fields: Fields, bytes: &[u8]) -> Result<Vec<sync::Document>, Invalid> {
-    let count = bytes.len().div_ceil(32_768);
-    if count > 513 {
+    let count = bytes.len().div_ceil(CHUNK_BYTES);
+    if count > MAX_CHUNKS {
         return Err(Invalid);
     }
     fields.insert("count".into(), Field::number(count as u64)?);
     bytes
-        .chunks(32_768)
+        .chunks(CHUNK_BYTES)
         .enumerate()
         .map(|(index, chunk)| {
             let mut row = fields.clone();
             row.insert("index".into(), Field::number(index as u64)?);
             row.insert("seq".into(), Field::number(index as u64 + 1)?);
-            row.insert("bytes".into(), Field::String(values::encode_binary(chunk)));
+            row.insert("bytes".into(), Field::bytes(chunk));
             encode(Resource::Checkpoints, row)
         })
         .collect()
@@ -86,7 +90,7 @@ pub fn checkpoint(documents: &[sync::Document]) -> Result<Original, Invalid> {
 fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
     let first = decode(Resource::Checkpoints, documents.first().ok_or(Invalid)?)?;
     let count = integer(&first, "count")?;
-    if count == 0 || count > 513 || count != documents.len() as u64 {
+    if count == 0 || count != documents.len() as u64 {
         return Err(Invalid);
     }
     let mut bytes = Vec::new();
@@ -100,9 +104,9 @@ fn chunks(documents: &[sync::Document]) -> Result<(Fields, Vec<u8>), Invalid> {
         if integer(&fields, "index")? != index as u64 {
             return Err(Invalid);
         }
-        let chunk = values::binary(text(&fields, "bytes")?, 32_768).map_err(|_| Invalid)?;
+        let chunk = binary(&fields, "bytes", CHUNK_BYTES)?;
         // Only the final chunk may be short; the producer's partition is fixed.
-        if index + 1 < documents.len() && chunk.len() != 32_768 {
+        if index + 1 < documents.len() && chunk.len() != CHUNK_BYTES {
             return Err(Invalid);
         }
         bytes.extend_from_slice(&chunk);
@@ -116,7 +120,7 @@ pub fn baseline_documents(
     routing: &Routing<'_>,
     bytes: &[u8],
 ) -> Result<Vec<sync::Document>, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if routing.epoch < 2
@@ -170,7 +174,7 @@ impl Routing<'_> {
 /// The record that carries one stored update, byte for byte. The stream and sequence come from
 /// the signed header, so an update can only be published under its own identity.
 pub fn log_document(routing: &Routing<'_>, bytes: &[u8]) -> Result<sync::Document, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let context = &header.context;
     if context.space != routing.space
@@ -195,16 +199,16 @@ pub fn log_document(routing: &Routing<'_>, bytes: &[u8]) -> Result<sync::Documen
             &envelope.hash().map_err(|_| Invalid)?,
         )),
     );
-    fields.insert(
-        "envelope".into(),
-        Field::String(String::from_utf8(bytes.to_vec()).map_err(|_| Invalid)?),
-    );
+    if bytes.len() > LOG_ENVELOPE_BYTES {
+        return Err(Invalid);
+    }
+    fields.insert("envelope".into(), Field::bytes(bytes));
     encode(Resource::Log, fields)
 }
 /// The create-only records of one paired checkpoint original: its fields without the chunk
 /// facts, which `checkpoint_documents` adds.
 pub fn checkpoint_base(routing: &Routing<'_>, bytes: &[u8]) -> Result<Fields, Invalid> {
-    let envelope = object::Envelope::from_json(bytes).map_err(|_| Invalid)?;
+    let envelope = object::Envelope::from_bytes(bytes).map_err(|_| Invalid)?;
     let header = object::Header::decode(envelope.header()).map_err(|_| Invalid)?;
     let mut fields = routing.base()?;
     fields.insert("object".into(), Field::String(header.object_id));

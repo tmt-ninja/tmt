@@ -1,4 +1,4 @@
-import { brandMarkSvg, freshMarkId } from './brand-mark-svg.js';
+import { brandMarkSvg } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
 import {
@@ -23,6 +23,8 @@ export interface ShellAnswer {
 }
 export interface ShellModule {
   extension: string;
+  /** An extension's extra module (#5811/#5819), such as Colab's `design`; absent on its primary. */
+  module?: string;
   rail: { label: string; icon: string; path: string; order: number };
   menu: { id: string; label: string; path: string; group?: string; count?: ShellAnswerCount }[];
   settings: { id: string; label: string; path: string }[];
@@ -77,15 +79,21 @@ export interface ShellMenuItem {
 export interface ShellMenuAction {
   label: string;
   onActivate(): void;
+  /** Explain an unavailable command without removing it from the menu. */
+  disabledReason?: string;
 }
 export interface ShellMenuIconAction extends ShellMenuAction {
   icon: ShellIcon;
 }
 export interface ShellMenuGroup {
   label?: string;
+  /** Decorative icon for rows without their own icon, independent of the heading. */
+  fallbackIcon?: ShellIcon;
   /** At most one command beside the heading; omitting the icon renders its label as text. */
   action?: ShellMenuAction & { icon?: ShellIcon };
   items: ShellMenuItem[];
+  /** Inline read failure and a host-owned retry command. */
+  alert?: { message: string; retry: ShellMenuAction };
   /** Visible and accessible label; the rail adds the decorative plus icon. */
   add?: ShellMenuAction;
   /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
@@ -197,15 +205,24 @@ export async function loadShellAnswer(address: string): Promise<ShellAnswer | un
  */
 const RAIL: readonly { id: string; label: string; icon: ShellIcon; path: string }[] = [
   { id: 'colab', label: 'Colab', icon: 'file-text', path: '/colab/' },
+  // Design is Colab's extra module, a peer beside it (#5873).
+  { id: 'design', label: 'Design', icon: 'palette', path: '/colab/design/' },
   { id: 'remote', label: 'Remote', icon: 'monitor-smartphone', path: '/remote/' },
   { id: 'ops', label: 'Ops', icon: 'users', path: '/ops/' },
   { id: 'digest', label: 'Digest', icon: 'chart-column', path: '/digest/' },
 ];
+/**
+ * A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
+ * extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
+ * Design extra, which is the fixed `design` item.
+ */
+export const shellModuleKey = (module: Pick<ShellModule, 'extension' | 'module'>) =>
+  module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
 const HOST_SERVED = new Set(['remote', 'ops', 'digest']);
 
 /**
- * Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+ * Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
  * order, then TMT settings at the bottom. Colab is available
  * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
  * The current item is the host's module, else the longest matching path.
@@ -216,7 +233,10 @@ export function shellRail(
   host?: ShellModule,
 ): ShellView['rail'] {
   const active = host?.extension;
-  const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+  const keyOf = shellModuleKey;
+  const owner = (id: string) => (id === 'design' ? 'colab' : id.split(':')[0]);
+  const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
+  const primaries = (answer?.modules ?? []).filter((module) => !module.module);
   // The host page's own module is available even when the answer does not describe it.
   const hosted = (id: string) => host?.extension === id;
   const path = place.href.slice(place.origin.length);
@@ -226,6 +246,19 @@ export function shellRail(
     : 'Pair this browser with Remote to open it';
   const modules = [
     ...RAIL.map((fixed) => {
+      // Design is Colab's extra module: its own destination and no duplicate attention count.
+      // Before Colab describes it, the rail keeps Colab's own Design route.
+      if (fixed.id === 'design') {
+        const module = described.get('colab:design');
+        return {
+          id: fixed.id,
+          label: module?.rail.label ?? fixed.label,
+          icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+          href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+          needsYou: undefined,
+          available: described.has('colab') || hosted('colab'),
+        };
+      }
       const module = described.get(fixed.id);
       return {
         id: fixed.id,
@@ -238,24 +271,29 @@ export function shellRail(
         available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id),
       };
     }),
-    ...[...described.values(), ...(host && !described.has(host.extension) ? [host] : [])]
-      .filter((module) => !RAIL.some((fixed) => fixed.id === module.extension))
+    ...[...described.values(), ...(host && !described.has(keyOf(host)) ? [host] : [])]
+      .filter((module) =>
+        module.module
+          ? keyOf(module) !== 'colab:design'
+          : !RAIL.some((fixed) => fixed.id === module.extension),
+      )
       .sort((a, b) => a.rail.order - b.rail.order)
       .map((module) => ({
-        id: module.extension,
+        id: keyOf(module),
         label: module.rail.label,
         icon: moduleIcon(module.rail.icon),
         href: module.rail.path,
-        needsYou: module.needsYou,
+        needsYou: module.module ? undefined : module.needsYou,
         available: true,
       })),
   ];
-  const matched =
-    active ??
-    modules
-      .filter((module) => module.available && place.href.startsWith(module.href))
-      .sort((a, b) => b.href.length - a.href.length)[0]?.id;
-  const counts = [...described.values()].map((module) => module.needsYou);
+  const longest = modules
+    .filter((module) => module.available && place.href.startsWith(module.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.id;
+  // A host's extra module (Colab's Design) wins within that host by its longer path.
+  const matched = longest && owner(longest) === active ? longest : (active ?? longest);
+  // Attention counts come from each extension's primary module only.
+  const counts = primaries.map((module) => module.needsYou);
   const total =
     answer && counts.every((count) => count !== undefined)
       ? counts.reduce<number>((sum, count) => sum + count!, 0)
@@ -419,13 +457,7 @@ export function mountShell(
   // no breadcrumb.
   const brand = document.createElement('div');
   brand.className = 'tmt-ui-shell-brand';
-  // One rail per document draws its own paint servers: a second shell (a fixture, the gallery, a
-  // hidden earlier mount) must not make the visible mark resolve to a hidden copy.
-  const markId = freshMarkId(
-    'tmt-rail',
-    (prefix) => document.getElementById(`${prefix}-aurora`) !== null,
-  );
-  brand.innerHTML = brandMarkSvg({ size: 32, id: markId });
+  brand.innerHTML = brandMarkSvg({ size: 32 });
   const text = document.createElement('span');
   text.className = 'tmt-ui-shell-brand-text';
   const word = document.createElement('span');
@@ -494,8 +526,12 @@ export function mountShell(
   tip.popover = 'manual';
   root.append(tip);
   let release = () => {};
+  // The row the tip stands beside, and a row a press is on: a click never pops its tip (#5911).
+  let tipAnchor: HTMLElement | undefined;
+  let pressed: HTMLElement | undefined;
   const hideTip = () => {
     release();
+    tipAnchor = undefined;
     if (tip.matches(':popover-open')) tip.hidePopover();
   };
   const showTip = (anchor: HTMLElement) => {
@@ -503,18 +539,41 @@ export function mountShell(
     if (!text || root.dataset.drawer === 'open') return hideTip();
     release();
     release = claimIconActionTooltip(document, hideTip);
+    tipAnchor = anchor;
     tip.textContent = text;
     if (!tip.matches(':popover-open')) tip.showPopover();
     const box = anchor.getBoundingClientRect();
     tip.style.left = `${box.right}px`;
     tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
   };
+  // Tips are the rail's, by delegation: a row only names its note, so a row kept across updates
+  // keeps working, and the tip follows the pointer or keyboard focus, never a press or a focus
+  // the shell restores.
+  const noted = (target: EventTarget | null) =>
+    target instanceof Element ? target.closest<HTMLElement>('[data-note]') : null;
+  rail.addEventListener('pointerover', (event) => {
+    const anchor = noted(event.target);
+    if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
+  });
+  rail.addEventListener('pointerout', (event) => {
+    const from = noted(event.target);
+    if (from && from === noted(event.relatedTarget)) return;
+    if (from === pressed) pressed = undefined;
+    if (from && from === tipAnchor) hideTip();
+  });
+  rail.addEventListener('pointerdown', (event) => {
+    pressed = noted(event.target) ?? undefined;
+    hideTip();
+  });
+  rail.addEventListener('focusin', (event) => {
+    const anchor = noted(event.target);
+    if (anchor && anchor === event.target && anchor.matches(':focus-visible')) showTip(anchor);
+  });
+  rail.addEventListener('focusout', (event) => {
+    if (noted(event.target) === tipAnchor) hideTip();
+  });
   const tipFor = (anchor: HTMLElement, text: string) => {
     anchor.dataset.note = text;
-    anchor.addEventListener('pointerenter', () => showTip(anchor));
-    anchor.addEventListener('focus', () => showTip(anchor));
-    anchor.addEventListener('pointerleave', hideTip);
-    anchor.addEventListener('blur', hideTip);
   };
   open.onclick = () => setDrawer(root.dataset.drawer !== 'open');
   const close = (event: KeyboardEvent) => {
@@ -540,11 +599,12 @@ export function mountShell(
     if (selected) anchor.setAttribute('aria-current', 'page');
     const disabled = 'disabled' in item && item.disabled;
     if (disabled) anchor.setAttribute('aria-disabled', 'true');
+    // The element's own attributes, not this item: an update may keep the row and patch them.
     anchor.onclick = (event) => {
-      if (disabled) return event.preventDefault();
+      if (anchor.getAttribute('aria-disabled') === 'true') return event.preventDefault();
       if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       setDrawer(false);
-      if (select?.(item.id, item.href)) event.preventDefault();
+      if (select?.(anchor.dataset.id!, anchor.getAttribute('href')!)) event.preventDefault();
     };
     return anchor;
   };
@@ -553,6 +613,7 @@ export function mountShell(
     className: string,
     item: ShellMenuItem,
     selected: ShellMenuItem | undefined,
+    fallbackIcon?: ShellIcon,
   ) => {
     const anchor = link(className, item, item === selected);
     if (item.note) anchor.title = item.note;
@@ -560,7 +621,8 @@ export function mountShell(
     label.className = 'tmt-ui-module-menu-label';
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
-    if (item.icon) anchor.append(icon(document, item.icon));
+    const mark = item.icon ?? fallbackIcon;
+    if (mark) anchor.append(icon(document, mark));
     anchor.append(label);
     if (item.emphasis === 'unread') {
       anchor.dataset.emphasis = 'unread';
@@ -604,13 +666,47 @@ export function mountShell(
     const button = document.createElement('button');
     button.type = 'button';
     button.className = className;
-    button.title = action.label;
+    button.title = action.disabledReason ?? action.label;
+    button.disabled = action.disabledReason !== undefined;
     if (mark) {
       button.setAttribute('aria-label', action.label);
       button.append(icon(document, mark));
       tipFor(button, action.label);
     } else button.textContent = action.label;
-    button.onclick = () => {
+    let keyTurn: Event | undefined;
+    const recordKey = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !event.isTrusted ||
+        !(
+          (event.key === 'Enter' && event.type === 'keydown') ||
+          (event.key === ' ' && event.type === 'keyup')
+        )
+      )
+        return;
+      keyTurn = event;
+      // #6016: native listeners may run a microtask checkpoint between handlers of the same key.
+      // Expire at the next task; TrustedMenuItem's React handler can use a microtask instead.
+      setTimeout(() => {
+        if (keyTurn === event) keyTurn = undefined;
+      }, 0);
+    };
+    button.addEventListener('keydown', recordKey);
+    button.addEventListener('keyup', recordKey);
+    button.onclick = (event) => {
+      const origin = keyTurn?.target;
+      const target = event.target;
+      const matchingKey =
+        !keyTurn?.defaultPrevented &&
+        origin instanceof Node &&
+        target instanceof Node &&
+        origin.contains(target)
+          ? keyTurn
+          : undefined;
+      // #6016 will move this import-free trust check to a neutral home shared with UI.
+      const admitted = event.isTrusted || matchingKey?.isTrusted === true;
+      if (admitted) keyTurn = undefined;
+      if (event.defaultPrevented || !admitted || button.disabled) return;
       setDrawer(false);
       activate();
     };
@@ -747,9 +843,28 @@ export function mountShell(
         section.append(heading, entries);
         list.append(section);
       }
+      if (group.alert) {
+        const row = document.createElement('li');
+        row.className = 'tmt-ui-rail-alert';
+        row.setAttribute('role', 'alert');
+        const message = document.createElement('span');
+        message.textContent = group.alert.message;
+        row.append(
+          message,
+          command('tmt-ui-rail-group-action', group.alert.retry, () =>
+            latest.menu?.groups[index]?.alert?.retry.onActivate(),
+          ),
+        );
+        entries.append(row);
+      }
       for (const item of group.items) {
         const row = document.createElement('li');
-        const anchor = menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item, selected);
+        const anchor = menuEntry(
+          'tmt-ui-module-menu-item tmt-ui-rail-sub-item',
+          item,
+          selected,
+          group.fallbackIcon,
+        );
         row.dataset.menuGroup = String(index);
         row.append(anchor);
         if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
@@ -820,8 +935,8 @@ export function mountShell(
     return list;
   };
 
-  // Hosts repaint on every data refresh; an unchanged view keeps its nodes, so a press in
-  // progress and keyboard focus survive.
+  // Hosts repaint on every data refresh. An unchanged view keeps its nodes, and a view with the same
+  // rows patches them in place, so a press in progress, hover, keyboard focus and an open tip survive.
   let shown = '';
   let latest = view;
   const render = (next: ShellView) => {
@@ -841,18 +956,37 @@ export function mountShell(
           part: focused?.dataset.railPart,
         }
       : undefined;
-    for (const controls of menuInteractions) controls.dispose();
+    const previous = menuInteractions;
     menuInteractions = [];
-    hideTip();
-    const railTop = rail.scrollTop;
     const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
     const selected = current ? visibleCurrent(next.menu) : undefined;
-    rail.replaceChildren(
-      brand,
-      railSearch,
+    const lists = [
       railList(next.rail.main, current, selected, undefined, next.menu),
       railList(next.rail.bottom, current, selected, 'tmt-ui-rail-bottom', next.menu),
-    );
+    ];
+    const live = [...rail.children].slice(2);
+    const pairs = lists.flatMap((list, index) => {
+      const shown = live[index];
+      return shown ? [[shown, list] as const] : [];
+    });
+    // The same rows, links and controls: move the highlight and update the counts and labels in
+    // place (#5911). Rebuilding would drop hover, focus and the open tip on every page change.
+    if (
+      live.length === lists.length &&
+      pairs.length === lists.length &&
+      pairs.every(([shown, list]) => sameShape(shown, list))
+    ) {
+      for (const [shown, list] of pairs) patchShape(shown, list);
+      for (const controls of menuInteractions) controls.dispose();
+      menuInteractions = previous;
+      root.dataset.menu = next.menu ? 'shown' : 'none';
+      if (tipAnchor?.isConnected) showTip(tipAnchor);
+      return;
+    }
+    for (const controls of previous) controls.dispose();
+    hideTip();
+    const railTop = rail.scrollTop;
+    rail.replaceChildren(brand, railSearch, ...lists);
     // Keep the same scroll owner across refreshes; shrinking content clamps its position.
     rail.scrollTop = railTop;
     syncRailScroll();
@@ -906,4 +1040,45 @@ export function mountShell(
       menu.remove();
     },
   };
+}
+
+/** What an update may change on a kept rail node; anything else is a different rail. */
+const PATCHED = new Set([
+  'aria-current',
+  'aria-label',
+  'aria-disabled',
+  'data-module-current',
+  'data-note',
+  'data-emphasis',
+  'href',
+  'title',
+]);
+/** Build-local names: a kept node keeps its own, which its partner already points at. */
+const LOCAL = new Set(['id', 'aria-controls']);
+const ownAttributes = (element: Element) =>
+  element
+    .getAttributeNames()
+    .filter((name) => !PATCHED.has(name) && !LOCAL.has(name))
+    .map((name) => `${name}=${element.getAttribute(name)}`)
+    .join('\n');
+/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
+function sameShape(live: Node, next: Node): boolean {
+  if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length)
+    return false;
+  if (live instanceof Element && next instanceof Element) {
+    if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next))
+      return false;
+  }
+  return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]!));
+}
+/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
+function patchShape(live: Node, next: Node) {
+  if (live instanceof Element && next instanceof Element) {
+    for (const name of PATCHED) {
+      const value = next.getAttribute(name);
+      if (value === null) live.removeAttribute(name);
+      else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+    }
+  } else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
+  live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]!));
 }

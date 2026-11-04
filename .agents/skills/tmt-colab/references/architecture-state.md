@@ -98,7 +98,7 @@ requests run outside its Worker executor; historical fetch uses a detached Worke
 Complete committed reads check every range and raw digest before Colab asset crypto.
 The root-local read is the serve's owner-only `attachment-read` route (`attachments/ipc.rs`,
 `socket.rs`): it requires an established channel, never activates storage or opens a backend, and
-answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one maintenance worker, woken after admitted management changes, membership-changing device revocations and new channel generations; it also runs a bounded rotating sweep of signed deletion tombstones through `object_channel/namespace.rs`, whose native-only callbacks recheck the committed deletion before namespace removal; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. A second ordinary owner Save repairs complete image `src` attachment references from the latest verified source, with the complete revision and source digest fenced; pending old-to-new mappings remain in the same 16-slot pool until settled. Maintenance reconciles a committed swap before age cleanup and before another replacement. Production Remote declares Colab Local;
+answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one maintenance worker, woken after admitted management changes, membership-changing device revocations and new channel generations; it also runs a bounded rotating sweep of signed deletion tombstones through `object_channel/namespace.rs`, whose native-only callbacks recheck the committed deletion before namespace removal, and one page per minute of `attachments/unreferenced.rs` (#5284): the reference set read from the page, local first-seen clocks in space.db `attachment_unreferenced`, and version-4 `objects.list`/`objects.remove` whose callbacks recheck the page fence (`Store::page_fence`) under `Server::exclusive`; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. A second ordinary owner Save repairs complete image `src` attachment references from the latest verified source, with the complete revision and source digest fenced; pending old-to-new mappings remain in the same 16-slot pool until settled. Maintenance reconciles a committed swap before age cleanup and before another replacement. Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #2299, not a new Store/schema here. Read failures are four reasons
 (`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps
@@ -168,11 +168,11 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 The answer-block path uses parent `questions.ts` admission, `question-layer.tsx`
 group selection and verified-thread projection. `components/question-group-card.tsx`
 owns drafts and publication outcomes once per logical group, with recipients and
-failures scoped to each physical Send block. `question-card.tsx` presents the
-controlled answer/conversation; `question-line.tsx` is the cosmetic disclosure.
+failures scoped to each physical Send block. `question-card.tsx` presents the controlled answer/conversation; `question-line.tsx`
+presents waiting questions and answered strips.
 A structural wrapper sends its eligible answers together; standalone questions
 sharing `data-group` keep separate placements and Sends. `inline-slots.ts` owns
-one measurement batch for proposals and answer blocks. Each compact block uses
+one measurement batch for inline page blocks. Each compact block uses
 the existing inline placeholder for its placement anchor and the bounded after
 spacer for its complete trusted height. Authored nodes stay in the canonical
 quote text map. `open(id)` selects and opens a question without publishing.
@@ -196,8 +196,7 @@ capabilities are unchanged.
 `needs-you.ts` combines the admitted layers' pending navigation without a stored count.
 Only current attached targets enter the header, including registered questions; an unanchored
 item keeps its records. `needs-you-header.tsx` owns the menu and one confirmed Clear all.
-Readings use `ReadingActions.mark` without advancing navigation. Questions, reviews and
-proposals use `needs-you-acknowledgement.ts`: exact item/version acknowledgements published
+Readings use `ReadingActions.mark` without advancing navigation. Questions and reviews use `needs-you-acknowledgement.ts`: exact item/version acknowledgements published
 by `ThreadStore` in the admitted viewer's own messages. The native decoder protects these
 acknowledgements from later own-record replacement or removal. They never answer, decide or close
 a domain item. `use-needs-you-versions.ts` binds each version to the inert authored target HTML
@@ -240,9 +239,21 @@ immutable one-comment send capture. Echo turns reserve their recipients' status 
 remain until the original send settles and its admitted outcomes replace them, so an intent
 awaiting its first state cannot flash recovery uncertainty. `use-annotations` owns the open annotation
 windows: each is a keyed composer, only one is visible, and a closed one stays mounted while its
-send runs. It is dropped once that send records. A first comment that failed stays hidden
-with its draft, and `unsentAnnotations` lists it for the page's alert row, whose Open (like the same
-quote) shows it again; discarding its kept draft (`discardDraft`) releases it. Only a status change fences opening,
+send runs. It is dropped once that send settles with a record. A comment that failed before recording, including a reply, stays hidden
+with its failed row, files and draft, and `unsentAnnotations` lists it for the page's alert row.
+Open restores that window; a failed first comment also opens on its same quote.
+Discarding a kept first-comment draft (`discardDraft`)
+releases its window. For any retained failure, Edit followed by deliberately clearing its text
+and Close releases that window and alert; Send's automatically cleared field does not. The same owner
+projects unrecorded first-comment selectors and sending/failed paint state to the renderer;
+send and record transitions trigger a render, and unchanged projections retain their identity.
+Chat follows the same model with its one composer: the panel stays mounted while closed, so Chat
+closes during a send (×, Escape or another panel) and the send keeps running. The composer
+reports whether it holds a failed row (`onUnsent`), and the page lists a closed Chat's failed
+send in the same alert row, whose Open reopens Chat on that row.
+The 64-entry paint cap prioritizes failed then oldest windows without dropping any composer or
+notice. Recording removes temporary paint before delivery settles. No comment text, send handle
+or annotation key crosses the frame port. Only a status change fences opening,
 closing and Resolve all. `message-send-refusal.ts` shares its button and
 explicit-submit presentation gates and classifies closed failure references. The
 composer keeps a visible, announced refusal below the field until a deliberate
@@ -678,7 +689,7 @@ is added.
   fresh page's row and parent across the fresh entries with `work_links::Graph`, so a followed
   page's stage is never cached. The same projection caches complete reading
   descriptors (`summary_readings.rs`) and the named pending passages with the latest comment
-  excerpt (`summary_passages.rs`: `needs` ranked review, question, reading, proposal and capped at
+  excerpt (`summary_passages.rs`: `needs` ranked review, question, reading and capped at
   20, text made inert), never a second state owner. The cache retains at most
   `PAGES` entries, including failures; catalog reads prune deleted pages. The owner-only chapter-details
   route reads one current fingerprint without decoding on the request path; complete results are
@@ -775,7 +786,7 @@ which fills a missing title by the bounded hint read; the ⌘K search is the hea
 `summary_pending.rs` derives pending target IDs from the admitted owner fold and
 `page_check::summary`'s static-source quote associations (200 ms projection bound), without
 executing authored code or trusting device labels. Native questions count each registered open
-entry from the verified answer projection, including one whose markup was removed; proposals,
+entry from the verified answer projection, including one whose markup was removed;
 readings and reviews retain their existing deduplication. Shared vectors pin these states and
 other pending kinds. Browser question-count adoption follows #5146. A missing summary is unknown,
 never a false zero. Returning through the existing Home loader or reloading reads again; while a non-archived
@@ -798,8 +809,8 @@ unchanged. Corrupt/newer data and failed writes are reported and retained.
 ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
 use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
 through its Filter menu. The end of the stage tabs row offers Save/Edit; the sidebar Shortcuts group opens Manage.
-On phones Manage opens its full-screen list, then an editor with a back action. These preferences
-are not synced or shared.
+Manage opens the shared ordered list, then an editor with a back action; Save as shortcut opens the
+editor directly. The opener regains focus on return. These preferences are not synced or shared.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
@@ -923,8 +934,10 @@ matching totals and attention counts, omitting values whose required data is una
 All pages has a list icon; shortcuts have bookmarks, a muted plain total and an attention dot
 whose count remains in the tooltip and accessible name. The sentence-case Shortcuts heading
 has the text Manage command; saving starts from the list bookmark, without a rail add row.
-Shared rail actions open the selected shortcut's editor or delete it; its drag and Alt+Arrow
-requests persist an atomic target-index move through `ShortcutStore`. A failed write is reported.
+Shortcut rows are navigation only. The shared Manage list owns edit, delete, move controls, drag
+and Alt+Arrow requests; `ShortcutStore` persists their order. Read failures appear below the
+Shortcuts heading with Retry. Manage is disabled with an explanation without management or a store;
+failed writes remain in the dialog.
 The list's `scope` route field remains a base filter: `inScope` (`project-scope.ts`) determines
 the pages feeding rows, tabs and search suggestions, and a `project:` token narrows inside it.
 The default scope is device-local: `readScope`/`writeScope` keep it per space in
@@ -1073,7 +1086,7 @@ not waiting and edited within seven days is in progress (`inProgress()`, the one
 stage can replace that rule); waiting chapters come first, then in progress, each by update time with
 the dashboard's `order` as the tie-break; older pages fold into `earlier`. A chapter's passage is the
 pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
-item by rank (review, question, reading, proposal), else the latest comment, else the item note;
+item by rank (review, question, reading), else the latest comment, else the item note;
 `pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
 (`ShellHead`, `ShellSummary`, `ShellCounts`, `ShellPages`, `ShellAside`). The Pages list numbers the
 chapters, then the older pages under their own heading; each row is a button that selects its page
@@ -1185,7 +1198,10 @@ Every ordinary page draws `WorkBand` (`work-band.tsx`) between the link bar and 
 under the nav on the signed-in and reader routes; dashboards do not draw it. It lists sub-pages
 only (#5820). `subpageTree` (`work-tree.ts`) derives the rows: direct sub-pages from the page's own
 `work.order`, deeper levels and titles/states from owner-list parent links, counts from direct
-sub-page manual states, and Add refusals (self, ancestor, already attached). The owner list comes
+sub-page manual states, and Add refusals (self, ancestor, already attached). Archived pages leave
+every level and count but keep their links; the serve's list `work` and the CLI's progress use the
+same rule (`Graph::progress` takes the archived set), while `subpage ls` still lists them marked
+`archived`. The owner list comes
 from `useLinkedPages` (`work-stages.ts`), without wider rows or child subscriptions; share readers
 make no owner reads and get no counts. The list is one CSS grid whose rows are subgrids, so the
 right-hand columns align at every depth. Its measured height participates in renderer viewport

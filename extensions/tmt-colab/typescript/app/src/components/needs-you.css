@@ -20,7 +20,7 @@
   color: var(--tmt-ui-color-secondary);
 }
 /* A card Colab draws over the author's page (the question block, the group, the answer batch and the
-   proposal card) is the page sheet with a light rule, not the band: #3959 gave it the band surface
+   question card) is the page sheet with a light rule, not the band: #3959 gave it the band surface
    and a dark edge, and Ben rejected that as too dark (#4068). The sheet keeps its text readable
    whatever the page paints; the secondary grey holds 4.5:1 on it in both themes. */
 .needs-you-line {

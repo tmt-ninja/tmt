@@ -218,7 +218,8 @@ impl Descriptor {
                 && payload.len() as u64 == values::decimal(&self.payload_bytes, false)?,
         )?;
         require(hex(&crypto::digest(payload)) == self.payload_sha256)?;
-        let envelope = object::Envelope::from_json(payload)?;
+        // Attachments are Remote objects and keep the v1 form until #5876 PR 2.
+        let envelope = object::Envelope::from_json_v1(payload)?;
         require(
             envelope.ciphertext().len() as u64
                 == values::decimal(&self.plaintext_bytes, true)? + 16,

@@ -28,8 +28,9 @@ export const SUBPAGES = 256;
 const WORK_TASKS = 256;
 export const WORK_BYTES = 128 * 1024;
 
-/** A task-era task ID, `T-` and a decimal number from 1, without a leading zero. Only legacy
- * values and hints still carry one. */
+/** The number of a task-era task ID (`T-` and a decimal number from 1, no leading zero), or
+ * undefined. Work no longer numbers tasks: only a version 1 value being migrated and a handled
+ * question's recorded `task` still hold such an ID. */
 export function taskNumber(value: string): number | undefined {
   const digits = /^T-([1-9][0-9]{0,6})$/.exec(value)?.[1];
   return digits === undefined ? undefined : Number(digits);

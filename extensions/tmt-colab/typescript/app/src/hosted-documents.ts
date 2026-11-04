@@ -3,6 +3,7 @@ import {
   concat,
   decodeHeader,
   digest,
+  encodeBinary,
   Envelope,
   equal,
   exactKeys,
@@ -14,7 +15,7 @@ import {
 } from '@tmt/colab-client';
 import type { SealedDocument } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { hex } from './export.js';
-import type { ObjectEntry } from './objects.js';
+import { UPDATE_ENVELOPE_BYTES as LOG_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
 import { HostedReshareRequired } from './hosted-authority.js';
 
 export interface HostedScope {
@@ -37,12 +38,12 @@ export async function hostedOwnLog(
   uid: string,
   expiresAtMs: number,
 ): Promise<SealedDocument> {
-  const envelope = binary(entry.envelope, 354304),
-    header = decodeHeader(Envelope.fromJson(envelope).header());
+  const bytes = binary(entry.envelope, LOG_ENVELOPE_BYTES),
+    header = decodeHeader(Envelope.fromBytes(bytes).header());
   requireValue(header.context.namespace === 'own');
   const expiresAt = new Date(expiresAtMs).toISOString().replace('.000Z', 'Z');
   const row = {
-    envelope: { stringValue: new TextDecoder('utf-8', { fatal: true }).decode(envelope) },
+    envelope: { bytesValue: standardBase64(bytes) },
     epoch: { integerValue: scope.epoch },
     expiresAt: { timestampValue: expiresAt },
     hash: { stringValue: entry.envelopeHash },
@@ -52,14 +53,14 @@ export async function hostedOwnLog(
     stream: { stringValue: header.context.authorDevice },
     uid: { stringValue: uid },
   };
-  const bytes = text(JSON.stringify(row)),
+  const fields = text(JSON.stringify(row)),
     document = {
       target: {
         resource: 'log',
         id: `${scope.space}_${scope.page}_${scope.epoch}_${header.context.authorDevice}_${entry.seq}`,
       },
-      bytes,
-      digest: hex(await digest(bytes)),
+      bytes: fields,
+      digest: hex(await digest(fields)),
     };
   // Reuse the reviewed original mapping, not a second field/envelope validator.
   await hostedLog(document, scope);
@@ -67,6 +68,9 @@ export async function hostedOwnLog(
 }
 
 type Fields = Record<string, unknown>;
+/** Checkpoint chunks are 256 KiB bytesValue rows; enough of them for the largest envelope. */
+const CHUNK_BYTES = 262144,
+  MAX_CHUNKS = 65;
 type Resource = 'log' | 'checkpoints' | 'authority';
 const BASE = ['space', 'page', 'epoch', 'uid', 'expiresAt'];
 const KEYS = {
@@ -81,9 +85,8 @@ export async function hostedLog(
   scope: HostedScope,
 ): Promise<HostedOriginal & { publisherUid: string }> {
   const row = await fields(document, 'log', scope);
-  const raw = string(row, 'envelope');
-  const bytes = text(raw);
-  requireValue(raw.length <= 354304 && bytes.length === raw.length);
+  const bytes = bytesValue(row, 'envelope', LOG_ENVELOPE_BYTES);
+  requireValue(bytes.length > 0);
   const result = await original(bytes, scope, 'update');
   requireValue(
     result.header.context.authorDevice === string(row, 'stream') &&
@@ -98,9 +101,8 @@ export async function hostedCheckpoint(
   documents: readonly SealedDocument[],
   scope: HostedScope,
 ): Promise<HostedOriginal> {
-  const rows = await ordered(documents, 'checkpoints', scope, 513);
-  const bytes = pieces(rows);
-  const result = await original(bytes, scope, ['checkpoint', 'fold']);
+  const rows = await ordered(documents, 'checkpoints', scope, MAX_CHUNKS);
+  const result = await original(chunks(rows), scope, ['checkpoint', 'fold']);
   requireValue(result.header.objectId === string(rows[0], 'object'));
   return result;
 }
@@ -124,11 +126,11 @@ export async function hostedCheckpointSet(
   if (expected) requireValue(expected.length === 32);
   for (const [id, rows] of groups) {
     rows.sort((a, b) => number(a, 'seq') - number(b, 'seq'));
-    orderedRows(rows, 'checkpoints', 513);
+    orderedRows(rows, 'checkpoints', MAX_CHUNKS);
     originals.push({
       id,
       value: await original(
-        pieces(rows),
+        chunks(rows),
         scope,
         expected ? ['html', 'checkpoint', 'fold'] : ['checkpoint', 'fold'],
       ),
@@ -196,7 +198,7 @@ async function authorityOriginal(
   requireValue(
     rows.every((row) => string(row, 'kind') === kind && string(row, 'recipient') === recipient),
   );
-  const bytes = pieces(rows);
+  const bytes = pieces(rows, (row) => binary(string(row, 'bytes'), 32768), 32768);
   requireValue(hex(await digest(bytes)) === string(rows[0], 'subject'));
   return bytes;
 }
@@ -238,7 +240,7 @@ async function fields(
     requireValue(
       /^[0-9a-f]{64}$/.test(object) &&
         index < count &&
-        count <= 513 &&
+        count <= MAX_CHUNKS &&
         number(row, 'seq') === index + 1,
     );
     id = `${base}_${object}_${index}`;
@@ -273,6 +275,23 @@ function string(row: Fields, name: string): string {
   exactKeys(value, ['stringValue']);
   requireValue(typeof value.stringValue === 'string');
   return value.stringValue;
+}
+/** The exact bytes of a canonical (padded, standard alphabet) REST bytesValue. */
+function bytesValue(row: Fields, name: string, max: number): Uint8Array {
+  const value = row[name];
+  exactKeys(value, ['bytesValue']);
+  const raw = value.bytesValue;
+  requireValue(
+    typeof raw === 'string' &&
+      raw.length <= Math.ceil(max / 3) * 4 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(raw),
+  );
+  // The base64url decoder refuses non-canonical trailing bits, so one spelling maps to one value.
+  return binary(raw.replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, ''), max);
+}
+function standardBase64(bytes: Uint8Array): string {
+  const url = encodeBinary(bytes);
+  return url.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (url.length % 4)) % 4);
 }
 function number(row: Fields, name: string, zero = false): number {
   const value = row[name];
@@ -310,20 +329,29 @@ function orderedRows(
     requireValue(common.every((key) => string(row, key) === string(first, key)));
   }
 }
-function pieces(rows: readonly Fields[]): Uint8Array {
-  const chunks = rows.map((row, index) => {
-    const chunk = binary(string(row, 'bytes'), 32768);
-    requireValue(chunk.length > 0 && (index + 1 === rows.length || chunk.length === 32768));
+function pieces(
+  rows: readonly Fields[],
+  read: (row: Fields) => Uint8Array,
+  size: number,
+): Uint8Array {
+  const parts = rows.map((row, index) => {
+    const chunk = read(row);
+    requireValue(chunk.length > 0 && (index + 1 === rows.length || chunk.length === size));
     return chunk;
   });
-  return concat(...chunks);
+  return concat(...parts);
+}
+/** One object's chunks, reassembled. */
+function chunks(rows: readonly Fields[]): Uint8Array {
+  requireValue(rows.length <= MAX_CHUNKS);
+  return pieces(rows, (row) => bytesValue(row, 'bytes', CHUNK_BYTES), CHUNK_BYTES);
 }
 async function original(
   bytes: Uint8Array,
   scope: HostedScope,
   kind: 'update' | 'checkpoint' | readonly ('html' | 'checkpoint' | 'fold')[],
 ): Promise<HostedOriginal> {
-  const envelope = Envelope.fromJson(bytes),
+  const envelope = Envelope.fromBytes(bytes),
     header = decodeHeader(envelope.header());
   requireValue(
     header.context.space === scope.space &&
@@ -333,5 +361,10 @@ async function original(
         ? header.context.kind === kind
         : kind.some((allowed) => allowed === header.context.kind)),
   );
-  return { bytes, envelope, header, hash: await envelope.hash() };
+  return {
+    bytes,
+    envelope,
+    header,
+    hash: await envelope.hash(),
+  };
 }

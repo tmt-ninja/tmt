@@ -12,6 +12,7 @@ import {
 } from "./site.mjs";
 import { languages, indexPath, postPath } from "./languages.mjs";
 import { postTags, tagPath } from "./tags.mjs";
+import { validateStats } from "./stats.mjs";
 
 // Generated HTML lives under the Vite root so its output paths are blog/**.
 // Only this directory is disposable; approved src/posts and review records are not.
@@ -25,6 +26,9 @@ export async function generate({
 }) {
   const location = locationConfig({ base, origin: origin || undefined, repository });
   const site = JSON.parse(await readFile(join(root, "src/blog/site.json"), "utf8"));
+  const stats = validateStats(
+    JSON.parse(await readFile(join(root, "src/blog/stats.json"), "utf8")),
+  );
   let posts = await readPosts(join(root, "src/posts"));
   if (demo) {
     const fixture = join(root, "scripts/fixtures/blog/example");
@@ -89,7 +93,7 @@ export async function generate({
       requestedLanguage: language.id,
       title: site.title,
       description: site.description,
-      body: indexBody(visible, site, location, language.id, indexFallback),
+      body: indexBody(visible, site, location, language.id, indexFallback, { stats }),
       alternates: indexAlternates,
     });
     for (const post of visible) {

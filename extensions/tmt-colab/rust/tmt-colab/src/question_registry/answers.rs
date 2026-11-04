@@ -18,7 +18,7 @@ pub fn project(
             let answer = view
                 .threads
                 .iter()
-                .filter(|thread| !thread.deleted && thread.proposal.is_none())
+                .filter(|thread| !thread.deleted)
                 .flat_map(|thread| &thread.comments)
                 .filter(|comment| {
                     !comment.deleted

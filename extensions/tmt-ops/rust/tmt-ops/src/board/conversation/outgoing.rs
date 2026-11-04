@@ -760,7 +760,7 @@ impl App {
             sending_held: false,
         });
         session.trim_outgoing();
-        session.follow = true;
+        session.set_follow(true);
         session.change = super::Change::Current;
         session.refresh_outgoing();
         state.pending_send = Some(ticket);

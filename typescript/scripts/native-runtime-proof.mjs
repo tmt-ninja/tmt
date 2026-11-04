@@ -200,7 +200,7 @@ export async function verifyNativeRuntime({
     if (product === 'remote') {
       assert.equal(run(['--version']).trim(), `remote ${version}`, `${subject} version mismatch`);
       const help = run(['--help']);
-      for (const command of ['serve', 'pair', 'devices'])
+      for (const command of ['serve', 'pair'])
         assert(new RegExp(`^ {2}${command} +`, 'm').test(help), `${subject} missing ${command}`);
       assert(!fs.existsSync(xdg), 'Remote probes must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Remote probes must not create home state');

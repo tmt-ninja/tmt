@@ -7,6 +7,7 @@ import {
   CONTENT_CHUNK_BYTES,
   sameContent,
   validateContentUpdates,
+  OWN_RECORDS,
   READ_TAIL_UPDATES,
   STATE_BYTES,
   UPDATE_BYTES,
@@ -14,6 +15,7 @@ import {
   WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
+  retiredDiscussionRecord,
   type DecoderCommand,
   type ContentPreparation,
   type Projection,
@@ -43,7 +45,7 @@ function stateBytes(doc: Y.Doc) {
     (doc.store.pendingDs?.length ?? 0)
   );
 }
-function projectOwn(doc: Y.Doc, complete: boolean) {
+function projectOwn(doc: Y.Doc, complete: boolean, includeRetired = false) {
   const names = ['threads', 'messages', 'intents', 'replies'];
   if (
     [...doc.share.keys()].some((key) => !names.includes(key)) ||
@@ -57,23 +59,25 @@ function projectOwn(doc: Y.Doc, complete: boolean) {
       return [
         name,
         Object.fromEntries(
-          [...map.entries()].map(([key, value]) => {
-            // Reject before JSON.stringify can call a shared type's toJSON method.
-            if (value instanceof Y.AbstractType) throw new Error('Rejected shared own value');
-            return [
-              key,
-              // Match yrs Any -> serde_json: undefined/nonfinite become null and byte
-              // buffers become arrays. Shared Yjs values are never plain record data.
-              JSON.parse(
-                JSON.stringify(value, (_key, v: unknown) => {
-                  if (v instanceof Y.AbstractType) throw new Error('Rejected shared own value');
-                  if (v instanceof Uint8Array) return [...v];
-                  if (typeof v === 'bigint') return Number(v);
-                  return v === undefined ? null : v;
-                }),
-              ),
-            ];
-          }),
+          [...map.entries()]
+            .map(([key, value]) => {
+              // Reject before JSON.stringify can call a shared type's toJSON method.
+              if (value instanceof Y.AbstractType) throw new Error('Rejected shared own value');
+              return [
+                key,
+                // Match yrs Any -> serde_json: undefined/nonfinite become null and byte
+                // buffers become arrays. Shared Yjs values are never plain record data.
+                JSON.parse(
+                  JSON.stringify(value, (_key, v: unknown) => {
+                    if (v instanceof Y.AbstractType) throw new Error('Rejected shared own value');
+                    if (v instanceof Uint8Array) return [...v];
+                    if (typeof v === 'bigint') return Number(v);
+                    return v === undefined ? null : v;
+                  }),
+                ),
+              ];
+            })
+            .filter(([, value]) => includeRetired || !retiredDiscussionRecord(name, value)),
         ),
       ];
     }),
@@ -293,7 +297,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
         ? new Uint8Array([1])
         : new Uint8Array();
     } else if (command.type === 'prepare-own') {
-      if (command.records.length < 1 || command.records.length > 32)
+      if (command.records.length < 1 || command.records.length > OWN_RECORDS)
         throw new Error('Own batch capacity');
       const doc = writerDoc(command.writer);
       const vector = Y.encodeStateVector(doc);
@@ -404,10 +408,16 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
     for (const [writer] of changed) {
       const previous = own.get(writer);
       if (!previous) continue;
-      const roots = projectOwn(previous, false);
+      const roots = projectOwn(previous, false, true);
+      const current = projectOwn(nextOwn.get(writer)!, false, true);
       for (const root of ['threads', 'intents', 'messages'])
         for (const [key, value] of Object.entries(roots[root])) {
+          const kind =
+            value && typeof value === 'object' && !Array.isArray(value)
+              ? (value as Record<string, unknown>).kind
+              : undefined;
           if (
+            typeof kind !== 'string' ||
             ![
               'thread',
               'comment',
@@ -418,12 +428,12 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
               'edit-request',
               'edit-result',
               'edit-lock',
-            ].includes(value?.kind)
+            ].includes(kind)
           )
             continue;
           if (
-            JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]) &&
-            !advancesEditLock(value, ownProjection[writer][root][key], root, key)
+            JSON.stringify(value) !== JSON.stringify(current[root][key]) &&
+            !advancesEditLock(value, current[root][key], root, key)
           )
             throw new Error('Own record is immutable or its lock revision is stale');
         }

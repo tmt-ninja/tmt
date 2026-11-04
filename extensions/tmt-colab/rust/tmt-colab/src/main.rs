@@ -1,6 +1,7 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_dashboard;
+mod cli_design;
 mod cli_edit_hint;
 mod cli_edit_locks;
 mod cli_grammar;
@@ -11,7 +12,6 @@ mod cli_page_check;
 mod cli_patch;
 mod cli_pins;
 mod cli_projects;
-mod cli_proposal;
 mod cli_read;
 mod cli_storage;
 mod cli_template;
@@ -26,6 +26,11 @@ mod status;
 mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
 const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
+/// The other skills installed with Colab, printed by name like a reference.
+const COMPANION_SKILLS: &[(&str, &str)] = &[(
+    "tmt-design-system",
+    include_str!("../../../skills/tmt-design-system/SKILL.md"),
+)];
 const SKILL_REFERENCES: &[(&str, &str)] = &[
     (
         "attachments",
@@ -145,7 +150,7 @@ fn grammar() -> Command {
             note: "Read the exact instructions shipped with this executable",
         }],
         outputs: OutputModes::Human,
-        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions. An optional reference name prints its exact bundled bytes.",
+        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions. An optional reference name prints its exact bundled bytes; tmt-design-system prints the companion skill for using design systems.",
     };
     const HOSTING_BUNDLE: CommandSpec = CommandSpec {
         name: "hosting-bundle",
@@ -335,7 +340,10 @@ fn grammar() -> Command {
                 Arg::new("reference")
                     .value_name("name")
                     .value_parser(clap::builder::PossibleValuesParser::new(
-                        SKILL_REFERENCES.iter().map(|(name, _)| *name),
+                        SKILL_REFERENCES
+                            .iter()
+                            .chain(COMPANION_SKILLS)
+                            .map(|(name, _)| *name),
                     )),
             ))
             .subcommand(
@@ -371,10 +379,10 @@ fn grammar() -> Command {
             )
             .subcommand(tmt_cli_style::command(&SPACES))
             .subcommand(cli_threads::command())
-            .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
             .subcommand(cli_storage::command())
             .subcommand(cli_projects::command())
+            .subcommand(cli_design::command())
             .subcommands(cli_pins::commands())
             .subcommand(cli_dashboard::command())
             .subcommand(cli_work::subpage_command())
@@ -460,6 +468,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             Some(name) => {
                 SKILL_REFERENCES
                     .iter()
+                    .chain(COMPANION_SKILLS)
                     .find(|(key, _)| *key == name)
                     .expect("reference admitted by the command grammar")
                     .1
@@ -503,11 +512,11 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     if command == "threads" {
         return cli_threads::run(&root, args);
     }
-    if command == "proposal" {
-        return cli_proposal::run(&root, args);
-    }
     if command == "attachment" {
         return cli_attachments::run(&root, args);
+    }
+    if command == "design" {
+        return cli_design::run(&root, args);
     }
     if command == "project" {
         return cli_projects::run(&root, args);
@@ -1291,9 +1300,6 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
     if error.is::<tmt_colab::attachments::CapacityRefusal>() {
         return "COLAB_CAPACITY";
     }
-    if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
-        return error_code(recovery.cause.as_ref());
-    }
     error
         .downcast_ref::<tmt_colab::keyring::StateFault>()
         .map(|e| e.code())
@@ -1432,9 +1438,6 @@ fn main() -> ExitCode {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())
                     .unwrap_or_else(|| json!({}));
-                if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
-                    value = recovery.correlation.clone();
-                }
                 value["error"] = json!({"code":code,"message":reported_error.to_string()});
                 if let Some(reason) = tmt_colab::work_admission::reason(error) {
                     value["error"]["reason"] = json!(reason);

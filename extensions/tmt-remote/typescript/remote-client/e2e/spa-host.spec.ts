@@ -746,12 +746,31 @@ test.describe('the app in a browser', () => {
       }
   });
 
-  test('the rail returns to My Remotes and a menu click on the shown row stays put', async () => {
+  test('the Remote rail never retains invitation query or fragment', async () => {
+    const { page } = await openApp('/remote/join?token=private-query#private-fragment');
+    await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
+    await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
+    const remote = page.locator('nav.tmt-ui-rail a[data-id="remote"]');
+    const href = new URL((await remote.getAttribute('href'))!, page.url());
+    expect(href.pathname).toBe('/remote/join');
+    expect(href.search).toBe('');
+    expect(href.hash).toBe('');
+    await remote.click();
+    expect(new URL(page.url()).pathname).toBe('/remote/join');
+    expect(new URL(page.url()).search).toBe('');
+    expect(new URL(page.url()).hash).toBe('');
+    await page.close();
+  });
+
+  test('the rail returns to the last Remote location and My Remotes remains explicit', async () => {
     const { page } = await openApp('/remote/settings');
     await page.locator('nav.tmt-ui-rail a[data-id="ops"]').click();
     await expect(page.locator('.tmt-ui-shell-main')).toHaveAttribute('data-route', 'ops');
     await page.locator('nav.tmt-ui-rail a[data-id="remote"]').click();
-    await expectView(page, REMOTE_VIEWS[0]!);
+    await expectView(
+      page,
+      REMOTE_VIEWS.find((view) => view.id === 'settings')!,
+    );
     await modulePages(page).locator('a[data-id="remotes"]').click();
     await expectView(page, REMOTE_VIEWS[0]!);
     // The menu has no Remotes heading; This machine's group keeps its own.
@@ -795,6 +814,7 @@ test.describe('the app in a browser', () => {
     expect(first.map((item) => item.id)).toEqual([
       'home',
       'colab',
+      'design',
       'remote',
       'ops',
       'digest',

@@ -230,7 +230,7 @@ impl Fixture {
         )
         .unwrap();
         let hash = envelope.hash().unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         (self.frame("append", json!({"streamId":id,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),"envelope":values::encode_binary(&bytes)})), hash, bytes)
     }
     fn payload(&self, id: &str, seq: u64) -> Option<Vec<u8>> {
@@ -280,7 +280,7 @@ fn receive(peer: &mut Peer) -> Value {
     peer.0.get_mut().set_nonblocking(true).unwrap();
     for _ in 0..32 {
         match peer.0.read() {
-            Ok(message) => return serde_json::from_str(message.to_text().unwrap()).unwrap(),
+            Ok(message) => return frame_json(&message),
             Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 assert_ne!(peer.1.poll(), Progress::Closed);
             }
@@ -533,10 +533,8 @@ fn gap_conflict_role_signature_and_epoch_denials_have_no_new_payload() {
     error(&mut b, "DENIED");
     let (mut bad, _, _) = f.append(ALICE, 1, [0; 32], "content", 4);
     let mut bytes = values::binary(bad["envelope"].as_str().unwrap(), 65536).unwrap();
-    let mut envelope: Value = serde_json::from_slice(&bytes).unwrap();
-    envelope["signature"] = json!(values::encode_binary(&[0; 64]));
-    bytes = serde_json::to_vec(&envelope).unwrap();
-    let decoded = object::Envelope::from_json(&bytes).unwrap();
+    bytes = zero_signature(&bytes);
+    let decoded = object::Envelope::from_bytes(&bytes).unwrap();
     bad["envelopeHash"] = json!(values::encode_binary(&decoded.hash().unwrap()));
     bad["envelope"] = json!(values::encode_binary(&bytes));
     send(&mut a, bad);
@@ -966,7 +964,7 @@ fn blocked_frame_counts_toward_queue_cap_and_is_not_flushed_after_revocation() {
 }
 
 fn transfer(f: &Fixture, frame: Value, bytes: &[u8]) -> (Value, Vec<Value>) {
-    let envelope = object::Envelope::from_json(bytes).unwrap();
+    let envelope = object::Envelope::from_bytes(bytes).unwrap();
     let header = object::Header::decode(envelope.header()).unwrap();
     let hash = values::encode_binary(&envelope.hash().unwrap());
     let mut reference = frame;
@@ -1001,7 +999,7 @@ fn assemble(peer: &mut Peer, expected: &[u8], paced: bool) {
         }
     }
     assert_eq!(bytes, expected);
-    let envelope = object::Envelope::from_json(&bytes).unwrap();
+    let envelope = object::Envelope::from_bytes(&bytes).unwrap();
     assert_eq!(
         values::encode_binary(&envelope.hash().unwrap()),
         identity.unwrap().1
@@ -1148,7 +1146,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         b"checkpoint",
     )
     .unwrap();
-    let bytes = checkpoint.to_json().unwrap();
+    let bytes = checkpoint.to_bytes().unwrap();
     Store::open(&Layout::open(&f.root).unwrap())
         .unwrap()
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1181,7 +1179,7 @@ fn unknown_pruned_and_wrong_namespace_cursors_resync_and_zero_bootstraps_checkpo
         b"own checkpoint",
     )
     .unwrap();
-    let own_bytes = own_checkpoint.to_json().unwrap();
+    let own_bytes = own_checkpoint.to_bytes().unwrap();
     Store::open(&Layout::open(&f.root).unwrap())
         .unwrap()
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1284,11 +1282,12 @@ fn chunk_deadline_drop_revocation_and_signature_failure_never_persist_partial_by
         let (frame, _, mut bytes) = f.append(ALICE, 1, [0; 32], "content", 60000);
         let mut frame = frame;
         if mode == "signature" {
-            let mut v: Value = serde_json::from_slice(&bytes).unwrap();
-            v["signature"] = json!(values::encode_binary(&[0; 64]));
-            bytes = serde_json::to_vec(&v).unwrap();
+            bytes = zero_signature(&bytes);
             frame["envelopeHash"] = json!(values::encode_binary(
-                &object::Envelope::from_json(&bytes).unwrap().hash().unwrap()
+                &object::Envelope::from_bytes(&bytes)
+                    .unwrap()
+                    .hash()
+                    .unwrap()
             ));
         }
         let (mut reference, mut chunks) = transfer(&f, frame, &bytes);
@@ -1381,7 +1380,7 @@ fn bootstrap_baseline_descriptor_is_exact_scoped_and_first_page_only() {
 }
 
 fn ack(peer: &mut Peer, frame: &Value) {
-    let raw = json!({"version":1,"type":"ack","space":frame["space"],"page":frame["page"],"epoch":frame["epoch"],"cursors":[]});
+    let raw = json!({"version":1,"type":"ack","space":scope_of(frame, "space", 0),"page":scope_of(frame, "page", 1),"epoch":scope_of(frame, "epoch", 2),"cursors":[]});
     peer.0.send(Message::Text(raw.to_string().into())).unwrap();
 }
 
@@ -1469,10 +1468,11 @@ fn twelve_chunk_transfer_stays_consecutive_across_credit_releases() {
         },
         &[9; 32],
         &f.alice,
-        &vec![7; 270 * 1024],
+        // Binary v2 carries the ciphertext 1:1 (#5876), so twelve chunks need 11 and a bit.
+        &vec![7; 11 * tmt_colab::limits::CHUNK_BYTES + 1024],
     )
     .unwrap();
-    let bytes = envelope.to_json().unwrap();
+    let bytes = envelope.to_bytes().unwrap();
     assert_eq!(bytes.len().div_ceil(tmt_colab::limits::CHUNK_BYTES), 12);
     store
         .checkpoint(&tmt_colab::store::Envelope {
@@ -1560,7 +1560,7 @@ fn baseline(f: &Fixture, size: usize) -> (Vec<u8>, Vec<u8>) {
     let envelope = object::seal(&context, &[9; 32], &f.alice, &vec![7; size]).unwrap();
     let bytes=serde_json::to_vec(&json!({"pageId":PAGE,"epoch":"1","sourceDigest":values::encode_binary(&[1;32]),
         "baselineCommitment":values::encode_binary(&[2;32]),"title":"Example","objectEnvelopeHash":values::encode_binary(&envelope.hash().unwrap()),"membershipRevision":"1"})).unwrap();
-    let envelope = envelope.to_json().unwrap();
+    let envelope = envelope.to_bytes().unwrap();
     let db = rusqlite::Connection::open(Layout::open(&f.root).unwrap().directory.join("space.db"))
         .unwrap();
     db.execute(
@@ -1689,11 +1689,9 @@ fn baseline_first_defers_large_statements_for_fresh_and_resumed_clients() {
             let mut joined = Vec::new();
             for index in 0..count {
                 let chunk = receive(&mut peer);
-                assert_eq!(chunk.as_object().unwrap().len(), 9);
+                // A binary chunk (#5876): kind, hash, index, count and bytes, no scope fields.
+                assert_eq!(chunk.as_object().unwrap().len(), 5);
                 assert_eq!(chunk["type"], "chunk");
-                assert_eq!(chunk["space"], f.space);
-                assert_eq!(chunk["page"], PAGE);
-                assert_eq!(chunk["epoch"], "1");
                 assert_eq!(chunk["statementHash"], hash);
                 assert_eq!(chunk["index"], index);
                 assert_eq!(chunk["count"], count);
@@ -1786,7 +1784,7 @@ fn baseline_missing_mismatched_and_oversized_storage_never_discloses_an_object()
                         .update_admission(|p| p.baseline = Some(changed))
                         .unwrap();
                 }
-                let other = other.to_json().unwrap();
+                let other = other.to_bytes().unwrap();
                 db.execute("UPDATE baselines SET envelope=?", [other])
                     .unwrap();
                 "INVALID"
@@ -1880,7 +1878,7 @@ fn paired_checkpoints_then_both_namespace_tails_preserve_the_shared_signed_chain
                 b"rawmergedupdate-v1",
             )
             .unwrap();
-            let bytes = checkpoint.to_json().unwrap();
+            let bytes = checkpoint.to_bytes().unwrap();
             store
                 .checkpoint(&tmt_colab::store::Envelope {
                     scope,
@@ -1929,7 +1927,7 @@ fn paired_checkpoints_then_both_namespace_tails_preserve_the_shared_signed_chain
                 &stream["tail"][0]
             };
             let bytes = values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap();
-            let envelope = object::Envelope::from_json(&bytes).unwrap();
+            let envelope = object::Envelope::from_bytes(&bytes).unwrap();
             crypto::verify_signature(
                 f.alice.verifying_key().as_bytes(),
                 &envelope.signature_input().unwrap(),
@@ -2192,4 +2190,48 @@ fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_
     assert_eq!(f.server.ingest(&moved, &next, &alice), Err(Code::Invalid));
     assert_eq!(f.payload(ALICE, 2), None);
     assert_eq!(bob.1.poll(), Progress::Pending);
+}
+
+/// A v2 envelope with its signature zeroed (#5876): syntax still parses, admission must refuse it.
+fn zero_signature(bytes: &[u8]) -> Vec<u8> {
+    let at = 7 + usize::from(u16::from_be_bytes([bytes[5], bytes[6]]));
+    let mut out = bytes.to_vec();
+    out[at..at + 64].fill(0);
+    out
+}
+
+/// A received frame as JSON: a binary chunk (#5876) reads as the text chunk's fields it carries.
+fn frame_json(message: &tungstenite::Message) -> serde_json::Value {
+    if let tungstenite::Message::Binary(bytes) = message {
+        let hash = tmt_colab_model::values::encode_binary(&bytes[1..33]);
+        let mut frame = serde_json::json!({
+            "type": "chunk",
+            "index": u32::from_be_bytes(bytes[33..37].try_into().unwrap()),
+            "count": u32::from_be_bytes(bytes[37..41].try_into().unwrap()),
+            "bytes": tmt_colab_model::values::encode_binary(&bytes[41..]),
+        });
+        frame[if bytes[0] == 0 {
+            "envelopeHash"
+        } else {
+            "statementHash"
+        }] = hash.into();
+        return frame;
+    }
+    let frame: serde_json::Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+    SCOPE.with(|scope| {
+        *scope.borrow_mut() = ["space", "page", "epoch"].map(|key| frame[key].clone());
+    });
+    frame
+}
+thread_local! {
+    /// The scope of the last text frame: a binary chunk continues that frame's transfer, so an
+    /// `ack` for it names the same scope.
+    static SCOPE: std::cell::RefCell<[serde_json::Value; 3]> = Default::default();
+}
+fn scope_of(frame: &serde_json::Value, key: &str, index: usize) -> serde_json::Value {
+    if frame[key].is_null() {
+        SCOPE.with(|scope| scope.borrow()[index].clone())
+    } else {
+        frame[key].clone()
+    }
 }

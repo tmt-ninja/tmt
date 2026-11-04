@@ -1,0 +1,11 @@
+{
+  "decision": "approved",
+  "method": "owner-instruction",
+  "approvedBy": "Ben (owner)",
+  "instruction": "Ben in chat, 2026-11-04: publish this post now, without the Colab approval step.",
+  "pageId": "4b90099c-9ae8-4e2e-9e0b-2848b63091b0",
+  "pageRevision": "v1:dc93fa95798a7b4b3d06c3d968288e6f8051d8ff3bce06d421ef70e0cfd1a02b",
+  "sourceSha256": "28370fb5da02d0774f9b76823b306bda5d3a103b2c15d3c514ba8810d73338a2",
+  "approvedAt": "2026-11-04T01:43:20.199Z",
+  "artifactSha256": "b38e5628102d7e24fb68638c0421e8cb06059cb94744f5263b8d5546ea2bae9e"
+}

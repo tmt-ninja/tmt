@@ -25,7 +25,12 @@ import {
   type ProjectChange,
   type ProjectManage,
 } from './projects.js';
-import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
+import {
+  jsonResponse,
+  responseBytes,
+  verifyRegistration,
+  type Registration,
+} from './registration.js';
 import { storagePort, type StoragePort } from './storage-usage.js';
 
 export interface Recipient {
@@ -102,6 +107,16 @@ export interface ManagementPort {
   /** One display-only `page.pin` request: pin or unpin a page, no view or revision (contract: Pins). */
   setPinned(pageId: string, pinned: boolean): Promise<void>;
 }
+/** A refused management request: the owner socket answers with the bare code as text (contract:
+ * the management socket's unsuccessful response body); a JSON `{code}` reads the same. */
+function refusal(bytes: Uint8Array): { code: string } {
+  const body = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (/^[A-Z_]{1,32}$/.test(body)) return { code: body };
+  const parsed = JSON.parse(body) as unknown;
+  exactKeys(parsed, ['code']);
+  return parsed as { code: string };
+}
+
 export class ManagementError extends Error {
   constructor(
     readonly code: string,
@@ -257,7 +272,8 @@ export async function managementLog(
   return new Promise((resolve, reject) => {
     const url = new URL('sync', mount);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(registration.syncUrl ?? url, 'colab-sync-v1');
+    const socket = new WebSocket(registration.syncUrl ?? url, 'colab-sync-v2');
+    socket.binaryType = 'arraybuffer';
     let stopped = false,
       started = false,
       queued = 0;
@@ -288,7 +304,7 @@ export async function managementLog(
         }),
       );
     socket.onopen = () => {
-      if (socket.protocol !== 'colab-sync-v1') return finish(new ManagementError('INVALID'));
+      if (socket.protocol !== 'colab-sync-v2') return finish(new ManagementError('INVALID'));
       send('hello', {
         device: registration.deviceId,
         membershipRevision: a.head?.revision.toString() ?? '0',
@@ -297,9 +313,16 @@ export async function managementLog(
     };
     socket.onmessage = (event) => {
       if (stopped) return;
-      if (typeof event.data !== 'string' || text(event.data).length > 64 * 1024 || ++queued > 8)
+      // Chunk bytes arrive as binary messages (#5876).
+      const raw: string | Uint8Array =
+        event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data;
+      const size = typeof raw === 'string' ? text(raw).length : raw.length;
+      if (
+        (typeof raw !== 'string' && !(raw instanceof Uint8Array)) ||
+        size > 64 * 1024 ||
+        ++queued > 8
+      )
         return finish(new ManagementError('CAPACITY'));
-      const raw = event.data;
       tasks = tasks
         .then(async () => {
           if (stopped) return;
@@ -664,7 +687,9 @@ export class ManagementClient implements ManagementPort {
     // Parse bounded error bodies as well; never expose server text or request secrets.
     let v;
     try {
-      v = await jsonResponse(new Response(response.body, { status: 200 }), 8192);
+      v = response.ok
+        ? await jsonResponse(new Response(response.body, { status: 200 }), 8192)
+        : refusal(await responseBytes(response, 8192));
     } catch {
       throw new ManagementError('UNKNOWN');
     }

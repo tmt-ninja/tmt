@@ -195,8 +195,13 @@ impl Transport for UploadChannel<'_> {
             Call::Part(_) | Call::Commit(_) | Call::Discard(_) => {
                 self.upload.admission_input(&call)?
             }
-            // Removal and capacity accounting use the separate namespace owner.
-            Call::Read(_) | Call::Config(_) | Call::RemoveNamespace(_) | Call::Usage(_) => {
+            // Removal, listing and capacity accounting use the separate namespace owner.
+            Call::Read(_)
+            | Call::Config(_)
+            | Call::RemoveNamespace(_)
+            | Call::Usage(_)
+            | Call::Remove(_)
+            | Call::List(_) => {
                 return Err(page::Fault::Invalid.into());
             }
         };

@@ -32,6 +32,8 @@ export interface IsolatedDoor {
   env: NodeJS.ProcessEnv;
   /** Creates a page in the door's private space through the real CLI; returns its id. */
   createPage(title: string, html: string): Promise<string>;
+  /** Replaces `find` with `replace` in a page through the real CLI, as an agent writes. */
+  patchPage(id: string, find: string, replace: string): Promise<void>;
   /** Pairs the page's browser context with the door, as a person does with `tmt remote pair`. */
   pair(page: Page, name?: string): Promise<void>;
   /** Stops and starts the Remote serve again at the same origin: its sessions end, pairings stay. */
@@ -110,6 +112,20 @@ export async function startIsolatedDoor(): Promise<IsolatedDoor> {
         if (created.exitCode !== 0) throw new Error(`page create failed: ${err || out}`);
         const result = JSON.parse(out) as { id?: string; pageId?: string };
         return (result.id ?? result.pageId)!;
+      },
+      async patchPage(id, find, replace) {
+        const patched = spawn(
+          colabBinary,
+          ['page', 'patch', id, '--find', find, '--replace', replace, '--json'],
+          { env, cwd: root },
+        );
+        children.push(patched);
+        let err = '';
+        patched.stderr.on('data', (chunk: Buffer) => (err += chunk));
+        let out = '';
+        patched.stdout.on('data', (chunk: Buffer) => (out += chunk));
+        await exited(patched);
+        if (patched.exitCode !== 0) throw new Error(`page patch failed: ${err || out}`);
       },
       async pair(page, name = 'Isolated browser') {
         const pairing = spawn(remoteBinary, ['pair', '--json'], { env, cwd: root });

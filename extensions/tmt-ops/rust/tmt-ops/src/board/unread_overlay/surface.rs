@@ -84,7 +84,7 @@ impl Overlay {
                 let text = crate::board::notes::sanitize(text);
                 let mapped = crate::board::markdown::render_conversation_with_members(
                     &text,
-                    width.saturating_sub(3).max(1),
+                    width.saturating_sub(exchange_view::BODY_INDENT).max(1),
                     look,
                     Some(&app.references),
                 );
@@ -462,5 +462,5 @@ fn first_line(text: &str) -> String {
 }
 
 fn caption(text: &str, look: crate::look::Look) -> Line<'static> {
-    exchange_view::feedback(Line::styled(text.to_owned(), look.role(Role::Dim)), look)
+    exchange_view::feedback(Line::styled(text.to_owned(), look.role(Role::Dim)))
 }

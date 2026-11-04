@@ -161,17 +161,11 @@ fn updates_are_due_in_order_and_only_a_confirmation_moves_the_position() {
     let [document] = &first.documents[..] else {
         panic!("one record per update")
     };
-    assert_eq!(
-        decode_envelope(document),
-        String::from_utf8(sent[0].clone()).unwrap()
-    );
+    assert_eq!(decode_envelope(document), cloud(&sent[0]));
     for (index, bytes) in sent.iter().enumerate() {
         let data = fixture.local.next(&page).ok().unwrap().unwrap();
         assert_eq!(update_seq(&data), index as u64 + 1);
-        assert_eq!(
-            decode_envelope(&data.documents[0]),
-            String::from_utf8(bytes.clone()).unwrap()
-        );
+        assert_eq!(decode_envelope(&data.documents[0]), cloud(bytes));
         fixture.local.confirm(&page, &data.confirm).ok().unwrap();
     }
     assert!(fixture.local.next(&page).ok().unwrap().is_none());
@@ -180,11 +174,12 @@ fn updates_are_due_in_order_and_only_a_confirmation_moves_the_position() {
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert_eq!(update_seq(&data), 4);
 }
-fn decode_envelope(document: &sync::Document) -> String {
+fn decode_envelope(document: &sync::Document) -> Vec<u8> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
     let fields = documents::decode(Resource::Log, document).unwrap();
     match fields.get("envelope") {
-        Some(Field::String(text)) => text.clone(),
-        _ => panic!("a log record carries its envelope"),
+        Some(Field::Bytes(text)) => STANDARD.decode(text).unwrap(),
+        _ => panic!("a log record carries its envelope as bytes"),
     }
 }
 
@@ -252,7 +247,7 @@ fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail()
         .expect("fold publication");
     assert_eq!(data.documents[0].target.resource, "authority");
     assert_eq!(data.documents[1].target.resource, "log");
-    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
+    assert_eq!(decode_envelope(&data.documents[1]), cloud(&anchor));
     let groups: Vec<_> = data.documents[2..]
         .chunks(1)
         .map(|group| originals::checkpoint(group).unwrap())
@@ -263,7 +258,7 @@ fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail()
         assert_eq!(original.header.covered_device.as_deref(), Some(DEVICE));
         assert_eq!(
             original.header.context.prev_hash,
-            object::Envelope::from_json(&anchor)
+            object::Envelope::from_bytes(&anchor)
                 .unwrap()
                 .hash()
                 .unwrap()
@@ -290,7 +285,7 @@ fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
     fixture.fold_pair(DEVICE, 2);
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
-    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
+    assert_eq!(decode_envelope(&data.documents[1]), cloud(&anchor));
 }
 
 #[test]
@@ -836,4 +831,8 @@ fn a_fold_stored_under_a_different_covered_stream_stops_instead_of_retrying() {
             Fault::Stuck("A stored original could not be mapped for cloud sync.")
         );
     }
+}
+/// A log record carries the local v2 original byte for byte.
+fn cloud(bytes: &[u8]) -> Vec<u8> {
+    bytes.to_vec()
 }

@@ -3,7 +3,7 @@ import {
   decodeHeader,
   equal,
   exactKeys,
-  MAX_ENVELOPE_JSON,
+  MAX_ENVELOPE_BYTES,
   MAX_PLAINTEXT,
   payload,
   requireValue,
@@ -37,7 +37,7 @@ export async function openBaseline(
   const key = a.baseline(d, epoch),
     root = a.readRoot(epoch);
   exactKeys(object, ['envelopeHash', 'envelope']);
-  const env = receivedEnvelope(object.envelope, MAX_ENVELOPE_JSON);
+  const env = receivedEnvelope(object.envelope, MAX_ENVELOPE_BYTES);
   const h = decodeHeader(env.header()).context;
   requireValue(
     a.head !== null &&

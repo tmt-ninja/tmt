@@ -42,6 +42,17 @@ pub fn command() -> Command {
         .mut_arg("json", |arg| arg.global(true))
         .args_conflicts_with_subcommands(true).subcommand_negates_reqs(true)
         .arg(crate::cli_grammar::page())
+        .arg(
+            Arg::new("thread")
+                .long("thread")
+                .value_name("THREAD")
+                .help("Read only this thread (its comments and the asks about it)")
+                .value_parser(|value: &str| {
+                    tmt_colab_model::values::generated_id(value)
+                        .map(|_| value.to_owned())
+                        .map_err(|e| e.to_string())
+                }),
+        )
         .subcommand(cmd!("resolve", "Resolve a live annotation thread", "tmt colab threads resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001",
             "Publishes only status, through the running owner service or its offline lifecycle lock. The caller name is a display label, never authority. Already resolved is a no-op; ambiguous, deleted and Chat threads are refused. No notifications or automatic retry.").arg(crate::cli_grammar::page()).arg(id("thread").index(2)))
         .subcommand(cmd!("reopen", "Reopen a resolved annotation thread", "tmt colab threads reopen 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001",
@@ -79,8 +90,18 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     if mode == "list" {
         let view = discussion::read(&store, &key, &page_id, &mut decoder);
         let closed = store.close();
-        let view = view?;
+        let mut view = view?;
         closed?;
+        let only = args.get_one::<String>("thread");
+        if let Some(only) = only {
+            view.conversations
+                .threads
+                .retain(|thread| &thread.id == only);
+            view.conversations.asks.retain(|ask| &ask.thread == only);
+            if view.conversations.threads.is_empty() {
+                return Err(Fault::Missing.into());
+            }
+        }
         if json_output {
             let mut value = serde_json::to_value(&view)?;
             reach.annotate(&mut value, &path);
@@ -120,6 +141,25 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     "thread",
                     format!("{} · {state} · {actor} · {quote}", thread.id),
                 ));
+                if only.is_none() {
+                    continue;
+                }
+                // One thread reads as its conversation: each comment, then the replies asked about it.
+                for comment in thread.comments.iter().filter(|comment| !comment.deleted) {
+                    rows.push((
+                        "comment",
+                        format!("{}: {}", comment.device_name, comment.body),
+                    ));
+                    for ask in &view.conversations.asks {
+                        if let Some(reply) = ask
+                            .reply
+                            .as_ref()
+                            .filter(|_| ask.message_ids.contains(&comment.id))
+                        {
+                            rows.push(("reply", format!("{}: {}", ask.agent_name, reply.body)));
+                        }
+                    }
+                }
             }
             let terminal = output.terminal();
             tmt_cli_style::detail::write(&mut output, terminal, "PAGE THREADS", &rows)?;

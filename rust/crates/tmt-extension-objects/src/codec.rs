@@ -21,7 +21,7 @@ pub fn decode_length(prefix: [u8; 4]) -> Result<usize, ErrorClass> {
 pub fn decode_length_for_version(prefix: [u8; 4], version: u8) -> Result<usize, ErrorClass> {
     let limit = match version {
         1 | 2 => FRAME_BYTES,
-        3 => crate::limits::V3_FRAME_BYTES,
+        3 | 4 => crate::limits::V3_FRAME_BYTES,
         _ => return Err(ErrorClass::Value),
     };
     decode_length_limit(prefix, limit)

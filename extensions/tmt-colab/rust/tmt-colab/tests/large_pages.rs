@@ -104,7 +104,7 @@ impl Fixture {
             update,
         )
         .unwrap();
-        let bytes = envelope.to_json().unwrap();
+        let bytes = envelope.to_bytes().unwrap();
         let hash = envelope.hash().unwrap();
         self.store
             .append(&Envelope {

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
+import { tuiOracle } from '@tmt/browser-ui/docs-oracle';
 import { entryOf, isBuild } from './src/build-stamp.ts';
 
 /**
@@ -39,6 +40,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     designTokens(),
+    // The Design route's docs (@tmt/browser-ui/docs-embed) read the Ops oracle at build time.
+    tuiOracle(),
     {
       // The frame has no `process`, so React must be its production build, fixed at build time.
       // Library builds do not take `define` for this, so it is replaced where it is read.
@@ -158,6 +161,11 @@ export default defineConfig(({ mode }) => ({
               formats: ['es'],
               fileName: () => 'assets/colab-module.js',
               cssFileName: 'assets/colab-module',
+            },
+            // Its lazy routes (Design, #5866) split into chunks. They go under assets/ beside it:
+            // the native app inventory admits no script at the build's root.
+            rollupOptions: {
+              output: { chunkFileNames: 'assets/colab-module-[name]-[hash].js' },
             },
           }
         : mode === 'runtime'

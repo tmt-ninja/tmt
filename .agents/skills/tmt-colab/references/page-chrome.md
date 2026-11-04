@@ -138,7 +138,13 @@ actions, with More (no Theme or Remote entries), go into the bar's action slot t
 `BrowserTopBar`. The route's title goes into the bar's title slot as its one `h1`: a section route
 reads `Colab / <section>` (All pages or the scope, Settings, Open a page, the error title), a page
 `<scope> / <title>` (the title alone without a scope), then the page's project chips, + and pin and the
-`by <author>` caption; on a phone (≤900px) only the last segment stays, ellipsized. No title row or
+`by <author>` caption; on a phone (≤900px) only the last segment stays, ellipsized. A sub-page's
+title follows its place in the hierarchy (#5506, `page-hierarchy.tsx`, from the owner list the
+viewer already has): before the title a hierarchy icon, the direct parent's name linking to it and
+the parent's `done/total` progress chip, whose menu goes back to the parent or across to a sibling
+with each page's state; after the title `N sub-pages ▾` lists the direct sub-pages. A part that
+does not apply, or that the list cannot name, is absent. On a phone the bar keeps the parent's
+progress chip and the title only. No title row or
 content heading repeats it, and the connection identity is not in the bar. `barRef` hands the page the
 sticky bar to measure its clearances from. On a page the status band is the second layer: sticky
 directly under the bar (on a phone after the module tabs, which scroll away), scrolling inside itself
@@ -149,10 +155,8 @@ Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
 brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
 below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
-module menu holds All pages,
-each pinned project with its counts (the five most recent until the space pins its own), All projects… and
-New project…; the space home shows its scope as
-plain text after the title. Author hides below 900px; the title truncates without
+module menu holds All pages, device-local shortcuts with their counts, any Dashboards and Colab
+settings; the space home shows its scope as plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
 (only while something waits) and the attention marks, each shown only while its state holds, as
 one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by anyone but its owner must
@@ -208,7 +212,7 @@ body, and keeps it across the header's remount while the page layers reparse; fo
 or a menu that was already closed, is left alone. The page owns that one flag. The shared DropdownMenu supplies grouped
 labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
 and safe-area padding, so opening it does not shift the authored page. Menu rows contain a one-line target title and muted
-agent. Groups are `Please decide` (proposals), `Please read`, `Please answer`, then `Please confirm`, each with its count.
+agent. Groups are `Please read`, `Please answer`, then `Please confirm`, each with its count.
 Picking a row finishes menu dismissal before scrolling/opening the existing target and
 focusing its first action. Read-only targets retain content focus and navigation, never writes.
 The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#page-summary-2588) owns
@@ -258,8 +262,7 @@ opaque frame, through the existing slot owner and its strict cosmetic protocol.
 The [inline slot contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns the exact shapes and admission limits. The parent floating-action placement
 effect reuses its resize/scroll observer to clear attached visible question cards
-containing footers, including answer controls, recipients and Send, and attached inline
-Proposal cards, including Approve, Decline, Follow up, Resolve and the follow-up composer, and
+containing footers, including answer controls, recipients and Send, and
 the open work band's controls, its head row included (the band is above the page, so the placement
 searches the whole workspace and observes its size, as the band opens without resizing the host;
 it settles over a few passes, because moving above one control can land on the next);
@@ -272,7 +275,7 @@ Author backgrounds and widths belong to the page, except on a `column` or `full`
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
 for its mounted lifetime and projects the effective light/dark value through the
 bound init/port. The bootstrap sets root `data-theme` before author code and updates
-it without replacing the document. Question and Proposal cards use Colab’s effective theme throughout. Question frame
+it without replacing the document. Question cards use Colab’s effective theme throughout. Question frame
 text uses generated browser sheet/text roles; parent-drawn card bodies, controls and
 follow-up composers inherit the same theme. Fixed-look author pages do not override
 that card theme. The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
@@ -299,7 +302,7 @@ the page paints, not the viewer's. Any other page keeps the white canvas in both
 `column` and `full` make the bootstrap set `data-colab-layout` and the generated `src/page-frame.css`
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
 16/8/40 px gaps and `data-width="full"` are defined there and nowhere else in the frame; the
-parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
+parent's `.canvas[data-layout] .inline-block-layer` rule in `style.css` repeats the column's gutter
 so reading and review bands sit on it; every band also keeps out of the marker lane below. Question
 blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
 so it adds no blank line between blocks. `PageSnapshot.layout` and `PageView.layout` carry the verified
@@ -320,7 +323,26 @@ its whole text), so a metadata-only change remounts the frame. Any other source 
 open frame as `handle.update(source)` (#5022, protocol in colab-v1): the bootstrap's `PAGE MORPH`
 region in `renderer.html` changes the body in place, skipping what the frame owns (`frameNodes`,
 `data-colab-*`, `frameHidden`, drawn `tmt-icon` children) and keeping reader state, and its table of
-node cases is `e2e/page-morph.spec.ts`. On success the router's `contentRevision` counter re-runs
+node cases is `e2e/page-morph.spec.ts`. An update costs what changed, not the page (#5891): the
+morph leaves a node whose source equals the previous source's node in the same place, a change
+inside whole top-level nodes parses only those nodes when `planFragment` shows that equals the
+whole parse (the doctype and the document's own `html`, `head` and `body` tags give no node; an
+`svg` or `math` subtree, and a `select` holding only options, is one element up to its end tag; a
+top-level paragraph left open is its own node that an edit beside it parses again; and a block's end
+tag closes the list items and paragraphs left open in it. `topLevelSpans` refuses the rest, so these
+pages parse whole on every update: a `script`, `noscript`, `template`, `iframe` or `frameset`
+anywhere, content after the body's end tag, an unterminated comment, other `<!`/`<?` markup, an
+`svg` or `math` whose content breaks back out into HTML (anything but text in a `title` or `desc`),
+a `select` holding anything but options, a stray or misnested end tag, an inline element left open,
+a paragraph left open with an element open inside it, a list item left open with anything but a
+paragraph open inside it, a table that is not explicit and strict, `/>` on a non-void element, and
+a heading, `a`, `button`, `form` or `nobr` opened inside its own kind. An edit that touches a style,
+a table, an `svg`, `math` or `select`, a question, review or read block, a handler or a design marker
+parses the whole page too, and an edit may hold the document's own tags only unchanged. The
+seeded-edit test in that spec compares 200 random edits over the page templates with the full parse), the frame's
+style element is written only when its text changes (a rewrite restyles and relays the whole
+page), and the anchor and question passes walk the page text only when they have something to
+match. On success the router's `contentRevision` counter re-runs
 the highlight, select, question and slot effects without a `loading` state; the question pass sets
 the question, review and reading marks on the blocks the parent admits and clears them (and the
 `hidden` it put on a question's choices) from any element it no longer admits (#5213); a refusal, the 2 s
@@ -429,13 +451,12 @@ and measured dock clearance. History scrolls internally above the pinned compose
 The dock opens a single Discussion,
 initially the first Needs-you thread or the first matching thread by number.
 `comments-listing.ts` owns the Open / Needs you / All sequence from the verified
-threads and existing attention metadata; proposals share that sequence. Deleted
+threads and existing attention metadata. Deleted
 and Chat records stay excluded. `use-thread-filter.ts` keeps the filter on this
 device, accepting the previous Show-resolved preference as All when no filter is
 stored. The static position `n / m` and Previous / Next follow that sequence;
-the dock count remains the canonical pending count. A selected thread stays in
-its sequence through resolution or acknowledgement until explicit navigation.
-Resolve/Reopen never collapse or advance the Discussion. The same mounted window
+the dock count remains the canonical pending count. When an Open thread resolves, it leaves the filter and the next matching thread is selected.
+An agent resolution is announced in the panel. The same mounted window
 retains its draft, input node and Not-notified warning. A reserved status line
 keeps the quote, messages and composer still through a status change. The reply composer stays last and pinned. Page-level comments are sent from Chat;
 Discussion does not offer a separate creation action, including in an empty filter.
@@ -480,24 +501,7 @@ for the clear state); `e2e/renderer.spec.ts` covers the layout bind key. Existin
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
 
-Proposal cards live in trusted parent chrome with a flat shared 1px edge and state
-mark plus word. The parent measures height; the one author iframe owns only inert
-spacers through the existing bounded renderer channel. Approve is the filled
-primary Action; Decline uses the bordered Action, Follow up the text Action, and
-Resolve/Reopen muted text at the right end. Follow up opens the shared composer
-inside the card below its history; Send, Escape and Cancel close it. Proposal
-cards have no anchored window or Delete thread action. Missing, duplicate or
-vanished slots and inner-scroll fallback show the admitted proposal in Comments.
-Inline Resolve folds the card to its retained title/state/Reopen row. The selected
-proposal in Comments stays expanded through Resolve and Reopen, retaining history
-and its final decision. It shares the numbered thread sequence and filters described
-above, with ordinary resolved-thread marks. The
-single header count uses `openThreadCount` for undecided unresolved proposals plus
-unresolved ordinary annotations, excluding Chat/deleted records and decided
-proposals; filtering does not change it. No new token or surface variant is introduced.
-
-A card the parent draws over the author's page (the compact question block, group and answer batch,
-a proposal card) is the page sheet of the active theme, white on light, with a 1px
+A card the parent draws over the author's page (the compact question block, group and answer batch) is the page sheet of the active theme, white on light, with a 1px
 `--tmt-ui-surface-rule` boundary and no dark edge (the block draws its rule as an outline inside
 its box, so it moves nothing), whatever the page paints; it is not the
 needs-you band (#4068 reversed #3959's band surface, which read as a dark slab). Its text keeps the
@@ -511,13 +515,13 @@ published the document; the threads, asks and presentations follow when `#publis
 verified them. Until then `PageView.discussionPending` is set and those three fields are absent,
 never empty, so nothing unverified reads as verified: the router shows no comment count (the
 dock's Comments action carries no number), no `Needs you` entry (not `✓ Nothing waits`),
-no inline question, review, reading or proposal layer, and no thread highlights. The Comments panel and the
+no inline question, review or reading layer, and no thread highlights. The Comments panel and the
 Chat window show one quiet `Loading comments…` status instead of a list or composer. The document
 frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`
 reports unavailable until verified, so no write can start from a pending view. `e2e/progressive-open.spec.ts`
 holds the verification back through the fixture's `discussionPending` option.
 
-`use-reply-notifications.ts` owns page-local Chat/Thread/Answer/Proposal presentation over admitted
+`use-reply-notifications.ts` owns page-local Chat/Thread/Answer presentation over admitted
 Ask finals and discussion comments; `reply-notifications.ts` reuses authenticated
 Yours refs and existing comment/Ask associations. The page read owner baselines
 the binding's first current view after loading, including a cached snapshot;
@@ -532,22 +536,16 @@ history or composer. All active surfaces must close before resume rechecks the
 latest admitted view; retained items preserve FIFO order and are not re-announced.
 Header counts, drafts, Send and recipient admission keep their current owners.
 
-Answer uses the question layer's checked thread association; Proposal uses its
-admitted thread. Card owners suppress replies already in open, visible history.
-Activation selects the answer tab or unfolds proposal history, scrolls and focuses
-the existing block; detached proposals use Comments. The page supplies its rendered header's
-live bottom through the notification context for reveal offsets and visible-record reporting.
+Answer uses the question layer's checked thread association. Card owners suppress replies
+already in open, visible history. Activation opens and focuses the existing block. The page
+supplies its rendered header's live bottom for reveal offsets and visible-record reporting.
 The explicit arrival outline
 uses the focus token and clears on blur or the next pointer/key interaction.
 Busy clicks wait behind the existing send fence for at most five seconds. Pending
 activation/reveal is cancelled on page change, withdrawal or timeout without late
 scroll, focus or cue. Ordinary Chat/Comments and inline cards remain reachable if
 a busy activation expires. One leaf polite region replaces the legacy announcer.
-Proposal cards
-return Cancel and completed decision actions to Follow up; while busy they keep
-focus on the card and never reclaim it after the reader moves elsewhere.
-
-Agent replies in Chat, threads and proposal Follow up share `ConversationTurn`.
+Agent replies in Chat and threads share `ConversationTurn`.
 An agent reply has one look, running or finished: no driver edge, colour or word, and a
 running turn shows only the chip's working state (#4111). Stable turn keys preserve focus.
 Comment, Chat and reply bodies render through `MarkdownText` (#4112): `markdown.ts` parses a safe

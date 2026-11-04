@@ -55,18 +55,31 @@ impl Graph<'_> {
     }
 
     /// The page's direct sub-pages counted by their own manual state; a sub-page outside the index
-    /// is unknown.
-    pub fn progress(&self, page: &str) -> Option<crate::page_state::Progress> {
+    /// is unknown. An archived sub-page keeps its link but is not counted (#5867).
+    pub fn progress(
+        &self,
+        page: &str,
+        archived: &BTreeSet<String>,
+    ) -> Option<crate::page_state::Progress> {
         let work = self.0.get(page)?.as_ref()?;
-        Some(crate::page_state::progress(&work.children, &|child| {
+        let counted: Vec<String> = work
+            .children
+            .iter()
+            .filter(|child| !archived.contains(*child))
+            .cloned()
+            .collect();
+        Some(crate::page_state::progress(&counted, &|child| {
             self.page_state(child).map(str::to_owned)
         }))
     }
 
     /// The list row's `work` for a page with sub-pages: its stage and direct progress, the same
-    /// count the page's work panel shows. `None` for a page without sub-pages or outside the index.
-    pub fn row(&self, page: &str) -> Option<Value> {
-        let progress = self.progress(page).filter(|progress| progress.total > 0)?;
+    /// count the page's work panel shows. `None` for a page without counted sub-pages or outside
+    /// the index.
+    pub fn row(&self, page: &str, archived: &BTreeSet<String>) -> Option<Value> {
+        let progress = self
+            .progress(page, archived)
+            .filter(|progress| progress.total > 0)?;
         Some(json!({"stage":progress.stage(),"done":progress.done,"total":progress.total}))
     }
 
@@ -221,7 +234,8 @@ mod tests {
             ("d", page("todo", &[])),
         ]);
         let graph = Graph(&found);
-        let progress = graph.progress("a").unwrap();
+        let none = BTreeSet::new();
+        let progress = graph.progress("a", &none).unwrap();
         assert_eq!(
             (
                 progress.done,
@@ -232,16 +246,25 @@ mod tests {
             (1, 1, 1, 3)
         );
         assert_eq!(
-            graph.row("a"),
+            graph.row("a", &none),
             Some(json!({"stage":"in-progress","done":1,"total":3}))
         );
         // Only direct sub-pages count: b's own state is done, but its sub-page d is not.
         assert_eq!(
-            graph.row("b"),
+            graph.row("b", &none),
             Some(json!({"stage":"in-progress","done":0,"total":1}))
         );
-        assert_eq!(graph.row("c"), None);
-        assert_eq!(graph.progress("gone"), None);
+        assert_eq!(graph.row("c", &none), None);
+        assert_eq!(graph.progress("gone", &none), None);
+        // An archived sub-page keeps its link but leaves the count; all archived leaves no row.
+        let archived = BTreeSet::from(["c".to_owned()]);
+        assert_eq!(
+            graph.row("a", &archived),
+            Some(json!({"stage":"in-progress","done":1,"total":2}))
+        );
+        let all = BTreeSet::from(["d".to_owned()]);
+        assert_eq!(graph.row("b", &all), None);
+        assert_eq!(graph.progress("b", &all).unwrap().total, 0);
     }
 
     #[test]
@@ -317,7 +340,7 @@ mod tests {
             assert!(graph.warnings("d").is_empty());
             // Readers still resolve stored links, including a cycle, and never change their inputs.
             let before = found.clone();
-            graph.progress("a");
+            graph.progress("a", &BTreeSet::new());
             graph.parent("b");
             assert_eq!(found, before);
         }

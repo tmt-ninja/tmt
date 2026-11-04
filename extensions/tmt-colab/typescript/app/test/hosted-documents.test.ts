@@ -24,15 +24,17 @@ const scope = {
   epoch: header.context.epoch,
 };
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-const scalar = (values: Record<string, string | number>) =>
+const scalar = (values: Record<string, string | number | Uint8Array>) =>
   Object.fromEntries(
     Object.entries(values).map(([key, value]) => [
       key,
       typeof value === 'number'
         ? { integerValue: String(value) }
-        : key === 'expiresAt'
-          ? { timestampValue: value }
-          : { stringValue: value },
+        : value instanceof Uint8Array
+          ? { bytesValue: Buffer.from(value).toString('base64') }
+          : key === 'expiresAt'
+            ? { timestampValue: value }
+            : { stringValue: value },
     ]),
   );
 const base = () => ({
@@ -49,9 +51,9 @@ function document(resource: string, id: string, fields: Record<string, unknown>)
   );
   return { target: { resource, id }, bytes, digest: hash(bytes) };
 }
+/** A log row carrying the model vector's update as v2 bytes. */
 function update() {
-  // Whitespace is part of the stored original and must survive transport reconstruction.
-  const raw = c.text(
+  const json = c.text(
     ' \n' +
       JSON.stringify({
         header: c.encodeBinary(fromHex(v.header)),
@@ -61,12 +63,13 @@ function update() {
       }) +
       '\n',
   );
+  const raw = local(json);
   const fields = scalar({
     ...base(),
     stream: header.context.authorDevice,
     seq: Number(header.context.streamSeq),
     hash: c.encodeBinary(fromHex(v.envelopeHash)),
-    envelope: c.decodeText(raw),
+    envelope: raw,
   });
   return {
     raw,
@@ -78,6 +81,7 @@ function update() {
     ),
   };
 }
+/** A checkpoint's rows: 256 KiB bytesValue chunks of its v2 bytes. */
 async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
   const signer = await crypto.subtle.importKey(
     'pkcs8',
@@ -99,14 +103,15 @@ async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
     },
     root,
     signer,
-    new Uint8Array(50_000),
+    new Uint8Array(300_000),
   );
   const object =
     kind === 'html'
       ? Buffer.from(await envelope.hash()).toString('hex')
       : c.decodeHeader(envelope.header()).objectId;
-  const raw = envelope.toJson();
-  const count = Math.ceil(raw.length / 32768);
+  const raw = envelope.toBytes(),
+    size = 262144;
+  const count = Math.ceil(raw.length / size);
   const rows = Array.from({ length: count }, (_, index) =>
     document(
       'checkpoints',
@@ -117,7 +122,7 @@ async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
         index,
         seq: index + 1,
         count,
-        bytes: c.encodeBinary(raw.slice(index * 32768, (index + 1) * 32768)),
+        bytes: raw.slice(index * size, (index + 1) * size),
       }),
     ),
   );
@@ -153,7 +158,7 @@ function authority(
 it('preserves the independent signed update bytes, header and envelope hash', async () => {
   const f = update(),
     result = await hostedLog(f.row, scope);
-  expect(result.bytes).toEqual(f.raw);
+  expect(result.bytes).toEqual(local(f.raw));
   expect(result.header).toEqual(header);
   expect(result.hash).toEqual(fromHex(v.envelopeHash));
   expect(
@@ -190,7 +195,7 @@ it('reassembles a complete ordered checkpoint to its exact original', async () =
   const f = await checkpoint();
   expect(f.rows.length).toBeGreaterThan(1);
   const result = await hostedCheckpoint(f.rows, scope);
-  expect(result.bytes).toEqual(f.raw);
+  expect(result.bytes).toEqual(local(f.raw));
   expect(result.header.objectId).toBe(f.object);
   expect(result.header.context.kind).toBe('checkpoint');
 });
@@ -257,7 +262,7 @@ it('assembles an unordered discovery set by validated authority subject and piec
 
 it('assembles every piece of the declared checkpoint discovery without inventing a seq=1 filter', async () => {
   const f = await checkpoint();
-  expect((await hostedCheckpointSet([...f.rows].reverse(), scope))[0].bytes).toEqual(f.raw);
+  expect((await hostedCheckpointSet([...f.rows].reverse(), scope))[0].bytes).toEqual(local(f.raw));
   await expect(hostedCheckpointSet([f.rows[0]], scope)).rejects.toThrow();
   await expect(
     hostedCheckpointSet(f.rows, { ...scope, page: '00000000-0000-4000-8000-000000000123' }),
@@ -276,7 +281,7 @@ it('partitions exactly the committed baseline original from the same complete ch
   expect(originals).toHaveLength(2);
   expect(originals.filter((value) => value.header.context.kind === 'html')).toHaveLength(1);
   expect(originals.find((value) => value.header.context.kind === 'html')?.bytes).toEqual(
-    baseline.raw,
+    local(baseline.raw),
   );
   expect(
     originals.find((value) => value.header.context.kind === 'checkpoint')?.header.objectId,
@@ -327,4 +332,36 @@ it('keeps ordinary checkpoint header-object admission beside the selected baseli
     return document('checkpoints', row.target.id.replace(ordinary.object, alias), fields);
   });
   await expect(hostedCheckpointSet([...baseline.rows, ...rows], scope, expected)).rejects.toThrow();
+});
+
+/** The model vector's v1 JSON update, as the v2 bytes the cloud carries. */
+function local(cloud: Uint8Array) {
+  if (c.decodeText(cloud.slice(0, 4)) === 'TCOB') return cloud;
+  const text = new TextDecoder().decode(cloud).trim();
+  return c.Envelope.fromJson(new TextEncoder().encode(text)).toBytes();
+}
+
+it('writes and reads v2 rows in bytesValue chunks of 256 KiB', async () => {
+  const f = await checkpoint();
+  expect(f.rows.length).toBe(2);
+  const first = JSON.parse(c.decodeText(f.rows[0].bytes));
+  expect(Buffer.from(first.bytes.bytesValue, 'base64').length).toBe(262144);
+  const log = JSON.parse(c.decodeText(update().row.bytes));
+  expect(Object.keys(log.envelope)).toEqual(['bytesValue']);
+});
+
+it.each([
+  ['unpadded', (value: string) => value.replace(/=+$/, '')],
+  ['base64url alphabet', (value: string) => value.replaceAll('+', '-').replaceAll('/', '_') + '-'],
+  ['non-canonical trailing bits', (value: string) => value.replace(/.=$/, 'B=')],
+])('refuses a %s bytesValue', async (_, change) => {
+  const f = update();
+  const value = (f.fields.envelope as { bytesValue: string }).bytesValue;
+  expect(value.endsWith('=')).toBe(true);
+  await expect(
+    hostedLog(
+      document('log', f.row.target.id, { ...f.fields, envelope: { bytesValue: change(value) } }),
+      scope,
+    ),
+  ).rejects.toThrow();
 });

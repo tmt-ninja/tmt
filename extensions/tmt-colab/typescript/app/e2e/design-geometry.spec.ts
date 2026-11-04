@@ -46,38 +46,61 @@ test('a busy action centres its mark on the label for every variant and theme', 
   for (const entry of offsets) expect(entry.offset, entry.name ?? '').toBeLessThanOrEqual(0.5);
 });
 
-test('a chip remove control is a segment flush with the chip inner edges', async ({ page }) => {
-  await mount(page);
-  const chips = await page.$$eval(
-    '#geometry-fixture .tmt-ui-chip, #geometry-fixture [data-slot="badge"]',
-    (chips) =>
-      chips.map((chip) => {
-        const outer = chip.getBoundingClientRect();
-        const inner = {
-          top: outer.top + chip.clientTop,
-          right: outer.left + chip.clientLeft + chip.clientWidth,
-          bottom: outer.top + chip.clientTop + chip.clientHeight,
-        };
-        const remove = chip.querySelector('button')!.getBoundingClientRect();
-        return {
-          name: chip.textContent,
-          top: Math.abs(remove.top - inner.top),
-          right: Math.abs(remove.right - inner.right),
-          bottom: Math.abs(remove.bottom - inner.bottom),
-        };
-      }),
+/** Each chip's remove control against the chip's inner box (inside its border). */
+async function removeInsets(page: Page, selector: string) {
+  return page.$$eval(selector, (chips) =>
+    chips.map((chip) => {
+      const outer = chip.getBoundingClientRect();
+      const inner = {
+        top: outer.top + chip.clientTop,
+        right: outer.left + chip.clientLeft + chip.clientWidth,
+        bottom: outer.top + chip.clientTop + chip.clientHeight,
+      };
+      const remove = chip.querySelector('button')!.getBoundingClientRect();
+      return {
+        name: chip.textContent,
+        top: remove.top - inner.top,
+        right: inner.right - remove.right,
+        bottom: inner.bottom - remove.bottom,
+        width: remove.width,
+        height: remove.height,
+      };
+    }),
   );
-  expect(chips).toHaveLength(4);
+}
+
+test('a browser chip remove control is a segment flush with the chip inner edges', async ({
+  page,
+}) => {
+  await mount(page);
+  const chips = await removeInsets(page, '#geometry-fixture .tmt-ui-chip');
+  expect(chips).toHaveLength(2);
   for (const chip of chips) {
-    expect(chip.top, `${chip.name} top`).toBeLessThanOrEqual(0.5);
-    expect(chip.right, `${chip.name} right`).toBeLessThanOrEqual(0.5);
-    expect(chip.bottom, `${chip.name} bottom`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.top), `${chip.name} top`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.right), `${chip.name} right`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.bottom), `${chip.name} bottom`).toBeLessThanOrEqual(0.5);
+  }
+});
+
+// The size-owning pill chip (#5821 A5c): a round remove control, centred, inset equally on its
+// three edges.
+test('a pill chip remove control is round and inset equally from the chip edges', async ({
+  page,
+}) => {
+  await mount(page);
+  const chips = await removeInsets(page, '#geometry-fixture [data-slot="chip"]');
+  expect(chips).toHaveLength(2);
+  for (const chip of chips) {
+    expect(Math.abs(chip.width - chip.height), `${chip.name} round`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.top - chip.bottom), `${chip.name} centred`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chip.right - chip.top), `${chip.name} inset`).toBeLessThanOrEqual(0.5);
+    expect(chip.top, `${chip.name} inside`).toBeGreaterThan(0);
   }
 });
 
 /** The tab icon at 16/24/32 px and the full mark at 256 px, rasterised from the generated files
  * that `generate-brand.mjs` serialises from the one mark definition (its `--check` keeps them equal). */
-test('the generated favicon and the full mark render the aurora beam, the dark panel and the prompt', async ({
+test('the generated favicon and the full mark render the selected pale ninja on its dark tile', async ({
   page,
 }) => {
   const read = (name: string) =>
@@ -87,7 +110,7 @@ test('the generated favicon and the full mark render the aurora beam, the dark p
   await page.goto('/');
   const renders = await page.evaluate(
     async (sources) => {
-      const out: Record<string, { beam: number; dark: number; light: number }> = {};
+      const out: Record<string, { dark: number; light: number }> = {};
       for (const [name, src, size] of sources) {
         const image = new Image();
         image.src = src;
@@ -97,7 +120,6 @@ test('the generated favicon and the full mark render the aurora beam, the dark p
         const context = canvas.getContext('2d')!;
         context.drawImage(image, 0, 0, size, size);
         const data = context.getImageData(0, 0, size, size).data;
-        let beam = 0;
         let dark = 0;
         let light = 0;
         for (let i = 0; i < data.length; i += 4) {
@@ -105,11 +127,10 @@ test('the generated favicon and the full mark render the aurora beam, the dark p
           if (a < 200) continue;
           const max = Math.max(r, g, b);
           const min = Math.min(r, g, b);
-          if (max > 150 && (max - min) / max > 0.35 && b + g > 2 * r) beam++;
-          else if (max < 60) dark++;
+          if (max < 60) dark++;
           else if (min > 220) light++;
         }
-        out[name] = { beam, dark, light };
+        out[name] = { dark, light };
       }
       return out;
     },
@@ -120,11 +141,10 @@ test('the generated favicon and the full mark render the aurora beam, the dark p
       ['mark-256', read('app-icon-light.svg'), 256],
     ] as [string, string, number][],
   );
-  for (const [name, { beam, dark, light }] of Object.entries(renders)) {
+  for (const [name, { dark, light }] of Object.entries(renders)) {
     const size = Number(name.split('-')[1]);
-    // A visible aurora beam, a dark panel and tile, and a white prompt at every size.
-    expect(beam, name).toBeGreaterThan(size * size * 0.04);
+    // The original pale ninja and its dark tile stay legible even at a 16px tab size.
     expect(dark, name).toBeGreaterThan(size * size * 0.3);
-    expect(light, name).toBeGreaterThan(0);
+    expect(light, name).toBeGreaterThan(size * size * 0.1);
   }
 });

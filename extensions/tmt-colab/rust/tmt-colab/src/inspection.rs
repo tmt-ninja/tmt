@@ -45,6 +45,23 @@ pub fn catalog_page_ids(catalog: &Value) -> Vec<String> {
         .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
         .collect()
 }
+/// The archived pages of the space: still linked as sub-pages, never counted (#5867).
+pub fn archived_page_ids(
+    store: &Store,
+    key: &Keyring,
+) -> Result<std::collections::BTreeSet<String>> {
+    Ok(catalog_archived_ids(&catalog(store, key)?))
+}
+/// The archived pages in a previously verified catalog.
+pub fn catalog_archived_ids(catalog: &Value) -> std::collections::BTreeSet<String> {
+    catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|page| page["archived"] == true)
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect()
+}
 /// Non-archived pages in a previously verified catalog.
 pub fn catalog_active_page_ids(catalog: &Value) -> Vec<String> {
     catalog["pages"]

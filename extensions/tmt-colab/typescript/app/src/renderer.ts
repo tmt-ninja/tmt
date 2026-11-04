@@ -1,6 +1,13 @@
 import { editLockTarget, type EditLockTarget } from './edit-locks.js';
 import { rendererBase } from './entry.js';
 import { loadRuntime, wantsRuntime, type PageRuntime } from './page-runtime.js';
+import {
+  loadDesignSystem,
+  namesDesignSystem,
+  noticeFrame,
+  writesDesignSystemTags,
+  type DesignSystemSource,
+} from './design-system.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
@@ -16,6 +23,12 @@ import {
   type DocumentImageInput,
 } from './document-images.js';
 
+/** A first comment without a record: selector and paint state only, never a thread identity. */
+export interface UnsentHighlight {
+  selector: QuoteSelector;
+  state: 'sending' | 'failed';
+}
+
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
 export const MAX_SELECTION_BYTES = 16 * 1024;
@@ -30,6 +43,8 @@ const PENDING_SCROLL_MS = 2000;
 const GROWTH_REPORT_LIMIT = 5;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
+/** Maximum measured height of one in-flow block, within the frame geometry budget. */
+export const INLINE_SLOT_HEIGHT = MAX_RENDER_HEIGHT;
 
 export interface EditLockPosition {
   id: string;
@@ -156,7 +171,7 @@ export const SOURCE_UPDATE_MS = 2000;
  * fresh frame; any other page only by whether it uses the design system, which bind fixes. The text
  * test over-approximates the frame's parsed check: a false match only costs a remount. */
 export function sourceFrameKey(source: string): string {
-  if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime/i.test(source)) return `scripted:${source}`;
+  if (/<script|\bon[a-z]+\s*=|tmt-colab-runtime|tmt-ds/i.test(source)) return `scripted:${source}`;
   return /tmt-ui-|<tmt-icon|tmt-starter/i.test(source) ? 'design' : 'plain';
 }
 /** What an in-place update came to: the frame applied it, the page needs a fresh frame, or a newer
@@ -206,6 +221,8 @@ export async function mountRenderer(
     images?: DocumentImageInput;
     /** How Colab frames the page; absent is `freeform`, which leaves the author's layout alone. */
     layout?: PageLayout;
+    /** Reads the bundle a page pins with `<meta name="tmt-ds">` (#5821); absent draws the notice. */
+    designSystem?: DesignSystemSource;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -218,8 +235,10 @@ export async function mountRenderer(
     threadCount?: number,
     /** The resolved thread open in the Discussion view; its passage is drawn quietly. */
     quiet?: { id: string; selector: QuoteSelector },
+    unsent?: UnsentHighlight[],
   ): void;
   slots(slots: InlineSlot[]): void;
+  threadReferences(entries: { id: string; number: number; excerpt: string }[]): void;
   questions(
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
@@ -297,6 +316,8 @@ export async function mountRenderer(
   const stopTheme = subscribeTheme(sendTheme);
   let lockRequestId = '';
   let lockTargets: RenderEditLock[] = [];
+  let referenceRequestId = '';
+  let references: { id: string; number: number; excerpt: string }[] = [];
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
   // The resolved thread open in the Discussion panel: drawn quietly, never selected.
@@ -493,6 +514,17 @@ export async function mountRenderer(
         const now = performance.now();
         if (now - scrolledAt < HEIGHT_UPDATE_MS) return;
         scrolledAt = now;
+        // A host that scrolls its own box (Design's workspace) takes the scroll; else the window.
+        const box = scrollingAncestor(frame);
+        if (box) {
+          const within =
+            frame.getBoundingClientRect().top -
+            box.getBoundingClientRect().top +
+            box.scrollTop +
+            (innerScroll ? 0 : value.top);
+          box.scrollTo({ top: Math.max(0, within), behavior: 'instant' });
+          return;
+        }
         const top =
           frame.getBoundingClientRect().top +
           window.scrollY +
@@ -874,6 +906,21 @@ export async function mountRenderer(
       typeof value === 'object' &&
       !Array.isArray(value) &&
       Object.keys(value).length === 4 &&
+      value.type === 'colab.render.open-reference' &&
+      value.renderId === snapshot.renderId &&
+      value.requestId === referenceRequestId &&
+      navigator.userActivation?.isActive === true &&
+      typeof value.id === 'string' &&
+      references.some((entry) => entry.id === value.id)
+    ) {
+      options.onOpenThread?.(value.id);
+      return;
+    }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 4 &&
       value.type === 'colab.render.open-thread' &&
       value.renderId === snapshot.renderId &&
       value.requestId === requestId &&
@@ -1003,8 +1050,19 @@ export async function mountRenderer(
     draft?: QuoteSelector,
     threadCount = input.length,
     quietThread?: { id: string; selector: QuoteSelector },
+    unsent: UnsentHighlight[] = [],
   ) => {
     if (stopped) return;
+    if (
+      !Array.isArray(unsent) ||
+      unsent.length > 64 ||
+      unsent.some((item) => !item || !['sending', 'failed'].includes(item.state))
+    )
+      return;
+    const pending = unsent.map(({ selector, state }) => {
+      validateSelector(selector);
+      return { selector: structuredClone(selector), state };
+    });
     // Author code can inspect everything delivered into its frame. Rebuild this
     // narrow view instead of forwarding caller objects or discussion labels.
     const next = input.map(({ id, selector, ordinal }) => ({
@@ -1042,6 +1100,7 @@ export async function mountRenderer(
       renderId: snapshot.renderId,
       requestId,
       anchors: next,
+      unsent: pending,
       threadCount,
       draft: draft ? structuredClone(draft) : null,
       quiet: quietThread
@@ -1052,7 +1111,7 @@ export async function mountRenderer(
       anchors = [];
       quiet = null;
       options.onAnchors?.([]);
-      channel.port1.postMessage({ ...message, anchors: [], quiet: null });
+      channel.port1.postMessage({ ...message, anchors: [], quiet: null, unsent: [] });
       return;
     }
     anchors = [...next, ...(draft ? [{ id: '', selector: structuredClone(draft) }] : [])];
@@ -1217,8 +1276,10 @@ export async function mountRenderer(
       return;
     const heights = input.map(({ id, height, before, chip }) => ({
       id,
-      height: Math.min(2000, Math.max(0, Math.ceil(height))),
-      ...(before !== undefined ? { before: Math.min(2000, Math.max(0, Math.ceil(before))) } : {}),
+      height: Math.min(INLINE_SLOT_HEIGHT, Math.max(0, Math.ceil(height))),
+      ...(before !== undefined
+        ? { before: Math.min(INLINE_SLOT_HEIGHT, Math.max(0, Math.ceil(before))) }
+        : {}),
       ...(chip
         ? {
             chip: {
@@ -1254,7 +1315,14 @@ export async function mountRenderer(
   options.signal.addEventListener('abort', destroy, { once: true });
   // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
   const base = rendererBase();
-  const runtime = wantsRuntime(source) ? loadRuntime(base) : undefined;
+  // A page that pins a design system runs its components on the page runtime, so it loads both.
+  const designSystem = loadDesignSystem(source, options.designSystem).catch(() =>
+    noticeFrame('unknown-release'),
+  );
+  const runtime =
+    wantsRuntime(source) || namesDesignSystem(source) || writesDesignSystemTags(source)
+      ? loadRuntime(base)
+      : undefined;
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {
@@ -1269,6 +1337,8 @@ export async function mountRenderer(
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
     let bundle: PageRuntime | undefined;
+    const ds = await designSystem;
+    if (stopped) return;
     if (runtime) {
       try {
         bundle = await runtime;
@@ -1285,6 +1355,7 @@ export async function mountRenderer(
         theme: getTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(bundle ? { runtime: bundle } : {}),
+        ...(bundle && ds ? { ds } : {}),
       },
       '*',
       [channel.port2],
@@ -1371,6 +1442,17 @@ export async function mountRenderer(
       }
     });
   };
+  const threadReferences = (entries: { id: string; number: number; excerpt: string }[]) => {
+    if (stopped || !ready || entries.length > 1000) return;
+    references = structuredClone(entries);
+    referenceRequestId = crypto.randomUUID();
+    channel.port1.postMessage({
+      type: 'colab.render.thread-references',
+      renderId: snapshot.renderId,
+      requestId: referenceRequestId,
+      entries: references,
+    });
+  };
   return {
     resize,
     snapshot,
@@ -1379,6 +1461,7 @@ export async function mountRenderer(
     highlight,
     slots,
     questions,
+    threadReferences,
     scrollAnchor,
     focusThread,
     select,
@@ -1422,4 +1505,14 @@ export async function mountRenderer(
     release,
     destroy,
   };
+}
+
+/** The frame's nearest ancestor that scrolls its content, if the host has one. */
+function scrollingAncestor(frame: HTMLElement): HTMLElement | null {
+  for (let node = frame.parentElement; node && node !== document.body; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight)
+      return node;
+  }
+  return null;
 }

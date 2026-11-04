@@ -335,3 +335,26 @@ test("proposal shows approved tags and changing tags after preparation refuses i
       tagged.tags,
     );
   }));
+
+test("proposal shows the key number and changing it refuses import", async () =>
+  world(async (root) => {
+    const fake = fakeColab();
+    const keyed = { ...meta, keyNumber: { value: "2.9×", label: "tokens per line" } };
+    const result = await prepare({ root, pageId, meta: keyed, call: fake.call });
+    assert.match(fake.state.body, /Key number: 2\.9× · tokens per line/);
+    fake.approve();
+    const record = JSON.parse(await readFile(result.record, "utf8"));
+    record.meta.keyNumber.value = "3×";
+    await writeFile(result.record, JSON.stringify(record));
+    await assert.rejects(
+      publish({ root, proposalId: result.proposalId, call: fake.call }),
+      /bytes changed/,
+    );
+    record.meta.keyNumber = keyed.keyNumber;
+    await writeFile(result.record, JSON.stringify(record));
+    const imported = await publish({ root, proposalId: result.proposalId, call: fake.call });
+    assert.deepEqual(
+      JSON.parse(await readFile(join(imported.path, "meta.json"), "utf8")).keyNumber,
+      keyed.keyNumber,
+    );
+  }));

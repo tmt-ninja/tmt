@@ -383,12 +383,14 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         });
         admitted.push(group);
         admitted_nodes.push((id, candidate.id.clone()));
+        // A choice question always offers Other (#5998); `data-other` only matters as a finding.
+        let other = candidate.other || single_or_multiple(&candidate);
         report.questions.push(Question {
             id: candidate.id,
             kind: candidate.kind,
             title: candidate.title,
             choices: choices.into_iter().map(|(choice, _)| choice).collect(),
-            other: candidate.other,
+            other,
             agent: candidate.agent,
             group: group
                 .map(|g| tree.attr(g, "data-id").unwrap_or("").to_owned())

@@ -263,7 +263,7 @@ pub fn compact(
             seq: head,
             hash: envelope.hash()?,
             previous: head_hash,
-            bytes: &envelope.to_json()?,
+            bytes: &envelope.to_bytes()?,
         });
         match published {
             Ok(_) => {}

@@ -52,6 +52,8 @@ export function useAttachmentOpener(
   };
   const owner = resolveOwner();
   const tail = useRef(Promise.resolve());
+  /** Attachments already read once more after a page change, so a retry never loops. */
+  const retried = useRef(new Set<string>()).current;
   const downloads = useRef<BlobDownloads | null>(null);
   const [state, setState] = useState({
     owner,
@@ -109,6 +111,8 @@ export function useAttachmentOpener(
       active: typeof owner,
     ) => Promise<void>,
     automatic?: () => boolean | undefined,
+    /** A message thumbnail may be read once more after a page change; a click is never replayed. */
+    quietRetry = false,
   ) => {
     const work = tail.current.then(async () => {
       if (!downloads.current) return;
@@ -133,8 +137,18 @@ export function useAttachmentOpener(
       const selected = explicit
         ? latest.descriptors.find((item) => item.attachmentId === d.attachmentId)
         : d;
+      // A page that changed under the read is usually settled a moment later: read once more,
+      // quietly, before saying so (#5955).
+      const fail = (reason: ReadFailure) => {
+        if (!quietRetry || reason !== 'changed' || retried.has(d.attachmentId))
+          failure(d.attachmentId, reason);
+        else {
+          retried.add(d.attachmentId);
+          void run(d, use, undefined, true);
+        }
+      };
       if (!active.binding || !selected || !current(active)) {
-        if (explicit) failure(d.attachmentId, 'changed');
+        if (explicit) fail('changed');
         return;
       }
       setState((previous) => ({
@@ -151,10 +165,10 @@ export function useAttachmentOpener(
       try {
         bytes = await active.binding.open(explicit ? latest.reference : reference, selected);
         if (current(active)) await use(bytes, selected, active);
-        if (!current(active) && explicit) failure(selected.attachmentId, 'changed');
+        if (!current(active) && explicit) fail('changed');
       } catch (error) {
-        if (current(active)) failure(selected.attachmentId, readFailure(error));
-        else if (explicit) failure(selected.attachmentId, 'changed');
+        if (current(active)) fail(readFailure(error));
+        else if (explicit) fail('changed');
       } finally {
         bytes?.fill(0);
         if (current(active)) setState((previous) => ({ ...previous, busy: undefined }));
@@ -203,6 +217,7 @@ export function useAttachmentOpener(
         }
       },
       () => request.visible?.(),
+      visible !== undefined,
     ).finally(() => held.pending.delete(d.attachmentId));
     request.work = work;
     held.pending.set(d.attachmentId, request);

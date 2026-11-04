@@ -21,6 +21,8 @@ let active = 0,
   held = false;
 let release: (() => void) | undefined;
 let refused = false;
+/** Read failures thrown by the next reads, in order, before reads succeed again. */
+let failures: ('changed' | 'denied')[] = [];
 let activeBinding: AttachmentBinding | undefined;
 let readScopes: string[] = [];
 const raw = Uint8Array.from(
@@ -56,6 +58,8 @@ const binding: AttachmentBinding = {
           release = resolve;
         });
       if (refused) throw new AttachmentReadError('denied');
+      const failure = failures.shift();
+      if (failure) throw new AttachmentReadError(failure);
       const bytes = raw.slice();
       cleared.push(bytes);
       return bytes;
@@ -112,6 +116,7 @@ export function mount(
     held?: boolean;
     kind?: string;
     refused?: boolean;
+    failures?: ('changed' | 'denied')[];
     files?: boolean;
   } = {},
 ) {
@@ -134,6 +139,7 @@ export function mount(
   held = options.held ?? false;
   kind = options.kind ?? 'image/png';
   refused = options.refused ?? false;
+  failures = [...(options.failures ?? [])];
   activeBinding = binding;
   render();
 }

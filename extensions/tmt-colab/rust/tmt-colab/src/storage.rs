@@ -27,6 +27,8 @@ pub struct PageStorage {
     pub comments_bytes: u64,
     pub attachments_bytes: Option<u64>,
     pub unused_attachment_bytes: Option<u64>,
+    /// When the earliest not-in-use object is removed; null when none waits or it is unknown.
+    pub unused_attachments_remove_at_ms: Option<u64>,
     pub total_bytes: Option<u64>,
     pub freeable: Bytes,
     pub last_cleaned_automatically_at_ms: Option<u64>,
@@ -42,6 +44,29 @@ impl PageStorage {
             | crate::attachments::UsageDetails::Unsupported { .. } => None,
         };
         self.apply_attachment_bytes(bytes);
+    }
+    /// The not-in-use objects this machine recorded, as `(object, payload bytes, since)`. `None`
+    /// when the active channel cannot list objects: then nothing is known, never zero.
+    pub fn apply_unreferenced(&mut self, clocks: Option<&[(String, u64, u64)]>) {
+        let Some(clocks) = clocks else {
+            self.unused_attachment_bytes = None;
+            self.unused_attachments_remove_at_ms = None;
+            return;
+        };
+        self.unused_attachment_bytes = clocks
+            .iter()
+            .try_fold(0u64, |sum, (_, bytes, _)| sum.checked_add(*bytes));
+        self.unused_attachments_remove_at_ms = clocks
+            .iter()
+            .map(|(_, _, since)| *since)
+            .min()
+            .and_then(|since| since.checked_add(crate::limits::ATTACHMENT_UNREFERENCED_GRACE_MS))
+            .filter(|at| tmt_colab_model::values::time(*at).is_ok());
+    }
+    /// Take the serve's not-in-use projection for this page.
+    pub fn copy_unreferenced(&mut self, serve: &Self) {
+        self.unused_attachment_bytes = serve.unused_attachment_bytes;
+        self.unused_attachments_remove_at_ms = serve.unused_attachments_remove_at_ms;
     }
     pub fn apply_attachment_bytes(&mut self, bytes: Option<u64>) {
         self.attachments_bytes = bytes;
@@ -128,6 +153,7 @@ pub fn read_page(
         comments_bytes: bytes.comments,
         attachments_bytes: None,
         unused_attachment_bytes: None,
+        unused_attachments_remove_at_ms: None,
         total_bytes: None,
         freeable: Bytes { history, files: 0 },
         last_cleaned_automatically_at_ms: bytes.last_auto_cleaned_at_ms,
@@ -279,6 +305,7 @@ mod tests {
             comments_bytes: 5,
             attachments_bytes: None,
             unused_attachment_bytes: None,
+            unused_attachments_remove_at_ms: None,
             total_bytes: None,
             freeable: Bytes::default(),
             last_cleaned_automatically_at_ms: None,
@@ -351,6 +378,57 @@ mod tests {
         let value = serde_json::to_value(report).unwrap();
         assert!(value["freed"]["history"].is_null());
         assert_eq!(value["error"]["message"], "injected stream failure");
+    }
+
+    #[test]
+    fn not_in_use_bytes_and_the_earliest_removal_are_known_only_with_a_listing() {
+        let mut row = PageStorage {
+            page_id: "page".into(),
+            title: None,
+            content_bytes: 0,
+            history_bytes: 0,
+            comments_bytes: 0,
+            attachments_bytes: Some(10),
+            unused_attachment_bytes: Some(1),
+            unused_attachments_remove_at_ms: Some(1),
+            total_bytes: None,
+            freeable: Bytes::default(),
+            last_cleaned_automatically_at_ms: None,
+            skipped: None,
+        };
+        row.apply_unreferenced(None);
+        assert_eq!(
+            (
+                row.unused_attachment_bytes,
+                row.unused_attachments_remove_at_ms
+            ),
+            (None, None),
+            "an unlisted namespace is unknown, never zero"
+        );
+        row.apply_unreferenced(Some(&[]));
+        assert_eq!(
+            (
+                row.unused_attachment_bytes,
+                row.unused_attachments_remove_at_ms
+            ),
+            (Some(0), None)
+        );
+        let grace = crate::limits::ATTACHMENT_UNREFERENCED_GRACE_MS;
+        row.apply_unreferenced(Some(&[("a".into(), 4096, 2_000), ("b".into(), 10, 1_000)]));
+        assert_eq!(
+            (
+                row.unused_attachment_bytes,
+                row.unused_attachments_remove_at_ms
+            ),
+            (Some(4106), Some(1_000 + grace))
+        );
+        row.apply_unreferenced(Some(&[("a".into(), u64::MAX, 0), ("b".into(), 1, 0)]));
+        assert_eq!(
+            row.unused_attachment_bytes, None,
+            "an unrepresentable sum is unknown"
+        );
+        let json = serde_json::to_value(&row).unwrap();
+        assert!(json.get("unusedAttachmentsRemoveAtMs").is_some());
     }
 }
 

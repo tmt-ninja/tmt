@@ -57,9 +57,31 @@ remains in `site/dist`; `node src/blog/pages.mjs` creates the blog-only
 shared assets those pages reference. Home, locale Homes, handbook redirects and
 Colab remain in source and the full build, but are not published. The Pages root
 redirects to the blog with a meta refresh and visible link; `404.html` links to
-the blog and repository. Blog header/footer outbound links use the repository. The working title is
+the blog and repository. Home, Colab and blog header/footer navigation share the framework-free
+[chrome renderer](src/shared/site-chrome.mjs) and `src/shared/site-chrome.css`.
+The React adapter preserves the existing language/theme controls in a dedicated slot;
+Home maps the paper/text/rule roles to its own theme. The adapter measures the
+wrapped header and feeds one root `html` scroll-padding rule, so in-page anchors
+on Home and Colab stay below it without per-anchor margins. Static Journal pages
+use the shared 128px fallback and load no additional observer script. Phone navigation wraps so all
+published destinations stay reachable. Callers provide the section path, mark URL,
+brand link, RSS URL, optional X handle, and navigation items (`label`, `url`, `published`,
+optional `external`). External items carry the arrow and appear in the footer; labels
+have no behavioral meaning. Unsafe URLs and missing publication flags fail validation,
+including on hidden items. The landing pages reuse the marketing-owned mark and X
+handle without changing their copy.
+
+Blog `site.json` supplies `published.product`, `journal`, `colab` and `github` booleans.
+Today Journal and GitHub are visible in the blog; Product and Colab remain hidden
+because the Pages artifact does not publish them. The full local Home/Colab build
+links to all three site sections. These local links do not change the Pages artifact.
+Set a blog destination's flag only when it is published. An optional bare `xHandle`
+(1–15 letters, digits or underscores) enables Follow on X in both header and footer.
+The working title is
 TMT Journal. Its shared layout uses a black-only ninja palette in both color
-preferences, rice-paper text, a red accent and a file-backed hooded mark.
+preferences, rice-paper text, a red accent and a file-backed owner-supplied team mark.
+The sticky header and footer are shared by index, topic and post pages. The selected
+ninja SVG is the header mark; a matching PNG is the favicon and touch icon.
 Every page carries Open Graph and X card metadata with absolute `SITE_ORIGIN`
 URLs: the canonical URL, the article title and summary, and a 1200×630 card:
 `src/blog/share/<slug>.png` when an article has one, else `src/blog/og.png`.
@@ -129,15 +151,46 @@ but excludes the blog. For local article HMR use `TMT_BLOG_DEMO=1 pnpm dev`;
 production artifacts always reject the development policy. Generated `blog/`
 inputs are ignored and rebuilt; approved sources are never cleared by a build.
 
+### Index statistics and key numbers
+
+The index copy and layout follow the owner-approved home mock. Its five metrics
+and source note come from one committed [stats snapshot](src/blog/stats.json):
+`asOf` is a real ISO calendar date; `metrics` contains the ordered IDs
+`subscriptions`, `loop`, `agents`, `prs`, `code`, each with a display `value`
+(up to 64 characters) and `label` (up to 160); `note` is bounded to 2,000
+characters. The build validates the exact shape and rejects missing/extra fields,
+empty strings and control characters. Builds never read host session logs or
+git history; the snapshot changes only through committed data updates.
+
+`node src/blog/stats-update.mjs [--write]`, run from `site/` on the owner's host,
+recomputes the snapshot: loop hours and agent-hours from Codex and Claude session
+logs of this repository (activity gaps over five minutes end an interval), merged
+PRs from one GitHub search, and added lines from `origin/main` numstat minus the
+exclusion list in that file. Subscriptions add $400 on each 27th from 27 September
+2026. A per-file cache under `$XDG_CACHE_HOME/tmt-blog-stats/` (size and mtime)
+rescans only changed logs and keeps the intervals of logs the providers have since deleted. The command refuses to write when any cumulative metric
+would go down. A daily tmt-mkt Squad cron commits the result as a data-only PR.
+
+Optional post metadata `keyNumber` is exactly `{ "value": "2.9×", "label": "tokens per line" }`.
+Both fields must be nonempty text without control characters; `value` is bounded
+to 32 characters and `label` to 100. Index and topic rows escape and render it
+in the key-number column; omitted values leave that column empty. The proposal
+body shows it and its exact metadata bytes are approval-bound. Adding or changing
+it requires a new owner-approved proposal, just like tags. Existing approved
+posts are never decorated by the template or silently rewritten.
+
 ### Tags
 
 Optional `tags` metadata holds zero to three unique lowercase slugs from the
 fixed vocabulary in [tags.mjs](src/blog/tags.mjs): `announcements` (project news),
-`colab` (Colab use), `design` (interface design), `engineering` (implementation)
+`colab` (Colab use), `design` (interface design), `engineering` (implementation),
+`shugyo` (the weekly Shugyō retro series), `usage` (allowance, cost and model use)
 and `workflow` (working with agents). Unknown, duplicate or excessive tags fail
-validation; values are never silently normalized. Omitting tags preserves the
-existing metadata and approval hash. Adding or changing tags requires a new
-approved proposal, whose body lists the tags.
+validation; values are never silently normalized. Tags and `keyNumber` in
+`meta.json` are part of the approved artifact. To add or change them after
+publication, put them in the post's optional `editorial.json` (only `tags` and
+`keyNumber`); it overrides those two fields, needs no new approval and is not part
+of the approval hash (owner decision, 3 November 2026).
 
 Posts and listing rows show ordinary `#tag` links. The build generates
 `${SITE_BASE}blog/tags/<tag>/` for English, or `blog/<language>/tags/<tag>/` for
@@ -153,7 +206,7 @@ canonical URLs and sitemap entries, and each RSS item includes its tags as
 Use the installed native TMT CLI, optionally with `TMT_EXECUTABLE` set to its
 absolute path. Draft source must contain exactly one `article#blog-article`.
 Metadata requires `slug`, `title`, `summary`, `date` (YYYY-MM-DD) and
-`language` (`en`, `ja`, `zh-hant` or `zh-hans`), with optional `tags` as described above. Images use full `colab-attachment:<UUID>` references.
+`language` (`en`, `ja`, `zh-hant` or `zh-hans`), with optional `tags` and `keyNumber` as described above. Images use full `colab-attachment:<UUID>` references.
 Draft creation uses Colab's `column` layout and adds the new page to the `blog`
 project, with strict markup validation and no automatic browser opening.
 
@@ -178,6 +231,15 @@ revision may advance when a decision or discussion is stored; an unchanged
 full-source hash preserves the content binding across those updates.
 The trusted decision's timestamp is retained as returned by Colab (a decimal
 millisecond string); stored ISO timestamps also remain valid.
+
+Owner authorization (owner decision, 4 November 2026): the Colab `proposal`
+commands are gone from the current CLI, and the owner may authorize a post
+directly. `pnpm blog:colab import PAGE_UUID meta.json APPROVED_BY INSTRUCTION`
+captures the page like `publish` and writes an `approval.json` with
+`method: "owner-instruction"`, who authorized it, their instruction, the page
+revision, the full-source SHA-256 and the artifact hash. Validation accepts it
+only with all of those fields and the matching artifact hash. Agents run it only
+on the owner's explicit instruction for that post, and quote that instruction.
 
 The importer reads source and authenticated proposal state through the public
 CLI, never discussion exports. `.private/` review records and temporary

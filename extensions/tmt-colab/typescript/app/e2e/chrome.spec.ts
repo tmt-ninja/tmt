@@ -292,15 +292,18 @@ for (const width of [1440, 390, 320])
             await expect(card.locator('.tmt-ui-notice-eyebrow')).not.toBeEmpty();
           }
           if (screen === 'pages') {
-            const card = page.locator('.pages [data-page-id]:visible').first();
+            const card = page.locator('.page-list-table [data-page-id]:visible').first();
             await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
-            await expect(card.getByRole('button', { name: /^Actions for/ })).toBeVisible();
-            await card.getByRole('button', { name: /^Actions for/ }).click();
-            await expect(page.getByRole('menu').getByText(/^Page ID:/)).toContainText('a19c0460');
-            await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
+            await expect(card.getByRole('button', { name: /^More for/ })).toBeVisible();
+            await card.getByRole('button', { name: /^More for/ }).click();
+            await expect(page.getByRole('menuitem', { name: 'Copy page ID' })).toBeVisible();
+            await expect(page.getByRole('menuitem', { name: 'Manage…' })).toBeVisible();
             await page.getByRole('menu').press('Escape');
             await expect(
-              page.locator('.pages [data-page-id]:visible').nth(1).locator('.tmt-ui-list-title'),
+              page
+                .locator('.page-list-table [data-page-id]:visible')
+                .nth(1)
+                .locator('.tmt-ui-list-title'),
             ).toHaveText('Untitled page');
           }
           for (const icon of await page.locator('svg.lucide:visible').all()) {
@@ -368,7 +371,7 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
   });
   // Rows and the header own selection checkboxes; Archived remains a tab.
   const root = page.locator('#chrome-fixture');
-  const rows = root.locator('.pages [data-page-id]');
+  const rows = root.locator('.page-list-table [data-page-id]');
   await expect(root.getByRole('checkbox', { name: 'Select all matching pages' })).toBeVisible();
   await expect(rows.getByRole('checkbox')).toHaveCount(await rows.count());
   await root.getByRole('button', { name: 'Filter', exact: true }).click();
@@ -475,8 +478,11 @@ for (const width of [1440, 390, 320])
       await expect(menu.getByRole('menuitem', { name: 'Agent status', exact: true })).toBeVisible();
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
-      // A floating layer carries the one overlay shadow.
-      await expect(surface).toHaveCSS('box-shadow', /60px/);
+      // A floating layer carries the overlay elevation (#5821).
+      await expect(surface).toHaveCSS(
+        'box-shadow',
+        new RegExp(tokens.browser.shadow.overlay[theme].split(' ').slice(1, 3).join(' ')),
+      );
       await expect(surface).toHaveCSS('border-width', '1px');
       expect(tokens.browser.metric['radius-l']).toBe('12px');
       await expect(surface).toHaveCSS('border-radius', tokens.browser.metric['radius-l']);

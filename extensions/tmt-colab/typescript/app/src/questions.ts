@@ -69,6 +69,7 @@ const kinds: readonly string[] = ['single', 'multiple', 'short', 'long'];
 
 /** The stable reason codes of the page markup check (colab-v1, page markup check). */
 export type QuestionFindingCode =
+  | 'thread-ref-invalid'
   | 'question-page-limit'
   | 'question-id-invalid'
   | 'question-id-duplicate'
@@ -279,6 +280,7 @@ const formOf = (node: Element): 'chip' | 'invalid' | undefined =>
       : 'invalid';
 /** Every code the checks can report, for the vector coverage test. */
 export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
+  'thread-ref-invalid',
   'question-page-limit',
   ...QUESTION_RULES.map(([code]) => code),
   'question-marker-misplaced',
@@ -323,6 +325,10 @@ function readChoice(node: Element): { choice: QuestionChoice; invalidDescription
  * Structural failures silence descendants; group-empty preserves evaluated child findings.
  */
 export function inspectQuestions(source: string): QuestionInspection {
+  // Element and attribute names are literal in source, so a page that never names one inspects to
+  // nothing without parsing it: a large page's live write skips a whole-page parse (#5891).
+  if (!/<tmt-(?:question|review|read|thread-ref)|data-(?:question|choice)/i.test(source))
+    return { questions: [], groups: [], reviews: [], readings: [], findings: [] };
   const template = document.createElement('template');
   template.innerHTML = source;
   const root = template.content;
@@ -415,6 +421,21 @@ export function inspectQuestions(source: string): QuestionInspection {
   const questions: Question[] = [];
   const admittedNodes = new Map<Element, Question>();
   const findings: QuestionFinding[] = [];
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  [...root.querySelectorAll('tmt-thread-ref')].forEach((node, index) => {
+    if (
+      !uuid.test(node.getAttribute('data-writer') ?? '') ||
+      !uuid.test(node.getAttribute('data-thread') ?? '') ||
+      [...node.attributes].some((attr) => !['data-writer', 'data-thread'].includes(attr.name))
+    )
+      findings.push({
+        element: 'tmt-thread-ref',
+        ordinal: index + 1,
+        id: null,
+        severity: 'warning',
+        code: 'thread-ref-invalid',
+      });
+  });
   groupNodes.forEach((node, index) => {
     const code = groupFailures.get(node);
     if (code && !suppressed(node))
@@ -503,7 +524,8 @@ export function inspectQuestions(source: string): QuestionInspection {
       title: candidate.title,
       kind: candidate.kind as QuestionKind,
       choices: choices.map(({ choice }) => choice),
-      other: candidate.other,
+      // A choice question always offers Other (#5998); `data-other` only matters as a finding.
+      other: candidate.other || choiceKind(candidate),
       agent: candidate.agent,
       group: group ? idOf(group) : splitId,
       label,

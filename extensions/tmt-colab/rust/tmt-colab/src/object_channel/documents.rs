@@ -2,6 +2,7 @@
 //! These codecs neither enable cloud sync nor admit a signature, role or epoch.
 pub mod originals;
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Map, Value, json};
 use tmt_colab_model::{crypto, values};
 use tmt_extension_objects::{Sha256Hex, sync};
@@ -31,7 +32,14 @@ impl Resource {
     fn fields(self) -> &'static [&'static str] {
         match self {
             Self::Spaces => &["space", "owner"],
-            Self::Pages => &["space", "page", "epoch", "state", "expiresAt"],
+            Self::Pages => &[
+                "space",
+                "page",
+                "epoch",
+                "state",
+                "objectFormat",
+                "expiresAt",
+            ],
             Self::Links => &["space", "page", "link", "role", "token"],
             Self::Members => &["space", "page", "uid", "role", "link", "token", "seq"],
             Self::Log => &[
@@ -74,9 +82,10 @@ impl Resource {
     }
 }
 
-/// REST Values stay explicit: a base64url sealed payload is a stringValue, not
-/// a bytesValue or an alternate outer envelope. Timestamp syntax is checked by
-/// the carrier's provider codec; this mapping never infers authority from expiry.
+/// REST Values stay explicit. A sealed object (a log `envelope`, a checkpoint chunk's `bytes`) is
+/// a bytesValue holding the binary v2 envelope bytes; an authority piece stays a base64url
+/// stringValue. Timestamp syntax is checked by the carrier's provider codec; this mapping never
+/// infers authority from expiry.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Field {
@@ -88,6 +97,9 @@ pub enum Field {
     Null(()),
     #[serde(rename = "timestampValue")]
     Timestamp(String),
+    /// Standard padded base64, the REST spelling of a bytesValue.
+    #[serde(rename = "bytesValue")]
+    Bytes(String),
 }
 impl Field {
     /// RFC 3339 UTC in whole seconds: the shortest exact spelling the carrier accepts.
@@ -115,6 +127,22 @@ impl Field {
     pub fn number(value: u64) -> Result<Self, Invalid> {
         values::time(value).map_err(|_| Invalid)?;
         Ok(Self::Integer(value.to_string()))
+    }
+    pub fn bytes(value: &[u8]) -> Self {
+        Self::Bytes(STANDARD.encode(value))
+    }
+    /// The exact bytes of a canonical bytesValue of at most `max` bytes.
+    fn binary(&self, max: usize) -> Result<Vec<u8>, Invalid> {
+        match self {
+            Self::Bytes(value) if value.len() <= max.div_ceil(3) * 4 => {
+                let bytes = STANDARD.decode(value).map_err(|_| Invalid)?;
+                if bytes.len() > max || STANDARD.encode(&bytes) != *value {
+                    return Err(Invalid);
+                }
+                Ok(bytes)
+            }
+            _ => Err(Invalid),
+        }
     }
     fn text(&self) -> Result<&str, Invalid> {
         match self {
@@ -149,6 +177,21 @@ fn text<'a>(fields: &'a Fields, name: &str) -> Result<&'a str, Invalid> {
 fn integer(fields: &Fields, name: &str) -> Result<u64, Invalid> {
     fields.get(name).ok_or(Invalid)?.integer()
 }
+fn binary(fields: &Fields, name: &str, max: usize) -> Result<Vec<u8>, Invalid> {
+    fields.get(name).ok_or(Invalid)?.binary(max)
+}
+/// The `objectFormat` a page row declares: binary v2 envelopes in bytesValue rows (#5876).
+pub const OBJECT_FORMAT: u64 = 2;
+/// A log row's v2 envelope: one sealed update (`decoder::UPDATE_BYTES`) and the binary overhead.
+pub const LOG_ENVELOPE_BYTES: usize = crate::decoder::UPDATE_BYTES + 2048;
+/// Checkpoint chunks: 256 KiB raw, about 342 KiB as REST base64, inside `SYNC_DOCUMENT_BYTES`.
+pub const CHUNK_BYTES: usize = 256 * 1024;
+/// Enough chunks for the largest v2 envelope.
+pub const MAX_CHUNKS: usize = tmt_colab_model::object::MAX_ENVELOPE_BYTES.div_ceil(CHUNK_BYTES);
+const _: () = assert!(
+    LOG_ENVELOPE_BYTES.div_ceil(3) * 4 + 2048 <= tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES
+        && CHUNK_BYTES.div_ceil(3) * 4 + 2048 <= tmt_extension_objects::limits::SYNC_DOCUMENT_BYTES
+);
 fn positive(fields: &Fields, name: &str) -> Result<u64, Invalid> {
     let n = integer(fields, name)?;
     if n == 0 {
@@ -245,17 +288,23 @@ fn check(resource: Resource, fields: &Fields) -> Result<(), Invalid> {
     }
     for (key, value) in fields {
         match key.as_str() {
-            "epoch" | "seq" | "index" | "count" => {
+            "epoch" | "seq" | "index" | "count" | "objectFormat" => {
                 value.integer()?;
             }
             "expiresAt" if matches!(value, Field::Timestamp(_)) => {}
             "expiresAt" => return Err(Invalid),
             "link" | "token"
                 if resource == Resource::Members && matches!(value, Field::Null(())) => {}
+            "envelope" | "bytes" if matches!(value, Field::Bytes(_)) => {}
             _ => {
                 value.text()?;
             }
         }
+    }
+    // The page's object format: an old reader refuses the unknown field instead of misreading
+    // bytesValue rows.
+    if resource == Resource::Pages && integer(fields, "objectFormat")? != OBJECT_FORMAT {
+        return Err(Invalid);
     }
     if resource == Resource::Members {
         // A constant the declaration grammar needs for the per-link holder discovery.
@@ -277,12 +326,18 @@ fn check(resource: Resource, fields: &Fields) -> Result<(), Invalid> {
             {
                 return Err(Invalid);
             }
-            let envelope = text(fields, "envelope")?;
-            if !envelope.is_ascii() || envelope.len() > 354_304 {
+            if binary(fields, "envelope", LOG_ENVELOPE_BYTES)?.is_empty() {
                 return Err(Invalid);
             }
         }
-        Resource::Checkpoints | Resource::Authority => {
+        Resource::Checkpoints => {
+            if binary(fields, "bytes", CHUNK_BYTES)?.is_empty()
+                || integer(fields, "count")? > MAX_CHUNKS as u64
+            {
+                return Err(Invalid);
+            }
+        }
+        Resource::Authority => {
             let bytes = values::binary(text(fields, "bytes")?, 32_768).map_err(|_| Invalid)?;
             if bytes.is_empty() {
                 return Err(Invalid);

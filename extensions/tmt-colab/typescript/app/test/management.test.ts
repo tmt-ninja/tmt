@@ -200,6 +200,19 @@ it.each([
   expect(records.size).toBe(0);
 });
 it.each([
+  ['INVALID', 400],
+  ['STALE_HEAD', 409],
+])('reads the owner socket bare text refusal %s as that code', async (code, status) => {
+  const f = await fixture(),
+    p = await f.client.prepare(f.view, { operation: 'epoch.advance', value: { pageId: v.page } });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(code, { status: Number(status) })),
+  );
+  await expect(f.client.send(p)).rejects.toMatchObject({ code });
+  expect(records.size).toBe(0);
+});
+it.each([
   [503, { code: 'UNRECOGNIZED' }],
   [503, { code: 'INVALID' }],
   [500, { code: 'UNAVAILABLE' }],
@@ -263,7 +276,7 @@ it('admits paged signed metadata without opening content; forged log, wrong scop
     closed = 0,
     sent: string[] = [];
   class Socket {
-    protocol = 'colab-sync-v1';
+    protocol = 'colab-sync-v2';
     onopen: (() => void) | null = null;
     onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
@@ -361,7 +374,7 @@ function serve(f: Awaited<ReturnType<typeof fixture>>) {
       ),
   );
   class Socket {
-    protocol = 'colab-sync-v1';
+    protocol = 'colab-sync-v2';
     onopen: (() => void) | null = null;
     onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
@@ -534,7 +547,7 @@ it('reads metadata after a baseline frame and verifies referenced statement chun
     let closed = 0,
       stage = 0;
     class Socket {
-      protocol = 'colab-sync-v1';
+      protocol = 'colab-sync-v2';
       onopen: (() => void) | null = null;
       onclose: (() => void) | null = null;
       onerror: (() => void) | null = null;

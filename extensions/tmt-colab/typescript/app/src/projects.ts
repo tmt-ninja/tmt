@@ -40,6 +40,12 @@ type ProjectNameError = 'empty' | 'long' | 'form';
  * The owner store's grammar: single interior spaces, no control character and no other Unicode
  * `White_Space` (not `\s`, which also takes U+FEFF); `project-name-v1.json` pins both sides.
  */
+/** The project TMT keeps for design-system pages (#5866): never shown, never a person's choice. */
+export const DESIGN_SYSTEM_PROJECT = 'tmt:design-system';
+/** A name a person may give a project: the owner store's grammar, and not a reserved name. */
+export function userProjectNameError(name: string): ProjectNameError | 'reserved' | undefined {
+  return projectNameError(name) ?? (name === DESIGN_SYSTEM_PROJECT ? 'reserved' : undefined);
+}
 export function projectNameError(name: string): ProjectNameError | undefined {
   const points = [...name].length;
   if (points === 0) return 'empty';

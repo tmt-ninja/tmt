@@ -8,7 +8,7 @@ import {
   digest,
   encodeBinary,
   Envelope,
-  MAX_ENVELOPE_JSON,
+  MAX_ENVELOPE_BYTES,
   payload,
   statement,
   strictJson,
@@ -344,7 +344,7 @@ async function publicRead(
       });
       const url = new URL('sync', mount);
       url.protocol = 'ws:';
-      const socket = new WebSocket(url, ['colab-sync-v1', `colab-reader-v1.${session.token}`]);
+      const socket = new WebSocket(url, ['colab-sync-v2', `colab-reader-v1.${session.token}`]);
       const state = { closed: false, denial: '', socket, session };
       Object.assign(window, { publicReader: state });
       const frames: Record<string, unknown>[] = [];
@@ -473,7 +473,7 @@ async function publicRead(
   expect(encodeBinary(head!.hash)).toBe(first.membershipHead.statementHash);
   const baseline = payload.decodeBaseline(binary(first.baseline, 8192));
   expect(baseline).toEqual(signedBaseline);
-  const envelope = Envelope.fromJson(binary(first.baselineObject.envelope, MAX_ENVELOPE_JSON));
+  const envelope = Envelope.fromBytes(binary(first.baselineObject.envelope, MAX_ENVELOPE_BYTES));
   const hash = encodeBinary(await envelope.hash());
   expect(hash).toBe(first.baselineObject.envelopeHash);
   expect(hash).toBe(baseline.objectEnvelopeHash);

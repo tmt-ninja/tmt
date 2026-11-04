@@ -1,8 +1,10 @@
 import { defineConfig } from '@playwright/test';
 const port = Number(process.env.BROWSER_UI_TEST_PORT ?? 5184);
-if (!Number.isSafeInteger(port) || port < 1 || port > 65535)
+if (!Number.isSafeInteger(port) || port < 1 || port > 65534)
   throw new Error('BROWSER_UI_TEST_PORT must be a TCP port.');
 const baseURL = `http://127.0.0.1:${port}`;
+// The /docs site, one port above the gallery, for e2e/docs-previews.spec.ts.
+const docsURL = `http://127.0.0.1:${port + 1}`;
 // Real-browser checks of the design gallery's own pages: computed styles and overlay motion. The
 // gallery is served by the leaf's dev server; nothing here touches a product or the host tmux.
 export default defineConfig({
@@ -11,10 +13,17 @@ export default defineConfig({
   retries: 0,
   timeout: 60000,
   use: { baseURL, trace: 'retain-on-failure' },
-  webServer: {
-    command: `./node_modules/.bin/vp dev --config vite.gallery.config.ts --port ${port} --strictPort`,
-    url: baseURL,
-    reuseExistingServer: false,
-  },
+  webServer: [
+    {
+      command: `./node_modules/.bin/vp dev --config vite.gallery.config.ts --port ${port} --strictPort`,
+      url: baseURL,
+      reuseExistingServer: false,
+    },
+    {
+      command: `./node_modules/.bin/vp dev --config vite.docs.config.ts --port ${port + 1} --strictPort`,
+      url: docsURL,
+      reuseExistingServer: false,
+    },
+  ],
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
 });

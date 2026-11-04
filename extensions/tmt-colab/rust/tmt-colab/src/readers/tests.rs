@@ -535,7 +535,7 @@ fn update(
     (
         json!({"type":"append","version":1,"space":scope.space,"page":scope.page,"epoch":scope.epoch,
             "streamId":DEVICE,"seq":seq.to_string(),"envelopeHash":values::encode_binary(&hash),
-            "envelope":values::encode_binary(&envelope.to_json().unwrap())}),
+            "envelope":values::encode_binary(&envelope.to_bytes().unwrap())}),
         hash,
     )
 }

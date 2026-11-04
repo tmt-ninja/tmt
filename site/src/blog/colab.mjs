@@ -17,6 +17,7 @@ import {
   sha256,
   stableJson,
   uuid,
+  validateApproval,
   walk,
 } from "./content.mjs";
 import { escapeHtml, readPosts } from "./site.mjs";
@@ -126,7 +127,7 @@ export async function prepare({ root, pageId, meta, call = tmt }) {
   const inventory = first.scripts.length
     ? first.scripts.map(({ path, sha256 }) => `- ${path}: SHA-256 ${sha256}`).join("\n")
     : "- None";
-  const proposalBody = `Publish this post?\n\nTitle: ${meta.title}\nSlug: ${meta.slug}\nDate: ${meta.date}\nLanguage: ${meta.language}\nSummary: ${meta.summary}\nTags: ${meta.tags?.length ? meta.tags.map((tag) => "#" + tag).join(", ") : "None"}\n\nApproved artifact SHA-256: ${artifactSha256}\n\nArticle modules (exact source is in this page):\n${inventory}\n\nExternal resource/data origins: none allowed by the site CSP. Outbound HTTPS links remain reader actions.\n\nApprove authorizes importing this exact article, scripts, images and metadata into the blog repository for PR review and merge-triggered publication. Discussions and proposals are excluded. Any source revision change requires a new proposal.`;
+  const proposalBody = `Publish this post?\n\nTitle: ${meta.title}\nSlug: ${meta.slug}\nDate: ${meta.date}\nLanguage: ${meta.language}\nSummary: ${meta.summary}\nTags: ${meta.tags?.length ? meta.tags.map((tag) => "#" + tag).join(", ") : "None"}\nKey number: ${meta.keyNumber ? meta.keyNumber.value + " · " + meta.keyNumber.label : "None"}\n\nApproved artifact SHA-256: ${artifactSha256}\n\nArticle modules (exact source is in this page):\n${inventory}\n\nExternal resource/data origins: none allowed by the site CSP. Outbound HTTPS links remain reader actions.\n\nApprove authorizes importing this exact article, scripts, images and metadata into the blog repository for PR review and merge-triggered publication. Discussions and proposals are excluded. Any source revision change requires a new proposal.`;
   if (Buffer.byteLength(proposalBody) > 4096)
     throw new Error("Proposal inventory exceeds Colab limit; reduce scripts or split the post");
   const directory = join(root, ".private/proposals");
@@ -186,11 +187,42 @@ export async function publish({ root, proposalId, call = tmt }) {
     approvedAt: decision.at,
     artifactSha256: record.artifactSha256,
   };
+  return writePost({ root, meta: record.meta, captured, approval });
+}
+
+// The owner may authorize a post directly instead of through a Colab proposal (owner decision,
+// 2026-11-04). The record names who authorized it and binds the exact page revision and artifact.
+export async function importAuthorized({
+  root,
+  pageId,
+  meta,
+  approvedBy,
+  instruction,
+  call = tmt,
+}) {
+  if (!uuid.test(pageId)) throw new Error("Use a full page UUID");
+  metadata(meta);
+  const captured = await capture(pageId, call);
+  const approval = {
+    decision: "approved",
+    method: "owner-instruction",
+    approvedBy,
+    instruction,
+    pageId,
+    pageRevision: captured.snapshot.revision,
+    sourceSha256: sha256(captured.snapshot.source),
+    approvedAt: new Date().toISOString(),
+    artifactSha256: artifactHash(meta, captured.html, captured.assets),
+  };
+  return writePost({ root, meta, captured, approval });
+}
+
+async function writePost({ root, meta, captured, approval }) {
   const staging = await mkdtemp(join(root, ".private/post-"));
   let committed = false;
   try {
     const files = {
-      "meta.json": stableJson(record.meta),
+      "meta.json": stableJson(meta),
       "article.html": captured.html,
       "approval.json": stableJson(approval),
       ...captured.assets,
@@ -199,13 +231,14 @@ export async function publish({ root, proposalId, call = tmt }) {
       await mkdir(dirname(join(staging, path)), { recursive: true });
       await writeFile(join(staging, path), bytes);
     }
-    metadata(record.meta);
-    if (record.meta.language !== "en") {
+    metadata(meta);
+    validateApproval(approval, meta, captured.html, captured.assets);
+    if (meta.language !== "en") {
       const posts = await readPosts(join(root, "src/posts"));
-      if (!posts.some(({ meta }) => meta.slug === record.meta.slug && meta.language === "en"))
+      if (!posts.some((post) => post.meta.slug === meta.slug && post.meta.language === "en"))
         throw new Error("Publish the approved English post before its translations");
     }
-    const destination = join(root, "src/posts", postDirectory(record.meta));
+    const destination = join(root, "src/posts", postDirectory(meta));
     // Refuse replacement so an existing published post is never silently lost.
     // Revisions are prepared as a reviewed Git change using the documented flow.
     try {
@@ -218,10 +251,10 @@ export async function publish({ root, proposalId, call = tmt }) {
     await rename(staging, destination);
     committed = true;
     return {
-      slug: record.meta.slug,
-      language: record.meta.language,
+      slug: meta.slug,
+      language: meta.language,
       path: destination,
-      artifactSha256: record.artifactSha256,
+      artifactSha256: approval.artifactSha256,
     };
   } finally {
     if (!committed) await rm(staging, { recursive: true, force: true });
@@ -245,9 +278,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     });
   else if (command === "publish" && first && !second)
     result = await publish({ root: resolve("."), proposalId: first });
+  else if (command === "import" && first && second && process.argv[5] && process.argv[6])
+    result = await importAuthorized({
+      root: resolve("."),
+      pageId: first,
+      meta: JSON.parse(await readFile(second, "utf8")),
+      approvedBy: process.argv[5],
+      instruction: process.argv[6],
+    });
   else
     throw new Error(
-      "Usage: pnpm blog:colab draft source.html metadata.json | pnpm blog:colab prepare PAGE_UUID metadata.json | pnpm blog:colab publish PROPOSAL_UUID",
+      "Usage: pnpm blog:colab draft source.html metadata.json | pnpm blog:colab prepare PAGE_UUID metadata.json | pnpm blog:colab publish PROPOSAL_UUID | pnpm blog:colab import PAGE_UUID metadata.json APPROVED_BY INSTRUCTION",
     );
   console.log(stableJson(result));
 }

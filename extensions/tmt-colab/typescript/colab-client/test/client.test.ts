@@ -387,4 +387,37 @@ it('signs display-only label requests with an empty revision and log operations 
     expect(() => c.operation(name)).toThrow();
   }
   expect(() => c.managementOperation('page.labels')).toThrow();
+  // #5866: a page kind names its page, a new page the space scope; neither names a head.
+  const kind = { ...projects, operation: 'page.kind' };
+  await expect(c.managementInput(kind)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...kind, page: c.SPACE_SCOPE_PAGE })).rejects.toThrow();
+  const created = { ...manage, operation: 'page.new' };
+  await expect(c.managementInput(created)).resolves.toBeInstanceOf(Uint8Array);
+  await expect(c.managementInput({ ...created, page: management.page })).rejects.toThrow();
+  await expect(c.managementInput({ ...created, expectedRevision: '1' })).rejects.toThrow();
+  for (const name of ['page.kind', 'page.new']) expect(() => c.operation(name)).toThrow();
+});
+
+describe('binary envelope v2 (#5876)', () => {
+  it('round-trips with the same hash and refuses a wrong magic, version or length', async () => {
+    const e = frozen();
+    const v2 = e.toBytes();
+    expect([...v2.subarray(0, 5)]).toEqual([...c.text('TCOB'), 2]);
+    expect(v2.length).toBe(7 + e.header().length + 64 + e.ciphertext().length);
+    const back = c.Envelope.fromBytes(v2);
+    expect([...(await back.hash())]).toEqual([...(await e.hash())]);
+    expect([...back.toJson()]).toEqual([...e.toJson()]);
+    expect(() => c.Envelope.fromBytes(e.toJson())).toThrow();
+    for (const [at, value] of [
+      [0, 0x58],
+      [4, 1],
+      [4, 3],
+      [5, 0xff],
+    ] as const) {
+      const changed = v2.slice();
+      changed[at] = value;
+      expect(() => c.Envelope.fromBytes(changed)).toThrow();
+    }
+    expect(() => c.Envelope.fromBytes(v2.subarray(0, 7 + e.header().length + 64 + 15))).toThrow();
+  });
 });

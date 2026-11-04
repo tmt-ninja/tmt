@@ -4,6 +4,7 @@ import { expect, it } from 'vite-plus/test';
 import {
   SwitcherSourceStore,
   rememberPages,
+  rememberedPages,
   useSwitcherSource,
   watchRememberedPages,
 } from '../src/quick-switcher-source.js';
@@ -210,6 +211,13 @@ it('a list the space home already loaded is shown at once by a switcher that nev
     pages: [page(9, 'Later')],
     opened: new Map([[loaded[0].id, 7]]),
   });
+});
+
+it('the remembered list, which the menu counts, never holds design-system pages (#5866)', () => {
+  const { transport: t } = transport();
+  const system = { ...page(4, 'Brio'), projects: ['tmt:design-system'] };
+  rememberPages(t, SPACE, [page(1, 'Notes'), system]);
+  expect(rememberedPages(t, SPACE)).toEqual([page(1, 'Notes')]);
 });
 
 it('a space whose last watcher stopped keeps no entry, and a later watcher still hears lists', () => {

@@ -51,16 +51,24 @@ pub struct CallerSnapshot {
     pub name: String,
     pub agent_id: Option<String>,
 }
+/// The display-only publisher label (#5882): the caller this process already observed, else one
+/// lookup. Edit locks observe the caller themselves at each step; this label never decides one.
 pub fn publisher_agent() -> Option<String> {
-    caller_snapshot().map(|caller| caller.name)
+    let observed = OBSERVED.lock().ok().and_then(|value| value.clone());
+    observed.or_else(caller_snapshot).map(|caller| caller.name)
 }
+static OBSERVED: std::sync::Mutex<Option<CallerSnapshot>> = std::sync::Mutex::new(None);
 pub fn caller_snapshot() -> Option<CallerSnapshot> {
     let output = identity_reply(None)?;
-    output
+    let caller = output
         .status
         .success()
         .then(|| caller_from_reply(&output.stdout))
-        .flatten()
+        .flatten()?;
+    if let Ok(mut observed) = OBSERVED.lock() {
+        *observed = Some(caller.clone());
+    }
+    Some(caller)
 }
 
 /// A selected reference is descriptive, never publication authority. Only an explicit public

@@ -1,10 +1,12 @@
-//! Local-extension namespace management through the existing ledger and deletion fence.
+//! Local-extension object management through the existing ledger and deletion fence:
+//! namespace removal and usage (version 2), and per-object removal and listing (version 4).
 use super::dispatch::{self, ChannelEnd, Hub};
-use crate::objects::{BackendError, IoBudget, NamespaceId};
+use crate::objects::{BackendError, BlobKey, IoBudget, NamespaceId, OpaqueKey};
 use std::time::Instant;
 use tmt_extension_objects::{
-    AdmitInput, Bus, Call, Checkpoint, Context, Decision, Disclosure, ErrorCode, Operation, Origin,
-    Outcome, Request, Success, Usage, UsageScope,
+    AdmitInput, Bus, Bytes32, Call, Checkpoint, Context, Decision, Disclosure, ErrorCode,
+    ListInput, Listed, Listing, Operation, Origin, Outcome, Request, Sha256Hex, Success, Usage,
+    UsageScope,
 };
 
 pub(super) fn serve(
@@ -15,8 +17,8 @@ pub(super) fn serve(
 ) -> Result<(), ChannelEnd> {
     let reply = |outcome| dispatch::send_until(hub, bus, request, outcome, deadline);
     let fail = |code| reply(Outcome::Failure(code));
-    // Origin is service-owned. Mounted callers cannot request owner accounting or deletion,
-    // even when an extension would otherwise allow its admission callback.
+    // Origin is service-owned. Mounted callers cannot request owner accounting, listing or
+    // deletion, even when an extension would otherwise allow its admission callback.
     if request.origin != Origin::LocalExtension {
         return fail(ErrorCode::Denied);
     }
@@ -27,9 +29,11 @@ pub(super) fn serve(
     let input = match &request.call {
         Call::RemoveNamespace(input) => AdmitInput::RemoveNamespace(input.clone()),
         Call::Usage(scope) => AdmitInput::Usage(*scope),
+        Call::Remove(input) => AdmitInput::Remove(input.clone()),
+        Call::List(input) => AdmitInput::List(input.clone()),
         _ => return fail(ErrorCode::Invalid),
     };
-    let removes = matches!(request.call, Call::RemoveNamespace(_));
+    let removes = matches!(request.call, Call::RemoveNamespace(_) | Call::Remove(_));
     let operation = |disclosure| Operation {
         input: input.clone(),
         disclosure,
@@ -81,6 +85,23 @@ pub(super) fn serve(
         Call::Usage(scope) => {
             observe(hub, *scope, &io).map(|value| (Success::Usage(value), Disclosure::Usage(value)))
         }
+        // The release that drops the charge commits before `removed` is disclosed.
+        Call::Remove(input) => hub
+            .writer
+            .remove_object(
+                BlobKey {
+                    namespace: NamespaceId(*input.namespace.as_bytes()),
+                    object: OpaqueKey(*input.opaque_key.as_bytes()),
+                },
+                *input.payload_sha256.as_bytes(),
+                input.payload_bytes,
+                &io,
+            )
+            .map(|()| (Success::Removed, Disclosure::Removed)),
+        Call::List(input) => list(hub, input, &io).map(|listing| {
+            let count = listing.entries.len() as u32;
+            (Success::Listed(listing), Disclosure::Listed { count })
+        }),
         _ => unreachable!("management call already checked"),
     };
     dispatch::between(hub, deadline);
@@ -124,6 +145,31 @@ pub(super) fn serve(
         return finish(Outcome::Failure(ErrorCode::Unavailable));
     }
     finish(Outcome::Success(success))
+}
+/// One page of committed objects: one more than asked is read to know whether `next`
+/// names the last listed key.
+fn list(hub: &Hub, input: &ListInput, io: &IoBudget<'_>) -> Result<Listing, BackendError> {
+    let mut rows = hub.backend.list(
+        NamespaceId(*input.namespace.as_bytes()),
+        input.after.map(|key| OpaqueKey(*key.as_bytes())),
+        input.limit + 1,
+        io,
+    )?;
+    let more = rows.len() > input.limit as usize;
+    rows.truncate(input.limit as usize);
+    let entries: Vec<Listed> = rows
+        .iter()
+        .map(|row| Listed {
+            opaque_key: Bytes32::from_bytes(row.key.0),
+            payload_sha256: Sha256Hex::from_bytes(row.payload_sha256),
+            payload_bytes: row.payload_bytes,
+            adopted_at_ms: row.adopted_at_ms,
+        })
+        .collect();
+    let next = more
+        .then(|| entries.last().map(|entry| entry.opaque_key))
+        .flatten();
+    Ok(Listing { entries, next })
 }
 fn observe(hub: &Hub, scope: UsageScope, io: &IoBudget<'_>) -> Result<Usage, BackendError> {
     let namespace = match scope {

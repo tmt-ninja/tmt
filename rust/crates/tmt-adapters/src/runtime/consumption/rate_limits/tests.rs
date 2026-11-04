@@ -65,6 +65,7 @@ fn one_weekly_window_keeps_the_line_time_and_converts_reset_seconds() {
                 window_minutes: 10_080,
                 used_percent: 78.0,
                 resets_at_ms: 1_791_948_558_000,
+                observed_at_ms: None,
             }],
             account: None,
         }
@@ -221,6 +222,7 @@ fn validity_requires_one_to_two_strictly_ascending_windows() {
         window_minutes: minutes,
         used_percent: 1.0,
         resets_at_ms: 1,
+        observed_at_ms: None,
     };
     let limits = |windows| RateLimits {
         provider: "codex".into(),
@@ -311,6 +313,7 @@ fn the_account_is_optional_additive_and_validated() {
         window_minutes: 300,
         used_percent: 1.0,
         resets_at_ms: 1,
+        observed_at_ms: None,
     };
     let mut limits = RateLimits {
         provider: "claude".into(),
@@ -346,5 +349,28 @@ fn the_account_is_optional_additive_and_validated() {
             label: label.into(),
         });
         assert!(!limits.valid(), "{key} {label}");
+    }
+}
+
+#[test]
+fn optional_window_observation_must_be_valid_and_not_newer_than_its_envelope() {
+    let raw = serde_json::json!({"provider":"claude", "observedAtMs":100,
+        "windows":[{"windowMinutes":300,"usedPercent":10.0,"resetsAtMs":200}]});
+    let mut limits: RateLimits = serde_json::from_value(raw).unwrap();
+    assert!(limits.valid());
+    assert!(
+        serde_json::to_value(&limits).unwrap()["windows"][0]
+            .get("observedAtMs")
+            .is_none()
+    );
+    limits.windows[0].observed_at_ms = Some(99);
+    assert!(limits.valid());
+    assert_eq!(
+        serde_json::to_value(&limits).unwrap()["windows"][0]["observedAtMs"],
+        99
+    );
+    for invalid in [0, 101, 9_007_199_254_740_992] {
+        limits.windows[0].observed_at_ms = Some(invalid);
+        assert!(!limits.valid());
     }
 }

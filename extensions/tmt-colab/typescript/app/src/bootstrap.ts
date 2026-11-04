@@ -27,8 +27,8 @@ const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
-/** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
-export const NEEDS_YOU_MAX = 350;
+/** 50 readings + 50 answer blocks + 50 reviews. */
+export const NEEDS_YOU_MAX = 150;
 const COMMENTS_MAX = 4_294_967_295;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels, summaries, work rows and
  * parents (about 1.9 MB) fit. */
@@ -82,12 +82,12 @@ export function pageProgress(value: unknown): asserts value is PageProgress {
   );
 }
 
-/** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
+/** What the owner derives for the list: comment count, waiting items and the creator. */
 export interface PageActivity {
   comments: number;
-  /** At least one undecided, unresolved proposal; in v1 the mark means "a proposal awaits you". */
+  /** At least one reading, answer block or review awaits the owner. */
   waiting: boolean;
-  /** Pending proposals, readings, answer blocks and reviews; one count per target ID. */
+  /** Pending readings, answer blocks and reviews; one count per target ID. */
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
@@ -111,6 +111,8 @@ export interface PageInfo extends ExpiryInfo {
   /** Display-only pin (contract: Pins): present and true for a pinned page; the owner lists pinned
    * pages first, in pin order. */
   pinned?: true;
+  /** Display-only page kind (contract: Page kinds): present only on a design-system page (#5866). */
+  kind?: 'design-system';
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
   /** The owner's local plaintext title, current for the page's state; absent until the owner has folded it
@@ -260,12 +262,14 @@ export async function discover(
       'warnings',
       'projects',
       ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
+      ...(page !== null && typeof page === 'object' && 'kind' in page ? ['kind'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
       ...(page !== null && typeof page === 'object' && 'state' in page ? ['state'] : []),
       ...(page !== null && typeof page === 'object' && 'stateError' in page ? ['stateError'] : []),
       ...(page !== null && typeof page === 'object' && 'title' in page ? ['title'] : []),
     ]);
     if ('pinned' in page) requireValue(page.pinned === true && page.archived === false);
+    if ('kind' in page) requireValue(page.kind === 'design-system');
     if ('summary' in page) activity(page.summary);
     if ('state' in page)
       requireValue(

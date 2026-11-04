@@ -57,7 +57,7 @@
             "kind": "multiple",
             "title": "Pick some?",
             "choices": [{ "label": "A" }, { "label": "B" }, { "label": "C" }],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -126,7 +126,7 @@
             "kind": "single",
             "title": "Which colour now?",
             "choices": [{ "label": "Dark blue" }, { "label": "Green" }],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -239,7 +239,7 @@
                 "label": "c019xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "group": null,
             "label": null
@@ -2577,7 +2577,7 @@
             "kind": "single",
             "title": "Pick one now",
             "choices": [{ "label": "A b" }],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9406,7 +9406,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9441,7 +9441,7 @@
                 "description": "More detail"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9476,7 +9476,7 @@
                 "description": "🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9510,7 +9510,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9553,7 +9553,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9596,7 +9596,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9639,7 +9639,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9682,7 +9682,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9725,7 +9725,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9768,7 +9768,7 @@
                 "label": "Keep it"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9812,7 +9812,7 @@
                 "description": "<b>Plain</b>"
               }
             ],
-            "other": false,
+            "other": true,
             "agent": "",
             "group": null,
             "label": null
@@ -9952,6 +9952,38 @@
           "line": 4,
           "severity": "warning",
           "code": "unknown-icon"
+        }
+      ]
+    },
+    {
+      "name": "thread-ref-grammar",
+      "scope": "parser",
+      "why": "A reference needs only two canonical UUIDv4 attributes; content is ignored.",
+      "source": [
+        "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000001\" data-thread=\"10000000-0000-4000-8000-000000000002\">ignored</tmt-thread-ref>",
+        "<tmt-thread-ref data-writer=\"bad\" data-thread=\"10000000-0000-4000-8000-000000000002\"></tmt-thread-ref>",
+        "<tmt-thread-ref data-writer=\"10000000-0000-4000-8000-000000000001\" data-thread=\"10000000-0000-4000-8000-000000000002\" title=\"extra\"></tmt-thread-ref>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-thread-ref",
+          "ordinal": 2,
+          "id": null,
+          "line": 2,
+          "severity": "warning",
+          "code": "thread-ref-invalid"
+        },
+        {
+          "element": "tmt-thread-ref",
+          "ordinal": 3,
+          "id": null,
+          "line": 3,
+          "severity": "warning",
+          "code": "thread-ref-invalid"
         }
       ]
     }

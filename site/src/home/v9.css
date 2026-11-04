@@ -9,6 +9,10 @@
     --border: #292929;
     --accent: #c1f883;
     --focus: #c1f883;
+    --site-paper: var(--bg);
+    --site-text: var(--fg);
+    --site-muted: var(--muted);
+    --site-rule: var(--border);
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     letter-spacing: 0;
   }
@@ -17,7 +21,6 @@
   }
   & {
     scroll-behavior: smooth;
-    scroll-padding-top: 80px;
   }
   & {
     margin: 0;
@@ -115,45 +118,13 @@
   .language-tabs button[aria-pressed="true"] {
     color: white;
   }
-  .site-header {
-    height: 91px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    position: relative;
-    z-index: 2;
-  }
+
   .hero-mark {
     width: 112px;
     height: 112px;
     margin-bottom: 20px;
   }
-  .wordmark {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 19px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .site-header nav {
-    display: flex;
-    align-items: center;
-    gap: 32px;
-    font-size: 13px;
-    color: #b6b6b6;
-  }
-  .site-header a:hover,
-  footer a:hover {
-    color: #fff;
-  }
-  .github-link,
-  footer > a:last-child {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-  }
+
   .hero {
     position: relative;
     isolation: isolate;
@@ -489,19 +460,7 @@
     font-size: 44px;
     margin-bottom: 28px;
   }
-  footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-block: 28px;
-    gap: 20px;
-    font-size: 11px;
-    color: #929292;
-  }
-  footer .wordmark {
-    font-size: 14px;
-    color: #eee;
-  }
+
   .identity-heading {
     padding-block: 60px 35px;
   }
@@ -727,23 +686,7 @@
       font-size: 10px;
       padding-inline: 6px;
     }
-    .site-header {
-      height: 77px;
-    }
-    .wordmark {
-      font-size: 16px;
-      gap: 8px;
-    }
-    .site-header nav {
-      gap: 14px;
-      font-size: 11px;
-    }
-    .site-header nav > a:first-child {
-      display: none;
-    }
-    .site-header nav > a:nth-child(2) {
-      display: none;
-    }
+
     .hero-inner {
       padding-top: 33px;
       padding-bottom: 34px;
@@ -857,16 +800,7 @@
     .start-inner h2 {
       font-size: 34px;
     }
-    footer {
-      flex-wrap: wrap;
-      padding-block: 24px;
-      gap: 17px;
-    }
-    footer > span {
-      order: 3;
-      flex-basis: 100%;
-      font-size: 10px;
-    }
+
     .identity-heading {
       padding-block: 42px 25px;
     }
@@ -2070,9 +2004,6 @@
     font-size: 10px;
     padding: 4px;
   }
-  .v9-home .site-header nav {
-    gap: 10px;
-  }
 }
 /* The reference illustrations keep their dark terminal canvas in either theme. */
 .v9-home .top-install,
@@ -2098,33 +2029,11 @@
   color: #555;
 }
 
-:root[data-theme="light"]
-  .v9-home
-  :is(
-    .site-header nav,
-    .text-link,
-    .hero-footnote,
-    footer,
-    .study-explore,
-    footer .wordmark,
-    .section-label
-  ) {
+:root[data-theme="light"] .v9-home :is(.text-link, .hero-footnote, .study-explore, .section-label) {
   color: #555;
 }
-:root[data-theme="light"]
-  .v9-home
-  :is(
-    .wordmark img,
-    .start-inner > img,
-    .text-link .icon,
-    .github-link .icon,
-    .principles img,
-    footer .icon
-  ) {
+:root[data-theme="light"] .v9-home :is(.start-inner > img, .text-link .icon, .principles img) {
   filter: invert(1);
-}
-:root[data-theme="light"] .v9-home :is(.site-header a:hover, footer a:hover) {
-  color: #111;
 }
 
 @media (prefers-color-scheme: light) {
@@ -2147,33 +2056,11 @@
     color: #555;
   }
 
-  :root:not([data-theme])
-    .v9-home
-    :is(
-      .site-header nav,
-      .text-link,
-      .hero-footnote,
-      footer,
-      .study-explore,
-      footer .wordmark,
-      .section-label
-    ) {
+  :root:not([data-theme]) .v9-home :is(.text-link, .hero-footnote, .study-explore, .section-label) {
     color: #555;
   }
-  :root:not([data-theme])
-    .v9-home
-    :is(
-      .wordmark img,
-      .start-inner > img,
-      .text-link .icon,
-      .github-link .icon,
-      .principles img,
-      footer .icon
-    ) {
+  :root:not([data-theme]) .v9-home :is(.start-inner > img, .text-link .icon, .principles img) {
     filter: invert(1);
-  }
-  :root:not([data-theme]) .v9-home :is(.site-header a:hover, footer a:hover) {
-    color: #111;
   }
 }
 

@@ -88,7 +88,18 @@ export class HostedAdmission {
       throw unavailable();
     try {
       const fields = strictJson(document.bytes, 4096);
-      exactKeys(fields, ['space', 'page', 'epoch', 'state', 'expiresAt']);
+      // A page row declares objectFormat 2 (#5876); a row its owner has not rewritten since lacks it.
+      const marked = typeof fields === 'object' && fields !== null && 'objectFormat' in fields;
+      exactKeys(
+        fields,
+        marked
+          ? ['space', 'page', 'epoch', 'state', 'objectFormat', 'expiresAt']
+          : ['space', 'page', 'epoch', 'state', 'expiresAt'],
+      );
+      if (marked) {
+        exactKeys(fields.objectFormat, ['integerValue']);
+        if (fields.objectFormat.integerValue !== '2') throw unavailable();
+      }
       if (
         string(fields.space) !== space ||
         string(fields.page) !== page ||

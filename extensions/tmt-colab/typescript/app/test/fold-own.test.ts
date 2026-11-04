@@ -67,7 +67,7 @@ async function replay(row: Row) {
   let refused: unknown;
   for (const frame of row.frames) {
     try {
-      const { checkpoints } = await objects.streams([frame]);
+      const { checkpoints } = await objects.streams([local(frame)]);
       admitted.push(...checkpoints);
     } catch (error) {
       refused = error;
@@ -166,7 +166,11 @@ async function cloudFold(
   const scope = { space: v.spaceId, page: v.pageId, epoch: 1 },
     base = `${v.spaceId}_${v.pageId}_1`,
     documents: SealedDocument[] = [];
-  async function document(resource: string, id: string, values: Record<string, string | number>) {
+  async function document(
+    resource: string,
+    id: string,
+    values: Record<string, string | number | Uint8Array>,
+  ) {
     const fields = Object.fromEntries(
         Object.entries({ ...scope, uid: 'owner-uid', expiresAt: '2027-01-01T00:00:00Z', ...values })
           .sort(([a], [b]) => a.localeCompare(b))
@@ -174,9 +178,11 @@ async function cloudFold(
             key,
             typeof value === 'number'
               ? { integerValue: String(value) }
-              : key === 'expiresAt'
-                ? { timestampValue: value }
-                : { stringValue: value },
+              : value instanceof Uint8Array
+                ? { bytesValue: Buffer.from(value).toString('base64') }
+                : key === 'expiresAt'
+                  ? { timestampValue: value }
+                  : { stringValue: value },
           ]),
       ),
       bytes = c.text(JSON.stringify(fields)),
@@ -212,8 +218,9 @@ async function cloudFold(
   for (const frame of row.frames) {
     const entry = (frame.anchor ?? frame.checkpoint) as { envelope: string } | null;
     if (!entry) continue;
-    const bytes = c.binary(entry.envelope, 354304),
-      envelope = c.Envelope.fromJson(bytes),
+    // The frozen vectors hold v1 JSON; the cloud carries the same original as v2 bytes.
+    const envelope = c.Envelope.fromJson(c.binary(entry.envelope, 354304)),
+      bytes = envelope.toBytes(),
       header = c.decodeHeader(envelope.header()),
       context = header.context;
     if (frame.anchor)
@@ -221,17 +228,17 @@ async function cloudFold(
         stream: context.authorDevice,
         seq: Number(context.streamSeq),
         hash: c.encodeBinary(await envelope.hash()),
-        envelope: c.decodeText(bytes),
+        envelope: bytes,
       });
     else {
-      const count = Math.ceil(bytes.length / 32768);
+      const count = Math.ceil(bytes.length / 262144);
       for (let i = 0; i < count; i++)
         await document('checkpoints', `${base}_${header.objectId}_${i}`, {
           object: header.objectId,
           index: i,
           seq: i + 1,
           count,
-          bytes: c.encodeBinary(bytes.slice(i * 32768, (i + 1) * 32768)),
+          bytes: bytes.slice(i * 262144, (i + 1) * 262144),
         });
     }
   }
@@ -265,7 +272,7 @@ async function cloudFold(
       stream: covered.authorDevice,
       seq: 3,
       hash: c.encodeBinary(await next.hash()),
-      envelope: c.decodeText(next.toJson()),
+      envelope: next.toBytes(),
     });
   }
   const commands: FoldCommand[] = [],
@@ -455,7 +462,9 @@ for (const mode of [
     if (mode === 'wrong-anchor') {
       const bytes = c.binary(v.first.envelope, 354304);
       await change('log', (fields) => {
-        fields.envelope.stringValue = c.decodeText(bytes);
+        fields.envelope.bytesValue = Buffer.from(c.Envelope.fromJson(bytes).toBytes()).toString(
+          'base64',
+        );
       });
     }
     if (mode === 'missing-signer' || mode === 'missing-covered') {
@@ -499,9 +508,10 @@ for (const mode of [
     }
     if (mode === 'wrong-hash')
       await change('checkpoints', (fields) => {
-        const envelope = JSON.parse(c.decodeText(c.binary(fields.bytes.stringValue, 32768)));
-        envelope.signature = c.encodeBinary(new Uint8Array(64));
-        fields.bytes.stringValue = c.encodeBinary(c.text(JSON.stringify(envelope)));
+        const bytes = Buffer.from(fields.bytes.bytesValue, 'base64'),
+          at = 7 + ((bytes[5] << 8) | bytes[6]);
+        bytes.fill(0, at, at + 64);
+        fields.bytes.bytesValue = bytes.toString('base64');
       });
     try {
       await expect(
@@ -594,3 +604,19 @@ it('opens a folded prefix and a signed later edit through the real Worker decode
     vi.unstubAllGlobals();
   }
 });
+
+/** The frozen vector keeps v1 JSON envelopes; the browser receives their v2 form (#5876). */
+function local<T extends { anchor?: unknown; checkpoint?: unknown; tail?: unknown }>(frame: T): T {
+  const convert = (entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || !('envelope' in entry)) return entry;
+    const json = c.binary((entry as { envelope: string }).envelope, 1 << 22);
+    return { ...entry, envelope: c.encodeBinary(c.Envelope.fromJson(json).toBytes()) };
+  };
+  const tail = Array.isArray(frame.tail) ? frame.tail.map(convert) : frame.tail;
+  return {
+    ...frame,
+    ...('anchor' in frame ? { anchor: convert(frame.anchor) } : {}),
+    checkpoint: convert(frame.checkpoint),
+    tail,
+  };
+}

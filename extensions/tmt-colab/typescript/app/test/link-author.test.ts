@@ -60,7 +60,8 @@ async function admission(
 const entry = (e: Sealed): ObjectEntry => ({
   seq: e.seq,
   envelopeHash: e.hash,
-  envelope: e.envelope,
+  // The frozen vector keeps v1 JSON; the browser admits the v2 form (#5876).
+  envelope: c.encodeBinary(c.Envelope.fromJson(c.binary(e.envelope, 1 << 20)).toBytes()),
 });
 const presented = (names: string[]) => names.map((name) => v.chains[name]);
 const row = (prefix: string): Row => v.cases.find((r: Row) => r.name.startsWith(prefix));
@@ -236,7 +237,7 @@ it('shows an edit request that a browser-derived link device sealed into its own
     {
       seq: '1',
       envelopeHash: c.encodeBinary(await envelope.hash()),
-      envelope: c.encodeBinary(envelope.toJson()),
+      envelope: c.encodeBinary(envelope.toBytes()),
     },
     'update',
   );

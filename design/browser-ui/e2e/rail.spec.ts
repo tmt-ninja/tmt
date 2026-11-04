@@ -88,6 +88,11 @@ for (const renderer of ['native', 'react'])
         await expect(selected).toHaveAttribute('data-id', 'project');
         expect(await paints()).toEqual(original);
         const manage = rail.getByRole('button', { name: 'Manage projects', exact: true });
+        await manage.evaluate((button) => {
+          button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          (button as HTMLButtonElement).click();
+        });
+        await expect(page.getByRole('status')).not.toHaveText('Manage 1');
         await manage.focus();
         await page
           .getByRole('button', { name: 'Refresh command bindings' })
@@ -118,6 +123,108 @@ for (const renderer of ['native', 'react'])
         await expect(rail).toHaveCount(0);
         await expect(page.getByRole('tooltip')).toHaveCount(0);
       });
+
+for (const key of ['Enter', ' '])
+  test(`shell command admits ${key === ' ' ? 'Space' : key} key-turn click and rejects synthetic input`, async ({
+    page,
+  }) => {
+    await page.goto('/?frame=rail&renderer=native');
+    const manage = page
+      .locator('nav.tmt-ui-rail')
+      .getByRole('button', { name: 'Manage projects', exact: true });
+    const status = page.getByRole('status');
+    await manage.evaluate((button) => {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      (button as HTMLButtonElement).click();
+    });
+    await expect(status).toHaveText('Ready');
+    await manage.evaluate((button, key) => {
+      button.addEventListener(
+        key === ' ' ? 'keyup' : 'keydown',
+        (event) => {
+          if (!(event instanceof KeyboardEvent) || event.key !== key) return;
+          const other = document.querySelector<HTMLButtonElement>('.tmt-ui-rail-add')!;
+          other.click();
+          (button as HTMLButtonElement).click();
+          (button as HTMLButtonElement).click();
+          event.preventDefault();
+        },
+        { once: true },
+      );
+    }, key);
+    await manage.focus();
+    await page.keyboard.press(key === ' ' ? 'Space' : key);
+    await expect(status).toHaveText('Manage 0');
+    await expect(status).toHaveAttribute('data-command-calls', '1');
+    await expect(status).toHaveAttribute('data-add-calls', '0');
+    await manage.evaluate(async (button) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      (button as HTMLButtonElement).click();
+    });
+    await expect(status).toHaveAttribute('data-command-calls', '1');
+    await manage.evaluate((button, key) => {
+      button.addEventListener(
+        key === ' ' ? 'keyup' : 'keydown',
+        (event) => {
+          if (!(event instanceof KeyboardEvent) || event.key !== key) return;
+          event.preventDefault();
+          (button as HTMLButtonElement).click();
+        },
+        { once: true },
+      );
+    }, key);
+    await manage.focus();
+    await page.keyboard.press(key === ' ' ? 'Space' : key);
+    await expect(status).toHaveAttribute('data-command-calls', '1');
+    await manage.click();
+    await expect(status).toHaveAttribute('data-command-calls', '2');
+  });
+
+test('rail alert and disabled group command styles stay within rail markup', async ({ page }) => {
+  await page.goto('/?frame=rail');
+  await page.evaluate(() => {
+    for (const parent of [document.querySelector('nav.tmt-ui-rail')!, document.body]) {
+      const probe = document.createElement('div');
+      probe.dataset.railStyleProbe = parent === document.body ? 'page' : 'rail';
+      probe.innerHTML =
+        '<div class="tmt-ui-rail-alert">Storage unavailable</div><button disabled class="tmt-ui-rail-group-action">Manage</button>';
+      parent.append(probe);
+    }
+  });
+  const rail = page.locator('[data-rail-style-probe="rail"]');
+  const ordinary = page.locator('[data-rail-style-probe="page"]');
+  await expect(rail.locator('.tmt-ui-rail-alert')).toHaveCSS('display', 'flex');
+  await expect(rail.locator('button')).toHaveCSS('cursor', 'not-allowed');
+  await expect(ordinary.locator('.tmt-ui-rail-alert')).toHaveCSS('display', 'block');
+  await expect(ordinary.locator('button')).not.toHaveCSS('cursor', 'not-allowed');
+});
+
+for (const renderer of ['native', 'react'])
+  test(`group fallback icons ignore display labels and preserve explicit icons (${renderer})`, async ({
+    page,
+  }) => {
+    await page.goto(`/?frame=rail&icons=true&dashboard-defaults=true&renderer=${renderer}`);
+    const rail = page.locator('nav.tmt-ui-rail');
+    const dashboard = rail.locator('a[data-id="dashboard-default"] > svg');
+    const explicit = rail.locator('a[data-id="dashboard-explicit"] > svg');
+    const bookmark = rail.locator('a[data-id="project"] > svg');
+    await expect(dashboard).toHaveAttribute('aria-hidden', 'true');
+    await expect(dashboard.locator('rect')).toHaveCount(4);
+    await expect(explicit.locator('path')).toHaveCount(1);
+    await expect(rail.locator('a[data-id="other-default"] > svg')).toHaveCount(0);
+    for (const property of ['width', 'height', 'color'])
+      expect(
+        await dashboard.evaluate(
+          (node, key) => getComputedStyle(node).getPropertyValue(key),
+          property,
+        ),
+      ).toBe(
+        await bookmark.evaluate(
+          (node, key) => getComputedStyle(node).getPropertyValue(key),
+          property,
+        ),
+      );
+  });
 
 for (const renderer of ['native', 'react'])
   test(`optional row icons and text group action use the shared renderer in ${renderer}`, async ({

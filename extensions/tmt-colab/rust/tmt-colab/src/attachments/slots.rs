@@ -271,6 +271,20 @@ impl StagingSlots {
         ids.sort();
         Ok(ids)
     }
+    /// The objects of `page`'s unfinished sealed slots: an attach that may still list them.
+    pub(crate) fn in_flight_objects(&self, page: &str) -> Result<Vec<String>> {
+        let mut objects = Vec::new();
+        for id in self.ids()? {
+            if let Ok(slot) = self.load(&id)
+                && slot.record.page == page
+                && slot.record.done_ms.is_none()
+                && let Some(sealed) = &slot.record.sealed
+            {
+                objects.push(sealed.descriptor.object_id.clone());
+            }
+        }
+        Ok(objects)
+    }
     pub(crate) fn repair_pages(&self) -> Result<Vec<String>> {
         let mut pages = Vec::new();
         for id in self.ids()? {

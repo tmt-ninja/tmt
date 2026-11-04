@@ -4,7 +4,7 @@
   "description": "Hand-authored descriptor expectations over named admitted-projection inputs in needs-you-v1.json. No fixture data implies record signatures. Native cached details and actual browser reading controls must agree.",
   "cases": [
     {
-      "pendingCase": "all four pending kinds",
+      "pendingCase": "all three pending kinds",
       "expected": [
         {
           "id": "10000000-0000-4000-8000-000000000002",
@@ -108,8 +108,14 @@
       ]
     },
     {
-      "pendingCase": "ID shared with proposal counted once first",
-      "expected": []
+      "pendingCase": "reading remains pending",
+      "expected": [{
+        "id": "10000000-0000-4000-8000-000000000001",
+        "title": "Read plan",
+        "agent": "Agent 1",
+        "why": "Read first",
+        "state": "unread"
+      }]
     }
   ]
 }

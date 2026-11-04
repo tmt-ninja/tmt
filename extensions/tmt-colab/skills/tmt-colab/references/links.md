@@ -10,3 +10,6 @@ To link to an element of a page, append `#ELEMENT-ID` to the `/colab/p/SHORT` li
 `id` is letters, digits, `_`, `.`, `:` or `-`; `#anchor=ELEMENT-ID` is the same. The page opens
 scrolled to that element, or opens with a note when the page has none. Any other fragment is ignored
 and the page opens at the top.
+
+To refer inline to a discussion rather than a page element, use `tmt-thread-ref`; see
+[components](components.md#thread-reference) for the exact attributes and thread lookup.

@@ -21,7 +21,7 @@ pub const OBJECT_CALLBACK_WORKERS: usize = 2;
 /// Matches Remote's callback bound, clipped to the pending request deadline.
 pub const OBJECT_CALLBACK: Duration = Duration::from_secs(5);
 
-/// Live colab-sync-v1 tunnels, matching the remote door's colab mount cap.
+/// Live colab-sync-v2 tunnels, matching the remote door's colab mount cap.
 pub const TUNNELS: usize = 16;
 /// A tunnel that receives no inbound bytes for this long closes. The remote door applies the
 /// same 120 s to its splice, so an idle connection must keep bytes moving both ways.
@@ -146,10 +146,6 @@ pub const MAX_SEQUENCE: u64 = 9_007_199_254_740_991;
 pub const OWN_RECORDS: usize = 32;
 /// Frozen status recipients, bounded independently from comment text.
 pub const STATUS_RECIPIENTS: usize = 1000;
-pub const PROPOSAL_TITLE_POINTS: usize = 200;
-pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
-pub const PROPOSAL_LABEL_POINTS: usize = 64;
-pub const PAGE_PROPOSALS: usize = 200;
 /// Projects (contract: Projects): display-only names in the owner store. `PROJECT_POINTS` bounds one
 /// name, `PAGE_PROJECTS` the names on one page, `SPACE_PROJECTS` the names in the space and
 /// `SPACE_PROJECT_PAGES` every page-in-project assignment, so the `/api/pages` reply stays under its
@@ -213,8 +209,8 @@ pub const LATEST_POINTS: usize = 160;
 pub const SUMMARY_DETAILS_BYTES: usize = 192 * 1024;
 /// Maximum time spent projecting quote anchors for one owner summary.
 pub const SUMMARY_PROJECTION_TIMEOUT: Duration = Duration::from_millis(200);
-/// Maximum admitted proposal, question, review and reading items in one page summary.
-pub const NEEDS_YOU_ITEMS: usize = PAGE_PROPOSALS + QUESTION_PAGE + REVIEW_PAGE + READING_PAGE;
+/// Maximum admitted question, review and reading items in one page summary.
+pub const NEEDS_YOU_ITEMS: usize = QUESTION_PAGE + REVIEW_PAGE + READING_PAGE;
 pub const QUESTION_TITLE_POINTS: usize = 200;
 /// Display-only summary of the latest verified answer; full text stays in its comment.
 pub const QUESTION_ANSWER_POINTS: usize = 200;
@@ -232,6 +228,16 @@ pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
 pub const DATA_IMAGES_TOTAL_BYTES: usize = 256 * 1024;
 /// Unique `colab-attachment:` references one render resolves (`IMAGE_REFERENCES` in the app).
 pub const ATTACHMENT_REFS: usize = 128;
+/// An attachment object that no retained reference reaches is removed this long after this
+/// machine first saw it unreferenced (#5284); a new reference restarts the wait.
+pub const ATTACHMENT_UNREFERENCED_GRACE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+/// Listing pages one removal pass reads: Remote's 1,024-entry namespace cap in pages of 256. A
+/// namespace that does not fit decides nothing.
+pub const ATTACHMENT_LIST_PAGES: usize = 4;
+/// Removals one pass asks for; the rest wait for the page's next turn.
+pub const ATTACHMENT_REMOVE_BATCH: usize = 16;
+/// Each listing or removal request's own deadline.
+pub const ATTACHMENT_REQUEST: std::time::Duration = std::time::Duration::from_secs(5);
 /// Effective unreleased identity edit locks attributed to one writer.
 pub const EDIT_LOCKS_PER_WRITER: usize = 8;
 /// Current identity lock cells in one writer, including release tombstones.

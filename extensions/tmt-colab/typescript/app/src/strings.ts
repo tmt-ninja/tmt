@@ -157,16 +157,6 @@ export const text = {
     ];
     return `Storage is full. Charged ${humanSize(usage.chargedBytes)}${parts.length ? ` (${parts.join(', ')})` : ''}. This is a conservative allocation, not disk or billing bytes.`;
   },
-  proposalOpen: 'Proposal',
-  proposalApproved: 'Approved',
-  proposalDeclined: 'Declined',
-  proposalApprove: 'Approve',
-  proposalSaving: 'Saving decision…',
-  proposalDecline: 'Decline',
-  proposalFollowUp: 'Follow up',
-  proposalNotifyFailed:
-    'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
-  proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
   readingSection: (title: string) => `Reading: ${title}`,
   readingWord: 'Read',
   readingPleaseRead: 'Please read',
@@ -216,8 +206,8 @@ export const text = {
   needsYouClearBody: (count: number) => `Mark these ${count} items as handled for you.`,
   needsYouClearFailed:
     'Could not clear every item. Your remaining items are still listed; try again.',
-  needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
-    `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
+  needsYouGroup: (kind: 'reading' | 'answer' | 'review', count: number) =>
+    `${kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
   browserUnsupported: 'Unsupported browser',
   browserUpdate: 'Update your browser',
@@ -422,7 +412,6 @@ export const text = {
   pageComments: 'Page comments',
   commentsViews: 'Comment views',
   commentsViewOpen: 'Open',
-  commentsViewProposals: 'Proposals',
   commentsEmptyNone: 'No comments yet.',
   commentsEmptyNoneHint: 'Select text to start a thread, or comment on the page.',
   commentsEmptyTitle: 'Nothing waiting here.',
@@ -675,6 +664,17 @@ export const text = {
   anchorMissing: 'That passage is not on this page.',
   annotationUnsent: (quote: string) => `Your comment on “${quote}” was not sent.`,
   annotationUnsentOpen: 'Open',
+  pageHierarchy: {
+    parentMenu: (title: string, done: number, total: number) =>
+      `${title}, ${done} of ${total} sub-pages done`,
+    count: (done: number, total: number) => `${done}/${total}`,
+    back: (title: string) => `Back to ${title}`,
+    siblings: (title: string, count: number) =>
+      `${title} · ${count === 1 ? '1 sub-page' : `${count} sub-pages`}`,
+    thisPage: (title: string) => `${title} (this page)`,
+    subpages: (count: number) => (count === 1 ? '1 sub-page' : `${count} sub-pages`),
+  },
+  chatUnsent: 'Your Chat message was not sent.',
   workBand: {
     label: 'Work on this page',
     stateUnavailable: 'State unavailable',
@@ -749,7 +749,6 @@ export const text = {
       review: 'To confirm',
       question: 'Question for you',
       reading: 'To read',
-      proposal: 'To decide',
     },
     moreWaiting: (count: number) => `${count} more waiting`,
     openToDecide: 'Open to decide →',
@@ -856,6 +855,8 @@ export const text = {
   shortcuts: {
     manage: 'Manage shortcuts',
     manageAction: 'Manage',
+    manageReadOnly: 'Read-only access',
+    manageNeedsSpace: 'Shortcuts need a space',
     /** The side menu's group and its trailing add row. */
     group: 'Shortcuts',
     addRow: 'New shortcut',
@@ -1120,6 +1121,7 @@ export const text = {
       long: 'Use at most 32 characters.',
       form: 'Use single spaces inside the name; no tabs or line breaks.',
       exists: 'That project already exists.',
+      reserved: 'That name is reserved for design systems.',
     },
     pageFull: 'A page is in at most 8 projects.',
     failures: {

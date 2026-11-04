@@ -134,7 +134,7 @@ fn seed_native_page() {
             seq: 1,
             hash: envelope.hash().unwrap(),
             previous: [0; 32],
-            bytes: &envelope.to_json().unwrap(),
+            bytes: &envelope.to_bytes().unwrap(),
         })
         .unwrap();
     store.close().unwrap();

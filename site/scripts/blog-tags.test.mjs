@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { build } from "vite-plus";
 import { metadata, artifactHash, sha256, stableJson } from "../src/blog/content.mjs";
 import { postTags } from "../src/blog/tags.mjs";
-import { indexBody, postBody, rss, locationConfig } from "../src/blog/site.mjs";
+import { indexBody, postBody, rss, locationConfig, readPosts } from "../src/blog/site.mjs";
 import { generate, blogBuild } from "../src/blog/build.mjs";
 import { prunePages } from "../src/blog/pages.mjs";
 import { verifyDist } from "../src/blog/verify-dist.mjs";
@@ -75,7 +75,7 @@ test("listing and article tags are separate links and RSS categories", async () 
 async function taggedWorld(run) {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-tags-"));
   try {
-    for (const path of ["src/blog", "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     await writeFile(
       join(root, "index.html"),
@@ -237,3 +237,46 @@ test("built tag pages verify CSP, canonical and assets; unknown tags fail before
       /Unknown post tag/,
     );
   }));
+
+test("editorial.json changes tags and key numbers without a new approval", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tmt-blog-editorial-"));
+  try {
+    const post = join(root, meta.slug);
+    await mkdir(post, { recursive: true });
+    const approved = { ...meta, tags: ["engineering"] };
+    await writeFile(join(post, "meta.json"), JSON.stringify(approved));
+    await writeFile(join(post, "article.html"), article);
+    const uuid = "00000000-0000-4000-8000-000000000000";
+    await writeFile(
+      join(post, "approval.json"),
+      JSON.stringify({
+        decision: "approved",
+        pageId: uuid,
+        proposalId: uuid,
+        pageRevision: "v1:fixture",
+        sourceSha256: "0".repeat(64),
+        approverDevice: uuid,
+        actionId: uuid,
+        approvedAt: "1793541267605",
+        artifactSha256: artifactHash(approved, article, {}),
+      }),
+    );
+    const keyNumber = { value: "2.9×", label: "tokens per line" };
+    await writeFile(
+      join(post, "editorial.json"),
+      JSON.stringify({ tags: ["usage", "engineering"], keyNumber }),
+    );
+    const [read] = await readPosts(root);
+    assert.deepEqual(read.meta.tags, ["usage", "engineering"]);
+    assert.deepEqual(read.meta.keyNumber, keyNumber);
+    assert.equal(read.meta.title, meta.title);
+    assert.deepEqual(read.assets, {});
+
+    await writeFile(join(post, "editorial.json"), JSON.stringify({ title: "Changed" }));
+    await assert.rejects(readPosts(root), /editorial.json may only hold tags and keyNumber/);
+    await writeFile(join(post, "editorial.json"), JSON.stringify({ tags: ["unknown"] }));
+    await assert.rejects(readPosts(root), /Unknown post tag/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

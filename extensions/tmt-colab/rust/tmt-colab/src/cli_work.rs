@@ -342,6 +342,8 @@ struct Read {
     found: work_index::Found,
     /// Each readable sub-page's title.
     titles: std::collections::BTreeMap<String, String>,
+    /// The space's archived pages: still listed, never counted (#5867).
+    archived: std::collections::BTreeSet<String>,
 }
 /// The one-shot rewrite of task-era work values (#5825), run when the serve opens a space: every
 /// page still holding version 1 gets one `work.migrate` action, which keeps its linked pages in
@@ -370,10 +372,16 @@ pub(crate) fn migrate_space(
             pages
                 .into_iter()
                 .filter_map(|page| {
-                    let value = page::read_work(&store, &key, &page, &mut decoder)
-                        .ok()?
-                        .legacy?;
-                    Some((page, value))
+                    // A page whose work cannot be read is said, never skipped silently (#5853).
+                    match page::read_work(&store, &key, &page, &mut decoder) {
+                        Ok(work) => Some((page, work.legacy?)),
+                        Err(error) => {
+                            report(&format!(
+                                "Page {page}: its work could not be read, so it was not checked for task-era work ({error})."
+                            ));
+                            None
+                        }
+                    }
                 })
                 .collect()
         });
@@ -402,7 +410,7 @@ pub(crate) fn migrate_space(
         ) {
             Ok(_) => {
                 report(&format!(
-                    "Page {page}: task-era work rewritten as sub-pages; its tasks are kept in {}.",
+                    "Page {page}: task-era work rewritten as sub-pages; its tasks are kept in {}, an unencrypted copy you may delete once you no longer need them.",
                     exported.display()
                 ));
                 rewritten.push(page);
@@ -457,6 +465,7 @@ fn read_with_space(root: &Path, page: &str) -> Result<Read> {
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let read = page::read_work(&store, &key, &page_id, &mut decoder).and_then(|work| {
         let pages = tmt_colab::inspection::all_page_ids(&store, &key)?;
+        let archived = tmt_colab::inspection::archived_page_ids(&store, &key)?;
         let found =
             work_index::scan_with_live(&layout, &store, &key, &mut decoder, &pages, Some(&pages))?;
         let titles = work
@@ -474,6 +483,7 @@ fn read_with_space(root: &Path, page: &str) -> Result<Read> {
             work,
             found,
             titles,
+            archived,
         })
     });
     let closed = store.close();
@@ -573,9 +583,10 @@ fn list(root: &Path, page: &str, json_output: bool) -> Result<()> {
         work: read,
         found,
         titles,
+        archived,
     } = read_with_space(root, page)?;
     let graph = Graph(&found);
-    let progress = graph.progress(&page_id).unwrap_or_default();
+    let progress = graph.progress(&page_id, &archived).unwrap_or_default();
     let reach = crate::reach::Reach::gather();
     let path = crate::reach::Reach::path(&read.space_id, &page_id);
     let mut output = tmt_cli_style::stream::stdout(json_output);
@@ -583,7 +594,8 @@ fn list(root: &Path, page: &str, json_output: bool) -> Result<()> {
         .children
         .iter()
         .map(|child| {
-            json!({"pageId":child,"title":titles.get(child),"state":graph.page_state(child)})
+            json!({"pageId":child,"title":titles.get(child),"state":graph.page_state(child),
+                "archived":archived.contains(child)})
         })
         .collect();
     if json_output {
@@ -627,7 +639,11 @@ fn list(root: &Path, page: &str, json_output: bool) -> Result<()> {
             format!(
                 "{}  {}  {}",
                 row["pageId"].as_str().unwrap_or_default(),
-                row["state"].as_str().unwrap_or("unknown"),
+                if row["archived"] == true {
+                    "archived"
+                } else {
+                    row["state"].as_str().unwrap_or("unknown")
+                },
                 row["title"].as_str().unwrap_or("(untitled)")
             ),
         ));

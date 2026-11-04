@@ -30,16 +30,17 @@ export function useNeedsYouVersions(source: string, candidates: readonly NeedsYo
         'tmt-questions': 'answer',
         'tmt-review': 'review',
         'tmt-read': 'reading',
-        'tmt-proposal': 'proposal',
       };
       for (const node of template.content.querySelectorAll(
-        'tmt-question,tmt-questions,tmt-review,tmt-read,tmt-proposal',
+        'tmt-question,tmt-questions,tmt-review,tmt-read',
       )) {
         const id = node.getAttribute('data-id');
         if (!id) continue;
         const key = `${kinds[node.localName]}:${id}`;
         // Unlisted authored tags cannot expand version work or materialize nested HTML.
         if (!wanted.has(key)) continue;
+        // A duplicated data-id has no single version, so the header leaves it out: the page already
+        // reports it (question/review/reading-id-duplicate) and a duplicate proposal stays detached.
         fragments.set(key, fragments.has(key) ? undefined : node.outerHTML);
       }
     }

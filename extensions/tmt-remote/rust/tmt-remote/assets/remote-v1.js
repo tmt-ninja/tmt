@@ -3564,6 +3564,36 @@ function createMenuController(options) {
 var shellIconNodes = {
 	list: [["path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }]],
 	bookmark: [["path", { d: "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" }]],
+	"layout-dashboard": [
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "3",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "14",
+			y: "3",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "9",
+			x: "14",
+			y: "12",
+			rx: "1"
+		}],
+		["rect", {
+			width: "7",
+			height: "5",
+			x: "3",
+			y: "16",
+			rx: "1"
+		}]
+	],
 	plus: [["path", { d: "M12 5v14M5 12h14" }]],
 	"grip-vertical": [
 		["circle", {
@@ -3727,7 +3757,34 @@ var shellIconNodes = {
 		rx: "2",
 		ry: "2"
 	}], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
-	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
+	x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]],
+	palette: [
+		["path", { d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" }],
+		["circle", {
+			cx: "13.5",
+			cy: "6.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "17.5",
+			cy: "10.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "6.5",
+			cy: "12.5",
+			r: ".5",
+			fill: "currentColor"
+		}],
+		["circle", {
+			cx: "8.5",
+			cy: "7.5",
+			r: ".5",
+			fill: "currentColor"
+		}]
+	]
 };
 var moduleIcons = [
 	"house",
@@ -3737,7 +3794,8 @@ var moduleIcons = [
 	"chart-column",
 	"search",
 	"settings",
-	"box"
+	"box",
+	"palette"
 ];
 var moduleIcon = (name) => moduleIcons.includes(name) ? name : "box";
 //#endregion
@@ -5094,118 +5152,9 @@ function remoteRegistryPage(initialBlocked = () => "", shell) {
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/brand-mark-svg.ts
-/** A polygon whose corners are quadratic curves of the given radii (0 keeps a corner sharp). */
-function rounded(points, radii) {
-	const n = points.length;
-	const toward = ([ax, ay], [bx, by], k) => {
-		const length = Math.hypot(bx - ax, by - ay);
-		const t = Math.min(k, length / 2) / length;
-		return [ax + (bx - ax) * t, ay + (by - ay) * t];
-	};
-	let d = "";
-	for (let i = 0; i < n; i++) {
-		const corner = points[i];
-		const [sx, sy] = toward(corner, points[(i - 1 + n) % n], radii[i]);
-		const [ex, ey] = toward(corner, points[(i + 1) % n], radii[i]);
-		d += `${i ? "L" : "M"}${sx.toFixed(2)} ${sy.toFixed(2)}Q${corner[0]} ${corner[1]} `;
-		d += `${ex.toFixed(2)} ${ey.toFixed(2)}`;
-	}
-	return `${d}Z`;
-}
-var FULL = {
-	panel: rounded([
-		[6, 10],
-		[50, 24],
-		[50, 80],
-		[6, 88]
-	], [
-		8,
-		6.5,
-		6.5,
-		8
-	]),
-	beam: rounded([
-		[7, 10],
-		[74, 22],
-		[80, 28],
-		[80, 80],
-		[74, 86],
-		[50, 80],
-		[7, 70]
-	], [
-		0,
-		7,
-		7,
-		7,
-		7,
-		0,
-		0
-	]),
-	rim: "M49.4 29 L49.4 75",
-	prompt: "M15.5 34 L23.5 40.5 L15.5 47 M26.5 49.5 L34 51.2"
-};
-var SMALL = {
-	panel: rounded([
-		[5, 14],
-		[52, 24],
-		[52, 76],
-		[5, 86]
-	], [
-		7,
-		7,
-		7,
-		7
-	]),
-	beam: rounded([
-		[6, 14],
-		[86, 24],
-		[92, 29],
-		[92, 81],
-		[86, 86],
-		[52, 76],
-		[6, 70]
-	], [
-		0,
-		9,
-		9,
-		9,
-		9,
-		0,
-		0
-	]),
-	prompt: "M15 37 L28 50 L15 63"
-};
-var brandMarkSmall = (size) => size !== void 0 && size < 28;
-var stop = (name, offset, opacity) => `<stop class="tmt-brand-mark-${name}" offset="${offset}"${opacity === void 0 ? "" : ` stop-opacity="${opacity}"`}></stop>`;
-var light = (offset, opacity) => `<stop offset="${offset}" stop-color="#fff" stop-opacity="${opacity}"></stop>`;
-var box = "filterUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"96\" height=\"96\"";
-/**
-* A paint-server id prefix that no element of the document uses yet: `base`, then `base-1`,
-* `base-2`. Marks that share a prefix resolve `url(#…)` to the first paint server in the document,
-* which can sit in a hidden subtree and paint nothing. `taken` asks the live document, so marks
-* drawn by separate bundles do not collide either.
-*/
-function freshMarkId(base, taken) {
-	let id = base;
-	for (let count = 1; taken(id); count++) id = `${base}-${count}`;
-	return id;
-}
-/** The mark's children; `id` prefixes its paint servers, unique per document. */
-function brandMarkInner(small, id) {
-	const shape = small ? SMALL : FULL;
-	const aurora = `<linearGradient id="${id}-aurora" x1="0.2" y1="0.05" x2="0.85" y2="1">${stop("cyan", 0)}${stop("green", .5)}${stop("gold", 1)}</linearGradient><linearGradient id="${id}-far" x1="0" y1="0" x2="1" y2="0">${stop("far", .45, 0)}${stop("far", 1, small ? .15 : .25)}</linearGradient><linearGradient id="${id}-panel" x1="0" y1="0" x2="0.6" y2="1">${stop("panel-top", 0)}${stop("panel-bottom", 1)}</linearGradient><linearGradient id="${id}-mono" x1="0" y1="0" x2="1" y2="0.35">${stop("mono-start", 0)}${stop("mono-end", 1)}</linearGradient>`;
-	const beam = `<path d="${shape.beam}" fill="url(#${id}-aurora)"></path><path d="${shape.beam}" fill="url(#${id}-far)"></path>`;
-	const print = `<path class="tmt-brand-mark-print" d="${shape.beam}" fill="url(#${id}-mono)"></path>`;
-	const panel = `<path class="tmt-brand-mark-panel" d="${shape.panel}" fill="url(#${id}-panel)"></path>`;
-	const prompt = `<path class="tmt-brand-mark-prompt" d="${shape.prompt}"></path>`;
-	if (small) return `<defs>${aurora}</defs><g class="tmt-brand-mark-beam">${beam}</g>${print}${panel}${prompt}`;
-	return `<defs>${aurora}<linearGradient id="${id}-halo-weight" x1="0" y1="0" x2="1" y2="1">${light(.3, .15)}${light(1, 1)}</linearGradient><mask id="${id}-halo-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect width="96" height="96" fill="url(#${id}-halo-weight)"></rect></mask><linearGradient id="${id}-feather" x1="0" y1="0" x2="1" y2="0">${light(.88, 1)}${light(1, .7)}</linearGradient><mask id="${id}-feather-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#${id}-feather)"></rect></mask><linearGradient id="${id}-spill" gradientUnits="userSpaceOnUse" x1="50" y1="0" x2="36" y2="0">${stop("glow", 0, .6)}${stop("cyan", .35, .22)}${stop("cyan", 1, 0)}</linearGradient><linearGradient id="${id}-sheen" x1="0" y1="0" x2="1" y2="1">${light(0, .1)}${light(.35, 0)}</linearGradient><linearGradient id="${id}-rim" x1="0" y1="0" x2="0" y2="1">${stop("cyan", 0, .9)}${stop("gold", 1, .9)}</linearGradient><clipPath id="${id}-panel-clip"><path d="${shape.panel}"></path></clipPath><filter id="${id}-halo" ${box}><feGaussianBlur stdDeviation="2.4"></feGaussianBlur></filter><filter id="${id}-soft" ${box}><feGaussianBlur stdDeviation="0.25"></feGaussianBlur></filter></defs><g transform="translate(6.5 3) scale(0.94)"><g class="tmt-brand-mark-beam"><g mask="url(#${id}-halo-mask)"><path d="${shape.beam}" fill="url(#${id}-aurora)" filter="url(#${id}-halo)" opacity="0.55" transform="translate(1 1.4)"></path></g><g mask="url(#${id}-feather-mask)" filter="url(#${id}-soft)">${beam}</g></g>` + print + panel + `<g class="tmt-brand-mark-beam" clip-path="url(#${id}-panel-clip)"><path d="${shape.panel}" fill="url(#${id}-spill)"></path><path class="tmt-brand-mark-rim" d="${FULL.rim}" stroke="url(#${id}-rim)"></path></g><path d="${shape.panel}" fill="url(#${id}-sheen)"></path>` + prompt + `</g>`;
-}
-/** The whole decorative `<svg>`, as static hosts embed it. */
-function brandMarkSvg({ size, className = "tmt-brand-mark", id }) {
-	const small = brandMarkSmall(size);
-	const dimensions = size === void 0 ? "" : ` width="${size}" height="${size}"`;
-	return `<svg class="${className}" data-form="${small ? "small" : "full"}" viewBox="0 0 96 96" aria-hidden="true"${dimensions}>${brandMarkInner(small, id)}</svg>`;
+var inner = "<rect class=\"tmt-brand-mark-tile\" width=\"96\" height=\"96\" rx=\"25.6\" fill=\"#0a0a0a\"/><svg x=\"11.5\" y=\"11.5\" viewBox=\"0 0 720 760\" width=\"73\" height=\"73\"><path fill=\"#f2efe9\" fill-rule=\"evenodd\" d=\"M 10 351 C 33 245 82 143 160 89 C 213 52 275 12 319 11 C 403 9 536 78 622 207 L 459 144 C 518 217 548 282 558 325 C 578 410 504 440 396 476 C 301 507 189 543 119 573 C 217 570 317 531 414 497 C 505 465 616 425 716 416 L 639 552 C 550 550 468 574 414 612 C 518 585 646 631 711 746 C 611 694 506 680 404 690 C 300 701 198 713 117 697 C 35 682 0 638 20 576 C 27 549 38 529 60 506 C 17 478 -1 445 5 407 C 6 389 8 370 10 351 Z M 100 345 C 100 273 186 234 290 234 C 394 234 480 273 480 345 C 480 417 394 456 290 456 C 186 456 100 417 100 345 Z\"/><path d=\"M 219 312 L 283 353 L 219 394 M 314 392 H 382\" fill=\"none\" stroke=\"#f2efe9\" stroke-width=\"27\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+function brandMarkSvg({ size = 24, className = "tmt-brand-mark" } = {}) {
+	return `<svg xmlns="http://www.w3.org/2000/svg" class="${className}" viewBox="0 0 96 96" aria-hidden="true" width="${size}" height="${size}">${inner}</svg>`;
 }
 //#endregion
 //#region ../../../../design/browser-ui/src/shell-menu-interactions.ts
@@ -5753,6 +5702,12 @@ var RAIL = [
 		path: "/colab/"
 	},
 	{
+		id: "design",
+		label: "Design",
+		icon: "palette",
+		path: "/colab/design/"
+	},
+	{
 		id: "remote",
 		label: "Remote",
 		icon: "monitor-smartphone",
@@ -5771,6 +5726,12 @@ var RAIL = [
 		path: "/digest/"
 	}
 ];
+/**
+* A described module's key (#5819): the extension for its primary, `<extension>:<module>` for an
+* extra, so an extra sits beside its primary. Rail item ids use the same key, except Colab's
+* Design extra, which is the fixed `design` item.
+*/
+var shellModuleKey = (module) => module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
 var HOST_SERVED = /* @__PURE__ */ new Set([
 	"remote",
@@ -5778,19 +5739,33 @@ var HOST_SERVED = /* @__PURE__ */ new Set([
 	"digest"
 ]);
 /**
-* Home, the fixed modules (Colab, Remote, Ops, Digest), any other described module in Remote's
+* Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
 * order, then TMT settings at the bottom. Colab is available
 * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
 * The current item is the host's module, else the longest matching path.
 */
 function shellRail(answer, place, host) {
 	const active = host?.extension;
-	const described = new Map((answer?.modules ?? []).map((module) => [module.extension, module]));
+	const keyOf = shellModuleKey;
+	const owner = (id) => id === "design" ? "colab" : id.split(":")[0];
+	const described = new Map((answer?.modules ?? []).map((module) => [keyOf(module), module]));
+	const primaries = (answer?.modules ?? []).filter((module) => !module.module);
 	const hosted = (id) => host?.extension === id;
 	const path = place.href.slice(place.origin.length);
 	const settings = path === "/settings" || path.startsWith("/settings/");
 	const unavailable = answer ? "Not installed on this machine" : "Pair this browser with Remote to open it";
 	const modules = [...RAIL.map((fixed) => {
+		if (fixed.id === "design") {
+			const module = described.get("colab:design");
+			return {
+				id: fixed.id,
+				label: module?.rail.label ?? fixed.label,
+				icon: module ? moduleIcon(module.rail.icon) : fixed.icon,
+				href: module?.rail.path ?? `${place.origin}${fixed.path}`,
+				needsYou: void 0,
+				available: described.has("colab") || hosted("colab")
+			};
+		}
 		const module = described.get(fixed.id);
 		return {
 			id: fixed.id,
@@ -5800,16 +5775,17 @@ function shellRail(answer, place, host) {
 			needsYou: module?.needsYou,
 			available: Boolean(module) || hosted(fixed.id) || HOST_SERVED.has(fixed.id)
 		};
-	}), ...[...described.values(), ...host && !described.has(host.extension) ? [host] : []].filter((module) => !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
-		id: module.extension,
+	}), ...[...described.values(), ...host && !described.has(keyOf(host)) ? [host] : []].filter((module) => module.module ? keyOf(module) !== "colab:design" : !RAIL.some((fixed) => fixed.id === module.extension)).sort((a, b) => a.rail.order - b.rail.order).map((module) => ({
+		id: keyOf(module),
 		label: module.rail.label,
 		icon: moduleIcon(module.rail.icon),
 		href: module.rail.path,
-		needsYou: module.needsYou,
+		needsYou: module.module ? void 0 : module.needsYou,
 		available: true
 	}))];
-	const matched = active ?? modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
-	const counts = [...described.values()].map((module) => module.needsYou);
+	const longest = modules.filter((module) => module.available && place.href.startsWith(module.href)).sort((a, b) => b.href.length - a.href.length)[0]?.id;
+	const matched = longest && owner(longest) === active ? longest : active ?? longest;
+	const counts = primaries.map((module) => module.needsYou);
 	const total = answer && counts.every((count) => count !== void 0) ? counts.reduce((sum, count) => sum + count, 0) : void 0;
 	return {
 		main: [{
@@ -5898,10 +5874,7 @@ function mountShell(root, view, select) {
 	open.append(icon(document, "menu"));
 	const brand = document.createElement("div");
 	brand.className = "tmt-ui-shell-brand";
-	brand.innerHTML = brandMarkSvg({
-		size: 32,
-		id: freshMarkId("tmt-rail", (prefix) => document.getElementById(`${prefix}-aurora`) !== null)
-	});
+	brand.innerHTML = brandMarkSvg({ size: 32 });
 	const text = document.createElement("span");
 	text.className = "tmt-ui-shell-brand-text";
 	const word = document.createElement("span");
@@ -5961,8 +5934,11 @@ function mountShell(root, view, select) {
 	tip.popover = "manual";
 	root.append(tip);
 	let release = () => {};
+	let tipAnchor;
+	let pressed;
 	const hideTip = () => {
 		release();
+		tipAnchor = void 0;
 		if (tip.matches(":popover-open")) tip.hidePopover();
 	};
 	const showTip = (anchor) => {
@@ -5970,18 +5946,37 @@ function mountShell(root, view, select) {
 		if (!text || root.dataset.drawer === "open") return hideTip();
 		release();
 		release = claimIconActionTooltip(document, hideTip);
+		tipAnchor = anchor;
 		tip.textContent = text;
 		if (!tip.matches(":popover-open")) tip.showPopover();
 		const box = anchor.getBoundingClientRect();
 		tip.style.left = `${box.right}px`;
 		tip.style.top = `${box.top + (box.height - tip.offsetHeight) / 2}px`;
 	};
+	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
+	rail.addEventListener("pointerover", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
+	});
+	rail.addEventListener("pointerout", (event) => {
+		const from = noted(event.target);
+		if (from && from === noted(event.relatedTarget)) return;
+		if (from === pressed) pressed = void 0;
+		if (from && from === tipAnchor) hideTip();
+	});
+	rail.addEventListener("pointerdown", (event) => {
+		pressed = noted(event.target) ?? void 0;
+		hideTip();
+	});
+	rail.addEventListener("focusin", (event) => {
+		const anchor = noted(event.target);
+		if (anchor && anchor === event.target && anchor.matches(":focus-visible")) showTip(anchor);
+	});
+	rail.addEventListener("focusout", (event) => {
+		if (noted(event.target) === tipAnchor) hideTip();
+	});
 	const tipFor = (anchor, text) => {
 		anchor.dataset.note = text;
-		anchor.addEventListener("pointerenter", () => showTip(anchor));
-		anchor.addEventListener("focus", () => showTip(anchor));
-		anchor.addEventListener("pointerleave", hideTip);
-		anchor.addEventListener("blur", hideTip);
 	};
 	open.onclick = () => setDrawer(root.dataset.drawer !== "open");
 	const close = (event) => {
@@ -6002,24 +5997,24 @@ function mountShell(root, view, select) {
 		anchor.href = item.href;
 		anchor.dataset.id = item.id;
 		if (selected) anchor.setAttribute("aria-current", "page");
-		const disabled = "disabled" in item && item.disabled;
-		if (disabled) anchor.setAttribute("aria-disabled", "true");
+		if ("disabled" in item && item.disabled) anchor.setAttribute("aria-disabled", "true");
 		anchor.onclick = (event) => {
-			if (disabled) return event.preventDefault();
+			if (anchor.getAttribute("aria-disabled") === "true") return event.preventDefault();
 			if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 			setDrawer(false);
-			if (select?.(item.id, item.href)) event.preventDefault();
+			if (select?.(anchor.dataset.id, anchor.getAttribute("href"))) event.preventDefault();
 		};
 		return anchor;
 	};
-	const menuEntry = (className, item, selected) => {
+	const menuEntry = (className, item, selected, fallbackIcon) => {
 		const anchor = link(className, item, item === selected);
 		if (item.note) anchor.title = item.note;
 		const label = document.createElement("span");
 		label.className = "tmt-ui-module-menu-label";
 		label.textContent = item.label;
 		if (!item.note) label.title = item.label;
-		if (item.icon) anchor.append(icon(document, item.icon));
+		const mark = item.icon ?? fallbackIcon;
+		if (mark) anchor.append(icon(document, mark));
 		anchor.append(label);
 		if (item.emphasis === "unread") {
 			anchor.dataset.emphasis = "unread";
@@ -6050,13 +6045,30 @@ function mountShell(root, view, select) {
 		const button = document.createElement("button");
 		button.type = "button";
 		button.className = className;
-		button.title = action.label;
+		button.title = action.disabledReason ?? action.label;
+		button.disabled = action.disabledReason !== void 0;
 		if (mark) {
 			button.setAttribute("aria-label", action.label);
 			button.append(icon(document, mark));
 			tipFor(button, action.label);
 		} else button.textContent = action.label;
-		button.onclick = () => {
+		let keyTurn;
+		const recordKey = (event) => {
+			if (event.defaultPrevented || !event.isTrusted || !(event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup")) return;
+			keyTurn = event;
+			setTimeout(() => {
+				if (keyTurn === event) keyTurn = void 0;
+			}, 0);
+		};
+		button.addEventListener("keydown", recordKey);
+		button.addEventListener("keyup", recordKey);
+		button.onclick = (event) => {
+			const origin = keyTurn?.target;
+			const target = event.target;
+			const matchingKey = !keyTurn?.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? keyTurn : void 0;
+			const admitted = event.isTrusted || matchingKey?.isTrusted === true;
+			if (admitted) keyTurn = void 0;
+			if (event.defaultPrevented || !admitted || button.disabled) return;
 			setDrawer(false);
 			activate();
 		};
@@ -6163,9 +6175,18 @@ function mountShell(root, view, select) {
 				section.append(heading, entries);
 				list.append(section);
 			}
+			if (group.alert) {
+				const row = document.createElement("li");
+				row.className = "tmt-ui-rail-alert";
+				row.setAttribute("role", "alert");
+				const message = document.createElement("span");
+				message.textContent = group.alert.message;
+				row.append(message, command("tmt-ui-rail-group-action", group.alert.retry, () => latest.menu?.groups[index]?.alert?.retry.onActivate()));
+				entries.append(row);
+			}
 			for (const item of group.items) {
 				const row = document.createElement("li");
-				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected);
+				const anchor = menuEntry("tmt-ui-module-menu-item tmt-ui-rail-sub-item", item, selected, group.fallbackIcon);
 				row.dataset.menuGroup = String(index);
 				row.append(anchor);
 				if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
@@ -6230,13 +6251,28 @@ function mountShell(root, view, select) {
 			group: owner.dataset.menuGroup,
 			part: focused?.dataset.railPart
 		} : void 0;
-		for (const controls of menuInteractions) controls.dispose();
+		const previous = menuInteractions;
 		menuInteractions = [];
-		hideTip();
-		const railTop = rail.scrollTop;
 		const current = [...next.rail.main, ...next.rail.bottom].find((item) => item.current);
 		const selected = current ? visibleCurrent(next.menu) : void 0;
-		rail.replaceChildren(brand, railSearch, railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu));
+		const lists = [railList(next.rail.main, current, selected, void 0, next.menu), railList(next.rail.bottom, current, selected, "tmt-ui-rail-bottom", next.menu)];
+		const live = [...rail.children].slice(2);
+		const pairs = lists.flatMap((list, index) => {
+			const shown = live[index];
+			return shown ? [[shown, list]] : [];
+		});
+		if (live.length === lists.length && pairs.length === lists.length && pairs.every(([shown, list]) => sameShape(shown, list))) {
+			for (const [shown, list] of pairs) patchShape(shown, list);
+			for (const controls of menuInteractions) controls.dispose();
+			menuInteractions = previous;
+			root.dataset.menu = next.menu ? "shown" : "none";
+			if (tipAnchor?.isConnected) showTip(tipAnchor);
+			return;
+		}
+		for (const controls of previous) controls.dispose();
+		hideTip();
+		const railTop = rail.scrollTop;
+		rail.replaceChildren(brand, railSearch, ...lists);
 		rail.scrollTop = railTop;
 		syncRailScroll();
 		root.dataset.menu = next.menu ? "shown" : "none";
@@ -6283,8 +6319,39 @@ function mountShell(root, view, select) {
 		}
 	};
 }
-//#endregion
-//#region ../../../../design/browser-ui/src/shell-host.ts
+/** What an update may change on a kept rail node; anything else is a different rail. */
+var PATCHED = /* @__PURE__ */ new Set([
+	"aria-current",
+	"aria-label",
+	"aria-disabled",
+	"data-module-current",
+	"data-note",
+	"data-emphasis",
+	"href",
+	"title"
+]);
+/** Build-local names: a kept node keeps its own, which its partner already points at. */
+var LOCAL = /* @__PURE__ */ new Set(["id", "aria-controls"]);
+var ownAttributes = (element) => element.getAttributeNames().filter((name) => !PATCHED.has(name) && !LOCAL.has(name)).map((name) => `${name}=${element.getAttribute(name)}`).join("\n");
+/** Whether `next` has the live node's elements, in order, with the same fixed attributes. */
+function sameShape(live, next) {
+	if (live.nodeType !== next.nodeType || live.childNodes.length !== next.childNodes.length) return false;
+	if (live instanceof Element && next instanceof Element) {
+		if (live.localName !== next.localName || ownAttributes(live) !== ownAttributes(next)) return false;
+	}
+	return [...live.childNodes].every((child, index) => sameShape(child, next.childNodes[index]));
+}
+/** Brings a same-shape live node to `next`: its changeable attributes and its text. */
+function patchShape(live, next) {
+	if (live instanceof Element && next instanceof Element) for (const name of PATCHED) {
+		const value = next.getAttribute(name);
+		if (value === null) live.removeAttribute(name);
+		else if (live.getAttribute(name) !== value) live.setAttribute(name, value);
+	}
+	else if (live.nodeValue !== next.nodeValue) live.nodeValue = next.nodeValue;
+	live.childNodes.forEach((child, index) => patchShape(child, next.childNodes[index]));
+}
+var KEPT_FOR = 6e5;
 function matchRoute(routes, pathname) {
 	let best;
 	let length = -1;
@@ -6338,7 +6405,9 @@ function startShellHost(root, routes, options = {}) {
 	const document = root.ownerDocument;
 	const window = document.defaultView;
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
-	const main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
+	/** The shown main area. A kept module keeps the element it was drawn in, renamed
+	* `.tmt-ui-shell-kept` and hidden in place, and a fresh main takes its place. */
+	let main = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-main");
 	const loading = document.createElement("div");
 	loading.className = "tmt-ui-shell-loading";
 	loading.setAttribute("role", "status");
@@ -6347,6 +6416,8 @@ function startShellHost(root, routes, options = {}) {
 	main.after(loading);
 	let answer = rememberedShellAnswer();
 	let current;
+	/** Suspended modules by route, least recently used first. */
+	const kept = /* @__PURE__ */ new Map();
 	let menu;
 	let select;
 	let asked = false;
@@ -6354,15 +6425,28 @@ function startShellHost(root, routes, options = {}) {
 	const listeners = [];
 	let generation = 0;
 	let disposed = false;
+	const lastLocation = /* @__PURE__ */ new Map();
+	const rememberLocation = (route, href) => {
+		const url = linkTo(href);
+		if (url.origin !== window.location.origin || matchRoute(routes, url.pathname) !== route) return;
+		lastLocation.set(route.id, url.href);
+	};
 	const place = () => ({
 		origin: window.location.origin,
 		href: window.location.href.split(/[?#]/)[0]
 	});
 	/** The rail links to this app's routes, not to a module's own mount. */
-	const view = () => ({
-		rail: appRail(answer, routes, place(), current?.route),
-		menu
-	});
+	const view = () => {
+		const rail = appRail(answer, routes, place(), current?.route);
+		for (const item of [...rail.main, ...rail.bottom]) {
+			const route = routes.find((candidate) => candidate.rail === item.id);
+			if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
+		}
+		return {
+			rail,
+			menu
+		};
+	};
 	const controls = mountShell(root, view(), (id, href) => {
 		if (select?.(id, href)) return true;
 		return go(href);
@@ -6407,8 +6491,138 @@ function startShellHost(root, routes, options = {}) {
 		described(listener) {
 			if (settled) listener(answer);
 			else listeners.push(listener);
+		},
+		session: (signal) => options.sessions ? options.sessions.open(signal) : Promise.reject(/* @__PURE__ */ new Error("This shell has no Remote session")),
+		forgetSession(previous) {
+			if (!options.sessions) return;
+			releaseKept();
+			options.sessions.forget(previous);
 		}
 	});
+	const release = (mounted) => {
+		try {
+			mounted?.release();
+		} catch {}
+	};
+	/** The header and tool nodes a kept module drew, held aside while it is suspended. They hold
+	* no frames; its main area, which may, never moves. */
+	const areas = () => [
+		bar,
+		controls.tools.search,
+		controls.tools.chip
+	];
+	/** Make `next` the shown main area, with the loading mark right after it (shell.css reads it). */
+	function showMain(next) {
+		main = next;
+		next.className = "tmt-ui-shell-main";
+		next.hidden = false;
+		next.inert = false;
+		next.after(loading);
+	}
+	function drop(id) {
+		const held = kept.get(id);
+		if (!held) return;
+		kept.delete(id);
+		window.clearTimeout(held.timer);
+		release(held.mounted);
+		held.area.remove();
+	}
+	function releaseKept() {
+		for (const id of kept.keys()) drop(id);
+	}
+	/** Leave the current module: suspend it when it can be kept, else release it. */
+	function leave() {
+		const leaving = current;
+		if (leaving) try {
+			const owned = leaving.mounted?.location?.();
+			if (owned) rememberLocation(leaving.route, owned);
+			else rememberLocation(leaving.route, window.location.href);
+		} catch {}
+		try {
+			if (leaving) keep(leaving);
+		} finally {
+			current = void 0;
+		}
+	}
+	function keep(leaving) {
+		const { mounted, route } = leaving;
+		if (!mounted?.suspend || !route.keep || disposed) return release(mounted);
+		try {
+			mounted.suspend();
+		} catch {
+			return release(mounted);
+		}
+		const area = main;
+		const active = document.activeElement;
+		const focus = active instanceof window.HTMLElement && area.contains(active) ? active : void 0;
+		showMain(area.cloneNode(false));
+		area.after(main, loading);
+		if (focus) {
+			main.tabIndex = -1;
+			main.focus({ preventScroll: true });
+		}
+		area.className = "tmt-ui-shell-kept";
+		area.hidden = true;
+		area.inert = true;
+		drop(route.id);
+		kept.set(route.id, {
+			route,
+			mounted,
+			generation: leaving.generation,
+			area,
+			focus,
+			nodes: areas().map((place) => [place, [...place.childNodes].filter((node) => !node.matches?.(".tmt-ui-topbar"))]),
+			topBar: !!bar.querySelector(":scope > .tmt-ui-topbar"),
+			menu,
+			select,
+			title: document.title,
+			timer: window.setTimeout(() => drop(route.id), KEPT_FOR)
+		});
+		for (const place of areas().slice(1)) place.replaceChildren();
+		while (kept.size > 2) drop(kept.keys().next().value);
+	}
+	/** Put a suspended module back; false when it could not be resumed (it is then released). */
+	function revive(route) {
+		const held = kept.get(route.id);
+		if (!held) return false;
+		kept.delete(route.id);
+		window.clearTimeout(held.timer);
+		++generation;
+		current = {
+			route,
+			mounted: held.mounted,
+			generation: held.generation
+		};
+		if (held.topBar && controls.topBarReady()) controls.setTopBar();
+		else bar.replaceChildren();
+		for (const [place, nodes] of held.nodes) if (place === bar) bar.append(...nodes);
+		else place.replaceChildren(...nodes);
+		const spare = main;
+		showMain(held.area);
+		spare.remove();
+		main.dataset.route = route.id;
+		const via = document.activeElement;
+		if (held.focus?.isConnected && via instanceof window.HTMLElement && root.contains(via) && !via.closest(".tmt-ui-shell-content") && via.matches(":focus-visible")) held.focus.focus({ preventScroll: true });
+		menu = held.menu;
+		select = held.select;
+		document.title = held.title;
+		paint();
+		try {
+			held.mounted.resume?.(slot(route, held.generation));
+			return true;
+		} catch {
+			current = void 0;
+			for (const place of areas().slice(1)) place.replaceChildren();
+			release(held.mounted);
+			const fresh = main.cloneNode(false);
+			main.after(fresh);
+			main.remove();
+			showMain(fresh);
+			return false;
+		}
+	}
+	const pagehide = () => releaseKept();
+	window.addEventListener("pagehide", pagehide);
 	/** The path a full load was last asked for, so a route the door serves but this app does not
 	* know reloads once, then lands on Home instead of reloading forever. */
 	const RELOADED = "tmt-shell-reloaded";
@@ -6439,16 +6653,21 @@ function startShellHost(root, routes, options = {}) {
 		const route = matchRoute(routes, window.location.pathname);
 		if (!route) return elsewhere();
 		remember(void 0);
-		if (current?.route === route) return paint();
-		current?.release?.();
+		if (current?.route === route) {
+			rememberLocation(route, window.location.href);
+			return paint();
+		}
+		leave();
+		rememberLocation(route, window.location.href);
 		controls.clearTopBar();
+		menu = void 0;
+		select = void 0;
+		if (revive(route)) return;
 		const mine = ++generation;
 		current = {
 			route,
 			generation: mine
 		};
-		menu = void 0;
-		select = void 0;
 		const label = [...view().rail.main, ...view().rail.bottom].find((item) => item.current)?.label;
 		const placeholder = document.createElement("header");
 		placeholder.className = "tmt-ui-header";
@@ -6467,9 +6686,10 @@ function startShellHost(root, routes, options = {}) {
 		try {
 			const module = await route.load(answer, () => new Promise((resolve) => settled ? resolve(answer) : listeners.push(resolve)));
 			if (current?.generation !== mine) return;
-			const release = await module.mount(slot(route, mine));
-			if (current?.generation !== mine) return release?.();
-			current.release = release ?? void 0;
+			const given = await module.mount(slot(route, mine));
+			const mounted = typeof given === "function" ? { release: given } : given ?? void 0;
+			if (current?.generation !== mine) return release(mounted);
+			current.mounted = mounted;
 		} catch (error) {
 			if (current?.generation !== mine) return;
 			main.replaceChildren();
@@ -6486,6 +6706,7 @@ function startShellHost(root, routes, options = {}) {
 			if (url.hash !== here.hash) window.location.hash = url.hash;
 			return true;
 		}
+		if (matchRoute(routes, url.pathname) !== current?.route) leave();
 		if (url.href !== window.location.href) window.history[replace ? "replaceState" : "pushState"](null, "", url.href);
 		if (matchRoute(routes, url.pathname) === current?.route) window.dispatchEvent(new PopStateEvent("popstate"));
 		else show();
@@ -6518,6 +6739,7 @@ function startShellHost(root, routes, options = {}) {
 			describe();
 		}),
 		route: (pathname) => matchRoute(routes, pathname),
+		sessionChanging: releaseKept,
 		dispose() {
 			if (disposed) return;
 			disposed = true;
@@ -6525,8 +6747,10 @@ function startShellHost(root, routes, options = {}) {
 			loading.remove();
 			document.removeEventListener("click", click);
 			window.removeEventListener("popstate", popstate);
-			current?.release?.();
+			window.removeEventListener("pagehide", pagehide);
+			release(current?.mounted);
 			current = void 0;
+			releaseKept();
 			for (const listener of listeners.splice(0)) listener(void 0);
 			controls.dispose();
 		}
@@ -6534,22 +6758,22 @@ function startShellHost(root, routes, options = {}) {
 }
 //#endregion
 //#region ../../rust/tmt-remote/assets/home.html?raw
-var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Home · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Home</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page tmt-home\">\n      <section class=\"tmt-ui-section\" aria-labelledby=\"home-needs-heading\">\n        <h2 id=\"home-needs-heading\" class=\"tmt-ui-section-heading\">◆ Needs you</h2>\n        <ul id=\"home-needs\" class=\"tmt-ui-list\"></ul>\n        <p id=\"home-needs-note\" class=\"home-note\" role=\"status\">Checking…</p>\n      </section>\n      <section id=\"home-recent-block\" class=\"tmt-ui-section\" aria-labelledby=\"home-recent-heading\" hidden>\n        <h2 id=\"home-recent-heading\" class=\"tmt-ui-section-heading\">Recent pages</h2>\n        <ul id=\"home-recent\" class=\"tmt-ui-list\"></ul>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var home_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"home\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>Home · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\">\n      <h1 class=\"header-title tmt-ui-title\">Home</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page tmt-home\">\n      <section class=\"tmt-ui-section\" aria-labelledby=\"home-needs-heading\">\n        <h2 id=\"home-needs-heading\" class=\"tmt-ui-section-heading\">◆ Needs you</h2>\n        <ul id=\"home-needs\" class=\"tmt-ui-list\"></ul>\n        <p id=\"home-needs-note\" class=\"home-note\" role=\"status\">Checking…</p>\n      </section>\n      <section id=\"home-recent-block\" class=\"tmt-ui-section\" aria-labelledby=\"home-recent-heading\" hidden>\n        <h2 id=\"home-recent-heading\" class=\"tmt-ui-section-heading\">Recent pages</h2>\n        <ul id=\"home-recent\" class=\"tmt-ui-list\"></ul>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/landing.html?raw
-var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <div data-view=\"overview\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var landing_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"landing\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>Remote connection · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/landing.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · Remote connection\">\n      <h1 class=\"header-title tmt-ui-title\">Remote connection</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page\">\n      <section\n        id=\"notice\"\n        class=\"sheet tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"overview\"\n        aria-labelledby=\"heading\"\n      >\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <div class=\"tmt-ui-notice-mark\">\n            <span id=\"mark\" class=\"state-mark\" aria-hidden=\"true\">◌</span\n            ><span id=\"state-label\">Checking</span>\n          </div>\n          <h2 id=\"heading\" class=\"tmt-ui-notice-heading\">Checking the connection…</h2>\n          <p id=\"status\" role=\"status\">Reading this browser's pairing.</p>\n          <button id=\"check\" class=\"tmt-ui-action\" type=\"button\" aria-describedby=\"status\" disabled>\n            Check again\n          </button>\n          <details class=\"tmt-ui-disclosure\" data-divided>\n            <summary>Details</summary>\n            <dl class=\"entry-status\">\n              <dt>Machine ID</dt>\n              <dd id=\"machine-id\">Not available</dd>\n              <dt>Last checked</dt>\n              <dd id=\"checked-time\">Not checked</dd>\n              <dt>Address</dt>\n              <dd id=\"protocol-address\">Not available</dd>\n              <dt>Fingerprint</dt>\n              <dd id=\"trust-pin\">Not available</dd>\n            </dl>\n            <p class=\"entry-note\">\n              Pairing gives this browser its own access. It does not make this browser a\n              settings administrator.\n            </p>\n          </details>\n        </div>\n      </section>\n      <div data-view=\"overview\"><section id=\"remote-guidance\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" hidden>\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"remote-guidance-heading\" class=\"tmt-ui-notice-heading\">Connect a browser</h2>\n          <p>Run commands on the machine that runs this Remote.</p>\n          <p id=\"remote-guide-members\" hidden>Check the saved member before changing access:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote members</code><button id=\"copy-guide-members\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote members\">Copy</button><span id=\"copy-feedback-guide-members\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <p id=\"remote-guide-status\" hidden>Check whether Remote is running:\n            <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote status</code><button id=\"copy-guide-status\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote status\">Copy</button><span id=\"copy-feedback-guide-status\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span>\n          </p>\n          <div id=\"remote-guide-pair\" hidden>\n            <ol class=\"entry-steps\">\n              <li>Run <span class=\"entry-command tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code><button id=\"copy-guide-pair\" class=\"tmt-ui-command-copy\" type=\"button\" aria-label=\"Copy tmt remote pair\">Copy</button><span id=\"copy-feedback-guide-pair\" class=\"tmt-ui-command-feedback\" role=\"status\"></span></span></li>\n              <li>Open the link it prints in the browser you want to connect.</li>\n              <li>Name the browser and check the four words.</li><li>Confirm in the terminal.</li>\n            </ol>\n            <p id=\"pairing-note\" class=\"entry-note\">Pair links are private and work once.</p><p class=\"entry-note\">Pairing does not make a browser an admin.</p>\n          </div>\n        </div>\n      </section></div>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/settings.html?raw
-var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"remotes\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <span id=\"remote-join\"></span>\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/create\" aria-label=\"Create a Remote\"><span class=\"tmt-ui-action-label\">Create</span></a>\n        </div>\n      </div>\n      <section id=\"remote-create\" class=\"create-guide\" data-view=\"create\" hidden>\n        <p class=\"settings-intro\">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>\n      </section>\n      <section id=\"remote-join-guide\" class=\"create-guide join-guide\" data-view=\"join\" hidden></section>\n      <section id=\"people\" class=\"tmt-ui-section\" data-view=\"members\" aria-label=\"People\">\n        <div id=\"people-content\">Checking people…</div>\n      </section>\n      <section id=\"invites\" class=\"tmt-ui-section\" data-view=\"invites\" aria-label=\"Invites\">\n        <div id=\"invites-content\">Checking invitations…</div>\n      </section>\n      <button id=\"remote-invite\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" hidden><span class=\"tmt-ui-action-label\">Invite</span></button>\n      <section id=\"owner-invitation\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" data-view=\"members\" aria-labelledby=\"invitation-heading\">\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"invitation-heading\" class=\"tmt-ui-section-heading\">Confirm an invitation</h2>\n          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. To confirm in a browser, use the owner browser set up on this machine.</p>\n          <p id=\"invitation-status\" role=\"status\">Check access to read the current invitation.</p>\n          <p id=\"people-observation\" role=\"status\" hidden></p>\n          <div id=\"invitation-candidate\" hidden>\n            <h3 id=\"invitation-name\"></h3>\n            <p id=\"invitation-words\" class=\"entry-command\"></p>\n            <p id=\"invitation-expires\" class=\"entry-note\"></p>\n            <fieldset class=\"tmt-ui-choices invitation-choices\">\n              <legend class=\"tmt-ui-choices-legend\">Your decision</legend>\n              <label class=\"tmt-ui-choice\" for=\"invitation-compared\"><input id=\"invitation-compared\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\">I compared these four words with the person joining; they match.</span></label>\n              <label class=\"tmt-ui-choice\" for=\"invitation-sending\"><input id=\"invitation-sending\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\"><span>Allow this member to send messages to your agents.</span><span class=\"tmt-ui-choice-description\">Sending stays off unless you choose to allow it.</span></span></label>\n            </fieldset>\n            <div class=\"invitation-actions\"><button id=\"invitation-confirm\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" disabled>Confirm invitation</button><button id=\"invitation-decline\" class=\"tmt-ui-action\" type=\"button\">Decline invitation</button></div>\n          </div>\n          <button id=\"invitation-refresh\" class=\"tmt-ui-action\" type=\"button\" disabled>Check invitation</button>\n          <div id=\"invitation-original\" hidden>\n            <p>Original decision: <code id=\"invitation-original-id\"></code></p>\n            <button id=\"invitation-recover\" class=\"tmt-ui-action\" type=\"button\">Check original outcome</button>\n          </div>\n        </div>\n      </section>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"members my-devices settings service\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote members</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"members my-devices settings service remotes\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section id=\"remote-local-name\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"local-name-heading\">\n        <div class=\"settings-section-body\"><div class=\"settings-summary\">\n          <h2 id=\"local-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Name in this browser</h2>\n          <p id=\"remote-local-name-value\">This machine</p><p>This name stays in this browser. It does not rename the Remote for anyone else.</p>\n        </div><div class=\"settings-fields\"><button id=\"remote-local-rename\" class=\"tmt-ui-action\" type=\"button\"><span class=\"tmt-ui-action-label\">Remember this Remote</span></button></div></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"browser-name-heading\">\n        <div class=\"settings-summary\"><h2 id=\"browser-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">This browser's device name</h2>\n          <p>This is the paired browser/device name, not a person's display name.</p></div>\n        <p id=\"current-browser-name-missing\">This browser is not reported on the current device page. Open My devices to check its paired devices.</p>\n        <div id=\"current-browser-name\"></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"service\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Service &amp; upgrade</h2>\n          <p>Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking service status…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"my-devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\" class=\"tmt-ui-list\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"remotes\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\"\n    />\n    <title>My Remotes · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <link rel=\"stylesheet\" href=\"/sdk/settings.css\" />\n    <script type=\"module\" src=\"/sdk/settings-v1.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-bar\">\n    <header class=\"header tmt-ui-header\" aria-label=\"Remote · My Remotes\">\n      <h1 class=\"header-title tmt-ui-title\">My Remotes</h1>\n    </header>\n    </div>\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page settings-page\">\n      <div id=\"remote-head\" class=\"remote-head\" data-view=\"remotes\">\n        <div class=\"remote-head-copy\">\n          <h2 class=\"settings-title\">My Remotes</h2>\n          <p class=\"settings-intro\">Names and addresses stay in this browser. Forgetting a row leaves access unchanged.</p>\n        </div>\n        <div class=\"remote-head-actions\">\n          <span id=\"remote-join\"></span>\n          <a class=\"tmt-ui-action\" data-variant=\"primary\" href=\"/remote/create\" aria-label=\"Create a Remote\"><span class=\"tmt-ui-action-label\">Create</span></a>\n        </div>\n      </div>\n      <section id=\"remote-create\" class=\"create-guide\" data-view=\"create\" hidden>\n        <p class=\"settings-intro\">Choose a connection type, then follow the steps on this machine. Work stays in your terminal or provider console.</p>\n      </section>\n      <section id=\"remote-join-guide\" class=\"create-guide join-guide\" data-view=\"join\" hidden></section>\n      <section id=\"people\" class=\"tmt-ui-section\" data-view=\"members\" aria-label=\"People\">\n        <div id=\"people-content\">Checking people…</div>\n      </section>\n      <section id=\"invites\" class=\"tmt-ui-section\" data-view=\"invites\" aria-label=\"Invites\">\n        <div id=\"invites-content\">Checking invitations…</div>\n      </section>\n      <button id=\"remote-invite\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" hidden><span class=\"tmt-ui-action-label\">Invite</span></button>\n      <section id=\"owner-invitation\" class=\"sheet tmt-ui-notice\" data-tone=\"neutral\" data-view=\"members\" aria-labelledby=\"invitation-heading\">\n        <div class=\"sheet-body tmt-ui-notice-body\">\n          <h2 id=\"invitation-heading\" class=\"tmt-ui-section-heading\">Confirm an invitation</h2>\n          <p>Start <code>tmt remote invite</code> on this machine, then share its private link or code. To confirm in a browser, use the owner browser set up on this machine.</p>\n          <p id=\"invitation-status\" role=\"status\">Check access to read the current invitation.</p>\n          <p id=\"people-observation\" role=\"status\" hidden></p>\n          <div id=\"invitation-candidate\" hidden>\n            <h3 id=\"invitation-name\"></h3>\n            <p id=\"invitation-words\" class=\"entry-command\"></p>\n            <p id=\"invitation-expires\" class=\"entry-note\"></p>\n            <fieldset class=\"tmt-ui-choices invitation-choices\">\n              <legend class=\"tmt-ui-choices-legend\">Your decision</legend>\n              <label class=\"tmt-ui-choice\" for=\"invitation-compared\"><input id=\"invitation-compared\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\">I compared these four words with the person joining; they match.</span></label>\n              <label class=\"tmt-ui-choice\" for=\"invitation-sending\"><input id=\"invitation-sending\" class=\"tmt-ui-checkbox\" type=\"checkbox\"><span class=\"tmt-ui-choice-text\"><span>Allow this member to send messages to your agents.</span><span class=\"tmt-ui-choice-description\">Sending stays off unless you choose to allow it.</span></span></label>\n            </fieldset>\n            <div class=\"invitation-actions\"><button id=\"invitation-confirm\" class=\"tmt-ui-action\" data-variant=\"primary\" type=\"button\" disabled>Confirm invitation</button><button id=\"invitation-decline\" class=\"tmt-ui-action\" type=\"button\">Decline invitation</button></div>\n          </div>\n          <button id=\"invitation-refresh\" class=\"tmt-ui-action\" type=\"button\" disabled>Check invitation</button>\n          <div id=\"invitation-original\" hidden>\n            <p>Original decision: <code id=\"invitation-original-id\"></code></p>\n            <button id=\"invitation-recover\" class=\"tmt-ui-action\" type=\"button\">Check original outcome</button>\n          </div>\n        </div>\n      </section>\n      <section\n        id=\"access-notice\"\n        class=\"tmt-ui-notice\"\n        data-tone=\"waiting\"\n        data-view=\"members my-devices settings service\"\n        aria-labelledby=\"access\"\n      >\n        <p class=\"eyebrow tmt-ui-notice-eyebrow\">Settings access</p>\n        <div class=\"tmt-ui-notice-mark\">\n          <span aria-hidden=\"true\">◆</span>\n          <p id=\"access\">Checking current access…</p>\n          <p\n            id=\"access-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n        </div>\n        <p id=\"read-only\">\n          Read-only in this browser. To remove devices here, run this on the machine:\n        </p>\n        <div id=\"designation-command\" class=\"tmt-ui-command\" hidden>\n          <code id=\"designation-code\" class=\"tmt-ui-code\"></code\n          ><button\n            id=\"copy-designation\"\n            class=\"tmt-ui-command-copy\"\n            type=\"button\"\n            aria-label=\"Copy command\"\n          >\n            Copy\n          </button>\n        </div>\n        <p id=\"designation-copy-feedback\" role=\"status\"></p>\n        <p class=\"settings-cli\">\n          <code class=\"tmt-ui-code\">tmt remote settings</code> ·\n          <code class=\"tmt-ui-code\">tmt remote members</code>\n        </p>\n        <p id=\"warning\" class=\"tmt-ui-field-error\" role=\"alert\" hidden></p>\n        <p id=\"controls-reason\">Checking current access before changes are available.</p>\n        <button\n          class=\"tmt-ui-action\"\n          aria-describedby=\"controls-reason\"\n          id=\"refresh\"\n          type=\"button\"\n          disabled\n        >\n          <span class=\"tmt-ui-action-label\">Refresh values</span>\n        </button>\n      </section>\n      <div class=\"change-feedback\" data-feedback=\"shared\" data-view=\"members my-devices settings service remotes\">\n        <p id=\"outcome\" data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n        <p data-original hidden></p>\n        <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n          <span class=\"tmt-ui-action-label\">Check the saved value</span>\n        </button>\n      </div>\n      <section id=\"remote-local-name\" class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"local-name-heading\">\n        <div class=\"settings-section-body\"><div class=\"settings-summary\">\n          <h2 id=\"local-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Name in this browser</h2>\n          <p id=\"remote-local-name-value\">This machine</p><p>This name stays in this browser. It does not rename the Remote for anyone else.</p>\n        </div><div class=\"settings-fields\"><button id=\"remote-local-rename\" class=\"tmt-ui-action\" type=\"button\"><span class=\"tmt-ui-action-label\">Remember this Remote</span></button></div></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"browser-name-heading\">\n        <div class=\"settings-summary\"><h2 id=\"browser-name-heading\" class=\"tmt-ui-section-heading\" data-variant=\"title\">This browser's device name</h2>\n          <p>This is the paired browser/device name, not a person's display name.</p></div>\n        <p id=\"current-browser-name-missing\">This browser is not reported on the current device page. Open My devices to check its paired devices.</p>\n        <div id=\"current-browser-name\"></div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"opening-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"opening-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Browser opening\n            </h2>\n            <p id=\"opening-value\">Loading…</p>\n          </div>\n          <form class=\"settings-fields\" id=\"opening-form\" aria-describedby=\"read-only\">\n            <label id=\"opening-label\" class=\"tmt-ui-field-label\" for=\"opening\"\n              >Open a browser when pairing</label\n            >\n            <button\n              id=\"opening\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"opening-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"opening-label opening-choice-value\"\n              value=\"on\"\n              disabled\n            >\n              <span id=\"opening-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"opening-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"opening-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"on\"\n                aria-label=\"On\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                On\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off\n              </button>\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save browser opening</span>\n              </button>\n\n              <p id=\"opening-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"open\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"settings\" aria-labelledby=\"limit-title\">\n        <div class=\"settings-section-body\">\n          <div class=\"settings-summary\">\n            <h2 id=\"limit-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">\n              Session limit per device\n            </h2>\n            <p id=\"limit-value\">Loading…</p>\n            <p id=\"limit-help\">\n              No limit by default. A limit can stop another tab from connecting; it does not remove\n              the browser's pairing.\n            </p>\n          </div>\n          <form class=\"settings-fields\" id=\"limit-form\" aria-describedby=\"limit-help read-only\">\n            <label id=\"limit-mode-label\" class=\"tmt-ui-field-label\" for=\"limit-mode\"\n              >Session limit</label\n            >\n            <button\n              id=\"limit-mode\"\n              class=\"tmt-ui-menu-trigger\" data-variant=\"select\"\n              type=\"button\"\n              aria-haspopup=\"listbox\"\n              aria-controls=\"limit-mode-options\"\n              aria-expanded=\"false\"\n              aria-labelledby=\"limit-mode-label limit-mode-choice-value\"\n              value=\"default\"\n              disabled\n            >\n              <span id=\"limit-mode-choice-value\" data-choice-value>Loading…</span\n              >\n            </button>\n            <div\n              id=\"limit-mode-options\"\n              class=\"tmt-ui-menu-surface\"\n              popover=\"auto\"\n              role=\"listbox\"\n              aria-labelledby=\"limit-mode-label\"\n            >\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"default\"\n                aria-label=\"Default (off, not configured)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Default (off, not configured)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"off\"\n                aria-label=\"Off (unlimited)\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Off (unlimited)\n              </button>\n              <button\n                class=\"tmt-ui-menu-item\"\n                type=\"button\"\n                role=\"option\"\n                data-value=\"custom\"\n                aria-label=\"Custom\"\n                aria-selected=\"false\"\n                tabindex=\"-1\"\n                disabled\n              >\n                Custom\n              </button>\n            </div>\n            <div class=\"tmt-ui-field\">\n              <label id=\"limit-custom-label\" class=\"tmt-ui-field-label\" for=\"limit-custom\"\n                >Positive integer</label\n              >\n              <input\n                id=\"limit-custom\"\n                class=\"tmt-ui-field-control\"\n                aria-labelledby=\"limit-custom-label\"\n                type=\"text\"\n                inputmode=\"numeric\"\n                pattern=\"[1-9][0-9]*\"\n                autocomplete=\"off\"\n                disabled\n              />\n            </div>\n            <div class=\"settings-actions\">\n              <button\n                class=\"tmt-ui-action\"\n                aria-describedby=\"controls-reason\"\n                type=\"submit\"\n                disabled\n              >\n                <span class=\"tmt-ui-action-label\">Save session limit</span>\n              </button>\n\n              <p id=\"limit-unchanged\" class=\"tmt-ui-field-description\" hidden>\n                No changes to save.\n              </p>\n              <div class=\"change-feedback\" data-feedback=\"sessions-per-device\">\n                <p data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>\n                <p data-original hidden></p>\n                <button class=\"tmt-ui-action\" data-recover type=\"button\" hidden>\n                  <span class=\"tmt-ui-action-label\">Check the saved value</span>\n                </button>\n              </div>\n            </div>\n          </form>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"service\" aria-labelledby=\"firestore-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"firestore-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Service &amp; upgrade</h2>\n          <p>Review this Remote’s service status. Make changes in this machine’s terminal or the provider console.</p>\n          <p\n            id=\"firestore-announcement\"\n            class=\"tmt-ui-visually-hidden\"\n            role=\"status\"\n            aria-live=\"polite\"\n            aria-atomic=\"true\"\n          ></p>\n          <div id=\"firestore-content\">Checking service status…</div>\n        </div>\n      </section>\n      <section class=\"tmt-ui-section\" data-divided data-view=\"my-devices\" aria-labelledby=\"devices-title\">\n        <div class=\"settings-section-body\">\n          <h2 id=\"devices-title\" class=\"tmt-ui-section-heading\" data-variant=\"title\">Paired devices</h2>\n          <p>“This device” marks the pairing this browser uses. It does not give access to settings.</p>\n          <button\n            id=\"remove-others\"\n            class=\"tmt-ui-action\"\n            data-variant=\"destructive\"\n            type=\"button\"\n            disabled\n            aria-expanded=\"false\"\n            aria-controls=\"remove-others-confirmation\"\n          >\n            <span class=\"tmt-ui-action-label\">Remove the others</span>\n          </button>\n          <div id=\"remove-others-confirmation\" class=\"tmt-ui-notice\" hidden>\n            <p id=\"remove-others-consequence\" class=\"tmt-ui-notice-body\" role=\"status\"></p>\n            <div class=\"tmt-ui-notice-actions\">\n              <button id=\"cancel-remove-others\" class=\"tmt-ui-action\" type=\"button\">\n                <span class=\"tmt-ui-action-label\">Cancel</span>\n              </button>\n            </div>\n          </div>\n          <div id=\"devices\" class=\"tmt-ui-list\"></div>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"first\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">First devices</span>\n          </button>\n          <button\n            class=\"tmt-ui-action\"\n            aria-describedby=\"controls-reason\"\n            id=\"more\"\n            type=\"button\"\n            hidden\n          >\n            <span class=\"tmt-ui-action-label\">Next devices</span>\n          </button>\n        </div>\n      </section>\n      <section id=\"remotes\" class=\"tmt-ui-section\" data-view=\"remotes\" aria-labelledby=\"remote-heading\">\n        <h2 id=\"remote-heading\" class=\"tmt-ui-visually-hidden\">Remote list</h2>\n        <ul id=\"remote-list\" class=\"tmt-ui-list\"></ul>\n        <p id=\"remote-status\" role=\"status\"></p>\n      </section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/tmt-settings.html?raw
-var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var tmt_settings_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"tmt-settings\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>TMT settings · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main id=\"tmt-settings-page\" class=\"tmt-page tmt-settings\">\n      <p id=\"tmt-settings-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"tmt-settings-section\" class=\"tmt-settings-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/ops.html?raw
-var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
+var ops_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"ops\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\" />\n    <title>Ops · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n    <div class=\"tmt-ui-shell-content\">\n    <div class=\"tmt-ui-shell-main\">\n    <main class=\"tmt-page ops\">\n      <p id=\"ops-note\" class=\"usage-note\" role=\"note\" hidden></p>\n      <section id=\"ops-section\" class=\"ops-section tmt-ui-section\" aria-live=\"polite\"></section>\n    </main>\n    </div>\n    </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../rust/tmt-remote/assets/digest.html?raw
-var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDk2IDk2Ij48c3R5bGU+c3Zney0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWN5YW46IzFjZTBmZjstLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1ncmVlbjojNjJmMGI2Oy0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQ6I2Y4ZjY4YTstLXRtdC11aS1icmFuZC1tYXJrLWZhcjojZmZmZmZmOy0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdzojM2JlOGM2Oy0tdG10LXVpLWJyYW5kLW1hcmstcGFuZWwtdG9wOiMyZTM2NDI7LS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1ib3R0b206IzA1MDcwYTstLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWVkZ2U6I2ZmZmZmZjMzOy0tdG10LXVpLWJyYW5kLW1hcmstcHJvbXB0OiNmZmZmZmY7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0OiM2YTZhNmE7LS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZDojYzhjOGM4Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZTojMGUxMTE2Oy0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlOiNmZmZmZmYyZX0udG10LWJyYW5kLW1hcmt7ZGlzcGxheTpibG9jaztmbGV4Om5vbmU7b3ZlcmZsb3c6dmlzaWJsZX0udG10LWJyYW5kLW1hcmstY3lhbntzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLWF1cm9yYS1jeWFuKX0udG10LWJyYW5kLW1hcmstZ3JlZW57c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1hdXJvcmEtZ3JlZW4pfS50bXQtYnJhbmQtbWFyay1nb2xke3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstYXVyb3JhLWdvbGQpfS50bXQtYnJhbmQtbWFyay1mYXJ7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1mYXIpfS50bXQtYnJhbmQtbWFyay1nbG93e3N0b3AtY29sb3I6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstZ2xvdyl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLXRvcHtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLXRvcCl9LnRtdC1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbXtzdG9wLWNvbG9yOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXBhbmVsLWJvdHRvbSl9LnRtdC1icmFuZC1tYXJrLW1vbm8tc3RhcnR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLXN0YXJ0KX0udG10LWJyYW5kLW1hcmstbW9uby1lbmR7c3RvcC1jb2xvcjp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1tb25vLWVuZCl9LnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZTp2YXIoLS10bXQtdWktYnJhbmQtbWFyay1wYW5lbC1lZGdlKTtzdHJva2Utd2lkdGg6MS4yfS50bXQtYnJhbmQtbWFyay1yaW17ZmlsbDpub25lO3N0cm9rZS13aWR0aDoxLjE7c3Ryb2tlLWxpbmVjYXA6cm91bmR9LnRtdC1icmFuZC1tYXJrLXByb21wdHtmaWxsOm5vbmU7c3Ryb2tlOnZhcigtLXRtdC11aS1icmFuZC1tYXJrLXByb21wdCk7c3Ryb2tlLXdpZHRoOjMuOTtzdHJva2UtbGluZWNhcDpyb3VuZDtzdHJva2UtbGluZWpvaW46cm91bmR9LnRtdC1icmFuZC1tYXJrW2RhdGEtZm9ybT0nc21hbGwnXSAudG10LWJyYW5kLW1hcmstcHJvbXB0e3N0cm9rZS13aWR0aDo5fS50bXQtYnJhbmQtbWFya1tkYXRhLWZvcm09J3NtYWxsJ10gLnRtdC1icmFuZC1tYXJrLXBhbmVse3N0cm9rZS13aWR0aDoyLjV9LnRtdC1icmFuZC1tYXJrLXRpbGV7ZmlsbDp2YXIoLS10bXQtdWktYnJhbmQtbWFyay10aWxlKTtzdHJva2U6dmFyKC0tdG10LXVpLWJyYW5kLW1hcmstdGlsZS1lZGdlKX0udG10LWJyYW5kLW1hcmstcHJpbnR7ZGlzcGxheTpub25lfUBtZWRpYSBwcmludHsudG10LWJyYW5kLW1hcmstYmVhbXtkaXNwbGF5Om5vbmV9LnRtdC1icmFuZC1tYXJrLXByaW50e2Rpc3BsYXk6aW5saW5lfX08L3N0eWxlPjxyZWN0IGNsYXNzPSJ0bXQtYnJhbmQtbWFyay10aWxlIiB4PSIwLjUiIHk9IjAuNSIgd2lkdGg9Ijk1IiBoZWlnaHQ9Ijk1IiByeD0iMjIiPjwvcmVjdD48ZyBjbGFzcz0idG10LWJyYW5kLW1hcmsiIGRhdGEtZm9ybT0ic21hbGwiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE2IDE2KSBzY2FsZSgwLjY2NjcpIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InRhYi1hdXJvcmEiIHgxPSIwLjIiIHkxPSIwLjA1IiB4Mj0iMC44NSIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1jeWFuIiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZ3JlZW4iIG9mZnNldD0iMC41Ij48L3N0b3A+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWdvbGQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItZmFyIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMCI+PHN0b3AgY2xhc3M9InRtdC1icmFuZC1tYXJrLWZhciIgb2Zmc2V0PSIwLjQ1IiBzdG9wLW9wYWNpdHk9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstZmFyIiBvZmZzZXQ9IjEiIHN0b3Atb3BhY2l0eT0iMC4xNSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItcGFuZWwiIHgxPSIwIiB5MT0iMCIgeDI9IjAuNiIgeTI9IjEiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC10b3AiIG9mZnNldD0iMCI+PC9zdG9wPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wYW5lbC1ib3R0b20iIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PGxpbmVhckdyYWRpZW50IGlkPSJ0YWItbW9ubyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjAuMzUiPjxzdG9wIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1tb25vLXN0YXJ0IiBvZmZzZXQ9IjAiPjwvc3RvcD48c3RvcCBjbGFzcz0idG10LWJyYW5kLW1hcmstbW9uby1lbmQiIG9mZnNldD0iMSI+PC9zdG9wPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxnIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1iZWFtIj48cGF0aCBkPSJNNi4wMCAxNC4wMFE2IDE0IDYuMDAgMTQuMDBMNzcuMDcgMjIuODhRODYgMjQgODkuMDAgMjYuNTBMODkuMDAgMjYuNTBROTIgMjkgOTIuMDAgMzguMDBMOTIuMDAgNzIuMDBROTIgODEgODkuMDAgODMuNTBMODkuMDAgODMuNTBRODYgODYgNzcuMzcgODMuNDZMNTIuMDAgNzYuMDBRNTIgNzYgNTIuMDAgNzYuMDBMNi4wMCA3MC4wMFE2IDcwIDYuMDAgNzAuMDBaIiBmaWxsPSJ1cmwoI3RhYi1hdXJvcmEpIj48L3BhdGg+PHBhdGggZD0iTTYuMDAgMTQuMDBRNiAxNCA2LjAwIDE0LjAwTDc3LjA3IDIyLjg4UTg2IDI0IDg5LjAwIDI2LjUwTDg5LjAwIDI2LjUwUTkyIDI5IDkyLjAwIDM4LjAwTDkyLjAwIDcyLjAwUTkyIDgxIDg5LjAwIDgzLjUwTDg5LjAwIDgzLjUwUTg2IDg2IDc3LjM3IDgzLjQ2TDUyLjAwIDc2LjAwUTUyIDc2IDUyLjAwIDc2LjAwTDYuMDAgNzAuMDBRNiA3MCA2LjAwIDcwLjAwWiIgZmlsbD0idXJsKCN0YWItZmFyKSI+PC9wYXRoPjwvZz48cGF0aCBjbGFzcz0idG10LWJyYW5kLW1hcmstcHJpbnQiIGQ9Ik02LjAwIDE0LjAwUTYgMTQgNi4wMCAxNC4wMEw3Ny4wNyAyMi44OFE4NiAyNCA4OS4wMCAyNi41MEw4OS4wMCAyNi41MFE5MiAyOSA5Mi4wMCAzOC4wMEw5Mi4wMCA3Mi4wMFE5MiA4MSA4OS4wMCA4My41MEw4OS4wMCA4My41MFE4NiA4NiA3Ny4zNyA4My40Nkw1Mi4wMCA3Ni4wMFE1MiA3NiA1Mi4wMCA3Ni4wMEw2LjAwIDcwLjAwUTYgNzAgNi4wMCA3MC4wMFoiIGZpbGw9InVybCgjdGFiLW1vbm8pIj48L3BhdGg+PHBhdGggY2xhc3M9InRtdC1icmFuZC1tYXJrLXBhbmVsIiBkPSJNNS4wMCAyMS4wMFE1IDE0IDExLjg1IDE1LjQ2TDQ1LjE1IDIyLjU0UTUyIDI0IDUyLjAwIDMxLjAwTDUyLjAwIDY5LjAwUTUyIDc2IDQ1LjE1IDc3LjQ2TDExLjg1IDg0LjU0UTUgODYgNS4wMCA3OS4wMFoiIGZpbGw9InVybCgjdGFiLXBhbmVsKSI+PC9wYXRoPjxwYXRoIGNsYXNzPSJ0bXQtYnJhbmQtbWFyay1wcm9tcHQiIGQ9Ik0xNSAzNyBMMjggNTAgTDE1IDYzIj48L3BhdGg+PC9nPjwvc3ZnPgo=\"\n    />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n      <div class=\"tmt-ui-shell-content\">\n        <div class=\"tmt-ui-shell-main\">\n          <main class=\"tmt-page usage digest\">\n            <div class=\"digest-head\">\n              <div>\n                <p class=\"tmt-ui-page-subtitle\">\n                  Token usage, allowance and the conversations between seats.\n                </p>\n              </div>\n              <div class=\"digest-controls\">\n                <div class=\"tmt-ui-tabs-header\">\n                  <div\n                    id=\"usage-ranges\"\n                    class=\"tmt-ui-tab-list\"\n                    role=\"tablist\"\n                    aria-label=\"Range\"\n                  ></div>\n                </div>\n              </div>\n            </div>\n            <div class=\"digest-observation\">\n              <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden\n                ><span class=\"tmt-ui-chip-label\"></span\n              ></span>\n              <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n            </div>\n            <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n              <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n            </div>\n          </main>\n        </div>\n      </div>\n    </div>\n  </body>\n</html>\n";
+var digest_default = "<!doctype html>\n<html lang=\"en\" data-tmt-page=\"digest\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <link\n      rel=\"icon\"\n      type=\"image/svg+xml\"\n      href=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJ0bXQtYnJhbmQtbWFyayIgdmlld0JveD0iMCAwIDk2IDk2IiBhcmlhLWhpZGRlbj0idHJ1ZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2Ij48cmVjdCBjbGFzcz0idG10LWJyYW5kLW1hcmstdGlsZSIgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjUuNiIgZmlsbD0iIzBhMGEwYSIvPjxzdmcgeD0iMTEuNSIgeT0iMTEuNSIgdmlld0JveD0iMCAwIDcyMCA3NjAiIHdpZHRoPSI3MyIgaGVpZ2h0PSI3MyI+PHBhdGggZmlsbD0iI2YyZWZlOSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNIDEwIDM1MSBDIDMzIDI0NSA4MiAxNDMgMTYwIDg5IEMgMjEzIDUyIDI3NSAxMiAzMTkgMTEgQyA0MDMgOSA1MzYgNzggNjIyIDIwNyBMIDQ1OSAxNDQgQyA1MTggMjE3IDU0OCAyODIgNTU4IDMyNSBDIDU3OCA0MTAgNTA0IDQ0MCAzOTYgNDc2IEMgMzAxIDUwNyAxODkgNTQzIDExOSA1NzMgQyAyMTcgNTcwIDMxNyA1MzEgNDE0IDQ5NyBDIDUwNSA0NjUgNjE2IDQyNSA3MTYgNDE2IEwgNjM5IDU1MiBDIDU1MCA1NTAgNDY4IDU3NCA0MTQgNjEyIEMgNTE4IDU4NSA2NDYgNjMxIDcxMSA3NDYgQyA2MTEgNjk0IDUwNiA2ODAgNDA0IDY5MCBDIDMwMCA3MDEgMTk4IDcxMyAxMTcgNjk3IEMgMzUgNjgyIDAgNjM4IDIwIDU3NiBDIDI3IDU0OSAzOCA1MjkgNjAgNTA2IEMgMTcgNDc4IC0xIDQ0NSA1IDQwNyBDIDYgMzg5IDggMzcwIDEwIDM1MSBaIE0gMTAwIDM0NSBDIDEwMCAyNzMgMTg2IDIzNCAyOTAgMjM0IEMgMzk0IDIzNCA0ODAgMjczIDQ4MCAzNDUgQyA0ODAgNDE3IDM5NCA0NTYgMjkwIDQ1NiBDIDE4NiA0NTYgMTAwIDQxNyAxMDAgMzQ1IFoiLz48cGF0aCBkPSJNIDIxOSAzMTIgTCAyODMgMzUzIEwgMjE5IDM5NCBNIDMxNCAzOTIgSCAzODIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOSIgc3Ryb2tlLXdpZHRoPSIyNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+PC9zdmc+Cg==\"\n    />\n    <title>Digest · TMT</title>\n    <link rel=\"stylesheet\" href=\"/sdk/pages.css\" />\n    <script type=\"module\" src=\"/sdk/shell.js\"><\/script>\n  </head>\n  <body>\n    <div class=\"tmt-ui-shell\">\n      <div class=\"tmt-ui-shell-content\">\n        <div class=\"tmt-ui-shell-main\">\n          <main class=\"tmt-page usage digest\">\n            <div class=\"digest-head\">\n              <div>\n                <p class=\"tmt-ui-page-subtitle\">\n                  Token usage, allowance and the conversations between seats.\n                </p>\n              </div>\n              <div class=\"digest-controls\">\n                <div class=\"tmt-ui-tabs-header\">\n                  <div\n                    id=\"usage-ranges\"\n                    class=\"tmt-ui-tab-list\"\n                    role=\"tablist\"\n                    aria-label=\"Range\"\n                  ></div>\n                </div>\n              </div>\n            </div>\n            <div class=\"digest-observation\">\n              <span id=\"usage-badge\" class=\"tmt-ui-chip\" hidden\n                ><span class=\"tmt-ui-chip-label\"></span\n              ></span>\n              <p id=\"usage-note\" class=\"usage-note\" role=\"note\" hidden></p>\n            </div>\n            <div id=\"usage-panel\" role=\"tabpanel\" aria-label=\"Usage report\">\n              <div id=\"digest-sections\" class=\"digest-sections\" aria-live=\"polite\"></div>\n            </div>\n          </main>\n        </div>\n      </div>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region ../../../../design/browser-ui/src/chart-math.ts
 /**
@@ -8217,6 +8441,40 @@ function moduleLoad(rail, entry, here, fallback) {
 		link,
 		entry: target.href
 	} : { link };
+}
+/** Only the admitted Design app family can leave a Colab extra's mount for navigation. */
+function designPath(path) {
+	if (path === "/design" || path === "/design/") return true;
+	const rest = path.startsWith("/design/") ? path.slice(8) : void 0;
+	return rest !== void 0 && rest.length <= 160 && rest.split("/").every((segment) => /^[A-Za-z0-9_-]+$/.test(segment));
+}
+/** Navigation may use the owner route; script authority still comes from the primary mount. */
+function designModuleLoad(answer, here) {
+	const primary = answer?.modules.find((module) => module.extension === "colab" && !("module" in module));
+	if (!primary) return {};
+	let page;
+	try {
+		page = new URL(here);
+	} catch {
+		return {};
+	}
+	const extra = answer?.modules.find((module) => {
+		if (module.extension !== "colab" || !("module" in module) || typeof module.module !== "string" || !/^[a-z0-9-]{1,32}$/.test(module.module) || !plain(module.rail.path)) return false;
+		try {
+			const route = new URL(module.rail.path, page);
+			return route.origin === page.origin && !route.search && !route.hash && designPath(route.pathname);
+		} catch {
+			return false;
+		}
+	});
+	if (!extra) return {};
+	const load = moduleLoad(primary.rail.path, extra.entry, here);
+	if (!load.link) return {};
+	const route = new URL(extra.rail.path, page);
+	return {
+		link: `${load.link}${route.pathname.slice(1)}`,
+		...load.entry ? { entry: load.entry } : {}
+	};
 }
 //#endregion
 //#region src/ops-source.ts
@@ -12389,6 +12647,7 @@ var RootSearch = class {
 				const go = async (href) => this.options.navigate(href);
 				this.session = module.mountSearchSession(this.host, {
 					registry: this.registry,
+					session: this.options.session,
 					navigate: (id) => go(pageHref(id)),
 					pageHref,
 					go,
@@ -12576,6 +12835,33 @@ function message(slot, title, text, link) {
 	slot.main.replaceChildren(main);
 	setRouteTitle(slot, title);
 }
+/** The same owner-session/reopen lifetime loads Colab and its described Design module. */
+function colabRouteLoad(title, select) {
+	return async (_remembered, settled) => {
+		let answer = await settled();
+		if (!answer && await reopened()) answer = await started?.redescribe();
+		const load = select(answer);
+		const entry = load?.entry;
+		if (!entry) return { mount: (slot) => load ? message(slot, title, `${title} could not be opened here.`, load.link ? {
+			href: load.link,
+			label: `Open ${title}`
+		} : void 0) : answer ? message(slot, title, title === "Colab" ? "Colab is not running on your machine. Run tmt colab serve there, then reload." : "Design is not available from this Colab. Start or update Colab on your machine, then reload.") : message(slot, title, `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`, {
+			href: "/remote/",
+			label: "Pair this browser"
+		}) };
+		try {
+			return await import(
+				/* @vite-ignore */
+				entry
+);
+		} catch {
+			return { mount: (slot) => message(slot, title, title === "Colab" ? "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page." : "Design could not start here. Colab may have stopped on your machine. Reload to try again.", load.link ? {
+				href: load.link,
+				label: `Open ${title}`
+			} : void 0) };
+		}
+	};
+}
 var routes = [
 	{
 		id: "home",
@@ -12593,7 +12879,7 @@ var routes = [
 			return remotePage((slot) => adoptRemote(slot, landing_default, settings_default, sheets), (slot) => remoteApp(remoteShell(), slot.main, slot.bar, () => sheets.load(), async () => ({
 				landing: async (lifetime, registry, connected) => {
 					const { landingPage } = await import("./remote-v1.js");
-					await landingPage(lifetime, registry, connected);
+					await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
 				},
 				settings: async (shell, registry, initial) => {
 					const { settingsPage } = await import(
@@ -12627,30 +12913,17 @@ var routes = [
 		id: "colab",
 		paths: ["/colab", "/colab/"],
 		rail: "colab",
-		async load(_remembered, settled) {
-			let answer = await settled();
-			if (!answer && await reopened()) answer = await started?.redescribe();
-			const load = colabLoad(answer);
-			const entry = load?.entry;
-			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "Colab could not be opened here.", load.link ? {
-				href: load.link,
-				label: "Open Colab"
-			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.", {
-				href: "/remote/",
-				label: "Pair this browser"
-			}) };
-			try {
-				return await import(
-					/* @vite-ignore */
-					entry
-);
-			} catch {
-				return { mount: (slot) => message(slot, "Colab", "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.", load.link ? {
-					href: load.link,
-					label: "Open Colab"
-				} : void 0) };
-			}
-		}
+		keep: true,
+		load: colabRouteLoad("Colab", colabLoad)
+	},
+	{
+		id: "design",
+		paths: ["/design", "/design/"],
+		rail: "design",
+		load: colabRouteLoad("Design", (answer) => {
+			const load = designModuleLoad(answer, location.href);
+			return load.link ? load : void 0;
+		})
 	}
 ];
 /** Whether this browser's pairing reopened a door session. */
@@ -12675,6 +12948,7 @@ var heldBy;
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next) {
 	if (session === next) return;
+	if (session) started?.sessionChanging();
 	session = next;
 	search?.replace();
 	publishSearch?.();
@@ -12682,6 +12956,8 @@ function observedSession(next) {
 var sessionAdmission;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
 function rootSession(signal) {
+	if (!signal && sessionAdmission) return sessionAdmission.result;
+	signal ??= new AbortController().signal;
 	signal.throwIfAborted();
 	if (session && channelFor(session)?.ended === false) return Promise.resolve(session);
 	if (sessionAdmission?.signal === signal) return sessionAdmission.result;
@@ -12703,6 +12979,7 @@ function rootSession(signal) {
 }
 function forgetSession(previous) {
 	if (session !== previous) return;
+	started?.sessionChanging();
 	session = void 0;
 	search?.replace();
 	publishSearch?.();
@@ -12728,6 +13005,10 @@ function shellApp() {
 	status.hidden = true;
 	root.append(status);
 	search = new RootSearch({
+		session: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
 		load: (entry) => import(
 			/* @vite-ignore */
 			entry
@@ -12748,14 +13029,14 @@ function shellApp() {
 			started?.navigate(href);
 		}
 	});
-	let currentRoute;
+	/** The instance still loading or mounting: a later route load ends it before it draws. */
+	let mounting;
 	const host = startShellHost(root, routes.map((route) => ({
 		...route,
 		async load(remembered, settled) {
-			currentRoute?.abort();
+			mounting?.abort();
 			const lifetime = new AbortController();
-			currentRoute = lifetime;
-			search.replace();
+			mounting = lifetime;
 			status.hidden = true;
 			settled().then((read) => {
 				if (!observed) {
@@ -12769,8 +13050,9 @@ function shellApp() {
 				if (lifetime.signal.aborted) return;
 				let active = true;
 				let adopted = false;
+				let current = slot;
 				const publish = () => {
-					if (!active || !adopted || !slot.topBarReady()) return;
+					if (!active || !adopted || !current.topBarReady()) return;
 					const place = {
 						origin: location.origin,
 						href: location.href
@@ -12778,8 +13060,7 @@ function shellApp() {
 					const rail = appRail(answer, routes, place);
 					search.update(colabLoad(answer)?.entry, navigationSnapshot(answer, [...rail.main, ...rail.bottom], location.href, (path) => appHref(routes, path)));
 				};
-				publishSearch = publish;
-				const hosted = {
+				const hosted = (slot) => ({
 					...slot,
 					routeSignal: lifetime.signal,
 					setTopBar() {
@@ -12788,19 +13069,62 @@ function shellApp() {
 						publish();
 						return bar;
 					}
+				});
+				publishSearch = publish;
+				let remotePath = location.pathname;
+				const rememberRemotePath = () => {
+					if (route.id === "remote" && remoteItem(location.pathname)) remotePath = location.pathname;
 				};
-				const release = await module.mount(hosted);
-				return () => {
+				window.addEventListener("popstate", rememberRemotePath, { signal: lifetime.signal });
+				let given;
+				try {
+					given = await module.mount(hosted(slot));
+				} finally {
+					if (mounting === lifetime) mounting = void 0;
+				}
+				const mounted = typeof given === "function" ? { release: given } : given;
+				const quiet = () => {
 					active = false;
 					if (publishSearch === publish) publishSearch = void 0;
-					release?.();
+				};
+				const release = () => {
+					quiet();
+					lifetime.abort();
+					mounted?.release();
+				};
+				const ownedLocation = route.id === "remote" ? () => remotePath : mounted?.location?.bind(mounted);
+				if (!mounted?.suspend) return ownedLocation ? {
+					release,
+					location: ownedLocation
+				} : release;
+				const { suspend, resume } = mounted;
+				return {
+					release,
+					location: ownedLocation,
+					suspend() {
+						quiet();
+						suspend.call(mounted);
+					},
+					resume(next) {
+						current = next;
+						active = true;
+						publishSearch = publish;
+						resume?.call(mounted, hosted(next));
+						publish();
+					}
 				};
 			} };
 		}
-	})), { failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
-		className: "page",
-		textContent: "This page could not load. Reload to try again."
-	})) });
+	})), {
+		sessions: {
+			open: rootSession,
+			forget: (previous) => forgetSession(previous)
+		},
+		failed: (main) => main.replaceChildren(Object.assign(document.createElement("p"), {
+			className: "page",
+			textContent: "This page could not load. Reload to try again."
+		}))
+	});
 	host.setCommonControls({
 		openSearch: (opener) => {
 			status.hidden = true;
@@ -12812,7 +13136,6 @@ function shellApp() {
 		}
 	});
 	const dispose = () => {
-		currentRoute?.abort();
 		session = void 0;
 		search?.dispose();
 		host.dispose();
@@ -12823,7 +13146,6 @@ function shellApp() {
 		window.removeEventListener("hashchange", changed);
 	};
 	const changed = () => {
-		search?.replace();
 		publishSearch?.();
 	};
 	const restore = (event) => {
@@ -14106,6 +14428,12 @@ function reopenSession(previous, options) {
 	}
 	return pending;
 }
+/** Keeps the landing's different-machine state distinct from other identity mismatches. */
+var DifferentMachineError = class extends ReopenSessionError {
+	constructor() {
+		super("mismatch", "identity-mismatch");
+	}
+};
 async function reopenOnce(previous, signal) {
 	active(signal);
 	const send = async (input, init) => {
@@ -14151,7 +14479,10 @@ async function reopenOnce(previous, signal) {
 	try {
 		validateDoor(current, record);
 	} catch (error) {
-		if (signal) throw new ReopenSessionError(current.machineId !== record.paired.machineId ? "mismatch" : "transient", current.machineId !== record.paired.machineId ? "identity-mismatch" : "unverifiable-response");
+		if (signal) {
+			if (current.machineId !== record.paired.machineId && entryUuid(current.machineId) && entryUuid(current.windowId) && entryAddress(current.address)) throw new DifferentMachineError();
+			throw new ReopenSessionError("transient", "unverifiable-response");
+		}
 		throw error;
 	}
 	let refused = false;
@@ -14218,7 +14549,7 @@ async function entryPairing() {
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
 /** `lifetime` is the route's: once it aborts the page paints nothing and starts nothing more.
 * `registry` is the route's one controller of the remotes section, shared with the settings views. */
-async function landingPage(lifetime, registry, connected) {
+async function landingPage(lifetime, registry, connected, sharedSession) {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const registryState = registry ?? remoteRegistryPage();
 	const button = element("check");
@@ -14326,7 +14657,7 @@ async function landingPage(lifetime, registry, connected) {
 			if (pageAlive()) element(`copy-feedback-guide-${command}`).textContent = "Copy failed. Select the command and copy it manually.";
 		}
 	});
-	const check = async () => {
+	const check = async (manual = false) => {
 		const restoreFocus = document.activeElement === button;
 		const currentAttempt = ++attempt;
 		const currentPage = () => pageAlive() && attempt === currentAttempt;
@@ -14344,8 +14675,27 @@ async function landingPage(lifetime, registry, connected) {
 		element("protocol-address").textContent = local.record.paired.address;
 		element("trust-pin").textContent = Array.from(local.record.paired.machinePublicKey, (byte) => byte.toString(16).padStart(2, "0")).join("");
 		const step = { phase: "open" };
+		if (!manual && sharedSession) {
+			try {
+				session = await sharedSession();
+			} catch (error) {
+				if (currentPage()) {
+					if (error instanceof DifferentMachineError) render("different");
+					else if (error instanceof ReopenSessionError && error.cause) render("refused", false, error.cause.code);
+					else render("unconfirmed");
+				}
+				return;
+			}
+			if (!currentPage()) return;
+		}
 		const channel = session && channelFor(session);
-		const reused = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const validSession = !!channel && !channel.ended && channel.paired.clientId === local.record.paired.clientId && channel.paired.machineId === local.record.paired.machineId && channel.paired.machinePublicKey.every((byte, index) => byte === local.record.paired.machinePublicKey[index]) && channel.key.publicKey().every((byte, index) => byte === local.record.publicKey[index]);
+		const reused = manual && validSession;
+		if (!manual && sharedSession && !validSession) {
+			session = void 0;
+			render("unconfirmed");
+			return;
+		}
 		const open = async () => {
 			step.phase = "open";
 			opaque = false;
@@ -14385,7 +14735,7 @@ async function landingPage(lifetime, registry, connected) {
 		};
 		opaque = false;
 		try {
-			if (!reused && !await open()) return;
+			if (!validSession && !await open()) return;
 			if (!currentPage()) return;
 			try {
 				await observe();
@@ -14417,7 +14767,7 @@ async function landingPage(lifetime, registry, connected) {
 		}
 	};
 	button.addEventListener("click", () => {
-		if (!button.disabled) check();
+		if (!button.disabled) check(true);
 	});
 	await check();
 }

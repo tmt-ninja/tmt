@@ -70,20 +70,53 @@ text fields and select triggers keep the soft rule by decision (see
 [browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
 retain their stronger roles.
 
-A mark's paint servers are prefixed by an id unique per document: `BrandMark` takes it from
-`useId`, and `mountShell` asks the live document (`freshMarkId`) so a second shell, such as a
-fixture or a hidden earlier mount, never makes the visible rail mark resolve to a hidden copy.
+### Palette B and the ref tier
 
-`scripts/generate-brand.mjs` writes the static brand assets from the mark's one definition
-(`src/brand-mark-svg.ts`), `src/brand-mark.css` and the mark-only `brand.mark` roles in
-`tokens.json`; `pnpm check:generated` fails when they are stale. `generated/favicon.svg` is the
-TMT tab icon: the small form of the 04D-1 mark on its dark rounded-square tile, the same in light
-and dark browser chrome. Site, Colab and Remote HTML embed data-URI copies; their tests decode
-those copies and compare the exact SVG bytes with this file. Updating the icon requires refreshing
-these literals; no icon request or runtime generator is involved. `generated/app-icon-light.svg`
-and `generated/app-icon-dark.svg` are the 512 px app icons: the full mark on the same dark tile,
-in each theme's mark roles. Colab's design-geometry browser test rasterises the favicon at 16, 24
-and 32 px and the full mark at 256 px.
+`tokens.json` holds `browser.ref`, the primitive tier, which `static.css` projects as `--tmt-ui-ref-*`.
+It also holds `browser.palette-b`, which maps each listed colour, surface and radius role onto refs
+(`{name}`). The generator emits that mapping only under `[data-tmt-palette='b']`, in three blocks:
+light; the system dark unless a light theme is set on the scope or around it; and an explicit dark
+theme. Chart series and seats keep their values.
+
+The radius roles read one knob: `radius-s`, `radius` and `radius-badge` are `ref-radius`, and
+`radius-l` is `ref-radius + ref-radius-step`. Setting `--tmt-ui-ref-radius` on the scope moves the
+whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots. Inside the scope,
+`ui.css`'s foundation roles read the semantic roles by name, so the shadcn set follows B, the viewer
+theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
+there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
+once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
+its theme and radius switches. The selected ninja keeps its pale ink and dark tile under palette B too.
+
+Shadows form one elevation scale, `browser.shadow.elevation-0` to `elevation-3`; `overlay` is level 2.
+The `ui` set reads them as `shadow-elevation-1` (Card), `shadow-overlay` (Popover, menus, Select,
+Tooltip) and `shadow-elevation-3` (Dialog, Sheet), and the `Surface` part names the levels: paper,
+sheet, raised, overlay and modal. The source policy rejects any other shadow. Select, the menus and
+Command share one row (`src/ui/item.ts`): a neutral highlighted fill inset from the list edge, the
+small radius and the `ui.item-padding` inline padding, never an accent ring.
+
+Motion reads the motion tokens only, and the source policy rejects a literal duration, delay or
+easing. Floating layers fade and rise from their Radix `data-side` on fast and leave in two thirds
+of it; a dialog pops in on base and leaves on fast; a sheet slides in on base and out on fast. The
+line Tabs underline slides between triggers; Switch, Checkbox and Alert move on press or entry, and
+Button changes colour only (a press never shrinks its hit area); Skeleton pulses calmly. Reduced motion zeroes every duration, the pulse included.
+
+`pnpm design-docs` serves the design-system docs and the Colab mock (`docs/`,
+`vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` (export `./docs-embed`)
+is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
+(`tuiOracle()`), which reads the Ops oracle at build time.
+
+The mark has no paint servers or document IDs; multiple live or hidden shells render independently.
+
+`scripts/generate-brand.mjs` generates `src/brand-mark-svg.ts` and the static product assets from
+`src/brand-mark.svg` and the `brand.mark.tile` token. The SVG is an exact copy of the selected blog artwork, rather than a traced silhouette. `pnpm check:generated` rejects stale outputs.
+
+PROVENANCE: [#5971](https://github.com/tmt-ninja/tmt/pull/5971), selected by Ben;
+`site/src/blog/mark.svg` at `4f94bffb07`.
+
+`generated/favicon.svg` is a self-contained vector generated from the selected artwork and tile token. The 512px app icons retain vector paths from the same SVG in both themes. Colab and Remote HTML carry
+the favicon as a data URI; their literal tests compare the decoded bytes. Colab's design-geometry
+browser test rasterizes the generated 16/24/32px favicon and the 256px icon to check pale ink and
+its dark tile. Hosts copy generated assets; they never redraw or recolour the ninja.
 
 ## Host metric inputs
 
@@ -134,21 +167,31 @@ It is inline without a ring by default; `data-placement="overlay"` positions it 
 icon's top-right and adds an `attention-dot-ring-width` ring in `surface-sheet`.
 Its owner supplies the accessible label and tooltip; the dot is decorative.
 
+`@tmt/browser-ui/manage-list` exports `BrowserManageList` and `BrowserManageDialog` for
+host-owned ordered collections and their management sheet. It imports its own chrome-only CSS;
+the host supplies commands, persistence, theme and focus fallback. Row mutations admit trusted
+input, and the dialog keeps dismissal and focus inside its shared UI layer.
+
 `mountShell` owns the one rail renderer; `BrowserShell` and `HostedShell` pass it the
 same `ShellMenu` model. Exactly one deepest current row is selected: a soft accent fill,
 rounded corners and no edge line. Its current module ancestor has bold text and an accent
 icon without a fill. Child rows, labelled group headings and group rows share a 36px
 indent. The phone drawer shows this same tree, without a separate module tab strip.
 Rows truncate to one line and retain their full labels on hover.
+An update with the same rows keeps them and patches only the selection, counts and labels; only a
+change of rows or controls rebuilds the rail (`e2e/rail-update.spec.ts`). A row's tip follows
+hover or keyboard focus, never a press.
 
 A child can carry `total` and `count`: one muted, right-aligned tabular total and a waiting-colour
 attention dot before it. The tooltip and accessible name retain the attention count. Zero and
 unknown totals stay hidden; visible values above 99 read `99+`. Selection retains these roles.
 Module rows show nonzero attention as a dot with its count in the accessible name and tooltip.
 Optional `ShellMenuItem.icon` adds a decorative leading icon; rows without one retain their indent.
+A group may supply `fallbackIcon` for iconless rows; an explicit row icon wins. Colab uses
+`layout-dashboard` for its dashboard group, independently of the group label.
 Group headings use sentence case, label typography and `rail-group-height`.
 
-Each `ShellMenuGroup` has `items` and optional `label`, `action` and `add`. `action` is
+Each `ShellMenuGroup` has `items` and optional `label`, `fallbackIcon`, `action` and `add`. `action` is
 one command with accessible `label` and host-owned `onActivate`; optional `icon` makes it an
 icon button, while its absence renders a right-aligned text action. `add` is a
 trailing muted button with a decorative 14px plus and the visible, accessible label (for
@@ -156,6 +199,13 @@ example `New project`) and `onActivate`; it never navigates or becomes selected.
 navigation row rendered last after a hairline starting at the same 36px child indent. Hosts own commands, navigation, current
 state and data; these presentation additions do not change the composed-shell wire format.
 Callbacks update without rebuilding an otherwise unchanged view or losing keyboard focus.
+
+A group command may supply `disabledReason`; the rail keeps the disabled control and exposes that
+reason in its title. A group may also show an inline `alert` with a host-owned Retry command.
+Group, Retry and add commands accept trusted clicks or a single synthetic click within the
+same trusted Enter/Space key turn, bound to that key's target. Prevented events do not activate.
+The shell keeps the key through the current task because native listeners can run microtasks
+between handlers; #6016 tracks sharing this lifetime with the UI menu helper.
 
 A `ShellMenuItem.actions` list provides up to two labelled icon commands. They are siblings
 of the navigation link and never activate it. On hover or focus within the row, commands
@@ -262,6 +312,38 @@ colour, radius and font roles and the global body scale remain unchanged. Galler
 both menu renderers, tab drafts and busy Actions. Product adoption stays with each host;
 no product overrides of leaf internals are needed.
 
+### Route module lifecycle
+
+`startShellHost` mounts one route module at a time through a `ShellSlot`. `mount` returns either
+the function that releases everything the module started, or a `ShellMounted`
+`{ release, suspend?, resume? }`. On a route marked `keep: true`, a module that also gives
+`suspend` is kept when its route is left (#5954):
+
+- **Suspend.** The host calls `suspend()` while its slot is still current. The main element the
+  module drew in stays where it is, renamed `.tmt-ui-shell-kept`, `hidden` and `inert`, so its
+  frames never unload, and a fresh `.tmt-ui-shell-main` takes its place; header and tool nodes,
+  which hold no frames, are set aside. Suspended means a hidden document: no module-started
+  timers, polling, animation frames or visibility work, and no title, URL or focus changes;
+  data-driven updates may still render into the hidden, inert area, and sockets and state stay.
+  Focus inside the module moves to the new main area before it goes inert, never to the body.
+- **Rail location.** The host remembers a route's last location when it is left. A mounted module
+  may provide `location()` so its own history survives a browser traversal; otherwise the host uses
+  its last known location. A module whose URLs can carry secrets must return a sanitized
+  `location()`. Direct links and browser history keep their destinations.
+- **Resume.** Coming back, the host adopts the common top bar again, returns the header and tool
+  nodes, the menu and the title, makes the kept element the main again and calls `resume(slot)`
+  with a fresh slot. It never calls `mount` again. Focus goes back to where it was in the module
+  only when the user returned with the keyboard through the rail.
+- **Release.** One suspended module per route and two in all; the least recently used goes
+  first. The host also releases one after 10 minutes, on `pagehide`, on a session change and on
+  `dispose`. A `suspend` or `resume` that throws releases the module, and the next visit mounts
+  afresh. A released module is never resumed.
+- **Session.** `ShellSlot.session(signal)` lends the tab's one Remote session, which the root
+  supplies as an opaque `ShellSessions`; browser-ui never names a Remote type.
+  `forgetSession(previous)` forgets it only while `previous` is still current, after releasing
+  every suspended module. The root calls `ShellHost.sessionChanging()` before it replaces the
+  session.
+
 ### Shared top bar
 
 The shell offers an opt-in shared top bar through the existing `./shell`, `./shell-host`
@@ -318,22 +400,17 @@ full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
 
-The brand is the 04D-1 "Beam / Window" mark (`BrandMark`, `src/brand-mark.tsx` and
-`.css`): a dark terminal panel with a `>_` prompt opening into an aurora beam. Every surface
-shows this one mark. Its stops carry aurora-light; dark themes switch to the brighter aurora-dark
-stops and give the panel a faint edge. Print swaps in a mono beam.
-Below 28 px the simplified form drops the perspective and the underscore. `BrandLockup`
-adds the `tmt` / `terminal team` words for marketing surfaces.
+The brand is Ben's selected ninja (`BrandMark`, generated `src/brand-mark-svg.ts`): the
+canonical pale-ink silhouette on the blog's dark rounded tile, unchanged in light, dark and
+palette B. The tile stays dark on light surfaces. Every size and print uses the same geometry.
+`BrandLockup` adds the `tmt` / `terminal team` words for marketing surfaces.
 
-The header brand renders the small form at the header's mark size, `aria-hidden="true"`.
-Mark size and brand gap derive from the wordmark-size token using the handbook's 33/19 and
-12/19 ratios (about 24.32px and 8.84px with a 14px label); they stay equal at compact and wide
-widths, within the 56px/62px header. The product label and brand link use the normal text
-colour. The screen title follows the brand as plain text, without a divider.
-`generated/brand-mark-static.svg` is the static-host copy of that header mark; static hosts embed it
-(with their own extra classes and gradient ids) and the shared stylesheet styles it. The
-header test compares React's output with that copy, ignoring only formatting whitespace and
-gradient ids.
+The header brand is decorative (`aria-hidden="true"`). Mark size and brand gap derive from
+the wordmark-size token using the handbook's 33/19 and 12/19 ratios (about 24.32px and 8.84px
+with a 14px label); compact and wide headers retain those proportions. The product label and
+brand link use the normal text colour. The screen title follows as plain text, without a divider.
+`generated/brand-mark-static.svg` is the static-host copy; the header test compares React's
+output with that copy, ignoring only formatting whitespace.
 
 Notice tone, visible state label, mark and announcement are explicit. No state,
 health, permission or recovery inference occurs. Marks are decorative because
@@ -958,8 +1035,7 @@ state, a React component.
 `@tmt/browser-ui/ui` is a separate React presentation entry; import its checked
 `@tmt/browser-ui/ui.css` explicitly. `cn`, `UiTheme` and `useUiPortalContainer`
 provide its foundation; the allocated primitive exports are described below.
-Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; selection exports the Command family, Combobox, Chip and Chips (see [Controlled selection](#controlled-selection-slice4)). No consumer migration or candidate-5
-page replica is included. The existing `./react`, `./static` and `./static.css` entries stay
+Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; selection exports the Command family, Combobox, Chip and Chips (see [Controlled selection](#controlled-selection-slice4)). Colab's page list uses the shared PageList parts in `@tmt/browser-ui/data-table` and the `@tmt/browser-ui/rich-input` entry; the host owns navigation, selection, data and actions. The existing `./react`, `./static` and `./static.css` entries stay
 unchanged; static never loads React, Radix, cmdk or the new UI graph.
 
 The [browser component contracts](../gui-components.md) retain generation and
@@ -1226,13 +1302,19 @@ migration or Select revival is included.
 From `typescript/`, install the frozen leaf tools with
 `pnpm --filter @tmt/browser-ui... install --frozen-lockfile --ignore-scripts`, then run
 `pnpm --filter @tmt/browser-ui test:browser --workers=2`. The Playwright config starts
-only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it).
-It never attaches to an existing server or opens a product/host fixture.
+only the private gallery, on port 5184 by default (`BROWSER_UI_TEST_PORT` overrides it),
+and the /docs site one port above it for the docs preview layout sweep. It never
+attaches to an existing server or opens a product/host fixture.
 
 The Chromium suite measures rounded borders, text inset, control radii, focus frames,
 border-only control contrast and the named soft-edge field exception, plus overlay exit
 and reduced motion. Seeded controls prove each audit detects a violation and accepts its
-repair. CI selection and gate ownership live in the
+repair.
+
+`pnpm --filter @tmt/browser-ui test:tui-docs` runs the TUI docs suite
+(`docs/tui/playwright.config.ts`) against its own docs server on port 15835
+(`TUI_DOCS_TEST_PORT` overrides it); the same CI job runs it after the gallery audits.
+CI selection and gate ownership live in the
 [CI guide](../../.agents/skills/tmt-release/references/ci-selection.md#worker-gates).
 
 ### List table and page subheader

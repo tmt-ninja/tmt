@@ -11,6 +11,17 @@ function size(value: number | null): string {
   if (value < 1000000000) return `${(value / 1000000).toFixed(1).replace(/\.0$/, '')} MB`;
   return `${(value / 1000000000).toFixed(1).replace(/\.0$/, '')} GB`;
 }
+/** A short local date such as "Nov 30". */
+function removalDate(at: number): string {
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(at);
+}
+/** Not-in-use files and when they go; nothing when none waits or it is unknown. */
+function notInUse(row: StorageRow): string {
+  const bytes = row.unusedAttachmentBytes;
+  const at = row.unusedAttachmentsRemoveAtMs;
+  if (bytes === null || bytes === 0 || at === null) return '';
+  return ` (${size(bytes)} not in use, removed on ${removalDate(at)})`;
+}
 function CleanupConfirmation({
   title,
   cancel,
@@ -183,8 +194,7 @@ export function StorageSection({
               </dt>
               <dd>
                 {size(row.attachmentsBytes)}
-                {row.unusedAttachmentBytes !== null &&
-                  ` (${size(row.unusedAttachmentBytes)} unused)`}
+                {notInUse(row)}
               </dd>
             </div>
             <div>

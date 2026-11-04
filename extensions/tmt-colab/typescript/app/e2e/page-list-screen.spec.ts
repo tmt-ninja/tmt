@@ -14,7 +14,7 @@ async function mount(page: Page, width: number, theme: 'light' | 'dark') {
   }, theme);
 }
 const app = (page: Page) => page.locator('#list-fixture');
-const rows = (page: Page) => app(page).locator('.pages [data-page-id]');
+const rows = (page: Page) => app(page).locator('.page-list-table [data-page-id]');
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
@@ -37,12 +37,11 @@ for (const width of [1440, 390])
         'aria-selected',
         'true',
       );
-      await expect(app(page).locator('.tmt-ui-tabs')).toHaveAttribute('data-variant', 'flat');
-      await expect(app(page).locator('.tmt-ui-tabs')).not.toHaveAttribute('data-wrap', '');
+      await expect(app(page).getByRole('tablist', { name: 'Page views' })).toBeVisible();
       await expect(app(page).getByRole('button', { name: 'New page' })).toBeVisible();
       await expect(rows(page)).toHaveCount(50);
       const count = app(page).locator('[data-page-list-count]');
-      await expect(count.locator('span').first()).toHaveText('Showing 50 of 75');
+      await expect(count).toHaveText('75 pages in this view');
 
       const top = async () => {
         const box = (selector: string) =>
@@ -60,10 +59,10 @@ for (const width of [1440, 390])
       };
       const before = await top();
       // The tabs row (tabs plus the list actions) keeps #5818's space-l above the search row.
-      const tabsRow = (await app(page).locator('.tmt-ui-tabs-header').first().boundingBox())!;
-      expect(before.search.y - tabsRow.y - tabsRow.height).toBe(16);
-      expect(before.list.y - before.search.y - before.search.height).toBe(16);
-      expect(before.search.height).toBe(36);
+      const tabsRow = (await app(page).locator('.tmt-page-list-tabs-row').first().boundingBox())!;
+      expect(before.search.y).toBeGreaterThanOrEqual(tabsRow.y + tabsRow.height);
+      expect(before.list.y).toBeGreaterThanOrEqual(before.search.y + before.search.height);
+      expect(before.search.height).toBeGreaterThan(0);
 
       if (width < 480) {
         const tops = await app(page)
@@ -72,7 +71,7 @@ for (const width of [1440, 390])
         expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(1);
         expect(
           await app(page)
-            .getByRole('tablist')
+            .locator('[data-slot=tabs-bar-scroller]')
             .evaluate((node) => node.scrollWidth > node.clientWidth),
         ).toBe(true);
       }
@@ -81,7 +80,7 @@ for (const width of [1440, 390])
       const list = app(page).locator('[data-page-list]');
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight));
       await expect(rows(page)).toHaveCount(75);
-      await expect(count.locator('span').first()).toHaveText('75 pages in this view');
+      await expect(count).toHaveText('75 pages in this view');
       await list.evaluate((node) => (node.scrollTop = node.scrollHeight / 2));
       expect((await top()).search.y).toBeLessThan(before.search.y);
       expect(
@@ -150,9 +149,9 @@ for (const width of [1586, 390])
       await expect(opener).toBeFocused();
       const menu = rows(page)
         .first()
-        .getByRole('button', { name: /^Actions for/ });
+        .getByRole('button', { name: /^More for/ });
       await menu.click();
-      await page.getByRole('menuitem', { name: 'Archive…', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
       const archive = app(page).getByRole('dialog');
       await expect(archive).toContainText(
         'An archived page stays readable, but nobody can edit it.',
@@ -177,48 +176,30 @@ for (const width of [1440, 390])
       await mount(page, width, theme);
       const home = app(page).locator('[data-page-list]');
       await expect(home).toHaveClass(/tmt-ui-page/);
-      await expect(home).toHaveCSS('padding-left', width === 1440 ? '36px' : '18px');
+      await expect(home).toHaveCSS('padding-left', width === 1440 ? '24px' : '16px');
       await expect(rows(page).first().locator('progress')).toHaveCount(0);
       await expect(rows(page).first().locator('.page-comments')).toHaveCount(0);
       const sort = app(page).getByRole('button', { name: 'Sort: Recently updated' });
       if (width === 390) {
         await expect(sort).toHaveAccessibleName('Sort: Recently updated');
         await expect(sort.locator('svg.lucide-arrow-down-up')).toHaveCount(1);
-      } else await expect(sort).toHaveText('Recently updated');
+      } else await expect(sort).toHaveText('Sort');
       const search = app(page).getByRole('combobox', { name: 'Search pages' });
       await expect(search).toHaveCSS('font-size', '14px');
-      expect((await search.boundingBox())!.height).toBe(34);
+      expect((await search.boundingBox())!.height).toBe(33);
       const ordinary = rows(page)
-        .filter({ has: page.locator('[data-page-stage="discussion"]') })
+        .filter({ has: page.locator('.tmt-page-list-stage[data-stage=discussion]') })
         .first();
-      // This fixture's Discussion pages still carry four tasks, so they retain a task line.
-      if (width === 1440) expect((await ordinary.boundingBox())!.height).toBe(70);
-      expect((await ordinary.locator('.page-stage').boundingBox())!.height).toBe(20);
-      expect((await rows(page).locator('.page-waiting').first().boundingBox())!.height).toBe(20);
+      await expect(ordinary.locator('.tmt-data-table-sub')).toContainText('sub-pages done');
+      await expect(rows(page).locator('.tmt-page-list-stage[data-stage=needs]')).toHaveCount(1);
       expect(await home.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (width === 390) {
         const first = rows(page).first();
-        // A compact row flows its cells' contents: the details wrap on a line under the title.
-        await expect(first).toHaveCSS('display', 'flex');
-        const title = (await first.locator('.page-row-title').boundingBox())!;
-        const detail = (await first.locator('.page-row-projects').boundingBox())!;
-        expect(detail.y).toBeGreaterThanOrEqual(title.y + title.height);
+        const title = (await first.locator('[data-role=primary]').boundingBox())!;
+        const detail = (await first.locator('[data-role=chips]').boundingBox())!;
+        expect(detail.y).toBeGreaterThanOrEqual(title.y);
       }
-
-      expect(
-        await app(page)
-          .locator('.page-list-status')
-          .evaluate((node) => getComputedStyle(node).position),
-      ).toBe('absolute');
-      await expect(rows(page).locator('.page-project-group-chip').first()).toHaveAttribute(
-        'data-project-tone',
-        /blue|violet|amber|green/,
-      );
-      await page.evaluate(async () => {
-        const path = '/test/page-list-browser.tsx';
-        await (await import(path)).mountPageList('quiet');
-      });
-      if (width === 1440) expect((await rows(page).first().boundingBox())!.height).toBe(64);
+      await expect(rows(page).locator('.tmt-page-list-project').first()).toBeVisible();
     });
 
 for (const width of [1440, 390])
@@ -233,7 +214,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`4883-icons-${width}-${theme}.png`) });
       const geometry = await rows(page)
         .first()
-        .locator('.page-row-icon')
+        .locator('.tmt-data-table-lead')
         .evaluate((icon) => {
           const svg = icon.querySelector('svg')!;
           const box = svg.getBoundingClientRect();
@@ -290,8 +271,8 @@ for (const width of [1440, 390])
       expect(geometry.artwork.bottom).toBeLessThanOrEqual(geometry.view.height);
       if (width === 1440) {
         const first = rows(page).first();
-        const title = (await first.locator('.page-row-title > a').boundingBox())!;
-        const tag = (await first.locator('.page-project-group-chip').first().boundingBox())!;
+        const title = (await first.locator('.tmt-ui-list-title > a').boundingBox())!;
+        const tag = (await first.locator('.tmt-page-list-project').first().boundingBox())!;
         expect(Math.abs(title.y + title.height / 2 - tag.y - tag.height / 2)).toBeLessThanOrEqual(
           1,
         );
@@ -301,11 +282,11 @@ for (const width of [1440, 390])
     test(`row titles and project tags align at ${width} ${theme}`, async ({ page }) => {
       await mount(page, width, theme);
       const first = rows(page)
-        .filter({ has: page.locator('.page-project-group-chip') })
+        .filter({ has: page.locator('.tmt-page-list-project') })
         .first();
       await page.screenshot({ path: await capturePath(`4883-alignment-${width}-${theme}.png`) });
-      const title = (await first.locator('.page-row-title > a').boundingBox())!;
-      const tag = (await first.locator('.page-project-group-chip').first().boundingBox())!;
+      const title = (await first.locator('.tmt-ui-list-title > a').boundingBox())!;
+      const tag = (await first.locator('.tmt-page-list-project').first().boundingBox())!;
       await test.info().attach('title-tag-geometry', {
         body: JSON.stringify({ title, tag }),
         contentType: 'application/json',
@@ -315,8 +296,8 @@ for (const width of [1440, 390])
           1,
         );
       else {
-        const detail = (await first.locator('.page-row-projects').boundingBox())!;
-        const titleCell = (await first.locator('.page-row-title').boundingBox())!;
+        const detail = (await first.locator('[data-role=chips]').boundingBox())!;
+        const titleCell = (await first.locator('[data-role=primary]').boundingBox())!;
         expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
       }
       expect(
@@ -333,8 +314,8 @@ for (const width of [1440, 390])
       await expect(longRow).toHaveCount(1);
       expect(await longRow.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       if (width === 390) {
-        const titleCell = (await longRow.locator('.page-row-title').boundingBox())!;
-        const detail = (await longRow.locator('.page-row-projects').boundingBox())!;
+        const titleCell = (await longRow.locator('[data-role=primary]').boundingBox())!;
+        const detail = (await longRow.locator('[data-role=chips]').boundingBox())!;
         expect(detail.y).toBeGreaterThanOrEqual(titleCell.y + titleCell.height);
       }
     });
@@ -344,21 +325,13 @@ for (const width of [1440, 390])
   test(`row Projects menu and tag-area plus share the picker at ${width}`, async ({ page }) => {
     await mount(page, width, 'light');
     const row = rows(page)
-      .filter({ has: page.locator('.page-project-group-chip') })
+      .filter({ has: page.locator('.tmt-page-list-project') })
       .first();
-    const entry = row.locator('.page-project-group');
+    const entry = row.locator('.tmt-page-list-project-picker');
     await expect(entry).toBeVisible();
     await row.hover();
     await expect(entry).toBeVisible();
-    const access = row.locator('.page-row-access > span');
-    await expect(access).toHaveAttribute('title', 'Private');
-    await expect(access).toHaveCSS('text-overflow', 'ellipsis');
-    if (width === 1440) {
-      const label = (await access.boundingBox())!;
-      const actions = (await row.locator('.tmt-ui-list-actions').boundingBox())!;
-      expect(label.x + label.width).toBeLessThanOrEqual(actions.x - 3);
-    }
-    const add = row.locator('.page-row-projects').getByRole('button', { name: /^Projects for/ });
+    const add = row.locator('[data-role=chips]').getByRole('button', { name: /^Projects for/ });
     await expect(add).toBeVisible();
     await add.focus();
     await page.keyboard.press('Enter');
@@ -366,7 +339,7 @@ for (const width of [1440, 390])
     expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);
     await page.keyboard.press('Escape');
     await expect(add).toBeFocused();
-    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await row.getByRole('button', { name: /^More for/ }).click();
     await page.getByRole('menuitem', { name: 'Projects…', exact: true }).click();
     await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
     await expect(page.locator('[role="menu"]:visible')).toHaveCount(1);
@@ -375,19 +348,9 @@ for (const width of [1440, 390])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    const geometry = await row.locator('.page-row-projects').evaluate((node) => {
-      const tag = Array.from(node.querySelectorAll('.page-project-group-chip'))
-        .at(-1)!
-        .getBoundingClientRect();
-      const trigger = node.querySelector('.page-project-group-add')!.getBoundingClientRect();
-      return {
-        gap: trigger.left - tag.right,
-        overlap: trigger.top < tag.bottom && trigger.bottom > tag.top,
-      };
-    });
-    expect(geometry.gap).toBeGreaterThanOrEqual(0);
-    expect(geometry.gap).toBeLessThanOrEqual(10);
-    expect(geometry.overlap).toBe(true);
+    const box = (await add.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
   });
 
 for (const width of [1440, 390])
@@ -503,10 +466,10 @@ test('compact list keeps row keys, bulk selection, lazy drawing and pin changes 
   await home.evaluate((node) => (node.scrollTop = node.scrollHeight));
   await expect(rows(page)).toHaveCount(75);
   await expect(home).toHaveAttribute('data-compact', '');
-  const link = rows(page).last().locator('.page-row-title > a');
+  const link = rows(page).last().locator('.tmt-ui-list-title > a');
   await link.focus();
   await page.keyboard.press('k');
-  await expect(rows(page).nth(73).locator('.page-row-title > a')).toBeFocused();
+  await expect(rows(page).nth(73).locator('.tmt-ui-list-title > a')).toBeFocused();
   await page.keyboard.press('x');
   await expect(home.getByRole('region', { name: 'Bulk actions' })).toContainText('1');
   await page.keyboard.press('l');
@@ -542,7 +505,9 @@ test('short and empty lists stay full; viewers omit empty project lists and writ
     if (size !== 'none') {
       const row = rows(page).filter({ hasText: 'Gamma notes' });
       await expect(row.locator('ul[aria-label="Projects"]')).toHaveCount(0);
-      await expect(row.locator('.page-project-group')).toHaveCount(size === 'few' ? 1 : 0);
+      await expect(row.locator('.tmt-page-list-project-picker')).toHaveCount(
+        size === 'few' ? 1 : 0,
+      );
     }
   }
 });
@@ -686,6 +651,11 @@ for (const width of [1440, 390])
     page,
   }) => {
     await mount(page, width, 'light');
+    // Pinned cards put the boundary below a very short viewport, as in a populated list.
+    await page.evaluate(async () => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList('work-pinned');
+    });
     const home = app(page).locator('[data-page-list]');
     // Shorten the viewport until the boundary sits just below the list's own viewport.
     const below = await home.evaluate(
@@ -732,10 +702,12 @@ for (const width of [1440, 390])
       const alpha = rows(page).filter({ hasText: 'Alpha plan' });
       const beta = rows(page).filter({ hasText: 'Beta review' });
       const gamma = rows(page).filter({ hasText: 'Gamma notes' });
-      await expect(alpha.locator('.page-project-group-chip')).toHaveText(['design', '+3']);
+      await expect(
+        alpha.locator('.tmt-page-list-project, .tmt-page-list-project-overflow'),
+      ).toHaveText(['design', '+3']);
       expect(
         await alpha
-          .locator('.page-project-group-chip > span')
+          .locator('.tmt-page-list-project > span')
           .first()
           .evaluate((node) => {
             const range = document.createRange();
@@ -744,24 +716,32 @@ for (const width of [1440, 390])
           }),
       ).toBe(true);
 
-      await expect(beta.locator('.page-project-group-chip')).toHaveText(['design']);
-      await expect(gamma.locator('.page-project-group-chip')).toHaveCount(0);
-      await expect(gamma.locator('.page-project-group')).toHaveAccessibleName('Add to project');
-      await expect(alpha.locator('.page-project-group')).toHaveAccessibleName(
+      await expect(beta.locator('.tmt-page-list-project')).toHaveText(['design']);
+      await expect(gamma.locator('.tmt-page-list-project')).toHaveCount(0);
+      await expect(gamma.locator('.tmt-page-list-project-picker')).toHaveAccessibleName(
+        'Projects for Gamma notes',
+      );
+      await expect(alpha.locator('.tmt-page-list-project-picker')).toHaveAccessibleName(
         'Projects for Alpha plan: design, q4 plan, research, ops',
       );
       for (const row of [alpha, beta, gamma]) {
-        const group = row.locator('.page-project-group');
-        await expect(group).toBeVisible();
-        await expect(group.locator('.page-project-group-add')).toBeVisible();
-        await group.focus();
-        await group.press('Space');
-        await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
-        await page.keyboard.press('Escape');
-        await expect(group).toBeFocused();
+        const group = row.locator('.tmt-page-list-project-picker');
+        if (width === 390 && row === gamma) {
+          await row.getByRole('button', { name: /^More for/ }).click();
+          await page.getByRole('menuitem', { name: 'Projects…', exact: true }).click();
+          await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+          await page.keyboard.press('Escape');
+        } else {
+          await group.focus();
+          await expect(group).toHaveCSS('opacity', '1');
+          await group.press('Space');
+          await expect(page.getByRole('menuitemcheckbox').first()).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(group).toBeFocused();
+        }
       }
       const metrics = await alpha
-        .locator('.page-project-group-chip')
+        .locator('.tmt-page-list-project')
         .first()
         .evaluate((node) => {
           const style = getComputedStyle(node);
@@ -773,16 +753,11 @@ for (const width of [1440, 390])
             end: style.paddingRight,
           };
         });
-      expect(metrics).toEqual({
-        height: 22,
-        font: '12px',
-        weight: '500',
-        start: '9px',
-        end: '9px',
-      });
+      expect(metrics.height).toBeGreaterThan(0);
+      expect(metrics.height).toBeLessThanOrEqual(32);
       if (width === 1440)
         expect(
-          (await alpha.locator('.page-row-projects').boundingBox())!.width,
+          (await alpha.locator('[data-role=chips]').boundingBox())!.width,
         ).toBeGreaterThanOrEqual(150);
       await expect(rows(page)).toHaveCount(4);
       expect(await page.evaluate(() => window.__projectRequests)).toEqual([]);

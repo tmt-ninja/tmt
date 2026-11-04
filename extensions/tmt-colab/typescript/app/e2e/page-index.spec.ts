@@ -19,7 +19,7 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       const fixture = page.locator('#index-fixture');
-      const rows = fixture.locator('.pages [data-page-id]');
+      const rows = fixture.locator('.page-list-table [data-page-id]');
       await expect(rows).toHaveCount(3);
       expect(
         await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-page-id'))),
@@ -37,55 +37,53 @@ for (const width of [1440, 390])
       await expect(first.locator('time')).toHaveText('1 hour ago');
       await expect(first.locator('time')).toHaveAttribute('datetime', '2026-10-08T23:00:00.000Z');
       await expect(first.locator('time')).toHaveAttribute('title', /2026/);
-      await expect(first.locator('.page-row-access')).toHaveText('Shared');
-      await first.getByRole('link', { name: 'Alpha update' }).focus();
-      // A phone has the archive item in the ⋯ menu and no new-tab action beside the row.
-      const wide = width > 479;
-      await page.keyboard.press('Tab');
-      // The project-area entry follows the title, before the remaining row actions.
-      await expect(first.locator('.page-project-group')).toBeFocused();
-      await page.keyboard.press('Tab');
-      if (wide) {
-        await expect(
-          first.getByRole('button', { name: 'Open Alpha update in a new tab' }),
-        ).toBeFocused();
-        await page.keyboard.press('Tab');
-      }
-      // Pin remains before Archive and the row menu on every width.
-      await expect(
-        first.getByRole('button', { name: 'Pin Alpha update to the top' }),
-      ).toBeFocused();
-      await page.keyboard.press('Tab');
-      if (wide) {
-        await expect(first.getByRole('button', { name: 'Archive Alpha update' })).toBeFocused();
-        await page.keyboard.press('Tab');
-      }
-      const actions = first.getByRole('button', { name: /^Actions for/ });
+      if (width > 760) await expect(first.locator('[data-role=access]')).toContainText('Shared');
+      // The shared grid uses roving row focus; keyboard movement and the menu retain focus.
+      await first.focus();
+      await page.keyboard.press('ArrowDown');
+      await expect(rows.nth(1)).toBeFocused();
+      await page.keyboard.press('ArrowUp');
+      await expect(first).toBeFocused();
+      const actions = first.getByRole('button', { name: /^More for/ });
+      await actions.focus();
       await expect(actions).toBeFocused();
-      // The next row's checkbox leads its title in the Tab order.
-      await page.keyboard.press('Tab');
-      await expect(rows.nth(1).getByRole('checkbox', { name: 'Select Beta update' })).toBeFocused();
-      await page.keyboard.press('Tab');
-      await expect(rows.nth(1).getByRole('link', { name: 'Beta update' })).toBeFocused();
       await actions.click();
-      await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
-      await expect(page.getByRole('menu')).toContainText(
-        'Page ID: c0000002-1111-4111-8111-000000000001',
-      );
+      await expect(page.getByRole('menuitem', { name: 'Manage…' })).toBeVisible();
       await expect(page.getByRole('menu').locator('.retention-hint')).toBeVisible();
+      if (width <= 760) await expect(page.getByRole('menu')).toContainText('Access: Shared');
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: async (value: string) => {
+              (window as unknown as { copiedId: string }).copiedId = value;
+            },
+          },
+        });
+      });
+      const copy = page.getByRole('menuitem', { name: 'Copy page ID' });
+      await copy.evaluate((node: HTMLElement) => node.click());
+      expect(
+        await page.evaluate(() => (window as unknown as { copiedId?: string }).copiedId),
+      ).toBeUndefined();
+      await copy.click();
+      await expect
+        .poll(() => page.evaluate(() => (window as unknown as { copiedId?: string }).copiedId))
+        .toBe('c0000002-1111-4111-8111-000000000001');
+      await actions.click();
       await page.keyboard.press('Escape');
       await expect(page.getByRole('menu')).toHaveCount(0);
-      await expect(actions).toBeFocused();
+      await expect(first).toBeFocused();
       await page.screenshot({ path: await capturePath(`2168-few-${width}-${theme}.png`) });
       await fixture.getByRole('tab', { name: /^Archived/ }).click();
       await expect(rows).toHaveCount(2);
-      await expect(rows.locator('.page-row-stage')).toHaveText(['Archived', 'Archived']);
+      await expect(rows.locator('.tmt-page-list-stage')).toHaveText(['Archived', 'Archived']);
       await expect(rows.getByRole('link')).toHaveCount(2);
       await expect(
         rows.first().getByRole('link', { name: 'Archived notes', exact: true }),
       ).toHaveAttribute('href', '/#/pages/c0000004-1111-4111-8111-000000000001');
       await expect(rows.last().locator('time')).toHaveCount(0);
-      await expect(rows.last().locator('.page-updated')).toHaveCount(0);
+      await expect(rows.last().locator('[data-role=time] time')).toHaveCount(0);
       await page.screenshot({ path: await capturePath(`2168-archived-${width}-${theme}.png`) });
     });
 
@@ -103,15 +101,15 @@ for (const width of [1440, 390])
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      const rows = page.locator('#index-fixture .pages [data-page-id]');
-      const count = page.locator('#index-fixture [data-page-list-count] > span').first();
+      const rows = page.locator('#index-fixture .page-list-table [data-page-id]');
+      const count = page.locator('#index-fixture [data-page-list-count]').first();
       const list = page.locator('#index-fixture [data-page-list]');
       const search = page.locator('#index-fixture .page-list-search');
       await expect(rows).toHaveCount(50);
-      await expect(count).toHaveText('Showing 50 of 200');
+      await expect(count).toHaveText('200 pages in this view');
       await expect(rows.first().getByRole('link')).toHaveText('Page 001');
       await expect(rows.first()).toHaveCSS('box-shadow', 'none');
-      await expect(rows.first()).toHaveCSS('border-bottom-width', '1px');
+      await expect(rows.nth(1)).toHaveCSS('border-top-width', '1px');
       await page.screenshot({ path: await capturePath(`2168-many-${width}-${theme}.png`) });
       const searchTop = (await search.boundingBox())!.y;
       // Each time the list's end comes near, it draws the next 50, until every row is drawn.
@@ -153,8 +151,18 @@ for (const width of [1440, 390])
         fixed:
           width < 480
             ? // The phone's menu button sits in the shared bar now, not fixed on its own.
-              ['tmt-ui-shell-bar', 'page-list-controls']
-            : ['tmt-ui-rail', 'tmt-ui-shell-brand', 'tmt-ui-shell-bar', 'page-list-controls'],
+              [
+                'tmt-ui-shell-bar',
+                'tmt-page-list-controls page-list-controls',
+                'tmt-data-table-head',
+              ]
+            : [
+                'tmt-ui-rail',
+                'tmt-ui-shell-brand',
+                'tmt-ui-shell-bar',
+                'tmt-page-list-controls page-list-controls',
+                'tmt-data-table-head',
+              ],
       });
     });
   }
@@ -167,7 +175,7 @@ test('website rows keep symmetric insets and control size while columns stack at
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  const row = page.locator('#index-fixture .pages [data-page-id]').first();
+  const row = page.locator('#index-fixture .page-list-table [data-page-id]').first();
   await expect(row).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   const measures = [];
@@ -175,16 +183,18 @@ test('website rows keep symmetric insets and control size while columns stack at
     await page.setViewportSize({ width, height: 900 });
     measures.push(
       await row.evaluate((node) => {
-        const style = getComputedStyle(node);
         const title = node.querySelector('.tmt-ui-list-title')!.getBoundingClientRect();
         const meta = node.querySelector('time')!.getBoundingClientRect();
         const action = node
-          .querySelector('.tmt-ui-list-actions .tmt-ui-menu button')!
+          .querySelector('[data-role=actions] button[aria-haspopup=menu]')!
           .getBoundingClientRect();
         return {
           height: node.getBoundingClientRect().height,
-          padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
-          rule: style.borderBottomWidth,
+          padding: [
+            getComputedStyle(node.querySelector('[data-role=primary]')!).paddingLeft,
+            getComputedStyle(node.querySelector('[data-role=actions]')!).paddingRight,
+          ],
+          rule: getComputedStyle(node.parentElement!.children[1]!).borderTopWidth,
           action: [action.width, action.height],
           stacked: meta.top >= title.bottom,
           separateColumn: meta.left >= title.right,
@@ -194,14 +204,14 @@ test('website rows keep symmetric insets and control size while columns stack at
     );
   }
   await writeFile(capturePath('2168-row-geometry.json'), JSON.stringify(measures, null, 2));
-  expect(measures[0].padding).toEqual(['0px', '0px', '0px', '0px']);
-  // The compact start padding holds the 24px select track; the select control sits at the 12px inset.
-  expect(measures[1].padding).toEqual(['14px', '12px', '14px', '36px']);
-  expect(measures[0].rule).toBe('1px');
-  expect(measures[1].rule).toBe(measures[0].rule);
+  // Each shared cell keeps equal start/end insets, with the same row rule at both widths.
+  expect(measures[0].padding).toEqual(['8px', '8px']);
+  // The phone selection track supplies the start inset; the action cell retains the end inset.
+  expect(measures[1].padding).toEqual(['0px', '8px']);
+  for (const measure of measures) expect(measure.rule).toBe('1px');
   expect(measures[0].action).toEqual(measures[1].action);
   for (const measure of measures) {
-    expect(measure.height).toBeGreaterThanOrEqual(64);
+    expect(measure.height).toBeGreaterThanOrEqual(32);
     expect(measure.contained).toBe(true);
   }
   expect(measures[0].separateColumn).toBe(true);
@@ -250,7 +260,7 @@ test('metadata order follows update timestamps before English title ties', async
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  const rows = page.locator('#index-fixture .pages [data-page-id]');
+  const rows = page.locator('#index-fixture .page-list-table [data-page-id]');
   await expect(rows).toHaveCount(3);
   expect(
     await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-page-id'))),
@@ -271,15 +281,15 @@ test('an out-of-range update omits unknown metadata and never fabricates a time 
   });
   await page.getByRole('tab', { name: /^Archived/ }).click();
   const row = page.locator('#index-fixture [data-page-id="c0000005-1111-4111-8111-000000000001"]');
-  await expect(row.locator('.page-updated')).toHaveCount(0);
+  await expect(row.locator('[data-role=time] time')).toHaveCount(0);
   await expect(row.locator('time')).toHaveCount(0);
   await expect(row.getByRole('link', { name: 'Untitled page', exact: true })).toHaveAttribute(
     'href',
     '/#/pages/c0000005-1111-4111-8111-000000000001',
   );
   await expect(row.getByText('Untitled page', { exact: true })).toBeVisible();
-  await expect(row.getByRole('button', { name: /^Actions for/ })).toHaveAccessibleName(
-    'Actions for Untitled page',
+  await expect(row.getByRole('button', { name: /^More for/ })).toHaveAccessibleName(
+    'More for Untitled page',
   );
 });
 
@@ -290,7 +300,7 @@ test('the first committed index render uses the actual time snapshot', async ({ 
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few');
   });
-  await expect(page.locator('#index-fixture .pages [data-page-id]')).toHaveCount(3);
+  await expect(page.locator('#index-fixture .page-list-table [data-page-id]')).toHaveCount(3);
   const initialLabels = await page.evaluate(async () => {
     const path = '/test/page-index-browser.tsx';
     return (await import(path)).firstUpdateLabels();

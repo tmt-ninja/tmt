@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "surface",
+  "source": "surface.js",
+  "props": {
+    "level": {
+      "enum": [
+        "paper",
+        "sheet",
+        "raised",
+        "overlay",
+        "modal"
+      ],
+      "default": "sheet"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "surface.css",
+  "ui": {
+    "module": "/src/ui/surface.tsx",
+    "component": "Surface",
+    "variants": "surfaceVariants",
+    "dims": {
+      "level": [
+        "paper",
+        "sheet",
+        "raised",
+        "overlay",
+        "modal"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "title": "Sheet",
+      "markup": "<tmt-ui-surface>A card or panel resting on the page.</tmt-ui-surface>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Raised",
+      "markup": "<tmt-ui-surface level=\"raised\">Lifted while dragged.</tmt-ui-surface>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Overlay",
+      "markup": "<tmt-ui-surface level=\"overlay\">A floating layer.</tmt-ui-surface>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Modal",
+      "markup": "<tmt-ui-surface level=\"modal\">A dialog above the scrim.</tmt-ui-surface>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

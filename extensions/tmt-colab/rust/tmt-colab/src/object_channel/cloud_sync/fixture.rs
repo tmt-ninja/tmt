@@ -554,7 +554,7 @@ pub(crate) fn sealed_update(
         format!("update-{stream}-{seq}").as_bytes(),
     )
     .unwrap();
-    (envelope.to_json().unwrap(), envelope.hash().unwrap())
+    (envelope.to_bytes().unwrap(), envelope.hash().unwrap())
 }
 impl Firestore {
     /// Store a document the way the provider would hold it.

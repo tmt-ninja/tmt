@@ -533,7 +533,7 @@ impl Snapshot {
         namespace: &str,
         stored: &crate::store::owner::epoch::StoredObject,
     ) -> Result<OpenedObject> {
-        let envelope = object::Envelope::from_json(&stored.bytes)?;
+        let envelope = object::Envelope::from_bytes(&stored.bytes)?;
         let h = object::Header::decode(envelope.header())?;
         if h.covered_device.is_some() {
             return self.open_fold_object(key, page, stream, namespace, stored, &envelope, &h);
@@ -856,7 +856,7 @@ impl Snapshot {
             .anchors
             .get(&(stream.to_owned(), stored.seq))
             .ok_or(OwnerFault::Invalid)?;
-        object::check_anchor(h, &object::Envelope::from_json(anchor)?, &covered_key)?;
+        object::check_anchor(h, &object::Envelope::from_bytes(anchor)?, &covered_key)?;
         let plaintext = object::open_fold(envelope, c, stream, &self.secret, &signer_key)?;
         Ok(OpenedObject {
             namespace: c.namespace.clone(),
@@ -1158,7 +1158,7 @@ impl Snapshot {
             else {
                 return Err(OwnerFault::Invalid.into());
             };
-            let envelope = object::Envelope::from_json(&saved.envelope)?;
+            let envelope = object::Envelope::from_bytes(&saved.envelope)?;
             let h = object::Header::decode(envelope.header())?;
             let expected = &advance.baseline;
             if d.page_id != page
@@ -1419,7 +1419,6 @@ impl MaterializationInput {
             .into());
         }
         let mut threads = 0;
-        let mut proposals = std::collections::BTreeSet::new();
         let mut own_views = BTreeMap::new();
         let mut local_own_update = None;
         for (writer, own) in own_updates {
@@ -1452,28 +1451,6 @@ impl MaterializationInput {
                 .len();
             if threads > 1000 {
                 return Err(OwnerFault::Capacity.into());
-            }
-            for record in decoded.projection["threads"]
-                .as_object()
-                .ok_or(OwnerFault::Invalid)?
-                .values()
-            {
-                if record["kind"] == "thread"
-                    && let Some(id) = record["proposal"]["proposalId"].as_str()
-                {
-                    proposals.insert((writer.clone(), id.to_owned()));
-                }
-            }
-            if proposals.len() > crate::limits::PAGE_PROPOSALS {
-                return Err(OwnerFault::too_large(
-                    page,
-                    format!(
-                        "it retains {} proposals, more than the maximum {}",
-                        proposals.len(),
-                        crate::limits::PAGE_PROPOSALS
-                    ),
-                )
-                .into());
             }
             if writer == local_writer {
                 local_own_update = Some(decoded.merged);

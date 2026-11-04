@@ -8,6 +8,8 @@ import {
 import type { AgentDestination } from '../src/live-ask.js';
 import type { ThreadView } from '../src/thread-records.js';
 import type { PageAsk } from '../src/ask-panel.js';
+import type { StatusRequest } from '../src/thread-store.js';
+import { statusBatch } from './status-batch.js';
 const f = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
 );
@@ -110,6 +112,7 @@ it('confirms publication before notifications finish, keeping one serial task an
           },
         };
       },
+      setStatuses: unexpectedBatch,
       notificationFailed: async (_, id, reason) => {
         expect(reason).toBe('RECIPIENT_UNAVAILABLE');
         events.push(`failed:${id}`);
@@ -154,6 +157,7 @@ it('no-op, reopen and failed status publication cannot notify or enumerate recip
         writes++;
         throw new Error('publication refused');
       },
+      setStatuses: unexpectedBatch,
       notificationFailed: async () => {},
     },
     notify: async () => {
@@ -223,6 +227,7 @@ it('immediate Reopen succeeds and supersedes the unfinished Resolve notification
           },
         };
       },
+      setStatuses: unexpectedBatch,
       notificationFailed: async () => {
         drained();
       },
@@ -247,6 +252,12 @@ it('immediate Reopen succeeds and supersedes the unfinished Resolve notification
   expect(attempts).toEqual(['alpha']);
 });
 
+const unexpectedBatch = async (): Promise<never> => {
+  throw new Error('Unexpected status batch');
+};
+const unexpectedStatus = async (): Promise<never> => {
+  throw new Error('Unexpected single status');
+};
 function batchThread(body: string) {
   const value = thread(body);
   value.ref = { ...value.ref, id: crypto.randomUUID() };
@@ -271,6 +282,7 @@ it('Resolve all freezes one snapshot and directory, commits before sending, and 
     finished = resolve;
   });
   let attempts = 0;
+  const calls: StatusRequest[][] = [];
   const coordinator = new ThreadStatusCoordinator({
     asks: () => [],
     destinations: async () => {
@@ -278,7 +290,8 @@ it('Resolve all freezes one snapshot and directory, commits before sending, and 
       return [a, { ...a, agentName: 'alias' }, b];
     },
     binding: {
-      setStatus: async (ref, previous, resolved, recipients) => {
+      setStatus: unexpectedStatus,
+      setStatuses: statusBatch(async (ref, previous, resolved, recipients) => {
         expect(previous).toBe(null);
         expect(resolved).toBe(true);
         const frozen = [...(await recipients)!];
@@ -294,7 +307,7 @@ it('Resolve all freezes one snapshot and directory, commits before sending, and 
             depth: 1,
           },
         };
-      },
+      }, calls),
       notificationFailed: async () => {},
     },
     notify: async (status, recipient, captured) => {
@@ -323,6 +336,16 @@ it('Resolve all freezes one snapshot and directory, commits before sending, and 
     { id: second.ref.id, recipients: [b.agent] },
   ]);
   expect(lists).toBe(1);
+  // One batch carries every captured thread with its own frozen mentions.
+  expect(calls).toHaveLength(1);
+  expect(calls[0].map((request) => request.thread)).toEqual([first.ref, second.ref]);
+  expect(
+    await Promise.all(
+      calls[0].map(async (request) =>
+        ((await request.recipients) ?? []).map((value) => value.agent),
+      ),
+    ),
+  ).toEqual([[a.agent], [a.agent, b.agent]]);
   expect(coordinator.resolveAll([first, second])).toBe(batch);
   release();
   await drained;
@@ -348,7 +371,8 @@ it('Resolve all reports partial publication and assigns a recipient only after a
     asks: () => [],
     destinations: async () => [agent('alpha', '1')],
     binding: {
-      setStatus: async (ref, _previous, _resolved, recipients) => {
+      setStatus: unexpectedStatus,
+      setStatuses: statusBatch(async (ref, _previous, _resolved, recipients) => {
         if (ref.id === noop.ref.id) return { changed: false };
         if (ref.id === refused.ref.id) throw new Error('writer admission changed');
         return {
@@ -361,7 +385,7 @@ it('Resolve all reports partial publication and assigns a recipient only after a
             depth: 1,
           },
         };
-      },
+      }),
       notificationFailed: async (status, _operation, reason) => {
         failures.push(`${status.thread.id}:${reason}`);
         notified();
@@ -391,7 +415,7 @@ it('an empty Resolve all does not read the directory or write a status', async (
   const coordinator = new ThreadStatusCoordinator({
     asks: () => [],
     destinations: unexpected,
-    binding: { setStatus: unexpected, notificationFailed: unexpected },
+    binding: { setStatus: unexpected, setStatuses: unexpected, notificationFailed: unexpected },
     notify: unexpected,
   });
   const result = await coordinator.resolveAll([]);
@@ -408,7 +432,8 @@ it('Resolve all never retries an uncertain first adoption on another thread', as
     asks: () => [],
     destinations: async () => [agent('alpha', '1')],
     binding: {
-      setStatus: async (ref, _previous, _resolved, recipients) => ({
+      setStatus: unexpectedStatus,
+      setStatuses: statusBatch(async (ref, _previous, _resolved, recipients) => ({
         changed: true as const,
         status: {
           ...f.recipientCases[0].record,
@@ -417,7 +442,7 @@ it('Resolve all never retries an uncertain first adoption on another thread', as
           ref: { writer: ref.writer, id: crypto.randomUUID() },
           depth: 1,
         },
-      }),
+      })),
       notificationFailed: async () => {
         failures++;
       },
@@ -444,22 +469,24 @@ it('Reopen supersedes the remaining notifications of a committed Resolve-all thr
     finish = resolve;
   });
   const attempts: string[] = [];
+  const write: Parameters<typeof statusBatch>[0] = async (ref, previous, resolved, recipients) => ({
+    changed: true,
+    status: {
+      ...f.recipientCases[0].record,
+      thread: ref,
+      previous,
+      resolved,
+      recipients: [...(await recipients)!],
+      ref: { writer: ref.writer, id: crypto.randomUUID() },
+      depth: 1,
+    },
+  });
   const coordinator = new ThreadStatusCoordinator({
     asks: () => [],
     destinations: async () => [agent('alpha', '1'), agent('beta', '2')],
     binding: {
-      setStatus: async (ref, previous, resolved, recipients) => ({
-        changed: true,
-        status: {
-          ...f.recipientCases[0].record,
-          thread: ref,
-          previous,
-          resolved,
-          recipients: [...(await recipients)!],
-          ref: { writer: ref.writer, id: crypto.randomUUID() },
-          depth: 1,
-        },
-      }),
+      setStatus: write,
+      setStatuses: statusBatch(write),
       notificationFailed: async () => {
         finish();
       },
@@ -495,25 +522,27 @@ it('Resolve all skips an already-pending explicit action and pins later status r
     release = resolve;
   });
   const writes: string[] = [];
+  const write: Parameters<typeof statusBatch>[0] = async (ref, prior, _resolved, recipients) => {
+    writes.push(ref.id);
+    if (ref.id === first.ref.id) await held;
+    else expect(prior).toEqual(previous);
+    return {
+      changed: true,
+      status: {
+        ...f.recipientCases[0].record,
+        thread: ref,
+        recipients: [...(await recipients)!],
+        ref: { writer: ref.writer, id: crypto.randomUUID() },
+        depth: 1,
+      },
+    };
+  };
   const coordinator = new ThreadStatusCoordinator({
     asks: () => [],
     destinations: async () => [],
     binding: {
-      setStatus: async (ref, prior, _resolved, recipients) => {
-        writes.push(ref.id);
-        if (ref.id === first.ref.id) await held;
-        else expect(prior).toEqual(previous);
-        return {
-          changed: true,
-          status: {
-            ...f.recipientCases[0].record,
-            thread: ref,
-            recipients: [...(await recipients)!],
-            ref: { writer: ref.writer, id: crypto.randomUUID() },
-            depth: 1,
-          },
-        };
-      },
+      setStatus: write,
+      setStatuses: statusBatch(write),
       notificationFailed: async () => {},
     },
     notify: async () => {
@@ -541,7 +570,8 @@ it('Resolve all freezes a synchronous directory failure once and still admits st
       throw new Error('directory unavailable');
     },
     binding: {
-      setStatus: async (ref, _previous, _resolved, recipients) => {
+      setStatus: unexpectedStatus,
+      setStatuses: statusBatch(async (ref, _previous, _resolved, recipients) => {
         writes++;
         return {
           changed: true,
@@ -553,7 +583,7 @@ it('Resolve all freezes a synchronous directory failure once and still admits st
             depth: 1,
           },
         };
-      },
+      }),
       notificationFailed: async () => {},
     },
     notify: async () => ({ adopted: true }),

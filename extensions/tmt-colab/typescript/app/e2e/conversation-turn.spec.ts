@@ -253,7 +253,9 @@ for (const width of [1440, 390]) {
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
-            await expect(user.locator('.conversation-turn-status')).toHaveCount(0);
+            // The person's status line stays reserved, empty, once the reply takes over (#5911).
+            await expect(user.locator('.conversation-turn-status')).toHaveCount(1);
+            await expect(user.locator('.conversation-turn-status')).toHaveText('');
             await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(0);
           } else {
             await expect(agent).toHaveCount(0);

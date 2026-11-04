@@ -31,6 +31,7 @@ export function ChatPanel({
   activation,
   onDraft,
   onBusy,
+  onUnsent,
   unsaved = false,
   close,
   escape = close,
@@ -51,6 +52,7 @@ export function ChatPanel({
   activation?: ComposerActivation;
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
+  onUnsent?(unsent: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */
   unsaved?: boolean;
   close(): void;
@@ -202,6 +204,7 @@ export function ChatPanel({
               connectionPresentation={connectionPresentation}
               archived={archived}
               onBusy={onBusy}
+              onUnsent={onUnsent}
               binding={binding}
               discussion={discussion}
               anchor={null}

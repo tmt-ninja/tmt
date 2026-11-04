@@ -89,6 +89,23 @@ patch is evaluated again on the new page. A `--lines` anchor is the line numbers
 so an edit that shifts those lines conflicts; read the range again.
 `--expected-revision REVISION` instead refuses any change anywhere (`COLAB_STALE_BASE`) and retries nothing; use it only when you need that fence.
 
+### A design-system example
+
+A comment on a Design example quotes the example's rendered text, which starts with its label,
+such as `button:secondary`. That text is not in the source as written. Find the example by its root
+instead: `page read PAGE --grep 'data-ds-example="button:secondary"' --context 6`. Patch its
+live markup and its escaped `<pre>` snippet together, as two pairs in one patch. The component's
+`data-tmt-ds` block holds only what publish compiles (props, slots, source, CSS). A change there
+reaches the examples, and every page that follows the system's draft, once the edit settles.
+Publishing a version, which pages can lock to, stays the person's step.
+
+The built-in tmt GUI's pages (the `tmt GUI` tree, `/design/ds/gui`) are different: they are generated
+from `design/browser-ui`. Their first line says so and lists the files the page comes from, and
+their `data-tmt-ds="origin"` block holds the same `files`. Never patch these pages; an edit is
+replaced at the next regeneration. Change those files in a branch, regenerate the checked-in
+design output (the usage line in `design/systems/compile.mjs` shows how), open a PR on the normal
+review path, and reply on the thread with its link. The pages regenerate once a build with the change runs.
+
 ## When it conflicts
 
 `COLAB_PATCH_CONFLICT` means the text you addressed is missing, ambiguous or changed;
@@ -135,8 +152,10 @@ discussions or sharing, and needs its own `--layout` (the export does not carry 
 `--dry-run`. A preview is conservative: it excludes unproven rebuild savings. Actual results
 measure retained payload reduction, not guaranteed physical file shrink. Comments, resolved
 threads, archive state and signed-cut history stay protected. Shared-history, public and archived
-pages are skipped; existing paired heads with no new tail remain. Attachment removal is not yet
-implemented; unknown attachment bytes are null in JSON.
+pages are skipped; existing paired heads with no new tail remain. Reclaim never removes
+attachments; on writable current-history pages the serve removes an attachment file 30 days after
+no revision references it, and `storage` shows those bytes and the removal time.
+Unknown attachment bytes are null in JSON.
 
 ## Design a page for agents
 

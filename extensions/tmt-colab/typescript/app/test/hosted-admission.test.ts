@@ -47,6 +47,7 @@ const pageFields = () => ({
   page: { stringValue: input.page },
   epoch: { integerValue: '7' },
   state: { stringValue: 'open' },
+  objectFormat: { integerValue: '2' },
   expiresAt: { timestampValue: '2027-01-01T00:00:00Z' },
 });
 
@@ -243,6 +244,8 @@ it.each([
   { epoch: { integerValue: '01' } },
   { expiresAt: { timestampValue: '2027-02-30T00:00:00Z' } },
   { page: { stringValue: '33333333-3333-4333-8333-333333333333' } },
+  { objectFormat: { integerValue: '3' } },
+  { objectFormat: { stringValue: '2' } },
 ])('rejects unusable page hints without issuing any query: %j', async (change) => {
   const f = await fixture(true);
   f.read(async (target) =>
@@ -257,6 +260,15 @@ it.each([
     ['read', member],
     ['read', page],
   ]);
+});
+
+it('reads a page row its owner wrote before the objectFormat marker', async () => {
+  const f = await fixture(true);
+  const { objectFormat: _, ...unmarked } = pageFields();
+  f.read(async (target) =>
+    target.resource === 'members' ? document(member, memberFields()) : document(page, unmarked),
+  );
+  await expect(f.admission.open(f.port, input, call())).resolves.toMatchObject({ epoch: '7' });
 });
 
 it('refreshes the page routing hint without ever re-creating the same membership', async () => {

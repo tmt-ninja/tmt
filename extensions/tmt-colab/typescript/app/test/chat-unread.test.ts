@@ -19,13 +19,7 @@ describe('device-local Chat seen position', () => {
   it('empty is clear; only eligible Chat identities contribute', () => {
     const position = new ChatSeen('space/page/epoch/device', storage());
     expect(position.unread([])).toBe(false);
-    expect(
-      position.unread([
-        reply('answer', 'Answer'),
-        reply('proposal', 'Proposal'),
-        reply('thread', 'Thread'),
-      ]),
-    ).toBe(false);
+    expect(position.unread([reply('answer', 'Answer'), reply('thread', 'Thread')])).toBe(false);
     expect(position.unread([reply('a')])).toBe(true);
     expect(position.read([reply('a'), reply('thread', 'Thread')])).toBe(true);
     expect(position.unread([reply('a')])).toBe(false);

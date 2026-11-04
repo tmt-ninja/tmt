@@ -61,10 +61,10 @@ struct Stored {
     bytes: Vec<u8>,
 }
 fn stored(frame: &Value, entry: &Value) -> Stored {
-    let bytes = unb64(&entry["envelope"]);
-    let header = object::Header::decode(object::Envelope::from_json(&bytes).unwrap().header())
-        .unwrap()
-        .context;
+    // The frozen vector keeps v1 JSON; the store holds v2 (#5876).
+    let envelope = object::Envelope::from_json_v1(&unb64(&entry["envelope"])).unwrap();
+    let bytes = envelope.to_bytes().unwrap();
+    let header = object::Header::decode(envelope.header()).unwrap().context;
     Stored {
         seq: entry["seq"].as_str().unwrap().parse().unwrap(),
         hash: unb64(&entry["envelopeHash"]).try_into().unwrap(),

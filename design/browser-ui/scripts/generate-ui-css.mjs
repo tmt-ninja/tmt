@@ -1,78 +1,13 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { compile } from 'tailwindcss';
 import { format } from 'vite-plus/fmt';
-import { assertUiUtilities, uiCandidates } from './ui-source-policy.mjs';
+import { uiCandidates } from './ui-source-policy.mjs';
+import { fixed, keyframes, motion, paletteB, themed, uiUtilities } from './ui-css.mjs';
 
 const home = new URL('../', import.meta.url);
-const tokens = JSON.parse(
-  await readFile(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
-);
 const mode = process.argv[2];
 if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
   throw new Error('Use --write or --check');
 
-// No theme values are copied here: these are role aliases into the sole token document.
-const roles = {
-  background: ['surface', 'paper'],
-  foreground: ['color', 'text'],
-  card: ['surface', 'sheet'],
-  'card-foreground': ['color', 'text'],
-  popover: ['surface', 'sheet'],
-  'popover-foreground': ['color', 'text'],
-  primary: ['color', 'accent'],
-  'primary-foreground': ['color', 'on-accent'],
-  secondary: ['surface', 'command'],
-  'secondary-foreground': ['color', 'text'],
-  muted: ['surface', 'disabled'],
-  'muted-foreground': ['color', 'secondary'],
-  accent: ['surface', 'selection'],
-  'accent-foreground': ['color', 'selected-text'],
-  destructive: ['color', 'blocked'],
-  'destructive-ring': ['color', 'focus-destructive'],
-  'destructive-soft': ['surface', 'blocked-soft'],
-  'layer-boundary': ['surface', 'rule'],
-  border: ['surface', 'rule'],
-  input: ['surface', 'rule'],
-  indicator: ['color', 'edge'],
-  ring: ['color', 'focus'],
-  scrim: ['surface', 'scrim'],
-  // Not a colour utility: the one shadow, for floating layers only (`shadow-overlay`).
-  'shadow-overlay': ['shadow', 'overlay'],
-};
-const colourRoles = Object.keys(roles).filter((key) => key !== 'shadow-overlay');
-/** The motion tokens as foundation properties; `reduced` zeroes every duration. */
-function motion(reduced = false, indent = '  ') {
-  return Object.entries(tokens.browser.motion)
-    .filter(([key]) => !key.startsWith('$') && (!reduced || ['fast', 'base'].includes(key)))
-    .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
-}
-const themed = (theme) =>
-  Object.entries(roles)
-    .map(
-      ([name, [group, role]]) =>
-        `  --tmt-foundation-${name}: ${tokens.browser[group][role][theme].toLowerCase()};`,
-    )
-    .join('\n');
-const fixed = [
-  ...Object.entries(tokens.browser.ui).map(
-    ([key, value]) => `  --tmt-foundation-${key}: ${value};`,
-  ),
-  ...[
-    'radius',
-    'radius-s',
-    'radius-l',
-    'radius-pill',
-    'rule-width',
-    'focus-width',
-    'command-size',
-    'caption-size',
-    'eyebrow-weight',
-  ].map((key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`),
-  ...motion(),
-  ...Object.entries(tokens.font).map(
-    ([key, value]) => `  --tmt-foundation-font-${key}: ${value.stack};`,
-  ),
-].join('\n');
 async function sources(directory) {
   return (
     await Promise.all(
@@ -92,75 +27,7 @@ const source = (
   await Promise.all(['src/ui/', 'test/fixtures/ui/'].map((path) => sources(new URL(path, home))))
 ).join('\n');
 const candidates = uiCandidates(source);
-// Layer enter and exit as named animations (`animate-pop-in`, `animate-slide-out-right`, ...) over
-// the keyframes below, on the motion tokens: `pop-fast-*` is the fast duration, the rest the base.
-const motionVar = (token) => `var(--tmt-foundation-motion-${token})`;
-const animations = [
-  ['pop-fast-in', 'pop-in', 'fast', 'ease-out'],
-  ['pop-fast-out', 'pop-out', 'fast', 'ease-in'],
-  ['pop-in', 'pop-in', 'base', 'ease-out'],
-  ['pop-out', 'pop-out', 'base', 'ease-in'],
-  ['fade-in', 'fade-in', 'base', 'ease-out'],
-  ['fade-out', 'fade-out', 'base', 'ease-in'],
-  ...['right', 'left', 'top', 'bottom'].flatMap((side) => [
-    [`slide-in-${side}`, `slide-in-${side}`, 'base', 'ease-out'],
-    [`slide-out-${side}`, `slide-out-${side}`, 'base', 'ease-in'],
-  ]),
-].map(
-  ([name, keyframes, duration, ease]) =>
-    `--animate-${name}: tmt-foundation-${keyframes} ${motionVar(duration)} ${motionVar(`ease-${ease.slice(5)}`)} both;`,
-);
-const theme = [
-  '--*: initial;',
-  ...colourRoles.map((key) => `--color-${key}: var(--tmt-foundation-${key});`),
-  '--shadow-overlay: var(--tmt-foundation-shadow-overlay);',
-  '--radius-control: var(--tmt-foundation-radius);',
-  '--radius-small: var(--tmt-foundation-radius-s);',
-  '--radius-surface: var(--tmt-foundation-radius-l);',
-  '--radius-pill: var(--tmt-foundation-radius-pill);',
-  '--spacing: var(--tmt-foundation-spacing-unit);',
-  ...animations,
-  ...Object.keys(tokens.font).map((key) => `--font-${key}: var(--tmt-foundation-font-${key});`),
-].join('\n');
-// No imports, default theme or preflight. Only this leaf's complete prefixed class literals.
-const compiler = await compile(`@theme inline prefix(tmt) {\n${theme}\n}\n@tailwind utilities;`);
-let utilities = compiler.build(candidates);
-// Tailwind registers/reset its internal properties globally. Instead reset them locally on
-// every island element/pseudo-element (the equivalent non-inheriting defaults), and never
-// publish @property registrations or the universal fallback layer into the host document.
-const defaults = [];
-utilities = utilities.replace(/@property (--tw-[\w-]+) \{([^}]*)\}\n/g, (_, key, body) => {
-  defaults.push(`    ${key}: ${body.match(/initial-value: ([^;]+);/)?.[1] ?? 'initial'};`);
-  return '';
-});
-const fallback = utilities.indexOf('@layer properties {');
-if (fallback !== -1) utilities = utilities.slice(0, fallback);
-utilities = utilities
-  .replace('@layer properties;\n', '')
-  .replaceAll('--tw-', '--tmt-foundation-tw-');
-assertUiUtilities(utilities);
-const reset = defaults.length
-  ? `  &, & *, &::before, &::after, & *::before, & *::after, & *::backdrop {\n${defaults.join('\n').replaceAll('--tw-', '--tmt-foundation-tw-')}\n  }\n`
-  : '';
-// Layer enter and exit, named in the layer classes (`animate-[tmt-foundation-pop-in_...]`). Radix
-// keeps a layer mounted while its exit animation runs. `scale` and `transform` compose with the
-// `translate` a layer already uses for its position.
-const slides = ['right', 'left', 'top', 'bottom'].map((side) => {
-  const from = {
-    right: 'translateX(100%)',
-    left: 'translateX(-100%)',
-    top: 'translateY(-100%)',
-    bottom: 'translateY(100%)',
-  }[side];
-  return `@keyframes tmt-foundation-slide-in-${side} {\n  from {\n    transform: ${from};\n  }\n}\n@keyframes tmt-foundation-slide-out-${side} {\n  to {\n    transform: ${from};\n  }\n}`;
-});
-const keyframes = [
-  '@keyframes tmt-foundation-fade-in {\n  from {\n    opacity: 0;\n  }\n}',
-  '@keyframes tmt-foundation-fade-out {\n  to {\n    opacity: 0;\n  }\n}',
-  '@keyframes tmt-foundation-pop-in {\n  from {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
-  '@keyframes tmt-foundation-pop-out {\n  to {\n    opacity: 0;\n    scale: var(--tmt-foundation-motion-scale);\n  }\n}',
-  ...slides,
-].join('\n');
+const { utilities, reset } = await uiUtilities(candidates);
 const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global theme. */
 [data-tmt-ui] {\n${fixed}\n${themed('light')}\n  color-scheme: light;\n}
 @media (prefers-color-scheme: dark) {
@@ -168,6 +35,16 @@ const css = `/* Generated by scripts/generate-ui-css.mjs; no preflight or global
 }
 [data-tmt-ui][data-tmt-theme='light'] {\n${themed('light')}\n  color-scheme: light;\n}
 [data-tmt-ui][data-tmt-theme='dark'] {\n${themed('dark')}\n  color-scheme: dark;\n}
+[data-tmt-palette='b'] [data-tmt-ui],
+[data-tmt-ui][data-tmt-palette='b'] {\n${paletteB}\n}
+/* Under palette B a disabled button of any variant is neutral grey, never a faded accent (#5821). */
+[data-tmt-palette='b'] [data-tmt-ui] [data-slot='button']:disabled,
+[data-tmt-ui][data-tmt-palette='b'] [data-slot='button']:disabled {
+  border-color: var(--tmt-foundation-border);
+  background: var(--tmt-foundation-muted);
+  color: var(--tmt-foundation-muted-foreground);
+  opacity: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   [data-tmt-ui] {\n${motion(true, '    ').join('\n')}\n  }
 }

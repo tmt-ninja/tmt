@@ -1,17 +1,16 @@
 import { readFileSync } from 'node:fs';
+import * as Y from 'yjs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import {
+  OWN_RECORDS,
+  UPDATE_BYTES,
   validateOwn,
   type JsonValue,
   type OwnRecord,
   type OwnState,
 } from '../src/fold-protocol.js';
-import {
-  foldProposalDecision,
-  type ProposalDecisionRecord,
-  type ThreadStatusRecord,
-} from '../src/thread-status.js';
+import { type ThreadStatusRecord } from '../src/thread-status.js';
 import { relativeTime } from '../src/display-time.js';
 import { attachment, strictJson, text as bytesOf } from '@tmt/colab-client';
 import corpus from '../../../contracts/vectors/attachment-v1.json';
@@ -87,44 +86,6 @@ it('numbers admitted creation clocks, preserving edit/status order and renumberi
       ),
     ),
   ]).toEqual([]);
-});
-it('shares proposal bounds and final causal decisions with native vectors', () => {
-  const proposal = fixture.proposal as ThreadRecord;
-  expect(() =>
-    validateDiscussionRecord('threads', discussionKey(proposal), proposal),
-  ).not.toThrow();
-  for (const [field, value] of [
-    ['title', '🐈'.repeat(201)],
-    ['body', 'é'.repeat(2049)],
-    ['proposer', { ...proposal.proposal!.proposer, label: '🐈'.repeat(65) }],
-  ] as const)
-    expect(() =>
-      validateDiscussionRecord('threads', discussionKey(proposal), {
-        ...proposal,
-        proposal: { ...proposal.proposal, [field]: value },
-      }),
-    ).toThrow();
-  for (const row of fixture.decisionCases) {
-    const actions = row.actions as ProposalDecisionRecord[];
-    for (const action of actions)
-      expect(() =>
-        validateDiscussionRecord('messages', discussionKey(action), action),
-      ).not.toThrow();
-    for (const values of [actions, [...actions].reverse()])
-      expect(
-        foldProposalDecision({ writer: proposal.senderDevice, id: proposal.threadId }, values)
-          ?.actionId ?? null,
-      ).toBe(row.winner);
-  }
-  const own: OwnState = {};
-  for (let i = 1; i <= 200; i++) {
-    const id = `10000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
-    put(own, { ...proposal, threadId: id, proposal: { ...proposal.proposal!, proposalId: id } });
-  }
-  expect(() => validateOwn(own)).not.toThrow();
-  const id = '10000000-0000-4000-8000-000000000201';
-  put(own, { ...proposal, threadId: id, proposal: { ...proposal.proposal!, proposalId: id } });
-  expect(() => validateOwn(own)).toThrow();
 });
 it('browser admits the same literal grammar and rejects fields, keys, tombstone text and Unicode overflows', () => {
   for (const record of [fixture.thread, fixture.comment]) {
@@ -234,7 +195,8 @@ function storeFixture(options: { admitted?(): void } = {}) {
   let device = a,
     denied = false,
     owner = true,
-    failed = false;
+    failed = false,
+    failures = 0;
   const own: OwnState = {},
     batches: OwnRecord[][] = [];
   let lane = Promise.resolve();
@@ -274,7 +236,7 @@ function storeFixture(options: { admitted?(): void } = {}) {
       return c;
     },
     publish: async (records) => {
-      if (failed) throw new Error('Publication failed');
+      if (failed || (failures > 0 && failures--)) throw new Error('Publication failed');
       batches.push(structuredClone(records));
       for (const r of records) {
         own[device] ??= roots();
@@ -298,6 +260,9 @@ function storeFixture(options: { admitted?(): void } = {}) {
     },
     fail(value: boolean) {
       failed = value;
+    },
+    failNext(count = 1) {
+      failures = count;
     },
   };
 }
@@ -466,7 +431,7 @@ it('freezes prior user turns and verified replies, excludes later arrivals and r
     quote: fixture.thread.anchor.exact,
   });
   expect(exact.comment).toBe(
-    'Earlier conversation (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nCurrent user turn:\n@agent Follow-up',
+    `Previous turn (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nThread ${first.thread.id}. Read it with: tmt colab threads PAGE --thread ${first.thread.id} (PAGE is the page in the link above).\n\nCurrent user turn:\n@agent Follow-up`,
   );
   expect(() =>
     conversationForAsk(read(), context, [{ ...reply, reply: 'Changed reply after Send' }]),
@@ -613,6 +578,103 @@ it('status uses current admission and a causal base, keeps content ownership, an
   await expect(f.store.setStatus(created.thread, changed.status.ref, false)).rejects.toThrow();
   expect(read()[0].resolved).toBe(true);
 });
+function statusRecipient(agentName = 'Mentioned agent') {
+  return {
+    machine: crypto.randomUUID(),
+    agent: crypto.randomUUID(),
+    agentName,
+    operationId: crypto.randomUUID(),
+  };
+}
+const readStatusThreads = (own: OwnState) =>
+  readThreads(
+    own,
+    fixture.scope,
+    () => new Uint8Array(32),
+    () => true,
+  );
+it('setStatuses writes a batch in one own update, keeps per-request outcomes and gives each recipient to its first committed status', async () => {
+  const f = storeFixture();
+  const first = await f.store.create('First', fixture.thread.anchor);
+  const second = await f.store.create('Second', fixture.thread.anchor);
+  const done = await f.store.create('Already resolved', fixture.thread.anchor);
+  const stale = await f.store.create('Stale', fixture.thread.anchor);
+  const chat = await f.store.createChat('Chat');
+  const resolved = await f.store.setStatus(done.thread, null, true);
+  if (!resolved.changed) throw new Error('Expected status action');
+  const shared = statusRecipient(),
+    own = statusRecipient('Second agent');
+  const count = f.batches.length;
+  const outcomes = await f.store.setStatuses([
+    { thread: first.thread, previous: null, resolved: true, recipients: [shared] },
+    { thread: done.thread, previous: resolved.status.ref, resolved: true },
+    { thread: stale.thread, previous: resolved.status.ref, resolved: true, recipients: [shared] },
+    { thread: chat.thread, previous: null, resolved: true },
+    { thread: first.thread, previous: null, resolved: true },
+    {
+      thread: second.thread,
+      previous: null,
+      resolved: true,
+      recipients: Promise.resolve([{ ...shared, operationId: crypto.randomUUID() }, own]),
+    },
+  ]);
+  expect(f.batches).toHaveLength(count + 1);
+  expect(f.batches.at(-1)!.map((record) => record.root)).toEqual(['messages', 'messages']);
+  expect(outcomes).toHaveLength(6);
+  expect(outcomes[0]).toMatchObject({ changed: true, status: { recipients: [shared] } });
+  expect(outcomes[1]).toEqual({ changed: false });
+  for (const index of [2, 3, 4]) expect(outcomes[index]).toEqual({ error: expect.any(Error) });
+  expect(outcomes[5]).toMatchObject({ changed: true, status: { recipients: [own] } });
+  const threads = readStatusThreads(f.own);
+  const view = (ref: { id: string }) => threads.find((thread) => thread.ref.id === ref.id)!;
+  expect(view(first.thread)).toMatchObject({ resolved: true, status: { recipients: [shared] } });
+  expect(view(second.thread)).toMatchObject({ resolved: true, status: { recipients: [own] } });
+  expect(view(stale.thread).resolved).toBe(false);
+  f.deny();
+  await expect(
+    f.store.setStatuses([{ thread: stale.thread, previous: null, resolved: true }]),
+  ).rejects.toThrow();
+  expect(f.batches).toHaveLength(count + 1);
+});
+it('setStatuses splits at the record and byte limits, and a refused update returns its recipients to later threads', async () => {
+  const f = storeFixture();
+  const threads = [];
+  for (let i = 0; i < OWN_RECORDS + 2; i++)
+    threads.push((await f.store.create(`Thread ${i}`, fixture.thread.anchor)).thread);
+  const shared = statusRecipient();
+  const count = f.batches.length;
+  f.failNext();
+  const outcomes = await f.store.setStatuses(
+    threads.map((thread) => ({ thread, previous: null, resolved: true, recipients: [shared] })),
+  );
+  // The first update (OWN_RECORDS records) was refused, so the next committed status owns `shared`.
+  expect(f.batches).toHaveLength(count + 1);
+  expect(f.batches.at(-1)).toHaveLength(2);
+  for (const outcome of outcomes.slice(0, OWN_RECORDS))
+    expect(outcome).toEqual({ error: expect.any(Error) });
+  expect(outcomes[OWN_RECORDS]).toMatchObject({ changed: true, status: { recipients: [shared] } });
+  expect(outcomes[OWN_RECORDS + 1]).toMatchObject({ changed: true, status: { recipients: [] } });
+  // Large statuses: the byte budget closes an update before UPDATE_BYTES.
+  const large = threads.slice(0, 5);
+  const before = f.batches.length;
+  const results = await f.store.setStatuses(
+    large.map((thread) => ({
+      thread,
+      previous: null,
+      resolved: true,
+      recipients: Array.from({ length: 400 }, () => statusRecipient('a'.repeat(100))),
+    })),
+  );
+  expect(results.every((outcome) => 'changed' in outcome && outcome.changed)).toBe(true);
+  const written = f.batches.slice(before);
+  expect(written.map((batch) => batch.length)).toEqual([2, 2, 1]);
+  for (const batch of written) {
+    const doc = new Y.Doc();
+    for (const record of batch) doc.getMap(record.root).set(record.key, record.value);
+    expect(Y.encodeStateAsUpdate(doc).length).toBeLessThanOrEqual(UPDATE_BYTES);
+    doc.destroy();
+  }
+});
 it('designated Chat and deleted threads cannot acquire new status actions', async () => {
   const f = storeFixture();
   const chat = await f.store.createChat('Chat');
@@ -706,48 +768,6 @@ it('never carries a reference into an edit, and deletion drops the references', 
   const deleted = f.own[a].messages[`${messageId}:2`] as unknown as CommentRecord;
   expect(deleted.deleted).toBe(true);
   expect(deleted.attachments).toBeUndefined();
-});
-
-it('refuses second proposal decisions under the admitted writer lock and preserves them on reopen', async () => {
-  const f = storeFixture();
-  put(f.own, fixture.proposal);
-  const thread = { writer: a, id: fixture.proposal.threadId };
-  const results = await Promise.allSettled([
-    f.store.decideProposal(thread, 'approved'),
-    f.store.decideProposal(thread, 'declined'),
-  ]);
-  expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
-  expect(f.batches).toHaveLength(1);
-  expect(f.batches[0][0].value).toMatchObject({
-    kind: 'proposal-decision',
-    decision: 'approved',
-    previous: null,
-  });
-  const resolved = await f.store.setStatus(thread, null, true);
-  expect(resolved.changed).toBe(true);
-  if (!resolved.changed) throw new Error('Expected status');
-  await f.store.setStatus(thread, resolved.status.ref, false);
-  expect(
-    readThreads(
-      f.own,
-      fixture.scope,
-      () => new Uint8Array(32),
-      () => true,
-    )[0],
-  ).toMatchObject({ resolved: false, decision: { decision: 'approved' } });
-  f.deny();
-  await expect(f.store.decideProposal(thread, 'approved')).rejects.toThrow();
-  expect(f.batches).toHaveLength(3);
-});
-
-it('a non-owner admitted device cannot publish a proposal decision', async () => {
-  const f = storeFixture();
-  put(f.own, fixture.proposal);
-  f.nonOwner();
-  await expect(
-    f.store.decideProposal({ writer: a, id: fixture.proposal.threadId }, 'approved'),
-  ).rejects.toThrow();
-  expect(f.batches).toEqual([]);
 });
 
 it('admits only canonical sequences and shares the comment order with native vectors', () => {
@@ -959,7 +979,7 @@ it('says which comment each file came with and where that comment sits, from adm
   expect(attachmentBlock(comment([]), true, 'q')).toBe('');
 });
 it('keeps an attachment-only message readable and files under their own comment in a conversation', async () => {
-  const { conversationText } = await import('../src/thread-store.js');
+  const { conversationText, PREVIOUS_TURN_POINTS } = await import('../src/thread-store.js');
   const view = (body: string, name: string, files: { id: string; name: string }[]) =>
     ({
       deleted: false,
@@ -986,15 +1006,21 @@ it('keeps an attachment-only message readable and files under their own comment 
     [],
     'The quote',
   );
+  // Only the previous turn is quoted (#6002); the earlier turns, and their files, stay behind the
+  // pointer to the thread.
   expect(text).toBe(
-    'Earlier conversation (quoted data):\n' +
-      [
-        'User (Ada):\nBefore\n\nAttachments sent with this comment on "The quote":\n- [1 of 1] aaaaaaaa "one.txt" (text/plain, 3 bytes)',
-        'User (Bob):\n(no text; only the attachments below)\n\nAttachments sent with this comment on "The quote":\n- [1 of 1] bbbbbbbb "two.txt" (text/plain, 3 bytes)',
-        'User (Cy):\nPlain',
-        'Current user turn:\nNow',
-      ].join('\n\n'),
+    [
+      'Previous turn (quoted data):\nUser (Cy):\nPlain',
+      'Thread thread-id has 2 earlier turns not quoted here. Read it with: tmt colab threads PAGE --thread thread-id (PAGE is the page in the link above).',
+      'Current user turn:\nNow',
+    ].join('\n\n'),
   );
+  const long = conversationText([view('x'.repeat(5000), 'Dee', [])], 'thread-id', 'Now', []);
+  expect(long).toContain(
+    `User (Dee):\n${'x'.repeat(PREVIOUS_TURN_POINTS - 'User (Dee):\n'.length)}… (truncated)`,
+  );
+  expect(long).toContain('Read it with: tmt colab threads PAGE --thread thread-id');
+  expect(long).not.toContain('earlier turn');
 });
 
 it("lists a live comment's files in the conversation export by name only and leaves other comments unchanged", async () => {

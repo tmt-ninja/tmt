@@ -111,8 +111,9 @@ register root entries. Colab owns short-ID resolution and the browser's eventual
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
 `/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
-`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/` and `/colab/<segments>` (each segment `[A-Za-z0-9_-]+`, at most 160 bytes after
-`/colab/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
+`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
+`/design`, `/design/` and `/design/<segments>` (each segment `[A-Za-z0-9_-]+`,
+at most 160 bytes after `/colab/` or `/design/`) answers the same static `shell.html`, whose only script is `/sdk/shell.js`. The list is
 explicit, never a catch-all; `/sdk/*`, `/x/`, `/read/`, `/pair` and `/r/` keep their own handling,
 and the document reads no cookie or session. Its policy is the pairing page policy below plus only
 what the Colab route needs in the same document, `img-src 'self' data:`, `worker-src 'self'` and
@@ -123,10 +124,12 @@ malformed `/p` path receives the generic HTML 404 page. App/`/p/<id>` queries: `
 Remote never decodes; app/308 queries are byte-exact. The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
-always the same fixed list, Home, Colab, Remote, Ops, Digest, other described modules and
-TMT settings, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
+Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
+TMT settings last, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
-its reason. `/` is Home: it lists, per module,
+its reason. Design follows Colab's availability; the composed rail order places it
+between Colab and Remote. Its root route imports only the explicitly described, mount-confined extra entry.
+A missing entry stays link-only via the paired Colab alias. `/` is Home: it lists, per module,
 the described Needs-you count, a waiting pairing offer from `/sdk/pair-offer`, and the modules'
 described `home` cards; it reads nothing else. `/settings` and `/settings/` are TMT settings, its
 sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
@@ -187,7 +190,8 @@ fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
 identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table or a web app route named for the extension (`/colab/…`), or null. It
+entry in the same Remote-owned table or a mapped app family (`/colab/…` and `/design/…`
+both map to Colab; #5965 moves the `/design/…` entry into Colab's module description), or null. It
 scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.
@@ -2104,6 +2108,13 @@ headers are stripped. Only the door sets these headers: `tmt-mount` identifies t
 `tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
 is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
+Design uses Colab's existing mounted path `/r/<prefix>/x/colab/design/…`, forwarded
+as `/design/…` to the same admitted Colab socket. There is no `/x/design/` extension
+alias, additional public-reader entry or new socket. Root Design app documents use
+the same static shell/pair bootstrap as Colab; content remains behind the existing
+mounted owner context and Colab admission. Cookie scope, pairing, session framing,
+forwarded-header filtering and CSP are unchanged.
+
 ### Module descriptions and composed shell
 
 `-` is reserved and can never be an extension or mount name. The door handles
@@ -2149,16 +2160,21 @@ or bidi controls and are text, never markup. Icons are names from `house`, `file
 `monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`, `palette`; an unknown
 lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
-escape. The door resolves every path inside that module's own mount, never another module.
+escape. The door resolves paths inside that module's own mount, never another module,
+with one navigation exception: a Colab extra's rail, menu or settings path matching the
+bounded `/design` app family resolves at the door root. Every script `entry` remains
+inside Colab's own mount; this exception grants no script, session or content authority.
 
 The composed answer is `{version:1, modules:[{extension, module?, rail, menu, settings,
 needsYou?, home?, entry?}]}`. The primary has no `module` field; an extra has the
 same `extension` and `module` equal to its `id`. The pair is unique. Remote adds
 its own primary and sorts by rail order, extension name, then primary before extra.
-All paths stay inside the same extension mount. Extras share their extension's
+Only the Design navigation exception above leaves the same extension mount. Extras share their extension's
 one callback, cache age and socket-incarnation fence; removal or expiry removes
 both. Primary-only composition stays byte-identical. Extension-wide consumers
-(Needs-you, Home cards and the Colab loader) select the primary, never an extra.
+(Needs-you, Home cards, search transport and primary Colab discovery) select the primary,
+never an extra. The Design route loads only its described extra's script, confined using
+the primary Colab mount, without a primary-script fallback.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module
 composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good
@@ -2460,18 +2476,35 @@ Version 1 supports exactly the seven calls above, with unchanged bytes. Version 
 | `objects.remove-namespace` | `namespace`                                           |
 | `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace` |
 
-Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
-Callers check the negotiated link's support before either call; an unsupported call is never written on version 1. A version-1
+Version 4 (native activation only, below) also supports:
+
+| Method           | Input members                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `objects.remove` | `namespace`, `opaqueKey`, `payloadSha256`, `payloadBytes`                                 |
+| `objects.list`   | `namespace`, optional `after` (an `opaqueKey`), `limit` (1 to 256)                        |
+
+These four calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
+Callers check the negotiated link's support before any of them; an unsupported call is never written on an older version. A link without the call
 link reports: "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still
 fails, upgrade Remote." Support comes only from the negotiated link, never an installed receipt or CLI.
 Removal is idempotent for unknown or already removed namespaces. It commits the existing namespace fence, drains
 in-flight work and retains deleted original identities; a loss after invocation is `unknown`, without replay or rollback.
 Usage is the existing ledger projection for the selected namespace or this extension, never the installation; its charge is rounded payload plus retained records and fences, plus the fixed tree base once if any namespace exists
 for extension scope, not “bytes stored”; cleanup-pending bytes stay charged until removal is confirmed.
+`objects.remove` removes the payload of the one committed original at that key whose raw digest and length are exactly
+these; a key alone never names another body. It marks the original removing, unlinks its names, then releases its
+payload and entry charge before `removed` is disclosed; the original stays as a retained tombstone (its record charge
+remains) and its identity is never executable again. It is idempotent: an absent, already removed or terminal key, and a
+namespace that is fenced or removed (whose own removal owns its rows), answer `removed`. A staging, committing or
+unknown original, or a different digest or length, is `conflict` and changes nothing. A loss after invocation is
+`unknown`; an interrupted removal is finished by its original ID before readiness, never replayed by the caller.
+`objects.list` observes at most `limit` committed originals of an open namespace in ascending key order, strictly after
+`after`; staging, unknown and terminal originals are never listed, and a fenced or unknown namespace lists nothing. It
+grants no read: a listed key is the extension's own to interpret, and reads still need their own admitted request.
 
 **Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
 has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
-`part`, `commit`, `status` and `discard`, and is absent for `config`, `read`, `remove-namespace` and `usage`. `ok` carries a `result` tag:
+`part`, `commit`, `status` and `discard`, and is absent for `config`, `read`, `remove-namespace`, `usage`, `remove` and `list`. `ok` carries a `result` tag:
 
 | `result`    | Further members                                                                                               | Answers                      |
 | ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
@@ -2481,8 +2514,9 @@ has exactly one of `ok` and `error`. `transferId` repeats the original transfer 
 | `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                                  | `begin`, `commit`, `status`  |
 | `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
 | `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
-| `removed`   | none                                                                                                          | `remove-namespace`           |
+| `removed`   | none                                                                                                          | `remove-namespace`, `remove` |
 | `usage`     | `chargedBytes` (0 to 2^53-1), `entries`, `activeUploads`, `retainedIdentities` (each a `u32`)                 | `usage`                      |
+| `listed`    | `entries` (at most 256 of `{opaqueKey, payloadSha256, payloadBytes, adoptedAtMs}`, keys strictly ascending), optional `next` | `list`         |
 
 A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
 `config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
@@ -2494,13 +2528,14 @@ consumer's own envelope or authority.
 `error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
 and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
 `namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
-`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit`, `discard` and
-`remove-namespace`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit`, `discard`,
+`remove-namespace` and `remove`, where an effect may have happened. `next` is present exactly when more committed originals
+follow, and then equals the last listed key. No error carries message text, and none proves that a possibly published
 effect did not happen.
 
 **Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
 asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
-`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit`, `discard` and `remove-namespace` have one)
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit`, `discard`, `remove-namespace` and `remove` have one)
 or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
 and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
 (`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
@@ -2509,8 +2544,9 @@ and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"
 For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
 `{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
 `{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
-For `remove-namespace` and `usage`, admit input repeats the request input. Their disclose classes are `removed`
-(with no further fields) and `usage` (the same four projection fields as the result).
+For `remove-namespace`, `usage`, `remove` and `list`, admit input repeats the request input. Their disclose classes are
+`removed` (with no further fields; also for `remove`), `usage` (the same four projection fields as the result) and
+`listed` (`count`, 0 to 256, for `list`).
 No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
 
 A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`
@@ -3753,11 +3789,13 @@ use `REMOTE_INPUT_INVALID`, message `Unknown control operation.`); ordinary Loca
 remain available. The door needs a restart to gain this activation surface. Refusal is not
 permission to retry in a loop or invent a second socket.
 
-The explicitly requested native connection offers its highest version, 3, exactly once
-using the same seven request headers and endpoint as the legacy handshake. A successful
-reply has the existing 101 headers plus `tmt-object-channel: <1, 2 or 3>` naming the
-accepted version. Native activation requires 3; a selected older version returns typed
-unsupported and leaves the previous channel intact. A supported strict refusal is exactly:
+The explicitly requested native connection offers its highest version, 4, using the same
+seven request headers and endpoint as the legacy handshake. A successful reply has the
+existing 101 headers plus `tmt-object-channel: <1, 2, 3 or 4>` naming the accepted
+version, which is never higher than the offer. Native activation requires 3 or later; a
+selected older version returns typed unsupported and leaves the previous channel intact.
+Version 4 is version 3 plus `objects.remove` and `objects.list`, with the same bounds.
+A supported strict refusal is exactly:
 
 ```http
 HTTP/1.1 426 Upgrade Required
@@ -3766,9 +3804,11 @@ tmt-object-generation: <the offered generation>
 Content-Length: 0
 ```
 
-There is no second connection, repeated offer or fallback after a v3 EOF, timeout,
-malformed reply or typed refusal. The new acceptor answers 3 to a v3 offer, and typed
-unsupported to a syntactically valid higher version. A current v1/v2-only Colab silently
+An extension built before version 4 answers a v4 offer with this typed refusal; Remote then
+offers 3 once, on a fresh connection within the same setup budget. There is no other second
+connection, repeated offer or fallback: not after an EOF, timeout or malformed reply, and not
+after any refusal of a v3 offer. The acceptor answers the offered version to a v3 or v4 offer,
+and typed unsupported to a syntactically valid higher version. A current v1/v2-only Colab silently
 closes a v3 offer; it cannot supply the new selected-version reply. Such a peer continues
 to connect through ordinary Local activation, which offers 2 and retains exactly the
 existing single fresh v1 attempt after failure before a complete reply head. V1/v2 heads,
@@ -3799,8 +3839,8 @@ rows omitted from a bounded query. `query_page_bytes(context,page)` measures the
 encoded result with the longest RPC ID reserved. It refuses an oversized page without
 trimming rows or advancing its cursor. Native object chunks remain 32,768 decoded bytes;
 the larger sync frame does not enable a new attachment transport. Colab's canonical
-REST fields preserve its 354,304-byte sealed update and 43,692-byte padded-base64 checkpoint
-envelopes. Authority/checkpoint mapping, retained unpublished originals and rebootstrap
+REST fields carry its sealed update (at most 264,192 bytes) and 262,144-byte checkpoint chunks
+as bytesValue, whose padded-base64 form fits the sync document. Authority/checkpoint mapping, retained unpublished originals and rebootstrap
 on missing history remain Colab decisions; discovery does not prove retained first payloads.
 
 **DTOs.** The leaf owns these wire types; consumers do not import Remote implementation
@@ -4027,7 +4067,7 @@ not only first-sequence documents;
 terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
 and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.
-There is no offline mutation queue. Envelope/checkpoint bounds are 354,304/43,692 encoded bytes.
+There is no offline mutation queue. Envelope/checkpoint chunk bounds are 264,192/262,144 bytes, carried as bytesValue.
 Provider pages hold at most 256 documents and fit one 397,312-byte carrier result, including
 metadata; never retain a larger page for later draining. Listener caps remain 3 per open page and
 12 per tab, one in-flight write per stream and 4 per tab. These are transport bounds, not a new

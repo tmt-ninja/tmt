@@ -19,7 +19,7 @@ import tmtSettings from '../../../rust/tmt-remote/assets/tmt-settings.html?raw';
 import ops from '../../../rust/tmt-remote/assets/ops.html?raw';
 import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
-import { moduleLoad, type ModuleLoad } from './module-entry.js';
+import { designModuleLoad, moduleLoad, type ModuleLoad } from './module-entry.js';
 import { opsPage } from './ops-page.js';
 import { remoteApp } from './remote-app.js';
 import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
@@ -243,6 +243,64 @@ function message(
   setRouteTitle(slot, title);
 }
 
+/** The same owner-session/reopen lifetime loads Colab and its described Design module. */
+function colabRouteLoad(
+  title: string,
+  select: (answer: ShellAnswer | undefined) => ModuleLoad | undefined,
+): ShellRoute['load'] {
+  return async (_remembered, settled) => {
+    // Colab loads only from what this page's own read describes: never unpaired.
+    let answer = await settled();
+    // A paired browser whose door restarted has no session yet: reopen it (an unpaired browser
+    // fails on its local record, before any request) and read the shell again.
+    if (!answer && (await reopened())) answer = await started?.redescribe();
+    const load = select(answer);
+    const entry = load?.entry;
+    if (!entry)
+      return {
+        mount: (slot) =>
+          load
+            ? // Described, but not loadable from here: the module's own link is the way in.
+              message(
+                slot,
+                title,
+                `${title} could not be opened here.`,
+                load.link ? { href: load.link, label: `Open ${title}` } : undefined,
+              )
+            : answer
+              ? message(
+                  slot,
+                  title,
+                  title === 'Colab'
+                    ? 'Colab is not running on your machine. Run tmt colab serve there, then reload.'
+                    : 'Design is not available from this Colab. Start or update Colab on your machine, then reload.',
+                )
+              : message(
+                  slot,
+                  title,
+                  `Pair this browser with Remote to open ${title}. On the machine that runs Remote, run tmt remote pair.`,
+                  { href: '/remote/', label: 'Pair this browser' },
+                ),
+      };
+    try {
+      return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
+    } catch {
+      // An older Colab has no module to load here; its own mounted app is still the way in.
+      return {
+        mount: (slot) =>
+          message(
+            slot,
+            title,
+            title === 'Colab'
+              ? 'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.'
+              : 'Design could not start here. Colab may have stopped on your machine. Reload to try again.',
+            load.link ? { href: load.link, label: `Open ${title}` } : undefined,
+          ),
+      };
+    }
+  };
+}
+
 export const routes: readonly ShellRoute[] = [
   {
     id: 'home',
@@ -271,7 +329,7 @@ export const routes: readonly ShellRoute[] = [
             async () => ({
               landing: async (lifetime, registry, connected) => {
                 const { landingPage } = await import('./browser.js');
-                await landingPage(lifetime, registry, connected);
+                await landingPage(lifetime, registry, connected, () => rootSession(lifetime));
               },
               settings: async (shell, registry, initial) => {
                 const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
@@ -304,53 +362,18 @@ export const routes: readonly ShellRoute[] = [
     id: 'colab',
     paths: ['/colab', '/colab/'],
     rail: 'colab',
-    async load(_remembered, settled) {
-      // Colab loads only from what this page's own read describes: never unpaired.
-      let answer = await settled();
-      // A paired browser whose door restarted has no session yet: reopen it (an unpaired browser
-      // fails on its local record, before any request) and read the shell again.
-      if (!answer && (await reopened())) answer = await started?.redescribe();
-      const load = colabLoad(answer);
-      const entry = load?.entry;
-      if (!entry)
-        return {
-          mount: (slot) =>
-            load
-              ? // Described, but not loadable from here: the module's own link is the way in.
-                message(
-                  slot,
-                  'Colab',
-                  'Colab could not be opened here.',
-                  load.link ? { href: load.link, label: 'Open Colab' } : undefined,
-                )
-              : answer
-                ? message(
-                    slot,
-                    'Colab',
-                    'Colab is not running on your machine. Run tmt colab serve there, then reload.',
-                  )
-                : message(
-                    slot,
-                    'Colab',
-                    'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
-                    { href: '/remote/', label: 'Pair this browser' },
-                  ),
-        };
-      try {
-        return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
-      } catch {
-        // An older Colab has no module to load here; its own mounted app is still the way in.
-        return {
-          mount: (slot) =>
-            message(
-              slot,
-              'Colab',
-              'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.',
-              load.link ? { href: load.link, label: 'Open Colab' } : undefined,
-            ),
-        };
-      }
-    },
+    // Colab is kept while another route shows: its session, pages and frames stay (#5954).
+    keep: true,
+    load: colabRouteLoad('Colab', colabLoad),
+  },
+  {
+    id: 'design',
+    paths: ['/design', '/design/'],
+    rail: 'design',
+    load: colabRouteLoad('Design', (answer) => {
+      const load = designModuleLoad(answer, location.href);
+      return load.link ? load : undefined;
+    }),
   },
 ];
 
@@ -379,6 +402,8 @@ let heldBy: (() => string) | undefined;
 /** A verified replacement retires the old search transport/providers; it grants no access. */
 function observedSession(next: object): void {
   if (session === next) return;
+  // Modules the shell keeps suspended hold the old session: release them before it changes.
+  if (session) started?.sessionChanging();
   session = next;
   search?.replace();
   publishSearch?.();
@@ -386,7 +411,9 @@ function observedSession(next: object): void {
 
 let sessionAdmission: { signal: AbortSignal; result: Promise<Session> } | undefined;
 /** One root-owned signer, reused by owner reads and DM reads rather than reopened per poll. */
-function rootSession(signal: AbortSignal): Promise<Session> {
+function rootSession(signal?: AbortSignal): Promise<Session> {
+  if (!signal && sessionAdmission) return sessionAdmission.result;
+  signal ??= new AbortController().signal;
   signal.throwIfAborted();
   if (session && channelFor(session as Session)?.ended === false)
     return Promise.resolve(session as Session);
@@ -408,6 +435,7 @@ function rootSession(signal: AbortSignal): Promise<Session> {
 }
 function forgetSession(previous: Session): void {
   if (session !== previous) return;
+  started?.sessionChanging();
   session = undefined;
   search?.replace();
   publishSearch?.();
@@ -433,6 +461,7 @@ export function shellApp(): ShellHost | undefined {
   status.hidden = true;
   root.append(status);
   search = new RootSearch({
+    session: { open: rootSession, forget: (previous) => forgetSession(previous as Session) },
     load: (entry) => import(/* @vite-ignore */ entry) as Promise<SearchModule>,
     container: () => document.body.appendChild(document.createElement('div')),
     failed: (message) => {
@@ -450,14 +479,16 @@ export function shellApp(): ShellHost | undefined {
       started?.navigate(href);
     },
   });
-  let currentRoute: AbortController | undefined;
+  /** The instance still loading or mounting: a later route load ends it before it draws. */
+  let mounting: AbortController | undefined;
   const ownedRoutes = routes.map((route): ShellRoute => ({
     ...route,
     async load(remembered, settled) {
-      currentRoute?.abort();
+      // Each mounted instance has its own lifetime, ended only by its release, so a module the
+      // shell keeps suspended keeps its signal (#5954); one superseded while it mounts ends here.
+      mounting?.abort();
       const lifetime = new AbortController();
-      currentRoute = lifetime;
-      search!.replace();
+      mounting = lifetime;
       status.hidden = true;
       // The first read is the live description, never a remembered answer used for the rail.
       void settled().then((read) => {
@@ -473,8 +504,9 @@ export function shellApp(): ShellHost | undefined {
           if (lifetime.signal.aborted) return;
           let active = true;
           let adopted = false;
+          let current = slot;
           const publish = () => {
-            if (!active || !adopted || !slot.topBarReady()) return;
+            if (!active || !adopted || !current.topBarReady()) return;
             const place = { origin: location.origin, href: location.href };
             const rail = appRail(answer, routes, place);
             search!.update(
@@ -484,8 +516,7 @@ export function shellApp(): ShellHost | undefined {
               ),
             );
           };
-          publishSearch = publish;
-          const hosted: RootSlot = {
+          const hosted = (slot: ShellSlot): RootSlot => ({
             ...slot,
             routeSignal: lifetime.signal,
             setTopBar() {
@@ -494,18 +525,60 @@ export function shellApp(): ShellHost | undefined {
               publish();
               return bar;
             },
+          });
+          publishSearch = publish;
+          let remotePath = location.pathname;
+          const rememberRemotePath = () => {
+            if (route.id === 'remote' && remoteItem(location.pathname))
+              remotePath = location.pathname;
           };
-          const release = await module.mount(hosted);
-          return () => {
+          window.addEventListener('popstate', rememberRemotePath, { signal: lifetime.signal });
+          let given: Awaited<ReturnType<typeof module.mount>>;
+          try {
+            given = await module.mount(hosted(slot));
+          } finally {
+            if (mounting === lifetime) mounting = undefined;
+          }
+          const mounted = typeof given === 'function' ? { release: given } : given;
+          const quiet = () => {
             active = false;
             if (publishSearch === publish) publishSearch = undefined;
-            release?.();
+          };
+          const release = () => {
+            quiet();
+            lifetime.abort();
+            mounted?.release();
+          };
+          const ownedLocation =
+            route.id === 'remote' ? () => remotePath : mounted?.location?.bind(mounted);
+          if (!mounted?.suspend)
+            return ownedLocation ? { release, location: ownedLocation } : release;
+          const { suspend, resume } = mounted;
+          return {
+            release,
+            location: ownedLocation,
+            suspend() {
+              quiet();
+              suspend.call(mounted);
+            },
+            resume(next) {
+              current = next;
+              active = true;
+              publishSearch = publish;
+              resume?.call(mounted, hosted(next));
+              publish();
+            },
           };
         },
       };
     },
   }));
   const host = startShellHost(root, ownedRoutes, {
+    // Every module shares this tab's one session (#5954); none opens its own.
+    sessions: {
+      open: rootSession,
+      forget: (previous) => forgetSession(previous as Session),
+    },
     failed: (main) =>
       main.replaceChildren(
         Object.assign(document.createElement('p'), {
@@ -522,7 +595,6 @@ export function shellApp(): ShellHost | undefined {
     remote: { kind: 'unconfirmed', href: '/remote/' },
   });
   const dispose = () => {
-    currentRoute?.abort();
     session = undefined;
     search?.dispose();
     host.dispose();
@@ -532,8 +604,9 @@ export function shellApp(): ShellHost | undefined {
     window.removeEventListener('popstate', changed);
     window.removeEventListener('hashchange', changed);
   };
+  // Navigation only refreshes what search describes; its Colab transport is replaced only when
+  // the session changes or the shell is read again (#5954).
   const changed = () => {
-    search?.replace();
     publishSearch?.();
   };
   const restore = (event: PageTransitionEvent) => {

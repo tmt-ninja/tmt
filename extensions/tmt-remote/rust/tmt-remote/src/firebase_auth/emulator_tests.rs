@@ -331,6 +331,7 @@ fn native_auth_and_sealed_sync_match_the_colab_rules() {
             ("page", text(page)),
             ("epoch", integer(1)),
             ("state", text("open")),
+            ("objectFormat", integer(2)),
             ("expiresAt", json!({"timestampValue":expires})),
         ])),
     );
@@ -396,7 +397,8 @@ fn native_auth_and_sealed_sync_match_the_colab_rules() {
             ("seq", integer(seq)),
             ("uid", text(&uid)),
             ("hash", text(&"h".repeat(43))),
-            ("envelope", text("ZW52ZWxvcGU")),
+            // Colab log rows carry the sealed envelope as bytesValue (#5876).
+            ("envelope", json!({"bytesValue":"ZW52ZWxvcGU="})),
             ("expiresAt", json!({"timestampValue":expires})),
         ]);
         value.sort_all_objects();

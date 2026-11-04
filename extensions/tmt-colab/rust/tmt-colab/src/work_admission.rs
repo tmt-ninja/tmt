@@ -47,7 +47,7 @@ pub fn not_migrated(page: &str) -> Box<dyn std::error::Error + Send + Sync> {
     refused(
         "COLAB_WORK_NOT_MIGRATED",
         format!(
-            "{} still holds task-era work that has not been migrated (work-not-migrated); nothing was changed. Run tmt colab serve, which copies its tasks and then migrates it, and try again.",
+            "{} still holds task-era work that has not been migrated (work-not-migrated); nothing was changed. Restart tmt colab serve, which copies its tasks and then migrates it when it opens the space, and try again.",
             short(page)
         ),
     )

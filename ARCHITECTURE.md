@@ -44,7 +44,7 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard.
 
 `tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui` splits React entries (`./ui`, `./react`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [shared rail contract](design/browser-ui/README.md#shared-rail) keeps native and React hosts on one DOM renderer: hosts supply navigation, command callbacks and order; the leaf emits reorder requests and owns selection, row affordances, counts and drawer geometry without changing composed-shell wire data. The [README](design/browser-ui/README.md#shared-top-bar) owns the route-owned top-bar slots, root-owned common controls, modality and header-action rules.
+`design/browser-ui` splits React entries (`./ui`, `./react`, `./rich-input`, `./data-table`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [shared rail contract](design/browser-ui/README.md#shared-rail) keeps native and React hosts on one DOM renderer: hosts supply navigation, command callbacks and order; the leaf emits reorder requests and owns selection, row affordances, counts and drawer geometry without changing composed-shell wire data. The [README](design/browser-ui/README.md#shared-top-bar) owns the route-owned top-bar slots, root-owned common controls, modality and header-action rules.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -565,11 +565,10 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
-  `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and the fixed,
-  bounded public `identity show ... --json` observations for display and routing references,
-  and `ls --json` presence snapshots for advisory edit-lock lifecycle.
+  `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and bounded public
+  `identity show`/`ls --json` reads (display, routing, advisory edit locks).
   The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
-  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned source ranges and refuse changed templates before page creation.
+  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned ranges and refuse changed templates before page creation.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration, and the read-only Agents view
@@ -579,11 +578,12 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
   Colab owns the mounted browser app, including trusted recovery and archived reads ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
-  One `tmt colab serve` is enough for a browser: it attaches to a running door, else starts
-  one as a supervised child it alone stops.
-  This edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
-  dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
+  Inline question blocks reserve measured in-flow space; thread-reference activation is admitted
+  against the parent's authenticated thread projection ([contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)).
+  `tmt colab serve` attaches to a running door, else starts a supervised one it alone stops.
+  Colab reaches Remote only through its public CLI: no state files, no crate dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
 - **Message editing.** The shared rich input and its MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority, and one Send records one comment and one Ask per distinct visible mention.
+- **Design systems.** Systems are `tmt:design-system` page trees (config, components, release attachments). The built-in GUI bundle ships in app and executable and shows as pages built from `design/browser-ui`. `design/systems/compiler.mjs` compiles and checks; pages follow a draft or lock a release; `tmt colab design` only reads.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
@@ -592,7 +592,7 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   This contains author code; page self-navigation can still leak a request.
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
-  Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
+  Remote owns backend/quota/origin; Colab owns crypto/admission and [removal of unreferenced objects](extensions/tmt-colab/contracts/colab-v1.md#unreferenced-attachments-5284). Remote declares Colab Local; snapshot/retained-reference persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
 - **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource

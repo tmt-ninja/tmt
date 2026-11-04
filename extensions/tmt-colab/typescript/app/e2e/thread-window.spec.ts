@@ -41,29 +41,20 @@ test('dock order opens one discussion directly, with a static position and expli
   await expect(panel.locator('.discussion-position')).toHaveText('1 / 2');
 });
 
-test('Resolve retains the selected conversation, composer draft and unknown-recipient warning in Open', async ({
+test('Resolve removes the selected thread from Open and preserves its draft in All', async ({
   page,
 }) => {
   const panel = await open(page, 1);
-  const thread = panel.getByTestId('comment-thread');
-  await expect(thread).toBeVisible();
-  const input = thread.getByRole('combobox', { name: 'Message', exact: true });
+  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill('Unsent draft');
-  const inputNode = await input.elementHandle();
-  const before = await thread.boundingBox();
   await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
+  await expect(panel.getByTestId('comments-empty')).toBeVisible();
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
-  await expect(thread.getByTestId('comment-entry').first()).toBeVisible();
-  await expect(thread.locator('.resolved-summary')).toHaveCount(0);
-  await expect(input).toHaveText('Unsent draft');
-  expect(await input.evaluate((node, original) => node === original, inputNode)).toBe(true);
-  await expect(thread.getByRole('status').filter({ hasText: 'Not notified:' })).toContainText(
-    'ghost-agent',
+  await expect(panel.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(
+    'Unsent draft',
   );
-  const after = await thread.boundingBox();
-  expect(after?.y).toBe(before?.y);
-  await expect(panel.locator('.discussion-position')).toHaveText('1 / 1');
-  await expect(panel.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
 });
 
 test('filter choices replace the list tabs and expose the empty Needs you view', async ({
@@ -101,19 +92,20 @@ test('held Resolve changes only the state and control while retaining discussion
   await expect(parts[2]).toBeVisible();
   expect(await Promise.all(parts.map((part) => part.boundingBox()))).toEqual(before);
   await run(page, 'releaseStatus');
-  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
-  expect(await Promise.all(parts.map((part) => part.boundingBox()))).toEqual(before);
+  await expect(panel.getByTestId('comments-empty')).toBeVisible();
 });
 
-test('incoming resolution is not acknowledged by rendering, but reopening the selected discussion acknowledges it', async ({
+test('an agent resolution leaves Open immediately with a notice and remains unseen until opened', async ({
   page,
 }) => {
   const panel = await open(page, 1, 'Opening note');
   await run(page, 'agentResolves');
+  await expect(panel.getByTestId('comments-empty')).toBeVisible();
+  await expect(panel.getByRole('status').filter({ hasText: 'Resolved by Atlas' })).toBeVisible();
   await expect(commentsAction(page)).toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(1);
-  await panel.getByRole('button', { name: 'Close (Esc)', exact: true }).click();
-  await commentsAction(page).click();
+  await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
   await expect(commentsAction(page)).not.toHaveAccessibleName(/New/);
   expect(await run(page, 'seenProof')).toBe(2);
 });
@@ -130,7 +122,7 @@ test('passive arrivals in an already open empty view never acknowledge a resolut
   await page.evaluate(async () => {
     const path = '/test/ask-page-browser.tsx';
     const fixture = await import(path);
-    fixture.proposal('detached');
+    await fixture.seedThread('Opening note');
     fixture.agentResolves();
   });
   await expect(panel.getByTestId('discussion-state')).toHaveText('Resolved by Atlas · just now');
@@ -164,15 +156,16 @@ test('Resolve all confirms the filter snapshot, preserves Cancel and notifies a 
   await action.click();
   await confirm.getByRole('button', { name: 'Resolve all', exact: true }).click();
   await expect(confirm).toBeHidden();
-  await expect(
-    panel.getByRole('button', { name: 'Resolve all open (0)', exact: true }),
-  ).toBeDisabled();
-  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible();
+  await expect(panel.getByTestId('comments-empty')).toBeVisible();
   await expect
     .poll(async () =>
       (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('notify:')),
     )
     .toEqual(['notify:Agent 1']);
+  // Both statuses went to the binding as one batch.
+  expect(
+    (await run(page, 'proof')).actions.filter((value: string) => value.startsWith('statuses:')),
+  ).toEqual(['statuses:2']);
 });
 
 test('a confirmed Resolve-all snapshot excludes an arrival while the confirmation is open', async ({
@@ -202,7 +195,7 @@ test('Resolve all remains busy until original notification attempts settle, incl
     .getByRole('dialog', { name: 'Resolve 1 open comments?', exact: true })
     .getByRole('button', { name: 'Resolve all', exact: true })
     .click();
-  await expect(panel.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await expect(panel.getByTestId('comments-empty')).toBeVisible();
   await run(page, 'seedThread', 'Arrived while notification is pending');
   const action = panel.getByRole('button', { name: 'Resolve all open (1)', exact: true });
   await expect(action).toBeDisabled();
@@ -344,9 +337,14 @@ for (const width of [390, 1440])
       await page.screenshot({ path: info.outputPath('confirm.png') });
       await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
       await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
+      await expect(panel.getByTestId('comment-thread')).toBeVisible();
+      await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
       await expect(panel.getByTestId('discussion-state')).toContainText('Resolved');
       await page.screenshot({ path: info.outputPath('resolved.png') });
       await panel.getByRole('button', { name: 'Reopen', exact: true }).click();
+      await panel.getByRole('button', { name: 'Thread filter', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: 'Open', exact: true }).click();
       await run(page, 'failStatusOnce');
       await panel.getByRole('button', { name: 'Resolve all open (2)', exact: true }).click();
       await page
@@ -367,3 +365,79 @@ for (const width of [390, 1440])
       await expect(page.getByTestId('chat-panel')).toBeVisible();
       await page.screenshot({ path: info.outputPath('chat.png') });
     });
+
+test('a comment keeps its element when its first Ask record arrives (#5911)', async ({ page }) => {
+  const panel = await open(page, 1, 'Check this passage.');
+  const body = panel.locator('.comment-body').filter({ hasText: 'Check this passage.' });
+  await expect(body).toBeVisible();
+  await body.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+  await run(page, 'windowReply');
+  await expect(panel.getByText('Exact associated agent reply.')).toBeVisible();
+  // The same element, not a remount that moves the row and reloads its attachments.
+  expect(await body.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(true);
+});
+
+/** The nearest scrolling ancestor of the open discussion's history. */
+const scroller = (page: Page) =>
+  page
+    .locator('.conversation-messages')
+    .first()
+    .evaluateHandle((node) => {
+      for (let at: HTMLElement | null = node as HTMLElement; at; at = at.parentElement)
+        if (at.scrollHeight > at.clientHeight && /auto|scroll/.test(getComputedStyle(at).overflowY))
+          return at;
+      throw new Error('no scrolling history');
+    });
+for (const newer of [false, true])
+  test(`a retried reply keeps its row${newer ? ' and moves once below a newer message without scrolling the reader' : ' in place when nothing newer arrived'} (#5911)`, async ({
+    page,
+  }) => {
+    const panel = await open(page, 1, 'Opening note.');
+    await run(page, 'windowReply', 24);
+    const thread = panel.getByTestId('comment-thread');
+    const input = thread.getByRole('combobox', { name: 'Message', exact: true });
+    await input.pressSequentially('Retried reply.');
+    await run(page, 'holdReply');
+    await run(page, 'failNextReply');
+    await thread.getByRole('button', { name: /^Send(?: · to .+)?$/ }).click();
+    await run(page, 'releaseReply');
+    const echo = thread.getByTestId('comment-echo');
+    await expect(echo).toHaveAttribute('data-echo', 'failed');
+    await echo.evaluate((node) => ((node as HTMLElement & { kept?: boolean }).kept = true));
+    if (newer) await run(page, 'windowReply', 25);
+    const history = await scroller(page);
+    // A reader who left the end reads earlier history; one at the end stays there.
+    if (newer) await history.evaluate((node) => (node.scrollTop = node.scrollHeight / 3));
+    const top = await history.evaluate((node) => node.scrollTop);
+    const before = (await echo.boundingBox())!;
+    const fromEnd = (node: HTMLElement) => node.scrollHeight - node.clientHeight - node.scrollTop;
+    await run(page, 'holdReply');
+    // A pointer click would first scroll the row into view; the reader's place is what is under
+    // test, so Retry is pressed from the keyboard.
+    await echo
+      .getByRole('button', { name: 'Retry', exact: true })
+      .evaluate((button) => button.focus({ preventScroll: true }));
+    await page.keyboard.press('Enter');
+    // Retrying is the same message: the same row, at the same place, while it sends.
+    await expect(echo).not.toHaveAttribute('data-echo', 'failed');
+    expect(await echo.evaluate((node) => (node as HTMLElement & { kept?: boolean }).kept)).toBe(
+      true,
+    );
+    // The failure and the sending state share one status line: the row keeps its height and
+    // place, so nothing above or below it moves.
+    const sending = (await echo.boundingBox())!;
+    expect(sending.y).toBe(before.y);
+    expect(sending.height).toBe(before.height);
+    expect(await history.evaluate((node) => node.scrollTop)).toBe(top);
+    if (!newer) expect(await history.evaluate(fromEnd)).toBeLessThan(2);
+    await run(page, 'releaseReply');
+    const entries = thread.getByTestId('comment-entry');
+    await expect(entries.filter({ hasText: 'Retried reply.' })).toHaveCount(1);
+    await expect(echo).toHaveCount(0);
+    // Landing orders it by its signed time, after the newer message, without moving the reader;
+    // the recorded row has the echo's height.
+    await expect(entries.last()).toContainText('Retried reply.');
+    expect((await entries.last().boundingBox())!.height).toBe(before.height);
+    if (newer) expect(await history.evaluate((node) => node.scrollTop)).toBe(top);
+    else expect(await history.evaluate(fromEnd)).toBeLessThan(2);
+  });

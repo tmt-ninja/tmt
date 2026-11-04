@@ -1,3 +1,4 @@
+import { isDesignSystemPage } from './design-system-pages.js';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { readRecentlyOpened } from './recently-opened.js';
 import type { PageSummary, PageTransport } from './transport.js';
@@ -35,13 +36,15 @@ export function onRememberedPages(listener: () => void): () => void {
 /**
  * A list this transport and space already loaded elsewhere (the space home), so a switcher opened
  * before it ever read one still shows it at once. The opened pages stay what a switcher last read,
- * or none yet.
+ * or none yet. Design-system pages belong to the Design tab (#5866): the remembered list, and so
+ * the menu's counts and every watcher, never holds them.
  */
 export function rememberPages(
   transport: PageTransport,
   space: string | undefined,
-  pages: readonly PageSummary[],
+  listed: readonly PageSummary[],
 ) {
+  const pages = listed.filter((page) => !isDesignSystemPage(page));
   let spaces = cache.get(transport);
   if (!spaces) cache.set(transport, (spaces = new Map()));
   spaces.set(space, { state: 'ready', pages, opened: spaces.get(space)?.opened ?? NO_OPENED });
@@ -116,7 +119,7 @@ export class SwitcherSourceStore {
         rememberPages(this.transport, this.space, list.value.pages);
         const ready: Cached = {
           state: 'ready',
-          pages: list.value.pages,
+          pages: rememberedPages(this.transport, this.space)!,
           opened: opened.status === 'fulfilled' ? opened.value : NO_OPENED,
         };
         cache.get(this.transport)!.set(this.space, ready);

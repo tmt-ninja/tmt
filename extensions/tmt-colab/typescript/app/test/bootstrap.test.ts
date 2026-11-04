@@ -70,6 +70,22 @@ it('preserves out-of-ID-order pins while matching the sorted catalog with delete
   expect(boot.pageIds).toEqual(body.pageIds);
   expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
 });
+it('accepts the design-system page kind and nothing else as a kind (#5866)', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const pages = [
+    { ...metadata, pageId: id(1), kind: 'design-system' },
+    { ...metadata, pageId: id(2) },
+  ];
+  await response(pages);
+  expect((await discover(mount)).pages).toEqual(pages);
+  for (const kind of ['dashboard', null, '']) {
+    await response([{ ...metadata, pageId: id(1), kind }]);
+    await expect(discover(mount), String(kind)).rejects.toThrow();
+  }
+});
 it('a caller whose document is another module’s neither reads nor rewrites its location', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },
@@ -172,7 +188,7 @@ it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     projects: [`${String(index).padStart(3, '0')}${rockets}`],
-    summary: { comments: 4_294_967_295, waiting: true, needsYou: 350, author },
+    summary: { comments: 4_294_967_295, waiting: true, needsYou: 150, author },
   }));
   const body = await response(pages);
   expect(new TextEncoder().encode(body).length).toBeLessThan(DISCOVERY_BYTES);
@@ -181,7 +197,7 @@ it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
   expect(boot.pages[999].summary).toEqual({
     comments: 4_294_967_295,
     waiting: true,
-    needsYou: 350,
+    needsYou: 150,
     author,
   });
 });
@@ -202,7 +218,7 @@ it('keeps 1000 worst-sized work rows and parents inside the bounded response', a
     summary: {
       comments: 4_294_967_295,
       waiting: true,
-      needsYou: 350,
+      needsYou: 150,
       author,
       work,
       parent: { page: '10000000-0000-4000-8000-000000000001', index: 255 },
@@ -253,7 +269,7 @@ it('keeps a reply the owner filled to its budget with titles inside the bounded 
     summary: {
       comments: 4_294_967_295,
       waiting: true,
-      needsYou: 350,
+      needsYou: 150,
       author,
       work,
       parent: { page: '10000000-0000-4000-8000-000000000001', index: 255 },
@@ -395,7 +411,7 @@ it('refuses summaries outside the bounds the owner derives', async () => {
     { comments: -1, waiting: false, needsYou: 0 },
     { comments: 0, waiting: true, needsYou: 0 },
     { comments: 0, waiting: false, needsYou: 1 },
-    { comments: 0, waiting: true, needsYou: 351 },
+    { comments: 0, waiting: true, needsYou: 151 },
     { comments: 0, waiting: true, needsYou: 1.5 },
     { comments: 0, waiting: false, needsYou: -1 },
     { comments: 0, waiting: true, needsYou: '1' },

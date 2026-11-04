@@ -588,6 +588,19 @@ fn a_skipped_or_failed_allowance_read_keeps_the_stored_limits_and_a_later_read_r
     let two_seconds = Duration::from_secs(2);
     let (stored, used) = observe(None, NOW, two_seconds);
     assert_eq!(used, Some(25.0));
+    let (unchanged, used) = observe(Some(&stored), NOW + 1, two_seconds);
+    assert_eq!(used, Some(25.0));
+    assert_eq!(
+        driver_state::state_consumption(&unchanged)
+            .unwrap()
+            .value
+            .sequence,
+        driver_state::state_consumption(&stored)
+            .unwrap()
+            .value
+            .sequence,
+        "an unchanged timed allowance must not advance on every observation"
+    );
 
     // A turn with no time left skips the read; that is not an observation of no limits.
     let (skipped, used) = observe(Some(&stored), NOW + 1, Duration::ZERO);

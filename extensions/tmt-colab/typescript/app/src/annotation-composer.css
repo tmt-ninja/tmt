@@ -88,6 +88,67 @@
   flex: none;
 }
 
+/* The composer's notice slot takes no room: empty, it is not drawn, so the text starts at the
+   field's top. A refusal, a recipient that was not reached or a recorded message's next step shows
+   as one line floating just above the field, over the history's end, so neither the history nor
+   the field moves (#5911). Its words start with the field's text. */
+.annotation-compose .rich-input-surface {
+  position: relative;
+}
+.annotation-compose .annotation-notice-slot {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 0;
+  bottom: calc(100% + 6px);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  column-gap: 8px;
+  min-height: round(up, calc(var(--tmt-ui-caption-size) * 1.5 + 8px), 1px);
+  padding-inline: 12px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+  font-size: var(--tmt-ui-caption-size);
+  line-height: 1.5;
+}
+.annotation-compose .annotation-notice-slot:empty {
+  display: none;
+}
+.annotation-compose .annotation-notice-slot > * {
+  min-width: 0;
+}
+/* Every notice is one line: a longer one ends in an ellipsis, its whole text in its tip. */
+.annotation-compose .annotation-notice-slot > [data-testid='recipient-failure'] {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.annotation-compose .annotation-notice-slot .ask-again-action {
+  flex: none;
+}
+.annotation-compose .notice-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.annotation-compose .notice-line:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+/* A next step follows the notice on its line; its taller hit box does not open the line up. */
+.annotation-compose .annotation-notice-slot .tmt-ui-action {
+  flex: none;
+  margin-block: calc((1lh - var(--tmt-ui-host-action-min-height)) / 2);
+  padding-inline: 0;
+}
 .annotation-send-notice {
   margin: 0;
   color: var(--c-text);

@@ -76,63 +76,67 @@ export function PageSource({
       }
       onDismiss={onDismiss}
     >
-      <SourceEditor
-        changed={changed}
-        editor={{
-          ref: sourceArea,
-          readOnly: archived || !binding || saving || disabled,
-          value,
-          onChange: (event) => type(event.target.value),
-        }}
-      >
-        {/* Save problems take priority over routine usage in this one notice slot. */}
-        {error ? (
-          <SaveNotice
-            problem={error}
-            actions={
-              error.full === 'compact' ? (
-                <BrowserAction
-                  type="button"
-                  label={text.pageSize.compact}
-                  variant="text"
-                  disabled={size.compacting}
-                  onActivate={() => void compactFromRefusal()}
-                />
-              ) : error.full === 'export' ? (
-                <BrowserAction
-                  type="button"
-                  label={text.pageSize.export}
-                  variant="text"
-                  onActivate={exportPage}
-                />
-              ) : error.conflict ? (
-                <>
+      {/* Mounted while open: a closed drawer does not copy every live write of a large page
+          into a hidden textarea (#5891). The draft itself stays in the editor state. */}
+      {open && (
+        <SourceEditor
+          changed={changed}
+          editor={{
+            ref: sourceArea,
+            readOnly: archived || !binding || saving || disabled,
+            value,
+            onChange: (event) => type(event.target.value),
+          }}
+        >
+          {/* Save problems take priority over routine usage in this one notice slot. */}
+          {error ? (
+            <SaveNotice
+              problem={error}
+              actions={
+                error.full === 'compact' ? (
                   <BrowserAction
                     type="button"
-                    label={text.saveCopyDraft}
+                    label={text.pageSize.compact}
                     variant="text"
-                    onActivate={(event) => {
-                      if (event.isTrusted) copyDraft();
-                    }}
+                    disabled={size.compacting}
+                    onActivate={() => void compactFromRefusal()}
                   />
-                  {copied && (
-                    <span role="status">
-                      {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
-                    </span>
-                  )}
-                </>
-              ) : undefined
-            }
-          />
-        ) : (
-          <PageSizeNotice size={size} exportPage={exportPage} />
-        )}
-        {merged && !error && (
-          <div className="source-notice">
-            <p role="status">{text.saveMerged}</p>
-          </div>
-        )}
-      </SourceEditor>
+                ) : error.full === 'export' ? (
+                  <BrowserAction
+                    type="button"
+                    label={text.pageSize.export}
+                    variant="text"
+                    onActivate={exportPage}
+                  />
+                ) : error.conflict ? (
+                  <>
+                    <BrowserAction
+                      type="button"
+                      label={text.saveCopyDraft}
+                      variant="text"
+                      onActivate={(event) => {
+                        if (event.isTrusted) copyDraft();
+                      }}
+                    />
+                    {copied && (
+                      <span role="status">
+                        {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
+                      </span>
+                    )}
+                  </>
+                ) : undefined
+              }
+            />
+          ) : (
+            <PageSizeNotice size={size} exportPage={exportPage} />
+          )}
+          {merged && !error && (
+            <div className="source-notice">
+              <p role="status">{text.saveMerged}</p>
+            </div>
+          )}
+        </SourceEditor>
+      )}
     </BrowserDrawer>
   );
 }

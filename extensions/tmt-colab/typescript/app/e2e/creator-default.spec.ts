@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { caretAtEnd } from './caret.js';
 import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
 import { destination, id } from '../test/ask-fixtures.js';
@@ -287,11 +288,7 @@ test('a preference changed during Send affects only the next draft, not the froz
   const input = await mount(page, 'linked');
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
   await run(page, 'holdWrite');
-  await input.evaluate((node) => {
-    node.focus();
-    document.getSelection()!.selectAllChildren(node);
-    document.getSelection()!.collapseToEnd();
-  });
+  await caretAtEnd(input);
   await input.pressSequentially('Frozen');
   await page.getByRole('button', { name: 'Send', exact: true }).first().click();
   await expect(input).toHaveAttribute('contenteditable', 'false');

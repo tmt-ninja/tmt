@@ -778,17 +778,21 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   exit 0 always). Core keeps a push only while usage is consented, in the private file
   `<data root>/claude/allowance.json` (at most 8 accounts and 8 KiB) keyed by the
   root's `oauthAccount.accountUuid`, and stamps `observedAtMs` with its own receive time,
-  never the mod's. The reader returns whichever of the pushed entry and the cache has
-  the newer `observedAtMs`, whole; a tie prefers the cache. Windows of the two are never
-  merged or summed. Each pushed entry also records the account's `{key,label}` (the label is the
+  never the mod's. Pushes and cache are merged per account and window: the newest window's
+  observation wins, and a cache observation wins a tie. Values and reset times stay together;
+  windows are never summed. An absent or elapsed pushed window cannot erase a still-current
+  observation. A version-1 store is read with each window's observation time set to its entry's `observedAtMs`; the next push writes version 2. Any other version is treated as nothing observed. Each
+  pushed entry also records the account's `{key,label}` (the label is the
   root's name) for [account limits](#account-limits); the reader above strips it. Setup installs the mod only with usage consented, as a marked copy
   in Claude's skills root; `--no-usage`, `--remove` and uninstall remove it, and a
-  directory that is not TMT's is never overwritten. `observedAtMs` is `fetchedAtMs`, never read time or file mtime; future
-  fetch times are dropped. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
+  directory that is not TMT's is never overwritten. A cache window's observation time is
+  `fetchedAtMs`, never read time or file mtime; future fetch times are dropped. The enclosing
+  `observedAtMs` is the newest retained window observation. `five_hour` and `seven_day` map to 300 and 10,080 minutes;
   `utilization` is a percentage (0–100, never rescaled), and ISO resets become UTC
   milliseconds. Missing/null windows are optional; a malformed or partial window
   rejects the snapshot. Windows at or past reset are dropped individually. Older
-  current windows retain their original age without a one-hour cutoff. No usable
+  current windows remain available without a one-hour cutoff; individual ages are exposed
+  by the account-level limits view. No usable
   windows means no limits. A cache change advances the consumption sequence without
   adding tokens; an unchanged cache does not. `provider` is fixed by the source (`claude` or `codex`),
   never inferred from a seat's models; values stored before this field read as
@@ -808,9 +812,11 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   when a provider has more than one account; they never group by a model or plan tier.
   Codex's `limit_id` names a limit family and `plan_type` a shared plan tier;
   neither identifies an account.
-  `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
-  strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's
-  allowance used in that window and `resetsAtMs` its UTC Unix millisecond reset.
+  Member `windows` has one or two `{windowMinutes,usedPercent,resetsAtMs}` entries in
+  strictly ascending `windowMinutes`: `usedPercent` (0–100) of the account's allowance used
+  in that window and `resetsAtMs` its UTC Unix millisecond reset. Individual observation
+  ages appear only in [account limits](#account-limits); a member sample has the enclosing
+  observation time. A window at or past reset is absent until a new observation arrives.
   The contract names no window; consumers choose one by length. Limits describe the
   account, so seats on one account report the same windows: they are not a session
   counter and are never summed. They are the first optional evidence omitted under
@@ -996,8 +1002,9 @@ every entry carries its `driver`, so other drivers join without changing the sha
 Claude the sources are the store the first-party mod pushes into (`claude/allowance.json` in
 the data directory, at most 8 accounts, each stamped with Core's receive time) and the usage
 cache of the ambient Claude root, the one the invoking process's environment selects. Per
-account the newest observation with a current window wins whole, never merged per window, and
-a tie prefers the cache. Caches of other Claude roots that no mod has pushed stay reachable
+account each current window uses its newest observation; a tie prefers the cache. The
+optional per-window `observedAtMs` carries its source age, and a reset window is omitted
+until a new observation arrives. Caches of other Claude roots that no mod has pushed stay reachable
 only through an agent's own environment, which is the per-identity path. The label is the
 name of the account's config root, recorded with each push; an entry pushed before that was
 recorded is labelled with the provider name until its next push. An older Core answers the

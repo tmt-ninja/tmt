@@ -1,4 +1,12 @@
+import { BrowserManageList } from '../src/manage-list/index.js';
+import { UiTheme } from '../src/ui/index.js';
 import { CompactControlsFrame } from './compact-controls-frame.js';
+import { UiContrastFrame } from './ui-contrast-frame.js';
+import { FloatingFrame } from './floating-frame.js';
+import { DataTableFrame } from './data-table-frame.js';
+import { PageListFrame } from './page-list-frame.js';
+import { RichInputFrame } from './rich-input-frame.js';
+import { TabsBarFrame } from './tabs-bar-frame.js';
 import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
 import { RailFrame } from './rail-frame.js';
@@ -34,6 +42,7 @@ import {
 import { startShellHost, type ShellSlot } from '../src/shell-host.js';
 import { FramePair, Section, noop } from './kit.js';
 import { EditorialSection } from './editorial.js';
+import { ThemeBFrame } from './theme-b.js';
 import { menuItems, NoticeSection } from './components.js';
 import { UiOverlayFrame } from './ui-overlays.js';
 import { createIcon } from '../src/glyph.js';
@@ -667,6 +676,20 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
       return <MenuFrame />;
     case 'notifications':
       return <NotificationsFrame />;
+    case 'theme-b':
+      return <ThemeBFrame params={params} />;
+    case 'tabs-bar':
+      return <TabsBarFrame params={params} />;
+    case 'rich-input':
+      return <RichInputFrame params={params} />;
+    case 'data-table':
+      return <DataTableFrame params={params} />;
+    case 'page-list':
+      return <PageListFrame params={params} />;
+    case 'floating':
+      return <FloatingFrame params={params} />;
+    case 'ui-contrast':
+      return <UiContrastFrame />;
     case 'ui-overlay':
       return <UiOverlayFrame params={params} />;
     default:
@@ -677,6 +700,16 @@ export function frameFor(name: string, params: URLSearchParams): ReactNode {
 export function ShellSection() {
   return (
     <Section id="shell">
+      <h3>Manage ordered shortcuts</h3>
+      <UiTheme>
+        <BrowserManageList
+          items={[{ id: 'spec', label: 'spec', detail: 'project:spec' }]}
+          onEdit={noop}
+          onDelete={() => false}
+          onMove={noop}
+          onReorder={noop}
+        />
+      </UiTheme>
       <FramePair title="Shared common top bar · React adapter" frame="topbar" height={400} />
       <FramePair
         title="Shared common top bar · native renderer"

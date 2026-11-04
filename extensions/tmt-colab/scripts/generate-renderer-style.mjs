@@ -21,6 +21,7 @@ const roles = [
   ['color', 'annotation-on-action'],
   ['surface', 'sheet'],
   ['color', 'text'],
+  ['surface', 'rule'],
 ];
 const variables = (theme) =>
   roles
@@ -33,9 +34,11 @@ const numberStyle = await readFile(
   new URL('../typescript/app/src/annotation-number.css', import.meta.url),
   'utf8',
 );
+const referenceStyle = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.css', import.meta.url), 'utf8');
 // A page the design system paints takes the scheme it paints for these roles too (see data-colab-scheme
 // below); these rules are unlayered, so they must name it as well as the viewer's theme.
-const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}${referenceStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+const referenceComponent = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.js', import.meta.url), 'utf8');
 const frameStyle = (
   await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')
 )
@@ -46,7 +49,7 @@ const frameStyle = (
   .trim();
 // The design system the frame injects into every page (#5057) and the icons it draws; page-ui.mjs builds
 // both, and the standalone export carries the same bytes.
-const { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons } = await buildPageUi();
+const { staticCss, editorialCss, pageUiStyle, iconNodes, pageIcons, dsProseStyle } = await buildPageUi();
 // `page check` reads the same two lists the frame draws from: a `tmt-ui-*` class it does not know and an
 // icon name it does not know are findings, not silent no-ops.
 const classes = [...new Set([...(staticCss + editorialCss).matchAll(/\.(tmt-ui-[A-Za-z0-9_-]+)/g)].map((m) => m[1]))].sort();
@@ -69,9 +72,20 @@ const expected = generate(
   'pageUi',
   pageUiStyle,
 );
-const withIcons = generate(expected, 'PAGE ICONS', 'pageIcons', pageIcons);
+const withIcons = generate(
+  generate(expected, 'PAGE ICONS', 'pageIcons', pageIcons),
+  'DS PROSE',
+  'dsProse',
+  dsProseStyle,
+);
+const startComponent = '          // BEGIN GENERATED THREAD REFERENCE COMPONENT';
+const endComponent = '          // END GENERATED THREAD REFERENCE COMPONENT';
+const componentStart = withIcons.indexOf(startComponent);
+const componentEnd = withIcons.indexOf(endComponent);
+if (componentStart < 0 || componentEnd <= componentStart) throw new Error('Missing thread reference component markers');
+const complete = `${withIcons.slice(0, componentStart)}${startComponent}\n${referenceComponent.trim().split('\n').map((line) => `          ${line}`).join('\n')}\n${withIcons.slice(componentEnd)}`;
 if (mode === '--write') {
-  await writeFile(file, withIcons);
+  await writeFile(file, complete);
   await writeFile(names, namesText);
-} else if (source !== withIcons || (await readFile(names, 'utf8').catch(() => '')) !== namesText)
+} else if (source !== complete || (await readFile(names, 'utf8').catch(() => '')) !== namesText)
   throw new Error('Renderer generated styles are stale');

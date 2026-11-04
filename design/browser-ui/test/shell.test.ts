@@ -38,11 +38,12 @@ const remote: ShellModule = {
 };
 const answer: ShellAnswer = { version: 1, modules: [colab, remote] };
 
-it('orders Home, the described modules, Ops, Digest, then TMT settings at the bottom', () => {
+it('orders Home, Colab, Design, Remote, Ops, Digest, then TMT settings at the bottom', () => {
   const rail = shellRail(answer, { origin, href: `${origin}/` });
   expect(rail.main.map((item) => [item.id, item.href, item.current])).toEqual([
     ['home', `${origin}/`, true],
     ['colab', `${origin}/r/abc/x/colab/`, false],
+    ['design', `${origin}/colab/design/`, false],
     ['remote', `${origin}/remote/`, false],
     ['ops', `${origin}/ops/`, false],
     ['digest', `${origin}/digest/`, false],
@@ -53,8 +54,8 @@ it('orders Home, the described modules, Ops, Digest, then TMT settings at the bo
       .map((item) => item.id),
   ).toEqual(['ops']);
   expect(rail.main[0]!.count).toEqual({ text: '3', needsYou: true });
-  // The design gallery is a dev-preview item only (.poc); the product rail has no Design or Search.
-  expect([...rail.main, ...rail.bottom].map((item) => item.id)).not.toContain('design');
+  // Design is a peer rail module (#5866); the product rail has no Search.
+  expect(rail.main.find((item) => item.id === 'design')?.icon).toBe('palette');
   expect([...rail.main, ...rail.bottom].map((item) => item.id)).not.toContain('search');
   expect(rail.bottom.map((item) => [item.id, item.label, item.href])).toEqual([
     ['settings', 'TMT settings', `${origin}/settings/`],
@@ -70,6 +71,7 @@ it('marks the longest matching module, or the host-named one, and settings on /s
   expect(at('/remote/settings')).toEqual(['remote']);
   expect(at('/r/abc/x/colab/pages/p1')).toEqual(['colab']);
   expect(at('/colab/', colab)).toEqual(['colab']);
+  expect(at('/colab/design/', colab)).toEqual(['design']);
   expect(at('/settings/')).toEqual(['settings']);
 });
 
@@ -89,6 +91,7 @@ it('shows the same rail items on every route, with or without an answer, whateve
   const expected = [
     ['home', 'Home', 'house'],
     ['colab', 'Colab', 'file-text'],
+    ['design', 'Design', 'palette'],
     ['remote', 'Remote', 'monitor-smartphone'],
     ['ops', 'Ops', 'users'],
     ['digest', 'Digest', 'chart-column'],
@@ -106,6 +109,7 @@ it('dims Colab with the reason until the answer describes Colab', () => {
   const unpaired = shellRail(undefined, { origin, href: `${origin}/` }).main;
   expect(unpaired.filter((item) => item.disabled).map((item) => [item.id, item.note])).toEqual([
     ['colab', 'Pair this browser with Remote to open it'],
+    ['design', 'Pair this browser with Remote to open it'],
   ]);
   expect(unpaired[0]!.count).toBeUndefined();
   const hosted = shellRail(undefined, { origin, href: `${origin}/colab/` }, colab).main;
@@ -117,6 +121,46 @@ it('dims Colab with the reason until the answer describes Colab', () => {
   );
   const unknown = { version: 1 as const, modules: [{ ...colab, needsYou: undefined }, remote] };
   expect(shellRail(unknown, { origin, href: `${origin}/` }).main[0]!.count).toBeUndefined();
+});
+
+it("keeps an extension's extra module beside its primary, by the longest path (#5819)", () => {
+  const design: ShellModule = {
+    extension: 'colab',
+    module: 'design',
+    rail: { label: 'Design', icon: 'palette', path: `${origin}/r/abc/design/`, order: 101 },
+    menu: [],
+    settings: [],
+    needsYou: 5,
+  };
+  const extra: ShellModule = {
+    extension: 'remote',
+    module: 'lab',
+    rail: { label: 'Lab', icon: 'box', path: `${origin}/remote/lab/`, order: 300 },
+    menu: [],
+    settings: [],
+  };
+  const both: ShellAnswer = { version: 1, modules: [colab, design, remote, extra] };
+  const rail = shellRail(both, { origin, href: `${origin}/` });
+  expect(rail.main.map((item) => [item.id, item.href])).toEqual([
+    ['home', `${origin}/`],
+    ['colab', `${origin}/r/abc/x/colab/`],
+    ['design', `${origin}/r/abc/design/`],
+    ['remote', `${origin}/remote/`],
+    ['ops', `${origin}/ops/`],
+    ['digest', `${origin}/digest/`],
+    ['remote:lab', `${origin}/remote/lab/`],
+  ]);
+  // Attention comes from the primaries only: Colab 2 + Remote 1.
+  expect(rail.main[0]!.count).toEqual({ text: '3', needsYou: true });
+  expect(rail.main.find((item) => item.id === 'design')!.count).toBeUndefined();
+  const current = (path: string, host?: ShellModule) =>
+    shellRail(both, { origin, href: `${origin}${path}` }, host)
+      .main.filter((item) => item.current)
+      .map((item) => item.id);
+  expect(current('/r/abc/design/ds/gui', colab)).toEqual(['design']);
+  expect(current('/r/abc/x/colab/pages/p1', colab)).toEqual(['colab']);
+  expect(current('/remote/lab/x', remote)).toEqual(['remote:lab']);
+  expect(current('/remote/lab/x', colab)).toEqual(['colab']);
 });
 
 it('keeps a busy Colab available without fabricating menu or rail counts', () => {

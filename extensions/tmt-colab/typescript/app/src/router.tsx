@@ -3,6 +3,8 @@ import { PageMenu as BrowserMenu } from './page-menu.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
+import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
+import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -10,7 +12,7 @@ import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import { PagePinNotice, PageProjects } from './page-projects.js';
 import type { PagePinRequest, PagePinState } from './pins.js';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
+import { designBase, entryMount, entryOpenTarget, inShell, publicEntry } from './entry.js';
 import {
   BrowserAction,
   BrowserCommand,
@@ -50,6 +52,7 @@ import { PageLayoutSection } from './page-layout-section.js';
 import { ErrorDetails, NoticeCard } from './notice-card.js';
 import { openFailure } from './open-failure.js';
 import {
+  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -57,6 +60,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type Ref,
 } from 'react';
@@ -66,6 +70,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Link,
   redirect,
   Outlet,
@@ -75,8 +80,12 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageSnapshot, PageTransport } from './transport.js';
 import type { PageRouting } from './page-routing.js';
+import {
+  EmbeddedPageContext,
+  ShownReleaseContext,
+  type EmbeddedPageProps,
+} from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
-import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
@@ -99,17 +108,16 @@ import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { ResolveAllThreads } from './resolve-all-threads.js';
 import { presentationOf } from './thread-status-presentation.js';
-import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import {
-  firstThread,
-  listedThreads,
-  threadKey,
-  threadNeedsYou,
-  type ThreadFilter,
-} from './comments-listing.js';
+import { isOpenThread, isStatusThread, openThreadCount } from './thread-status-view.js';
+import { firstThread, listedThreads, threadKey, type ThreadFilter } from './comments-listing.js';
 import { useThreadFilter } from './use-thread-filter.js';
 import type { DiscussionRef, QuoteSelector } from './thread-records.js';
 import { Home, validateHomeSearch, type HomeSearch } from './home.js';
+import { HomeReadFailure, isOrdinaryListReadFailure } from './home-load-error.js';
+import { ColdPageList } from './home-cold.js';
+import { PageListError, PageListLoading } from '@tmt/browser-ui/data-table';
+import '@tmt/browser-ui/ui.css';
+import { getTheme, subscribeTheme } from './theme.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import './about-drawer.css';
@@ -148,7 +156,7 @@ import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
  * footers, and the open work band's controls, which can fill a phone's viewport. */
-const AVOIDED_CARDS = '.question-group-footer, .proposal-inline .proposal-card';
+const AVOIDED_CARDS = '.question-group-footer';
 const AVOIDED_BAND =
   '.work-band :is(button, a[href], input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"])';
 
@@ -836,9 +844,10 @@ const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
     const router = useRouter();
-    const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
-      '/pages/',
-    );
+    const pathname = useRouterState({ select: (state) => state.location.pathname });
+    const opening = pathname.startsWith('/pages/');
+    const listFailure = pathname === '/' && error instanceof HomeReadFailure;
+    const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
     const failure =
       error instanceof Error && (opening || error.message === text.reconnectFailed)
         ? openFailure(error)
@@ -864,11 +873,23 @@ const root = createRootRouteWithContext<AppContext>()({
     return inHost(
       <>
         <AppHeader
-          title={failure && failure.kind !== 'refused' ? pageOpenFailureTitle(failure) : text.error}
+          title={
+            listFailure
+              ? text.pageList.allPages
+              : failure && failure.kind !== 'refused'
+                ? pageOpenFailureTitle(failure)
+                : text.error
+          }
           headerRef={header}
         />
         <main>
-          {failure && failure.kind !== 'refused' ? (
+          {listFailure ? (
+            <section className="home tmt-ui-page" data-page-list>
+              <ColdPageList theme={theme} canCreate>
+                <PageListError onRetry={() => void router.invalidate()} />
+              </ColdPageList>
+            </section>
+          ) : failure && failure.kind !== 'refused' ? (
             <PageOpenFailure failure={failure} />
           ) : (
             <NoticeCard
@@ -919,7 +940,15 @@ const root = createRootRouteWithContext<AppContext>()({
   ),
 });
 async function loadSpaceHome({ context }: { context: AppContext }) {
-  const home = await context.transport.spaceHome();
+  // Design-system pages belong to the Design tab, not the Colab list (#5866).
+  let loaded;
+  try {
+    loaded = await context.transport.spaceHome();
+  } catch (error) {
+    if (isOrdinaryListReadFailure(error)) throw new HomeReadFailure(error);
+    throw error;
+  }
+  const home = withoutDesignSystems(loaded);
   context.rememberPages?.(
     home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
   );
@@ -927,6 +956,23 @@ async function loadSpaceHome({ context }: { context: AppContext }) {
   rememberPages(context.transport, context.space, home.pages);
   return home;
 }
+function HomePending() {
+  const opening = useContext(OpeningFrame);
+  useLayoutEffect(() => {
+    opening(true);
+    return () => opening(false);
+  }, [opening]);
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
+  return (
+    <section className="home tmt-ui-page" data-page-list>
+      <AppHeader title={text.pageList.allPages} />
+      <ColdPageList theme={theme}>
+        <PageListLoading />
+      </ColdPageList>
+    </section>
+  );
+}
+
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
@@ -946,6 +992,9 @@ const home = createRoute({
     return space;
   },
   component: Home,
+  pendingComponent: HomePending,
+  pendingMs: 150,
+  pendingMinMs: 300,
 });
 // The list was `/all` before it became the home; an old link or history entry still lands on it.
 const allPages = createRoute({
@@ -971,8 +1020,15 @@ function markOpen(name: string, from?: string) {
  * renderer, frame or page action and fetches nothing. The open has no deadline: the spinner stays
  * while the open progresses and gives way only to the router's error state when it really fails.
  */
+/** Set while the opening frame is drawn: the shell then names the page being opened (#5911). */
+const OpeningFrame = createContext<(shown: boolean) => void>(() => {});
 function PageFrame() {
   const { transport, space } = root.useRouteContext();
+  const opening = useContext(OpeningFrame);
+  useLayoutEffect(() => {
+    opening(true);
+    return () => opening(false);
+  }, [opening]);
   const pageId = useParams({ strict: false }).pageId;
   // The list the space home last loaded, which the quick switcher also shows at once.
   const listed = new SwitcherSourceStore(transport, space).initial();
@@ -1114,6 +1170,22 @@ function ShortPageChoice() {
   );
 }
 
+// The Design pack is lazy: ordinary Colab pages do not load its catalog or styles. Its pages are
+// Colab pages, so the route hands it the embedded page view.
+const LazyDesign = lazyRouteComponent(() => import('./design-route.js'), 'DesignRoute');
+function Design() {
+  return (
+    <EmbeddedPageContext.Provider value={EmbeddedPage}>
+      <LazyDesign />
+    </EmbeddedPageContext.Provider>
+  );
+}
+const design = createRoute({ getParentRoute: () => root, path: '/design', component: Design });
+const designPage = createRoute({
+  getParentRoute: () => root,
+  path: '/design/$',
+  component: Design,
+});
 const colabSettings = createRoute({
   getParentRoute: () => root,
   path: '/settings',
@@ -1130,13 +1202,22 @@ const blocked = createRoute({
 function Shell() {
   const { transport, space } = root.useRouteContext();
   const router = useRouter();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // The header, main and footer follow the screen that is drawn, not the location the router is
+  // loading: they switch with the new content, never over the old one (#5911). While a slow page
+  // draws its opening frame, that frame is the screen.
+  const [opening, setOpening] = useState(false);
+  const pathname = useRouterState({
+    select: (state) =>
+      opening ? state.location.pathname : (state.resolvedLocation ?? state.location).pathname,
+  });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
   // Colab's own shell has the shared bar's Search on every route, and the bar owns the one shortcut.
   const hostSlot = useContext(ShellHostSlot);
   const ownShell = hostSlot === null;
   const sharedSearch = ownShell || hostSlot.topBarReady();
+  // Design owns its docs navigation and header rather than the Colab page/list chrome.
+  if (pathname === '/design' || pathname.startsWith('/design/')) return <Outlet />;
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -1167,7 +1248,9 @@ function Shell() {
             />
           )}
           <main className={isPage ? 'page-main' : undefined}>
-            <Outlet />
+            <OpeningFrame.Provider value={setOpening}>
+              <Outlet />
+            </OpeningFrame.Provider>
           </main>
           {!isPage && (
             <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
@@ -1226,10 +1309,11 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   };
 }
 
-/** A chapter's page hosted in the shell's panel: it opens the page through the transport as the
- * route would, and gives its live connection up when the panel leaves it (back to the summary, the
- * full page, Esc), so one page never holds two. */
-function EmbeddedPage({ pageId }: { pageId: string }) {
+/** A page hosted inside another view: a chapter in the shell's panel, or a Design page (#5866). It
+ * opens the page through the transport as the route would, and gives its live connection up when the
+ * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
+ * route the page's own links (Design keeps its tree's pages in Design). */
+function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
@@ -1255,10 +1339,14 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
       opened?.binding?.close();
     };
   }, [transport, pageId]);
-  const routing = useMemo<PageRouting>(
-    () => ({ ...routePageRouting(router), home: (brand) => brand, scopeCrumb: () => null }),
-    [router],
-  );
+  const routing = useMemo<PageRouting>(() => {
+    const base: PageRouting = {
+      ...routePageRouting(router),
+      home: (brand) => brand,
+      scopeCrumb: () => null,
+    };
+    return hostRouting ? hostRouting(base) : base;
+  }, [router, hostRouting]);
   const wrap = useRef<HTMLDivElement>(null);
   const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (
@@ -1279,7 +1367,7 @@ function EmbeddedPage({ pageId }: { pageId: string }) {
             transport={transport}
             space={space}
             loaded={loaded}
-            search={{}}
+            search={anchor ? { anchor } : {}}
             scope={undefined}
             routing={routing}
           />
@@ -1529,6 +1617,8 @@ function OpenPage({
   const toggleSelectionMode = useRef<() => void>(() => {});
   const escapeAnnotation = useRef<() => void>(() => {});
   const chatBusy = useRef(false);
+  // Chat's composer holds a send that failed before it was recorded (#5870).
+  const [chatUnsent, setChatUnsent] = useState(false);
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1543,6 +1633,7 @@ function OpenPage({
     annotation,
     annotations,
     unsentAnnotations,
+    unsentHighlights,
     openUnsent,
     discardDraft,
     annotationRef,
@@ -1606,6 +1697,27 @@ function OpenPage({
   );
   const [batchGeneration, setBatchGeneration] = useState(0);
   const [threadFilter, setThreadFilter] = useThreadFilter();
+  const [agentResolutionNotice, setAgentResolutionNotice] = useState<string>();
+  const viewedStatus = useRef<{ id: string; resolved: boolean } | undefined>(undefined);
+  useEffect(() => {
+    if (panel !== 'comments' || threadFilter !== 'open' || !activeThread) {
+      viewedStatus.current = undefined;
+      return;
+    }
+    const thread = (view.threads ?? []).find((item) => threadKey(item) === activeThread);
+    if (!thread) return;
+    if (
+      viewedStatus.current?.id === activeThread &&
+      !viewedStatus.current.resolved &&
+      thread.resolved &&
+      thread.status?.actor === 'agent'
+    )
+      setAgentResolutionNotice(text.threadResolvedBy(thread.status.agentName ?? 'Agent'));
+    viewedStatus.current = { id: activeThread, resolved: thread.resolved };
+  }, [panel, threadFilter, activeThread, view.threads]);
+  useEffect(() => {
+    setAgentResolutionNotice(undefined);
+  }, [panel, threadFilter]);
   useEffect(() => {
     setBatchStatus(null);
     setBatchGeneration((generation) => generation + 1);
@@ -1705,9 +1817,10 @@ function OpenPage({
     return true;
   };
   escapeAnnotation.current = () => {
-    if (panel === 'chat') {
-      if (!chatBusy.current) closeChat();
-    } else if (panel === 'comments') {
+    // Chat closes during a send like an anchored window: its composer stays mounted and keeps the
+    // send (#5870).
+    if (panel === 'chat') closeChat();
+    else if (panel === 'comments') {
       if (!statusBusy.current) closeComments();
     } else if (annotationRef.current) closeRef.current(true);
     else if (canSelect) setSelectionMode(false);
@@ -1781,21 +1894,6 @@ function OpenPage({
     connectionPresentation,
     readingHint: space ? readingHint : undefined,
   });
-  const proposalLayer = useProposalLayer({
-    slotPositions: inlineSlots.positions,
-    snapshot,
-    view,
-    binding,
-    discussionBlocked,
-    recoveryRequired,
-    connectionPresentation,
-    statusCoordinator,
-    otherBusy: () => statusBusy.current,
-    closeAnnotation: () => closeRef.current(false),
-    draft: (key) => drafts.current.get(key),
-    keepDraft,
-    setActiveThread,
-  });
   const editLockLayer = useEditLockLayer({
     page: snapshot.id,
     view,
@@ -1807,6 +1905,11 @@ function OpenPage({
     contentRevision,
     admitted: !discussionPending && !liveError && !archived,
   });
+  const shownRelease = useContext(ShownReleaseContext);
+  const designSystems = useMemo(
+    () => pageDesignSystems(transport, shownRelease),
+    [transport, shownRelease],
+  );
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -1826,6 +1929,7 @@ function OpenPage({
     resetPageLinks,
     requestPageLink,
     onContentApplied: () => setContentRevision((count) => count + 1),
+    designSystem: designSystems,
     handlers: {
       onSelection,
       onAnnotate: annotate,
@@ -1841,6 +1945,8 @@ function OpenPage({
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
         );
         if (thread) {
+          // A direct reference can name a resolved thread or one outside the current filter.
+          if (!listed.some((item) => threadKey(item) === id)) setThreadFilter('all');
           if (panelsRef.current.panel !== 'comments') discussionMarkerOpener.current = id;
           openThread(thread.ref);
         }
@@ -1874,6 +1980,29 @@ function OpenPage({
   );
   const anchoredThreads = highlights.current,
     threadTotal = numbers.size;
+  const referenceEntries = useRef<readonly { id: string; number: number; excerpt: string }[]>([]);
+  referenceEntries.current = shareView(
+    referenceEntries.current,
+    (view.threads ?? []).flatMap((thread) => {
+      if (thread.deleted || isChatThread(thread) || !thread.anchor) return [];
+      const id = `${thread.ref.writer}:${thread.ref.id}`;
+      const number = numbers.get(id);
+      return number === undefined
+        ? []
+        : [
+            {
+              id,
+              number,
+              excerpt: [...thread.anchor.exact.replace(/\s+/gu, ' ').trim()].slice(0, 80).join(''),
+            },
+          ];
+    }),
+  );
+  const admittedReferences = referenceEntries.current;
+  useEffect(() => {
+    if (state !== 'ready') return;
+    renderer.current?.threadReferences([...admittedReferences]);
+  }, [state, contentRevision, admittedReferences]);
   // A resolved thread leaves the marker set, but while its Discussion view is open the page keeps a
   // quiet mark on its passage, so the person can see and scroll to what it was about.
   const quietCandidate =
@@ -1900,8 +2029,17 @@ function OpenPage({
       annotation?.selector ?? undefined,
       threadTotal,
       quietThread,
+      unsentHighlights,
     );
-  }, [state, contentRevision, anchoredThreads, annotation, threadTotal, quietThread]);
+  }, [
+    state,
+    contentRevision,
+    anchoredThreads,
+    annotation,
+    threadTotal,
+    quietThread,
+    unsentHighlights,
+  ]);
   // The passage of the thread whose window or Discussion view is open takes the page's selected look; a window for a new
   // quote or none leaves every passage at rest. The anchors are a dependency so that a thread opened
   // as it is created is selected once the frame holds its passage.
@@ -1950,19 +2088,12 @@ function OpenPage({
         ])
       : undefined,
     activate: (event) => {
-      if (panel || annotationRef.current?.thread || statusBusy.current || chatBusy.current)
-        return false;
+      if (panel || annotationRef.current?.thread || statusBusy.current) return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
         openChat();
       } else if (event.destination === 'Answer') {
         return questionLayer.activateNotification(event);
-      } else if (event.destination === 'Proposal' && event.thread) {
-        const target = proposalLayer.activateNotification(event.thread);
-        if (target === 'comments') {
-          showThread(`${event.thread.writer}:${event.thread.id}`);
-        }
-        return !!target;
       } else if (event.thread) openThread(event.thread);
       else return false;
       return true;
@@ -1998,7 +2129,6 @@ function OpenPage({
   const attentionBinding = snapshot.binding?.discussion;
   const attentionScope = attentionBinding?.scope;
   const attentionVersions = useNeedsYouVersions(view.source, [
-    ...proposalLayer.navigation,
     ...readingLayer.items
       .filter((item) => inlineSlots.readingIds.has(item.id))
       .map((item) => ({
@@ -2027,6 +2157,13 @@ function OpenPage({
       ? readNeedsYouAcknowledgements(view.own ?? {}, attentionScope, attentionBinding.deviceId)
       : new Set(),
   );
+  const hierarchy = usePageHierarchy({
+    transport,
+    space,
+    pageId: snapshot.id,
+    work: view.work,
+    pageHref: (pageId) => routing.pageHref(pageId),
+  });
   const content = (
     <section
       className="page"
@@ -2050,19 +2187,24 @@ function OpenPage({
         remoteMenu={false}
         remoteChip={false}
         headingSuffix={
-          <PageProjects
-            transport={transport}
-            space={space}
-            pageId={snapshot.id}
-            title={view.title || snapshot.title}
-            request={projects.request}
-            from={projects.from}
-            open={() => openProjects()}
-            pinRequest={pinRequest}
-            onPinState={setPin}
-          />
+          <>
+            {hierarchy.subpages}
+            <PageProjects
+              transport={transport}
+              space={space}
+              pageId={snapshot.id}
+              title={view.title || snapshot.title}
+              request={projects.request}
+              from={projects.from}
+              open={() => openProjects()}
+              pinRequest={pinRequest}
+              onPinState={setPin}
+            />
+          </>
         }
         crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+        // A sub-page names its parent where the remembered scope would be (#5506).
+        lead={hierarchy.parent}
         barRef={toolbar}
         page
         title={view.title || snapshot.title || text.unknownPageTitle}
@@ -2108,12 +2250,7 @@ function OpenPage({
                   : undefined
               }
               onPick={(item) => {
-                if (item.kind === 'proposal') {
-                  if (!proposalLayer.jump(item.id)) {
-                    const ref = proposalLayer.reference(item.id);
-                    if (ref) openThread(ref);
-                  }
-                } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                if (item.kind === 'reading') readingLayer.jump(item.id, true);
                 else if (item.kind === 'answer') {
                   if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
                 } else if (item.kind === 'review') reviewLayer.jump(item.id);
@@ -2247,8 +2384,23 @@ function OpenPage({
           )}
           {/* A first comment that failed after its window closed is said here, never only on the
               quote: Open shows that window with the failed row, its draft and Retry (#5816). */}
-          {unsentAnnotations.length > 0 && (
+          {(unsentAnnotations.length > 0 || (chatUnsent && panel !== 'chat')) && (
             <ul className="page-unsent" role="alert">
+              {/* A Chat message that failed after Chat closed is said the same way (#5870). */}
+              {chatUnsent && panel !== 'chat' && (
+                <li key="chat">
+                  <X aria-hidden="true" className="page-unsent-mark" />
+                  <span>{text.chatUnsent}</span>
+                  <BrowserAction
+                    type="button"
+                    variant="text"
+                    label={text.annotationUnsentOpen}
+                    onActivate={(event) => {
+                      if (event.isTrusted) openChat();
+                    }}
+                  />
+                </li>
+              )}
               {unsentAnnotations.map((item) => (
                 <li key={item.key}>
                   <X aria-hidden="true" className="page-unsent-mark" />
@@ -2269,11 +2421,6 @@ function OpenPage({
           {editLockLayer.layer}
           {!discussionPending && (
             <>
-              {/* The proposal and question cards sit on the author's page, so they take the scheme it
-                  paints; the review and reading bands sit on the app's paper and keep the app's. */}
-              <div className="page-cards" data-theme={pageScheme}>
-                {proposalLayer.inline}
-              </div>
               {reviewLayer.inline}
               {readingLayer.inline}
               <div className="page-cards" data-theme={pageScheme}>
@@ -2385,14 +2532,13 @@ function OpenPage({
           )}
           {!discussionPending && (
             <>
+              {agentResolutionNotice && <p role="status">{agentResolutionNotice}</p>}
               <ThreadPanel
                 connectionPresentation={connectionPresentation}
                 archived={archived}
-                proposalStatusPending={proposalLayer.proposalStatusPending}
                 creationRecipient={creatorTarget(view)}
                 hideHeader
                 numbers={numbers}
-                renderProposal={proposalLayer.renderProposal}
                 key={`discussion:${snapshot.id}:${draftsReady}`}
                 threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
                 resolved={resolved}
@@ -2432,11 +2578,7 @@ function OpenPage({
               />
               <ResolveAllThreads
                 headerSlot={resolveAllSlot}
-                threads={listed.filter(
-                  (thread) =>
-                    !thread.resolved &&
-                    (threadFilter !== 'needs' || threadNeedsYou(thread, view.threadPresentations)),
-                )}
+                threads={(view.threads ?? []).filter(isOpenThread)}
                 coordinator={
                   (view.threadPresentations ?? []).some((value) => value.status.controllable)
                     ? statusCoordinator
@@ -2580,7 +2722,7 @@ function OpenPage({
                       <AnnotationInput
                         connectionPresentation={connectionPresentation}
                         archived={archived}
-                        creationRecipient={itemThread?.proposal?.proposer ?? creatorTarget(view)}
+                        creationRecipient={creatorTarget(view)}
                         binding={pageBinding.ask}
                         discussion={pageBinding.discussion}
                         anchor={itemThread ? itemThread.anchor : item.selector}
@@ -2701,6 +2843,7 @@ function OpenPage({
               onBusy={(busy) => {
                 chatBusy.current = busy;
               }}
+              onUnsent={setChatUnsent}
               onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
               unsaved={draftsUnsaved}
               observationUnavailable={view.askUnavailable}
@@ -2777,6 +2920,36 @@ function OpenPage({
     </CreatorDefaultProvider>
   );
 }
+/**
+ * Colab's history inside the TMT web app. Another route's address (`/ops`, Home) is never Colab's
+ * location: the router keeps the last Colab one, so a module kept while another route shows never
+ * loads, unloads or rewrites a page for that address (#5954).
+ */
+function shellHistory() {
+  let last: ReturnType<typeof createBrowserHistory>['location'] | undefined;
+  const history = createBrowserHistory({
+    parseLocation: () => {
+      const own = location.pathname === '/colab' || location.pathname.startsWith('/colab/');
+      if (last && !own) return last;
+      const state = window.history.state;
+      last = {
+        href: location.pathname + location.search + location.hash,
+        pathname: location.pathname,
+        search: location.search,
+        hash: location.hash,
+        state: { ...state, __TSR_index: state?.__TSR_index ?? 0 },
+      };
+      return last;
+    },
+  });
+  // Router pushes update its in-memory location before the browser URL is flushed. Keep that
+  // location too, so leaving immediately after an in-app navigation cannot restore a stale page.
+  history.subscribe(({ location: next }) => {
+    if (next.pathname === '/colab' || next.pathname.startsWith('/colab/')) last = next;
+  });
+  return history;
+}
+
 /** The `space` an owner link named, kept by `shellLocation` until the router knows its space. */
 let linkSpace: string | undefined;
 /**
@@ -2819,7 +2992,7 @@ export function createAppRouter(
     window.history.replaceState(window.history.state, '', '/colab/blocked');
   linkSpace = undefined;
   const history = inShell()
-    ? createBrowserHistory()
+    ? shellHistory()
     : space
       ? createBrowserHistory({
           parseLocation: () => {
@@ -2892,9 +3065,20 @@ export function createAppRouter(
       : createHashHistory();
   if (space) keepListSearch(history);
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, colabSettings, blocked]),
+    routeTree: root.addChildren([
+      home,
+      allPages,
+      page,
+      shortPage,
+      colabSettings,
+      blocked,
+      design,
+      designPage,
+    ]),
     history,
-    ...(inShell() ? { basepath: '/colab' } : {}),
+    // In the TMT app the router's paths sit under /colab/, or at the root when the shell mounted
+    // this module for Design at /design/ (#5873), where its /design routes match as they are.
+    ...(inShell() ? { basepath: designBase() === '/design' ? '/' : '/colab' } : {}),
     context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
   });
   router.subscribe('onResolved', () => void buildWatch.check());

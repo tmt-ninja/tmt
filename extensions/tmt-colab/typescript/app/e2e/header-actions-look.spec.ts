@@ -70,16 +70,16 @@ for (const width of [1440, 1024, 390])
       });
       const sort = page.locator('#list-fixture').getByRole('button', { name: /^Sort:/ });
       await expect(sort).toBeVisible();
-      const icon = sort.locator(
-        width === 390 ? 'svg.lucide-arrow-down-up' : 'svg.lucide-chevron-down',
-      );
+      const icon =
+        width === 390
+          ? sort.locator('svg.lucide-arrow-down-up')
+          : page.locator('#list-fixture .page-list-sort > svg.lucide-arrow-down-up');
       await expect(icon).toHaveCount(1);
-      const center = await sort.evaluate((node) => {
-        const a = node.getBoundingClientRect(),
-          b = node.querySelector('svg')!.getBoundingClientRect();
-        return Math.abs((a.top + a.bottom - b.top - b.bottom) / 2);
-      });
-      expect(center).toBeLessThanOrEqual(1);
+      const sortBox = (await sort.boundingBox())!;
+      const iconBox = (await icon.boundingBox())!;
+      expect(
+        Math.abs(sortBox.y + sortBox.height / 2 - (iconBox.y + iconBox.height / 2)),
+      ).toBeLessThanOrEqual(1);
       if (width > 390) await expect(icon).toHaveAttribute('aria-hidden', 'true');
       else {
         await expect(sort).toHaveAccessibleName('Sort: Recently updated');

@@ -42,10 +42,34 @@ export function metadata(value) {
   if (
     !value ||
     keys.some((key) => !Object.hasOwn(value, key)) ||
-    Object.keys(value).some((key) => ![...keys, "tags"].includes(key))
+    Object.keys(value).some((key) => ![...keys, "tags", "keyNumber"].includes(key))
   )
-    throw new Error("Metadata requires slug, title, summary, date, language and optional tags");
+    throw new Error(
+      "Metadata requires slug, title, summary, date, language and optional tags/keyNumber",
+    );
   if (Object.hasOwn(value, "tags")) validatePostTags(value.tags);
+  if (Object.hasOwn(value, "keyNumber")) {
+    const number = value.keyNumber;
+    if (
+      !number ||
+      Array.isArray(number) ||
+      typeof number !== "object" ||
+      Object.keys(number).length !== 2 ||
+      !["value", "label"].every((key) => Object.hasOwn(number, key))
+    )
+      throw new Error("Invalid keyNumber: requires value and label");
+    for (const [key, limit] of [
+      ["value", 32],
+      ["label", 100],
+    ])
+      if (
+        typeof number[key] !== "string" ||
+        !number[key].trim() ||
+        number[key].length > limit ||
+        [...number[key]].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+      )
+        throw new Error(`Invalid keyNumber ${key}`);
+  }
   if (!slugPattern.test(value.slug) || value.slug.length > 100)
     throw new Error("Invalid post slug");
   for (const [key, limit] of [
@@ -162,6 +186,16 @@ export function extractArticle(raw, images = new Map()) {
   return { html: serialize(document).trimEnd() + "\n", assets, scripts };
 }
 
+export function withEditorial(meta, editorial) {
+  if (
+    !editorial ||
+    Array.isArray(editorial) ||
+    typeof editorial !== "object" ||
+    Object.keys(editorial).some((key) => !["tags", "keyNumber"].includes(key))
+  )
+    throw new Error("editorial.json may only hold tags and keyNumber");
+  return metadata({ ...meta, ...editorial });
+}
 export function artifactHash(meta, html, assets) {
   return sha256(
     stableJson({
@@ -255,7 +289,21 @@ export function approvedRecord(record, snapshot, proposals) {
 export function validateApproval(approval, meta, html, assets) {
   const approvedAt = approval?.approvedAt;
   const timestamp = /^\d+$/.test(approvedAt ?? "") ? Number(approvedAt) : Date.parse(approvedAt);
-  if (
+  const text = (value, limit) =>
+    typeof value === "string" && value.trim() !== "" && value.length <= limit;
+  if (approval?.method === "owner-instruction") {
+    if (
+      approval.decision !== "approved" ||
+      !text(approval.approvedBy, 100) ||
+      !text(approval.instruction, 500) ||
+      !uuid.test(approval.pageId) ||
+      !hash.test(approval.sourceSha256 ?? "") ||
+      !text(approval.pageRevision, 200) ||
+      typeof approvedAt !== "string" ||
+      !Number.isFinite(timestamp)
+    )
+      throw new Error("Missing or invalid owner authorization");
+  } else if (
     !approval ||
     approval.decision !== "approved" ||
     !uuid.test(approval.pageId) ||

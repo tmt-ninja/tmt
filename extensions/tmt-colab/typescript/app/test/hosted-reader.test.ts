@@ -58,10 +58,17 @@ const call = (): SyncCall => ({
   signal: new AbortController().signal,
   deadlineAtMs: Date.now() + 30_000,
 });
+/** The same v2 envelope with a zero signature: magic, version, u16 header length, header, then it. */
+function zeroSignature(bytes: Uint8Array) {
+  const out = bytes.slice(),
+    at = 7 + ((out[5] << 8) | out[6]);
+  out.fill(0, at, at + 64);
+  return out;
+}
 function document(
   resource: string,
   id: string,
-  values: Record<string, string | number>,
+  values: Record<string, string | number | Uint8Array>,
 ): SealedDocument {
   const fields = Object.fromEntries(
     Object.entries({
@@ -72,13 +79,15 @@ function document(
       ...values,
     })
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, value]) => [
+      .map(([key, value]: [string, string | number | Uint8Array]) => [
         key,
         typeof value === 'number'
           ? { integerValue: String(value) }
-          : key === 'expiresAt'
-            ? { timestampValue: value }
-            : { stringValue: value },
+          : value instanceof Uint8Array
+            ? { bytesValue: Buffer.from(value).toString('base64') }
+            : key === 'expiresAt'
+              ? { timestampValue: value }
+              : { stringValue: value },
       ]),
   );
   const bytes = c.text(JSON.stringify(fields));
@@ -338,7 +347,7 @@ async function fixture(
       stream: header.authorDevice,
       seq: Number(header.streamSeq),
       hash: c.encodeBinary(await envelope.hash()),
-      envelope: c.decodeText(envelope.toJson()),
+      envelope: envelope.toBytes(),
     });
     logs.push(row);
     return row;
@@ -347,8 +356,8 @@ async function fixture(
     const object = baseline
         ? Buffer.from(await envelope.hash()).toString('hex')
         : c.decodeHeader(envelope.header()).objectId,
-      bytes = envelope.toJson(),
-      count = Math.ceil(bytes.length / 32768);
+      bytes = envelope.toBytes(),
+      count = Math.ceil(bytes.length / 262144);
     checkpoints.push(
       ...Array.from({ length: count }, (_, index) =>
         document('checkpoints', `${base}_${object}_${index}`, {
@@ -357,7 +366,7 @@ async function fixture(
           index,
           seq: index + 1,
           count,
-          bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+          bytes: bytes.slice(index * 262144, (index + 1) * 262144),
         }),
       ),
     );
@@ -633,10 +642,8 @@ it('does not decode or expose a partial checkpoint pair or a forged update', asy
     if (mode === 'partial')
       await f.checkpoint(await f.seal({ kind: 'checkpoint', streamSeq: '4' }));
     else {
-      const envelope = await f.seal(),
-        value = JSON.parse(c.decodeText(envelope.toJson()));
-      value.signature = c.encodeBinary(new Uint8Array(64));
-      await f.log(c.Envelope.fromJson(c.text(JSON.stringify(value))));
+      const envelope = await f.seal();
+      await f.log(c.Envelope.fromBytes(zeroSignature(envelope.toBytes())));
     }
     await expect(
       f.reader.refresh(call(), new Set(['authority', 'log', 'checkpoints'])),
@@ -854,9 +861,9 @@ it.each(['missing', 'incomplete', 'hash', 'scope'])(
         if (mode === 'incomplete') fields.count.integerValue = '2';
         if (mode === 'scope') fields.epoch.integerValue = '3';
         if (mode === 'hash') {
-          const envelope = JSON.parse(c.decodeText(c.binary(fields.bytes.stringValue, 32768)));
-          envelope.signature = c.encodeBinary(new Uint8Array(64));
-          fields.bytes.stringValue = c.encodeBinary(c.text(JSON.stringify(envelope)));
+          fields.bytes.bytesValue = Buffer.from(
+            zeroSignature(Buffer.from(fields.bytes.bytesValue, 'base64')),
+          ).toString('base64');
         }
         const bytes = c.text(JSON.stringify(fields));
         f.checkpoints[0] = { ...original, bytes, digest: hash(bytes) };

@@ -391,7 +391,7 @@ test('typing focus and caret survive arrivals; hidden-document resume announces 
   );
 });
 
-test('Answer and Proposal share the sole polite queue and announce once after modal suspension', async ({
+test('Answer and Chat share the sole polite queue and announce once after modal suspension', async ({
   page,
 }) => {
   await page.goto('/test/reply-notifications.html');
@@ -416,20 +416,20 @@ test('Answer and Proposal share the sole polite queue and announce once after mo
   await open(page, 'Agents');
   await run(page, 'arrive', { destination: 'Answer', body: 'Answer notification one' });
   await run(page, 'arrive', {
-    destination: 'Proposal',
+    destination: 'Chat',
     human: true,
-    body: 'Proposal notification two',
+    body: 'Chat notification two',
   });
   await expect(live(page)).toHaveText('');
   await close(page, 'Agent status');
   await expect(cards(page)).toHaveCount(2);
-  await expect(live(page)).toContainText('Proposal notification two');
+  await expect(live(page)).toContainText('Chat notification two');
   await run(page, 'repeat');
   const events = await page.evaluate(
     () => (window as unknown as { blockAnnouncements: string[] }).blockAnnouncements,
   );
   expect(events.filter((value) => value.includes('Answer notification one'))).toHaveLength(1);
-  expect(events.filter((value) => value.includes('Proposal notification two'))).toHaveLength(1);
+  expect(events.filter((value) => value.includes('Chat notification two'))).toHaveLength(1);
   await test.info().attach('block-live-region-events.json', {
     body: JSON.stringify(events),
     contentType: 'application/json',
@@ -537,7 +537,7 @@ for (const [width, theme] of [
   [1440, 'light'],
   [390, 'dark'],
 ] as const) {
-  for (const destination of ['Answer', 'Proposal'] as const) {
+  for (const destination of ['Answer'] as const) {
     test(`${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
       page,
     }) => {
@@ -545,12 +545,10 @@ for (const [width, theme] of [
       await page.emulateMedia({ colorScheme: theme });
       await page.goto('/test/reply-notifications.html');
       await run(page, 'mountBlocks');
-      const block = page.locator(
-        destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
-      );
+      const block = page.locator('.question-card');
       await expect(block).toHaveCount(1);
       // A question starts closed; its compact row owns placement until arrival opens the controls.
-      const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
+      const placement = page.locator('.question-compact-block');
       await expect(placement).toBeVisible();
       await expect
         .poll(() => placement.evaluate((node) => node.getBoundingClientRect().top))
@@ -600,14 +598,14 @@ for (const [width, theme] of [
   }
 }
 
-test('visible open Answer and Proposal histories suppress arrivals; folded and detached proposals remain reachable', async ({
-  page,
-}) => {
+test('visible open Answer history suppresses arrivals', async ({ page }) => {
   await page.goto('/test/reply-notifications.html');
   await run(page, 'mountBlocks');
   await page.locator('.question-line').click();
   const answer = page.locator('.question-card');
-  await answer.scrollIntoViewIfNeeded();
+  // The whole history in view, so the arrival lands in view too: a partly visible card's new
+  // record can fall below the window, and then it rightly notifies.
+  await answer.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await run(page, 'arrive', {
     destination: 'Answer',
     human: true,
@@ -615,27 +613,6 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   });
   await expect(answer).toContainText('Visible answer follow-up');
   await expect(cards(page)).toHaveCount(0);
-  const proposal = page.locator('.proposal-inline .proposal-card');
-  await proposal.scrollIntoViewIfNeeded();
-  await run(page, 'arrive', {
-    destination: 'Proposal',
-    human: true,
-    body: 'Visible proposal follow-up',
-  });
-  await expect(proposal).toContainText('Visible proposal follow-up');
-  await expect(cards(page)).toHaveCount(0);
-  await run(page, 'mountBlocks', { detached: true, folded: true });
-  await run(page, 'arrive', {
-    destination: 'Proposal',
-    human: true,
-    body: 'Detached folded follow-up',
-  });
-  await expect(cards(page)).toHaveCount(1);
-  await cards(page).getByRole('button', { name: 'Open Proposal', exact: true }).click();
-  const fallback = commentsRegion(page).locator('.proposal-card');
-  await expect(fallback).toBeFocused();
-  await expect(fallback).toHaveAttribute('data-arrived', '');
-  await expect(fallback).toContainText('Detached folded follow-up');
 });
 
 test('Answer activation opens its closed question; a covering modal holds the arrival instead of suppressing it', async ({

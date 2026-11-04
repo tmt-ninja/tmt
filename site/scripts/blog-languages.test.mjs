@@ -19,9 +19,11 @@ async function world(run) {
   const root = await mkdtemp(join(tmpdir(), "tmt-blog-languages-"));
   try {
     // Copy only the fixture post so page and feed counts do not depend on later posts.
-    for (const path of ["src/blog", `src/posts/${slug}`, "scripts/fixtures/blog"])
+    for (const path of ["src/blog", "src/shared", `src/posts/${slug}`, "scripts/fixtures/blog"])
       await cp(path, join(root, path), { recursive: true });
     const english = join(root, "src/posts", slug);
+    // Editorial tags add tag pages; the counts below cover the approved fixture only.
+    await rm(join(english, "editorial.json"), { force: true });
     const original = await readFile(join(english, "article.html"));
     const meta = JSON.parse(await readFile(join(english, "meta.json"), "utf8"));
     const approval = JSON.parse(await readFile(join(english, "approval.json"), "utf8"));

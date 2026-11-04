@@ -92,13 +92,14 @@ such reference; only `read` and `verify` answer it, mutations answer `unknown`),
 `unavailable` (everything else, including storage, the channel and a key epoch the
 reader does not hold).
 
-| Event                          | Existing attachment reads                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope. |
-| Archive                        | Native reads and catch-up still work; writes are denied. See below.             |
-| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.   |
-| Delete                         | Denied; the page's ciphertext is removed. See below.                            |
-| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
+| Event                          | Existing attachment reads                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Sharing, link or device change | Denied for whoever lost access; open previews and downloads end with the scope.        |
+| Archive                        | Native reads and catch-up still work; writes are denied. See below.                    |
+| Retention expiry               | A warning only; local reads and writes are unaffected and nothing is deleted.          |
+| No reference for 30 days       | The object is removed; see [Unreferenced attachments](#unreferenced-attachments-5284). |
+| Delete                         | Denied; the page's ciphertext is removed. See below.                                   |
+| Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.                     |
 
 Warning-only page expiry never deletes completed objects. After a committed page delete,
 Colab removes its derived object namespace through the negotiated object channel. The
@@ -200,9 +201,10 @@ fence to equal the base captured at seal time, so another device's or agent's wr
 files upload never stops the Send. If the membership head or epoch changed meanwhile,
 nothing is published, the affected chips show that the page changed and the next Send
 uploads them again from the retained local bytes under the same message ID, releasing
-the first original. Objects left unreferenced by a failed or abandoned Send stay in the
-backend; Colab runs no garbage collection, so reclaiming them belongs to Remote (#2294). A message that has attachments cannot be
-edited; deleting it removes its references.
+the first original. Objects left unreferenced by a failed or abandoned Send are removed 30 days
+after this machine first sees them unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
+A message that has attachments cannot be edited; deleting it adds a revision without references, and
+the earlier revisions keep their files.
 
 Visible message raster tiles read through the admitted path for that exact message
 revision, serially and without preloading hidden images. The header is parsed again with
@@ -237,7 +239,7 @@ publishes the `intents` proof records first and only then writes the references 
 existing Save path as a typed `{set}` change (see Browser Save). A changed page never
 attaches: a stale base or source digest makes the chips upload again from the retained local
 bytes on the next "Add to page". Removing a file saves a typed `{remove}` change; its stored
-bytes stay unreferenced and unreclaimed (#2294). A page holds at most 128 files and one
+bytes are removed 30 days later unless a reference returns ([Unreferenced attachments](#unreferenced-attachments-5284)). A page holds at most 128 files and one
 batch at most 16. The `tmt colab` command line has no attach entry yet.
 
 ## Channel boundary
@@ -395,7 +397,17 @@ identify that stream.
 | `tmt-colab-hpke-info-v1`       | wrapHeader                                                                                                                    | HPKE info; wrapHeader also HPKE AAD                                                      |
 | `tmt-colab-wrap-signature-v1`  | version, wrapHeader, enc32, SHA256(wrappedCiphertextWithTag)                                                                  | Owner signature authenticates HPKE Base sender                                           |
 
-A transport object contains exactly `{header, nonce, ciphertext, signature}`
+Locally (the store, the sync socket and the browser), an object envelope is binary v2 (#5876):
+`TCOB`, version byte `2`, a big-endian u16 header length (1 to 1024), the header, the 64-byte
+signature, then the ciphertext with its tag (at least 16 bytes, within the kind's plaintext
+limit). The nonce is not stored: the suite fixes it at 12 zero bytes, and the signature input and
+envelope hash below still include them, so a v1 and a v2 envelope of one object have the same
+hash and signature. The v1 JSON form is used only where it is signed or not yet moved: Firestore
+rows, attachment objects, signed write packets (their packet hash binds the exact v1 bytes, and
+admission stores the v2 form) and frozen vectors. Schema 22 rewrites every stored v1 object
+envelope (receipts, checkpoints, baselines) as v2 when the serve opens the store, in the migration
+transaction and after the `.pre-v21.bak` copy; a row whose hash would change is left as it was.
+A v1 transport object contains exactly `{header, nonce, ciphertext, signature}`
 as binary fields. `header` is the exact framed input, not a JSON header rebuilt
 by the verifier. Decrypt only after syntax, signature, chain, stream order,
 epoch and role admission; plaintext shape validation still precedes application.
@@ -714,8 +726,13 @@ The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
 cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
 subscription or write, and only selects from that projection.
-Static module availability (rail, Pages link and script entry) does not depend on the
-registration mutex. While that mutex is busy, the reply keeps this navigation and omits
+When the callback's `tmt-describe-features` tokens contain `modules`, the answer also carries
+one extra module, `{id:"design", rail:{label:"Design", icon:"palette", path:"/design/",
+order:101}, menu:[], settings:[], entry:"/assets/colab-module.js"}`: inside Colab's own mount,
+loaded by the same module script as the primary, with no count. Without
+that token the answer is the exact primary-only one.
+Static module availability (rail, Pages link, script entry and the Design extra) does not depend
+on the registration mutex. While that mutex is busy, the reply keeps this navigation and omits
 all catalog-derived fields: the Pages count, `needsYou` and `home`. Omitted counts are
 unknown, never zero; the shell draws no count or badge for them. A missing or poisoned
 registration still refuses. When the mutex is available, both counts exclude archived
@@ -899,9 +916,9 @@ Known availability limitation: unauthenticated challenge requests can occupy all
 64 entries for 60 seconds and deny new readers with `CAPACITY`. The mounted door's
 abuse budgets bound exposure; this seam adds no per-client challenge quota.
 
-Offer `colab-sync-v1` and `colab-reader-v1.<token>` to `/sync`. The server compares
+Offer `colab-sync-v2` and `colab-reader-v1.<token>` to `/sync`. The server compares
 fixed-size token-hash confirmations through the existing constant-time HMAC
-verifier, consumes the ticket once, and selects only `colab-sync-v1`; it MUST
+verifier, consumes the ticket once, and selects only `colab-sync-v2`; it MUST
 NOT echo the reader subprotocol. Tokens MUST NOT enter URLs, logs, renderer
 messages, cookies or owner device context. Disconnection releases the capability;
 reconnect and restart require a fresh challenge/exchange. An owner context does
@@ -1203,7 +1220,7 @@ An ordinary comment may carry optional `questionId`, using the same UUID grammar
 immutable across revisions, like its thread reference and Lamport sequence. This is an inert
 binding, not a new comment kind or authority. Effective question state consumes only current,
 nondeleted question-bound comments from verified owner-member devices in nondeleted,
-non-proposal threads. Stable comment order (sequence, writer, message ID) chooses the latest;
+threads. Stable comment order (sequence, writer, message ID) chooses the latest;
 clocks and Ask results never choose it. An open entry with such an answer projects `answered`,
 a whitespace-normalized summary of at most 200 code points in `answer`, display-only
 `answeredAt` and `answerRef:{writer,id,revision}`. Deleting the last answer returns it to open;
@@ -1385,6 +1402,8 @@ metadata UI and integrated door/hosted proofs belong to B, not this native slice
 
 ### Own-stream discussion records (#1427)
 
+Retired proposal thread and decision records are ignored on read; their stored bytes are retained.
+
 All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
 `senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
@@ -1416,58 +1435,14 @@ order for browser and native.
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
-**Proposal records and agent CLI (#1773, slice 1)**
+**Inline blocks and Discussion**
 
-A proposal is a null-anchor discussion thread whose immutable head metadata includes
-`proposal:{proposalId,title,body,proposer:{machineId,agentId,label}}`. Its proposal ID
-is the thread ID; it cannot be the writer's reserved Chat ID. Proposal metadata
-remains identical in subsequent thread revisions, including a tombstone. Title and
-label are nonempty text bounded to 200 and 64 Unicode code points respectively;
-body is nonempty text bounded to 4096 UTF-8 bytes. Proposal and machine IDs are
-canonical UUIDv4; agent IDs use the existing canonical Core UUID grammar. These
-asserted labels and IDs do not authenticate an agent or grant publication authority.
-At most 200 distinct writer/proposal pairs may be retained per page, counting
-revisions and deleted proposals once, alongside the existing thread-entry limit.
-
-`messages[actionId+":proposal-decision"]` is an immutable status action containing
-all common discussion fields, `actionId`, `thread:{writer,id}`, `previous:null` or
-`{writer,id}`, and `decision:"approved"|"declined"`. Revision is `"1"` and deleted is
-false. Only the same authenticated owner-device provenance as resolution actions
-contributes a decision. The first causal decision is final: roots precede all their
-descendants, and concurrent roots choose the smallest ASCII `(writer,actionId)`
-pair. Later decisions are refused by the native preparation and browser discussion
-writer; descendants, orphans and cycles cannot replace a root in the fold. Clocks
-and labels never choose a winner. Decision and resolution are independent; Resolve
-and Reopen keep the recorded decision. Without a decision action the decision is
-open. A deleted proposal ignores decision actions.
-
-`proposal add PAGE --title TITLE --body BODY [--id UUID]` publishes the complete
-record first through the existing own publication, then reads the page and appends
-`<tmt-proposal data-id="<proposalId>"></tmt-proposal>` through the existing
-expected-revision, lock-or-serve source publication. These are two recoverable
-publications, not one transaction. New records require the public caller's canonical
-agent ID and the existing `tmt remote status --machine --json` machine observation.
-No Remote private state is read. A stopped or unavailable provenance lookup refuses
-new record creation; recovery of an existing local-writer record uses its retained
-metadata. Source placement is append only; `--after` is deferred.
-
-The JSON result includes `proposalId` and `placed:true|false`. A failure after an ID
-is allocated retains it in the error result; `placed:false` means placement was not
-confirmed. After uncertainty, read `proposal ls PAGE --json` and `page read PAGE
---json`, then retry with the same `--id`, title and body. Recovery never changes
-retained metadata or mints a replacement ID. It publishes only a missing record or
-placeholder step, and a stale page base refuses placement. One exact generated
-placeholder confirms placement; multiple copies stay detached and are left alone.
-HTML is untrusted position data, never record, destination or activation authority.
-A missing or duplicate placeholder leaves the authenticated proposal detached;
-a placeholder without a record supplies no proposal. The trusted parent draws the
-card from admitted records; labels and author HTML never choose a destination.
-The shared inline renderer channel carries admitted proposal/question-group IDs and integer
-heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
+The shared inline renderer channel carries admitted inline-block IDs and integer
+heights clamped to 0–1,000,000 px (at most 250 slots),
 scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
 `{id,height,before}`; both heights have the same bound. For a chip-form group (its entry in the
 questions request carries `form:"chip"`) a slot is `{id,height,chip:{width,height}}`: `height` is
-the open panel's, 0 while collapsed, and `chip` the chip's own integer size, 1–1000 by 1–200;
+the complete card or strip height, and `chip` the placeholder's own integer size, 1–1000 by 1–200;
 `chip` is refused for any other group and next to `before`. Compact question
 blocks retain a 1px inert marker in that placeholder and render at the bounded
 after spacer's top using the authored column's horizontal bounds; the placeholder never carries the
@@ -1481,17 +1456,17 @@ without allowing focus or Send. Hidden slots do not count as visible inline dest
 notifications or navigation and do not trigger measurement re-requests. Opening the disclosure restores
 current bounded placement without changing record or publication admission.
 The iframe inserts the after spacer
-beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
+beside exactly one live `tmt-question[data-id]`,
 `tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves trusted state above the authored description;
 the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
-`{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
+`{id,top,beforeTop,descriptionHeight,left,width}` for
 an admitted question group with a requested `before` height, or
 `{id,top,chip,left,width}` for a requested chip-form group, where `chip` is the closed
 `{top,left,width,height}` page rectangle of the frame's inline placeholder (finite, nonnegative,
 width and height positive, within the cosmetic bound), `top` the open panel spacer's top and
 `left`/`width` the content box of the block that holds the chip, with the bounds of an answer card.
-Answer geometry is not admitted for a proposal or an unrequested group. `left` and `width` are finite
+Answer geometry is not admitted for an unrequested group. `left` and `width` are finite
 iframe-viewport CSS pixels measured from the actual authored group (or standalone
 question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
 the current frame width, each value must fit the existing 1,000,000px cosmetic
@@ -1513,8 +1488,8 @@ focus authority.
 
 Changing the parent-selected question requests current cosmetic placement on the
 existing ordered port. Controls stay detached until a current response arrives;
-old description geometry never authorizes a new Send. Compact rows retain
-viewer drafts while closed. Digits inside opened controls can update local
+old description geometry never authorizes a new Send. The group retains
+viewer drafts across selection and presentation changes. Digits inside opened controls can update local
 choices, while Send requires current placement. The trusted block uses the
 admitted authored container bounds. Viewport narrowing retires bounds that no
 longer fit until a current reply reattaches the block. The existing inline-slot
@@ -1523,53 +1498,23 @@ attached answer footers using parent-window bounds, and hide temporarily when no
 room remains; header entry points stay available. Placement and visibility never
 change answer, recipient, draft or publication admission.
 
-Approve/Decline is an explicit trusted parent activation. An in-flight fence and
-live proposal/finality admission precede decision publication. The immutable
-decision is the commit point. Within the same activation, the parent publishes
-`Approved: <title>` or `Declined: <title>` as an ordinary comment and prepares and
-sends the existing Ask with that real thread/comment correlation, frozen page
-link and the proposer's exact machine/agent UUID pair. Current directory admission
-still applies; names never select another agent. Failure retains the decision and
-shows existing Ask failure, held or uncertain state. Recovery is an explicit
-existing Ask recheck or resend; reload, sync and rendering never resume sending,
-roll back the decision or create another automatic request. Follow up opens the
-shared composer inside the card under its history, pre-addressed to that UUID
-pair; Send remains explicit. Send, Escape and Cancel close that composer without
-opening an anchored thread window. The card retains any unrecorded delivery
-failure for explicit recovery after the composer closes; signed Ask outcomes own
-recovery once admitted. Proposals expose no Delete thread action.
-Inline Resolve folds the proposal to one line with its title, retained decision/resolved
-mark and Reopen action; body, author and conversation history return on Reopen.
-In Comments the selected proposal stays expanded through Resolve and Reopen, with
-its retained decision and history. Reopen never changes its decision. Resolved
-cards use the ordinary resolved-thread mark, never the Open mark.
-Comments opens one discussion directly, mixing proposals and ordinary annotations
-in the same numbered sequence. There is no list, tab strip or back-to-list action.
-The header filter offers Open, Needs you and All. Open excludes resolved threads;
-Needs you holds unresolved undecided proposals and unresolved threads with unseen
-news; All includes resolved threads. Deleted and Chat threads stay excluded. The
-first selection prefers the first Needs-you thread, then the first matching thread
-by number. The selected thread remains in the sequence after resolution or
-acknowledgement until explicit navigation. Position text is static; Previous and
-Next choose another thread. Choosing a filter starts a matching discussion and
-never changes status or sends a request. Passive rendering and reload never
-acknowledge an agent resolution; explicitly opening its discussion does.
-The one header pending count is computed by `openThreadCount`: unresolved
-proposals without a final decision plus unresolved ordinary annotations. Approved
-or declined proposals are not pending even before resolution; proposal-linked
-threads contribute once, and Chat/deleted threads never contribute. Reopening an
-undecided proposal adds it back; reopening a decided proposal keeps its decision
-and does not add a pending item. `--after` placement remains deferred.
+The Discussion header offers Open, Needs you and All. Open, the corner count and Resolve all
+share the same live, non-Chat, unresolved predicate. A resolved thread leaves Open immediately,
+even while selected. Resolve and Reopen have visible labels; a device without owner-member
+provenance sees why the action is unavailable. An agent resolution observed while the person is
+viewing the thread produces a one-line notice. Deleted and Chat threads stay excluded. Passive
+rendering and reload never acknowledge an agent resolution; explicitly opening its discussion does.
 
-`proposal ls PAGE` reads authenticated proposal threads, their retained decision and
-independent resolved state. Human rows print the shortest unique UUID prefix (at least
-8 characters). `resolve` and `add --id` accept those prefixes from the current
-page's authenticated proposals, refusing missing or ambiguous matches before any
-write. Only a full canonical UUID can start a new proposal with `add --id`. `proposal resolve PAGE ID` uses the existing owner-device
-resolution action, sends no notifications and is a no-op when already resolved.
-Resolve refuses missing, ambiguous or deleted proposals. The generic thread Reopen
-operation retains the proposal and decision. Proposal dispatch does not run from
-CLI, render, sync or recovery.
+**Inline thread references**
+
+`<tmt-thread-ref data-writer="UUID" data-thread="UUID"></tmt-thread-ref>` names a thread by its
+canonical UUIDv4 writer and thread ID, as returned by `tmt colab threads PAGE --json`. No other
+attributes are admitted; element content is ignored. The parent supplies the thread number and
+quote excerpt from its authenticated projection to the isolated renderer. A trusted activation
+opens that thread through the same parent action as its margin marker and selects its passage.
+Missing, deleted and Chat threads render muted `Thread not found`. The frame's claim never grants
+discussion or publication authority. `page check` reports `thread-ref-invalid` with the source line
+for malformed values or extra attributes.
 
 No unknown fields are accepted. A value claiming a typed kind rejects if its
 root, key or field grammar is invalid in the browser or native decoder. Other
@@ -2700,7 +2645,11 @@ recomputes its own key from that parse: any `script` element, `on*` attribute or
 runtime marker, a different root attribute or a different design-system match
 answers exactly `{type:"colab.render.source-applied", requestId, ok:false,
 reason:"remount"}`. Otherwise it changes its body in place to the new source,
-matching elements by `id` and then by kind and position. It keeps what it added
+matching elements by `id` and then by kind and position. When the change lies within whole
+top-level nodes and touches no `style`, `script`, document-level or table tag,
+question, review or read block, inline handler or design-system marker, it parses
+and changes only those nodes, and only where that gives the same nodes as parsing
+the whole source; otherwise it parses the whole source. It keeps what it added
 itself (its nodes, `data-colab-*` attributes, the `hidden` it puts on question
 choices, drawn `tmt-icon` children) and what the reader changed (`open`, `value`,
 `checked`, `selected` and the matching live state stay until the source changes
@@ -2918,19 +2867,23 @@ IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-s
 the parent enables it only for the admitted comment surface. Its bound port projection is
 exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
 one hover outline, a completed text selection or a text-bearing click captured through
-the same bounded quote owner opens the existing anchored discussion. Textless clicks
+the same bounded quote owner opens the existing anchored discussion. A click inside an
+element marked `data-ds-example` (a design-system example, #5866) targets that whole element,
+so its quote is the example's own text; the anchor stays a text quote. Two examples with the
+same text on one page would quote alike, so Design writes each example's `<component>:<id>` as a
+visible label line inside its root. Textless clicks
 show a temporary polite hint and create nothing. Starting a comment exits selection mode,
 so cancelling or closing its composer leaves the mode off. Each mode projection clears the
 renderer's completed-selection gesture marker; the parent remains the sole mode owner.
 Source replacement reprojects mode; page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat draft retained and busy sends uninterrupted; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure after closing is named in a page alert row whose Open action, like annotating the same quote, shows that window with its failed row and draft), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active window or drawer (Chat closes even during a send, keeping its draft and the send, and a failure before recording after closing is named in the page alert row whose Open action reopens Chat with its failed row, draft and files; Discussion closes without losing its draft, while an in-flight send or status change holds the panel), then the anchored window (draft retained; a pending send keeps running; a failure before recording after closing, whether a first comment or reply, is named in a page alert row whose Open action restores that same window with its failed row, draft and files), then selection mode. A failed first comment also reopens on the same quote. Editing a failed row, deliberately clearing its text and closing releases the retained failure and alert; Send's automatically cleared field never discards it. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
-`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft` and
-`quiet`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
+`type:"colab.render.highlight"`, `renderId`, `requestId`, `anchors`, `threadCount`, `draft`,
+`quiet` and `unsent`. `anchors` entries are exactly `{id,selector,ordinal}`; `draft` is the unsaved composer's
 quote or `null`; `quiet` is `null` or exactly `{id,selector}`: the resolved thread whose
 Discussion view is open, whose ID is not in `anchors` (#4931). The frame draws `quiet`'s passage
 (see below) and reports its ID in `resolved` and its offset in `positions` like an anchor's, so the
@@ -2941,7 +2894,18 @@ instead of forwarding caller records. Results contain `type:"colab.render.anchor
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
 nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
-Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
+`unsent` contains at most 64 entries, each exactly `{selector,state}` with the same quote
+validation as `draft` and state exactly `sending` or `failed`. The parent projects only first
+comments with no recorded thread, failed first then oldest creation order; the paint cap does
+not discard sends or limit the page's failure notices. Recording the first comment removes its
+unsent paint even while delivery continues; Retry changes failed to sending, and discard or
+leaving the page clears it. The frame resolves these quotes within the existing bounded batch
+and draws only a waiting or danger underline, using `color-waiting` or the existing danger treatment `color-blocked`, and the rule-width
+token. Missing or ambiguous quotes detach. Unsent passages have no ordinal, marker, hover target,
+selection, navigation or report-back: they never enter resolved IDs or position feedback. CSS
+Highlights and the pointer-inert fallback leave authored text and layout unchanged. The page's
+failure notice remains the primary signal; the underline only locates the passage.
+Batches are at most 1,000 anchors and 256 KiB UTF-8, including all unsent entries. Collection is bounded to 20,000
 text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
 per anchor with a 20 ms batch deadline. Over-budget, missing, changed or ambiguous
 matches detach. A unique exact quote must match every supplied prefix/suffix.
@@ -3159,7 +3123,9 @@ serve opens a space it runs `work.migrate` (body `{}`, which changes nothing els
 still at version 1, under the serve's own write lock. Plain tasks are never dropped without a copy:
 before rewriting a page the serve writes its whole version 1 value to
 `migrations/5825/<pageId>.json` in the space's directory (directories 0700, file 0600, never
-through a link) and logs that path; a page whose copy cannot be written is not rewritten. A page it
+through a link) and logs that path; a page whose copy cannot be written is not rewritten. The copy
+is unencrypted plain JSON; the owner may delete it once its tasks are no longer needed, and the
+log line says so. A page whose work cannot be read is reported and left alone. A page it
 cannot copy or rewrite keeps its value, the serve logs why, `tmt colab show` and `tmt colab ls` add
 the warning `work-not-migrated` to it, and the next open tries again; the
 serve still starts. Binaries from before #5825 cannot read a migrated value, so every device of a
@@ -3192,8 +3158,10 @@ Space) holding the independent manual page state chip, which is its own menu and
 then a segmented bar, `N of M done` (`N/M` on a phone) and a chevron. The bar and count are the
 direct sub-pages by their own manual states from the owner list (Done theme green, In progress
 review purple, To do empty, Unknown neutral), the same count as the list row's `work`, never
-recursive. With no sub-page the head shows `No sub-pages yet` and no bar, and for the owner opens
-Add. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
+recursive. An archived sub-page keeps its link but is left out at every level: no row, and it
+counts toward no progress, head summary or attention dot; unarchiving brings its row back in its
+old place (#5867). With no sub-page in use the head shows `No sub-pages yet` and no bar, and for
+the owner opens Add, which never offers an archived page. A share reader has no owner list, so it shows the chip and sub-page rows without titles,
 states or counts.
 
 Opening the panel animates with the motion tokens (instant under reduced motion) and shows one
@@ -3286,8 +3254,12 @@ and the commit's fences turn a page that moved meanwhile into `COLAB_STALE_BASE`
 on a refusal.
 
 The owner work panel has one Add window (#5820): a design-system dialog that searches the observed
-page list. Choosing a page sends one `subpage.attach`. When no listed page has exactly the typed
-title, the first row sends one `subpage.create` with the typed title. Pages the list shows cannot be
+page list with the list's own search field and matcher (#5868): `project:` and `by:` suggestions
+become the same removable chips, and the free text and every chip narrow the pages by the list's
+rules. Archived pages and dashboards are not offered. Arrows move through the results while focus
+stays in the field, and Enter picks. Choosing a page sends one `subpage.attach`. When no listed page
+has exactly the typed free text as its title, the first row sends one `subpage.create` with that
+free text, never a chip. Pages the list shows cannot be
 attached stay listed, dimmed, with why (this page, above this page, already under another page);
 the owner's admission still decides. A refusal shows its words and leaves nothing to clean up; a
 create that made its page but could not attach it says so, and the page can be chosen. An unsettled
@@ -3325,7 +3297,6 @@ An answer block is authored page HTML. Register its ID first through [question m
   data-id="10000000-0000-4000-8000-000000000001"
   data-kind="single"
   data-agent="Agent name"
-  data-other
 >
   <p data-question>Which heading should we use?</p>
   <span data-choice>Keep it</span>
@@ -3339,8 +3310,9 @@ An answer block is authored page HTML. Register its ID first through [question m
 normalizes as normal rendered quote text. At most 50 blocks, 20 distinct choices
 per block, 200 code points per question/choice and 64 per agent name are admitted.
 Duplicate IDs, nested blocks, empty text, control characters and invalid structures
-supply no controls. Choice kinds require choices; text kinds have neither choices
-nor `data-other`. Short answers allow 200 code points; long/Other text allows
+supply no controls. Choice kinds require choices and always offer Other with a
+free-text answer; `data-other` is accepted and redundant on them (#5998). Text kinds
+have neither choices nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
 A choice may contain one optional immediate `span[data-choice-description]` child:
@@ -3385,43 +3357,23 @@ text bounds. Optional legacy `data-label` retains its 24-code-point/control
 validation; labels no longer create tabs. A lone question is an internal group of
 one. The page markup check owns complete admission rules and ID-holder ordering.
 
-All question forms render as one band per placement, without tabs: the page sheet
-between two 1px rules, with no side rule and no radius. Each question's line is a
-trusted button with a `?` glyph in a disc, an eyebrow `Q&A · <agent>` over the
-admitted plain-text title, the state at the right and a chevron (up when open,
-down when closed): waiting is `◆` and `Needs your answer` in the waiting colour;
-answered is a check and `Answered` in the secondary colour, with the recorded
-answer under the title (two lines at most). The glyph, eyebrow, title and chevron
-remain neutral. Two or more adjacent questions share one band with one muted
-`Questions from <agent> · N of M waiting` heading and no per-line eyebrow, their
-lines separated by the same rule; a question placed alone has the band above.
-Native Needs you counts each registered open question; browser counting adoption follows #5146. Existing
-`data-form="chip"` markup remains admitted under its existing attribute checks,
-but uses the same compact lines instead of a tabbed panel.
-
-Every question starts closed except an explicit Needs-you or notification arrival,
-which opens the target, scrolls it into view and focuses its first control.
-Open/closed state belongs to the viewer, never the page or answer records. Opening
-reveals the existing parent-owned answer controls under the line, in the heading's
-column: a kind line (`Single choice · Other available`), an instruction (`Choose one
-answer, or write your own.`) and the choices in one wrapped row (stacked when a choice has a description). The `Other` field
-(`Your other answer`) is drawn under the row once Other is picked. A rule, then a
-`Goes to` row carries the recipient chips and the add control, and `Send answer` /
-`Send answers` is the group's one primary action at the end of that row. Answered questions are read-only until the existing Change answer
-action is admitted. Answering closes the question and focuses the next waiting
-question in the same group, or its own line when none remains. There is no
-Dismissed state or dismissal action in this slice; closing a row acknowledges
-nothing. Enter/Space toggles, Escape closes and returns focus to its line, and
-Up/Down moves between a stack's lines. At narrow widths the state wraps under
-the title while the chevron stays on its first line.
+Waiting questions render as a card with their title, asking agent, choices and Send. A structural
+group stacks its waiting questions in one card with one Send; separate placements retain separate
+Send scopes. Recipient chips appear above Send, with the existing attachment action beside it.
+An answered question folds to a 32px strip showing its state, title, one-line answer and chevron.
+Expanding it in place shows the answer once as “Your answer”, with its existing message actions and Ask status/retry, alongside the conversation, Change answer, Follow up and Dismiss. The underlying comment retains its full content.
+Follow up writes through the ordinary question conversation. Dismiss removes the element through
+the existing browser page-edit path and marks its registration handled through the existing metadata
+path. The edit remains in page history. Undo restores the element and reopens a question that was
+open before dismissal. A successful page edit is never reversed by a failed metadata action: the
+notice offers Retry for that action. An unknown metadata outcome is read through the existing
+projection before reporting success or offering Retry. Expand, collapse and dismissal preserve the
+ordinary source and metadata admission fences.
 
 The authored text remains available to the normal quote/association owner while
 the parent draws the compact title and controls. A local callback or frame claim
 cannot provide a verified current answer. The whole question presentation follows
 Colab's effective theme, including parent controls on a fixed-look author page.
-Sibling in-page Proposal cards also follow the effective Colab theme throughout their
-bodies, Approve/Decline/Follow up/Resolve controls and follow-up composers, even when
-the author fixes a different page palette.
 
 The parent group owns drafts, answer publication and visible recipient chips using
 BrowserChips. Each physical block owns its Send scope: a split question sends only
@@ -3491,7 +3443,7 @@ empty later sibling cannot displace an answered thread. Agent replies never mark
 Answered; sibling history stays visible.
 Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
-one proposal/question measurement batch, preserving sibling positions and focus.
+one inline-block measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
 
 The existing `colab.render.questions` parent request is a closed
@@ -3583,14 +3535,14 @@ parent-admitted title and references may name only requested threads. The separa
 `colab.render.scroll-reading` request has exactly `{type,renderId,requestId,id}`, bound to that
 current exchange and a resolved reading ID; it has no publication authority. Unknown fields or
 stale requests do nothing. Reading slots consume only the remaining existing 250-slot budget,
-in document order, and never displace an existing proposal, question or review control.
+in document order, and never displace an existing question or review control.
 
 The page-header Needs you menu includes only current anchored targets. Removing a target
 keeps its authored and discussion records. Confirmed Clear all invokes the existing Mark read
-for each listed reading, without navigation. For listed questions, reviews and proposals it
+for each listed reading, without navigation. For listed questions and reviews it
 publishes a viewer-owned `messages` record keyed `<actionId>:needs-you-handled`, with exactly
 `{version:1,kind:"needs-you-handled",spaceId,pageId,epoch,senderDevice,actionId,at,items}`.
-Each item is `{kind,id,version}` (`answer`, `review` or `proposal`); `version` is the exact
+Each item is `{kind,id,version}` (`answer` or `review`); `version` is the exact
 unpadded base64url SHA-256 of the inert authored target HTML and its admitted owner-state
 description captured by the header. Neighboring anchor context is excluded. Current own-write admission
 and the existing discussion lock precede publication. Outer writer, sender, page and epoch
@@ -3599,7 +3551,7 @@ must match the admitted viewer; malformed records provide no handled state. A re
 Reload reads that viewer's admitted own stream; a new or changed version waits again. A published
 acknowledgement is immutable: later own updates cannot change or remove its record, while
 unrelated own records may still be appended. This acknowledgement never creates an answer,
-proposal decision or review close. The discovery summary below remains the owner's recorded pending projection; the header additionally applies
+or review close. The discovery summary below remains the owner's recorded pending projection; the header additionally applies
 current placement and viewer acknowledgements.
 
 ### Review sections
@@ -3678,7 +3630,7 @@ one is asked` follow. It follows Colab's effective theme and takes its position 
 answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
 attribute from the parent's closed set, so its content stays in the DOM, selectable and in the
 text map, and annotations inside it keep resolving. The page head's `Needs you N` menu counts
-each waiting review section once, alongside undecided/unresolved proposals, unread reading anchors and unanswered question
+each waiting review section once, alongside unread reading anchors and unanswered question
 blocks. A question group with any unanswered questions counts once; a standalone question is
 one block. Changes requested from an agent and closed sections do not count. IDs are never
 counted twice. These are projections of the admitted layer state after anchor resolution, not
@@ -3687,7 +3639,7 @@ in Comments like any open annotation, while a waiting section with no thread sti
 Needs you. Archived pages retain cosmetic navigation without publication controls. The owner-list
 count uses the same definition over its verified static-source fold (see [Page summary](#page-summary-2588)); collection per-item details are separate.
 
-The header menu groups targets in proposal, reading, answer and review order, omitting empty groups.
+The header menu groups targets in reading, answer and review order, omitting empty groups.
 Search results and in-app page links expose real hrefs. Modified clicks retain native browser
 activation; Ctrl/Cmd+Enter opens the selected result in a new tab and Shift+Enter in a new
 window, leaving the search open in the current tab. Plain click/Enter retain existing navigation.
@@ -3876,10 +3828,13 @@ rules still apply. The shared action fences trusted events, double activation, b
 context. All old outcomes remain unchanged; the new outcome is its own row and
 there is at most one action per recipient group. Reload may restore a signed-refusal
 action only if the entire own group still satisfies the predicate; it never sends.
-Prior user comments and verified agent replies are included as quoted data, in the existing
-projection order, with their captured references/revisions rechecked before signing.
-Display timestamps never determine record ordering or authority. Deleted/stale
-context and byte overflow refuse; no context is silently truncated. A failure after
+Only the previous turn (the latest prior user comment with its verified agent replies) is
+included as quoted data, capped at 2,000 code points and marked `… (truncated)` when cut, followed
+by a pointer line naming the thread, how many earlier turns are not quoted, and
+`tmt colab threads PAGE --thread THREAD` to read them (#6002). The anchored passage in `Quote:` is
+capped and marked the same way; the thread keeps both whole. All captured references/revisions,
+quoted or not, are rechecked before signing. Display timestamps never determine record ordering or
+authority. Deleted/stale context and byte overflow refuse. A failure after
 comment publication retains that comment and shows the outcome; it never automatically resends.
 The input and conversation show the composed text; no surface offers an on-demand
 view of the transport message. Frozen bytes, including the quote and captured
@@ -3897,7 +3852,7 @@ thread of the first recorded answer in tab order, and `messageIds` are the sorte
 IDs of every recorded answer comment of that Send. No signed field, record kind, stored
 record or Remote path changes. Before capture the parent rechecks that each comment is this
 device's own undeleted answer comment (`Answer to “<question>”: …`) to a question of the one
-`tmt-questions` group the admitted page source names, in an anchored non-proposal thread at
+`tmt-questions` group the admitted page source names, in an anchored thread at
 its recorded revisions, and that the answers follow the group's tab order with no question
 twice; otherwise nothing is asked. The frozen message is the ordinary frame (page, link,
 `Quote:` the canonical thread's anchor text) whose `Comment:` is `Answers to <N> questions:`
@@ -3916,7 +3871,7 @@ returns a batch Ask for every question thread holding one of its comments; its r
 notification and captured earlier conversation belong to the canonical thread alone. `Change
 answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
 
-The Comments overlay opens one annotation, page-level thread or proposal directly.
+The Comments overlay opens one annotation or page-level thread directly.
 Its Open / Needs you / All filter and Previous / Next arrows use the authenticated
 thread projection, existing creation-order numbers and attention metadata; opening
 performs no additional discussion read. Position (`n / N`) is text, not navigation.
@@ -3929,10 +3884,11 @@ In Discussion, Resolve and Reopen retain the conversation, quote, messages, comp
 and unsent draft in the same mounted window. Resolving does not collapse it or
 advance to another thread, even under Open. The header action changes to Reopen;
 unknown or ambiguous recipients remain visible as Not notified. Resolve all confirms a
-snapshot of the open threads in the current filter, then re-admits each status write;
-partial failure leaves committed changes in place and is reported in the existing state
-line. A mentioned agent is assigned to its first successfully committed status in the
-batch and notified at most once. Reopen can supersede remaining attempts for its status.
+snapshot of the open threads in the current filter, then admits once and publishes their
+statuses in the fewest own updates that fit (at most 32 records each, within the update
+size); a refused thread or update leaves the other commits in place and is reported in the
+existing state line. A mentioned agent is assigned to its first successfully committed status
+in the batch and notified at most once. Reopen can supersede remaining attempts for its status.
 Agent replies join verified Ask records to comment IDs and remain attributed to their
 agent. Overlay geometry does not reflow page content.
 Shared Source, Agents, Files and Export drawers leave an 8 px
@@ -3987,7 +3943,7 @@ Owner page and space-home header presentation follows the [page-chrome reference
 
 ### Transient reply notifications (#2726, #2727)
 
-Chat, anchored Thread, Answer and Proposal replies use the shared presentation-only FIFO queue.
+Chat, anchored Thread and Answer replies use the shared presentation-only FIFO queue.
 The parent reads admitted page Ask finals from this device's ledger and new live
 comments in conversations where the authenticated Yours writer has participated.
 Names, author HTML, renderer messages and Send outcomes cannot admit a reply.
@@ -3995,9 +3951,8 @@ Initial history and the binding's first available current view establish baselin
 including when it follows a cached loader snapshot; repeated
 reads, edits, reconnects and remounts do not replay arrivals. Stable page/viewer,
 writer and record identities select events; no new signed record or storage field
-is introduced. Answer destinations use the question layer's checked association;
-Proposal destinations use admitted proposal threads. Neither body labels nor
-proposer display metadata can establish participation or choose a destination.
+is introduced. Answer destinations use the question layer's checked association. Body labels cannot
+establish participation or choose a destination.
 
 A destination already visible and following the history end suppresses its
 arrival. Trusted activation opens the existing Chat window and reveals the exact
@@ -4010,16 +3965,15 @@ Before display or announcement,
 resume rechecks every retained/pending event against the latest admitted view and
 silently drops withdrawn destinations. Header counts remain the persistent record.
 
-Answer/Proposal arrivals are suppressed only when their exact reply is in open,
-visible block history. Activation selects the answer tab or unfolds proposal
-history, scrolls and focuses the existing block; detached proposals use Comments.
+Answer arrivals are suppressed only when their exact reply is in open,
+visible block history. Activation opens the answer, scrolls and focuses the existing block.
 The pointer-visible arrival outline uses the focus token and clears on blur or
 the next pointer/key interaction. Activation never publishes a decision or Reopen,
 creates a composer, or changes Send/recipient admission. Busy clicks are retained
 behind the existing fence for at most five seconds; pending activation and reveal
 are cancelled on page change, withdrawal or timeout with no late visible effect.
 The destination remains accessible through normal Chat/Comments or inline blocks.
-All four tags announce once on first display through the leaf's existing polite
+All three tags announce once on first display through the leaf's existing polite
 region, deferred while suspended. There is no legacy announcer, relocation or
 second event observer. Presentation grants no routing, recipient, Send or storage
 authority.
@@ -4120,7 +4074,10 @@ scoped sync cursor only, never core X acknowledgment, task completion, deletion
 permission or Send. Reconnect re-verifies the highest retained log head and
 current epoch before accepting data/writes. Index fields or a successful socket
 upgrade cannot establish authorship. Removed access terminates live subscriptions.
-`colab-sync-v1` uses strict typed JSON control frames with version `1`, type,
+An upgrade that offers only `colab-sync-v1` (a tab loaded before #5876) is accepted under that
+protocol only to send `{"type":"error","code":"upgradeRequired"}` and close; nothing of the space
+is read or sent, and reloading the tab loads the current app.
+`colab-sync-v2` uses strict typed JSON control frames with version `1`, type,
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
@@ -4497,8 +4454,12 @@ must serialize authority transitions and sync writes through that server owner.
 An empty-cursor subscribe remains live-only and makes no historical-data claim.
 
 Large catchup/broadcast envelopes reference `{objectId}` with their outer
-`envelopeHash`, followed by server `chunk` frames using the same common scope
-and exactly `{objectId, envelopeHash, index, count, bytes}`. Envelope JSON over
+`envelopeHash`, followed by the server's chunks. On a live connection each chunk is one binary
+message (#5876): a kind byte (`0` object, `2` statement), the 32-byte envelope or statement hash,
+the index and count as big-endian u32, then the bytes; it continues the transfer the preceding
+text frame named, under that frame's scope. The history channel, which wraps frames in JSON, keeps
+text `chunk` frames using the same common scope
+and exactly `{objectId, envelopeHash, index, count, bytes}`. An envelope over
 32 KiB uses chunks. Raw `bytes` are canonical base64url, nonempty and at most
 32 KiB; every nonfinal chunk is exactly 32 KiB. `index` and `count` are JSON
 integers: consecutive zero-based index, positive bounded count, index below count.
@@ -4562,7 +4523,7 @@ subscriber is explicitly closed with RESYNC_REQUIRED and must catch up; accepted
 durable payloads/receipts survive. Firestore listeners implement the same scoped
 immutable-object/cursor semantics without pretending to be a WebSocket server.
 
-Local storage uses extension SQLite/files and `colab-sync-v1` WebSocket. Colab's
+Local storage uses extension SQLite/files and `colab-sync-v2` WebSocket. Colab's
 local listener is only its owner-only socket `<dataRoot>/colab/door.sock`, which
 remote mounts at `/r/<prefix>/x/colab/` (#1039): remote's door owns Host, Origin,
 DNS-rebinding and cookie admission, and colab trusts the forwarded
@@ -4632,7 +4593,7 @@ A failed, malformed or incomplete lookup is unknown. It only reports. Running
 `tmt remote serve` separately keeps working and is the attach path.
 
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
-facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
+facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v2"`, `state:"mounted"`,
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
 `<origin>/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
@@ -4699,9 +4660,15 @@ The door serves one TMT web app document for its routes
 ([remote-channel-v1](../../../contracts/remote-channel-v1.md#public-browser-routes)); Colab is
 the route `/colab/…`. Colab describes its module script as `entry`
 (`/assets/colab-module.js` under its mount); the app loads it only from an owner's composed
-shell, mounts it into the shared shell and unmounts it, closing its Remote session, page bindings
-and timers, when another route opens. Without an owner session the route says, in plain words,
-to pair the browser and loads no Colab code; a module that cannot load says Colab could not start.
+shell and mounts it into the shared shell, using the shell's one Remote session for the tab. When
+another route opens, the app keeps Colab suspended in place, treated as a hidden document: its
+polling and observation pause while its page bindings and renderer frame stay, a live write still
+reaches the frame, and coming back shows the same page without opening, registering or
+discovering again (#5954). The shell's global search and the Colab route share the mounted
+transport while either uses it; the last user closes it. The app releases the route under the
+[route module lifecycle](../../../design/browser-ui/README.md#route-module-lifecycle) bounds.
+Without an owner session the route says, in plain words, to pair the browser and loads no Colab
+code; a module that cannot load says Colab could not start.
 The renderer stays its own sandboxed frame under the mount, with its own policy. The reader
 (`/read/<id>`) and the hosted bundle stay outside the app.
 
@@ -4865,15 +4832,23 @@ of that same space and page. The Rules text is identical for every tenant. An em
 that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
 IDs, a missing `space` field and queries that omit a filter.
 
-| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                   |
-| --------------- | ---------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                             |
-| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
-| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                    |
-| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                     |
-| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                                                                   |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 513)                                   |
-| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                 |
+| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                                                                                                     |
+| --------------- | ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                                                                                               |
+| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `objectFormat` (the integer `2`), `expiresAt`; deleting it denies every read and write of the page; the owner and any member may get it |
+| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                                                                                                      |
+| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                                                                                       |
+| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope` (the v2 bytes as a bytesValue, 1 to 264,192 bytes), `expiresAt`                                                                                  |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 256 KiB bytesValue chunk of an encrypted v2 object (a content checkpoint or an epoch's baseline): `uid` (the writer), `index` of `count` (at most 65)                                                       |
+| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                                                                                                   |
+
+**Object rows (#5876).** A log `envelope` and a checkpoint chunk's `bytes` are bytesValue fields
+holding the binary envelope v2 bytes: REST carries them as padded standard base64, Firestore stores
+them at 1.0x. Every nonfinal chunk of an object is exactly 262,144 bytes, so a 3 MB checkpoint is
+12 documents; the REST form of a chunk fits the 393,216-byte sync document. `authority` pieces stay
+32 KiB base64url stringValues. The page row's `objectFormat: 2` makes a reader from before this
+format refuse the page as an unknown field instead of misreading a row. The cloud carries v2 only:
+a stringValue envelope or chunk is refused by readers and by the Rules.
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -5311,7 +5286,9 @@ Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts
 its existing positive day count or forever; this is separate from the finite
-cloud lifetime. Local data is never automatically deleted.
+cloud lifetime. Local page data (content, comments and their revisions, the receipt ledger) is never
+automatically deleted; an attachment object that no retained reference reaches is removed 30 days
+after this machine first saw it unreferenced ([Unreferenced attachments](#unreferenced-attachments-5284)).
 
 The space's page expiry (#2600) is the days a page may sit without activity before it is
 archived: 180 by default. `tmt colab settings page-expiry DAYS|off|default` sets it to a whole
@@ -5453,10 +5430,56 @@ Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `pro
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,
-write/retry and receipt rules stay in the root, at most 10,000 bytes. Detail is
+write/retry and receipt rules stay in the root, at most 10,400 bytes. Detail is
 bundled verbatim in the references. The release archive's full skill tree equals
 its source, and each archived reference equals the relocated executable's
 `skill <name>` output; guidance probes create no config, home or workspace state.
+The name `tmt-design-system` prints the companion skill installed beside the root one
+(`skills/tmt-design-system/SKILL.md`), which covers using a published design system (#5921).
+
+### Design systems from the command line (#5921)
+
+`tmt colab design ls [--json]` lists the built-in tmt GUI system, then the space's design systems:
+pages in the reserved project `tmt:design-system` whose source holds the
+`data-tmt-ds="design-system"` config block. Each row gives `system` (`tmt-gui`, or the root page
+ID), `name`, `prefix`, the released `versions`, `latest` (null before the first release) and
+`builtIn`. It reads only the local store, and lists the built-in system even before a space exists
+(`spaceId` null). The built-in release is `design/systems/tmt-gui/generated/bundle.json`, embedded in
+both the executable and the app: `tmt-gui` resolves to it with no page behind it, and a lock
+`tmt-gui@<version>#<hash>` only while this build carries that exact version and hash.
+
+A page names one system with `<meta name="tmt-ds" content="PIN">` (#5967). `PIN` is `SYSTEM`, which
+follows the system's live draft, or `SYSTEM@VERSION#sha256-HEX`, which locks one release. The app
+compiles a followed draft from the root page's config and each component page's block, as publish
+compiles them; a page that follows it redraws when one of those pages changes (edits settle for
+500 ms). A draft that does not compile shows the page's design-system notice, never a blank page.
+A lock is verified against its release's hash and never changes. Publish records a release and
+keeps the system's own tree following its draft; the Design header can show a release in place of
+the draft for viewing.
+
+The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
+owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each
+page follows `tmt-gui`, starts with a note that it is generated from `design/browser-ui`, and holds a
+`data-tmt-ds="origin"` block `{key, files}` (its docs path, such as `components/button`, and the repo
+files it is generated from); the root's block also names the shipped bundle hash. When this build
+ships another hash, the owner device rewrites each page in place by `key`, keeping ids and threads,
+makes pages for new keys and archives (never deletes) pages whose key is gone. Several owner tabs or
+devices may sync at once; they converge on one tree: a new page holds its `origin` block as soon as
+it exists, a sync reuses a root or child it finds by `key` before making one, and a closing pass
+archives any second root's tree and any second page for a `key`, keeping the lowest page ID.
+Regeneration rewrites a page's whole source, so a thread anchored on text that changed keeps its
+discussion but may lose its quote anchor. `/design/ds/gui` shows this tree once it exists; there is
+no Publish for it.
+`tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
+or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
+built-in one, and VERSION (default: the latest release). A space's release is the root page's
+attachment, read through the running serve under current access; the built-in release is read
+from the executable. The bundle must match
+its release record (version and hash) or the command returns `COLAB_DESIGN_RELEASE_INVALID`. It
+prints `pin` (the system, which follows the draft), the `meta` line to copy, `lock` and `lockMeta`
+(this release's lock), `principles` and each component's `tag`, `props`, `slots` and `examples` of
+that release, never its code or CSS. An unknown system is `COLAB_DESIGN_SYSTEM_NOT_FOUND`; a missing
+release `COLAB_DESIGN_RELEASE_NOT_FOUND`. Both commands change nothing.
 
 ### Local management CLI (#1307)
 
@@ -5885,24 +5908,23 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
 
 - `comments` is the number of non-deleted comment records in the page's annotation threads,
   open and resolved, agent replies included. An annotation thread is a thread that is not
-  deleted, carries no proposal and is anchored. Chat messages, status actions, proposal
-  decisions and question answers are not counted; a question answer is the plain-text comment
+  deleted and is anchored. Chat messages, status actions and question answers are not counted; a question answer is the plain-text comment
   that starts `Answer to “`.
-- `needsYou` is the number of pending targets, at most 350 (200 proposals, 50 readings,
+- `needsYou` is the number of pending targets, at most 150 (50 readings,
   50 answer blocks and 50 reviews), with a target ID counted once. The order for deduplication
-  and the page-header menu is proposals, readings, answers, reviews. A proposal waits while
-  not deleted, not resolved and without a live decision. A reading is unread until its canonical
+  and the page-header menu is readings, answers, reviews. A reading is unread until its canonical
   exact fixed-form device comment and a person's Resolve exist. Each registered open question counts
   once, including source-removed registrations; group wrappers do not collapse those targets.
   Answered is projected from verified question-bound ordinary own comments, independently of Ask.
   A review waits unless person-closed or its latest device change request is still waiting for an
   agent reply. Agent prose, device labels and publisher clocks cannot substitute for provenance.
-- `waiting` is exactly `needsYou > 0`, not a separate proposal-only definition.
+- `waiting` is exactly `needsYou > 0`, not a separate definition.
 - `author` is the effective creator's bounded display label ([question metadata](#question-metadata-5052)), falling back to `originalAuthor` for legacy display only. That label alone is never a creator, routing reference, identity proof or the last editor.
 - `work` is the page's direct sub-pages as the list shows them (see [Work](#work-4050)), omitted
   for a page without sub-pages, so a fresh summary without it is in discussion. It is
   `{stage, done, total}`: the derived stage and the direct sub-pages done and in all, each counted
-  by its own manual state, the same count the page's work panel shows. The stage agrees with the
+  by its own manual state and leaving archived sub-pages out, the same count the page's work panel
+  shows. The stage agrees with the
   counts: `total` 0 is never sent, `done == total` is `done`, and anything else is `in-progress`. A
   sub-page without a fresh entry counts as unknown, never done.
 - `parent` is `{page, index}`, the page that lists this page and this page's position in that list,
@@ -5968,9 +5990,9 @@ The JSON result is exactly one of:
   page; labels or agent prose never count as a read. Pending reading IDs must
   agree with the shared pending-target projection, including cross-kind ID
   deduplication. These descriptor links only open unread readings; they never mark read.
-  `needs` names the pending items the count includes, ordered review, question, reading,
-  proposal and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
-  `{kind:"review"|"question"|"reading"|"proposal", id, title, agent?, why?}`. `id` is the
+  `needs` names the pending items the count includes, ordered review, question, reading
+  and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
+  `{kind:"review"|"question"|"reading", id, title, agent?, why?}`. `id` is the
   pending-target ID (a question's is its group's); `title` is 1–200 code points and `agent` at
   most 64; `why` appears on a reading only. A pending item the page no longer lists is left out.
   `latest`, absent when the page has no live comment, is `{who?, atMs, text}`: the newest
@@ -6608,21 +6630,23 @@ contexts cannot request either route. Bodies are `{version:1,page,dryRun?}`; unk
 malformed page IDs refuse. No route starts another service or changes sharing.
 
 Known JSON byte quantities are integers; an unavailable measurement is null. A page row has `pageId`, `title`, `contentBytes`, `historyBytes`,
-`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `totalBytes`, `freeable`,
+`commentsBytes`, `attachmentsBytes`, `unusedAttachmentBytes`, `unusedAttachmentsRemoveAtMs`, `totalBytes`, `freeable`,
 `lastCleanedAutomaticallyAtMs` and `skipped`. Page content is the current baseline plus each
 stream's latest paired content checkpoint, any required fold anchor, and active tail after that cut;
 other retained content payloads and earlier baselines are history. Every counted payload appears
-in exactly one row. Own-namespace payloads are comments, including status and proposal records.
+in exactly one row. Own-namespace payloads are comments, including status records.
 SQLite receipt/hash ledgers, indexes, and physical overhead are outside these row counts; `dbBytes`
 and `dbFreeBytes` separately report physical DB size and SQLite free pages. The `space` response
 includes `version`, `space`, those DB values and `pages`. When the active local object channel
 supports namespace usage, `attachmentsBytes` is its per-page `chargedBytes`: a conservative
 allocation that can include uploading and retained object identities, not an exact filesystem
-measurement. Unsupported, unavailable or timed-out usage is null. The object wire does not expose
-a complete per-object local inventory, so `unusedAttachmentBytes` is null; `totalBytes` sums known
-page payload bytes and the attachment allocation and is null when that allocation is unknown.
+measurement. Unsupported, unavailable or timed-out usage is null. `unusedAttachmentBytes` sums the
+listed objects this machine currently records as not in use, and `unusedAttachmentsRemoveAtMs` is
+when the earliest of them is removed; both are null when the active channel cannot list objects (a
+Remote before object channel version 4, or no serve), and the time is null when none waits. `totalBytes`
+sums known page payload bytes and the attachment allocation and is null when that allocation is unknown.
 Storage reads use a short bounded object-channel deadline without holding the sync lock. Reclaim
-never waits for object usage. No attachments are removed here (#5284).
+never waits for object usage. Reclaim removes no attachments; [Unreferenced attachments](#unreferenced-attachments-5284) does.
 
 `freeable:{history,files}` estimates the bytes the next cleanup is expected to remove; the result
 reports what was actually freed. It selects current prune candidates using the same paired,
@@ -6654,11 +6678,45 @@ The owner Manage page displays Page content, Edit history, Attachments and Comme
 machine. Cleanup is the only storage action and requires confirmation; its completion reports
 measured freed bytes and that the page is unchanged. On partial failure the error reports any
 known positive savings; unknown savings are not presented as zero. Unavailable attachment
-inventory is shown as unknown and no attachment expiry claim is made before #5284.
+inventory is shown as unknown. When files wait for removal the Attachments row adds
+`(<size> not in use, removed on <Mon D>)`, the earliest removal day in local time; human `storage`
+output adds `<title>: <size> not in use, removed in <interval>`. Nothing else in the section changes.
 
 `lastCleanedAutomaticallyAtMs` is a local Unix-millisecond timestamp recorded best-effort only
 after an automatic pass actually compacts the page; scans, no-ops, dry-runs and manual requests do
 not update it. Legacy and unrecorded results are null.
+
+### Unreferenced attachments (#5284)
+
+The serve's object-maintenance worker removes attachment objects that no retained reference reaches.
+It visits one page per minute, rotating through every page, and needs an established object channel
+at version 4 (`objects.list` and `objects.remove`); on an older Remote it records and removes nothing.
+
+- **Eligible pages.** Only writable pages in `current` history mode that are not public. Pages in the
+  default `shared` history mode, public pages, archived pages and deleted pages keep every object, and
+  a visit forgets their clocks, so the wait starts over if a page becomes eligible. A deleted page's
+  namespace is removed whole by the existing sweep.
+- **Reference set.** Every descriptor in the current page source, every message revision of every
+  readable epoch (an earlier revision of a deleted message still holds its files), and the objects of
+  unfinished native attaches. Snapshot manifests join it once they exist (#2299). Superseded
+  old-epoch document lists are not references: no reader can address them, so a rekeyed object's old
+  copy is removed and its exposure window ends. A page with more than 64 epochs, an epoch that cannot
+  be read, a listing over 1,024 objects or a spent budget decides nothing that visit.
+- **Clock.** Each listed committed object outside the reference set gets a local
+  `attachment_unreferenced` row (space.db schema 21, never synced) holding its size and the time this
+  machine first saw it unreferenced. A visit that finds it referenced again, or no longer listed,
+  deletes the row; a new reference therefore restarts the full wait. A row whose time is in the future
+  is not due. Losing the table only restarts the wait.
+- **Removal.** An object is due 30 days after its row's time (`ATTACHMENT_UNREFERENCED_GRACE_MS`). At
+  most 16 are removed per visit, each its own request with a 5 s deadline. Before the listing, the
+  visit records a fence over the membership head, the page epoch and every stream's highest receipt
+  and checkpoint; each removal runs under the serve's write exclusion, rechecks the fence and the
+  page's eligibility, and the admission callbacks recheck them again. A moved fence refuses the
+  removal before its effect, and the next visit recomputes. Only `removed` deletes the row; `unknown`
+  keeps it and the next visit sees whether the object is still listed. Remote releases the charge
+  before it answers `removed`, so `attachmentsBytes` drops only after removal is confirmed. A removed
+  object keeps Remote's small retained record. Removal deletes the stored ciphertext; it is not secure
+  erasure.
 
 ### Content publication (#1908, #1928, #1934)
 
@@ -7182,8 +7240,9 @@ page and never remembered.
 
 **Window.** Between the advance and the swap the document references old-epoch objects. A holder
 of the revoked key can read those bytes only with raw access to the object store, and only until
-the swap and until the old object is deleted, which needs the Remote delete operation of #2294.
-Until then the old object stays and is charged; this contract makes no erasure claim.
+the swap and until the old object is removed, 30 days after the swap left it unreferenced
+([Unreferenced attachments](#unreferenced-attachments-5284)). Until then the old object stays and is
+charged; removal deletes the stored ciphertext and makes no secure-erasure claim.
 
 **Swap.** The serve reads the old attachment through the root-local read, stages the plaintext in
 a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under

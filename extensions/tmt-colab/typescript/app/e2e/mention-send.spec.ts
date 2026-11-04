@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { messageSendCopy } from '../src/message-send-refusal.js';
+import { capturePath } from './captures.js';
 import { destination, id } from '../test/ask-fixtures.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
@@ -200,12 +201,24 @@ test('comment write failure retains draft and prepares no Ask; preparation failu
   await input.pressSequentially('@alpha note');
   await input.press('Enter');
   await expect(page.getByRole('alert')).toContainText('Not sent. Your draft is kept; try again.');
+  // Failure notices in the composer's slot, in the danger tone (#5911).
+  const capture = async (state: string) => {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await page
+        .locator('.annotation-compose')
+        .screenshot({ path: capturePath(`composer-slot-${state}-${theme}.png`) });
+    }
+    await page.emulateMedia({ colorScheme: null });
+  };
+  await capture('not-sent');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   expect((await run(page, 'proof')).preparations).toBe(0);
   await run(page, 'mount', 'prepare-failure');
   await input.pressSequentially('@alpha @beta note');
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toHaveCount(2);
+  await capture('recipient-failed');
   expect(await run(page, 'proof')).toMatchObject({
     writes: 1,
     preparations: 2,
@@ -707,6 +720,24 @@ test('empty explicit submit keeps Send disabled without an alert', async ({ page
   await expect(page.getByRole('button', { name: /^Send/ })).toBeDisabled();
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
 });
+for (const surface of ['annotation', 'reply', 'chat'])
+  test(`${surface}: an empty notice slot leaves no gap above the text`, async ({ page }) => {
+    const input = await mount(page, { surface });
+    await expect(page.locator('.annotation-notice-slot')).toBeHidden();
+    const gap = await input.evaluate((node) => {
+      const surface = node.closest('.rich-input-surface')!;
+      const field = node.getBoundingClientRect().top;
+      const children = [...surface.children].filter((child) => !child.contains(node));
+      const above = children.filter((child) => {
+        const box = child.getBoundingClientRect();
+        return (
+          box.height > 0 && box.bottom <= field && getComputedStyle(child).position !== 'absolute'
+        );
+      });
+      return above.map((child) => child.className);
+    });
+    expect(gap).toEqual([]);
+  });
 for (const surface of ['annotation', 'chat'])
   for (const [width, theme] of [
     [1440, 'light'],
@@ -724,13 +755,23 @@ for (const surface of ['annotation', 'chat'])
         const host = document.getElementById('annotation-fixture')!;
         host.style.maxHeight = '280px';
         host.style.overflowY = 'auto';
+        // Every surface keeps its history or quote above the composer; the notice floats over it.
+        host.style.display = 'flex';
+        host.style.flexDirection = 'column';
+        const history = document.createElement('div');
+        history.style.flex = '1 0 48px';
+        host.prepend(history);
       }, theme);
       await input.fill('Kept draft.\n'.repeat(20));
       await input.press('ControlOrMeta+End');
+      const field = () => input.evaluate((node) => node.getBoundingClientRect().toJSON());
+      const before = await field();
       await input.press('Enter');
       const alert = page.getByRole('alert');
       await expect(alert).toHaveText(`✗ ${messageSendCopy('S12')} (ref S12)`);
       await expect(alert).toBeInViewport();
+      // The notice takes no room: the field stays exactly where it was.
+      expect(await field()).toEqual(before);
       expect(
         await alert.evaluate((node) => {
           const box = node.getBoundingClientRect();

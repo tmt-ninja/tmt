@@ -49,7 +49,8 @@ pub(crate) fn seal_document(
         &snapshot.secret,
         plaintext,
     )?;
-    let ciphertext = envelope.to_json()?;
+    // Attachments are Remote objects and keep the v1 form until #5876 PR 2.
+    let ciphertext = envelope.to_json_v1()?;
     let descriptor = Descriptor {
         version: 1,
         attachment_id: page::fresh_id()?,

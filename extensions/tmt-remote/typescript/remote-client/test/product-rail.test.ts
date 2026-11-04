@@ -1,14 +1,14 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vite-plus/test';
 
-// The design gallery is a dev-preview rail item only (.poc on :5182): the product door serves no
-// /design/ route, so no built script the door ships may link to it.
-it('ships no Design rail item in the product bundles', () => {
-  const assets = new URL('../../../rust/tmt-remote/assets/', import.meta.url);
-  const scripts = readdirSync(assets).filter((name) => name.endsWith('.js'));
-  expect(scripts).toContain('shell.js');
-  for (const name of scripts)
-    expect(readFileSync(new URL(name, assets), 'utf8'), name).not.toMatch(
-      /\}\/design\/|["'`]\/design\/|id: ["']design["']|["']palette["']/,
-    );
+// Design is a product rail module (#5866, #5873): Colab's Design extra, beside Colab, served by
+// Colab's own mount at /colab/design/. The door's shell script ships that one fixed item.
+it('ships the Design rail item, routed to Colab, in the product shell', () => {
+  const shell = readFileSync(
+    new URL('../../../rust/tmt-remote/assets/remote-v1.js', import.meta.url),
+    'utf8',
+  );
+  expect(shell).toMatch(
+    /id: "design",\s*label: "Design",\s*icon: "palette",\s*path: "\/colab\/design\/"/,
+  );
 });

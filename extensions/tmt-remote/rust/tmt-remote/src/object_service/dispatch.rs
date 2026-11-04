@@ -397,7 +397,7 @@ fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
             super::upload::serve(hub, bus, &request, deadline)
         }
         Call::Config(_) => config(hub, bus, &request, deadline),
-        Call::RemoveNamespace(_) | Call::Usage(_) => {
+        Call::RemoveNamespace(_) | Call::Usage(_) | Call::Remove(_) | Call::List(_) => {
             super::namespace::serve(hub, bus, &request, deadline)
         }
     }
@@ -656,7 +656,12 @@ fn transfer_of(call: &Call) -> Option<Uuid4> {
         Call::Part(input) => Some(input.transfer_id),
         Call::Commit(input) | Call::Discard(input) => Some(input.transfer_id),
         Call::Status(input) => Some(input.transfer_id),
-        Call::Config(_) | Call::Read(_) | Call::RemoveNamespace(_) | Call::Usage(_) => None,
+        Call::Config(_)
+        | Call::Read(_)
+        | Call::RemoveNamespace(_)
+        | Call::Usage(_)
+        | Call::Remove(_)
+        | Call::List(_) => None,
     }
 }
 

@@ -97,11 +97,11 @@ test('a one-line edit of a script-free page keeps the frame, its state and its o
   expect(await sameDocument(page)).toBe(true);
 });
 
-test('an edit next to a proposal places its slot again in the same frame', async ({ page }) => {
+test('an edit next to a question places its slot again in the same frame', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');
-  await run(page, 'proposal', 'inline');
-  const card = page.locator('.proposal-inline').first();
+  await run(page, 'question');
+  const card = page.locator('.question-inline').first();
   await expect(card).toBeVisible();
   const renderId = await iframe(page).getAttribute('data-render-id');
   const before = (await card.boundingBox())!.y;
@@ -109,7 +109,7 @@ test('an edit next to a proposal places its slot again in the same frame', async
   await run(
     page,
     'change',
-    source.replace('<p>Before the proposal.</p>', '$&<div style="height:300px">Tall</div>'),
+    source.replace('<p>Before the question.</p>', '$&<div style="height:300px">Tall</div>'),
   );
   await expect(frame(page).getByText('Tall', { exact: true })).toBeVisible();
   await expect(iframe(page)).toHaveAttribute('data-render-id', renderId!);
@@ -136,6 +136,37 @@ test('a layout change gets a fresh frame', async ({ page }) => {
   await expect(frame(page).locator('#field')).toBeVisible();
   expect(await sameDocument(page)).toBe(false);
 });
+
+// The parser makes an attribute that follows a quoted value with no space, so the frame's text
+// screen alone would plan a fragment here. The frame checks the parsed run too and answers remount,
+// whatever key the parent computed.
+for (const [name, added] of [
+  ['img', '<p><img src="x"onerror="window.ran=1"></p>'],
+  ['quoted title', `<p title='t'onclick="window.ran=1">Click</p>`],
+]) {
+  test(`the frame refuses an edit that adds a handler right after a quoted value (${name})`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const result = await page.evaluate(async (added) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      document.body.replaceChildren(host);
+      let ready!: () => void;
+      const bound = new Promise<void>((resolve) => (ready = resolve));
+      const handle = await mountRenderer(host, '<p id="a">one</p>\n<p id="b">two</p>', {
+        signal: new AbortController().signal,
+        onState: (state: string) => state === 'ready' && ready(),
+      });
+      await bound;
+      const plain = await handle.update('<p id="a">one!</p>\n<p id="b">two</p>');
+      const handler = await handle.update(`<p id="a">one!</p>\n${added}\n<p id="b">two</p>`);
+      return { plain, handler };
+    }, added);
+    expect(result).toEqual({ plain: 'applied', handler: 'remount' });
+  });
+}
 
 for (const [name, replacement] of [
   // The frame answers that the page needs a fresh frame.
