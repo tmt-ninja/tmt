@@ -248,12 +248,12 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
 
   it('allows what the judge allows, printing nothing', async () => {
     const c = newCase();
-    answer = verdict('allow', 'Runs the tests.');
-    const result = await c.guard(bash('cargo test -p tmt-digest'));
+    answer = verdict('allow', 'Builds the package.');
+    const result = await c.guard(bash('cargo build -p tmt-digest'));
     expect(result.stdout).toBe('');
     expect(c.lines()[0]).toMatchObject({
       verdict: 'allow',
-      reason: 'Runs the tests.',
+      reason: 'Builds the package.',
     });
   });
 
@@ -375,6 +375,56 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received[0].body.system).toContain(
       'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
     );
+  });
+
+  it('skips the model for one run of a known test runner, and judges any watch, sleep or loop around it', async () => {
+    const c = newCase();
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    const runs = [
+      'pnpm test',
+      'pnpm --filter tmt test',
+      'npm run test',
+      'npx vitest run test/tooling/ci-wake.test.ts',
+      'npx playwright test acceptance/chrome.spec.ts',
+      'corepack pnpm exec vp test run --config vitest.config.ts test/tooling/codex-wait-guard.test.ts',
+      'vp test run',
+      'pnpm exec playwright test',
+      'cargo test -p tmt-ops --bin tmt-ops terminal_tab',
+      'RUST_TEST_THREADS=3 cargo nextest run -p tmt-adapters',
+      'cargo +stable test --offline --locked -p tmt-cli --test architecture',
+      'node --test scripts/hooks/test.mjs',
+    ];
+    for (const command of runs) {
+      const result = await c.guard(bash(command));
+      expect(result.stdout, command).toBe('');
+    }
+    expect(received).toEqual([]);
+    const lines = c.lines();
+    expect(lines).toHaveLength(runs.length);
+    for (const line of lines) expect(line).toMatchObject({ verdict: 'skip', reason: 'test' });
+
+    answer = verdict('allow');
+    const judged = [
+      'npx vitest --watch',
+      'pnpm exec vitest -w',
+      'npx playwright test --ui',
+      'cargo test && sleep 60',
+      'while true; do pnpm test; done',
+      'pnpm test; gh pr checks 6041',
+      'pnpm test &',
+      'cargo test > log 2>&1',
+      'cargo watch -x test',
+      'npm run build',
+      'node scripts/test.mjs',
+      'pnpm exec tsx sleep.ts test',
+      'sleep 60 test',
+      'pnpm test $(sleep 9)',
+    ];
+    for (const command of judged) await c.guard(bash(command));
+    expect(received).toHaveLength(judged.length);
+    for (const line of c.lines().slice(runs.length)) expect(line.verdict).toBe('allow');
   });
 
   it('skips the model for the pinned host-health gate only, and judges anything else', async () => {

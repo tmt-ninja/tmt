@@ -36,6 +36,14 @@
 //    pins its content: only while its sha256 is HOST_HEALTH_SHA256, checked on
 //    every call; any other content is judged. Changing that script needs a
 //    guard update.
+//    Running a known test runner once is a `skip` (reason `test`): one simple
+//    command, after optional plain `NAME=value` words and `corepack`, that is
+//    `cargo test`, `cargo nextest`, `node --test`, `vp test`, or `pnpm`/`npm`/
+//    `npx` (with options, then optional `exec` or `run`) running `test`,
+//    `vitest`, `vp test` or `playwright test`, with no `sleep` word and no
+//    `--watch`, `-w` or `--ui` flag. A test that waits briefly for its own
+//    fixture is not the agent waiting; anything chained, looped or wrapped
+//    around the runner is judged, and test files are never sent.
 // 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
@@ -264,6 +272,42 @@ export function allowlisted(tool, command) {
   if (program === 'git') return ['status', 'diff', 'log', 'show'].includes(first);
   if (program === 'gh') return ghRead(words);
   return program === 'sed' && first === '-n';
+}
+
+/** Package-manager options that take the next word as their value. */
+const PACKAGE_VALUE_OPTIONS = new Set(['-C', '--dir', '--filter', '-F', '--prefix', '--workspace']);
+/** Flags that keep a runner watching instead of running once. */
+const WATCH_FLAGS = /^(?:--watch|-w|--ui)(?:=|$)/;
+
+/** Whether `words` start a test run: `test`, `vitest`, `vp test` or `playwright test`. */
+function testSubject(words) {
+  const [subject, next] = words;
+  if (subject === 'test' || subject === 'vitest') return true;
+  return (subject === 'vp' || subject === 'playwright') && next === 'test';
+}
+
+/**
+ * Whether the command runs a known test runner once (#6003): one simple command, no `sleep`,
+ * no watch flag. Its own fixtures may wait briefly; the agent does not.
+ */
+export function runsTests(command) {
+  const { words, simple } = shellWords(command);
+  if (!simple || words.some((word) => word === 'sleep' || WATCH_FLAGS.test(word))) return false;
+  let at = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at] ?? '')) at += 1;
+  if (words[at] === 'corepack') at += 1;
+  const [program, ...rest] = words.slice(at);
+  if (program === 'cargo') {
+    const sub = rest.find((word) => !word.startsWith('+') && !word.startsWith('-'));
+    return sub === 'test' || sub === 'nextest';
+  }
+  if (program === 'node') return rest.includes('--test');
+  if (program === 'vp') return rest[0] === 'test';
+  if (!['pnpm', 'npm', 'npx'].includes(program)) return false;
+  let next = 0;
+  while (rest[next]?.startsWith('-')) next += PACKAGE_VALUE_OPTIONS.has(rest[next]) ? 2 : 1;
+  if (rest[next] === 'exec' || rest[next] === 'run') next += 1;
+  return testSubject(rest.slice(next));
 }
 
 /** A trailing `&`, and redirections such as `> log 2>&1` or `< /dev/null`, at the end of a command. */
@@ -695,6 +739,7 @@ async function main() {
     return finish({ verdict: 'deny', enforced: true, reason: 'key cache' });
   }
   if (allowlisted(tool, command)) return finish({ verdict: 'skip' });
+  if (tool === 'Bash' && runsTests(command)) return finish({ verdict: 'skip', reason: 'test' });
   if (tool === 'Bash' && startsCiWake(payload.cwd, command)) {
     return finish({ verdict: 'skip', reason: 'ci-wake' });
   }
