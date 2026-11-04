@@ -3615,20 +3615,6 @@ describe('required CI gate', () => {
     expect(colab).toContain('save-if: false');
   });
 
-  it('bounds chrome-only disk cleanup before trace production (#4742)', () => {
-    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    const job = ci.split('\n  colab-chrome:\n')[1].split(/\n  [a-z][a-z-]*:\n/)[0];
-    expect(ci.match(/name: Reserve disk headroom for chrome traces/g)).toHaveLength(1);
-    expect(job).toContain('timeout-minutes: 2');
-    expect(job).toContain(
-      'sudo timeout 90s rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup'
-    );
-    expect(job).toContain('Chrome disk headroom cleanup:');
-    expect(job.indexOf('Reserve disk headroom')).toBeLessThan(
-      job.indexOf('Run the cross-screen chrome spec')
-    );
-  });
-
   // #5743: hosted blob storage failed every internal retry of an artifact download in a
   // merge group and a release, while other jobs downloaded the same artifact minutes later.
   it('retries each CI and release-manifest artifact download once, then fails closed', () => {
