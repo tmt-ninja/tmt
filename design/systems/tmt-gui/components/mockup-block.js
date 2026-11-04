@@ -1,5 +1,5 @@
 // The page runtime adds the shared portal to a DOM-owned DsScope stage.
-export default ({ React, html }) =>
+export default ({ React, html, pagePin }) =>
   function MockupBlock(props) {
     const [width, setWidth] = React.useState(
       props.preset === '1440'
@@ -13,6 +13,12 @@ export default ({ React, html }) =>
     const viewport = React.useRef(null);
     const [available, setAvailable] = React.useState(0);
     const height = Math.max(100, Math.min(2000, Number(props.height) || 400));
+    const requestedSystem = props.system || pagePin.system;
+    const requestedLock = props.lock || pagePin.lock;
+    const matchesLock =
+      requestedLock === pagePin.lock ||
+      (pagePin.lock !== 'follow' && requestedLock === pagePin.version);
+    const unavailable = requestedSystem !== pagePin.system || !matchesLock;
     React.useLayoutEffect(() => {
       const node = viewport.current;
       if (!node) return;
@@ -25,7 +31,7 @@ export default ({ React, html }) =>
     const scale = width > 390 && available ? Math.min(1, available / width) : 1;
     return html`<section className="tmt-block-mockup" aria-label="Mockup stage">
       <div className="tmt-block-mockup-toolbar">
-        <span>${props.system || 'tmt-gui'}@${props.lock || 'follow'}</span>
+        <span>${requestedSystem}@${requestedLock}</span>
         ${[390, 1440].map(
           (size) => html`<button
             key=${size}
@@ -65,7 +71,7 @@ export default ({ React, html }) =>
         )}
       </div>
       ${scale < 1 && html`<span className="tmt-block-mockup-scale">Scaled ${Math.round(scale * 100)}%</span>`}
-      <div
+      ${unavailable ? html`<p role="status">This page uses ${pagePin.system}@${pagePin.version}${pagePin.lock === 'follow' ? ' (following draft)' : ''}. The requested mockup system or version is unavailable.</p>` : html`<div
         className="tmt-block-mockup-viewport"
         ref=${viewport}
         style=${{ height: height * scale }}
@@ -77,6 +83,6 @@ export default ({ React, html }) =>
         >
           <div data-theme=${theme === 'viewer' ? undefined : theme}>${props.children}</div>
         </div>
-      </div>
+      </div>`}
     </section>`;
   };

@@ -206,7 +206,10 @@ export function noticeFrame(failure: DesignSystemFailure, detail?: string): Fram
  * the component with the page runtime's React into the element's own light DOM. Slotted children
  * move, as DOM, into the rendered component; an element met while the page still parses waits for
  * its children, since the definitions run before the body. */
-export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem {
+export function frameDesignSystem(
+  bundle: DesignSystemBundle,
+  pin: DesignSystemPin = { system: bundle.system },
+): FrameDesignSystem {
   if (!supportsRuntime(bundle.runtime)) throw new Error('Unsupported design system runtime');
   for (const component of bundle.components) {
     const parts = component.parts ?? [];
@@ -257,12 +260,17 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   const sharedCss = `${hasPageList ? pageListCss : ''}\n${hasDataTable ? dataTableCss : ''}\n${hasRichInput ? richInputCss : ''}\n${hasBlocks ? blocksCss : ''}\n${hasEditorial ? editorialCss : ''}`;
   const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${sharedCss}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
   const prefix = JSON.stringify(bundle.prefix).replace(/</g, '\\u003c');
-  const script = `(()=>{const t=window.tmt;const meta=${meta},prefix=${prefix};
+  const pagePin = JSON.stringify({
+    system: pin.system,
+    version: pin.lock?.version ?? bundle.version,
+    lock: pin.lock ? `${pin.lock.version}#${pin.lock.hash}` : 'follow',
+  }).replace(/</g, '\\u003c');
+  const script = `(()=>{const t=window.tmt;const meta=${meta},prefix=${prefix},pagePin=Object.freeze(${pagePin});
 const factories=[${bundle.components.map(({ code }) => `(function(){${code}})()`).join(',')}];
 if(!t||!t.React||!t.html||!t.createRoot)return;
 const React=t.React,cn=(...parts)=>parts.filter(Boolean).join(' ');
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
-meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name)||!t.ui||!Object.hasOwn(t.ui,name))throw new Error('Undeclared UI part: '+String(name));return t.ui[name];}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
+meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name)||!t.ui||!Object.hasOwn(t.ui,name))throw new Error('Undeclared UI part: '+String(name));return t.ui[name];}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui,pagePin}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
 connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){if(!this.slots){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}}this.root=t.createRoot(this);}this.paint();}
 disconnectedCallback(){const root=this.root;if(root)queueMicrotask(()=>{if(!this.isConnected&&this.root===root){root.unmount();this.root=null;}});}
@@ -360,7 +368,7 @@ export async function loadDesignSystem(
   // the read goes on for the next open.
   const bundle = await Promise.race([outcome(pin, from), deadline()]);
   if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
-  const frame = frameDesignSystem(bundle);
+  const frame = frameDesignSystem(bundle, pin);
   const findings = findingsScript(checkPageElements(elements, pin, bundle as unknown as Bundle));
   return {
     style: frame.style,

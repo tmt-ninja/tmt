@@ -5512,6 +5512,12 @@ browser-ui parts running on the page runtime's React. A component declares its n
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
+Runtime 4 also supplies an immutable `pagePin` with the page's system identifier, resolved version,
+and lock (`follow` or `version#hash`). It describes the already admitted system; it grants no
+additional resolution or transport capability. A mockup inherits that pin when its system or lock
+is omitted. If an explicitly requested system or lock differs, it shows the page's system and
+version and does not render a stage. A locked version may be named by version alone or by its
+complete `version#hash`; a following page accepts only `follow`.
 When a component element leaves the document, its React root is released after a microtask if it
 has not reconnected. Moving a component within the same turn keeps its root; a later reconnection
 mounts a new root with the original slotted nodes. This releases component-owned resources such as

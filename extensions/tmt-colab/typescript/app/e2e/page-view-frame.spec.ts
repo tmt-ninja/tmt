@@ -9,6 +9,55 @@ const bundle = JSON.parse(
   ),
 );
 
+test('mockup stages accept the page pin and explain mismatched systems and locks', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (release) => {
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const host = document.createElement('div');
+    document.body.prepend(host);
+    await mountRenderer(
+      host,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">
+       <tmt-ui-mockup-block id="implicit"><tmt-ui-button>Inherited</tmt-ui-button></tmt-ui-mockup-block>
+       <tmt-ui-mockup-block id="matching" system="tmt-gui" lock="0.1.0"><tmt-ui-button>Matching</tmt-ui-button></tmt-ui-mockup-block>
+       <tmt-ui-mockup-block id="matching-hash" lock="0.1.0#${release.hash}"><tmt-ui-button>Matching hash</tmt-ui-button></tmt-ui-mockup-block>
+       <tmt-ui-mockup-block id="wrong-system" system="other"><tmt-ui-button>Wrong system</tmt-ui-button></tmt-ui-mockup-block>
+       <tmt-ui-mockup-block id="wrong-lock" lock="follow"><tmt-ui-button>Wrong lock</tmt-ui-button></tmt-ui-mockup-block>
+       <tmt-ui-mockup-block id="wrong-hash" lock="0.1.0#sha256-wrong"><tmt-ui-button>Wrong hash</tmt-ui-button></tmt-ui-mockup-block>`,
+      {
+        signal: new AbortController().signal,
+        onState: () => {},
+        designSystem: {
+          release: async () => release,
+          draft: async () => release,
+          watch: () => () => {},
+        },
+      },
+    );
+  }, bundle);
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  await expect(frame.locator('#implicit').getByRole('button', { name: 'Inherited' })).toBeVisible();
+  await expect(frame.locator('#matching').getByRole('button', { name: 'Matching' })).toBeVisible();
+  await expect(
+    frame.locator('#matching-hash').getByRole('button', { name: 'Matching hash' }),
+  ).toBeVisible();
+  for (const id of ['wrong-system', 'wrong-lock', 'wrong-hash']) {
+    const block = frame.locator(`#${id}`);
+    await expect(block.getByRole('status')).toContainText('tmt-gui@0.1.0');
+    await expect(block.locator('[data-tmt-ds-scope]')).toHaveCount(0);
+  }
+  await frame
+    .locator('#wrong-system')
+    .evaluate((element) => element.setAttribute('system', 'tmt-gui'));
+  await expect(
+    frame.locator('#wrong-system').getByRole('button', { name: 'Wrong system' }),
+  ).toBeVisible();
+});
+
 test('verified custom-prefix components receive only their declared data', async ({ page }) => {
   await servePageRuntime(page);
   await page.goto('/');
@@ -29,7 +78,7 @@ test('verified custom-prefix components receive only their declared data', async
     (window as unknown as { admittedPages: string[] }).admittedPages = [];
     await mountRenderer(
       host,
-      '<meta name="tmt-ds" content="acme"><acme-page-view></acme-page-view><acme-work-bundle page="project-1"></acme-work-bundle><acme-button page="not-admitted">Test</acme-button>',
+      '<meta name="tmt-ds" content="acme"><acme-page-view></acme-page-view><acme-work-bundle page="project-1"></acme-work-bundle><acme-button page="not-admitted">Test</acme-button><acme-mockup-block id="draft" lock="follow"><acme-button>Draft stage</acme-button></acme-mockup-block><acme-mockup-block id="locked" lock="0.1.0"><acme-button>Locked stage</acme-button></acme-mockup-block>',
       {
         signal: new AbortController().signal,
         onState: () => {},
@@ -70,6 +119,11 @@ test('verified custom-prefix components receive only their declared data', async
   const frame = page.frameLocator('iframe[title="Page content"]');
   await expect(frame.getByText('Custom list')).toBeVisible();
   await expect(frame.getByText('Custom work')).toBeVisible();
+  await expect(frame.locator('#draft').getByRole('button', { name: 'Draft stage' })).toBeVisible();
+  await expect(frame.locator('#locked').getByRole('status')).toContainText(
+    'acme@0.1.0 (following draft)',
+  );
+  await expect(frame.locator('#locked').locator('[data-tmt-ds-scope]')).toHaveCount(0);
   expect(
     await page.evaluate(() => (window as unknown as { admittedPages: string[] }).admittedPages),
   ).toEqual(['project-1']);
