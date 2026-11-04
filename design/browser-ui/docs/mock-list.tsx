@@ -398,20 +398,27 @@ export function ListScreen({
   // The first read: structure only, with no pins, counts or commands until pages arrive.
   const cold = data === 'loading';
   const stuck = query.get('sticky') === '1';
+  // Without a paired machine (Colab's home with no port): no pins, no stage tabs, Needs you as a
+  // filter chip, and the actions row with New page above the search.
+  const readOnly = data === 'readonly';
   const [view, setView] = useState('all');
+  const [needsOnly, setNeedsOnly] = useState(false);
+  const waiting = samplePages.filter((row) => row.needs).length;
   const shown =
     filter === 'none'
       ? []
       : samplePages.filter(
           (row) =>
             (filter !== '1' || row.projects.includes('design')) &&
-            (view === 'all' || (view === 'needs' ? row.needs : row.stage === view)),
+            (readOnly
+              ? !needsOnly || row.needs
+              : view === 'all' || (view === 'needs' ? row.needs : row.stage === view)),
         );
   return (
     <TooltipProvider>
       <ListBar needs={needs} />
       <div className="list-page">
-        {data !== 'empty' && !cold && (
+        {data !== 'empty' && !cold && !readOnly && (
           <ul className="list-pins" aria-label="Pinned pages">
             {rows
               .filter((row) => row.pinned)
@@ -436,41 +443,63 @@ export function ListScreen({
               ))}
           </ul>
         )}
-        <Tabs value={view} onValueChange={setView}>
-          <TabsBar
-            className="list-tabs-row"
-            actions={
-              <>
-                {/* Shortcuts need the paired machine and a first read, so a read-only or cold list has none. */}
-                {data !== 'readonly' && !cold && (
-                  <Button type="button" variant="outline" collapseLabel="Save as shortcut">
-                    <Bookmark aria-hidden="true" />
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  collapseLabel="New page"
-                  disabled={cold}
-                  className={stuck ? 'list-create-stuck' : undefined}
-                >
-                  <Plus aria-hidden="true" />
-                </Button>
-              </>
-            }
-          >
-            <TabsList variant="line" className="list-tabs" aria-label="Page views">
-              {views.map(([id, label, count]) => (
-                <TabsTrigger key={id} value={id} disabled={cold}>
-                  {label}{' '}
+        {readOnly ? (
+          <div className="list-actions">
+            <Button type="button" collapseLabel="New page">
+              <Plus aria-hidden="true" />
+            </Button>
+          </div>
+        ) : (
+          <Tabs value={view} onValueChange={setView}>
+            <TabsBar
+              className="list-tabs-row"
+              actions={
+                <>
+                  {/* Shortcuts need a first read, so a cold list has none. */}
                   {!cold && (
-                    <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
+                    <Button type="button" variant="outline" collapseLabel="Save as shortcut">
+                      <Bookmark aria-hidden="true" />
+                    </Button>
                   )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </TabsBar>
-        </Tabs>
+                  <Button
+                    type="button"
+                    collapseLabel="New page"
+                    disabled={cold}
+                    className={stuck ? 'list-create-stuck' : undefined}
+                  >
+                    <Plus aria-hidden="true" />
+                  </Button>
+                </>
+              }
+            >
+              <TabsList variant="line" className="list-tabs" aria-label="Page views">
+                {views.map(([id, label, count]) => (
+                  <TabsTrigger key={id} value={id} disabled={cold}>
+                    {label}{' '}
+                    {!cold && (
+                      <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
+                    )}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </TabsBar>
+          </Tabs>
+        )}
         <Controls stuck={stuck} filtered={filter === '1' || filter === 'none'} cold={cold} />
+        {readOnly && needs && (
+          <button
+            type="button"
+            className="list-needs-filter"
+            aria-pressed={needsOnly}
+            aria-label={`Needs you, ${waiting} pages`}
+            onClick={() => setNeedsOnly(!needsOnly)}
+          >
+            <span className="list-needs-filter-mark" aria-hidden="true">
+              ◆
+            </span>
+            Needs you {waiting}
+          </button>
+        )}
         {data === 'loading' ? (
           <div className="list-loading" aria-label="Loading pages">
             {Array.from({ length: 6 }, (_, index) => (

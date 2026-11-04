@@ -335,7 +335,7 @@ export function PageTable({
           onArchive={none}
           onDelete={none}
           onCopyId={none}
-          footer={<span className="page-table-retention">expires in 28 days</span>}
+          footer="expires in 28 days"
         />
       )}
       onOpen={onOpen ?? none}

@@ -13,7 +13,8 @@ for (const width of [390, 1440])
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const capture = async (state: string, query = '') => {
         await page.goto(`${docs}/ds/gui/mocks/colab${query}`);
-        await expect(page.getByRole('tablist', { name: 'Page views' })).toBeVisible();
+        // A read-only list has no stage tabs, so wait on the list itself.
+        await expect(page.locator('.list-page')).toBeVisible();
         await page.screenshot({
           path: path.join(directory, `5972-mock-${state}-${width}-${theme}.png`),
         });
@@ -29,6 +30,9 @@ for (const width of [390, 1440])
       await capture('loading', '?data=loading');
       await capture('error', '?data=error');
       await capture('read-only', '?data=readonly');
+      await expect(page.getByRole('tablist')).toHaveCount(0);
+      await expect(page.getByRole('list', { name: 'Pinned pages' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /^Needs you, \d+ pages$/ })).toBeVisible();
       await capture('sticky', '?sticky=1');
     });
   }
