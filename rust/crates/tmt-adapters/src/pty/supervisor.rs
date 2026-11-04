@@ -435,9 +435,14 @@ impl Supervisor {
         }
     }
 
-    /// A provider that runs in its own process group as the terminal's
-    /// foreground group stops alone on Ctrl-Z, while the launcher keeps
-    /// running. A failed read is not evidence of a stop.
+    /// The primary path for a real Ctrl-Z. The launcher leads its own session
+    /// and its parent (this supervisor) is in another session, so the
+    /// launcher's process group is orphaned and the kernel discards the
+    /// terminal's SIGTSTP for it and for a provider that shares it; only
+    /// SIGSTOP stops that group, which `reap` sees. A provider that runs in its
+    /// own process group as the terminal's foreground group is not orphaned: it
+    /// stops alone on Ctrl-Z while the launcher keeps running, and only this
+    /// read sees it. A failed read is not evidence of a stop.
     fn foreground_stopped(&self) -> bool {
         let Ok(group) = tcgetpgrp(self.master.as_fd()) else {
             return false;
