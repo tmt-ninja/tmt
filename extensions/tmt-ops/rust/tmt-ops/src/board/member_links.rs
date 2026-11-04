@@ -458,7 +458,7 @@ pub(super) fn menu_area(screen: Rect, anchor: Rect, desired_height: u16) -> Opti
 }
 
 impl App {
-    fn member_link_target(&self, identity: &str) -> Option<OpsTarget> {
+    pub(in crate::board) fn member_link_target(&self, identity: &str) -> Option<OpsTarget> {
         if self.references.error.is_some() || !self.references.agents.contains_key(identity) {
             return None;
         }

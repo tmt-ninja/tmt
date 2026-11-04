@@ -356,7 +356,7 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   a different foreground group and is idempotent. Core sends it only after the resume flag
   (`terminal.resume`), and refuses delivery to a paused member with `MEMBER_PAUSED`.
 - **Terminal stream.** [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md) publishes
-  these frames as the owner-only local stream a view such as the Ops Terminal tab reads and types
+  these frames as the owner-only local stream a view such as the Ops member frame reads and types
   into. `Snapshot` is its one addition for a view that joins mid-session: the supervisor
   (`Supervisor::snapshot`, in the same single thread that orders output) answers with
   `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the

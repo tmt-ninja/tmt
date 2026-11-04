@@ -540,21 +540,15 @@ impl Entry {
     }
 }
 
-/// Open todo count, empty, or the read state; the effective key is drawn as a keycap.
+/// The Talk/Measure row's chip (#5992): the open todo count, or the read state; the effective
+/// key is drawn as a keycap before it.
 pub(in crate::board) fn chip(summary: Option<&Summary>) -> String {
     match summary {
-        None | Some(Summary::Pending) => "Checklist".into(),
-        Some(Summary::Unavailable(_)) => "Checklist · unavailable".into(),
-        Some(Summary::Counts(counts)) if counts.is_empty() => "Checklist · empty".into(),
-        Some(Summary::Counts(counts)) => format!("Checklist · {} todo", counts.todo),
+        // Short enough for the tab row; the list itself says why.
+        Some(Summary::Unavailable(_)) => "✗ Checklist".into(),
+        Some(Summary::Counts(counts)) if counts.todo > 0 => format!("Checklist {}", counts.todo),
+        _ => "Checklist".into(),
     }
-}
-
-/// The chip fitted to `columns`.
-pub(in crate::board) fn fitted(summary: Option<&Summary>, columns: usize) -> String {
-    super::view::fit(&chip(summary), columns)
-        .trim_end()
-        .to_owned()
 }
 
 #[cfg(test)]

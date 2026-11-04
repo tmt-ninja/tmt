@@ -624,9 +624,10 @@ shows a hidden squad. The read-only full monitor values remain under Measure's
 Observed values control and named action, including UUID, memberships and long
 values. `e` does not open that reader.
 
-A squad member's header shows its Checklist chip, `Checklist · 2 todo`
-(`Checklist · empty` for an empty list), led by its key as a keycap like the tab labels
-(` C  Checklist · …`; no keycap when the key is unbound). `C` or a click on the chip opens the list,
+A squad member's Checklist chip follows Talk / Measure on the pane's tab row: `Checklist 2`
+with the open todo count (`Checklist` with none, `✗ Checklist` when the list cannot be read),
+led by its key as a keycap like the tab labels (` C  Checklist 2`; no keycap when the key is
+unbound). A narrow pane leaves the chip out. `C` or a click on the chip opens the list,
 as wide as the board: one list in stored order, links and todos mixed, two lines per item. The first
 line is `○` and the whole title; the second is `↗` and the whole link (a GitHub issue or pull reads
 `owner/repo#N`, any other address in full without its scheme), then who added the item and how long
@@ -688,8 +689,7 @@ suggests); Ops never installs, starts or pairs anything itself. The default `f` 
 Talk / Measure. An authored `overview`, `overview-view` or `overview-filter` binding gets a
 located retirement notice and is not applied.
 Default `j` jumps through the observed tmux binding only from a tmux invoker; on a
-built-in member it opens that member's Terminal view instead, and `j` again (or the
-Chat chip) leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
+built-in member it opens that member full screen instead, and Ctrl-g leads back. Herdr focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
 New member shows Name, AI tool, Model, Effort, Host, Session, Squad and Keep
@@ -715,13 +715,16 @@ shell, never through `sh -c`; blank runs your `$SHELL`), and the preview shows
 `tmt run [--host pty] NAME PROGRAM…`. Such a member reads `▪ shell` with `—` for TOK
 and Digest and its program in Model; it has no chat (Enter and `j` open its terminal)
 and receives no messages until an AI agent starts and binds in that terminal.
-A clean start on the built-in host closes the form, selects the member and shows
-its Terminal view, typing into it. The Terminal view is chosen per member (`j` or the
-Terminal chip; `j` again or the Chat chip leads back, and in the view Enter types into the program);
-every other member opens on its chat, where Enter composes as for a tmux member. A left drag over the screen selects its text and copies it with the chat's Copy.
-While typing into a program that asked for the mouse, Ops ignores a plain drag (only
-the wheel reaches the program); drag with your terminal's selection bypass (often Shift,
-Option in iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
+A clean start on the built-in host closes the form and opens the member full screen.
+`j` on any built-in-host member does the same: its terminal fills the board under one
+header row (state, Digest, members, sessions, Checklist, Colab) and every key goes to the
+program except Ctrl-g (the `member-back` action), which returns to the board. A paused
+member or an agent that ended shows a dialog to resume, start a new session or open a
+shell there; Esc hides it. Every other member opens on its chat, where Enter composes as
+for a tmux member. A left drag over the screen selects its text and copies it with the
+chat's Copy. While a program asked for the mouse, Ops ignores a plain drag (only the wheel
+reaches the program); drag with your terminal's selection bypass (often Shift, Option in
+iTerm2) to select. A failed or uncertain launch keeps the draft; never retry before checking public
 state. Esc, Cancel or a click outside hides the form or its template editor with what you
 typed; `n` reopens it with Discard between Cancel and Create (Back · Discard · Save on the
 template) to drop it. Back steps from the template to the form. Esc during a launch or template

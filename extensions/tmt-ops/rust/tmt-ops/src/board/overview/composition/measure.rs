@@ -34,6 +34,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             frame.buffer_mut(),
             app,
             Rect::new(area.x, y, area.width, 1),
+            app.workspace.selected.as_ref(),
         );
         // The target the cells describe: the selected agent or squad, else every agent.
         let title = match app.workspace.selected.as_ref() {

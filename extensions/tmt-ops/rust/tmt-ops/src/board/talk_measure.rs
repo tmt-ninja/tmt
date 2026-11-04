@@ -1,8 +1,9 @@
 //! The right pane's Talk/Measure control, painted at the start of its top rule, after the divider.
 use crate::board::{
     app::{App, Choice},
-    chip_group, keycap,
+    chip_group, conversation_checklist, keycap,
     shell::RightTab,
+    workspace::OpsTarget,
 };
 use ratatui::{
     buffer::Buffer,
@@ -22,8 +23,14 @@ const OPTIONS: [(&str, &str, RightTab); 2] = [
 ];
 
 /// Paints the control on `rule` and returns what is left of the rule for its own title.
-/// Narrow rules keep the whole title and show no control.
-pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rect {
+/// Narrow rules keep the whole title and show no control. A squad member's `target` adds its
+/// Checklist chip after the tabs (#5992) when the rule has room for it too.
+pub(in crate::board) fn paint(
+    buffer: &mut Buffer,
+    app: &App,
+    rule: Rect,
+    target: Option<&OpsTarget>,
+) -> Rect {
     let look = app.look();
     let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "M");
     let cap = key
@@ -73,6 +80,47 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
                 .push((hit.area, Choice::RightTab(*tab)));
         }
     }
-    let used = LEAD + width;
+    let mut used = LEAD + width;
+    if let Some(target) = target
+        && let Some(width) = checklist(
+            buffer,
+            app,
+            Rect::new(rule.x + used, rule.y, rule.width - used, 1),
+            target,
+        )
+    {
+        used += width;
+    }
     Rect::new(rule.x + used, rule.y, rule.width - used, 1)
+}
+
+/// ` C  Checklist 2 ` after the tabs: the keycap of the action that opens the list, then the
+/// count. Returns the width it took, or nothing when `target` has no list or `rest` keeps too
+/// little room for the title.
+fn checklist(buffer: &mut Buffer, app: &App, rest: Rect, target: &OpsTarget) -> Option<u16> {
+    let key = conversation_checklist::Key::of(target)?;
+    let look = app.look();
+    let action = crate::action::OpsUiAction::MemberNotes;
+    let cap = keycap::key(app, action, "C").map(|key| keycap::control_span(app, &key, action));
+    let text = format!(
+        " {} ",
+        conversation_checklist::chip(app.notes.summary(&key))
+    );
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(cap);
+    spans.push(Span::styled(text, look.role(Role::Muted)));
+    let line = Line::from(spans);
+    let width = line.width() as u16;
+    if rest.width < width + 14 {
+        return None;
+    }
+    let area = Rect::new(rest.x, rest.y, width, 1);
+    strip::paint_left(buffer, area, line);
+    // The chip opens the list where it is drawn, for the member that is selected.
+    if app.workspace_selection_visible() {
+        app.workspace_action_hits
+            .borrow_mut()
+            .push((area, target.clone(), Choice::MemberNotes));
+    }
+    Some(width)
 }

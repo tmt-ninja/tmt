@@ -504,6 +504,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         }
         Request::Digest(set) => digest::apply(core, set),
         Request::DigestSwitch(on) => digest::switch(core, on),
+        Request::Terminal { identity, op } => terminal_tab::discovery::act(core, &identity, &op),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),

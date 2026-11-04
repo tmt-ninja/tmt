@@ -19,6 +19,7 @@ impl Counts {
         counts
     }
 
+    #[cfg(test)]
     pub fn is_empty(self) -> bool {
         self == Self::default()
     }

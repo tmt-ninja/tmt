@@ -139,6 +139,17 @@ pub enum CopyFeedback {
     Selection,
 }
 
+/// What the member frame asks core for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalOp {
+    /// `terminal.resume`: continue a member stopped by job control.
+    Resume,
+    /// `terminal.relaunch`: start the agent (resume or new) or a shell on the kept terminal.
+    Relaunch(tmt_pty_protocol::RelaunchKind),
+    /// Open the Colab space in the browser.
+    Colab,
+}
+
 /// An action with every value already taken from the row.
 /// Message variants carry the complete frozen body, including any row context
 /// and source quotes. Workers and outgoing matching must not reformat it.
@@ -146,6 +157,11 @@ pub enum CopyFeedback {
 pub enum Request {
     /// Show this member's pane in the invoking client.
     Jump(String),
+    /// An action from a built-in member's frame (#5989).
+    Terminal {
+        identity: String,
+        op: TerminalOp,
+    },
     Swap {
         target: String,
         name: String,
@@ -223,6 +239,11 @@ impl Request {
         match self {
             Self::Jump(_) | Self::Back => "Jumping…",
             Self::Swap { .. } => "Swapping…",
+            Self::Terminal { op, .. } => match op {
+                TerminalOp::Resume => "Resuming…",
+                TerminalOp::Relaunch(_) => "Starting…",
+                TerminalOp::Colab => "Opening…",
+            },
             Self::Open { .. } | Self::Run(_) | Self::PreparedRun { .. } => "Opening…",
             Self::OpenWeb => "Opening the web UI…",
             Self::DigestOpen(_) => "Checking digest access…",
@@ -318,10 +339,6 @@ pub enum Choice {
     AgentsFilter(super::workspace::AgentsFilter),
     /// A click on a Talk/Measure chip selects that pane; the `M` key toggles.
     RightTab(super::shell::RightTab),
-    /// The Talk pane's Chat/Terminal chips: `true` is the terminal.
-    TerminalView(bool),
-    /// The Terminal tab's Zoom chip.
-    TerminalZoom,
     WorkspaceTarget(super::workspace::OpsTarget),
     /// A click on the Checklist chip of a member's header: opens the list.
     MemberNotes,
@@ -2605,9 +2622,6 @@ impl App {
         };
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
-            Verb::Talk if action.args.is_empty() && self.terminal_showing() => {
-                return self.type_into_terminal();
-            }
             // A plain program has no chat: Enter opens its terminal, as `j` does (#5769).
             Verb::Talk | Verb::Reply if row["plainProgram"].is_string() => {
                 return self.jump_to_terminal(&row).unwrap_or_else(|| {
@@ -3201,8 +3215,6 @@ impl App {
             Choice::FileShow { path, anchor } => self.file_show(&path, anchor),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::RightTab(tab) => self.select_right_tab(tab),
-            Choice::TerminalView(show) => self.show_terminal(show),
-            Choice::TerminalZoom => self.toggle_terminal_zoom(),
             Choice::WorkspaceTarget(target) => {
                 if self
                     .workspace_snapshot()
@@ -3350,7 +3362,7 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
-        if let Some(effect) = self.terminal_paste(text) {
+        if let Some(effect) = self.frame_paste(text) {
             return effect;
         }
         self.composer.paste_preview.get_mut().take();
@@ -4107,7 +4119,7 @@ impl App {
             self.invalidate_frame_geometry();
             return Effect::None;
         }
-        if let Some(effect) = self.terminal_key(key) {
+        if let Some(effect) = self.frame_key(key) {
             return effect;
         }
         self.set_notice(None, false);
@@ -4605,7 +4617,7 @@ impl App {
         if self.moving.as_ref().is_some_and(|moving| !moving.applying) {
             return Effect::None;
         }
-        if let Some(effect) = self.terminal_mouse(event) {
+        if let Some(effect) = self.frame_mouse(event) {
             return effect;
         }
         self.conversation_source_outside_press(event);
@@ -5042,9 +5054,9 @@ impl App {
                 .clone()
                 .map(super::refresh::SelectedRead::Status);
         }
-        if self.terminal_showing() {
-            // The terminal is not the chat: none of the chat's reads are made, and the stream
-            // is the loop's, not the selected lane's; only where it is may be asked again.
+        if self.framed() {
+            // The frame covers the board: none of the chat's reads are made, and the stream
+            // is the loop's, not the selected lane's; only what runs there is asked again.
             return self
                 .terminal_locate()
                 .map(super::refresh::SelectedRead::TerminalStream);
@@ -5062,13 +5074,8 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        // Where the stream is comes last: the chat's own reads are never made to wait for it.
         self.pane_output_plan()
             .map(super::refresh::SelectedRead::PaneOutput)
-            .or_else(|| {
-                self.terminal_locate()
-                    .map(super::refresh::SelectedRead::TerminalStream)
-            })
     }
 
     /// Exact admitted row data for the selected workspace target.

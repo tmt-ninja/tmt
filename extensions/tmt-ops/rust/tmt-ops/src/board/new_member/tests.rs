@@ -386,10 +386,9 @@ fn a_clean_built_in_start_closes_the_form_onto_the_member_terminal() {
     assert_eq!(effect, Effect::Refresh);
     assert!(app.new_member.is_none());
     assert_eq!(app.right_tab, crate::board::shell::RightTab::Talk);
-    assert!(app.terminal.shown());
-    // Its stream types once it opens; the terminal tests drive that.
+    // The new member opens full screen (#5989).
     assert_eq!(
-        app.terminal.typing_wish(),
+        app.terminal.framed(),
         Some("33333333-3333-4333-8333-333333333333")
     );
     // A tmux start, or one with a partial failure, stays on the result.

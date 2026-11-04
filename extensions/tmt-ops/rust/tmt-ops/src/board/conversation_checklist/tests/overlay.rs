@@ -144,10 +144,7 @@ fn completed_rows_leave_immediately_and_the_status_names_the_completed_title() {
             .items(&app.notes)
             .is_empty()
     );
-    assert_eq!(
-        super::super::chip(app.notes.summary(&key)),
-        "Checklist · empty"
-    );
+    assert_eq!(super::super::chip(app.notes.summary(&key)), "Checklist");
     assert_eq!(app.notes.preview(&key).unwrap().current.items.len(), 2);
 }
 

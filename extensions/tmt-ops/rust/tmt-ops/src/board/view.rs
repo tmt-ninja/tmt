@@ -50,8 +50,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     };
     render_frame(frame, app, home_usage, home_limits);
     super::member_links::paint_colab_card(frame, app);
-    // While typing into a terminal, its program has the caret; a hidden one is moved after the
-    // draw by the board loop.
+    // In a member's frame its program has the caret; a hidden one is moved after the draw by
+    // the board loop.
     if let Some(caret) = app.terminal.caret().filter(|caret| caret.shown) {
         frame.set_cursor_position(caret.at);
     }
@@ -155,8 +155,8 @@ pub(in crate::board) fn render_frame(
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
-    if app.terminal_zoomed() {
-        super::terminal_tab::paint::zoomed(frame, app);
+    if app.framed() {
+        super::terminal_tab::paint::frame(frame, app);
         return;
     }
     let home_history_pending = !app.loading()
