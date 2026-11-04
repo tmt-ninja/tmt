@@ -109,9 +109,17 @@ async function openGuiButton(page: Page) {
   await expect(page).toHaveURL(/\/ds\/gui\/components\/button$/);
   const frame = designFrame(page);
   await expect(frame.getByRole('heading', { name: '<tmt-ui-button>', exact: true })).toBeVisible();
-  await expect(frame.locator('[data-tmt-ds-generated]')).toContainText(
-    'design/browser-ui/src/ui/button.tsx',
+  // One quiet line: the files stay in the origin block (#6060).
+  await expect(frame.locator('[data-tmt-ds-generated]')).toHaveText(
+    'Generated from design/browser-ui; change it through a PR, since edits here are replaced.',
   );
+  // A Design page is only the renderer, annotations and Chat: no page header, ... row or work band.
+  const workspace = page.locator('.design-workspace');
+  await expect(workspace.locator('.colab-embedded-bar')).toHaveCount(0);
+  await expect(workspace.locator('.page-header-actions')).toHaveCount(0);
+  await expect(workspace.locator('.work-band')).toHaveCount(0);
+  // The header names the system; the tree's root reads Introduction (the tree may be collapsed).
+  await expect(page.locator('.design-page-tree a').first()).toHaveText('Introduction');
 }
 /** The owner's generated Brand page draws the product mark (the brand spec covers the viewer's
  * code docs). */

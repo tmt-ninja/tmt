@@ -36,8 +36,11 @@ function Tree({
   system,
   base,
   navigate,
+  root = false,
 }: {
   node: DesignTreeNode;
+  /** The tree's root: the header already names the system, so the root reads Introduction (#6060). */
+  root?: boolean;
   current: string;
   system: DesignSystemEntry;
   base: string;
@@ -63,7 +66,7 @@ function Tree({
           navigate(href);
         }}
       >
-        {node.title}
+        {root ? 'Introduction' : node.title}
         {node.tag && <span className="design-page-tree-tag">{`${prefix}-${node.tag}`}</span>}
       </a>
       {node.children.length > 0 && (
@@ -398,6 +401,7 @@ export function DesignLibrary({
                 >
                   <ul>
                     <Tree
+                      root
                       node={selected.tree}
                       current={page?.id ?? ''}
                       system={selected}

@@ -1316,7 +1316,7 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
  * opens the page through the transport as the route would, and gives its live connection up when the
  * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
  * route the page's own links (Design keeps its tree's pages in Design). */
-function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProps) {
+function EmbeddedPage({ pageId, anchor, routing: hostRouting, design }: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
@@ -1367,6 +1367,7 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting }: EmbeddedPageProp
           <OpenPage
             key={pageId}
             embedded
+            design={design}
             transport={transport}
             space={space}
             loaded={loaded}
@@ -1388,6 +1389,7 @@ function OpenPage({
   scope,
   routing,
   embedded = false,
+  design = false,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -1399,6 +1401,9 @@ function OpenPage({
   /** The page is hosted in a panel of another page: its drawers and menus stay the app's, but the
    * panel already names it, so it keeps only its actions and status. */
   embedded?: boolean;
+  /** A Design page (#6060): only the renderer, annotations, discussion and the Chat FAB. The Design
+   * header is the page's only header, so there is no page header, `...` row, link bar or work band. */
+  design?: boolean;
 }) {
   const environment = usePageEnvironment();
   // The renderer's thread handler outlives a render, so it reads the environment through a ref.
@@ -2209,130 +2214,133 @@ function OpenPage({
         }
         isEligible={notifications.isEligible}
       />
-      <ColabHeader
-        embedded={embedded}
-        remoteMenu={false}
-        remoteChip={false}
-        headingSuffix={
-          <>
-            {hierarchy.subpages}
-            <PageProjects
-              transport={transport}
-              space={space}
-              pageId={snapshot.id}
-              title={view.title || snapshot.title}
-              request={projects.request}
-              from={projects.from}
-              open={() => openProjects()}
-              pinRequest={pinRequest}
-              onPinState={setPin}
-            />
-          </>
-        }
-        crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
-        // A sub-page names its parent where the remembered scope would be (#5506).
-        lead={hierarchy.parent}
-        barRef={toolbar}
-        page
-        title={view.title || snapshot.title || text.unknownPageTitle}
-        remote={{ deviceName: transport.backendName }}
-        caption={
-          view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
-        }
-        home={routing.home}
-        status={
-          <div className="page-header-meta">
-            {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
-            <NeedsYouHeader
-              ready={
-                !discussionPending &&
-                questionLayer.ready &&
-                reviewLayer.ready &&
-                readingLayer.ready &&
-                attentionVersions.ready
-              }
-              menuFocus={needsYouMenuFocus}
-              href={(item) =>
-                routing.pageHref(
-                  snapshot.id,
-                  item.kind === 'reading' ? { read: item.id } : undefined,
-                )
-              }
-              items={needsYouItems}
-              onClear={
-                !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
-                  ? async (items) => {
-                      const heldBinding = attentionBinding;
-                      for (const item of items.filter((item) => item.kind === 'reading')) {
-                        const reading = readings.find((reading) => reading.id === item.id);
-                        if (!reading || !(await readingLayer.actions.mark(reading, false)))
+      {!design && (
+        <ColabHeader
+          embedded={embedded}
+          remoteMenu={false}
+          remoteChip={false}
+          headingSuffix={
+            <>
+              {hierarchy.subpages}
+              <PageProjects
+                transport={transport}
+                space={space}
+                pageId={snapshot.id}
+                title={view.title || snapshot.title}
+                request={projects.request}
+                from={projects.from}
+                open={() => openProjects()}
+                pinRequest={pinRequest}
+                onPinState={setPin}
+              />
+            </>
+          }
+          crumb={scope === undefined ? undefined : routing.scopeCrumb(scope)}
+          // A sub-page names its parent where the remembered scope would be (#5506).
+          lead={hierarchy.parent}
+          barRef={toolbar}
+          page
+          title={view.title || snapshot.title || text.unknownPageTitle}
+          remote={{ deviceName: transport.backendName }}
+          caption={
+            view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
+          }
+          home={routing.home}
+          status={
+            <div className="page-header-meta">
+              {attentionVersions.failed && <span role="status">{text.needsYouUnavailable}</span>}
+              <NeedsYouHeader
+                ready={
+                  !discussionPending &&
+                  questionLayer.ready &&
+                  reviewLayer.ready &&
+                  readingLayer.ready &&
+                  attentionVersions.ready
+                }
+                menuFocus={needsYouMenuFocus}
+                href={(item) =>
+                  routing.pageHref(
+                    snapshot.id,
+                    item.kind === 'reading' ? { read: item.id } : undefined,
+                  )
+                }
+                items={needsYouItems}
+                onClear={
+                  !discussionBlocked && attentionBinding?.acknowledgeNeedsYou
+                    ? async (items) => {
+                        const heldBinding = attentionBinding;
+                        for (const item of items.filter((item) => item.kind === 'reading')) {
+                          const reading = readings.find((reading) => reading.id === item.id);
+                          if (!reading || !(await readingLayer.actions.mark(reading, false)))
+                            throw new Error(text.needsYouClearFailed);
+                        }
+                        if (binding.current?.discussion !== heldBinding)
                           throw new Error(text.needsYouClearFailed);
+                        await heldBinding.acknowledgeNeedsYou!(
+                          items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
+                        );
                       }
-                      if (binding.current?.discussion !== heldBinding)
-                        throw new Error(text.needsYouClearFailed);
-                      await heldBinding.acknowledgeNeedsYou!(
-                        items.filter((item) => item.kind !== 'reading').map(needsYouTarget),
-                      );
-                    }
-                  : undefined
-              }
-              onPick={(item) => {
-                if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                else if (item.kind === 'answer') {
-                  if (!questionLayer.open(item.targetId ?? item.id)) setMetadataDialog('questions');
-                } else if (item.kind === 'review') reviewLayer.jump(item.id);
+                    : undefined
+                }
+                onPick={(item) => {
+                  if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                  else if (item.kind === 'answer') {
+                    if (!questionLayer.open(item.targetId ?? item.id))
+                      setMetadataDialog('questions');
+                  } else if (item.kind === 'review') reviewLayer.jump(item.id);
+                }}
+              />
+              {/* The connection state is not shown (a notice below the header carries trouble); its words
+                stay in the document for assistive technology and as the page's readiness signal. */}
+              <span
+                className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
+              >
+                {archived ? '○ ' : `${text[snapshot.sharing]} · `}
+                <span className="status-label">{accessLabel}</span>
+              </span>
+              <RemoteAttention />
+              {archived ? (
+                <span
+                  className="page-attention"
+                  data-attention="archived"
+                  title={text.archiveReadOnlyHint}
+                >
+                  <span aria-hidden="true">○</span>
+                  <span className="page-attention-word">{text.archived}</span>
+                </span>
+              ) : (
+                snapshot.sharing !== 'private' && (
+                  <span className="page-attention" data-attention="shared">
+                    <span aria-hidden="true">◉</span>
+                    <span className="page-attention-word">{text.shared}</span>
+                  </span>
+                )
+              )}
+            </div>
+          }
+          actions={
+            <PageHeaderActions
+              files={fileCount}
+              readOnly={archived}
+              access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
+              canExport={!!snapshot.binding && !liveError && !archived}
+              canManage={!!transport.management}
+              canFiles={!!snapshot.binding?.files}
+              canProjects={!!transport.management}
+              pin={pin}
+              creatorLabel={creatorName(view)}
+              onSelect={(action) => {
+                if (action === 'creator' || action === 'questions') {
+                  close();
+                  setMetadataDialog(action);
+                } else if (action === 'projects') openProjects(moreButtonRect());
+                else if (action === 'pin') requestPin('toggle');
+                else toggle(action);
               }}
             />
-            {/* The connection state is not shown (a notice below the header carries trouble); its words
-                stay in the document for assistive technology and as the page's readiness signal. */}
-            <span
-              className={`status page-connection tmt-ui-visually-hidden ${state === 'ready' ? 'live' : ''}`}
-            >
-              {archived ? '○ ' : `${text[snapshot.sharing]} · `}
-              <span className="status-label">{accessLabel}</span>
-            </span>
-            <RemoteAttention />
-            {archived ? (
-              <span
-                className="page-attention"
-                data-attention="archived"
-                title={text.archiveReadOnlyHint}
-              >
-                <span aria-hidden="true">○</span>
-                <span className="page-attention-word">{text.archived}</span>
-              </span>
-            ) : (
-              snapshot.sharing !== 'private' && (
-                <span className="page-attention" data-attention="shared">
-                  <span aria-hidden="true">◉</span>
-                  <span className="page-attention-word">{text.shared}</span>
-                </span>
-              )
-            )}
-          </div>
-        }
-        actions={
-          <PageHeaderActions
-            files={fileCount}
-            readOnly={archived}
-            access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
-            canExport={!!snapshot.binding && !liveError && !archived}
-            canManage={!!transport.management}
-            canFiles={!!snapshot.binding?.files}
-            canProjects={!!transport.management}
-            pin={pin}
-            creatorLabel={creatorName(view)}
-            onSelect={(action) => {
-              if (action === 'creator' || action === 'questions') {
-                close();
-                setMetadataDialog(action);
-              } else if (action === 'projects') openProjects(moreButtonRect());
-              else if (action === 'pin') requestPin('toggle');
-              else toggle(action);
-            }}
-          />
-        }
-      />
+          }
+        />
+      )}
       <MetadataDialogs
         key={snapshot.id}
         kind={metadataDialog}
@@ -2390,20 +2398,22 @@ function OpenPage({
         </section>
       </BrowserDrawer>
       <div className="workspace">
-        {pageLinkBar}
+        {!design && pageLinkBar}
         {attachmentDownload.bar}
-        <PageWorkBand
-          onSize={setWorkBandSize}
-          work={view.work}
-          pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
-          binding={snapshot.binding}
-          transport={transport}
-          space={space}
-          pageId={snapshot.id}
-          title={view.title}
-          pageHref={routing.pageHref}
-          openPage={(id) => routing.open(`/pages/${id}`)}
-        />
+        {!design && (
+          <PageWorkBand
+            onSize={setWorkBandSize}
+            work={view.work}
+            pageState={view.state === undefined ? (view.pageState ?? 'todo') : view.state}
+            binding={snapshot.binding}
+            transport={transport}
+            space={space}
+            pageId={snapshot.id}
+            title={view.title}
+            pageHref={routing.pageHref}
+            openPage={(id) => routing.open(`/pages/${id}`)}
+          />
+        )}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">

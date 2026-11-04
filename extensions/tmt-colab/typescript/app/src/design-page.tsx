@@ -61,8 +61,8 @@ export function designPageRouting(
   };
 }
 
-/** A Design page is a Colab page (#5866): the same reader frame, annotations, discussion and Chat
- * with @agent, hosted in the Design workspace. Links to pages of the selected tree stay in Design;
+/** A Design page is a Colab page (#5866) shown as only its reader frame, annotations, discussion and
+ * Chat with @agent (#6060), hosted in the Design workspace under the Design header. Links to pages of the selected tree stay in Design;
  * any other link opens as it would in Colab. */
 export function DesignPage({
   pageId,
@@ -91,5 +91,5 @@ export function DesignPage({
   if (!EmbeddedPage) throw new Error('Design pages need the Colab page view.');
   // The context carries one module-level component, so nothing is created during render.
   // eslint-disable-next-line react/static-components
-  return <EmbeddedPage key={pageId} pageId={pageId} anchor={anchor} routing={routing} />;
+  return <EmbeddedPage key={pageId} pageId={pageId} anchor={anchor} routing={routing} design />;
 }
