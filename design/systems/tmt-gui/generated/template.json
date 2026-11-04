@@ -198,6 +198,22 @@
    {
     "tag": "toggle",
     "status": "stable"
+   },
+   {
+    "tag": "dialog",
+    "status": "stable"
+   },
+   {
+    "tag": "sheet",
+    "status": "stable"
+   },
+   {
+    "tag": "popover",
+    "status": "stable"
+   },
+   {
+    "tag": "dropdown-menu",
+    "status": "stable"
    }
   ]
  },
@@ -1797,7 +1813,14 @@
    "schema": 1,
    "kind": "component",
    "tag": "ds-scope",
-   "props": {},
+   "props": {
+    "width": {
+     "type": "string"
+    },
+    "height": {
+     "type": "string"
+    }
+   },
    "slots": [
     "default"
    ],
@@ -1814,7 +1837,7 @@
      ]
     }
    ],
-   "source": "// Runtime 4 supplies the real isolated browser-ui stage.\nexport default ({ React, ui }) => (props) => React.createElement(ui.DsScope, props);\n",
+   "source": "// Runtime 4 supplies the real isolated browser-ui stage. Size containment needs dimensions.\nexport default ({ React, ui }) => ({ width = '100%', height = '400px', children }) =>\n  React.createElement(ui.DsScope, { style: { width, height } }, children);\n",
    "css": ""
   },
   {
@@ -1994,6 +2017,148 @@
     }
    ],
    "source": "// The BrowserToggle keeps its local pressed state while the page observes native clicks.\nexport default ({ React, ui }) => function Toggle({ label = '', pressed, children, ...props }) {\n  const [value, setValue] = React.useState(pressed);\n  React.useEffect(() => setValue(pressed), [pressed]);\n  return React.createElement(ui.BrowserToggle, {\n    ...props,\n    label,\n    pressed: value,\n    onActivate: () => setValue((current) => !current),\n  });\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "dialog",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "heading": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "Dialog",
+    "DialogTrigger",
+    "DialogContent",
+    "DialogTitle",
+    "DialogDescription",
+    "Button",
+    "UiTheme"
+   ],
+   "examples": [
+    {
+     "title": "Dialog",
+     "markup": "<tmt-ui-dialog>Example content</tmt-ui-dialog>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Dialog({ label = 'Open dialog', heading = 'Dialog', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.Dialog, null, h(ui.DialogTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.DialogContent, null, h(ui.DialogTitle, null, heading), h(ui.DialogDescription, null, children))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "sheet",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "heading": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "Sheet",
+    "SheetTrigger",
+    "SheetContent",
+    "SheetTitle",
+    "SheetDescription",
+    "Button",
+    "UiTheme"
+   ],
+   "examples": [
+    {
+     "title": "Sheet",
+     "markup": "<tmt-ui-sheet>Example content</tmt-ui-sheet>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Sheet({ label = 'Open sheet', heading = 'Sheet', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.Sheet, null, h(ui.SheetTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.SheetContent, null, h(ui.SheetTitle, null, heading), h(ui.SheetDescription, null, children))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "popover",
+   "props": {
+    "label": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "Popover",
+    "PopoverTrigger",
+    "PopoverContent",
+    "Button",
+    "UiTheme"
+   ],
+   "examples": [
+    {
+     "title": "Popover",
+     "markup": "<tmt-ui-popover>Example content</tmt-ui-popover>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Popover({ label = 'Open popover', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.Popover, null, h(ui.PopoverTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.PopoverContent, null, children)));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "dropdown-menu",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "DropdownMenu",
+    "DropdownMenuTrigger",
+    "DropdownMenuContent",
+    "DropdownMenuItem",
+    "Button",
+    "UiTheme"
+   ],
+   "examples": [
+    {
+     "title": "Dropdown-Menu",
+     "markup": "<tmt-ui-dropdown-menu items=\"First,Second\"></tmt-ui-dropdown-menu>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui layer components.\nexport default ({ React, ui }) => function Menu({ label = 'Open menu', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.UiTheme, null, h(ui.DropdownMenu, null, h(ui.DropdownMenuTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.DropdownMenuContent, null, ...choices.map((item) => h(ui.DropdownMenuItem, { key: item }, item)))));\n};\n",
    "css": ""
   }
  ]

@@ -3,7 +3,14 @@
   "kind": "component",
   "tag": "ds-scope",
   "source": "ds-scope.js",
-  "props": {},
+  "props": {
+    "width": {
+      "type": "string"
+    },
+    "height": {
+      "type": "string"
+    }
+  },
   "slots": [
     "default"
   ],

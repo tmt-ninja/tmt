@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "dropdown-menu",
+  "source": "dropdown-menu.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "DropdownMenu",
+    "DropdownMenuTrigger",
+    "DropdownMenuContent",
+    "DropdownMenuItem",
+    "Button",
+    "UiTheme"
+  ],
+  "examples": [
+    {
+      "title": "Dropdown-Menu",
+      "markup": "<tmt-ui-dropdown-menu items=\"First,Second\"></tmt-ui-dropdown-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

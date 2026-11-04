@@ -132,6 +132,18 @@
     },
     {
       "doc": "components/toggle.json"
+    },
+    {
+      "doc": "components/dialog.json"
+    },
+    {
+      "doc": "components/sheet.json"
+    },
+    {
+      "doc": "components/popover.json"
+    },
+    {
+      "doc": "components/dropdown-menu.json"
     }
   ],
   "principles": {

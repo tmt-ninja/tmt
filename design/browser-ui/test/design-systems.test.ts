@@ -119,6 +119,10 @@ describe('buildBundle', () => {
       'tmt-ui-status-tile',
       'tmt-ui-action',
       'tmt-ui-toggle',
+      'tmt-ui-dialog',
+      'tmt-ui-sheet',
+      'tmt-ui-popover',
+      'tmt-ui-dropdown-menu',
     ]);
   });
 

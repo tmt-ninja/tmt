@@ -179,6 +179,23 @@ test('real UI checkbox and switch respond to user activation', async ({ page }) 
   await expect(frame.getByRole('tab', { name: 'Two' })).toHaveAttribute('aria-selected', 'true');
 });
 
+test('runtime 4 menu and dialog open inside a design stage', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope>
+      <tmt-ui-dropdown-menu label="Options" items="First,Second"></tmt-ui-dropdown-menu>
+      <tmt-ui-dialog label="Open dialog" heading="Example">Dialog content</tmt-ui-dialog>
+    </tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('button', { name: 'Options' }).click();
+  await expect(scope.getByRole('menuitem', { name: 'First' })).toBeVisible();
+  await scope.getByRole('menuitem', { name: 'First' }).click();
+  await scope.getByRole('button', { name: 'Open dialog' }).click();
+  await expect(scope.getByRole('dialog', { name: 'Example' })).toBeVisible();
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

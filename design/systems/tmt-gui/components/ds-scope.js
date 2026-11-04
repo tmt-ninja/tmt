@@ -1,2 +1,3 @@
-// Runtime 4 supplies the real isolated browser-ui stage.
-export default ({ React, ui }) => (props) => React.createElement(ui.DsScope, props);
+// Runtime 4 supplies the real isolated browser-ui stage. Size containment needs dimensions.
+export default ({ React, ui }) => ({ width = '100%', height = '400px', children }) =>
+  React.createElement(ui.DsScope, { style: { width, height } }, children);

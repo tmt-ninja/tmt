@@ -1,0 +1,6 @@
+// Runtime 4 supplies the real browser-ui layer components.
+export default ({ React, ui }) => function Sheet({ label = 'Open sheet', heading = 'Sheet', children }) {
+  const h = React.createElement;
+  return h(ui.UiTheme, null, h(ui.Sheet, null, h(ui.SheetTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),
+    h(ui.SheetContent, null, h(ui.SheetTitle, null, heading), h(ui.SheetDescription, null, children))));
+};

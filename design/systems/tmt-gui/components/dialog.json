@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "dialog",
+  "source": "dialog.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "Dialog",
+    "DialogTrigger",
+    "DialogContent",
+    "DialogTitle",
+    "DialogDescription",
+    "Button",
+    "UiTheme"
+  ],
+  "examples": [
+    {
+      "title": "Dialog",
+      "markup": "<tmt-ui-dialog>Example content</tmt-ui-dialog>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

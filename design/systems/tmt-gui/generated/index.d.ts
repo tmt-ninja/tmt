@@ -291,7 +291,8 @@ export interface DisclosureProps {
 
 /** <tmt-ui-ds-scope>: props from its schema, slots as nodes. */
 export interface DsScopeProps {
-
+  width?: string;
+  height?: string;
   children?: ReactNode;
 }
 
@@ -332,5 +333,32 @@ export interface ToggleProps {
   label?: string;
   pressed?: boolean;
   disabled?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-dialog>: props from its schema, slots as nodes. */
+export interface DialogProps {
+  label?: string;
+  heading?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-sheet>: props from its schema, slots as nodes. */
+export interface SheetProps {
+  label?: string;
+  heading?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-popover>: props from its schema, slots as nodes. */
+export interface PopoverProps {
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-dropdown-menu>: props from its schema, slots as nodes. */
+export interface DropdownMenuProps {
+  label?: string;
+  items?: string;
   children?: ReactNode;
 }

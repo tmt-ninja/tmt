@@ -5490,7 +5490,10 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `Skeleton`, `Switch`, `Checkbox`, `Card`, `CardHeader`, `CardTitle`, `CardDescription`,
 `CardAction`, `CardContent`, `CardFooter`, `Alert`, `AlertTitle`, `AlertDescription`, `Empty`,
 `EmptyHeader`, `EmptyMedia`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `Tabs`, `TabsList`
-and `TabsTrigger`. Unknown, duplicate, undeclared,
+`TabsTrigger`, `Dialog`, `DialogTrigger`, `DialogContent`, `DialogTitle`, `DialogDescription`,
+`Sheet`, `SheetTrigger`, `SheetContent`, `SheetTitle`, `SheetDescription`, `Popover`,
+`PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
+`DropdownMenuItem` and `UiTheme`. Unknown, duplicate, undeclared,
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
