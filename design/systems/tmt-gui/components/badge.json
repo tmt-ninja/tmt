@@ -20,21 +20,6 @@
     "default"
   ],
   "css": "badge.css",
-  "ui": {
-    "module": "/src/ui/badge.tsx",
-    "component": "Badge",
-    "variants": "badgeVariants",
-    "dims": {
-      "variant": [
-        "default",
-        "secondary",
-        "outline",
-        "ghost",
-        "destructive",
-        "link"
-      ]
-    }
-  },
   "examples": [
     {
       "title": "Default",
@@ -70,11 +55,14 @@
     },
     {
       "title": "Destructive",
-      "markup": "<tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>",
+      "markup": "<tmt-ui-badge variant=\"destructive\">\u2715 Blocked</tmt-ui-badge>",
       "widths": [
         1440,
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Badge"
   ]
 }

@@ -370,7 +370,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Badge (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{},\"base\":\"tmt:font-body tmt:[border-radius:var(--tmt-foundation-radius)] tmt:inline-flex tmt:w-fit tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-1 tmt:overflow-hidden tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:px-2 tmt:py-0.5 tmt:text-(length:--tmt-foundation-caption-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive tmt:[&>svg]:pointer-events-none tmt:[&>svg]:size-3\",\"by\":{\"default\":\"tmt:border-transparent tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-accent\",\"secondary\":\"tmt:border-transparent tmt:bg-secondary tmt:text-secondary-foreground tmt:[a&]:hover:bg-secondary\",\"outline\":\"tmt:border-border tmt:text-foreground tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground\",\"ghost\":\"tmt:border-transparent tmt:[a&]:hover:bg-accent tmt:[a&]:hover:text-accent-foreground\",\"destructive\":\"tmt:border-transparent tmt:bg-secondary tmt:text-destructive tmt:[a&]:hover:bg-destructive-soft\",\"link\":\"tmt:border-transparent tmt:text-foreground tmt:underline-offset-4 tmt:[a&]:hover:underline\"},\"parts\":{}};\n  return function Badge({ variant = 'default', children }) {\n    return html`<span data-slot=\"badge\" data-variant=${variant} className=${cn(classes.base, classes.by[variant])}>${children}</span>`;\n  };\n};\n",
+   "uiParts": [
+    "Badge"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Badge.\nexport default ({ React, ui }) => (props) => React.createElement(ui.Badge, props);\n",
    "css": ""
   },
   {
@@ -399,7 +402,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Separator (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{\"separator\":\"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)\"},\"base\":\"tmt:shrink-0 tmt:bg-border tmt:data-[orientation=horizontal]:h-(--tmt-foundation-rule-width) tmt:data-[orientation=horizontal]:w-full tmt:data-[orientation=vertical]:h-full tmt:data-[orientation=vertical]:w-(--tmt-foundation-rule-width)\",\"by\":{\"horizontal\":\"\",\"vertical\":\"\"},\"parts\":{}};\n  return function Separator({ orientation = 'horizontal' }) {\n    return html`<div data-slot=\"separator\" data-orientation=${orientation} role=\"none\" className=${cn(classes.base, classes.by[orientation])}></div>`;\n  };\n};\n",
+   "uiParts": [
+    "Separator"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Separator.\nexport default ({ React, ui }) => (props) => React.createElement(ui.Separator, props);\n",
    "css": ""
   },
   {
@@ -435,7 +441,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Skeleton (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"skeleton\":\"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm\"},\"base\":\"tmt:rounded-small tmt:bg-muted tmt:animate-pulse-calm\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Skeleton({ width = '8rem', height = '1rem' }) {\n    return html`<div data-slot=\"skeleton\" aria-hidden=\"true\" className=${classes.base} style=${{ width, height }}></div>`;\n  };\n};\n",
+   "uiParts": [
+    "Skeleton"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Skeleton.\nexport default ({ React, ui }) => ({ width = '8rem', height = '1rem' }) => React.createElement(ui.Skeleton, { style: { width, height } });\n",
    "css": ""
   },
   {
@@ -480,7 +489,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Input (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"input\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:h-9 tmt:w-full tmt:min-w-0 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-1 tmt:text-(length:--tmt-foundation-command-size) tmt:selection:bg-primary tmt:selection:text-primary-foreground tmt:file:inline-flex tmt:file:h-7 tmt:file:border-0 tmt:file:bg-transparent tmt:file:text-(length:--tmt-foundation-command-size) tmt:file:font-(weight:--tmt-foundation-eyebrow-weight) tmt:file:text-foreground tmt:placeholder:text-muted-foreground tmt:disabled:pointer-events-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive\"},\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:h-9 tmt:w-full tmt:min-w-0 tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-1 tmt:text-(length:--tmt-foundation-command-size) tmt:selection:bg-primary tmt:selection:text-primary-foreground tmt:file:inline-flex tmt:file:h-7 tmt:file:border-0 tmt:file:bg-transparent tmt:file:text-(length:--tmt-foundation-command-size) tmt:file:font-(weight:--tmt-foundation-eyebrow-weight) tmt:file:text-foreground tmt:placeholder:text-muted-foreground tmt:disabled:pointer-events-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:aria-invalid:border-destructive\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Input({ type = 'text', placeholder, disabled = false }) {\n    return html`<input type=${type} data-slot=\"input\" placeholder=${placeholder} disabled=${disabled} className=${classes.base} />`;\n  };\n};\n",
+   "uiParts": [
+    "Input"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Input.\nexport default ({ React, ui }) => ({ children, ...props }) => React.createElement(ui.Input, props);\n",
    "css": ""
   },
   {
@@ -508,7 +520,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Textarea (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html }) => {\n  const classes = {\"slots\":{\"textarea\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:flex tmt:field-sizing-content tmt:min-h-16 tmt:w-full tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:placeholder:text-muted-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive\"},\"base\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:flex tmt:field-sizing-content tmt:min-h-16 tmt:w-full tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:placeholder:text-muted-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Textarea({ placeholder, disabled = false }) {\n    return html`<textarea data-slot=\"textarea\" placeholder=${placeholder} disabled=${disabled} className=${classes.base}></textarea>`;\n  };\n};\n",
+   "uiParts": [
+    "Textarea"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Textarea.\nexport default ({ React, ui }) => ({ children, ...props }) => React.createElement(ui.Textarea, props);\n",
    "css": ""
   },
   {
@@ -570,7 +585,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Switch (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it, including\n// Radix's hidden form input after the control.\nexport default ({ React, html, cn }) => {\n  const classes = {\"slots\":{\"switch\":\"tmt:p-0 tmt:bg-background tmt:text-foreground tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:peer tmt:group/switch tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:data-[size=default]:h-5 tmt:data-[size=default]:w-8 tmt:data-[size=sm]:h-3.5 tmt:data-[size=sm]:w-6 tmt:data-[state=checked]:bg-primary tmt:data-[state=unchecked]:bg-indicator tmt:transition-colors tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)\",\"switch-thumb\":\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:pointer-events-none tmt:block tmt:bg-background tmt:group-data-[size=default]/switch:size-4 tmt:group-data-[size=sm]/switch:size-3 tmt:data-[state=checked]:translate-x-[calc(100%-var(--tmt-foundation-rule-width)*2)] tmt:data-[state=unchecked]:translate-x-0 tmt:transition-[translate] tmt:duration-(--tmt-foundation-motion-base) tmt:ease-(--tmt-foundation-motion-ease-out)\"},\"base\":\"tmt:p-0 tmt:bg-background tmt:text-foreground tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:peer tmt:group/switch tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:data-[size=default]:h-5 tmt:data-[size=default]:w-8 tmt:data-[size=sm]:h-3.5 tmt:data-[size=sm]:w-6 tmt:data-[state=checked]:bg-primary tmt:data-[state=unchecked]:bg-indicator tmt:transition-colors tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out)\",\"by\":{\"default\":\"\",\"sm\":\"\"},\"parts\":{}};\n  return function Switch({ checked = false, size = 'default', disabled = false, label }) {\n    const [on, setOn] = React.useState(checked);\n    const state = on ? 'checked' : 'unchecked';\n    return html`<${React.Fragment}><button\n      type=\"button\"\n      role=\"switch\"\n      aria-checked=${on}\n      aria-label=${label}\n      data-state=${state}\n      value=\"on\"\n      data-slot=\"switch\"\n      data-size=${size}\n      disabled=${disabled}\n      className=${cn(classes.base, classes.by[size])}\n      onClick=${() => setOn(!on)}\n    >\n      <span data-state=${state} data-slot=\"switch-thumb\" className=${classes.slots['switch-thumb']}></span>\n    </button><input\n      type=\"checkbox\"\n      aria-hidden=\"true\"\n      tabIndex=\"-1\"\n      style=${{ position: 'absolute', pointerEvents: 'none', opacity: 0, margin: 0, transform: 'translateX(-100%)' }}\n      checked=${on}\n      readOnly\n      value=\"on\"\n    /><//>`;\n  };\n};\n",
+   "uiParts": [
+    "Switch"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Switch.\nexport default ({ React, ui }) => function Switch({ checked, label, children, ...props }) {\n  const [value, setValue] = React.useState(checked);\n  React.useEffect(() => setValue(checked), [checked]);\n  return React.createElement(ui.Switch, { ...props, 'aria-label': label, checked: value, onCheckedChange: setValue });\n};\n",
    "css": ""
   },
   {
@@ -617,7 +635,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Checkbox (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it, including\n// Radix's hidden form input after the control.\nexport default ({ React, html }) => {\n  const classes = {\"slots\":{\"checkbox\":\"tmt-ui-checkbox\"},\"base\":\"tmt-ui-checkbox\",\"by\":{\"\":\"\"},\"parts\":{}};\n  return function Checkbox({ checked = false, disabled = false, label }) {\n    const [on, setOn] = React.useState(checked);\n    return html`<${React.Fragment}><button\n      type=\"button\"\n      role=\"checkbox\"\n      aria-checked=${on}\n      aria-label=${label}\n      data-state=${on ? 'checked' : 'unchecked'}\n      value=\"on\"\n      data-slot=\"checkbox\"\n      disabled=${disabled}\n      className=${classes.base}\n      onClick=${() => setOn(!on)}\n    ></button><input\n      type=\"checkbox\"\n      aria-hidden=\"true\"\n      tabIndex=\"-1\"\n      style=${{ position: 'absolute', pointerEvents: 'none', opacity: 0, margin: 0, transform: 'translateX(-100%)' }}\n      checked=${on}\n      readOnly\n      value=\"on\"\n    /><//>`;\n  };\n};\n",
+   "uiParts": [
+    "Checkbox"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Checkbox.\nexport default ({ React, ui }) => function Checkbox({ checked, label, children, ...props }) {\n  const [value, setValue] = React.useState(checked);\n  React.useEffect(() => setValue(checked), [checked]);\n  return React.createElement(ui.Checkbox, { ...props, 'aria-label': label, checked: value, onCheckedChange: setValue });\n};\n",
    "css": ""
   },
   {
@@ -751,7 +772,10 @@
      ]
     }
    ],
-   "source": "// Ports browser-ui's ui Surface (#5866): plain JavaScript and htm on the skeleton (React, html, cn).\n// The compiler fills `classes` from the ui component; every example must draw like it.\nexport default ({ html, cn }) => {\n  const classes = {\"slots\":{},\"base\":\"tmt:box-border tmt:font-body tmt:text-foreground\",\"by\":{\"paper\":\"tmt:bg-background\",\"sheet\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-elevation-1\",\"raised\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-border tmt:bg-card tmt:shadow-overlay\",\"overlay\":\"tmt:rounded-control tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:shadow-overlay\",\"modal\":\"tmt:rounded-surface tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-layer-boundary tmt:bg-popover tmt:shadow-elevation-3\"},\"parts\":{}};\n  return function Surface({ level = 'sheet', children }) {\n    return html`<div data-slot=\"surface\" data-level=${level} className=${cn(classes.base, classes.by[level])}>${children}</div>`;\n  };\n};\n",
+   "uiParts": [
+    "Surface"
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui Surface.\nexport default ({ React, ui }) => (props) => React.createElement(ui.Surface, props);\n",
    "css": ""
   },
   {

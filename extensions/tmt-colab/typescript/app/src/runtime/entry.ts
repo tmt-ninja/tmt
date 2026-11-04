@@ -4,7 +4,19 @@ import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
 import { PageListTable } from '@tmt/browser-ui/data-table';
-import { Button, DsScope, UiTheme } from '@tmt/browser-ui/ui';
+import {
+  Badge,
+  Button,
+  Checkbox,
+  DsScope,
+  Input,
+  Separator,
+  Skeleton,
+  Surface,
+  Switch,
+  Textarea,
+  UiTheme,
+} from '@tmt/browser-ui/ui';
 import {
   BrandMark,
   BrowserAction,
@@ -184,7 +196,15 @@ const runtime = Object.freeze({
   sharedData: Object.freeze({ page: useWorkPage }),
   ui: Object.freeze({
     Button,
+    Badge,
+    Checkbox,
     DsScope,
+    Input,
+    Separator,
+    Skeleton,
+    Surface,
+    Switch,
+    Textarea,
     BrowserAvatar,
     BrowserAction,
     BrandMark,

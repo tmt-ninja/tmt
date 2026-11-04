@@ -18,10 +18,6 @@
     "default"
   ],
   "css": "checkbox.css",
-  "ui": {
-    "module": "/src/ui/checkbox.tsx",
-    "component": "Checkbox"
-  },
   "examples": [
     {
       "title": "Checked",
@@ -47,5 +43,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Checkbox"
   ]
 }

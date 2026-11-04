@@ -24,10 +24,6 @@
     "default"
   ],
   "css": "input.css",
-  "ui": {
-    "module": "/src/ui/input.tsx",
-    "component": "Input"
-  },
   "examples": [
     {
       "title": "Default",
@@ -45,5 +41,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Input"
   ]
 }

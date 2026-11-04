@@ -22,6 +22,14 @@ export const UI_PARTS = [
   'BrowserStatusTile',
   'BrowserAction',
   'BrowserToggle',
+  'Badge',
+  'Input',
+  'Textarea',
+  'Separator',
+  'Surface',
+  'Skeleton',
+  'Switch',
+  'Checkbox',
 ];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */

@@ -161,6 +161,21 @@ test('the design-system scope tag creates one stage portal for nested components
   await expect(scope.locator(':scope > [data-tmt-ui-portal]')).toHaveCount(1);
 });
 
+test('real UI checkbox and switch respond to user activation', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-checkbox label="Include"></tmt-ui-checkbox>
+    <tmt-ui-switch label="Enabled"></tmt-ui-switch>`,
+  );
+  const checkbox = frame.getByRole('checkbox', { name: 'Include' });
+  const toggle = frame.getByRole('switch', { name: 'Enabled' });
+  await checkbox.click();
+  await toggle.click();
+  await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(
