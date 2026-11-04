@@ -4,6 +4,7 @@ export const RUNTIME: '2';
 export const SHARED_PARTS: readonly string[];
 export const DATA_CAPABILITIES: readonly string[];
 export const UI_PARTS: readonly string[];
+export const BLOCK_UI_PARTS: readonly string[];
 export const SKELETON: readonly string[];
 export class DesignSystemError extends Error {}
 export interface PropSpec {

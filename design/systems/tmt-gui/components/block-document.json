@@ -7,11 +7,7 @@
   "slots": [
     "default"
   ],
-  "css": "../../../browser-ui/src/blocks/blocks.css",
-  "ui": {
-    "module": "/src/blocks/block.tsx",
-    "component": "BlockDocument"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "A page of blocks",
@@ -21,5 +17,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "BlockDocument"
   ]
 }

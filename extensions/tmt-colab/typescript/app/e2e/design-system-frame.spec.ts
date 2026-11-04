@@ -326,6 +326,23 @@ test('Browser shell tag mounts its real rail in a stage', async ({ page }) => {
   await expect(scope.getByText('Shell content')).toBeVisible();
 });
 
+test('older block tags render real parts and preserve authored text', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-block-document>
+      <tmt-ui-block label="Heading" kind="heading"><tmt-ui-heading-block>Project</tmt-ui-heading-block></tmt-ui-block>
+      <tmt-ui-todo>Ship the change</tmt-ui-todo>
+      <tmt-ui-code-block>echo hello</tmt-ui-code-block>
+    </tmt-ui-block-document>`,
+  );
+  await expect(frame.getByRole('heading', { name: 'Project' })).toBeVisible();
+  const todo = frame.getByRole('checkbox', { name: 'To-do' });
+  await todo.check();
+  await expect(todo).toBeChecked();
+  await expect(frame.locator('[data-slot="code-block"] code')).toHaveText('echo hello');
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

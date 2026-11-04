@@ -10,6 +10,25 @@ export const RUNTIME = '2';
 export const SHARED_PARTS = ['PageListTable'];
 export const DATA_CAPABILITIES = ['page'];
 /** Runtime 4's renderer-owned browser-ui exports. */
+export const BLOCK_UI_PARTS = [
+  'BlockDocument',
+  'Block',
+  'BlockHandle',
+  'BlockMenu',
+  'BlockMenuItem',
+  'BlockMenuFooter',
+  'BlockKbd',
+  'HeadingBlock',
+  'TextBlock',
+  'ListItemBlock',
+  'TodoBlock',
+  'TableBlock',
+  'CardBlock',
+  'Callout',
+  'CodeBlock',
+  'BlockMention',
+  'BlockToast',
+];
 export const UI_PARTS = [
   'Button',
   'DsScope',
@@ -88,6 +107,7 @@ export const UI_PARTS = [
   'useLayerController',
   'DataTable',
   'RichInput',
+  ...BLOCK_UI_PARTS,
   'BrowserHeader',
   'BrowserNotice',
   'BrowserPager',

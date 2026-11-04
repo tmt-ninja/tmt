@@ -21,13 +21,7 @@
   "slots": [
     "default"
   ],
-  "css": "card-block.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "CardBlock",
-    "parts": [],
-    "compose": "<CardBlock variant=\"{variant}\" title=\"{heading}\" meta=\"{meta}\">{children}</CardBlock>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Card with nested blocks",
@@ -45,5 +39,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "CardBlock"
   ]
 }

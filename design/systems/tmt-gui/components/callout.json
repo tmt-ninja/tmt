@@ -23,13 +23,7 @@
   "slots": [
     "default"
   ],
-  "css": "callout.css",
-  "ui": {
-    "module": "/src/blocks/content.tsx",
-    "component": "Callout",
-    "parts": [],
-    "compose": "<Callout tone=\"{tone}\" label=\"{label}\" heading=\"{heading}\">{children}</Callout>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "Four tones",
@@ -39,5 +33,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "Callout"
   ]
 }

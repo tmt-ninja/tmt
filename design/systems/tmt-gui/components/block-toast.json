@@ -14,13 +14,7 @@
   "slots": [
     "default"
   ],
-  "css": "block-toast.css",
-  "ui": {
-    "module": "/src/blocks/mention.tsx",
-    "component": "BlockToast",
-    "parts": [],
-    "compose": "<BlockToast shortcut=\"{shortcut}\">{children}</BlockToast>"
-  },
+  "css": "button.css",
   "examples": [
     {
       "title": "After a delete",
@@ -30,5 +24,8 @@
         390
       ]
     }
+  ],
+  "uiParts": [
+    "BlockToast"
   ]
 }
