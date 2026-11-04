@@ -6,7 +6,7 @@ import {
   type ShellMenuInteractions,
 } from './shell-menu-interactions.js';
 import { countText } from './static.js';
-import { keyTurn } from './ui/trusted-activation.js';
+import { keyTurn } from './trusted-activation.js';
 import { createShellTopBar, type ShellCommonControls, type ShellTopBar } from './topbar.js';
 export type { ShellCommonControls, ShellRemoteStatus, ShellTopBar } from './topbar.js';
 

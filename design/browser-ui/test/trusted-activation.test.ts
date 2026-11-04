@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { composeTrustedHandler, keyTurn, trustedActivation } from '../src/ui/trusted-activation.js';
+import { composeTrustedHandler, keyTurn, trustedActivation } from '../src/trusted-activation.js';
 
 it('refuses synthetic pointer and key activations, including a synthetic click after a synthetic key', () => {
   const click = new Event('click');

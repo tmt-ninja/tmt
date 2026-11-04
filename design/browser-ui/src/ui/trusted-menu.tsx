@@ -1,6 +1,6 @@
 import { useRef, type ComponentProps, type KeyboardEvent, type MouseEvent } from 'react';
 import { DropdownMenuCheckboxItem, DropdownMenuItem } from './dropdown-menu.js';
-import { composeTrustedHandler, keyTurn } from './trusted-activation.js';
+import { composeTrustedHandler, keyTurn } from '../trusted-activation.js';
 
 /** Radix turns a keyboard selection into a synthetic click; admit it only in the trusted key turn. */
 function useTrustedMenuActivation() {
