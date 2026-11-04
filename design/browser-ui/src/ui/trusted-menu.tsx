@@ -1,27 +1,19 @@
 import { useRef, type ComponentProps, type KeyboardEvent, type MouseEvent } from 'react';
 import { DropdownMenuCheckboxItem, DropdownMenuItem } from './dropdown-menu.js';
-import { composeTrustedHandler, trustedActivation } from './trusted-activation.js';
+import { composeTrustedHandler, keyTurn } from './trusted-activation.js';
 
 /** Radix turns a keyboard selection into a synthetic click; admit it only in the trusted key turn. */
 function useTrustedMenuActivation() {
-  const key = useRef<Event | undefined>(undefined);
+  const turn = useRef<ReturnType<typeof keyTurn>>(undefined);
+  turn.current ??= keyTurn('microtask');
+  const key = turn.current;
   return {
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
-      if (
-        !event.defaultPrevented &&
-        event.nativeEvent.isTrusted &&
-        (event.key === 'Enter' || event.key === ' ')
-      ) {
-        const origin = event.nativeEvent;
-        key.current = origin;
-        queueMicrotask(() => {
-          if (key.current === origin) key.current = undefined;
-        });
-      }
+      if (event.key === 'Enter' || event.key === ' ') key.record(event.nativeEvent);
     },
     onClick(event: MouseEvent<HTMLElement>) {
-      if (!trustedActivation(event.nativeEvent, key.current)) event.preventDefault();
-      key.current = undefined;
+      if (!key.admit(event.nativeEvent)) event.preventDefault();
+      key.clear();
     },
   };
 }
