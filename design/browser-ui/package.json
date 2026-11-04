@@ -21,6 +21,7 @@
     "./gallery/frames": "./gallery/frames.tsx",
     "./docs-embed": "./docs/embed.tsx",
     "./docs-foundations": "./docs/foundation-page.tsx",
+    "./docs-patterns": "./docs/pattern-page.tsx",
     "./docs-oracle": "./docs/tui/oracle-module.mjs",
     "./test-fixtures/*": "./test/fixtures/*",
     "./list-table": "./src/list-table-host.ts",

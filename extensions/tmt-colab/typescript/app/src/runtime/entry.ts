@@ -6,6 +6,7 @@ import { installScopePortals } from './ds-scope.js';
 import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
 import { RichInput } from '@tmt/browser-ui/rich-input';
 import { FoundationPage } from '@tmt/browser-ui/docs-foundations';
+import { PatternPage } from '@tmt/browser-ui/docs-patterns';
 import {
   BlockDocument,
   Block,
@@ -297,6 +298,7 @@ const runtime = Object.freeze({
   ui: Object.freeze({
     Button,
     FoundationPage,
+    PatternPage,
     Badge,
     Card,
     CardHeader,

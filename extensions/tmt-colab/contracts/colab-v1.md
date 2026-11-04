@@ -5488,7 +5488,7 @@ referenced page's bounded display metadata through the current viewer's admitted
 frame is not given a transport, management methods or an arbitrary page-read function.
 Runtime 4 retains runtime 3's capabilities and adds `ui`, a renderer-owned namespace of named
 browser-ui parts running on the page runtime's React. A component declares its needed names in
-`uiParts`; the version 4 allowlist contains `Button`, `FoundationPage`, `DsScope`, `BrowserAvatar`, `BusyMark`,
+`uiParts`; the version 4 allowlist contains `Button`, `FoundationPage`, `PatternPage`, `DsScope`, `BrowserAvatar`, `BusyMark`,
 `BrowserSection`, `BrowserDisclosure`, `BrandMark`, `BrowserCheckbox`, `BrowserStatusTile`,
 `BrowserAction`, `BrowserToggle`, `Badge`, `Input`, `Textarea`, `Separator`, `Surface`,
 `Skeleton`, `Switch`, `Checkbox`, `Card`, `CardHeader`, `CardTitle`, `CardDescription`,
@@ -5538,6 +5538,9 @@ no Publish for it.
 Foundation pages render the shared live docs in the frame, so token values follow its theme and
 the motion examples respond to their controls. A copied system owns the foundation component on
 its Colour page and uses its own prefix for all seven pages.
+Live pattern pages render the shared pattern scenes in independent scoped stages; their controls
+remain local to the frame. A copied system owns the pattern component on its Tabs row page and
+uses its own prefix for those pages.
 `tmt colab design show SYSTEM[@VERSION] [--json]` resolves SYSTEM as a `system` ID (a root page ID
 or unique prefix, or `tmt-gui`), else the prefix or the name, with a space's own system before the
 built-in one, and VERSION (default: the latest release). A space's release is the root page's

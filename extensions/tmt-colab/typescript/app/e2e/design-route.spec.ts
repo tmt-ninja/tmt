@@ -221,6 +221,22 @@ for (const width of [1440, 390])
       if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
       await page
         .getByRole('navigation', { name: 'Brio pages', exact: true })
+        .getByRole('link', { name: /^Tabs row with actions/ })
+        .click();
+      await expect(
+        designFrame(page).getByRole('heading', { name: 'Tabs row with actions', exact: true }),
+      ).toBeVisible();
+      await designFrame(page)
+        .getByRole('tab', { name: /Needs you/ })
+        .click();
+      await expect(designFrame(page).getByRole('tab', { name: /Needs you/ })).toHaveAttribute(
+        'data-state',
+        'active',
+      );
+      await capture(page, `design-user-pattern-${width}-${theme}.png`);
+      if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: 'Brio pages', exact: true })
         // The tree shows each page's title, and a component page's tag under it.
         .getByRole('link', { name: /^Button\s*brio-button$/ })
         .click();

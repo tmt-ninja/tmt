@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "pattern",
+  "source": "pattern.js",
+  "props": {
+    "page": {
+      "enum": ["tabs-row", "dense-table", "fab-window", "add-dialog", "needs-you", "loading-error", "confirm-notify", "blocks-document", "blocks-insert", "blocks-menu"],
+      "default": "tabs-row"
+    }
+  },
+  "slots": ["default"],
+  "css": "../../../browser-ui/gallery/block-editor.css",
+  "uiParts": ["PatternPage"],
+  "examples": [{
+    "title": "Tabs row",
+    "markup": "<tmt-ui-pattern page=\"tabs-row\"></tmt-ui-pattern>",
+    "widths": [1440, 390]
+  }]
+}

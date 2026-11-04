@@ -32,6 +32,7 @@ export const BLOCK_UI_PARTS = [
 export const UI_PARTS = [
   'Button',
   'FoundationPage',
+  'PatternPage',
   'DsScope',
   'BrowserAvatar',
   'BusyMark',

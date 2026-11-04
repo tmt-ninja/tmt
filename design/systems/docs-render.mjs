@@ -72,6 +72,7 @@ export async function renderDocs() {
     const { tokenPages } = await load('/docs/tokens.tsx');
     const { patterns } = await load('/docs/patterns.tsx');
     const { morePatterns } = await load('/docs/patterns-more.tsx');
+    const { livePatternSlugs } = await load('/docs/pattern-page.tsx');
     const { Article, ComponentTemplate } = await load('/docs/templates.tsx');
     const page = (slug, title, node, files) => ({ slug, title, html: render(() => node), files });
     const tokenFiles = sourceFiles(
@@ -199,6 +200,13 @@ export async function renderDocs() {
             )
           ),
           ...morePatterns.map((doc) => {
+            if (livePatternSlugs.includes(doc.slug))
+              return page(
+                doc.slug,
+                doc.title,
+                h('tmt-ui-pattern', { page: doc.slug }),
+                sourceFiles('design/browser-ui/docs/patterns-more.tsx', 'design/browser-ui/docs/patterns-blocks.tsx')
+              );
             // A state too heavy for one page (a long table, say) is named, not drawn.
             const states = doc.states.map(([state, label]) => {
               const html = render(() => h(doc.Body, { state }));

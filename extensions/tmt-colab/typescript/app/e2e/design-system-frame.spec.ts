@@ -230,6 +230,53 @@ test('foundations read live token values and run the motion controls', async ({ 
   await expect(frame.locator('svg.tmt-brand-mark').first()).toBeVisible();
 });
 
+test('pattern pages render shared scenes and a scoped dialog', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  const slugs = [
+    'tabs-row',
+    'dense-table',
+    'fab-window',
+    'add-dialog',
+    'needs-you',
+    'loading-error',
+    'confirm-notify',
+    'blocks-document',
+    'blocks-insert',
+    'blocks-menu',
+  ];
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}"><div class="tmt-design-docs">${slugs
+      .map((slug) => `<tmt-ui-pattern page="${slug}"></tmt-ui-pattern>`)
+      .join('')}</div>`,
+  );
+  for (const title of [
+    'Tabs row with actions',
+    'Dense list table',
+    'Floating actions and window',
+    'Add or attach dialog',
+    'Needs you',
+    'Loading and error states',
+    'Confirm dialog and notifications',
+    'Blocks as one document',
+    'Insert a block',
+    'Handle and block menu',
+  ])
+    await expect(frame.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await frame.locator('html').evaluate((node) => node.setAttribute('data-theme', 'light'));
+  await expect(frame.locator('tmt-ui-pattern [data-tmt-ui]').first()).toHaveAttribute(
+    'data-tmt-theme',
+    'light',
+  );
+  await frame.locator('html').evaluate((node) => node.setAttribute('data-theme', 'dark'));
+  await expect(frame.locator('tmt-ui-pattern [data-tmt-ui]').first()).toHaveAttribute(
+    'data-tmt-theme',
+    'dark',
+  );
+  await frame.getByRole('button', { name: 'Add a sub-page' }).click();
+  await expect(frame.getByRole('dialog')).toContainText('Add a sub-page to');
+});
+
 test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({
   page,
 }) => {

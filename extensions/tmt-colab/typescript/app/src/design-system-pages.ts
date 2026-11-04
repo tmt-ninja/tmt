@@ -537,6 +537,7 @@ async function fillFromTemplate(
   const live = new Map(components.map((doc) => [doc.tag, doc]));
   const entries: DesignSystemConfig['components'] = [];
   let foundationPage: string | undefined;
+  let patternPage: string | undefined;
   await withPage(transport, rootId, async (root) => {
     if (!root.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
     const make = async (parent: Snapshot, title: string, source: string) => {
@@ -568,8 +569,19 @@ async function fillFromTemplate(
               body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Colour</h3><div data-ds-example="foundation:colour"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
             }
           }
+          if (section.title === 'Patterns') {
+            body = body.replaceAll('tmt-ui-pattern', `${prefix}-pattern`);
+            if (doc.slug === 'tabs-row') {
+              const pattern = live.get('pattern');
+              if (!pattern) throw new Error('The template has no pattern component.');
+              const { notes: _notes, examples: _examples, ...compiled } = pattern;
+              const markup = `<${prefix}-pattern page="tabs-row"></${prefix}-pattern>`;
+              body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Tabs row</h3><div data-ds-example="pattern:tabs-row"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+            }
+          }
           const id = await make(sectionPage, doc.title, body);
           if (section.title === 'Foundations' && doc.slug === 'colour') foundationPage = id;
+          if (section.title === 'Patterns' && doc.slug === 'tabs-row') patternPage = id;
           if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
           made.push({ id, title: doc.title });
         }
@@ -580,6 +592,8 @@ async function fillFromTemplate(
     }
     if (!foundationPage) throw new Error('The template has no colour foundation page.');
     entries.push({ page: foundationPage, tag: 'foundation', status: 'stable' });
+    if (!patternPage) throw new Error('The template has no tabs pattern page.');
+    entries.push({ page: patternPage, tag: 'pattern', status: 'stable' });
     const config: DesignSystemConfig = {
       ...system,
       id: rootId,

@@ -259,6 +259,7 @@ describe('template, publish and the renderer source', () => {
       'acme-page-list',
       'acme-page-view',
       'acme-pager',
+      'acme-pattern',
       'acme-popover',
       'acme-question-block',
       'acme-rich-input',

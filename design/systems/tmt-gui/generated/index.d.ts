@@ -7,6 +7,12 @@ export interface FoundationProps {
   children?: ReactNode;
 }
 
+/** <tmt-ui-pattern>: props from its schema, slots as nodes. */
+export interface PatternProps {
+  page?: "tabs-row" | "dense-table" | "fab-window" | "add-dialog" | "needs-you" | "loading-error" | "confirm-notify" | "blocks-document" | "blocks-insert" | "blocks-menu";
+  children?: ReactNode;
+}
+
 /** <tmt-ui-button>: props from its schema, slots as nodes. */
 export interface ButtonProps {
   variant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
