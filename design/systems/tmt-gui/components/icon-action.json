@@ -9,6 +9,23 @@
     },
     "disabled": {
       "type": "boolean"
+    },
+    "variant": {
+      "enum": [
+        "text",
+        "primary",
+        "secondary",
+        "destructive"
+      ]
+    },
+    "busy": {
+      "type": "boolean"
+    },
+    "pressed": {
+      "type": "boolean"
+    },
+    "expanded": {
+      "type": "boolean"
     }
   },
   "slots": [
@@ -16,16 +33,50 @@
   ],
   "css": "button.css",
   "uiParts": [
-    "BrowserIconAction"
+    "BrowserIconAction",
+    "BusyMark"
   ],
   "examples": [
     {
-      "title": "BrowserIconAction",
-      "markup": "<tmt-ui-icon-action label=\"Add\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "title": "Primary",
+      "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"primary\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"primary\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"primary\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Secondary",
+      "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"secondary\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"secondary\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"secondary\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Text",
+      "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"text\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"text\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"text\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Destructive",
+      "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"destructive\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"destructive\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"destructive\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Pressed and expanded",
+      "markup": "<tmt-ui-icon-action label=\"Pin\" pressed><tmt-icon name=\"pin\"></tmt-icon></tmt-ui-icon-action> <tmt-ui-icon-action label=\"Settings\" expanded><tmt-icon name=\"settings\"></tmt-icon></tmt-ui-icon-action>",
       "widths": [
         1440,
         390
       ]
     }
-  ]
+  ],
+  "notes": "<p>Icon actions use a tooltip label to name the action. Pressed and expanded states convey the state of the control.</p>"
 }

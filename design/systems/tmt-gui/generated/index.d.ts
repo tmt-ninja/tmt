@@ -412,6 +412,10 @@ export interface MenuProps {
 export interface IconActionProps {
   label?: string;
   disabled?: boolean;
+  variant?: "text" | "primary" | "secondary" | "destructive";
+  busy?: boolean;
+  pressed?: boolean;
+  expanded?: boolean;
   children?: ReactNode;
 }
 

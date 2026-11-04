@@ -66,6 +66,19 @@ test('a pinned page draws its components with their props, slots and tokens', as
   await expect(frame.locator('[data-tmt-ds-notice]')).toHaveCount(0);
 });
 
+test('Browser action examples show busy, disabled and pressed states', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-action label="Saving" variant="primary" busy></tmt-ui-action>
+     <tmt-ui-action label="Unavailable" variant="secondary" disabled></tmt-ui-action>
+     <tmt-ui-icon-action label="Pin" variant="text" pressed><tmt-icon name="plus"></tmt-icon></tmt-ui-icon-action>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Saving' })).toHaveAttribute('aria-busy', 'true');
+  await expect(frame.getByRole('button', { name: 'Unavailable' })).toBeDisabled();
+  await expect(frame.getByRole('button', { name: 'Pin' })).toHaveAttribute('aria-pressed', 'true');
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test(`a pinned GUI page uses palette B in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });

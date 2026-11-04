@@ -23,12 +23,37 @@
   ],
   "examples": [
     {
-      "title": "BrowserCheckbox",
+      "title": "Unchecked",
       "markup": "<label><tmt-ui-browser-checkbox></tmt-ui-browser-checkbox> Select</label>",
       "widths": [
         1440,
         390
       ]
+    },
+    {
+      "title": "Checked",
+      "markup": "<label><tmt-ui-browser-checkbox checked></tmt-ui-browser-checkbox> Selected</label>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Mixed",
+      "markup": "<label><tmt-ui-browser-checkbox indeterminate></tmt-ui-browser-checkbox> Some selected</label>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<label><tmt-ui-browser-checkbox disabled></tmt-ui-browser-checkbox> Unavailable</label>",
+      "widths": [
+        1440,
+        390
+      ]
     }
-  ]
+  ],
+  "notes": "<p>Checkboxes allow independent selections. A mixed state summarizes a selection that contains both checked and unchecked items.</p>"
 }

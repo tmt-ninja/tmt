@@ -1,2 +1,2 @@
-export default ({ React, ui }) => ({ label = 'Action', disabled, children }) =>
-  React.createElement(ui.BrowserIconAction, { label, disabled, type: 'button', variant: 'secondary', icon: children, onActivate: () => {} });
+export default ({ React, ui }) => ({ label = 'Action', variant = 'secondary', children, ...props }) =>
+  React.createElement(ui.BrowserIconAction, { ...props, label, type: 'button', variant, icon: children, busyMark: React.createElement(ui.BusyMark), onActivate: () => {} });

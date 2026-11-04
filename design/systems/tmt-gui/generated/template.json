@@ -2046,14 +2046,39 @@
    ],
    "examples": [
     {
-     "title": "BrowserCheckbox",
+     "title": "Unchecked",
      "markup": "<label><tmt-ui-browser-checkbox></tmt-ui-browser-checkbox> Select</label>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Checked",
+     "markup": "<label><tmt-ui-browser-checkbox checked></tmt-ui-browser-checkbox> Selected</label>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Mixed",
+     "markup": "<label><tmt-ui-browser-checkbox indeterminate></tmt-ui-browser-checkbox> Some selected</label>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<label><tmt-ui-browser-checkbox disabled></tmt-ui-browser-checkbox> Unavailable</label>",
      "widths": [
       1440,
       390
      ]
     }
    ],
+   "notes": "<p>Checkboxes allow independent selections. A mixed state summarizes a selection that contains both checked and unchecked items.</p>",
    "source": "// Runtime 4 supplies the real browser-ui checkbox; its native interaction owns the local value.\nexport default ({ React, ui }) => function BrowserCheckbox({ checked, children, ...props }) {\n  const [value, setValue] = React.useState(checked);\n  React.useEffect(() => setValue(checked), [checked]);\n  return React.createElement(ui.BrowserCheckbox, {\n    ...props,\n    checked: value,\n    onChange: (event) => setValue(event.target.checked),\n  });\n};\n",
    "css": ""
   },
@@ -2129,19 +2154,61 @@
     "default"
    ],
    "uiParts": [
-    "BrowserAction"
+    "BrowserAction",
+    "BusyMark"
    ],
    "examples": [
     {
-     "title": "BrowserAction",
-     "markup": "<tmt-ui-action label=\"Save\" variant=\"primary\"></tmt-ui-action>",
+     "title": "Primary",
+     "markup": "<tmt-ui-action label=\"Save draft\" variant=\"primary\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"primary\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"primary\" disabled></tmt-ui-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Secondary",
+     "markup": "<tmt-ui-action label=\"Save draft\" variant=\"secondary\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"secondary\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"secondary\" disabled></tmt-ui-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Text",
+     "markup": "<tmt-ui-action label=\"Save draft\" variant=\"text\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"text\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"text\" disabled></tmt-ui-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Destructive",
+     "markup": "<tmt-ui-action label=\"Save draft\" variant=\"destructive\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"destructive\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"destructive\" disabled></tmt-ui-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Ghost",
+     "markup": "<tmt-ui-action label=\"Save draft\" variant=\"ghost\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"ghost\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"ghost\" disabled></tmt-ui-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Action group",
+     "markup": "<tmt-ui-action label=\"Approve\" variant=\"primary\"></tmt-ui-action> <tmt-ui-action label=\"Decline\" variant=\"secondary\"></tmt-ui-action> <tmt-ui-action label=\"Cancel\" variant=\"text\"></tmt-ui-action>",
      "widths": [
       1440,
       390
      ]
     }
    ],
-   "source": "// The real BrowserAction sends its native click through the custom element.\nexport default ({ React, ui }) => ({ label = '', variant = 'secondary', children, ...props }) =>\n  React.createElement(ui.BrowserAction, { ...props, label, variant, type: 'button', onActivate: () => {} });\n",
+   "notes": "<p>The Browser action presents one primary action per group, with secondary or text actions beside it. Disabled and busy states communicate when the action cannot run.</p>",
+   "source": "// The real BrowserAction sends its native click through the custom element.\nexport default ({ React, ui }) => ({ label = '', variant = 'secondary', children, ...props }) =>\n  React.createElement(ui.BrowserAction, { ...props, label, variant, type: 'button', busyMark: React.createElement(ui.BusyMark), onActivate: () => {} });\n",
    "css": ""
   },
   {
@@ -2534,25 +2601,76 @@
     },
     "disabled": {
      "type": "boolean"
+    },
+    "variant": {
+     "enum": [
+      "text",
+      "primary",
+      "secondary",
+      "destructive"
+     ]
+    },
+    "busy": {
+     "type": "boolean"
+    },
+    "pressed": {
+     "type": "boolean"
+    },
+    "expanded": {
+     "type": "boolean"
     }
    },
    "slots": [
     "default"
    ],
    "uiParts": [
-    "BrowserIconAction"
+    "BrowserIconAction",
+    "BusyMark"
    ],
    "examples": [
     {
-     "title": "BrowserIconAction",
-     "markup": "<tmt-ui-icon-action label=\"Add\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+     "title": "Primary",
+     "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"primary\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"primary\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"primary\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Secondary",
+     "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"secondary\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"secondary\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"secondary\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Text",
+     "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"text\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"text\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"text\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Destructive",
+     "markup": "<tmt-ui-icon-action label=\"Add\" variant=\"destructive\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"destructive\" busy><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action><tmt-ui-icon-action label=\"Add\" variant=\"destructive\" disabled><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Pressed and expanded",
+     "markup": "<tmt-ui-icon-action label=\"Pin\" pressed><tmt-icon name=\"pin\"></tmt-icon></tmt-ui-icon-action> <tmt-ui-icon-action label=\"Settings\" expanded><tmt-icon name=\"settings\"></tmt-icon></tmt-ui-icon-action>",
      "widths": [
       1440,
       390
      ]
     }
    ],
-   "source": "export default ({ React, ui }) => ({ label = 'Action', disabled, children }) =>\n  React.createElement(ui.BrowserIconAction, { label, disabled, type: 'button', variant: 'secondary', icon: children, onActivate: () => {} });\n",
+   "notes": "<p>Icon actions use a tooltip label to name the action. Pressed and expanded states convey the state of the control.</p>",
+   "source": "export default ({ React, ui }) => ({ label = 'Action', variant = 'secondary', children, ...props }) =>\n  React.createElement(ui.BrowserIconAction, { ...props, label, type: 'button', variant, icon: children, busyMark: React.createElement(ui.BusyMark), onActivate: () => {} });\n",
    "css": ""
   },
   {

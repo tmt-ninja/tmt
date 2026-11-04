@@ -28,16 +28,58 @@
   ],
   "css": "button.css",
   "uiParts": [
-    "BrowserAction"
+    "BrowserAction",
+    "BusyMark"
   ],
   "examples": [
     {
-      "title": "BrowserAction",
-      "markup": "<tmt-ui-action label=\"Save\" variant=\"primary\"></tmt-ui-action>",
+      "title": "Primary",
+      "markup": "<tmt-ui-action label=\"Save draft\" variant=\"primary\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"primary\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"primary\" disabled></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Secondary",
+      "markup": "<tmt-ui-action label=\"Save draft\" variant=\"secondary\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"secondary\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"secondary\" disabled></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Text",
+      "markup": "<tmt-ui-action label=\"Save draft\" variant=\"text\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"text\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"text\" disabled></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Destructive",
+      "markup": "<tmt-ui-action label=\"Save draft\" variant=\"destructive\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"destructive\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"destructive\" disabled></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Ghost",
+      "markup": "<tmt-ui-action label=\"Save draft\" variant=\"ghost\"></tmt-ui-action><tmt-ui-action label=\"Busy\" variant=\"ghost\" busy></tmt-ui-action><tmt-ui-action label=\"Disabled\" variant=\"ghost\" disabled></tmt-ui-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Action group",
+      "markup": "<tmt-ui-action label=\"Approve\" variant=\"primary\"></tmt-ui-action> <tmt-ui-action label=\"Decline\" variant=\"secondary\"></tmt-ui-action> <tmt-ui-action label=\"Cancel\" variant=\"text\"></tmt-ui-action>",
       "widths": [
         1440,
         390
       ]
     }
-  ]
+  ],
+  "notes": "<p>The Browser action presents one primary action per group, with secondary or text actions beside it. Disabled and busy states communicate when the action cannot run.</p>"
 }
