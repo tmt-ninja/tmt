@@ -205,3 +205,30 @@ test("optional key numbers are bounded, closed metadata and approval-bound", () 
   const html = '<article id="blog-article"><p>Evidence</p></article>';
   assert.notEqual(artifactHash(meta, html, {}), artifactHash({ ...meta, keyNumber }, html, {}));
 });
+
+test("an owner-instruction authorization binds the artifact and names who authorized it", () => {
+  const result = extractArticle('<article id="blog-article"><p>Authorized</p></article>');
+  const approval = {
+    decision: "approved",
+    method: "owner-instruction",
+    approvedBy: "Owner",
+    instruction: "Publish this post now.",
+    pageId,
+    pageRevision: "opaque-token",
+    sourceSha256: sha256("source"),
+    approvedAt: "2026-11-04T01:00:00.000Z",
+    artifactSha256: artifactHash(meta, result.html, result.assets),
+  };
+  assert.doesNotThrow(() => validateApproval(approval, meta, result.html, result.assets));
+  for (const missing of ["approvedBy", "instruction", "pageId", "sourceSha256", "approvedAt"]) {
+    const { [missing]: _, ...partial } = approval;
+    assert.throws(
+      () => validateApproval(partial, meta, result.html, result.assets),
+      /invalid owner authorization/,
+    );
+  }
+  assert.throws(
+    () => validateApproval(approval, { ...meta, title: "Changed" }, result.html, result.assets),
+    /hash mismatch/,
+  );
+});
