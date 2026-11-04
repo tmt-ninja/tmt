@@ -28,7 +28,10 @@ tmt GUI system (tags `tmt-ui-*`): every install can pin it, and its `show` needs
 It is the default for TMT product mockups. For a structured page, its block tags are `tmt-ui-block-document` holding
 `tmt-ui-block`s, each with one of `tmt-ui-heading-block`, `tmt-ui-text-block`, `tmt-ui-list-item`,
 `tmt-ui-todo`, `tmt-ui-table-block`, `tmt-ui-card-block`, `tmt-ui-callout` or `tmt-ui-code-block`,
-plus `tmt-ui-block-mention`, `tmt-ui-block-menu` and `tmt-ui-block-toast`. A space's own systems need a running
+plus `tmt-ui-block-mention`, `tmt-ui-block-menu`, `tmt-ui-block-toast`, `tmt-ui-question-block`,
+`tmt-ui-image-block`, `tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. A
+work bundle reads only its admitted referenced page, and a page view shows the owner's admitted
+page list. A space's own systems need a running
 `tmt colab serve` for `show`. `show` prints `meta` (the pin line to copy), `lockMeta` (the line
 that locks this release), `principles`, and every component's `tag`, `props` (enum values or type,
 default), `slots` and `examples`. Read it once per page; there is no per-system skill.

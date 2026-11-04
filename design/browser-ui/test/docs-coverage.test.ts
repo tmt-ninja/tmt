@@ -10,7 +10,10 @@ import { readdirSync, readFileSync } from 'node:fs';
  */
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const catalog =
-  read('docs/catalog.tsx') + read('docs/catalog-more.tsx') + read('docs/catalog-blocks.tsx') + read('docs/blocks-catalog.tsx');
+  read('docs/catalog.tsx') +
+  read('docs/catalog-more.tsx') +
+  read('docs/catalog-blocks.tsx') +
+  read('docs/blocks-catalog.tsx');
 const browserCatalog = read('docs/browser-catalog.tsx');
 const covered = read('gallery/covered.ts');
 

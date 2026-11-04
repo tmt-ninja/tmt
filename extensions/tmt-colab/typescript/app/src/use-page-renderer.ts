@@ -20,6 +20,7 @@ export interface RendererHandlers {
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
   onOpenThread(id: string): void;
   onOpenList(id: string): void;
+  onAttachmentDownload?(id: string): void;
 }
 
 /** The page's inline layers, which the renderer reports its slots and anchors to. A new function
@@ -204,6 +205,7 @@ export function usePageRenderer({
       onKey: (key) => current.current.onKey(key),
       onOpenThread: (id) => current.current.onOpenThread(id),
       onOpenList: (id) => current.current.onOpenList(id),
+      onAttachmentDownload: (id) => current.current.onAttachmentDownload?.(id),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();

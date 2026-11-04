@@ -7,6 +7,10 @@
   "props": {
     "label": {"type": "string", "default": "Pages"},
     "rows": {"type": "string", "default": "[]"},
+    "filters": {"type": "string", "default": "[]"},
+    "columns": {"type": "string"},
+    "sort": {"enum": ["updated", "title"], "default": "updated"},
+    "limit": {"type": "string", "default": "20"},
     "group-by": {"enum": ["state", "project", "owner", "none"], "default": "state"},
     "state": {"enum": ["auto", "loading", "empty", "error"], "default": "auto"},
     "density": {"enum": ["compact", "comfortable"], "default": "compact"},

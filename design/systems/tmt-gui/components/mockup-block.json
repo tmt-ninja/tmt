@@ -6,7 +6,8 @@
   "props": {
     "system": {"type": "string", "default": "tmt-gui"},
     "lock": {"type": "string", "default": "follow"},
-    "preset": {"enum": ["390", "1440"], "default": "390"},
+    "preset": {"enum": ["390", "1440", "custom"], "default": "390"},
+    "width": {"type": "string"},
     "height": {"type": "string", "default": "400"}
   },
   "slots": ["default"],

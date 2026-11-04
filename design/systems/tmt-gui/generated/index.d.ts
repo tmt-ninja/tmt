@@ -206,6 +206,10 @@ export interface BlockToastProps {
 export interface PageViewProps {
   label?: string;
   rows?: string;
+  filters?: string;
+  columns?: string;
+  sort?: "updated" | "title";
+  limit?: string;
   "group-by"?: "state" | "project" | "owner" | "none";
   state?: "auto" | "loading" | "empty" | "error";
   density?: "compact" | "comfortable";
@@ -219,6 +223,7 @@ export interface WorkBundleProps {
   page?: string;
   number?: string;
   work?: string;
+  editable?: boolean;
   tickets?: string;
   children?: ReactNode;
 }
@@ -227,7 +232,29 @@ export interface WorkBundleProps {
 export interface MockupBlockProps {
   system?: string;
   lock?: string;
-  preset?: "390" | "1440";
+  preset?: "390" | "1440" | "custom";
+  width?: string;
   height?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-question-block>: props from its schema, slots as nodes. */
+export interface QuestionBlockProps {
+  label?: string;
+  agent?: string;
+  kind?: "single" | "multiple" | "short";
+  choices?: string;
+  state?: "waiting" | "answered" | "dismissed";
+  answer?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-image-block>: props from its schema, slots as nodes. */
+export interface ImageBlockProps {
+  images?: string;
+  files?: string;
+  layout?: "carousel" | "grid" | "single";
+  size?: "s" | "m" | "l";
+  variant?: "image" | "file";
   children?: ReactNode;
 }

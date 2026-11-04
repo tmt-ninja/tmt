@@ -3,7 +3,8 @@
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
 export const SCHEMA = 1;
-/** The skeleton API a bundle runs on (runtime 2): the page runtime's React and htm, plus cn. */
+/** Default runtime 2 retains its original React, html and cn skeleton. Runtime 3 adds the
+ * system prefix plus explicitly declared, allowlisted parts and data capabilities. */
 export const RUNTIME = '2';
 /** Runtime 3 adds only these explicitly declared host-provided parts. */
 export const SHARED_PARTS = ['PageListTable'];
@@ -111,6 +112,13 @@ export async function buildBundle(system, config, components, sha256Hex) {
   });
   const tags = components.map((doc) => doc.tag);
   if (new Set(tags).size !== tags.length) fail('two components share a tag');
+  for (const doc of components) {
+    if (doc.requires === undefined) continue;
+    if (config.runtime !== '3' || !Array.isArray(doc.requires) ||
+        new Set(doc.requires).size !== doc.requires.length ||
+        doc.requires.some((tag) => typeof tag !== 'string' || tag === doc.tag || !tags.includes(tag)))
+      fail(`${doc.tag}: invalid or missing component dependency`);
+  }
   const body = {
     schema: SCHEMA,
     system,
@@ -126,6 +134,7 @@ export async function buildBundle(system, config, components, sha256Hex) {
       slots: doc.slots,
       ...(doc.parts === undefined ? {} : { parts: doc.parts }),
       ...(doc.data === undefined ? {} : { data: doc.data }),
+      ...(doc.requires === undefined ? {} : { requires: doc.requires }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
         markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),

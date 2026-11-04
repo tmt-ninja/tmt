@@ -96,6 +96,12 @@
     },
     {
       "doc": "components/mockup-block.json"
+    },
+    {
+      "doc": "components/question-block.json"
+    },
+    {
+      "doc": "components/image-block.json"
     }
   ],
   "principles": {

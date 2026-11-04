@@ -511,7 +511,7 @@ export function DataTable<Row>({
                                   type="button"
                                   className="tmt-data-table-group-toggle"
                                   aria-expanded={!collapsedGroups?.has(group.id)}
-                              disabled={!onGroupToggle}
+                                  disabled={!onGroupToggle}
                                   onClick={() => onGroupToggle?.(group.id)}
                                 >
                                   {group.label} <span>{groupCounts.get(group.id)}</span>

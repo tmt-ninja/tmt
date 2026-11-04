@@ -18,6 +18,7 @@ export interface ComponentDoc {
   slots: string[];
   parts?: string[];
   data?: string[];
+  requires?: string[];
   examples?: { title: string; markup: string; widths?: number[] }[];
   source: string;
   css: string;
@@ -52,6 +53,7 @@ export interface Bundle {
     slots: string[];
     parts?: string[];
     data?: string[];
+    requires?: string[];
     examples: { title: string; markup: string }[];
     css: string;
     code: string;

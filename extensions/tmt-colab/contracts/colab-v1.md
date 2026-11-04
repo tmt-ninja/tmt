@@ -2619,9 +2619,15 @@ permission enters the frame. A host-generated image request ID and render ID fen
 References are resolved in document order, at most 128 unique references and 64 MiB of declared
 plaintext per render; aliases share one read/charge. Unknown, ambiguous, non-raster, unreadable
 and over-budget references produce inert alt-text placeholders, never a fetch fallback. Scope or
-binding changes clear display copies and suppress late replies. The Local object backend supports
+binding changes clear display copies and suppress late replies. The same admission and bounds apply
+to attachment images inserted later by a design-system component; inserting an image does not give
+its component an attachment read capability. The Local object backend supports
 this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
 reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
+An image or file block may request a download of a `colab-attachment:` reference. The parent
+matches it uniquely against the current page's verified descriptors and presents the filename in
+trusted chrome; only a trusted confirmation reads and downloads the attachment. A frame claim or
+gesture alone never grants that read, and an unknown or ambiguous reference is ignored.
 
 On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
@@ -5457,11 +5463,17 @@ A lock is verified against its release's hash and never changes. Publish records
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing.
 
-Design-system runtime 2 supplies React, html and cn. Runtime 3 also permits a component to declare
+Design-system runtime 2 supplies React, html and cn. Runtime 3 also supplies its system prefix and permits a component to declare
 named shared parts in its `parts` list; the host currently permits only `PageListTable`. The
 component receives only its declared names, and an attempt to access another part is refused.
+When an admitted component declares `PageListTable`, the host may supply it with the owner's
+bounded page-list projection. The host identifies eligible tags from the verified bundle, including
+systems with a custom prefix; markup alone cannot declare that capability.
 Runtime 2 bundles keep their existing skeleton and cannot declare shared parts. A reader without
 runtime 3 reports that the page needs a newer TMT rather than executing that bundle.
+Runtime 3 components that nest another tag of their own system list its unprefixed name in
+`requires`; compilation refuses a missing or self-referential dependency. The runtime supplies
+the current system prefix so a copied system does not draw tags from another system.
 Runtime 3 separately permits a component to declare the `page` data capability: it reads only the
 referenced page's bounded display metadata through the current viewer's admitted transport. The
 frame is not given a transport, management methods or an arbitrary page-read function.

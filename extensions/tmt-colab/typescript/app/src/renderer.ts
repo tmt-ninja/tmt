@@ -198,6 +198,8 @@ export async function mountRenderer(
     onState(state: RenderState): void;
     /** Untrusted link request; activation proves recent interaction, never which link. */
     onLink?(request: PageLinkRequest, active: boolean): void;
+    /** Untrusted frame claim; the parent must confirm a current-page attachment before opening it. */
+    onAttachmentDownload?(reference: string): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -290,6 +292,9 @@ export async function mountRenderer(
     ready = false;
   let stopPageView: (() => void) | undefined;
   const stopWorkBundles: (() => void)[] = [];
+  let admittedTags:
+    | { pageViewTags?: readonly string[]; pageDataTags?: readonly string[] }
+    | undefined;
   const channel = new MessageChannel();
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
@@ -488,6 +493,21 @@ export async function mountRenderer(
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
+    if (
+      ready &&
+      Object.keys(value).length === 3 &&
+      value.type === 'colab.render.attachment-download' &&
+      value.renderId === snapshot.renderId &&
+      typeof value.reference === 'string' &&
+      IMAGE_REFERENCE.test(value.reference)
+    ) {
+      const token = value.reference.slice('colab-attachment:'.length);
+      const matches = imageInput.descriptors.filter((item) =>
+        token.length === 8 ? item.attachmentId.startsWith(token) : item.attachmentId === token,
+      );
+      if (matches.length === 1) options.onAttachmentDownload?.(matches[0]!.attachmentId);
+      return;
+    }
     if (ready && pageLinkRequest(value, snapshot.renderId)) {
       options.onLink?.(value, navigator.userActivation?.isActive === true);
       return;
@@ -639,7 +659,12 @@ export async function mountRenderer(
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
     images(imageInput);
-    if (new DOMParser().parseFromString(source, 'text/html').querySelector('tmt-ui-page-view')) {
+    const sourceElements = [
+      ...new DOMParser().parseFromString(source, 'text/html').querySelectorAll('*'),
+    ];
+    const listTags = new Set(admittedTags?.pageViewTags ?? []);
+    const dataTags = new Set(admittedTags?.pageDataTags ?? []);
+    if (sourceElements.some((element) => listTags.has(element.localName))) {
       const unavailable = () => {
         if (!stopped)
           channel.port1.postMessage({
@@ -659,11 +684,8 @@ export async function mountRenderer(
       if (!options.pageView) unavailable();
     }
     const workPages = new Set(
-      [
-        ...new DOMParser()
-          .parseFromString(source, 'text/html')
-          .querySelectorAll('tmt-ui-work-bundle[page]'),
-      ]
+      sourceElements
+        .filter((element) => dataTags.has(element.localName) && element.hasAttribute('page'))
         .map((node) => node.getAttribute('page') ?? '')
         .filter((page) => /^[A-Za-z0-9_-]{1,128}$/.test(page))
         .slice(0, 20),
@@ -1409,6 +1431,7 @@ export async function mountRenderer(
     let bundle: PageRuntime | undefined;
     const ds = await designSystem;
     if (stopped) return;
+    admittedTags = ds;
     if (runtime) {
       try {
         bundle = await runtime;
@@ -1425,7 +1448,7 @@ export async function mountRenderer(
         theme: getTheme(),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(bundle ? { runtime: bundle } : {}),
-        ...(bundle && ds ? { ds } : {}),
+        ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
       },
       '*',
       [channel.port2],

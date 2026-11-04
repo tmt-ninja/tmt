@@ -6,6 +6,7 @@ import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { watchPageView } from './page-view-source.js';
 import { workBundleSource } from './work-bundle-source.js';
+import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
@@ -1518,6 +1519,15 @@ function OpenPage({
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  const attachmentDownload = usePageAttachmentDownload(
+    snapshot.binding?.files?.attachments,
+    view.attachments ?? [],
+    () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
+  );
+  const resetAttachmentDownload = attachmentDownload.reset;
+  useEffect(() => {
+    resetAttachmentDownload();
+  }, [snapshot.id, view.source, resetAttachmentDownload]);
   // The document shows before its threads and asks are verified; until they follow, nothing that
   // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
   const discussionPending = !!view.discussionPending;
@@ -1972,6 +1982,7 @@ function OpenPage({
         if (annotationRef.current) closeRef.current(false);
         panelsRef.current.show('comments');
       },
+      onAttachmentDownload: (id) => attachmentDownload.request(id),
     },
   });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
@@ -2380,6 +2391,7 @@ function OpenPage({
       </BrowserDrawer>
       <div className="workspace">
         {pageLinkBar}
+        {attachmentDownload.bar}
         <PageWorkBand
           onSize={setWorkBandSize}
           work={view.work}

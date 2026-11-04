@@ -209,8 +209,12 @@ describe('template, publish and the renderer source', () => {
       'acme-code-block',
       'acme-empty',
       'acme-heading-block',
+      'acme-image-block',
       'acme-input',
       'acme-list-item',
+      'acme-mockup-block',
+      'acme-page-view',
+      'acme-question-block',
       'acme-separator',
       'acme-skeleton',
       'acme-surface',
@@ -220,6 +224,7 @@ describe('template, publish and the renderer source', () => {
       'acme-text-block',
       'acme-textarea',
       'acme-todo',
+      'acme-work-bundle',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);
     // Publish from the Design header adds a version and moves the pins.

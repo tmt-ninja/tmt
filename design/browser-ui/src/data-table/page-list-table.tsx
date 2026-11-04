@@ -14,6 +14,7 @@ export interface PageListRow {
   activeProjects?: readonly string[];
   stage?: { id: string; label: string };
   progress?: ReactNode;
+  subpages?: { done: number; total: number };
   updated: string;
   updatedDateTime?: string;
   updatedTitle?: string;
@@ -23,6 +24,7 @@ export interface PageListRow {
   readOnly?: boolean;
   pinned?: boolean;
   unread?: boolean;
+  needsYou?: boolean;
 }
 
 const columns: DataTableColumn<PageListRow>[] = [
@@ -126,10 +128,73 @@ const columns: DataTableColumn<PageListRow>[] = [
   },
 ];
 
+const pageViewColumns: DataTableColumn<PageListRow>[] = [
+  {
+    ...columns[0]!,
+    header: 'Page',
+    sub: (page) => (
+      <>
+        {page.projects.map((project) => (
+          <PageListProjectChip key={project} name={project} />
+        ))}
+      </>
+    ),
+  },
+  {
+    id: 'state',
+    header: 'State',
+    role: 'status',
+    min: 112,
+    max: 112,
+    phone: 'meta',
+    cell: (page) =>
+      page.stage ? (
+        <span className="tmt-page-view-state">
+          <span aria-hidden="true" data-attention={page.needsYou || undefined}>
+            {page.needsYou ? '◆' : '●'}
+          </span>{' '}
+          {page.stage.label}
+        </span>
+      ) : null,
+  },
+  {
+    id: 'progress',
+    header: 'Sub-pages',
+    role: 'text',
+    min: 120,
+    max: 120,
+    align: 'end',
+    phone: 'menu',
+    cell: (page) =>
+      page.subpages && page.subpages.total > 0 ? (
+        <span
+          role="meter"
+          aria-label="Sub-page progress"
+          aria-valuemin={0}
+          aria-valuemax={page.subpages.total}
+          aria-valuenow={page.subpages.done}
+        >
+          {page.subpages.done} / {page.subpages.total}
+        </span>
+      ) : null,
+  },
+  {
+    id: 'owner',
+    header: 'Owner',
+    role: 'person',
+    min: 120,
+    max: 120,
+    phone: 'menu',
+    text: (page) => page.author,
+  },
+  { ...columns.find((column) => column.id === 'updated')!, align: 'end', min: 96, max: 96 },
+];
+
 export function PageListTable({
   rows,
   actions,
   visibleColumns,
+  pageView,
   ...props
 }: Omit<
   DataTableProps<PageListRow>,
@@ -138,7 +203,10 @@ export function PageListTable({
   rows: readonly PageListRow[];
   /** Optional column selection. The title is always present. */
   visibleColumns?: readonly string[];
+  /** The structured-page view's status, sub-page and owner columns. */
+  pageView?: boolean;
 }) {
+  const activeColumns = pageView ? pageViewColumns : columns;
   return (
     <DataTable
       label="Pages"
@@ -147,8 +215,10 @@ export function PageListTable({
       rowLabel={(page) => page.name}
       columns={
         visibleColumns
-          ? columns.filter((column) => column.id === 'title' || visibleColumns.includes(column.id))
-          : columns
+          ? activeColumns.filter(
+              (column) => column.id === 'title' || visibleColumns.includes(column.id),
+            )
+          : activeColumns
       }
       selectAllLabel="Select all matching pages"
       includeActionsInMenu={false}

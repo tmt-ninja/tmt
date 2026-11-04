@@ -16,6 +16,9 @@ type ViewRows =
       updated: string;
       author: string;
       access: string;
+      updatedAt?: number;
+      subpages?: { done: number; total: number };
+      needsYou?: boolean;
     }[]
   | null
   | undefined;
@@ -32,19 +35,6 @@ type WorkPage = {
 };
 const workPages = new Map<string, WorkPage | null>();
 const workListeners = new Set<() => void>();
-window.addEventListener('tmt-work-bundle-data', (event) => {
-  const value = (event as CustomEvent<{ page?: unknown; data?: WorkPage | null }>).detail;
-  if (
-    !value ||
-    typeof value.page !== 'string' ||
-    value.page.length > 128 ||
-    (value.data !== null &&
-      (!value.data || typeof value.data.title !== 'string' || typeof value.data.href !== 'string'))
-  )
-    return;
-  workPages.set(value.page, value.data);
-  workListeners.forEach((listener) => listener());
-});
 const subscribeWork = (listener: () => void) => {
   workListeners.add(listener);
   return () => {
@@ -54,16 +44,33 @@ const subscribeWork = (listener: () => void) => {
 function useWorkPage(page: string): WorkPage | null | undefined {
   return React.useSyncExternalStore(
     subscribeWork,
-    () => workPages.get(page),
-    () => undefined,
+    () => (registerBlockData ? workPages.get(page) : null),
+    () => null,
   );
 }
 const pageListeners = new Set<() => void>();
-window.addEventListener('tmt-page-view-data', (event) => {
-  const value = (event as CustomEvent<unknown>).detail;
-  if (value !== null && (!Array.isArray(value) || value.length > 200)) return;
-  pageRows = value as ViewRows;
-  pageListeners.forEach((listener) => listener());
+type BlockData =
+  | { type: 'page-view'; rows: ViewRows }
+  | { type: 'work-bundle'; page: string; data: WorkPage | null };
+const registerBlockData = (
+  window as Window & { __colabBlockData?: (sink: (value: BlockData) => void) => void }
+).__colabBlockData;
+if (!registerBlockData) pageRows = null;
+registerBlockData?.((value) => {
+  if (value.type === 'page-view') {
+    if (value.rows !== null && (!Array.isArray(value.rows) || value.rows.length > 200)) return;
+    pageRows = value.rows;
+    pageListeners.forEach((listener) => listener());
+  } else if (
+    value.type === 'work-bundle' &&
+    typeof value.page === 'string' &&
+    value.page.length <= 128 &&
+    (value.data === null ||
+      (value.data && typeof value.data.title === 'string' && typeof value.data.href === 'string'))
+  ) {
+    workPages.set(value.page, value.data);
+    workListeners.forEach((listener) => listener());
+  }
 });
 const subscribePages = (listener: () => void) => {
   pageListeners.add(listener);
@@ -73,8 +80,12 @@ const subscribePages = (listener: () => void) => {
 };
 function SharedPageListTable({
   livePageView,
+  pageViewOptions,
   ...props
-}: React.ComponentProps<typeof PageListTable> & { livePageView?: boolean }) {
+}: React.ComponentProps<typeof PageListTable> & {
+  livePageView?: boolean;
+  pageViewOptions?: { filters: { field: string; value: string }[]; sort: string; limit: number };
+}) {
   const incoming = React.useSyncExternalStore(
     subscribePages,
     () => pageRows,
@@ -96,7 +107,29 @@ function SharedPageListTable({
             stage: item.stage ? { id: item.stage, label: item.stage } : undefined,
           }))
       : props.rows;
-  if (livePageView && props.rowGroup) {
+  if (pageViewOptions) {
+    rows = rows.filter((row) =>
+      pageViewOptions.filters.every((filter) =>
+        filter.field === 'project'
+          ? row.projects.includes(filter.value)
+          : filter.field === 'state'
+            ? row.stage?.id === filter.value || row.stage?.label === filter.value
+            : filter.field === 'owner'
+              ? row.author === filter.value
+              : false,
+      ),
+    );
+    if (pageViewOptions.sort === 'title')
+      rows = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+    else if (pageViewOptions.sort === 'updated')
+      rows = [...rows].sort(
+        (a, b) =>
+          ((b as typeof b & { updatedAt?: number }).updatedAt ?? 0) -
+          ((a as typeof a & { updatedAt?: number }).updatedAt ?? 0),
+      );
+    rows = rows.slice(0, pageViewOptions.limit);
+  }
+  if (props.rowGroup) {
     const groups = new Map<string, (typeof rows)[number][]>();
     for (const row of rows) {
       const id = props.rowGroup(row).id;
@@ -107,7 +140,9 @@ function SharedPageListTable({
     rows = [...groups.values()].flat();
   }
   const state = !livePageView
-    ? props.state
+    ? props.state === 'ready' && rows.length === 0
+      ? 'empty'
+      : props.state
     : incoming === undefined
       ? 'loading'
       : incoming === null

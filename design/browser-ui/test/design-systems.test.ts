@@ -29,10 +29,34 @@ describe('buildBundle', () => {
     const bundle = await buildBundle('x', system, [page], sha256Hex);
     expect(bundle.runtime).toBe('3');
     expect(bundle.components[0]?.parts).toEqual(['PageListTable']);
-    await expect(buildBundle('x', { ...template.system, runtime: '2' }, [page], sha256Hex)).rejects.toThrow('runtime 3');
-    await expect(buildBundle('x', system, [{ ...page, parts: ['Other'] }], sha256Hex)).rejects.toThrow(
-      'shared part',
+    await expect(
+      buildBundle('x', { ...template.system, runtime: '2' }, [page], sha256Hex),
+    ).rejects.toThrow('runtime 3');
+    await expect(
+      buildBundle('x', system, [{ ...page, parts: ['Other'] }], sha256Hex),
+    ).rejects.toThrow('shared part');
+  });
+  it('admits only named runtime 3 data capabilities', async () => {
+    const component = { ...button, data: ['page'] };
+    const system = { ...template.system, runtime: '3' };
+    expect((await buildBundle('x', system, [component], sha256Hex)).components[0]?.data).toEqual([
+      'page',
+    ]);
+    await expect(
+      buildBundle('x', { ...system, runtime: '2' }, [component], sha256Hex),
+    ).rejects.toThrow('runtime 3');
+    await expect(
+      buildBundle('x', system, [{ ...component, data: ['arbitrary'] }], sha256Hex),
+    ).rejects.toThrow('data capability');
+  });
+  it('requires nested system tags to exist in the same runtime 3 bundle', async () => {
+    const nested = { ...button, tag: 'composite', requires: ['button'] };
+    const system = { ...template.system, runtime: '3' };
+    await expect(buildBundle('x', system, [nested], sha256Hex)).rejects.toThrow(
+      'missing component dependency',
     );
+    const built = await buildBundle('x', system, [button, nested], sha256Hex);
+    expect(built.components[1]?.requires).toEqual(['button']);
   });
   it('rebuilds the checked-in built-in bundle from the template', async () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
@@ -67,6 +91,8 @@ describe('buildBundle', () => {
       'tmt-ui-page-view',
       'tmt-ui-work-bundle',
       'tmt-ui-mockup-block',
+      'tmt-ui-question-block',
+      'tmt-ui-image-block',
     ]);
   });
 

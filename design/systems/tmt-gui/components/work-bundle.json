@@ -3,11 +3,13 @@
   "kind": "component",
   "tag": "work-bundle",
   "source": "work-bundle.js",
+  "requires": ["badge"],
   "data": ["page"],
   "props": {
     "page": {"type": "string"},
     "number": {"type": "string"},
     "work": {"type": "string"},
+    "editable": {"type": "boolean"},
     "tickets": {"type": "string"}
   },
   "slots": ["default"],

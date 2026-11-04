@@ -33,10 +33,33 @@ export function mountQuestion(kind: 'single' | 'multiple' | 'short' = 'single') 
 export function mountPageView() {
   const host = document.createElement('main');
   document.body.replaceChildren(host);
-  createRoot(host).render(<PageView title="Spec pages" rows={[
-    { id: 'one', name: 'First page', title: 'First page', projects: ['spec'], stage: { id: 'waiting', label: 'Waiting' }, updated: 'Today', author: 'Ben', access: 'Team' },
-    { id: 'two', name: 'Second page', title: 'Second page', projects: ['spec'], stage: { id: 'active', label: 'Active' }, updated: 'Yesterday', author: 'Night', access: 'Team' },
-  ]} />);
+  createRoot(host).render(
+    <PageView
+      title="Spec pages"
+      rows={[
+        {
+          id: 'one',
+          name: 'First page',
+          title: 'First page',
+          projects: ['spec'],
+          stage: { id: 'waiting', label: 'Waiting' },
+          updated: 'Today',
+          author: 'Ben',
+          access: 'Team',
+        },
+        {
+          id: 'two',
+          name: 'Second page',
+          title: 'Second page',
+          projects: ['spec'],
+          stage: { id: 'active', label: 'Active' },
+          updated: 'Yesterday',
+          author: 'Night',
+          access: 'Team',
+        },
+      ]}
+    />,
+  );
 }
 
 export function mountImages(layout: 'carousel' | 'grid' | 'single' = 'carousel') {

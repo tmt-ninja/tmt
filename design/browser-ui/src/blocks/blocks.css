@@ -522,11 +522,22 @@ a.tmt-block-mention:focus-visible {
 .tmt-block-question {
   display: flex;
   gap: var(--tmt-ui-space-m);
+  box-sizing: border-box;
+  padding: var(--tmt-ui-space-m);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-type-body-size)/var(--tmt-ui-type-body-line-height) var(--tmt-ui-font-body);
 }
 .tmt-block-question-mark {
-  color: var(--tmt-ui-color-waiting);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-hover);
+  color: var(--tmt-ui-color-text);
   flex: none;
 }
 .tmt-block-question-content {
@@ -564,13 +575,25 @@ a.tmt-block-mention:focus-visible {
 }
 .tmt-block-question-choices kbd {
   color: var(--tmt-ui-color-secondary);
+  margin-inline-start: auto;
 }
 .tmt-block-question-input textarea {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   min-height: 2.5em;
   max-height: 5em;
+  padding: var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-field);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
   resize: vertical;
+}
+.tmt-block-question-input textarea:focus-visible {
+  border-color: var(--tmt-ui-color-focus);
+  outline: none;
 }
 .tmt-block-question-answered {
   display: flex;
@@ -741,6 +764,22 @@ a.tmt-block-mention:focus-visible {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-xs);
+}
+.tmt-block-mockup-toolbar button:not([data-slot='button']) {
+  min-height: var(--tmt-ui-control-size);
+  padding: 0 var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-block-mockup-toolbar button:not([data-slot='button'])[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-selection);
+}
+.tmt-block-mockup-toolbar button:not([data-slot='button']):focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
 }
 .tmt-block-mockup-viewport {
   overflow: auto;

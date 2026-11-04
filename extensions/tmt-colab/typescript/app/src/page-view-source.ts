@@ -11,11 +11,17 @@ export interface PageViewRecord {
   projects: string[];
   stage: string;
   updated: string;
+  updatedAt?: number;
+  subpages?: { done: number; total: number };
+  needsYou?: boolean;
   author: string;
   access: string;
 }
 const text = (value: string | undefined, max: number) => (value ?? '').slice(0, max);
-export function pageViewRecords(pages: readonly PageSummary[], pageHref: (id: string) => string = (id) => `/pages/${encodeURIComponent(id)}`): PageViewRecord[] {
+export function pageViewRecords(
+  pages: readonly PageSummary[],
+  pageHref: (id: string) => string = (id) => `/pages/${encodeURIComponent(id)}`,
+): PageViewRecord[] {
   const rows = pages
     .filter((page) => !page.archived && !isDesignSystemPage(page))
     .slice(0, 200)
@@ -24,8 +30,22 @@ export function pageViewRecords(pages: readonly PageSummary[], pageHref: (id: st
       name: text(page.title, 256),
       href: text(pageHref(page.id), 512),
       projects: (page.projects ?? []).slice(0, 20).map((project) => text(project, 80)),
-      stage: text(page.state ?? page.summary?.work?.stage ?? '', 80),
+      stage: text(
+        ({ todo: 'To do', 'in-progress': 'In progress', done: 'Done' } as Record<string, string>)[
+          page.state ?? ''
+        ] ??
+          page.summary?.work?.stage ??
+          '',
+        80,
+      ),
       updated: page.lastUpdateAtMs == null ? '' : relativeTime(page.lastUpdateAtMs, Date.now()),
+      ...(page.lastUpdateAtMs == null ? {} : { updatedAt: page.lastUpdateAtMs }),
+      ...(page.summary?.needsYou ? { needsYou: true } : {}),
+      ...(page.progress
+        ? { subpages: { done: page.progress.done, total: page.progress.total } }
+        : page.summary?.work
+          ? { subpages: { done: page.summary.work.done, total: page.summary.work.total } }
+          : {}),
       author: text(page.summary?.author, 128),
       access: page.sharing,
     }));

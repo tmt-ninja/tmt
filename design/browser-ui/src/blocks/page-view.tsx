@@ -18,11 +18,10 @@ export interface PageViewProps {
 
 const allColumns = [
   { id: 'title', label: 'Page', required: true },
-  { id: 'project', label: 'Project' },
-  { id: 'stage', label: 'Stage' },
+  { id: 'state', label: 'State' },
+  { id: 'progress', label: 'Sub-pages' },
+  { id: 'owner', label: 'Owner' },
   { id: 'updated', label: 'Updated' },
-  { id: 'author', label: 'Owner' },
-  { id: 'access', label: 'Access' },
 ];
 function groupName(row: PageListRow, groupBy: PageViewToolbarProps['groupBy']) {
   return groupBy === 'state'
@@ -77,6 +76,7 @@ export function PageView({
           onColumnsChange={setVisible}
         />
         <PageListTable
+          pageView
           rows={groups.flatMap(([, group]) => group)}
           state={state === 'ready' && groups.length === 0 ? 'empty' : state}
           visibleColumns={visible}

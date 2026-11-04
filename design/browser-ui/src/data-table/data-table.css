@@ -274,6 +274,13 @@
   text-align: left;
   cursor: pointer;
 }
+.tmt-page-view-state {
+  font-size: var(--tmt-ui-caption-size);
+  white-space: normal;
+}
+.tmt-page-view-state [data-attention] {
+  color: var(--tmt-ui-color-waiting);
+}
 
 /* Under 760px each row is a two-line card: select, primary and menu, then the other values. */
 @container tmt-data-table (max-width: 759px) {

@@ -3,6 +3,7 @@ import { subpageTree } from './work-tree.js';
 import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellNotice } from './shell-notice.js';
 import { usePageLinks } from './page-link-bar.js';
+import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { Circle, Info, X, Code2, Paperclip } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { FilesSurface } from './files-panel.js';
@@ -109,6 +110,17 @@ export function ReaderApp({
     base: () => location.href,
     inset: () => bar.current?.getBoundingClientRect().bottom ?? 0,
   });
+  const attachmentDownload = usePageAttachmentDownload(
+    attachments,
+    descriptors,
+    () => bar.current?.getBoundingClientRect().bottom ?? 0,
+  );
+  const downloadRequest = useRef(attachmentDownload.request);
+  downloadRequest.current = attachmentDownload.request;
+  const resetAttachmentDownload = attachmentDownload.reset;
+  useEffect(() => {
+    resetAttachmentDownload();
+  }, [source, resetAttachmentDownload]);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const editLockLayer = useEditLockLayer({
     page: state.kind === 'ready' ? (state.pageId ?? 'reader') : 'reader',
@@ -145,6 +157,7 @@ export function ReaderApp({
         setRender(next);
       },
       onLink: requestPageLink,
+      onAttachmentDownload: (id) => downloadRequest.current(id),
       onEditLocks: editLockLayer.onEditLocks,
       // The band is pinned under the bar like the signed-in route's, so it insets the viewport.
       viewportInset: () => toolbarInset(bar.current) + bandSize.current,
@@ -169,6 +182,7 @@ export function ReaderApp({
   return (
     <>
       {pageLinkBar}
+      {attachmentDownload.bar}
       <ColabHeader
         reader
         brandOnly={state.kind !== 'ready'}
