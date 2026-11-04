@@ -462,3 +462,47 @@ export interface TooltipProps {
   label?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-command>: props from its schema, slots as nodes. */
+export interface CommandProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-floating>: props from its schema, slots as nodes. */
+export interface FloatingProps {
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-chips>: props from its schema, slots as nodes. */
+export interface ChipsProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-data-table>: props from its schema, slots as nodes. */
+export interface DataTableProps {
+  label?: string;
+  columns?: string;
+  rows?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-page-list>: props from its schema, slots as nodes. */
+export interface PageListProps {
+  rows?: string;
+  live?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-rich-input>: props from its schema, slots as nodes. */
+export interface RichInputProps {
+  label?: string;
+  shape?: "single" | "multi";
+  placeholder?: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}

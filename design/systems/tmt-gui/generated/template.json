@@ -270,6 +270,30 @@
    {
     "tag": "tooltip",
     "status": "stable"
+   },
+   {
+    "tag": "command",
+    "status": "stable"
+   },
+   {
+    "tag": "floating",
+    "status": "stable"
+   },
+   {
+    "tag": "chips",
+    "status": "stable"
+   },
+   {
+    "tag": "data-table",
+    "status": "stable"
+   },
+   {
+    "tag": "page-list",
+    "status": "stable"
+   },
+   {
+    "tag": "rich-input",
+    "status": "stable"
    }
   ]
  },
@@ -2674,6 +2698,212 @@
     }
    ],
    "source": "// Runtime 4 supplies the real Tooltip and its originating theme.\nexport default ({ React, ui }) => function Tooltip({ label = 'Help', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.TooltipProvider, null, h(ui.Tooltip, null,\n    h(ui.TooltipTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.TooltipContent, null, children))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "command",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "Command",
+    "CommandInput",
+    "CommandList",
+    "CommandItem"
+   ],
+   "examples": [
+    {
+     "title": "Command",
+     "markup": "<tmt-ui-command label=\"Search\" items=\"Open,Close\"></tmt-ui-command>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Compose the real command palette parts on the page runtime's React.\nexport default ({ React, ui }) => function Command({ label = 'Search', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.Command, { label }, h(ui.CommandInput, { placeholder: label, 'aria-label': label }),\n    h(ui.CommandList, null, ...choices.map((item) => h(ui.CommandItem, { key: item }, item))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "floating",
+   "props": {
+    "label": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "TooltipProvider",
+    "FloatingDock",
+    "FloatingActions",
+    "FloatingAction",
+    "FloatingWindow"
+   ],
+   "examples": [
+    {
+     "title": "Floating",
+     "markup": "<tmt-ui-floating label=\"Chat\">A message</tmt-ui-floating>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Compose the real floating dock and window, retaining local open state.\nexport default ({ React, ui }) => function Floating({ label = 'Chat', children }) {\n  const [open, setOpen] = React.useState(false);\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.TooltipProvider, null, h(ui.FloatingDock, null,\n    h(ui.FloatingWindow, { open, label, onClose: () => setOpen(false) }, children),\n    h(ui.FloatingActions, { label: 'Actions' }, h(ui.FloatingAction, {\n      label, icon: '●', expanded: open, onClick: () => setOpen((value) => !value),\n    })))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "chips",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "Chips",
+    "useLayerController"
+   ],
+   "examples": [
+    {
+     "title": "Chips",
+     "markup": "<tmt-ui-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-chips>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The real Chips control owns its layer; the example keeps a local selection.\nexport default ({ React, ui }) => {\n  const h = React.createElement;\n  function Control({ label, choices }) {\n    const [open, setOpen] = React.useState(false);\n    const [query, setQuery] = React.useState('');\n    const [items, setItems] = React.useState([]);\n    const controller = ui.useLayerController({ open, onOpenChange: setOpen });\n    const options = choices.filter((name) => !items.includes(name) && name.toLowerCase().includes(query.toLowerCase()))\n      .map((name) => ({ id: name, label: name }));\n    return h(ui.Chips, { label, controller, query, onQueryChange: setQuery, options,\n      emptyLabel: 'No matches', items: items.map((name) => ({ id: name, label: name, removeLabel: `Remove ${name}` })),\n      onAdd: (option) => { setItems((current) => [...current, option.id]); setQuery(''); },\n      onRemove: (item) => setItems((current) => current.filter((name) => name !== item.id)) });\n  }\n  return ({ label = 'People', items = '' }) => h(ui.UiTheme, null,\n    h(Control, { label, choices: items.split(',').map((item) => item.trim()).filter(Boolean) }));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "data-table",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "columns": {
+     "type": "string"
+    },
+    "rows": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "DataTable"
+   ],
+   "examples": [
+    {
+     "title": "Data-Table",
+     "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\" rows=\"Alex,Ready;Sam,Draft\"></tmt-ui-data-table>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The real DataTable receives a small page-authored projection.\nexport default ({ React, ui }) => ({ label = 'Table', columns = 'Name', rows = '' }) => {\n  const headings = columns.split(',').map((value) => value.trim()).filter(Boolean);\n  const entries = rows ? rows.split(';').map((row, id) => ({ id: String(id), cells: row.split(',').map((value) => value.trim()) })) : [];\n  const fields = headings.map((header, index) => ({ id: String(index), header, role: index === 0 ? 'primary' : 'text', text: (row) => row.cells[index] ?? '' }));\n  return React.createElement(ui.UiTheme, null, React.createElement(ui.DataTable, { label, rows: entries, columns: fields,\n    rowKey: (row) => row.id, rowLabel: (row) => row.cells[0] ?? '' }));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "page-list",
+   "props": {
+    "rows": {
+     "type": "string"
+    },
+    "live": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "parts": [
+    "PageListTable"
+   ],
+   "examples": [
+    {
+     "title": "Page-List",
+     "markup": "<tmt-ui-page-list rows=\"Home,Ready;Notes,Draft\"></tmt-ui-page-list>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// PageListTable is host supplied because it can consume the bounded page projection.\nexport default ({ React, parts }) => ({ rows = '', live = false }) => {\n  const entries = rows ? rows.split(';').map((row, id) => {\n    const [name, state = ''] = row.split(',').map((value) => value.trim());\n    return { id: String(id), name, title: name, projects: [], stage: { id: state, label: state }, updated: '', author: '', access: '' };\n  }) : [];\n  return React.createElement(parts.PageListTable, { rows: entries, livePageView: live });\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "rich-input",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "shape": {
+     "enum": [
+      "single",
+      "multi"
+     ]
+    },
+    "placeholder": {
+     "type": "string"
+    },
+    "disabled": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "RichInput"
+   ],
+   "examples": [
+    {
+     "title": "Rich input",
+     "markup": "<tmt-ui-rich-input label=\"Message\" shape=\"multi\" placeholder=\"Write a message\"></tmt-ui-rich-input>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real browser-ui rich input, with local editing state.\nexport default ({ React, ui }) => function RichInput({ label = 'Message', shape = 'multi', placeholder, disabled }) {\n  const [value, setValue] = React.useState({ value: '', chips: [] });\n  return React.createElement(ui.RichInput, { label, shape, placeholder, disabled, value, onChange: setValue });\n};\n",
    "css": ""
   }
  ]

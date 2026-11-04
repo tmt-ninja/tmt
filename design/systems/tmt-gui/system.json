@@ -186,6 +186,24 @@
     },
     {
       "doc": "components/tooltip.json"
+    },
+    {
+      "doc": "components/command.json"
+    },
+    {
+      "doc": "components/floating.json"
+    },
+    {
+      "doc": "components/chips.json"
+    },
+    {
+      "doc": "components/data-table.json"
+    },
+    {
+      "doc": "components/page-list.json"
+    },
+    {
+      "doc": "components/rich-input.json"
     }
   ],
   "principles": {

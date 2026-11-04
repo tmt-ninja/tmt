@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "floating",
+  "source": "floating.js",
+  "props": {
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "TooltipProvider",
+    "FloatingDock",
+    "FloatingActions",
+    "FloatingAction",
+    "FloatingWindow"
+  ],
+  "examples": [
+    {
+      "title": "Floating",
+      "markup": "<tmt-ui-floating label=\"Chat\">A message</tmt-ui-floating>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

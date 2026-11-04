@@ -23,6 +23,9 @@ lucide-react 1.52.0. React components use built-in icons for controls such as Dr
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
 
+The `./rich-input.css` entry exposes the RichInput stylesheet for hosts that embed the editor
+inside an isolated page frame; the `./rich-input` React entry remains the component owner.
+
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
 stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).
 Products import the leaf only through these entries, never by a path into

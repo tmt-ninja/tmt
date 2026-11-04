@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "page-list",
+  "source": "page-list.js",
+  "props": {
+    "rows": {
+      "type": "string"
+    },
+    "live": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "parts": [
+    "PageListTable"
+  ],
+  "examples": [
+    {
+      "title": "Page-List",
+      "markup": "<tmt-ui-page-list rows=\"Home,Ready;Notes,Draft\"></tmt-ui-page-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

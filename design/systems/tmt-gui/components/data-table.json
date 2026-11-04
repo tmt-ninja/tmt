@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "data-table",
+  "source": "data-table.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "columns": {
+      "type": "string"
+    },
+    "rows": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "DataTable"
+  ],
+  "examples": [
+    {
+      "title": "Data-Table",
+      "markup": "<tmt-ui-data-table label=\"People\" columns=\"Name,State\" rows=\"Alex,Ready;Sam,Draft\"></tmt-ui-data-table>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import {
 import { elements as ownElements } from '../../../contracts/vectors/page-elements-v1.json';
 import pageListCss from '@tmt/browser-ui/page-list.css?inline';
 import dataTableCss from '@tmt/browser-ui/data-table.css?inline';
+import richInputCss from '@tmt/browser-ui/rich-input.css?inline';
 
 /** Runtime 2's skeleton remains supported unchanged alongside runtime 3. */
 export const SKELETON_RUNTIME = '2';
@@ -236,11 +237,15 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   // An element is only its rendered component's host, except at the top of the page: there it is
   // the box the frame's column rules (width, inset) apply to, so it stands on the column with the text.
   const tags = bundle.components.map(({ tag }) => tag).join(',');
-  const sharedCss = bundle.components.some((component) =>
+  const hasPageList = bundle.components.some((component) =>
     component.parts?.includes('PageListTable'),
-  )
-    ? `${pageListCss}\n${dataTableCss}`
-    : '';
+  );
+  const hasDataTable =
+    hasPageList || bundle.components.some((component) => component.uiParts?.includes('DataTable'));
+  const hasRichInput = bundle.components.some((component) =>
+    component.uiParts?.includes('RichInput'),
+  );
+  const sharedCss = `${hasPageList ? pageListCss : ''}\n${hasDataTable ? dataTableCss : ''}\n${hasRichInput ? richInputCss : ''}`;
   const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${sharedCss}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
   const prefix = JSON.stringify(bundle.prefix).replace(/</g, '\\u003c');
   const script = `(()=>{const t=window.tmt;const meta=${meta},prefix=${prefix};

@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
-import { PageListTable } from '@tmt/browser-ui/data-table';
+import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
+import { RichInput } from '@tmt/browser-ui/rich-input';
 import {
   Badge,
   Card,
@@ -61,6 +62,16 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
+  Command,
+  CommandInput,
+  CommandList,
+  CommandItem,
+  FloatingDock,
+  FloatingActions,
+  FloatingAction,
+  FloatingWindow,
+  Chips,
+  useLayerController,
 } from '@tmt/browser-ui/ui';
 import {
   BrandMark,
@@ -300,6 +311,18 @@ const runtime = Object.freeze({
     Tooltip,
     TooltipTrigger,
     TooltipContent,
+    Command,
+    CommandInput,
+    CommandList,
+    CommandItem,
+    FloatingDock,
+    FloatingActions,
+    FloatingAction,
+    FloatingWindow,
+    Chips,
+    useLayerController,
+    DataTable,
+    RichInput,
     Checkbox,
     DsScope,
     Input,

@@ -1,0 +1,8 @@
+// PageListTable is host supplied because it can consume the bounded page projection.
+export default ({ React, parts }) => ({ rows = '', live = false }) => {
+  const entries = rows ? rows.split(';').map((row, id) => {
+    const [name, state = ''] = row.split(',').map((value) => value.trim());
+    return { id: String(id), name, title: name, projects: [], stage: { id: state, label: state }, updated: '', author: '', access: '' };
+  }) : [];
+  return React.createElement(parts.PageListTable, { rows: entries, livePageView: live });
+};

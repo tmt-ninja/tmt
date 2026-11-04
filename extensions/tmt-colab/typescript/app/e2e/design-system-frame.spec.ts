@@ -232,6 +232,58 @@ test('Select and Tooltip tags open their real scoped layers', async ({ page }) =
   await expect(scope.getByRole('tooltip')).toContainText('More information');
 });
 
+test('Command and Floating tags remain interactive in a stage', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope>
+      <tmt-ui-command label="Search" items="Open,Close"></tmt-ui-command>
+      <tmt-ui-floating label="Chat">Message body</tmt-ui-floating>
+    </tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('combobox', { name: 'Search' }).fill('Open');
+  await expect(scope.getByRole('option', { name: 'Open' })).toBeVisible();
+  await scope.getByRole('button', { name: 'Chat' }).click();
+  await expect(scope.getByRole('dialog', { name: 'Chat' })).toContainText('Message body');
+});
+
+test('Chips tag selects and removes an option', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope><tmt-ui-chips label="People" items="Alex,Sam"></tmt-ui-chips></tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('combobox', { name: 'People' }).fill('Alex');
+  await scope.getByRole('option', { name: 'Alex' }).click();
+  await expect(scope.getByRole('button', { name: 'Remove Alex' })).toBeVisible();
+  await scope.getByRole('button', { name: 'Remove Alex' }).click();
+  await expect(scope.getByRole('button', { name: 'Remove Alex' })).toHaveCount(0);
+});
+
+test('data table and page list tags render their supplied rows', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-data-table label="People" columns="Name,State" rows="Alex,Ready"></tmt-ui-data-table>
+    <tmt-ui-page-list rows="Home,Ready"></tmt-ui-page-list>`,
+  );
+  await expect(frame.getByRole('grid', { name: 'People' })).toContainText('Alex');
+  await expect(frame.getByRole('grid', { name: 'Pages' })).toContainText('Home');
+});
+
+test('Rich input tag edits text in the frame', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-rich-input label="Message" shape="multi"></tmt-ui-rich-input>`,
+  );
+  const input = frame.getByRole('textbox', { name: 'Message' });
+  await input.fill('Hello from the page');
+  await expect(input).toContainText('Hello from the page');
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

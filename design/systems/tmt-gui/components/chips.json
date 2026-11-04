@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "chips",
+  "source": "chips.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "Chips",
+    "useLayerController"
+  ],
+  "examples": [
+    {
+      "title": "Chips",
+      "markup": "<tmt-ui-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

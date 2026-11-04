@@ -137,6 +137,12 @@ describe('buildBundle', () => {
       'tmt-ui-browser-tabs',
       'tmt-ui-select',
       'tmt-ui-tooltip',
+      'tmt-ui-command',
+      'tmt-ui-floating',
+      'tmt-ui-chips',
+      'tmt-ui-data-table',
+      'tmt-ui-page-list',
+      'tmt-ui-rich-input',
     ]);
   });
 
