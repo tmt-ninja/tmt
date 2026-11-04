@@ -105,7 +105,7 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. `tmt-job-calendar` shares stateless schedule math (Jiff/JSON only). Restricted holds retain one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide in request preparation: refuse before storing or hold for a person until `talks.resume`. Canonical jobs share request acceptance. Adapter `tick` owns the finite/foreground clock and generated user-unit policy; CLI owns timer consent. User managers invoke finite ticks. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. Restricted holds retain one pending marker per identity; the shared wake clock and tagged checklists own summary admission/settlement. Sending rules and talk limits decide in request preparation: refuse before storing or hold for a person until `talks.resume`. Jobs share request acceptance; adapter `tick` owns their clock, CLI timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -389,7 +389,7 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public JSON/API, the unified `tmt tick` foreground owner and
+- **Seam.** Ops uses public JSON/API, `tmt tick` and
   [`host templates`](contracts/driver-protocol-v1.md#launch-templates) via
   `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/host_launch`
   prepares/rechecks frozen argv for New member (new UUID before join)
@@ -408,9 +408,9 @@ own module/drawing boundaries and verification.
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
   `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS; checklists and frozen legacy job sources/redirects live in
+  Ops uses CAS; checklists and legacy job sources live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  Current jobs/runs belong to Core's public owner; Ops imports one immutable source with receipt-fenced recovery.
+  Jobs/runs belong to Core; Ops imports legacy ones once.
   `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
   Cron's v1 conversion keeps conflicting source bytes in a private export before commit;
   its store tracks one CLI and one board warning, and the board worker forwards the latter.
