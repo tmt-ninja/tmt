@@ -5,6 +5,8 @@
 export const SCHEMA = 1;
 /** The skeleton API a bundle runs on (runtime 2): the page runtime's React and htm, plus cn. */
 export const RUNTIME = '2';
+/** Runtime 3 adds only these explicitly declared host-provided parts. */
+export const SHARED_PARTS = ['PageListTable'];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
 const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
@@ -38,7 +40,7 @@ export function validateSystem(config, where = 'design system') {
   if (typeof config.name !== 'string' || !config.name) fail(`${where}: needs a name`);
   if (typeof config.prefix !== 'string' || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(config.prefix))
     fail(`${where}: prefix must be lowercase words joined by hyphens`);
-  if (config.runtime !== RUNTIME) fail(`${where}: runtime ${config.runtime} is not ${RUNTIME}`);
+  if (![RUNTIME, '3'].includes(config.runtime)) fail(`${where}: unsupported runtime ${config.runtime}`);
   if (typeof config.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(config.version))
     fail(`${where}: version must be major.minor.patch`);
   if (typeof config.tokens?.css !== 'string') fail(`${where}: tokens.css must be CSS text`);
@@ -96,6 +98,13 @@ export function validateComponent(doc, where = 'component') {
 export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
+  components.forEach((doc) => {
+    if (doc.parts === undefined) return;
+    if (config.runtime !== '3') fail(`${doc.tag}: shared parts require runtime 3`);
+    if (!Array.isArray(doc.parts) || new Set(doc.parts).size !== doc.parts.length ||
+        doc.parts.some((part) => typeof part !== 'string' || !SHARED_PARTS.includes(part)))
+      fail(`${doc.tag}: unknown or duplicate shared part`);
+  });
   const tags = components.map((doc) => doc.tag);
   if (new Set(tags).size !== tags.length) fail('two components share a tag');
   const body = {
@@ -103,7 +112,7 @@ export async function buildBundle(system, config, components, sha256Hex) {
     system,
     name: config.name,
     version: config.version,
-    runtime: RUNTIME,
+    runtime: config.runtime,
     prefix: config.prefix,
     tokensCss: config.tokens.css,
     principles: config.principles ?? null,
@@ -111,6 +120,7 @@ export async function buildBundle(system, config, components, sha256Hex) {
       tag: `${config.prefix}-${doc.tag}`,
       props: doc.props,
       slots: doc.slots,
+      ...(doc.parts === undefined ? {} : { parts: doc.parts }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
         markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),

@@ -19,6 +19,21 @@ const sha256Hex = async (text: string) => createHash('sha256').update(text).dige
 const button = template.components[0]!;
 
 describe('buildBundle', () => {
+  it('requires named shared parts to be declared on runtime 3 components', async () => {
+    const system = { ...template.system, runtime: '3' };
+    const page = {
+      ...button,
+      parts: ['PageListTable'],
+      source: 'export default ({ parts }) => parts.PageListTable;',
+    };
+    const bundle = await buildBundle('x', system, [page], sha256Hex);
+    expect(bundle.runtime).toBe('3');
+    expect(bundle.components[0]?.parts).toEqual(['PageListTable']);
+    await expect(buildBundle('x', template.system, [page], sha256Hex)).rejects.toThrow('runtime 3');
+    await expect(buildBundle('x', system, [{ ...page, parts: ['Other'] }], sha256Hex)).rejects.toThrow(
+      'shared part',
+    );
+  });
   it('rebuilds the checked-in built-in bundle from the template', async () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     expect(JSON.parse(readFileSync(builtIn, 'utf8'))).toEqual(bundle);

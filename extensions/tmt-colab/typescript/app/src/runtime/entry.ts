@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
+import { PageListTable } from '../../../../../../design/browser-ui/src/data-table/page-list-table.js';
 
 /**
  * The bundled page runtime (#1693): what an opted-in page's own script finds on `window.tmt`, with
@@ -14,6 +15,7 @@ const runtime = Object.freeze({
   createRoot,
   html: htm.bind(React.createElement),
   icons,
+  sharedParts: Object.freeze({ PageListTable }),
 });
 Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });
 

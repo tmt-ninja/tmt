@@ -5457,6 +5457,12 @@ A lock is verified against its release's hash and never changes. Publish records
 keeps the system's own tree following its draft; the Design header can show a release in place of
 the draft for viewing.
 
+Design-system runtime 2 supplies React, html and cn. Runtime 3 also permits a component to declare
+named shared parts in its `parts` list; the host currently permits only `PageListTable`. The
+component receives only its declared names, and an attempt to access another part is refused.
+Runtime 2 bundles keep their existing skeleton and cannot declare shared parts. A reader without
+runtime 3 reports that the page needs a newer TMT rather than executing that bundle.
+
 The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
 owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each
 page follows `tmt-gui`, starts with a note that it is generated from `design/browser-ui`, and holds a
