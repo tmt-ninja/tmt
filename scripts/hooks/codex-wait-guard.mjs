@@ -17,13 +17,25 @@
 //    `skip`: `apply_patch`, and a Bash command that is one simple command (no
 //    unquoted `; & | < > ( ) $` backtick, backslash or newline) running `rg`,
 //    `grep`, `ls`, `cat`, `head`, `wc` or `pwd`, `git status|diff|log|show`, or
-//    `sed -n`. `tail` is left out, since `tail -f` waits. Starting this
-//    repository's scripts/ci-wake.sh, the required CI waiter, is also a
-//    `skip` (reason `ci-wake`): one command whose program resolves (realpath)
-//    to `<worktree>/scripts/ci-wake.sh`, run directly or by `sh`/`bash`, with
-//    any plain arguments, an optional leading `nohup`, trailing redirections
-//    and a trailing `&`. A copy elsewhere, or anything chained or wrapped
-//    around it, is judged.
+//    `sed -n`. `tail` is left out, since `tail -f` waits. One status read is
+//    not a wait (repeating it is): `gh pr view|diff|checks|list`, `gh issue
+//    view|list` and `gh run view|list` without `--watch`, and a `gh api` GET
+//    (no `-X`/`--method` other than GET, no fields, no `--input`). So is
+//    writing a file: `cat > file <<'EOF' … EOF` (or `>>`, or the redirection
+//    after the heredoc) with a quoted delimiter, so nothing in the body expands
+//    or runs, and nothing after the closing line.
+//    Starting this repository's scripts/ci-wake.sh, the required CI waiter, is
+//    also a `skip` (reason `ci-wake`): one command whose program resolves
+//    (realpath) to `<worktree>/scripts/ci-wake.sh`, run directly or by
+//    `sh`/`bash`, with any plain arguments, an optional leading `nohup`,
+//    trailing redirections and a trailing `&`. A copy elsewhere, or anything
+//    chained or wrapped around it, is judged. The host-health gate is a `skip`
+//    (reason `host-health`) on the same terms, with exactly `--gate` and nothing
+//    else: tmt-infra-lead's `host-health.sh` takes both readings itself. It lives
+//    in that seat's notes directory, outside the repository, so the skip also
+//    pins its content: only while its sha256 is HOST_HEALTH_SHA256, checked on
+//    every call; any other content is judged. Changing that script needs a
+//    guard update.
 // 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
@@ -67,6 +79,7 @@
 // TMT_WAIT_GUARD_LOG_DIR (the log directory) and TMT_WAIT_GUARD_NOW (the clock
 // for `stats`) exist for isolated tests.
 import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -104,6 +117,16 @@ const BUDGET_USD_PER_MONTH = 200;
 const JUDGE_URL = 'https://api.anthropic.com/v1/messages';
 const KEYCHAIN_ITEM = 'tmt-codex-hook-anthropic';
 const CACHE_PREFIX = 'tmt-codex-wait-guard-';
+/** tmt-infra-lead's host-health gate, by its notes directory under the home directory. */
+const HOST_HEALTH = [
+  '.config',
+  'tmt',
+  'notes',
+  'ada473fa-8c4d-4b12-9686-b44a77791a4b',
+  'host-health.sh',
+];
+/** The reviewed content of that script; any other content is judged (#6003). */
+const HOST_HEALTH_SHA256 = 'c46ddc1a37174c254f07e28e0f5a31affb399d7720fd1692d62c6f59aec5e909';
 
 /** The judge endpoint. The test override is honored only on loopback, since the key goes with it. */
 function judgeUrl() {
@@ -121,6 +144,8 @@ function judgeUrl() {
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED].
 Deny the call when it waits, sleeps or polls in any form, including inside a script or heredoc it writes or runs: sleep, a retry or watch loop, a background loop (&, nohup, while true), a timer or scheduled task, or repeated status checks of CI, pull requests, merge queues, deploys or other agents. The agent should start scripts/ci-wake.sh (or a provider background task that wakes it) and end its turn instead.
 Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it.
+One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
+Writing or editing a file is not a wait, even when the text it writes mentions sleeping or polling; judge only what the call runs.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
 Record your decision with the verdict tool, with a reason of one short sentence.`;
 
@@ -181,11 +206,55 @@ function shellWords(command) {
 }
 
 const READ_ONLY = new Set(['rg', 'grep', 'ls', 'cat', 'head', 'wc', 'pwd']);
+/** `gh <group> <command>` reads that answer once; `--watch` turns one into a wait. */
+const GH_READS = {
+  pr: ['view', 'diff', 'checks', 'list'],
+  issue: ['view', 'list'],
+  run: ['view', 'list'],
+};
+/** `gh api` flags that make a request other than one GET. */
+const GH_API_WRITES = /^(?:-X|--method|-f|-F|--field|--raw-field|--input)(?:=|$)|^-[XfF]./;
+
+/** One gh status read: a listed read without `--watch`, or a `gh api` GET. */
+function ghRead(words) {
+  const [, group, command, ...rest] = words;
+  if (group === 'api') {
+    const flags = words.slice(2);
+    return (
+      flags.length > 0 &&
+      flags.every(
+        (word, index) =>
+          !GH_API_WRITES.test(word) ||
+          (/^(?:-X|--method)$/.test(word) && flags[index + 1]?.toUpperCase() === 'GET') ||
+          /^(?:-X|--method=)GET$/i.test(word)
+      )
+    );
+  }
+  return (
+    (GH_READS[group] ?? []).includes(command) &&
+    !rest.some((word) => /^(?:--watch|-w)(?:=|$)/.test(word))
+  );
+}
+
+/** `cat > file <<'EOF'` … `EOF`: a quoted delimiter, so the body never expands, ending at its line. */
+const HEREDOC_WRITE =
+  /^cat\s+(?:>>?\s*([^\s;&|<>()`$\\'"]+)\s+<<-?\s*'([A-Za-z_][A-Za-z0-9_]*)'|<<-?\s*'([A-Za-z_][A-Za-z0-9_]*)'\s+>>?\s*([^\s;&|<>()`$\\'"]+))[ \t]*\n/;
+
+/** Writing one file from a quoted heredoc, with nothing before or after it. */
+function writesFile(command) {
+  const match = HEREDOC_WRITE.exec(command);
+  if (!match) return false;
+  const delimiter = match[2] ?? match[3];
+  const body = command.slice(match[0].length).replace(/\n$/, '').split('\n');
+  // The first line equal to the delimiter closes the heredoc; it must be the last.
+  return body.findIndex((line) => line.replace(/^\t+/, '') === delimiter) === body.length - 1;
+}
 
 /** The exact allowlist of calls that cannot wait, which skip the model. */
 export function allowlisted(tool, command) {
   if (tool === 'apply_patch') return true;
   if (tool !== 'Bash') return false;
+  if (writesFile(command)) return true;
   const { words, simple } = shellWords(command);
   if (!simple || words.length === 0) return false;
   const [program, first] = words;
@@ -193,6 +262,7 @@ export function allowlisted(tool, command) {
   // Without an operand these read stdin.
   if (READ_ONLY.has(program)) return words.length > 1;
   if (program === 'git') return ['status', 'diff', 'log', 'show'].includes(first);
+  if (program === 'gh') return ghRead(words);
   return program === 'sed' && first === '-n';
 }
 
@@ -205,23 +275,50 @@ const TRAILING_REDIRECT =
  * CI waiter, so its own polling loop is not mistaken for a wait in the main session. Anything chained or wrapped around it, or a copy elsewhere, is judged.
  */
 export function startsCiWake(cwd, command) {
+  const started = startedScript(cwd, command);
+  const root = worktree(cwd);
+  return Boolean(started && root) && started.file === path.join(root, 'scripts', 'ci-wake.sh');
+}
+
+/**
+ * Whether the command only runs tmt-infra-lead's host-health gate with `--gate`, while that
+ * script's content is the reviewed one. Arguments, chaining or other content are judged.
+ */
+export function runsHostHealthGate(cwd, command) {
+  const started = startedScript(cwd, command);
+  if (!started || started.args.length !== 1 || started.args[0] !== '--gate') return false;
+  try {
+    const gate = realpathSync(path.join(os.homedir(), ...HOST_HEALTH));
+    return (
+      started.file === gate &&
+      createHash('sha256').update(readFileSync(gate)).digest('hex') === HOST_HEALTH_SHA256
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The script one command starts and its arguments: one simple command, run directly or by
+ * `sh`/`bash`, with an optional leading `nohup`, trailing redirections and a trailing `&`.
+ * `file` is the program's realpath; null when the command is anything else.
+ */
+function startedScript(cwd, command) {
   let rest = command.trim();
   if (rest.endsWith('&') && !rest.endsWith('&&')) rest = rest.slice(0, -1).trimEnd();
   for (let match = TRAILING_REDIRECT.exec(rest); match; match = TRAILING_REDIRECT.exec(rest)) {
     rest = rest.slice(0, match.index);
   }
   const { words, simple } = shellWords(rest);
-  if (!simple) return false;
+  if (!simple) return null;
   let at = words[0] === 'nohup' ? 1 : 0;
   if (['sh', 'bash'].includes(words[at])) at += 1;
   const program = words[at];
-  if (!program || !program.includes('/')) return false;
-  const root = worktree(cwd);
-  if (!root) return false;
+  if (!program || !program.includes('/')) return null;
   try {
-    return realpathSync(path.resolve(cwd, program)) === path.join(root, 'scripts', 'ci-wake.sh');
+    return { file: realpathSync(path.resolve(cwd, program)), args: words.slice(at + 1) };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -600,6 +697,9 @@ async function main() {
   if (allowlisted(tool, command)) return finish({ verdict: 'skip' });
   if (tool === 'Bash' && startsCiWake(payload.cwd, command)) {
     return finish({ verdict: 'skip', reason: 'ci-wake' });
+  }
+  if (tool === 'Bash' && runsHostHealthGate(payload.cwd, command)) {
+    return finish({ verdict: 'skip', reason: 'host-health' });
   }
   const seat = whoami();
   const started = Date.now();
