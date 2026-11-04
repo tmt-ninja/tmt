@@ -1024,8 +1024,12 @@ exit ${'$'}status
     return this.tmux(['capture-pane', '-p', '-t', pane, '-S', `-${lines}`]);
   }
 
-  async waitForCapture(predicate: (output: string) => boolean, pane = this.pane): Promise<string> {
-    return waitForCapture(() => this.capture(100, pane), predicate);
+  async waitForCapture(
+    predicate: (output: string) => boolean,
+    pane = this.pane,
+    timeoutMs?: number
+  ): Promise<string> {
+    return waitForCapture(() => this.capture(100, pane), predicate, timeoutMs);
   }
 }
 
