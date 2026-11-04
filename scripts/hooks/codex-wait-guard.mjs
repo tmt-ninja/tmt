@@ -20,7 +20,7 @@
 //    `sed -n`. `tail` is left out, since `tail -f` waits.
 // 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
-//    timeout, a network or HTTP error, an unparsable or truncated answer or a
+//    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
 //    missing key allows (fail open), logged with that reason. Until ENFORCE is
 //    true (shadow mode) a deny is only logged, as `enforced: false`.
 //
@@ -421,6 +421,8 @@ function post(url, secret, content, deadline) {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 1_024,
+      // Haiku 5.5 thinks adaptively by default; thinking would spend max_tokens and add latency.
+      thinking: { type: 'disabled' },
       system: POLICY,
       tools: [VERDICT_TOOL],
       tool_choice: { type: 'tool', name: 'verdict' },
@@ -462,6 +464,7 @@ async function judge(content) {
     output: document.usage?.output_tokens ?? null,
   };
   if (document.stop_reason === 'max_tokens') return failOpen('max_tokens', tokens);
+  if (document.stop_reason === 'refusal') return failOpen('refusal', tokens);
   const call = (document.content ?? []).find(
     (part) => part.type === 'tool_use' && part.name === 'verdict'
   );

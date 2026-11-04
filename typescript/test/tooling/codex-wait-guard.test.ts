@@ -196,6 +196,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       model: 'claude-haiku-5-5',
       max_tokens: 1024,
       tool_choice: { type: 'tool', name: 'verdict' },
+      thinking: { type: 'disabled' },
       tools: [expect.objectContaining({ name: 'verdict' })],
     });
     expect(sent()).toEqual({
@@ -337,6 +338,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       ['http 500', reply({}, 500), {}],
       ['http 429', reply({}, 429), {}],
       ['max_tokens', reply({ content: [], stop_reason: 'max_tokens', usage }), {}],
+      ['refusal', reply({ content: [], stop_reason: 'refusal', usage }), {}],
       ['parse', reply({ content: [{ type: 'text', text: 'allow' }], usage }), {}],
       [
         'parse',
@@ -368,7 +370,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       expect(result.stdout, reason).toBe('');
       const [line] = c.lines();
       expect(line, reason).toMatchObject({ verdict: 'fail_open', reason });
-      if (['max_tokens', 'bad verdict'].includes(reason)) {
+      if (['max_tokens', 'refusal', 'bad verdict'].includes(reason)) {
         expect(line, reason).toMatchObject({
           inputTokens: 300,
           outputTokens: 1024,
