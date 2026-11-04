@@ -7,7 +7,6 @@ import type { BrowserNoticeTone } from '../static.js';
 import { BrowserTable } from '../table.js';
 import './blocks.css';
 
-
 const empty = (children: ReactNode) =>
   children === undefined || children === null || children === '';
 
@@ -255,8 +254,7 @@ export function CodeBlock({
   copyLabel = 'Copy code',
   copiedLabel = 'Copied',
 }: CodeBlockProps) {
-  if (variant === 'command')
-    return <BrowserCommand text={text} />;
+  if (variant === 'command') return <BrowserCommand text={text} />;
   return (
     <div data-slot="code-block" className="tmt-block-code">
       <div className="tmt-block-code-head">

@@ -14,7 +14,14 @@ export interface BrowserTableProps {
   /** Column indexes whose cells never wrap (`data-nowrap`). */
   nowrap?: readonly number[];
 }
-export function BrowserTable({ label, columns, rows, numeric, hideNarrow, nowrap }: BrowserTableProps) {
+export function BrowserTable({
+  label,
+  columns,
+  rows,
+  numeric,
+  hideNarrow,
+  nowrap,
+}: BrowserTableProps) {
   const cell = (index: number) => ({
     'data-hide-narrow': hideNarrow?.includes(index) ? '' : undefined,
     'data-nowrap': nowrap?.includes(index) ? '' : undefined,
