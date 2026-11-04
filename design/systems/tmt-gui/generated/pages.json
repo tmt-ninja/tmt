@@ -708,6 +708,46 @@
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
     ]
+   },
+   {
+    "slug": "card-meter",
+    "title": "Card and meter",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "overview",
+    "title": "Overview pieces",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "editorial",
+    "title": "Editorial prose",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "visually-hidden",
+    "title": "Visually hidden",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "chart",
+    "title": "Chart",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
    }
   ]
  },

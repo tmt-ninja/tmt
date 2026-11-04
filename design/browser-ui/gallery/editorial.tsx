@@ -1,10 +1,11 @@
 import { Pair, Section } from './kit.js';
+import { BrowserEditorial } from '../src/react.js';
 
 /** Every element the editorial layer sets, as an author page or a blog post writes it: plain HTML in
  * one `.tmt-ui-prose` container, with no class on the elements themselves. */
 function ProseSample() {
   return (
-    <article className="tmt-ui-prose" data-testid="prose">
+    <BrowserEditorial data-testid="prose">
       <h1>Editorial layer</h1>
       <p>
         Long-form text reads on one type ramp. A paragraph sits a block gap from the next, a{' '}
@@ -59,7 +60,7 @@ function ProseSample() {
           design
         </a>
       </p>
-    </article>
+    </BrowserEditorial>
   );
 }
 

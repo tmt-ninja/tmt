@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "chart",
+  "source": "chart.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "values": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserChart"
+  ],
+  "examples": [
+    {
+      "title": "BrowserChart",
+      "markup": "<tmt-ui-chart label=\"Activity\" values=\"3,7,5\"></tmt-ui-chart>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

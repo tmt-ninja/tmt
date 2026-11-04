@@ -1,0 +1,5 @@
+export default ({ React, ui }) => ({ label = 'Chart', values = '' }) => {
+  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);
+  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',
+    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });
+};

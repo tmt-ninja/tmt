@@ -127,7 +127,7 @@ async function expectGuiBrand(page: Page) {
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
   const toggle = page.locator('.design-nav-toggle');
   if (!(await tree.isVisible())) await toggle.click();
-  await tree.getByRole('link', { name: /^Brand/ }).click();
+  await tree.getByRole('link', { name: 'Brand', exact: true }).click();
   await expect(page).toHaveURL(/\/ds\/gui\/[a-z-]+\/brand$/);
   const marks = designFrame(page).locator('svg.tmt-brand-mark');
   await expect(marks.first()).toBeVisible();
@@ -137,6 +137,16 @@ async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
 }
+test('a Browser component page opens with a live chart example', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  await expect(tree).toBeVisible({ timeout: 60_000 });
+  await tree.getByRole('link', { name: /^Chart/ }).click();
+  const frame = designFrame(page);
+  await expect(frame.getByRole('heading', { name: '<tmt-ui-chart>', exact: true })).toBeVisible();
+  await expect(frame.getByRole('img', { name: /Activity/ })).toBeVisible();
+});
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
     test(`Design owns docs, user trees and header actions, ${width}, ${theme}`, async ({

@@ -2253,7 +2253,118 @@
    ],
    "css": "",
    "code": "// The real notifications surface receives an example event when activated.\nreturn ({ React, ui }) => function Notifications({ label = 'Notify', message = 'A reply arrived' }) {\n  const [events, setEvents] = React.useState([]);\n  const h = React.createElement;\n  return h(React.Fragment, null,\n    h(ui.BrowserAction, { type: 'button', label, variant: 'secondary', onActivate: () => setEvents([{ id: String(Date.now()), destination: 'Chat', firstLine: message, onActivate: () => {} }]) }),\n    h(ui.BrowserNotifications, { pageKey: 'example', events, suspended: false, isEligible: () => true }));\n};\n"
+  },
+  {
+   "tag": "tmt-ui-card-meter",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserCardMeter"
+   ],
+   "examples": [
+    {
+     "title": "BrowserCardMeter",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"72\"></tmt-ui-card-meter>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ heading = 'Measure', value = '0', children }) =>\n  React.createElement(ui.BrowserCardMeter, { heading, value: Number(value) }, children);\n"
+  },
+  {
+   "tag": "tmt-ui-overview",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserOverview"
+   ],
+   "examples": [
+    {
+     "title": "BrowserOverview",
+     "markup": "<tmt-ui-overview heading=\"Your team\" description=\"Current activity\">Overview</tmt-ui-overview>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => (props) => React.createElement(ui.BrowserOverview, props);\n"
+  },
+  {
+   "tag": "tmt-ui-editorial",
+   "props": {},
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserEditorial"
+   ],
+   "examples": [
+    {
+     "title": "BrowserEditorial",
+     "markup": "<tmt-ui-editorial><h2>Notes</h2><p>Long-form content.</p></tmt-ui-editorial>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => (props) => React.createElement(ui.BrowserEditorial, props);\n"
+  },
+  {
+   "tag": "tmt-ui-visually-hidden",
+   "props": {},
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserVisuallyHidden"
+   ],
+   "examples": [
+    {
+     "title": "BrowserVisuallyHidden",
+     "markup": "<tmt-ui-visually-hidden>Accessible label</tmt-ui-visually-hidden>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => (props) => React.createElement(ui.BrowserVisuallyHidden, props);\n"
+  },
+  {
+   "tag": "tmt-ui-chart",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "values": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserChart"
+   ],
+   "examples": [
+    {
+     "title": "BrowserChart",
+     "markup": "<tmt-ui-chart label=\"Activity\" values=\"3,7,5\"></tmt-ui-chart>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n"
   }
  ],
- "hash": "sha256-f68856940e4ad035d6539a8d02c0ba7eada4de2152385f24fedace24a443d67d"
+ "hash": "sha256-e84890c024a58c52449155dfbe080624903c980e6781a5406abefb8c89cfad6f"
 }

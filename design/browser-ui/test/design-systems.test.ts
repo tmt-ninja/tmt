@@ -147,6 +147,11 @@ describe('buildBundle', () => {
       'tmt-ui-dialog-drawer-panel',
       'tmt-ui-shell',
       'tmt-ui-notifications',
+      'tmt-ui-card-meter',
+      'tmt-ui-overview',
+      'tmt-ui-editorial',
+      'tmt-ui-visually-hidden',
+      'tmt-ui-chart',
     ]);
   });
 

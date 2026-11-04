@@ -22,6 +22,7 @@ import pageListCss from '@tmt/browser-ui/page-list.css?inline';
 import dataTableCss from '@tmt/browser-ui/data-table.css?inline';
 import richInputCss from '@tmt/browser-ui/rich-input.css?inline';
 import blocksCss from '@tmt/browser-ui/blocks.css?inline';
+import editorialCss from '@tmt/browser-ui/editorial.css?inline';
 
 /** Runtime 2's skeleton remains supported unchanged alongside runtime 3. */
 export const SKELETON_RUNTIME = '2';
@@ -250,7 +251,10 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   const hasBlocks = bundle.components.some((component) =>
     component.uiParts?.some((part) => BLOCK_UI_PARTS.includes(part)),
   );
-  const sharedCss = `${hasPageList ? pageListCss : ''}\n${hasDataTable ? dataTableCss : ''}\n${hasRichInput ? richInputCss : ''}\n${hasBlocks ? blocksCss : ''}`;
+  const hasEditorial = bundle.components.some((component) =>
+    component.uiParts?.includes('BrowserEditorial'),
+  );
+  const sharedCss = `${hasPageList ? pageListCss : ''}\n${hasDataTable ? dataTableCss : ''}\n${hasRichInput ? richInputCss : ''}\n${hasBlocks ? blocksCss : ''}\n${hasEditorial ? editorialCss : ''}`;
   const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${sharedCss}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
   const prefix = JSON.stringify(bundle.prefix).replace(/</g, '\\u003c');
   const script = `(()=>{const t=window.tmt;const meta=${meta},prefix=${prefix};
@@ -260,7 +264,8 @@ const React=t.React,cn=(...parts)=>parts.filter(Boolean).join(' ');
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
 meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name)||!t.ui||!Object.hasOwn(t.ui,name))throw new Error('Undeclared UI part: '+String(name));return t.ui[name];}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
-connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}this.root=t.createRoot(this);}this.paint();}
+connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){if(!this.slots){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}}this.root=t.createRoot(this);}this.paint();}
+disconnectedCallback(){const root=this.root;if(root)queueMicrotask(()=>{if(!this.isConnected&&this.root===root){root.unmount();this.root=null;}});}
 attributeChangedCallback(){if(this.root)this.paint();}
 paint(){const props={};for(const [name,rule] of Object.entries(spec.props)){if(rule.type==='boolean')props[name]=this.hasAttribute(name);else if(this.hasAttribute(name))props[name]=this.getAttribute(name);}
 for(const slot of spec.slots){const nodes=this.slots[slot];if(nodes&&nodes.length)props[slot==='default'?'children':slot]=React.createElement(Nodes,{nodes});}

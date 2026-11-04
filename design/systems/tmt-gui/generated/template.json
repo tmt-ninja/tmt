@@ -310,6 +310,26 @@
    {
     "tag": "notifications",
     "status": "stable"
+   },
+   {
+    "tag": "card-meter",
+    "status": "stable"
+   },
+   {
+    "tag": "overview",
+    "status": "stable"
+   },
+   {
+    "tag": "editorial",
+    "status": "stable"
+   },
+   {
+    "tag": "visually-hidden",
+    "status": "stable"
+   },
+   {
+    "tag": "chart",
+    "status": "stable"
    }
   ]
  },
@@ -3094,6 +3114,147 @@
     }
    ],
    "source": "// The real notifications surface receives an example event when activated.\nexport default ({ React, ui }) => function Notifications({ label = 'Notify', message = 'A reply arrived' }) {\n  const [events, setEvents] = React.useState([]);\n  const h = React.createElement;\n  return h(React.Fragment, null,\n    h(ui.BrowserAction, { type: 'button', label, variant: 'secondary', onActivate: () => setEvents([{ id: String(Date.now()), destination: 'Chat', firstLine: message, onActivate: () => {} }]) }),\n    h(ui.BrowserNotifications, { pageKey: 'example', events, suspended: false, isEligible: () => true }));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "card-meter",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserCardMeter"
+   ],
+   "examples": [
+    {
+     "title": "BrowserCardMeter",
+     "markup": "<tmt-ui-card-meter heading=\"Allowance\" value=\"72\"></tmt-ui-card-meter>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "export default ({ React, ui }) => ({ heading = 'Measure', value = '0', children }) =>\n  React.createElement(ui.BrowserCardMeter, { heading, value: Number(value) }, children);\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "overview",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserOverview"
+   ],
+   "examples": [
+    {
+     "title": "BrowserOverview",
+     "markup": "<tmt-ui-overview heading=\"Your team\" description=\"Current activity\">Overview</tmt-ui-overview>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "export default ({ React, ui }) => (props) => React.createElement(ui.BrowserOverview, props);\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "editorial",
+   "props": {},
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserEditorial"
+   ],
+   "examples": [
+    {
+     "title": "BrowserEditorial",
+     "markup": "<tmt-ui-editorial><h2>Notes</h2><p>Long-form content.</p></tmt-ui-editorial>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "export default ({ React, ui }) => (props) => React.createElement(ui.BrowserEditorial, props);\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "visually-hidden",
+   "props": {},
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserVisuallyHidden"
+   ],
+   "examples": [
+    {
+     "title": "BrowserVisuallyHidden",
+     "markup": "<tmt-ui-visually-hidden>Accessible label</tmt-ui-visually-hidden>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "export default ({ React, ui }) => (props) => React.createElement(ui.BrowserVisuallyHidden, props);\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "chart",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "values": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserChart"
+   ],
+   "examples": [
+    {
+     "title": "BrowserChart",
+     "markup": "<tmt-ui-chart label=\"Activity\" values=\"3,7,5\"></tmt-ui-chart>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "export default ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n",
    "css": ""
   }
  ]

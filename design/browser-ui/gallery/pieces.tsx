@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import {
   BrowserAvatar,
+  BrowserCardMeter,
   BrowserChoice,
   BrowserChoiceGroup,
   BrowserCountChip,
   BrowserMenu,
+  BrowserOverview,
   BrowserPager,
   BrowserStatusTile,
   BrowserStatusTiles,
@@ -418,6 +420,9 @@ export function CardSection() {
       >
         {() => (
           <Cells>
+            <Cell label="component">
+              <BrowserCardMeter heading="Allowance" value={72} />
+            </Cell>
             <Cell label="card with bare facts and a meter">
               <div style={{ width: 'min(100%, 28rem)' }}>
                 <section className="tmt-ui-card" aria-labelledby="gallery-card-title">
@@ -512,10 +517,10 @@ export function OverviewSection() {
       <Pair title="Page head and count strip" stacked>
         {() => (
           <div style={{ display: 'grid', gap: '1rem' }}>
-            <header className="tmt-ui-page-head" style={{ margin: 0 }}>
-              <h2 className="tmt-ui-page-title">Your team, in sync.</h2>
-              <p className="tmt-ui-page-subtitle">A clear view of every squad and agent.</p>
-            </header>
+            <BrowserOverview
+              heading="Your team, in sync."
+              description="A clear view of every squad and agent."
+            />
             <div className="tmt-ui-stats" role="group" aria-label="Agents by state">
               <div className="tmt-ui-stat">
                 <Glyph name="users" />

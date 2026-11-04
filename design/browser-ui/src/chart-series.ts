@@ -4,7 +4,10 @@ import { type SeriesChartOptions, seriesModel } from './chart-series-model.js';
 export type { SeriesChartOptions } from './chart-series-model.js';
 
 /** A time-series chart: stacked areas, a 100 % share, columns or lines on one axis. */
-export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
+export function createSeriesChart(
+  options: SeriesChartOptions,
+  onDispose?: (dispose: () => void) => void,
+): HTMLElement {
   const figure = htmlEl('figure', 'tmt-ui-chart');
   figure.setAttribute('role', 'group');
   figure.setAttribute('aria-label', options.title);
@@ -186,6 +189,7 @@ export function createSeriesChart(options: SeriesChartOptions): HTMLElement {
     legend,
     dataTable(options.title, first.table.columns, first.table.rows),
   );
-  paintAtWidth(figure, 640, paint);
+  const dispose = paintAtWidth(figure, 640, paint);
+  onDispose?.(dispose);
   return figure;
 }

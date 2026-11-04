@@ -3,6 +3,7 @@ import { createMatrix } from '../src/chart-matrix.js';
 import { topLayers } from '../src/chart-math.js';
 import { createSeriesChart } from '../src/chart-series.js';
 import { createStrips } from '../src/chart-strips.js';
+import { BrowserChart } from '../src/react.js';
 import { Pair, Section } from './kit.js';
 import {
   burn,
@@ -43,6 +44,18 @@ const stackBuild = (share: boolean) => () => {
 export function ChartsSection() {
   return (
     <Section id="charts">
+      <Pair title="BrowserChart">
+        {() => (
+          <BrowserChart
+            options={{
+              title: 'Activity',
+              kind: 'line',
+              x: ['1', '2', '3'],
+              series: [{ key: 'activity', label: 'Activity', values: [3, 7, 5] }],
+            }}
+          />
+        )}
+      </Pair>
       <Pair
         title="Stacked and share"
         note="Eleven seats fold into six pastel areas plus Other. Arrow keys, Home and End read each hour."

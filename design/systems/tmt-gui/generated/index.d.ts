@@ -533,3 +533,36 @@ export interface NotificationsProps {
   message?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-card-meter>: props from its schema, slots as nodes. */
+export interface CardMeterProps {
+  heading?: string;
+  value?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-overview>: props from its schema, slots as nodes. */
+export interface OverviewProps {
+  heading?: string;
+  description?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-editorial>: props from its schema, slots as nodes. */
+export interface EditorialProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-visually-hidden>: props from its schema, slots as nodes. */
+export interface VisuallyHiddenProps {
+
+  children?: ReactNode;
+}
+
+/** <tmt-ui-chart>: props from its schema, slots as nodes. */
+export interface ChartProps {
+  label?: string;
+  values?: string;
+  children?: ReactNode;
+}

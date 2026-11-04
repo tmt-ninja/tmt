@@ -4,8 +4,8 @@ import {
   BrowserListRow,
   BrowserSection,
   BrowserTable,
+  BrowserVisuallyHidden,
 } from '../src/react.js';
-import { browserUiClasses } from '../src/static.js';
 import { Pair, Section } from './kit.js';
 
 export function PageSectionsSection() {
@@ -78,7 +78,7 @@ export function VisuallyHiddenSection() {
       <Pair title="tmt-ui-visually-hidden">
         {() => (
           <p>
-            Saved<span className={browserUiClasses.visuallyHidden}> — the draft is stored</span>
+            Saved<BrowserVisuallyHidden> — the draft is stored</BrowserVisuallyHidden>
           </p>
         )}
       </Pair>

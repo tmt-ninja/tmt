@@ -220,6 +220,8 @@ describe('template, publish and the renderer source', () => {
       'acme-callout',
       'acme-card',
       'acme-card-block',
+      'acme-card-meter',
+      'acme-chart',
       'acme-checkbox',
       'acme-chips',
       'acme-choice',
@@ -232,6 +234,7 @@ describe('template, publish and the renderer source', () => {
       'acme-disclosure',
       'acme-dropdown-menu',
       'acme-ds-scope',
+      'acme-editorial',
       'acme-empty',
       'acme-field',
       'acme-floating',
@@ -246,6 +249,7 @@ describe('template, publish and the renderer source', () => {
       'acme-mockup-block',
       'acme-notice',
       'acme-notifications',
+      'acme-overview',
       'acme-page-list',
       'acme-page-view',
       'acme-pager',
@@ -269,6 +273,7 @@ describe('template, publish and the renderer source', () => {
       'acme-todo',
       'acme-toggle',
       'acme-tooltip',
+      'acme-visually-hidden',
       'acme-work-bundle',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);

@@ -25,6 +25,10 @@ Static serving requires neither peer.
 
 The `./rich-input.css` entry exposes the RichInput stylesheet for hosts that embed the editor
 inside an isolated page frame; the `./rich-input` React entry remains the component owner.
+The React entry also exports `BrowserCardMeter`, `BrowserOverview`, `BrowserEditorial`,
+`BrowserVisuallyHidden` and `BrowserChart`. The chart uses the shared series painter and releases
+its resize observer when its React owner unmounts. `createSeriesChart` accepts an optional cleanup
+receiver for non-React owners that need the same lifetime control.
 
 `@tmt/browser-ui/shell-host` exports the app router and route slots, `@tmt/browser-ui/theme` the
 stored theme choice and `@tmt/browser-ui/search` the [search-provider registry](#search-providers).

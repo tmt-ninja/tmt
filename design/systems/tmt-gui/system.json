@@ -216,6 +216,21 @@
     },
     {
       "doc": "components/notifications.json"
+    },
+    {
+      "doc": "components/card-meter.json"
+    },
+    {
+      "doc": "components/overview.json"
+    },
+    {
+      "doc": "components/editorial.json"
+    },
+    {
+      "doc": "components/visually-hidden.json"
+    },
+    {
+      "doc": "components/chart.json"
     }
   ],
   "principles": {

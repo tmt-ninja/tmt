@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "overview",
+  "source": "overview.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserOverview"
+  ],
+  "examples": [
+    {
+      "title": "BrowserOverview",
+      "markup": "<tmt-ui-overview heading=\"Your team\" description=\"Current activity\">Overview</tmt-ui-overview>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

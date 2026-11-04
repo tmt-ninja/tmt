@@ -343,6 +343,36 @@ test('older block tags render real parts and preserve authored text', async ({ p
   await expect(frame.locator('[data-slot="code-block"] code')).toHaveText('echo hello');
 });
 
+test('Browser chart and editorial tags render and release the chart observer', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <script>
+      const OriginalObserver = ResizeObserver;
+      window.ResizeObserver = class extends OriginalObserver {
+        observe(node) { this.chart = node.classList.contains('tmt-ui-chart'); return super.observe(node); }
+        disconnect() { if (this.chart) document.body.dataset.chartDisconnected = 'yes'; return super.disconnect(); }
+      };
+    </script>
+    <tmt-ui-card-meter heading="Allowance" value="72"></tmt-ui-card-meter>
+    <tmt-ui-editorial><h2>Notes</h2><p>Long-form text</p></tmt-ui-editorial>
+    <tmt-ui-chart label="Activity" values="3,7,5"></tmt-ui-chart>`,
+  );
+  await expect(frame.getByRole('meter', { name: 'Allowance' })).toHaveAttribute(
+    'aria-valuenow',
+    '72',
+  );
+  await expect(frame.getByRole('heading', { name: 'Notes' })).toBeVisible();
+  const chart = frame.locator('tmt-ui-chart');
+  await expect(chart.getByRole('img', { name: /Activity/ })).toBeVisible();
+  await chart.evaluate((node) => {
+    node.remove();
+    queueMicrotask(() => node.ownerDocument.body.append(node));
+  });
+  await expect(frame.locator('body')).toHaveAttribute('data-chart-disconnected', 'yes');
+  await expect(frame.locator('tmt-ui-chart').getByRole('img', { name: /Activity/ })).toBeVisible();
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

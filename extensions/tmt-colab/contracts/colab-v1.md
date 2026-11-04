@@ -5496,7 +5496,8 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `DropdownMenuItem`, `UiTheme`, `BrowserHeader`, `BrowserNotice`, `BrowserPager`, `BrowserList`,
 `BrowserChoice`, `BrowserMenu`, `BrowserIconAction`, `BrowserField`, `BrowserCountChip`,
 `BrowserTable`, `BrowserCommand`, `BrowserTabs`, `BrowserChips`, `BrowserDialog`, `BrowserDrawer`,
-`BrowserPanel`, `BrowserShell`, `BrowserNotifications`, `Select`, `SelectTrigger`, `SelectValue`,
+`BrowserPanel`, `BrowserShell`, `BrowserNotifications`, `BrowserCardMeter`, `BrowserOverview`,
+`BrowserEditorial`, `BrowserVisuallyHidden`, `BrowserChart`, `Select`, `SelectTrigger`, `SelectValue`,
 `SelectContent`, `SelectItem`, `TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`,
 `Command`, `CommandInput`, `CommandList`, `CommandItem`, `FloatingDock`, `FloatingActions`,
 `FloatingAction`, `FloatingWindow`, `Chips`, `useLayerController`, `DataTable`, `RichInput`,
@@ -5506,6 +5507,10 @@ browser-ui parts running on the page runtime's React. A component declares its n
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
+When a component element leaves the document, its React root is released after a microtask if it
+has not reconnected. Moving a component within the same turn keeps its root; a later reconnection
+mounts a new root with the original slotted nodes. This releases component-owned resources such as
+chart resize observers on removal.
 When an owner page includes `tmt-ui-page-view`, its frame receives a bounded, read-only projection
 of the admitted page list: at most 200 records and 64 KiB, with page identifiers, titles, projects,
 stage, update label, author and access only. The subscription ends with the frame and follows the

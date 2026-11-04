@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "visually-hidden",
+  "source": "visually-hidden.js",
+  "props": {},
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserVisuallyHidden"
+  ],
+  "examples": [
+    {
+      "title": "BrowserVisuallyHidden",
+      "markup": "<tmt-ui-visually-hidden>Accessible label</tmt-ui-visually-hidden>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}
