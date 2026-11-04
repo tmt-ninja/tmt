@@ -7,6 +7,8 @@ export interface EmbeddedPageProps {
   anchor?: string;
   /** The host's routing of the page's own links, over the page route's. */
   routing?(base: PageRouting): PageRouting;
+  /** Show the page as a Design page: renderer, annotations and Chat only (#6060). */
+  design?: boolean;
 }
 /** The Colab page view a lazy module hosts (#5866). The router provides it, so Design shows Colab
  * pages without importing the router (which would split the router out of the Colab module). */

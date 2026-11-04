@@ -29,7 +29,7 @@ import { subpages } from './work.js';
 
 /** What every mirror page says first; the files name what a change edits. */
 export const GENERATED_NOTE =
-  'Generated from design/browser-ui. Change it through a PR; an edit to this page is replaced at the next regeneration.';
+  'Generated from design/browser-ui; change it through a PR, since edits here are replaced.';
 
 export interface MirrorOrigin {
   /** The docs path: '' for the root, `components` for a section, `components/button` for a page. */
@@ -47,13 +47,12 @@ interface DocSection {
 
 const escape = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const note = (files: readonly string[] = []) =>
-  `<p class="font-mono text-xs text-secondary mb-2" data-tmt-ds-generated="">${escape(GENERATED_NOTE)}${
-    files.length ? ` Files: ${files.map(escape).join(', ')}.` : ''
-  }</p>`;
+/** One quiet line (#6060); the files stay in the origin block, not in the page text. */
+const note = () =>
+  `<p class="text-xs text-secondary mb-2" data-tmt-ds-generated="">${escape(GENERATED_NOTE)}</p>`;
 /** A mirror page's whole source: the follow pin, its origin, the note, then its body. */
 export const mirrorSource = (origin: MirrorOrigin, body: string) =>
-  writePin(`${blockHtml('origin', origin)}\n${note(origin.files)}\n${body}`, BUILT_IN_SYSTEM);
+  writePin(`${blockHtml('origin', origin)}\n${note()}\n${body}`, BUILT_IN_SYSTEM);
 
 /** The generated docs and the shipped bundle, loaded only when the mirror is made or checked. */
 async function generated() {
