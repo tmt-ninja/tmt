@@ -123,6 +123,13 @@ describe('buildBundle', () => {
       'tmt-ui-sheet',
       'tmt-ui-popover',
       'tmt-ui-dropdown-menu',
+      'tmt-ui-header',
+      'tmt-ui-notice',
+      'tmt-ui-pager',
+      'tmt-ui-list',
+      'tmt-ui-choice',
+      'tmt-ui-menu',
+      'tmt-ui-icon-action',
     ]);
   });
 

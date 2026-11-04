@@ -5493,7 +5493,8 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `TabsTrigger`, `Dialog`, `DialogTrigger`, `DialogContent`, `DialogTitle`, `DialogDescription`,
 `Sheet`, `SheetTrigger`, `SheetContent`, `SheetTitle`, `SheetDescription`, `Popover`,
 `PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
-`DropdownMenuItem` and `UiTheme`. Unknown, duplicate, undeclared,
+`DropdownMenuItem`, `UiTheme`, `BrowserHeader`, `BrowserNotice`, `BrowserPager`, `BrowserList`,
+`BrowserChoice`, `BrowserMenu` and `BrowserIconAction`. Unknown, duplicate, undeclared,
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "menu",
+  "source": "menu.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserMenu"
+  ],
+  "examples": [
+    {
+      "title": "BrowserMenu",
+      "markup": "<tmt-ui-menu label=\"Options\" items=\"Open,Archive\"></tmt-ui-menu>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

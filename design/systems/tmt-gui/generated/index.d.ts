@@ -362,3 +362,55 @@ export interface DropdownMenuProps {
   items?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-header>: props from its schema, slots as nodes. */
+export interface HeaderProps {
+  heading?: string;
+  product?: string;
+  caption?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-notice>: props from its schema, slots as nodes. */
+export interface NoticeProps {
+  heading?: string;
+  state?: string;
+  tone?: "waiting" | "blocked" | "working" | "review" | "muted";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-pager>: props from its schema, slots as nodes. */
+export interface PagerProps {
+  label?: string;
+  count?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-list>: props from its schema, slots as nodes. */
+export interface ListProps {
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-choice>: props from its schema, slots as nodes. */
+export interface ChoiceProps {
+  label?: string;
+  type?: "radio" | "checkbox";
+  checked?: boolean;
+  disabled?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-menu>: props from its schema, slots as nodes. */
+export interface MenuProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-icon-action>: props from its schema, slots as nodes. */
+export interface IconActionProps {
+  label?: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}

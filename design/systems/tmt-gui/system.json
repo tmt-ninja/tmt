@@ -144,6 +144,27 @@
     },
     {
       "doc": "components/dropdown-menu.json"
+    },
+    {
+      "doc": "components/header.json"
+    },
+    {
+      "doc": "components/notice.json"
+    },
+    {
+      "doc": "components/pager.json"
+    },
+    {
+      "doc": "components/list.json"
+    },
+    {
+      "doc": "components/choice.json"
+    },
+    {
+      "doc": "components/menu.json"
+    },
+    {
+      "doc": "components/icon-action.json"
     }
   ],
   "principles": {

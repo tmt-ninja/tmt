@@ -580,6 +580,62 @@
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
     ]
+   },
+   {
+    "slug": "header",
+    "title": "Header",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "notice",
+    "title": "Notice",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "pager",
+    "title": "Pager",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "list",
+    "title": "List and list table",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "choice",
+    "title": "Choice",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "menu",
+    "title": "Menu",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "icon-action",
+    "title": "Icon action",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
    }
   ]
  },

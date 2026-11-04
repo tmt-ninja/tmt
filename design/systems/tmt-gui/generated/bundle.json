@@ -1558,7 +1558,200 @@
    ],
    "css": "",
    "code": "// Runtime 4 supplies the real browser-ui layer components.\nreturn ({ React, ui }) => function Menu({ label = 'Open menu', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.UiTheme, null, h(ui.DropdownMenu, null, h(ui.DropdownMenuTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.DropdownMenuContent, null, ...choices.map((item) => h(ui.DropdownMenuItem, { key: item }, item)))));\n};\n"
+  },
+  {
+   "tag": "tmt-ui-header",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "product": {
+     "type": "string"
+    },
+    "caption": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserHeader"
+   ],
+   "examples": [
+    {
+     "title": "BrowserHeader",
+     "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\"></tmt-ui-header>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ heading = '', product = 'TMT', caption }) =>\n  React.createElement(ui.BrowserHeader, { title: heading, productLabel: product, caption });\n"
+  },
+  {
+   "tag": "tmt-ui-notice",
+   "props": {
+    "heading": {
+     "type": "string"
+    },
+    "state": {
+     "type": "string"
+    },
+    "tone": {
+     "enum": [
+      "waiting",
+      "blocked",
+      "working",
+      "review",
+      "muted"
+     ]
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserNotice"
+   ],
+   "examples": [
+    {
+     "title": "BrowserNotice",
+     "markup": "<tmt-ui-notice heading=\"Ready\" state=\"Ready\">Details</tmt-ui-notice>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ heading, state = 'Notice', tone = 'muted', children }) =>\n  React.createElement(ui.BrowserNotice, { title: heading, stateLabel: state, tone, announcement: 'none', mark: '●', body: children });\n"
+  },
+  {
+   "tag": "tmt-ui-pager",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "count": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserPager"
+   ],
+   "examples": [
+    {
+     "title": "BrowserPager",
+     "markup": "<tmt-ui-pager label=\"Pages\" count=\"3\"></tmt-ui-pager>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function Pager({ label = 'Page', count = '1' }) {\n  const total = Math.max(1, Number.parseInt(count, 10) || 1);\n  const [position, setPosition] = React.useState(1);\n  return React.createElement(ui.BrowserPager, { label, position: Math.min(position, total), count: total,\n    previousLabel: 'Previous', nextLabel: 'Next', onPrevious: () => setPosition((n) => Math.max(1, n - 1)),\n    onNext: () => setPosition((n) => Math.min(total, n + 1)) });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-list",
+   "props": {
+    "label": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserList"
+   ],
+   "examples": [
+    {
+     "title": "BrowserList",
+     "markup": "<tmt-ui-list label=\"Pages\"><li>Example</li></tmt-ui-list>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'List', children }) => React.createElement(ui.BrowserList, { label }, children);\n"
+  },
+  {
+   "tag": "tmt-ui-choice",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "type": {
+     "enum": [
+      "radio",
+      "checkbox"
+     ]
+    },
+    "checked": {
+     "type": "boolean"
+    },
+    "disabled": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserChoice"
+   ],
+   "examples": [
+    {
+     "title": "BrowserChoice",
+     "markup": "<tmt-ui-choice label=\"Select\" type=\"checkbox\"></tmt-ui-choice>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function Choice({ label = '', type = 'checkbox', checked, children, ...props }) {\n  const [value, setValue] = React.useState(checked);\n  React.useEffect(() => setValue(checked), [checked]);\n  return React.createElement(ui.BrowserChoice, { ...props, label, type, checked: value, onChange: (event) => setValue(event.target.checked) });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-menu",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserMenu"
+   ],
+   "examples": [
+    {
+     "title": "BrowserMenu",
+     "markup": "<tmt-ui-menu label=\"Options\" items=\"Open,Archive\"></tmt-ui-menu>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'Options', items = '' }) =>\n  React.createElement(ui.BrowserMenu, { label, triggerText: label,\n    items: items.split(',').map((item) => item.trim()).filter(Boolean).map((item) => ({ key: item, label: item })),\n    onSelect: () => {} });\n"
+  },
+  {
+   "tag": "tmt-ui-icon-action",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "disabled": {
+     "type": "boolean"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserIconAction"
+   ],
+   "examples": [
+    {
+     "title": "BrowserIconAction",
+     "markup": "<tmt-ui-icon-action label=\"Add\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'Action', disabled, children }) =>\n  React.createElement(ui.BrowserIconAction, { label, disabled, type: 'button', variant: 'secondary', icon: children, onActivate: () => {} });\n"
   }
  ],
- "hash": "sha256-a214070f81c5508937eebefbcfbed58b30a8172aa9157955a1a91a9609f69308"
+ "hash": "sha256-469878f332c1fe01e1e79a3e2b0664ab914df52ad447cb483d57cf40843b29ba"
 }

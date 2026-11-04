@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "choice",
+  "source": "choice.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "radio",
+        "checkbox"
+      ]
+    },
+    "checked": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserChoice"
+  ],
+  "examples": [
+    {
+      "title": "BrowserChoice",
+      "markup": "<tmt-ui-choice label=\"Select\" type=\"checkbox\"></tmt-ui-choice>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

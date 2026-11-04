@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "list",
+  "source": "list.js",
+  "props": {
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserList"
+  ],
+  "examples": [
+    {
+      "title": "BrowserList",
+      "markup": "<tmt-ui-list label=\"Pages\"><li>Example</li></tmt-ui-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

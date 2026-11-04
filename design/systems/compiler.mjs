@@ -67,6 +67,13 @@ export const UI_PARTS = [
   'DropdownMenuContent',
   'DropdownMenuItem',
   'UiTheme',
+  'BrowserHeader',
+  'BrowserNotice',
+  'BrowserPager',
+  'BrowserList',
+  'BrowserChoice',
+  'BrowserMenu',
+  'BrowserIconAction',
 ];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */

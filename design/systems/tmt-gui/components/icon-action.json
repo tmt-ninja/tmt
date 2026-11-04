@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "icon-action",
+  "source": "icon-action.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "disabled": {
+      "type": "boolean"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserIconAction"
+  ],
+  "examples": [
+    {
+      "title": "BrowserIconAction",
+      "markup": "<tmt-ui-icon-action label=\"Add\"><tmt-icon name=\"plus\"></tmt-icon></tmt-ui-icon-action>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "notice",
+  "source": "notice.js",
+  "props": {
+    "heading": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "tone": {
+      "enum": [
+        "waiting",
+        "blocked",
+        "working",
+        "review",
+        "muted"
+      ]
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserNotice"
+  ],
+  "examples": [
+    {
+      "title": "BrowserNotice",
+      "markup": "<tmt-ui-notice heading=\"Ready\" state=\"Ready\">Details</tmt-ui-notice>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}
