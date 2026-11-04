@@ -16,7 +16,7 @@ const template = JSON.parse(
 ) as { system: DesignSystemConfig; components: ComponentDoc[] };
 const builtIn = new URL('../../systems/tmt-gui/generated/bundle.json', import.meta.url);
 const sha256Hex = async (text: string) => createHash('sha256').update(text).digest('hex');
-const button = template.components[0]!;
+const button = template.components.find((component) => component.tag === 'button')!;
 const legacyButton = { ...button, uiParts: undefined, source: 'export default () => () => null;' };
 
 describe('buildBundle', () => {
@@ -78,6 +78,8 @@ describe('buildBundle', () => {
     const bundle = await buildBundle('tmt-gui', template.system, template.components, sha256Hex);
     expect(JSON.parse(readFileSync(builtIn, 'utf8'))).toEqual(bundle);
     expect(bundle.components.map((component) => component.tag)).toEqual([
+      'tmt-ui-foundation',
+      'tmt-ui-pattern',
       'tmt-ui-button',
       'tmt-ui-badge',
       'tmt-ui-separator',
@@ -158,7 +160,7 @@ describe('buildBundle', () => {
   it('names tags with the system prefix and changes the hash with any content', async () => {
     const acme = { ...template.system, prefix: 'acme' };
     const bundle = await buildBundle('root-page', acme, template.components, sha256Hex);
-    expect(bundle.components[0]!.tag).toBe('acme-button');
+    expect(bundle.components.find((component) => component.tag === 'acme-button')).toBeDefined();
     const original = await buildBundle(
       'root-page',
       template.system,

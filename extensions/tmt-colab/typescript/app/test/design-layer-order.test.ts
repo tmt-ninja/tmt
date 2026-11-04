@@ -6,5 +6,9 @@ it('keeps frame and starter below Tailwind theme/base, with DS and scope above p
   const order = '@layer colab-frame,tmt-starter,theme,base,tmt-ui,tmt-ds-scope;';
   expect(generator.includes(order)).toBe(true);
   expect(renderer.includes(order)).toBe(true);
-  expect(renderer.indexOf(order)).toBeLessThan(renderer.indexOf('@layer colab-frame{'));
+  const pageUi = renderer.slice(renderer.indexOf('// BEGIN GENERATED PAGE UI'));
+  expect(pageUi.indexOf(order)).toBeLessThan(pageUi.indexOf('@layer colab-frame{'));
+  expect(renderer.indexOf('document.head.append(ui)')).toBeLessThan(
+    renderer.indexOf('document.head.append(sheet)'),
+  );
 });

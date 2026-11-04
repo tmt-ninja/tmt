@@ -72,6 +72,14 @@ function pageUiCss() {
   return scoped;
 }
 
+/** Keep nested stages' UI theme variables local, including stages opposite the page theme. */
+function scopedUiThemeCss() {
+  const css = readFileSync(join(repo, 'design/browser-ui/generated/ui.css'), 'utf8');
+  const end = css.indexOf('@keyframes tmt-foundation-fade-in');
+  if (end < 0) throw new Error('ui.css: the theme block end marker moved');
+  return `@scope ([data-tmt-ds-scope]){${stripComments(css.slice(0, end))}}`;
+}
+
 /** The docs' own look (the article, canvases, snippets), scoped to `.tmt-design-docs`. */
 const docsCss = () =>
   stripComments(readFileSync(join(repo, 'design/browser-ui/generated/docs-embed.css'), 'utf8'));
@@ -118,7 +126,7 @@ function liftInlineStyles(sections) {
 async function compile(dir) {
   const { components: docs, ...rest } = readJson(join(dir, 'system.json'));
   const pages = liftInlineStyles(await renderDocs());
-  const css = [tokensCss(), pageUiCss(), docsCss(), pages.css,
+  const css = [tokensCss(), pageUiCss(), scopedUiThemeCss(), docsCss(), pages.css,
     '.tmt-design-docs .docs-hero>h3,.tmt-design-docs .docs-hero .docs-snippet,.tmt-design-docs .ds-example-label{display:none}.tmt-design-docs .docs-hero .docs-canvas{gap:.5rem}'].join('\n');
   const config = { ...rest, tokens: { ...rest.tokens, css } };
   const read = docs.map(({ doc }) => {

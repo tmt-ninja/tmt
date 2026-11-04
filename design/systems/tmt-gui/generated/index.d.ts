@@ -9,7 +9,7 @@ export interface FoundationProps {
 
 /** <tmt-ui-pattern>: props from its schema, slots as nodes. */
 export interface PatternProps {
-  page?: "tabs-row" | "dense-table" | "fab-window" | "add-dialog" | "needs-you" | "loading-error" | "confirm-notify" | "blocks-document" | "blocks-insert" | "blocks-menu";
+  page?: "list-row" | "empty-state" | "status-line" | "planned" | "tabs-row" | "list-controls" | "dense-table" | "fab-window" | "add-dialog" | "needs-you" | "work-band" | "sending-rows" | "loading-error" | "confirm-notify" | "blocks-document" | "blocks-insert" | "blocks-menu" | "blocks-drag" | "blocks-delete" | "blocks-selection";
   children?: ReactNode;
 }
 

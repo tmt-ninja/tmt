@@ -198,7 +198,7 @@ export const browserDocs: BrowserDoc[] = [
     description:
       'The page head, banner, facts, stats and state marks an overview page composes, with the shared glyphs.',
     Demo: OverviewSection,
-    css: ['page-head', 'banner', 'facts', 'stats', 'state-mark', 'glyph'],
+    css: ['page-head', 'banner', 'facts', 'stats', 'state-mark', 'glyph', 'pattern-parts'],
   },
   {
     slug: 'menu',

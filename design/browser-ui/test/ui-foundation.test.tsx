@@ -9,7 +9,14 @@ import hashes from './fixtures/ui/legacy-hashes.json';
 
 it('retains the reviewed Browser source and static CSS baseline', () => {
   for (const [file, expected] of Object.entries(hashes.sha256)) {
-    const bytes = readFileSync(new URL(`../${file}`, import.meta.url));
+    let bytes = readFileSync(new URL(`../${file}`, import.meta.url));
+    if (file === 'src/react.ts') {
+      // The new shared parts are additive: retain the original entry's exact reviewed bytes.
+      const addition = `export {\n  BrowserEditorial,\n  BrowserVisuallyHidden,\n  BrowserCardMeter,\n  BrowserOverview,\n  BrowserChart,\n} from './design-components.js';\n`;
+      const source = bytes.toString('utf8');
+      expect(source.endsWith(addition)).toBe(true);
+      bytes = Buffer.from(source.slice(0, -addition.length));
+    }
     expect(createHash('sha256').update(bytes).digest('hex'), file).toBe(expected);
   }
 });

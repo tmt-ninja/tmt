@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
-  Badge,
   Button,
   Empty,
   EmptyContent,
@@ -10,6 +9,29 @@ import {
 } from '../src/ui/index.js';
 import { follow } from './router.js';
 import { colabMockBase } from './routes.js';
+import { BrowserPageRow, BrowserStatusLine } from '../src/pattern-parts/index.js';
+import { BrowserAvatar, BrowserToggle } from '../src/react.js';
+
+function SharedPartsPreview() {
+  const [pressed, setPressed] = useState(false);
+  return (
+    <div className="docs-canvas">
+      <BrowserAvatar name="tmt-ux-lead" kind="agent" />
+      <BrowserToggle
+        label="Compact view"
+        pressed={pressed}
+        onActivate={() => setPressed(!pressed)}
+      />
+      <BrowserPageRow
+        title="Release plan"
+        tags={['spec']}
+        updated="2 min ago"
+        href={`${colabMockBase}/page`}
+        onFollow={follow}
+      />
+    </div>
+  );
+}
 
 /** A list row: title, tags, time and an unread state in weight alone. */
 export function PageRow({
@@ -26,30 +48,15 @@ export function PageRow({
   state?: 'waiting' | 'blocked';
 }) {
   return (
-    <a
-      className="pattern-row"
+    <BrowserPageRow
+      title={title}
+      tags={tags}
+      updated={updated}
+      unread={unread}
+      state={state}
       href={`${colabMockBase}/page`}
-      onClick={follow}
-      data-unread={unread || undefined}
-    >
-      <span className="pattern-row-title">
-        {state && (
-          <span className="pattern-state" data-tone={state}>
-            {state === 'waiting' ? '◆' : '✕'}
-          </span>
-        )}
-        {title}
-        {unread && <span className="tmt-ui-visually-hidden"> unread</span>}
-      </span>
-      <span className="pattern-row-tags">
-        {tags.map((tag) => (
-          <Badge key={tag} variant="outline">
-            {tag}
-          </Badge>
-        ))}
-      </span>
-      <span className="pattern-row-time">{updated}</span>
-    </a>
+      onFollow={follow}
+    />
   );
 }
 
@@ -92,37 +99,21 @@ export const patterns: { slug: string; title: string; lead: string; render(): Re
     lead: 'States are a mark plus a word in their muted hue. The accent never colours a state.',
     render: () => (
       <div className="docs-canvas">
-        <ul className="docs-status">
-          <li style={{ color: 'var(--tmt-ui-color-working)' }}>● Working</li>
-          <li style={{ color: 'var(--tmt-ui-color-waiting)' }}>◆ Waiting on you</li>
-          <li style={{ color: 'var(--tmt-ui-color-review)' }}>◐ In review</li>
-          <li style={{ color: 'var(--tmt-ui-color-blocked)' }}>✕ Blocked</li>
-        </ul>
+        <BrowserStatusLine
+          items={[
+            { tone: 'working', label: 'Working' },
+            { tone: 'waiting', label: 'Waiting on you' },
+            { tone: 'review', label: 'In review' },
+            { tone: 'blocked', label: 'Blocked' },
+          ]}
+        />
       </div>
     ),
   },
   {
     slug: 'planned',
     title: 'Planned parts',
-    lead: 'Parts the Colab mock still builds from stand-ins. Each is planned; the rich inputs and the collection list are #5830.',
-    render: () => (
-      <ul className="docs-planned">
-        <li>
-          <b>ToggleGroup</b> — a set of pressed buttons, for the list's project filters. Today:
-          ghost and secondary Buttons with aria-pressed.
-        </li>
-        <li>
-          <b>Tabs count slot</b> — a muted count inside a tab trigger. Today: plain text in the
-          label.
-        </li>
-        <li>
-          <b>Avatar</b> — initials or a picture in the pill radius. Today: initials in a span.
-        </li>
-        <li>
-          <b>List row</b> — the title, tags, time and unread row as one part. Today: the List row
-          pattern above.
-        </li>
-      </ul>
-    ),
+    lead: 'Shared parts replace the earlier mock-up stand-ins and can be composed in real pages.',
+    render: () => <SharedPartsPreview />,
   },
 ];

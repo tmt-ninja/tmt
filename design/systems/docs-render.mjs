@@ -192,7 +192,10 @@ export async function renderDocs() {
         title: 'Patterns',
         pages: [
           ...patterns.map((doc) =>
-            page(
+            livePatternSlugs.includes(doc.slug)
+              ? page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }),
+                  sourceFiles('design/browser-ui/docs/patterns.tsx'))
+              : page(
               doc.slug,
               doc.title,
               article(doc.title, doc.lead, h(doc.render)),

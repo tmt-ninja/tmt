@@ -231,18 +231,29 @@ test('foundations read live token values and run the motion controls', async ({ 
 });
 
 test('pattern pages render shared scenes and a scoped dialog', async ({ page }) => {
+  test.setTimeout(90_000);
   await page.setViewportSize({ width: 390, height: 1000 });
   const slugs = [
+    'list-row',
+    'empty-state',
+    'status-line',
+    'planned',
     'tabs-row',
+    'list-controls',
     'dense-table',
     'fab-window',
     'add-dialog',
     'needs-you',
+    'work-band',
+    'sending-rows',
     'loading-error',
     'confirm-notify',
     'blocks-document',
     'blocks-insert',
     'blocks-menu',
+    'blocks-drag',
+    'blocks-delete',
+    'blocks-selection',
   ];
   const frame = await mount(
     page,
@@ -251,30 +262,62 @@ test('pattern pages render shared scenes and a scoped dialog', async ({ page }) 
       .join('')}</div>`,
   );
   for (const title of [
+    'List row',
+    'Empty state',
+    'Status line',
+    'Planned parts',
     'Tabs row with actions',
+    'List controls',
     'Dense list table',
     'Floating actions and window',
     'Add or attach dialog',
     'Needs you',
+    'Work band',
+    'Sending, failed and unsent',
     'Loading and error states',
     'Confirm dialog and notifications',
     'Blocks as one document',
     'Insert a block',
     'Handle and block menu',
+    'Drag to move',
+    'Delete with Undo',
+    'Keyboard selection',
   ])
     await expect(frame.getByRole('heading', { name: title, exact: true })).toBeVisible();
-  await frame.locator('html').evaluate((node) => node.setAttribute('data-theme', 'light'));
-  await expect(frame.locator('tmt-ui-pattern [data-tmt-ui]').first()).toHaveAttribute(
-    'data-tmt-theme',
-    'light',
-  );
+  const stages = frame.locator('tmt-ui-pattern[page="tabs-row"] figure.pattern-viewport');
+  await expect(stages).toHaveCount(4);
   await frame.locator('html').evaluate((node) => node.setAttribute('data-theme', 'dark'));
-  await expect(frame.locator('tmt-ui-pattern [data-tmt-ui]').first()).toHaveAttribute(
-    'data-tmt-theme',
-    'dark',
-  );
-  await frame.getByRole('button', { name: 'Add a sub-page' }).click();
+  await expect(
+    stages.filter({ hasText: '390 · dark' }).locator('[data-tmt-ui]').first(),
+  ).toHaveAttribute('data-tmt-theme', 'dark');
+  const foreground = (theme: string) =>
+    stages
+      .filter({ hasText: `390 · ${theme}` })
+      .locator('[data-tmt-ui]')
+      .first()
+      .evaluate((node) =>
+        getComputedStyle(node).getPropertyValue('--tmt-foundation-foreground').trim(),
+      );
+  await expect.poll(() => foreground('dark')).not.toBe(await foreground('light'));
+  await frame
+    .locator('tmt-ui-pattern[page="add-dialog"] figure[data-width="390"][data-theme="dark"]')
+    .getByRole('button', { name: 'Add a sub-page' })
+    .click();
   await expect(frame.getByRole('dialog')).toContainText('Add a sub-page to');
+  await page.keyboard.press('Escape');
+  const band = frame
+    .locator('tmt-ui-pattern[page="work-band"] figure[data-width="390"][data-theme="dark"]')
+    .first();
+  await band.locator('.pattern-band-bar').first().click();
+  await band.getByRole('button', { name: 'Add a sub-page' }).first().click();
+  await expect(band.getByText('New sub-page 4').first()).toBeVisible();
+  const messages = frame
+    .locator('tmt-ui-pattern[page="sending-rows"] figure[data-width="390"][data-theme="dark"]')
+    .first();
+  await messages.getByRole('button', { name: 'Retry' }).click();
+  await expect(messages.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  await messages.getByRole('button', { name: 'Edit' }).click();
+  await expect(messages.getByRole('textbox', { name: 'Edit draft' })).toBeVisible();
 });
 
 test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({

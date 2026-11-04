@@ -226,10 +226,11 @@ for (const width of [1440, 390])
       await expect(
         designFrame(page).getByRole('heading', { name: 'Tabs row with actions', exact: true }),
       ).toBeVisible();
-      await designFrame(page)
-        .getByRole('tab', { name: /Needs you/ })
-        .click();
-      await expect(designFrame(page).getByRole('tab', { name: /Needs you/ })).toHaveAttribute(
+      const patternStage = designFrame(page).locator(
+        'figure[data-width="1440"][data-theme="light"]',
+      );
+      await patternStage.getByRole('tab', { name: /Needs you/ }).click();
+      await expect(patternStage.getByRole('tab', { name: /Needs you/ })).toHaveAttribute(
         'data-state',
         'active',
       );
