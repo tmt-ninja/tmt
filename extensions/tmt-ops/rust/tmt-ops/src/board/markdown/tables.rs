@@ -216,7 +216,7 @@ fn wrap_parts(parts: Vec<Part>, width: usize) -> Vec<Vec<Part>> {
         }
     };
     for (index, part) in parts.iter().enumerate() {
-        if part.is_file() {
+        if part.is_atomic() {
             let caption = files::fit(&part.text, width);
             used = lines
                 .last()

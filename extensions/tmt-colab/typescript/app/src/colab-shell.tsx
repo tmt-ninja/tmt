@@ -44,7 +44,6 @@ export function shortcutRows(
   current: string | undefined,
   link: (item: Shortcut) => string,
   pages: readonly PageSummary[] | undefined,
-  actions?: (item: Shortcut) => ShellMenuItem['actions'],
 ): ShellMenuItem[] {
   return items.map((item) => {
     const counts = shortcutCounts(pages, item.search);
@@ -56,7 +55,6 @@ export function shortcutRows(
       current: item.id === current,
       total: counts.total,
       count: counts.attention ? shellCount(counts.attention) : undefined,
-      actions: actions?.(item),
     };
   });
 }
@@ -93,8 +91,6 @@ export function ColabShell({
     }),
     [request],
   );
-  const [shortcutError, setShortcutError] = useState<string>();
-  const pendingShortcutFocus = useRef<string | null | undefined>(undefined);
   const openShortcuts = (kind: ShortcutMenuRequest['kind'], shortcut?: string) => {
     setRequest({ kind, id: Date.now(), shortcut });
     if (router.state.location.pathname !== '/') void router.navigate({ to: '/' });
@@ -120,28 +116,6 @@ export function ColabShell({
     : listSearch?.shortcut;
   const href = (to: string, search?: Record<string, unknown>) =>
     router.history.createHref(router.buildLocation({ to, search }).publicHref);
-  useEffect(() => {
-    const target = pendingShortcutFocus.current;
-    if (target === undefined) return;
-    pendingShortcutFocus.current = undefined;
-    const frame = requestAnimationFrame(() => {
-      const controls = target
-        ? document.querySelectorAll<HTMLElement>('.tmt-ui-rail-sub a[data-id]')
-        : document.querySelectorAll<HTMLElement>(
-            '.tmt-ui-rail-sub-group .tmt-ui-rail-group-action',
-          );
-      const next = [...controls].find(
-        (node) =>
-          node.getClientRects().length > 0 &&
-          (target === null || node.dataset.id === `shortcut:${target}`),
-      );
-      const fallback = [...document.querySelectorAll<HTMLElement>('.tmt-ui-shell-open')].find(
-        (node) => node.getClientRects().length > 0,
-      );
-      (next ?? fallback)?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [shortcuts.items]);
   const view = useMemo(() => {
     const shown = (listed ?? NO_PAGES).filter((page) => !page.archived);
     const settings = location.pathname === '/settings';
@@ -162,34 +136,6 @@ export function ColabShell({
       settings || dashboard ? undefined : shortcutId,
       (item) => href('/', { ...item.search, shortcut: item.id }),
       listed,
-      manageable
-        ? (item) => [
-            {
-              label: text.shortcuts.editRow(item.name),
-              icon: 'pencil',
-              onActivate: () => openShortcuts('edit', item.id),
-            },
-            {
-              label: text.shortcuts.deleteRow(item.name),
-              icon: 'trash-2',
-              onActivate: () => {
-                try {
-                  const latest = shortcuts.store!.read().items;
-                  const index = latest.findIndex((candidate) => candidate.id === item.id);
-                  if (index < 0) return;
-                  const next = latest[index + 1] ?? latest[index - 1];
-                  pendingShortcutFocus.current = next?.id ?? null;
-                  shortcuts.store!.delete(item.id);
-                  setShortcutError(undefined);
-                  if (shortcutId === item.id) void router.navigate({ to: '/', search: {} });
-                } catch {
-                  pendingShortcutFocus.current = undefined;
-                  setShortcutError(text.shortcuts.operationFailed);
-                }
-              },
-            },
-          ]
-        : undefined,
     );
     const [all] = scopeRows(shown, NO_PROJECTS);
     const menu: ShellMenu = {
@@ -210,31 +156,36 @@ export function ColabShell({
         },
         {
           label: text.shortcuts.group,
-          ...(manageable
-            ? {
-                action: {
-                  label: text.shortcuts.manageAction,
-                  onActivate: () => openShortcuts('manage'),
-                },
-              }
-            : {}),
+          action: {
+            label: text.shortcuts.manageAction,
+            onActivate: () => openShortcuts('manage'),
+            ...(manageable
+              ? {}
+              : {
+                  disabledReason: transport.management
+                    ? text.shortcuts.manageNeedsSpace
+                    : text.shortcuts.manageReadOnly,
+                }),
+          },
           items: rows,
-          ...(manageable
+          ...(shortcuts.error
             ? {
-                reorder: (from: string, to: string) => {
-                  const prefix = 'shortcut:';
-                  if (!from.startsWith(prefix) || !to.startsWith(prefix)) return;
-                  try {
-                    shortcuts.store!.moveTo(from.slice(prefix.length), to.slice(prefix.length));
-                    setShortcutError(undefined);
-                  } catch {
-                    setShortcutError(text.shortcuts.operationFailed);
-                  }
+                alert: {
+                  message: shortcuts.error,
+                  retry: { label: 'Retry', onActivate: shortcuts.retry },
                 },
               }
             : {}),
         },
-        ...(shells.length ? [{ label: text.colabSettings.shells, items: shells }] : []),
+        ...(shells.length
+          ? [
+              {
+                label: text.colabSettings.shells,
+                fallbackIcon: 'layout-dashboard' as const,
+                items: shells,
+              },
+            ]
+          : []),
       ],
       settings: {
         id: 'colab-settings',
@@ -258,7 +209,17 @@ export function ColabShell({
     };
     // `href` reads the router, which is stable for this shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer, listed, shortcuts.items, shortcuts.store, manageable, location.pathname, shortcutId]);
+  }, [
+    answer,
+    listed,
+    shortcuts.items,
+    shortcuts.error,
+    shortcuts.retry,
+    manageable,
+    transport.management,
+    location.pathname,
+    shortcutId,
+  ]);
   const select = (id: string) => {
     if (id === 'colab-settings') return (void router.navigate({ to: '/settings' }), true);
     if (id.startsWith('shell:')) {
@@ -281,10 +242,7 @@ export function ColabShell({
     return false;
   };
   const content = (
-    <ShortcutMenuRequestSlot value={shortcutRequest}>
-      {shortcutError && <p role="alert">{shortcutError}</p>}
-      {children}
-    </ShortcutMenuRequestSlot>
+    <ShortcutMenuRequestSlot value={shortcutRequest}>{children}</ShortcutMenuRequestSlot>
   );
   return hostSlot ? (
     <HostedShell slot={hostSlot} menu={view.menu} select={select}>

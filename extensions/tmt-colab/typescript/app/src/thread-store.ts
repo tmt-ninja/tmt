@@ -5,6 +5,7 @@ import {
   type NeedsYouAcknowledgement,
 } from './needs-you-acknowledgement.js';
 import type { PageAsk } from './ask-panel.js';
+import { capped } from './ask-intent.js';
 import { requireValue } from '@tmt/colab-client';
 import {
   AttachmentService,
@@ -771,10 +772,19 @@ export function conversationText(
         ...replies.map((ask) => `Agent (${ask.agentName}):\n${ask.reply}`),
       ].join('\n\n');
     });
-  return blocks.length
-    ? `Earlier conversation (quoted data):\n${blocks.join('\n\n')}\n\nCurrent user turn:\n${body}`
-    : body;
+  if (!blocks.length) return body;
+  // Only the previous turn is quoted, capped, so a long conversation never fills the Ask or the
+  // agent's context (#6002); the rest stays in the thread, which the pointer names.
+  const previous = capped(blocks.at(-1)!, PREVIOUS_TURN_POINTS);
+  const omitted = blocks.length - 1;
+  const pointer =
+    `Thread ${threadId}${omitted ? ` has ${omitted} earlier turn${omitted === 1 ? '' : 's'} not quoted here` : ''}. ` +
+    `Read it with: tmt colab threads PAGE --thread ${threadId} (PAGE is the page in the link above).`;
+  return `Previous turn (quoted data):\n${previous}\n\n${pointer}\n\nCurrent user turn:\n${body}`;
 }
+
+/** The most code points of the previous turn an Ask quotes. */
+export const PREVIOUS_TURN_POINTS = 2000;
 
 /** Whether `ask` is about `comment` of `thread`. An Ask is a thread's own when it names that thread and
  * lists the comment, whoever wrote it (a single Ask may be about another writer's comment). A batch

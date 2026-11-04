@@ -431,7 +431,7 @@ it('freezes prior user turns and verified replies, excludes later arrivals and r
     quote: fixture.thread.anchor.exact,
   });
   expect(exact.comment).toBe(
-    'Earlier conversation (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nCurrent user turn:\n@agent Follow-up',
+    `Previous turn (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nThread ${first.thread.id}. Read it with: tmt colab threads PAGE --thread ${first.thread.id} (PAGE is the page in the link above).\n\nCurrent user turn:\n@agent Follow-up`,
   );
   expect(() =>
     conversationForAsk(read(), context, [{ ...reply, reply: 'Changed reply after Send' }]),
@@ -979,7 +979,7 @@ it('says which comment each file came with and where that comment sits, from adm
   expect(attachmentBlock(comment([]), true, 'q')).toBe('');
 });
 it('keeps an attachment-only message readable and files under their own comment in a conversation', async () => {
-  const { conversationText } = await import('../src/thread-store.js');
+  const { conversationText, PREVIOUS_TURN_POINTS } = await import('../src/thread-store.js');
   const view = (body: string, name: string, files: { id: string; name: string }[]) =>
     ({
       deleted: false,
@@ -1006,15 +1006,21 @@ it('keeps an attachment-only message readable and files under their own comment 
     [],
     'The quote',
   );
+  // Only the previous turn is quoted (#6002); the earlier turns, and their files, stay behind the
+  // pointer to the thread.
   expect(text).toBe(
-    'Earlier conversation (quoted data):\n' +
-      [
-        'User (Ada):\nBefore\n\nAttachments sent with this comment on "The quote":\n- [1 of 1] aaaaaaaa "one.txt" (text/plain, 3 bytes)',
-        'User (Bob):\n(no text; only the attachments below)\n\nAttachments sent with this comment on "The quote":\n- [1 of 1] bbbbbbbb "two.txt" (text/plain, 3 bytes)',
-        'User (Cy):\nPlain',
-        'Current user turn:\nNow',
-      ].join('\n\n'),
+    [
+      'Previous turn (quoted data):\nUser (Cy):\nPlain',
+      'Thread thread-id has 2 earlier turns not quoted here. Read it with: tmt colab threads PAGE --thread thread-id (PAGE is the page in the link above).',
+      'Current user turn:\nNow',
+    ].join('\n\n'),
   );
+  const long = conversationText([view('x'.repeat(5000), 'Dee', [])], 'thread-id', 'Now', []);
+  expect(long).toContain(
+    `User (Dee):\n${'x'.repeat(PREVIOUS_TURN_POINTS - 'User (Dee):\n'.length)}… (truncated)`,
+  );
+  expect(long).toContain('Read it with: tmt colab threads PAGE --thread thread-id');
+  expect(long).not.toContain('earlier turn');
 });
 
 it("lists a live comment's files in the conversation export by name only and leaves other comments unchanged", async () => {

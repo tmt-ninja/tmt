@@ -1047,6 +1047,29 @@ test('the module menu is the fixed list: All pages, Shortcuts with its commands,
   ).toEqual(['all', 'shell', 'colab-settings']);
   const shell = menu.locator('a[data-id^="shell:"]');
   await expect(shell).toHaveText('Reading shell');
+  const dashboardIcon = shell.locator(':scope > svg.tmt-ui-shell-icon');
+  await expect(dashboardIcon).toHaveAttribute('aria-hidden', 'true');
+  await expect(dashboardIcon.locator('rect')).toHaveCount(4);
+  await page.evaluate(async () => {
+    const storePath = '/src/shortcut-store.ts';
+    const fixturePath = '/test/page-list-browser.tsx';
+    const { ShortcutStore } = await import(storePath);
+    const { pageListSpace } = await import(fixturePath);
+    new ShortcutStore(pageListSpace).save({ name: 'Comparison', search: {} });
+  });
+  const bookmark = menu.locator('a[data-id^="shortcut:"] > svg.tmt-ui-shell-icon');
+  for (const property of ['width', 'height', 'color'])
+    expect(
+      await dashboardIcon.evaluate(
+        (node, key) => getComputedStyle(node).getPropertyValue(key),
+        property,
+      ),
+    ).toBe(
+      await bookmark.evaluate(
+        (node, key) => getComputedStyle(node).getPropertyValue(key),
+        property,
+      ),
+    );
   await expect(shell).toHaveAttribute('href', /#\/pages\/[0-9a-f-]+$/);
   await shell.click();
   await expect(page).toHaveURL(/#\/pages\//);

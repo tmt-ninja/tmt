@@ -3297,7 +3297,6 @@ An answer block is authored page HTML. Register its ID first through [question m
   data-id="10000000-0000-4000-8000-000000000001"
   data-kind="single"
   data-agent="Agent name"
-  data-other
 >
   <p data-question>Which heading should we use?</p>
   <span data-choice>Keep it</span>
@@ -3311,8 +3310,9 @@ An answer block is authored page HTML. Register its ID first through [question m
 normalizes as normal rendered quote text. At most 50 blocks, 20 distinct choices
 per block, 200 code points per question/choice and 64 per agent name are admitted.
 Duplicate IDs, nested blocks, empty text, control characters and invalid structures
-supply no controls. Choice kinds require choices; text kinds have neither choices
-nor `data-other`. Short answers allow 200 code points; long/Other text allows
+supply no controls. Choice kinds require choices and always offer Other with a
+free-text answer; `data-other` is accepted and redundant on them (#5998). Text kinds
+have neither choices nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
 A choice may contain one optional immediate `span[data-choice-description]` child:
@@ -3828,10 +3828,13 @@ rules still apply. The shared action fences trusted events, double activation, b
 context. All old outcomes remain unchanged; the new outcome is its own row and
 there is at most one action per recipient group. Reload may restore a signed-refusal
 action only if the entire own group still satisfies the predicate; it never sends.
-Prior user comments and verified agent replies are included as quoted data, in the existing
-projection order, with their captured references/revisions rechecked before signing.
-Display timestamps never determine record ordering or authority. Deleted/stale
-context and byte overflow refuse; no context is silently truncated. A failure after
+Only the previous turn (the latest prior user comment with its verified agent replies) is
+included as quoted data, capped at 2,000 code points and marked `… (truncated)` when cut, followed
+by a pointer line naming the thread, how many earlier turns are not quoted, and
+`tmt colab threads PAGE --thread THREAD` to read them (#6002). The anchored passage in `Quote:` is
+capped and marked the same way; the thread keeps both whole. All captured references/revisions,
+quoted or not, are rechecked before signing. Display timestamps never determine record ordering or
+authority. Deleted/stale context and byte overflow refuse. A failure after
 comment publication retains that comment and shows the outcome; it never automatically resends.
 The input and conversation show the composed text; no surface offers an on-demand
 view of the transport message. Frozen bytes, including the quote and captured

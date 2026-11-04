@@ -1,24 +1,45 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement } from 'react';
 import { expect, it } from 'vite-plus/test';
-import { brandMarkSvg, freshMarkId } from '../src/brand-mark-svg.js';
+import { BrandMark } from '../src/brand-mark.js';
+import { brandMarkInner, brandMarkSvg } from '../src/brand-mark-svg.js';
 
-const defined = (markup: string) =>
-  [...markup.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
-const referenced = (markup: string) =>
-  [...markup.matchAll(/url\(#([^)]+)\)/g)].map((match) => match[1]);
+const source = readFileSync(new URL('../src/brand-mark.svg', import.meta.url), 'utf8');
+const tokens = JSON.parse(
+  readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
+);
+const artwork = source.match(/<svg[^>]*>([\s\S]*)<\/svg>/)![1]!.trim();
 
-it('takes the base prefix while it is free and counts up past the ones in use', () => {
-  expect(freshMarkId('tmt-rail', () => false)).toBe('tmt-rail');
-  const used = new Set(['tmt-rail', 'tmt-rail-1']);
-  expect(freshMarkId('tmt-rail', (prefix) => used.has(prefix))).toBe('tmt-rail-2');
+it('keeps the selected ninja artwork exact, on its dark tile, at every product size', () => {
+  expect(brandMarkInner()).toContain(artwork);
+  expect(brandMarkInner()).toContain(
+    '<svg x="11.5" y="11.5" viewBox="0 0 720 760" width="73" height="73">',
+  );
+  expect(brandMarkInner()).toContain(`fill="${tokens.brand.mark.tile.light.toLowerCase()}"`);
+  expect(tokens.brand.mark.tile.light).toBe(tokens.brand.mark.tile.dark);
+  expect(tokens.browser['palette-b']['brand-mark'].tile.light).toBe(tokens.brand.mark.tile.light);
+  expect(tokens.browser['palette-b']['brand-mark'].tile.dark).toBe(tokens.brand.mark.tile.dark);
+  for (const size of [16, 24, 32, 256]) {
+    const svg = brandMarkSvg({ size });
+    expect(svg).toContain(`width="${size}" height="${size}"`);
+    expect(svg).toContain(brandMarkInner());
+    expect(svg).toContain('aria-hidden="true"');
+    // No paint-server IDs: multiple visible or retained shells cannot resolve into one another.
+    expect(svg).not.toMatch(/\bid=|url\(|<filter|<mask/);
+    expect(renderToStaticMarkup(createElement(BrandMark, { size }))).toContain(artwork);
+  }
 });
 
-it('keeps every paint server reference of a mark inside that mark, whatever the prefix', () => {
-  const first = brandMarkSvg({ size: 32, id: 'tmt-rail' });
-  const second = brandMarkSvg({ size: 32, id: 'tmt-rail-1' });
-  for (const mark of [first, second]) {
-    expect(referenced(mark).length).toBeGreaterThan(0);
-    for (const id of referenced(mark)) expect(defined(mark)).toContain(id);
+it('pins the approved vector and uses it for the favicon and app icons', () => {
+  expect(createHash('sha256').update(source).digest('hex')).toBe(
+    '20e2cade81e8808d193e34eb13838decd7dc854a8245f7c81c26cf1cdf9c8214',
+  );
+  for (const name of ['favicon.svg', 'app-icon-light.svg', 'app-icon-dark.svg']) {
+    const icon = readFileSync(new URL(`../generated/${name}`, import.meta.url), 'utf8');
+    expect(icon).toContain(artwork);
+    expect(icon).not.toContain('<image');
+    expect(Buffer.byteLength(icon)).toBeLessThan(2048);
   }
-  // Two marks on one page share no id, so no reference can resolve into the other one.
-  expect(defined(first).filter((id) => defined(second).includes(id))).toEqual([]);
 });

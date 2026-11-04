@@ -155,10 +155,8 @@ Remote chip) until it adopts the bar. A standalone header (reader, mounted and
 native screens) still starts with the TMT mark and the `Colab` wordmark, then `/`, and names the
 brand link `Colab · local · <backendName>` (an unlinked brand is a named group with the same title);
 below 480px it shows the mark only, the wordmark visually hidden and kept in that name. The shell's
-module menu holds All pages,
-each pinned project with its counts (the five most recent until the space pins its own), All projects… and
-New project…; the space home shows its scope as
-plain text after the title. Author hides below 900px; the title truncates without
+module menu holds All pages, device-local shortcuts with their counts, any Dashboards and Colab
+settings; the space home shows its scope as plain text after the title. Author hides below 900px; the title truncates without
 changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
 (only while something waits) and the attention marks, each shown only while its state holds, as
 one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by anyone but its owner must

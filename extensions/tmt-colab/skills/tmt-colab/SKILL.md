@@ -195,6 +195,9 @@ tmt colab threads resolve PAGE THREAD --json
 tmt colab threads reopen PAGE THREAD --json
 ```
 
+An Ask quotes only the previous turn and names its thread; read the whole thread with
+`tmt colab threads PAGE --thread THREAD --json` before answering when earlier turns matter.
+
 Use the full page and thread IDs returned by the query. Resolve or reopen only
 when the user's request authorizes that change. A status action changes neither
 page HTML nor comments; an already-effective state is a no-op. Deleted threads

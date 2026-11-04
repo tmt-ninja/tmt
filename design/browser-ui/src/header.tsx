@@ -25,7 +25,7 @@ export interface BrowserHeaderProps {
   disclosure?: { attribute: `data-${string}`; open: boolean };
 }
 
-/** The TMT 04D-1 mark in its small form; `generated/brand-mark-static.svg` is its static-host copy. */
+/** The selected TMT ninja mark on its dark tile; `generated/brand-mark-static.svg` is its static-host copy. */
 function HeaderMark() {
   return <BrandMark className={c.mark} size={24} />;
 }

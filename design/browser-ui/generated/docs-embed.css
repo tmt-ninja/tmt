@@ -1324,12 +1324,6 @@ code {
   justify-items: center;
   gap: var(--tmt-ui-ref-space-2);
 }
-
-[data-tmt-mark='b'] {
-  --tmt-ui-brand-mark-panel-top: var(--tmt-ui-ref-ink-800);
-  --tmt-ui-brand-mark-panel-bottom: var(--tmt-ui-ref-ink-950);
-  --tmt-ui-brand-mark-prompt: var(--tmt-ui-ref-red-500);
-}
 .docs-motion-line {
   display: flex;
   flex-wrap: wrap;

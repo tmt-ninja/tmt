@@ -855,6 +855,8 @@ export const text = {
   shortcuts: {
     manage: 'Manage shortcuts',
     manageAction: 'Manage',
+    manageReadOnly: 'Read-only access',
+    manageNeedsSpace: 'Shortcuts need a space',
     /** The side menu's group and its trailing add row. */
     group: 'Shortcuts',
     addRow: 'New shortcut',

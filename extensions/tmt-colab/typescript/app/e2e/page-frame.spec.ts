@@ -72,7 +72,7 @@ test('a held open shows the frame by 150 ms and keeps it for at least 300 ms', a
   await expect(frame(page).getByText(/opening page/i)).toHaveCount(0);
   await expect(app(page).locator('iframe')).toHaveCount(0);
   await expect(
-    app(page).getByRole('button', {
+    frame(page).getByRole('button', {
       name: /comments|files|share|export|manage|chat|more actions/i,
     }),
   ).toHaveCount(0);

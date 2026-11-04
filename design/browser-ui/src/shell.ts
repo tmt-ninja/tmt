@@ -1,4 +1,4 @@
-import { brandMarkSvg, freshMarkId } from './brand-mark-svg.js';
+import { brandMarkSvg } from './brand-mark-svg.js';
 import { claimIconActionTooltip } from './icon-action-tooltip.js';
 import { moduleIcon, shellIconNodes, type ShellIcon } from './shell-icons.js';
 import {
@@ -79,15 +79,21 @@ export interface ShellMenuItem {
 export interface ShellMenuAction {
   label: string;
   onActivate(): void;
+  /** Explain an unavailable command without removing it from the menu. */
+  disabledReason?: string;
 }
 export interface ShellMenuIconAction extends ShellMenuAction {
   icon: ShellIcon;
 }
 export interface ShellMenuGroup {
   label?: string;
+  /** Decorative icon for rows without their own icon, independent of the heading. */
+  fallbackIcon?: ShellIcon;
   /** At most one command beside the heading; omitting the icon renders its label as text. */
   action?: ShellMenuAction & { icon?: ShellIcon };
   items: ShellMenuItem[];
+  /** Inline read failure and a host-owned retry command. */
+  alert?: { message: string; retry: ShellMenuAction };
   /** Visible and accessible label; the rail adds the decorative plus icon. */
   add?: ShellMenuAction;
   /** Request moving fromId to the current index of toId; the host supplies the resulting order. */
@@ -451,13 +457,7 @@ export function mountShell(
   // no breadcrumb.
   const brand = document.createElement('div');
   brand.className = 'tmt-ui-shell-brand';
-  // One rail per document draws its own paint servers: a second shell (a fixture, the gallery, a
-  // hidden earlier mount) must not make the visible mark resolve to a hidden copy.
-  const markId = freshMarkId(
-    'tmt-rail',
-    (prefix) => document.getElementById(`${prefix}-aurora`) !== null,
-  );
-  brand.innerHTML = brandMarkSvg({ size: 32, id: markId });
+  brand.innerHTML = brandMarkSvg({ size: 32 });
   const text = document.createElement('span');
   text.className = 'tmt-ui-shell-brand-text';
   const word = document.createElement('span');
@@ -613,6 +613,7 @@ export function mountShell(
     className: string,
     item: ShellMenuItem,
     selected: ShellMenuItem | undefined,
+    fallbackIcon?: ShellIcon,
   ) => {
     const anchor = link(className, item, item === selected);
     if (item.note) anchor.title = item.note;
@@ -620,7 +621,8 @@ export function mountShell(
     label.className = 'tmt-ui-module-menu-label';
     label.textContent = item.label;
     if (!item.note) label.title = item.label;
-    if (item.icon) anchor.append(icon(document, item.icon));
+    const mark = item.icon ?? fallbackIcon;
+    if (mark) anchor.append(icon(document, mark));
     anchor.append(label);
     if (item.emphasis === 'unread') {
       anchor.dataset.emphasis = 'unread';
@@ -664,13 +666,47 @@ export function mountShell(
     const button = document.createElement('button');
     button.type = 'button';
     button.className = className;
-    button.title = action.label;
+    button.title = action.disabledReason ?? action.label;
+    button.disabled = action.disabledReason !== undefined;
     if (mark) {
       button.setAttribute('aria-label', action.label);
       button.append(icon(document, mark));
       tipFor(button, action.label);
     } else button.textContent = action.label;
-    button.onclick = () => {
+    let keyTurn: Event | undefined;
+    const recordKey = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !event.isTrusted ||
+        !(
+          (event.key === 'Enter' && event.type === 'keydown') ||
+          (event.key === ' ' && event.type === 'keyup')
+        )
+      )
+        return;
+      keyTurn = event;
+      // #6016: native listeners may run a microtask checkpoint between handlers of the same key.
+      // Expire at the next task; TrustedMenuItem's React handler can use a microtask instead.
+      setTimeout(() => {
+        if (keyTurn === event) keyTurn = undefined;
+      }, 0);
+    };
+    button.addEventListener('keydown', recordKey);
+    button.addEventListener('keyup', recordKey);
+    button.onclick = (event) => {
+      const origin = keyTurn?.target;
+      const target = event.target;
+      const matchingKey =
+        !keyTurn?.defaultPrevented &&
+        origin instanceof Node &&
+        target instanceof Node &&
+        origin.contains(target)
+          ? keyTurn
+          : undefined;
+      // #6016 will move this import-free trust check to a neutral home shared with UI.
+      const admitted = event.isTrusted || matchingKey?.isTrusted === true;
+      if (admitted) keyTurn = undefined;
+      if (event.defaultPrevented || !admitted || button.disabled) return;
       setDrawer(false);
       activate();
     };
@@ -807,9 +843,28 @@ export function mountShell(
         section.append(heading, entries);
         list.append(section);
       }
+      if (group.alert) {
+        const row = document.createElement('li');
+        row.className = 'tmt-ui-rail-alert';
+        row.setAttribute('role', 'alert');
+        const message = document.createElement('span');
+        message.textContent = group.alert.message;
+        row.append(
+          message,
+          command('tmt-ui-rail-group-action', group.alert.retry, () =>
+            latest.menu?.groups[index]?.alert?.retry.onActivate(),
+          ),
+        );
+        entries.append(row);
+      }
       for (const item of group.items) {
         const row = document.createElement('li');
-        const anchor = menuEntry('tmt-ui-module-menu-item tmt-ui-rail-sub-item', item, selected);
+        const anchor = menuEntry(
+          'tmt-ui-module-menu-item tmt-ui-rail-sub-item',
+          item,
+          selected,
+          group.fallbackIcon,
+        );
         row.dataset.menuGroup = String(index);
         row.append(anchor);
         if (item.actions?.length || group.reorder) controls?.decorate(row, anchor, item);
