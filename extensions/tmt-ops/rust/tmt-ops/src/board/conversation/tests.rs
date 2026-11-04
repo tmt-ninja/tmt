@@ -1269,12 +1269,12 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         assert!(
             labels
                 .iter()
-                .any(|line| line.starts_with(" │ ") && line.contains("untrusted"))
+                .any(|line| line.starts_with("  ") && line.contains("untrusted"))
         );
         assert!(
             labels
                 .iter()
-                .map(|line| line.strip_prefix(" │ ").unwrap_or(line))
+                .map(|line| line.strip_prefix("  ").unwrap_or(line))
                 .collect::<Vec<_>>()
                 .join(" ")
                 .split_whitespace()

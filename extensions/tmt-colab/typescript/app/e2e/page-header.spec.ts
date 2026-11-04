@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import { readFileSync } from 'node:fs';
 
 /**
  * The lean page actions in the shared top bar: Search (the bar's own) and the Discussion dock stay; a
@@ -274,29 +275,41 @@ test.describe('the shell bar', () => {
     await expect(page.getByRole('button', { name: /^Remote:/ })).toHaveCount(1);
   });
 
-  test('the rail mark paints from its own paint servers while a hidden shell shares the document', async ({
+  test('the rail mark keeps its ninja paint while a hidden shell shares the document', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     // The home fixture leaves the real app mounted (hidden) beside the visible shell: two rails.
     await mountHome(page);
+    const source = readFileSync(
+      new URL('../../../../../design/browser-ui/src/brand-mark.svg', import.meta.url),
+      'utf8',
+    );
+    const shape = source.match(/<path[^>]* d="([^"]+)"/)![1]!;
     const result = await page.evaluate(() => {
-      const marks = [...document.querySelectorAll<SVGElement>('.tmt-ui-shell-brand svg')];
+      const marks = [...document.querySelectorAll<SVGElement>('.tmt-ui-shell-brand > svg')];
       const visible = marks.find((mark) => mark.getBoundingClientRect().width > 0)!;
-      const references = [...visible.innerHTML.matchAll(/url\(#([^)]+)\)/g)].map((m) => m[1]);
       return {
         marks: marks.length,
-        references: references.length,
-        outside: references.filter((id) => document.getElementById(id)?.closest('svg') !== visible),
-        shared: marks
-          .map((mark) => mark.querySelector('[id]')?.id)
-          .filter((id, index, ids) => ids.indexOf(id) !== index),
+        shapes: marks.map((mark) => mark.querySelector('path')!.getAttribute('d')),
+        references: marks.flatMap((mark) => [...mark.innerHTML.matchAll(/url\(#[^)]+\)/g)]),
+        ids: marks.flatMap((mark) => [...mark.querySelectorAll('[id]')].map((node) => node.id)),
+        paint: {
+          tile: getComputedStyle(visible.querySelector('.tmt-brand-mark-tile')!).fill,
+          ink: getComputedStyle(visible.querySelector('path')!).fill,
+          prompt: getComputedStyle(visible.querySelector('path[stroke]')!).stroke,
+        },
       };
     });
     expect(result.marks).toBeGreaterThan(1);
-    expect(result.references).toBeGreaterThan(0);
-    expect(result.outside).toEqual([]);
-    expect(result.shared).toEqual([]);
+    expect(result.shapes).toEqual(Array(result.marks).fill(shape));
+    expect(result.references).toEqual([]);
+    expect(result.ids).toEqual([]);
+    expect(result.paint).toEqual({
+      tile: 'rgb(10, 10, 10)',
+      ink: 'rgb(242, 239, 233)',
+      prompt: 'rgb(242, 239, 233)',
+    });
   });
 
   test('at 390 the Remote link and Search both stay in the bar', async ({ page }) => {

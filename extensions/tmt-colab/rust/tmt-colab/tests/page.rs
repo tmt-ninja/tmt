@@ -1477,6 +1477,31 @@ fn agent_status_is_own_stream_causal_fenced_and_shared_with_native_reads() {
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("resolved") && text.contains("Local CLI") && text.contains("old"));
+    // One thread reads alone (#6002): an Ask quotes only the previous turn and points here.
+    let output = f
+        .command()
+        .args(["threads", PAGE, "--thread", THREAD, "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let only: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(only["threads"].as_array().unwrap().len(), 1);
+    assert_eq!(only["threads"][0]["id"], THREAD);
+    let output = f
+        .command()
+        .args(["threads", PAGE, "--thread", THREAD])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8(output.stdout).unwrap().contains("old"));
+    let output = f
+        .command()
+        .args(["threads", PAGE, "--thread", DEVICE, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "an unknown thread is missing, not empty"
+    );
 }
 
 #[test]

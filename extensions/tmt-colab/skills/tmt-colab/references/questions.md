@@ -33,7 +33,6 @@ or a retry; never guess their IDs.
     data-group="20000000-0000-4000-8000-000000000001"
     data-kind="single"
     data-agent="Your agent name"
-    data-other
   >
     <p data-question>Which option fits this passage?</p>
     <span data-choice>First</span><span data-choice>Second</span>
@@ -75,9 +74,9 @@ A wrapper keeps one batched Send for its completed unsent answers. Neither sends
 another passage's draft. Defaults come from the asking agents in that physical
 block, deduplicated; the person can edit the visible recipient chips.
 
-Kinds: single/multiple with choices and optional `data-other`; short/long with no
-choices or Other. Limits: 50 questions/page, 20 distinct choices/question, 200 code
-points per question/choice. Put who asks in `data-agent`, and explain why the
+Kinds: single/multiple with choices, which always offer Other with a typed answer
+(`data-other` is not needed); short/long with no choices or Other. Limits: 50
+questions/page, 20 distinct choices/question, 200 code points per question/choice. Put who asks in `data-agent`, and explain why the
 answer matters. Put elements inside a `div`, `li` or `td`, not a `p` that their
 child paragraphs would end. Do not gather unrelated decisions at the page's end.
 

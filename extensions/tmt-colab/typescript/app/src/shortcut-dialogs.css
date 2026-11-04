@@ -2,44 +2,6 @@
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;
 }
-.shortcut-columns[data-manage] {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 24px;
-}
-.shortcut-columns > nav {
-  min-width: 0;
-}
-.shortcut-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 12px;
-}
-.shortcut-list > li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: var(--tmt-ui-radius);
-}
-.shortcut-list > li:hover,
-.shortcut-list > li:has([aria-current]) {
-  background: var(--tmt-ui-surface-hover);
-}
-.shortcut-list > li > button:not(.tmt-ui-icon-action) {
-  flex: 1;
-  min-width: 0;
-  appearance: none;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .shortcut-editor {
   display: flex;
   flex-direction: column;
@@ -59,7 +21,7 @@
   max-height: 140px;
   overflow-y: auto;
 }
-.shortcut-dialog .tmt-ui-field {
+.shortcut-editor .tmt-ui-field {
   width: 100%;
 }
 .page-list-state-filters {
@@ -68,17 +30,6 @@
   align-items: center;
   gap: 8px;
 }
-@media (max-width: 650px) {
-  .shortcut-columns[data-manage] {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-  .shortcut-columns > nav {
-    max-height: 150px;
-    overflow-y: auto;
-  }
-}
-
 .shortcut-dialog[data-mode='save'] {
   max-width: min(400px, calc(100vw - 32px));
 }
@@ -107,15 +58,8 @@
   flex: none;
 }
 
-.tmt-ui-dialog.shortcut-dialog[data-mode='manage'] {
-  --tmt-ui-dialog-width: 640px;
-}
 .shortcut-dialog .shortcut-delete {
   margin-inline-end: auto;
-}
-.shortcut-count {
-  color: var(--tmt-ui-color-secondary);
-  font-size: 12px;
 }
 .shortcut-chips {
   display: flex;
@@ -134,56 +78,6 @@
 }
 .shortcut-editor .shortcut-extra {
   margin: 0;
-}
-@media (min-width: 651px) {
-  .shortcut-dialog[data-mode='manage'] .tmt-ui-dialog-body {
-    padding: 0;
-  }
-  .shortcut-columns[data-manage] {
-    gap: 0;
-    min-height: 300px;
-  }
-  .shortcut-columns[data-manage] > nav {
-    padding: 12px;
-    border-right: 1px solid var(--tmt-ui-surface-rule);
-  }
-  .shortcut-columns[data-manage] > .shortcut-editor {
-    padding: 16px;
-    gap: 16px;
-  }
-}
-
-.shortcut-state {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.shortcut-mobile-back {
-  display: none;
-}
-@media (max-width: 650px) {
-  .tmt-ui-dialog.shortcut-dialog[data-mode='manage'] {
-    inset: 0;
-    width: 100vw;
-    height: 100dvh;
-    max-height: 100dvh;
-    margin: 0;
-    border: 0;
-    border-radius: 0;
-  }
-  .shortcut-dialog[data-mode='manage'] .tmt-ui-dialog-body {
-    flex: 1;
-  }
-  .shortcut-dialog[data-mode='manage'][data-mobile-view='list'] .shortcut-editor,
-  .shortcut-dialog[data-mode='manage'][data-mobile-view='editor'] .shortcut-columns > nav {
-    display: none;
-  }
-  .shortcut-dialog[data-mode='manage'] .shortcut-columns > nav {
-    max-height: none;
-  }
-  .shortcut-dialog[data-mode='manage'] .shortcut-mobile-back {
-    display: block;
-  }
 }
 .shortcut-editor .tmt-ui-field-description {
   color: var(--tmt-ui-color-secondary);

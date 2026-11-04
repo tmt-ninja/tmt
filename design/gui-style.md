@@ -48,6 +48,10 @@ named below; explicitly labelled design targets remain unshipped.
    and how to undo it, in plain words. No internal terms (baseline, epoch,
    descriptor) in human text.
 
+The product brand is the selected ninja from [#5971](https://github.com/tmt-ninja/tmt/pull/5971):
+pale ink on the blog's dark tile, retained in light, dark and palette B. The
+[browser-ui brand contract](browser-ui/README.md) owns its source, generation and host copies.
+
 ## Tokens
 
 Tokens come in three tiers. **ref** is the primitive tier (the spec page calls it "primitive"): raw
@@ -55,7 +59,7 @@ values such as `ink-950`, `red-500`, the `radius` knob and the `size-1`…`size-
 as `--tmt-ui-ref-*` and read only by roles. **Semantic roles** (`--tmt-ui-color-*`,
 `--tmt-ui-surface-*`, the metrics) are what components read. **Component tokens** (`--tmt-foundation-*`
 in the ui layer) alias the semantic roles. Palette B (red, black, white and grey, #5821) maps the
-semantic roles onto refs inside `[data-tmt-palette='b']` only. Its accent red marks only the brand,
+semantic roles onto refs inside `[data-tmt-palette='b']` only. Its accent red marks only
 focus, the selected tab and the primary action, never a state: blocked is a darker red with its ✕.
 
 Use the leaf's [roles and generation](browser-ui/README.md#entries-and-generation)

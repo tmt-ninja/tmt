@@ -809,8 +809,8 @@ unchanged. Corrupt/newer data and failed writes are reported and retained.
 ordering. Its fields use `BrowserField`; project, multi-select state and additional-condition toggles
 use `BrowserCountChip`. Home shows applied conditions as removable search chips and adds conditions
 through its Filter menu. The end of the stage tabs row offers Save/Edit; the sidebar Shortcuts group opens Manage.
-On phones Manage opens its full-screen list, then an editor with a back action. These preferences
-are not synced or shared.
+Manage opens the shared ordered list, then an editor with a back action; Save as shortcut opens the
+editor directly. The opener regains focus on return. These preferences are not synced or shared.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The React-free filter owner is
@@ -934,8 +934,10 @@ matching totals and attention counts, omitting values whose required data is una
 All pages has a list icon; shortcuts have bookmarks, a muted plain total and an attention dot
 whose count remains in the tooltip and accessible name. The sentence-case Shortcuts heading
 has the text Manage command; saving starts from the list bookmark, without a rail add row.
-Shared rail actions open the selected shortcut's editor or delete it; its drag and Alt+Arrow
-requests persist an atomic target-index move through `ShortcutStore`. A failed write is reported.
+Shortcut rows are navigation only. The shared Manage list owns edit, delete, move controls, drag
+and Alt+Arrow requests; `ShortcutStore` persists their order. Read failures appear below the
+Shortcuts heading with Retry. Manage is disabled with an explanation without management or a store;
+failed writes remain in the dialog.
 The list's `scope` route field remains a base filter: `inScope` (`project-scope.ts`) determines
 the pages feeding rows, tabs and search suggestions, and a `project:` token narrows inside it.
 The default scope is device-local: `readScope`/`writeScope` keep it per space in

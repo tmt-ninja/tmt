@@ -301,7 +301,7 @@ function Principles() {
   const rules: [string, string][] = [
     [
       'Red is rare',
-      'The accent red marks only the brand, keyboard focus, the selected tab and the one primary action on a surface. Nothing else is red-filled.',
+      'The ninja retains its canonical pale ink on a dark tile. Accent red marks keyboard focus, the selected tab and the one primary action on a surface. Nothing else is red-filled.',
     ],
     [
       'Status is never the accent',

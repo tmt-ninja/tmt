@@ -9,7 +9,7 @@ import {
   strictVerify,
   text,
 } from '@tmt/colab-client';
-import { FrozenAsk, REQUEST_BYTES, escapedPreview } from '../src/ask-intent.js';
+import { FrozenAsk, QUOTE_POINTS, REQUEST_BYTES, escapedPreview } from '../src/ask-intent.js';
 import { storeAskDraft } from '../src/ask-record-store.js';
 import { attachmentBlock } from '../src/thread-store.js';
 import { destination, id, pageLink, selection } from './ask-fixtures.js';
@@ -242,6 +242,13 @@ it('rejects credentials, invalid Unicode, noncanonical scope/list and over-limit
   ).toThrow();
   expect(() => FrozenAsk.capture(selection(), destination(), { validityMs: 86400001 })).toThrow();
 });
+it('quotes a long anchored passage capped, so the Ask stays under its byte cap (#6002)', () => {
+  const quote = 'q'.repeat(REQUEST_BYTES);
+  const message = FrozenAsk.capture({ ...selection(), quote }, destination()).view.message;
+  expect(message).toContain(`Quote:\n${'q'.repeat(QUOTE_POINTS)}… (truncated)\n\nComment:`);
+  expect(message).not.toContain('q'.repeat(QUOTE_POINTS + 1));
+});
+
 it('rejects expired/future intents and extractable keys before signing or adoption', async () => {
   const frozen = FrozenAsk.capture(selection(), destination(), { issuedAt: 100, validityMs: 100 });
   await expect(frozen.signed(await key(), 99)).rejects.toThrow();
