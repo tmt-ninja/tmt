@@ -73,10 +73,14 @@ Markdown keeps styled text, source-line mapping and typed member, URL and file h
 and `@name`, and bare canonical names containing a dash, underscore or digit against
 the worker-held identity inventory. The composer picker (`mentions.rs`, agents only)
 accepts `@` or `tmt/` at a word start and inserts `tmt/<canonical>` as an expanded Editor fold labelled
-`tmt-mention:<identity>`; an edit inside drops the fold, and `quoted_message_named`
+`tmt-mention:<identity>`; an edit inside drops the fold, and `quoted_message_with`
 writes the agent's current canonical name at send. Matching is case-sensitive, longest-first and word-bounded;
 simple bare words and unavailable or ambiguous identities stay literal. Source
-and annotation byte ranges never change. The recipient skills picker (`board/skills`) reads `skills.list` on the existing lane and caches by identity and stamp. At a token start `/` opens its grouped, filtered menu; a selected skill is an expanded Editor fold. Only retained skill folds are converted to the reported recipient syntax when sent; editing a fold removes its conversion. Plain programs never open the picker. Normal-weight text-colour underlines
+and annotation byte ranges never change. The recipient skills picker (`board/skills`) reads
+`skills.list` on the existing lane and caches by identity and stamp. At a token start `/`
+opens its grouped, filtered menu; a selected skill is an expanded Editor fold. Only retained
+skill folds convert to the reported recipient syntax when sent; editing a fold removes its
+conversion. Plain programs never open the picker. Normal-weight text-colour underlines
 carry UUID tags into visible wrapped/clipped cells; hover and keyboard focus use
 the selected-row background. A reference grants no new delivery authority and does no paint/input I/O. Conversation/pane-output Markdown, plain previews,
 board task summaries, KeyValue rows and notices share that resolver and hit owner.
