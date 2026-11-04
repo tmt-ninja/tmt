@@ -65,7 +65,7 @@ export function Block({
       role="group"
       // A group cannot carry aria-selected, and several blocks can be selected at once, so the
       // selection is in the label.
-      aria-label={selected ? `${label}, ${selectedLabel}` : label}
+      aria-label={selected && label ? `${label}, ${selectedLabel}` : label}
       data-selected={selected ? '' : undefined}
       data-kind={kind}
       data-level={level}

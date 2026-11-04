@@ -260,6 +260,26 @@ it('keeps each declared graph to its own packages, stylesheet and admitted graph
     './chips.js',
   ]);
 });
+it('lets only a graph that declares the root graph reach root modules', () => {
+  const blocks = path.join(production, 'blocks/content.tsx');
+  const table = path.join(production, 'data-table/data-table.tsx');
+  const legacy = path.join(production, 'header.tsx');
+  // ./blocks declares './react', so it reaches the shared root parts.
+  expect(violations(blocks, "import { BrowserTable } from '../table.js';", false)).toEqual([]);
+  // It reaches no other entry, and no package beyond its own.
+  for (const edge of ['../ui/index.js', '../rich-input/index.js'])
+    expect(violations(blocks, `import { Button } from '${edge}';`, false)).toEqual([edge]);
+  expect(violations(blocks, "import { $getRoot } from 'lexical';", false)).toEqual(['lexical']);
+  // Root modules never reach into the entry.
+  expect(violations(legacy, "export * from './blocks/index.js';", false)).toEqual([
+    './blocks/index.js',
+  ]);
+  // A graph without the root capability still cannot reach root modules.
+  expect(violations(table, "import { BrowserTable } from '../table.js';", false)).toEqual([
+    '../table.js',
+  ]);
+});
+
 it('keeps the search entry free of every import', () => {
   const file = path.join(production, 'search.ts');
   expect(imports(file, readFileSync(file, 'utf8'))).toEqual([]);
