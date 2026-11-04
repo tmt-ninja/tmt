@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "notifications",
+  "source": "notifications.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserNotifications",
+    "BrowserAction"
+  ],
+  "examples": [
+    {
+      "title": "Notifications",
+      "markup": "<tmt-ui-notifications label=\"Notify\" message=\"A reply arrived\"></tmt-ui-notifications>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

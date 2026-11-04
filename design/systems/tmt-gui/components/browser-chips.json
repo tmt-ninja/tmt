@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-chips",
+  "source": "browser-chips.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserChips"
+  ],
+  "examples": [
+    {
+      "title": "Browser-Chips",
+      "markup": "<tmt-ui-browser-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-browser-chips>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

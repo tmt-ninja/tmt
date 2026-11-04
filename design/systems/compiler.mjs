@@ -100,6 +100,12 @@ export const UI_PARTS = [
   'BrowserTable',
   'BrowserCommand',
   'BrowserTabs',
+  'BrowserChips',
+  'BrowserDialog',
+  'BrowserDrawer',
+  'BrowserPanel',
+  'BrowserShell',
+  'BrowserNotifications',
 ];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */

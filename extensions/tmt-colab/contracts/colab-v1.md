@@ -5495,7 +5495,8 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
 `DropdownMenuItem`, `UiTheme`, `BrowserHeader`, `BrowserNotice`, `BrowserPager`, `BrowserList`,
 `BrowserChoice`, `BrowserMenu`, `BrowserIconAction`, `BrowserField`, `BrowserCountChip`,
-`BrowserTable`, `BrowserCommand`, `BrowserTabs`, `Select`, `SelectTrigger`, `SelectValue`,
+`BrowserTable`, `BrowserCommand`, `BrowserTabs`, `BrowserChips`, `BrowserDialog`, `BrowserDrawer`,
+`BrowserPanel`, `BrowserShell`, `BrowserNotifications`, `Select`, `SelectTrigger`, `SelectValue`,
 `SelectContent`, `SelectItem`, `TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`,
 `Command`, `CommandInput`, `CommandList`, `CommandItem`, `FloatingDock`, `FloatingActions`,
 `FloatingAction`, `FloatingWindow`, `Chips`, `useLayerController`, `DataTable` and `RichInput`. Unknown, duplicate, undeclared,

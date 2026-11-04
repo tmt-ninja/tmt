@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "shell",
+  "source": "shell.js",
+  "props": {
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "BrowserShell"
+  ],
+  "examples": [
+    {
+      "title": "Shell",
+      "markup": "<tmt-ui-shell items=\"Colab,Design,Remote\">Content</tmt-ui-shell>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

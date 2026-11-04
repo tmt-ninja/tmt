@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "dialog-drawer-panel",
+  "source": "dialog-drawer-panel.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "dialog",
+        "drawer",
+        "panel"
+      ]
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "BrowserDialog",
+    "BrowserDrawer",
+    "BrowserPanel",
+    "BrowserAction"
+  ],
+  "examples": [
+    {
+      "title": "Dialog-Drawer-Panel",
+      "markup": "<tmt-ui-dialog-drawer-panel label=\"Details\" kind=\"dialog\">Content</tmt-ui-dialog-drawer-panel>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

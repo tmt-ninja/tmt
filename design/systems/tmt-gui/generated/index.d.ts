@@ -506,3 +506,30 @@ export interface RichInputProps {
   disabled?: boolean;
   children?: ReactNode;
 }
+
+/** <tmt-ui-browser-chips>: props from its schema, slots as nodes. */
+export interface BrowserChipsProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-dialog-drawer-panel>: props from its schema, slots as nodes. */
+export interface DialogDrawerPanelProps {
+  label?: string;
+  kind?: "dialog" | "drawer" | "panel";
+  children?: ReactNode;
+}
+
+/** <tmt-ui-shell>: props from its schema, slots as nodes. */
+export interface ShellProps {
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-notifications>: props from its schema, slots as nodes. */
+export interface NotificationsProps {
+  label?: string;
+  message?: string;
+  children?: ReactNode;
+}

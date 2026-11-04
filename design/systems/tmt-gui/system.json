@@ -204,6 +204,18 @@
     },
     {
       "doc": "components/rich-input.json"
+    },
+    {
+      "doc": "components/browser-chips.json"
+    },
+    {
+      "doc": "components/dialog-drawer-panel.json"
+    },
+    {
+      "doc": "components/shell.json"
+    },
+    {
+      "doc": "components/notifications.json"
     }
   ],
   "principles": {

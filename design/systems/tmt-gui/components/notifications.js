@@ -1,0 +1,8 @@
+// The real notifications surface receives an example event when activated.
+export default ({ React, ui }) => function Notifications({ label = 'Notify', message = 'A reply arrived' }) {
+  const [events, setEvents] = React.useState([]);
+  const h = React.createElement;
+  return h(React.Fragment, null,
+    h(ui.BrowserAction, { type: 'button', label, variant: 'secondary', onActivate: () => setEvents([{ id: String(Date.now()), destination: 'Chat', firstLine: message, onActivate: () => {} }]) }),
+    h(ui.BrowserNotifications, { pageKey: 'example', events, suspended: false, isEligible: () => true }));
+};

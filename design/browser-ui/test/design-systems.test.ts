@@ -143,6 +143,10 @@ describe('buildBundle', () => {
       'tmt-ui-data-table',
       'tmt-ui-page-list',
       'tmt-ui-rich-input',
+      'tmt-ui-browser-chips',
+      'tmt-ui-dialog-drawer-panel',
+      'tmt-ui-shell',
+      'tmt-ui-notifications',
     ]);
   });
 

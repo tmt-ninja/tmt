@@ -284,6 +284,48 @@ test('Rich input tag edits text in the frame', async ({ page }) => {
   await expect(input).toContainText('Hello from the page');
 });
 
+test('Browser overlay and chips tags work inside a stage', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope>
+      <tmt-ui-dialog-drawer-panel label="Details" kind="dialog">Body</tmt-ui-dialog-drawer-panel>
+      <tmt-ui-browser-chips label="People" items="Alex,Sam"></tmt-ui-browser-chips>
+    </tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('button', { name: 'Open Details' }).click();
+  await expect(scope.getByRole('dialog', { name: 'Details' })).toBeVisible();
+  await scope.getByRole('button', { name: 'Close Details' }).click();
+  await scope.getByRole('button', { name: 'Add', exact: true }).click();
+  await scope.getByRole('option', { name: 'Alex' }).click();
+  await expect(scope.getByRole('button', { name: 'Remove Alex' })).toBeVisible();
+});
+
+test('Browser notifications tag shows and dismisses an event', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope><tmt-ui-notifications label="Notify" message="A reply arrived"></tmt-ui-notifications></tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('button', { name: 'Notify' }).click();
+  await expect(scope.getByText('A reply arrived', { exact: true })).toBeVisible();
+  await scope.getByRole('button', { name: 'Dismiss Chat reply' }).click();
+  await expect(scope.getByText('A reply arrived', { exact: true })).toHaveCount(0);
+});
+
+test('Browser shell tag mounts its real rail in a stage', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope width="1000px"><tmt-ui-shell items="Colab,Design">Shell content</tmt-ui-shell></tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await expect(scope.getByRole('link', { name: 'Colab' })).toBeVisible();
+  await expect(scope.getByText('Shell content')).toBeVisible();
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

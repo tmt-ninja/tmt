@@ -294,6 +294,22 @@
    {
     "tag": "rich-input",
     "status": "stable"
+   },
+   {
+    "tag": "browser-chips",
+    "status": "stable"
+   },
+   {
+    "tag": "dialog-drawer-panel",
+    "status": "stable"
+   },
+   {
+    "tag": "shell",
+    "status": "stable"
+   },
+   {
+    "tag": "notifications",
+    "status": "stable"
    }
   ]
  },
@@ -2904,6 +2920,137 @@
     }
    ],
    "source": "// Runtime 4 supplies the real browser-ui rich input, with local editing state.\nexport default ({ React, ui }) => function RichInput({ label = 'Message', shape = 'multi', placeholder, disabled }) {\n  const [value, setValue] = React.useState({ value: '', chips: [] });\n  return React.createElement(ui.RichInput, { label, shape, placeholder, disabled, value, onChange: setValue });\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "browser-chips",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserChips"
+   ],
+   "examples": [
+    {
+     "title": "Browser-Chips",
+     "markup": "<tmt-ui-browser-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-browser-chips>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The real BrowserChips control keeps its example's selection locally.\nexport default ({ React, ui }) => function BrowserChips({ label = 'People', items = '' }) {\n  const [selected, setSelected] = React.useState([]);\n  const [query, setQuery] = React.useState('');\n  const options = items.split(',').map((item) => item.trim()).filter(Boolean)\n    .filter((item) => !selected.includes(item) && item.toLowerCase().includes(query.toLowerCase()))\n    .map((item) => ({ id: item, label: item }));\n  return React.createElement(ui.BrowserChips, { label, query, onQueryChange: setQuery, options,\n    items: selected.map((item) => ({ id: item, label: item, removeLabel: `Remove ${item}` })),\n    addLabel: 'Add', searchLabel: 'Search', emptyText: 'No matches',\n    onAdd: (id) => { setSelected((current) => [...current, id]); setQuery(''); },\n    onRemove: (id) => setSelected((current) => current.filter((item) => item !== id)) });\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "dialog-drawer-panel",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "dialog",
+      "drawer",
+      "panel"
+     ]
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "BrowserDialog",
+    "BrowserDrawer",
+    "BrowserPanel",
+    "BrowserAction"
+   ],
+   "examples": [
+    {
+     "title": "Dialog-Drawer-Panel",
+     "markup": "<tmt-ui-dialog-drawer-panel label=\"Details\" kind=\"dialog\">Content</tmt-ui-dialog-drawer-panel>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The selected real Browser overlay retains its open state locally.\nexport default ({ React, ui }) => function Overlay({ label = 'Details', kind = 'dialog', children }) {\n  const [open, setOpen] = React.useState(false);\n  const h = React.createElement;\n  const Part = kind === 'drawer' ? ui.BrowserDrawer : kind === 'panel' ? ui.BrowserPanel : ui.BrowserDialog;\n  return h(ui.UiTheme, null, h(ui.BrowserAction, { type: 'button', label: `Open ${label}`, variant: 'secondary', onActivate: () => setOpen(true) }),\n    h(Part, { open, title: label, mode: kind === 'panel' ? 'card' : undefined, onDismiss: () => setOpen(false) }, children));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "shell",
+   "props": {
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "BrowserShell"
+   ],
+   "examples": [
+    {
+     "title": "Shell",
+     "markup": "<tmt-ui-shell items=\"Colab,Design,Remote\">Content</tmt-ui-shell>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The real shell renders the page-authored rail inside its originating stage.\nexport default ({ React, ui }) => function Shell({ items = 'Colab,Design', children }) {\n  const main = items.split(',').map((item) => item.trim()).filter(Boolean).map((label, index) => ({\n    id: String(index), label, icon: 'box', href: '#', current: index === 0,\n  }));\n  return React.createElement(ui.UiTheme, null, React.createElement(ui.BrowserShell,\n    { view: { rail: { main, bottom: [] } }, select: () => true }, children));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "notifications",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "message": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserNotifications",
+    "BrowserAction"
+   ],
+   "examples": [
+    {
+     "title": "Notifications",
+     "markup": "<tmt-ui-notifications label=\"Notify\" message=\"A reply arrived\"></tmt-ui-notifications>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// The real notifications surface receives an example event when activated.\nexport default ({ React, ui }) => function Notifications({ label = 'Notify', message = 'A reply arrived' }) {\n  const [events, setEvents] = React.useState([]);\n  const h = React.createElement;\n  return h(React.Fragment, null,\n    h(ui.BrowserAction, { type: 'button', label, variant: 'secondary', onActivate: () => setEvents([{ id: String(Date.now()), destination: 'Chat', firstLine: message, onActivate: () => {} }]) }),\n    h(ui.BrowserNotifications, { pageKey: 'example', events, suspended: false, isEligible: () => true }));\n};\n",
    "css": ""
   }
  ]

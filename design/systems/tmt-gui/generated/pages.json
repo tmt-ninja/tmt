@@ -676,6 +676,38 @@
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
     ]
+   },
+   {
+    "slug": "browser-chips",
+    "title": "Chips (Browser)",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "dialog-drawer-panel",
+    "title": "Dialog, drawer and panel",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "shell",
+    "title": "Shell and rail",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "notifications",
+    "title": "Notifications",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
    }
   ]
  },
