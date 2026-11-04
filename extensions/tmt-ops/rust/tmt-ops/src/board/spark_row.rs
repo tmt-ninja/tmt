@@ -657,15 +657,20 @@ pub(in crate::board) fn stacked(
                 let pixels = (u128::from(total) * 16).div_ceil(u128::from(maximum));
                 let height = pixels.saturating_sub(base).min(8) as usize;
                 let saved_pixels = (u128::from(saved) * 16) / u128::from(maximum);
-                let role = if saved_pixels > base {
-                    Role::Accent
+                let saved_height = saved_pixels.saturating_sub(base).min(8) as usize;
+                let blocks = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+                if saved_height > 0 && saved_height < height {
+                    let used = look.role(Role::Text);
+                    let saved = look.role(Role::Accent);
+                    Span::styled(blocks[saved_height], saved.bg(used.fg.unwrap_or_default()))
                 } else {
-                    Role::Text
-                };
-                Span::styled(
-                    [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"][height],
-                    look.role(role),
-                )
+                    let role = if saved_height > 0 {
+                        Role::Accent
+                    } else {
+                        Role::Text
+                    };
+                    Span::styled(blocks[height], look.role(role))
+                }
             })
             .collect::<Vec<_>>();
         strip::paint_left(
@@ -678,6 +683,21 @@ pub(in crate::board) fn stacked(
 
 #[cfg(test)]
 mod digest_stack_tests {
+    #[test]
+    fn mixed_boundary_cell_keeps_saved_fraction_and_used_background() {
+        use ratatui::{buffer::Buffer, layout::Rect};
+        use tmt_cli_style::Role;
+        let area = Rect::new(0, 0, 1, 2);
+        let mut buffer = Buffer::empty(area);
+        let look = crate::look::Look::default();
+        super::stacked(&mut buffer, area, &[(Some(14), Some(2))], look);
+        assert_eq!(buffer[(0, 1)].symbol(), "▂");
+        assert_eq!(buffer[(0, 1)].fg, look.role(Role::Accent).fg.unwrap());
+        assert_eq!(buffer[(0, 1)].bg, look.role(Role::Text).fg.unwrap());
+        assert_eq!(buffer[(0, 0)].symbol(), "█");
+        assert_eq!(buffer[(0, 0)].fg, look.role(Role::Text).fg.unwrap());
+    }
+
     #[test]
     fn a_missing_segment_is_a_gap_and_known_zero_is_blank() {
         use ratatui::{buffer::Buffer, layout::Rect};

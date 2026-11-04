@@ -168,7 +168,12 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let side = if area.width >= 120 { 40 } else { 0 };
     crate::board::spark_row::stacked(
         frame.buffer_mut(),
-        Rect::new(area.x, area.y + 2, area.width - side, 2),
+        Rect::new(
+            area.x,
+            area.y + 2,
+            area.width - side - u16::from(side > 0),
+            2,
+        ),
         &grouped
             .iter()
             .map(|p| (p.used, p.saved))

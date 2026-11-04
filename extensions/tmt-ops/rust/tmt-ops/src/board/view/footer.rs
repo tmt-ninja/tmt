@@ -91,8 +91,6 @@ pub(in crate::board) fn key_label(event: &str) -> &str {
         "enter" => "⏎",
         "esc" => "Esc",
         "backspace" => "⌫",
-        "up" => "↑",
-        "down" => "↓",
         "left" => "←",
         "right" => "→",
         "tab" => "Tab",
@@ -543,7 +541,11 @@ fn digest_pairs(app: &App, width: usize) -> Vec<Hint> {
     }
     let bindings = app.bindings();
     let key = |verb, preferred| {
-        effective_key(app, &bindings, verb, preferred).map(|key| key_label(&key).to_owned())
+        effective_key(app, &bindings, verb, preferred).map(|key| match key.as_str() {
+            "up" => "↑".to_owned(),
+            "down" => "↓".to_owned(),
+            other => key_label(other).to_owned(),
+        })
     };
     let movement = [
         (Ui::Previous, "up"),
