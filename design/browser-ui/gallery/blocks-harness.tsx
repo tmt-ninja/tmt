@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ConnectedWorkBundle,
   ImageBlock,
   MockupBlock,
+  PageViewToolbar,
   QuestionBlock,
 } from '../src/blocks/index.js';
 import '../src/blocks/blocks.css';
@@ -27,12 +29,13 @@ export function mountQuestion(kind: 'single' | 'multiple' | 'short' = 'single') 
   );
 }
 
-export function mountImages() {
+export function mountImages(layout: 'carousel' | 'grid' | 'single' = 'carousel') {
   const host = document.createElement('main');
   document.body.replaceChildren(host);
   const pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
   createRoot(host).render(
     <ImageBlock
+      layout={layout}
       images={[
         { src: pixel, alt: 'First', caption: 'First image' },
         { src: pixel, alt: 'Second', caption: 'Second image' },
@@ -79,13 +82,20 @@ export function mountWorkBundle() {
   let available = true;
   let changed = () => {};
   const source = {
-    async read() {
-      return available
-        ? { title, href: '/pages/page-1', summary: 'Page summary', needsYou: true }
-        : undefined;
-    },
-    watch(_page: string, next: () => void) {
-      changed = next;
+    subscribe(
+      _page: string,
+      _signal: AbortSignal,
+      publish: (
+        data: { title: string; href: string; summary: string; needsYou: boolean } | undefined,
+      ) => void,
+    ) {
+      changed = () =>
+        publish(
+          available
+            ? { title, href: '/pages/page-1', summary: 'Page summary', needsYou: true }
+            : undefined,
+        );
+      changed();
       return () => {
         changed = () => {};
       };
@@ -121,4 +131,121 @@ export function mountWorkBundle() {
       />
     </>,
   );
+}
+export function mountRacingWorkBundle() {
+  const host = document.createElement('main');
+  document.body.replaceChildren(host);
+  const pending = new Map<string, (value: { title: string; href: string }) => void>();
+  const source = {
+    subscribe(
+      page: string,
+      _signal: AbortSignal,
+      publish: (value: { title: string; href: string }) => void,
+    ) {
+      pending.set(page, publish);
+      return () => {};
+    },
+  };
+  function Fixture() {
+    const [page, setPage] = useState('first');
+    return (
+      <>
+        <button type="button" onClick={() => setPage('second')}>
+          Change page
+        </button>
+        <button
+          type="button"
+          onClick={() => pending.get('first')?.({ title: 'Stale first', href: '/first' })}
+        >
+          Resolve first
+        </button>
+        <button
+          type="button"
+          onClick={() => pending.get('second')?.({ title: 'Current second', href: '/second' })}
+        >
+          Resolve second
+        </button>
+        <ConnectedWorkBundle page={page} source={source} />
+      </>
+    );
+  }
+  createRoot(host).render(<Fixture />);
+}
+
+export function mountAnsweredQuestion() {
+  const host = document.createElement('main');
+  document.body.replaceChildren(host);
+  createRoot(host).render(
+    <QuestionBlock
+      title="Which screen first?"
+      agent="gui-lead"
+      state="answered"
+      answer="Insert menu"
+      choices={['Insert menu', 'Block handle']}
+      onSend={() => {}}
+      onFollowUp={() => {}}
+    />,
+  );
+}
+
+export function mountPageViewToolbar() {
+  const host = document.createElement('main');
+  document.body.replaceChildren(host);
+  function Fixture() {
+    const [filters, setFilters] = useState([{ id: 'project', label: 'Project: gui' }]);
+    const [groupBy, setGroupBy] = useState<'state' | 'project' | 'owner' | 'none'>('state');
+    const [visible, setVisible] = useState<readonly string[]>(['title', 'state', 'updated']);
+    const columns = [
+      { id: 'title', label: 'Title', required: true },
+      { id: 'state', label: 'State' },
+      { id: 'updated', label: 'Updated' },
+    ].map((column) => ({ ...column, visible: visible.includes(column.id) }));
+    return (
+      <>
+        <PageViewToolbar
+          title="Spec pages"
+          filters={filters}
+          groupBy={groupBy}
+          columns={columns}
+          onRemoveFilter={(id) => setFilters((old) => old.filter((item) => item.id !== id))}
+          onGroupChange={setGroupBy}
+          onColumnsChange={setVisible}
+        />
+        <output data-columns="">{visible.join(',')}</output>
+      </>
+    );
+  }
+  createRoot(host).render(<Fixture />);
+}
+export function mountConfigurableMockup() {
+  const host = document.createElement('main');
+  document.body.replaceChildren(host);
+  function Fixture() {
+    const [system, setSystem] = useState('tmt-gui');
+    const [version, setVersion] = useState('follow');
+    const [setting, setSetting] = useState('390:viewer');
+    return (
+      <>
+        <MockupBlock
+          system={system}
+          version={version}
+          height={240}
+          systems={[
+            { id: 'tmt-gui', name: 'tmt GUI', versions: ['0.1.0'] },
+            { id: 'brio', name: 'Brio', versions: ['2.0.0'] },
+          ]}
+          onSystemChange={(next) => {
+            setSystem(next);
+            setVersion('follow');
+          }}
+          onVersionChange={setVersion}
+          onSettingsChange={(next) => setSetting(`${next.width}:${next.theme}`)}
+        >
+          <button>Stage part</button>
+        </MockupBlock>
+        <output data-setting="">{`${system}@${version}:${setting}`}</output>
+      </>
+    );
+  }
+  createRoot(host).render(<Fixture />);
 }

@@ -9,7 +9,8 @@ import { readdirSync, readFileSync } from 'node:fs';
  * allowed below with its reason.
  */
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
-const catalog = read('docs/catalog.tsx') + read('docs/catalog-more.tsx');
+const catalog =
+  read('docs/catalog.tsx') + read('docs/catalog-more.tsx') + read('docs/blocks-catalog.tsx');
 const browserCatalog = read('docs/browser-catalog.tsx');
 const covered = read('gallery/covered.ts');
 
@@ -66,6 +67,8 @@ const entries: Record<string, string> = {
   './list-table': 'Browser entry list',
   './rich-input': 'Components entry rich-input',
   './data-table': 'Components entry data-table',
+  './blocks': 'Components entries for structured blocks',
+  './blocks.css': 'Styles for structured block entries',
   './manage-list': 'Browser entry shell (ordered management list and dialog)',
   './gallery/frames': 'the gallery itself',
   './docs-embed': 'the docs site itself, hosted by Colab Design',
@@ -82,6 +85,7 @@ it('names every ui export in a component entry', () => {
       ...names('src/ui/index.ts'),
       ...names('src/rich-input/index.ts'),
       ...names('src/data-table/index.ts'),
+      ...names('src/blocks/index.ts'),
     ]),
   ];
   const missing = exported.filter(

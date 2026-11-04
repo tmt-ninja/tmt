@@ -12,3 +12,5 @@ export type {
 } from './work-bundle.js';
 export { MockupBlock } from './mockup-block.js';
 export type { MockupBlockProps } from './mockup-block.js';
+export { PageViewToolbar } from './page-view-toolbar.js';
+export type { PageViewColumn, PageViewFilter, PageViewToolbarProps } from './page-view-toolbar.js';

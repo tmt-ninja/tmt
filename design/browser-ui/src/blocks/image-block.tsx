@@ -1,4 +1,12 @@
-import { useRef, useState, type KeyboardEvent, type TouchEvent, type WheelEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type TouchEvent,
+  type WheelEvent,
+} from 'react';
+import { FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, UiTheme } from '../ui/index.js';
 
 export interface BlockImage {
@@ -13,11 +21,13 @@ export interface BlockImage {
 export interface BlockFile {
   name: string;
   size: string;
+  type?: string;
   href?: string;
 }
 export interface ImageBlockProps {
   images: readonly BlockImage[];
   files?: readonly BlockFile[];
+  variant?: 'image' | 'file';
   layout?: 'carousel' | 'grid' | 'single';
   size?: 's' | 'm' | 'l';
 }
@@ -26,6 +36,7 @@ export interface ImageBlockProps {
 export function ImageBlock({
   images,
   files = [],
+  variant = 'image',
   layout = 'carousel',
   size = 'm',
 }: ImageBlockProps) {
@@ -34,10 +45,15 @@ export function ImageBlock({
   const [zoom, setZoom] = useState(1);
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const opener = useRef<HTMLButtonElement>(null);
+  const openerIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number; distance?: number; zoom: number } | undefined>(
     undefined,
   );
+  useEffect(() => {
+    setIndex((previous) => Math.max(0, Math.min(previous, images.length - 1)));
+    if (images.length === 0) setOpen(false);
+  }, [images.length]);
   const current = images[Math.min(index, images.length - 1)];
   const move = (delta: number) => {
     const next = Math.max(0, Math.min(images.length - 1, index + delta));
@@ -109,6 +125,7 @@ export function ImageBlock({
   };
   const show = (at: number, button: HTMLButtonElement) => {
     opener.current = button;
+    openerIndex.current = at;
     setIndex(at);
     setZoom(1);
     setOpen(true);
@@ -120,104 +137,117 @@ export function ImageBlock({
         data-layout={layout}
         data-size={size}
         role="region"
-        aria-label="Images"
-        aria-roledescription={layout === 'carousel' ? 'carousel' : undefined}
+        aria-label={variant === 'file' ? 'Files' : 'Images'}
+        aria-roledescription={variant === 'image' && layout === 'carousel' ? 'carousel' : undefined}
       >
-        <div
-          className="tmt-block-image-list"
-          ref={list}
-          onScroll={(event) => {
-            if (layout !== 'carousel' || open) return;
-            const element = event.currentTarget;
-            let nearest = 0;
-            let distance = Number.POSITIVE_INFINITY;
-            for (const [at, child] of [...element.children].entries()) {
-              const offset = Math.abs(
-                child.getBoundingClientRect().left - element.getBoundingClientRect().left,
-              );
-              if (offset < distance) {
-                nearest = at;
-                distance = offset;
-              }
-            }
-            setIndex(nearest);
-          }}
-        >
-          {images.map((image, at) => (
-            <figure key={`${image.src}-${at}`} hidden={layout === 'single' && at !== index}>
-              {image.status === 'error' || failed.has(image.src) ? (
-                <div role="alert">
-                  ✗ Image failed to load{' '}
-                  {image.onRetry && (
+        {variant === 'image' && (
+          <>
+            <div
+              className="tmt-block-image-list"
+              ref={list}
+              onScroll={(event) => {
+                if (layout !== 'carousel' || open) return;
+                const element = event.currentTarget;
+                let nearest = 0;
+                let distance = Number.POSITIVE_INFINITY;
+                for (const [at, child] of [...element.children].entries()) {
+                  const offset = Math.abs(
+                    child.getBoundingClientRect().left - element.getBoundingClientRect().left,
+                  );
+                  if (offset < distance) {
+                    nearest = at;
+                    distance = offset;
+                  }
+                }
+                setIndex(nearest);
+              }}
+            >
+              {images.map((image, at) => (
+                <figure
+                  key={`${image.src}-${at}`}
+                  hidden={layout === 'single' && at !== index && !open}
+                >
+                  {!image.alt?.trim() ? (
+                    <div role="alert">Image needs alt text.</div>
+                  ) : image.status === 'error' || failed.has(image.src) ? (
+                    <div role="alert">
+                      ✗ Image failed to load{' '}
+                      {image.onRetry && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFailed((old) => {
+                              const next = new Set(old);
+                              next.delete(image.src);
+                              return next;
+                            });
+                            image.onRetry?.();
+                          }}
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        setFailed((old) => {
-                          const next = new Set(old);
-                          next.delete(image.src);
-                          return next;
-                        });
-                        image.onRetry?.();
-                      }}
+                      disabled={image.status === 'loading'}
+                      aria-label={`Image ${at + 1}: open viewer`}
+                      onClick={(event) => show(at, event.currentTarget)}
                     >
-                      Retry
+                      {image.status === 'loading' ? (
+                        <span className="tmt-block-image-placeholder" />
+                      ) : (
+                        <img
+                          src={image.src}
+                          alt={image.alt}
+                          onError={() => setFailed((old) => new Set(old).add(image.src))}
+                        />
+                      )}
                     </button>
                   )}
-                </div>
-              ) : (
+                  {(image.caption || image.tag) && (
+                    <figcaption>
+                      {image.caption} {image.tag}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+            {images.length > 1 && (
+              <div className="tmt-block-image-controls">
                 <button
                   type="button"
-                  disabled={image.status === 'loading'}
-                  aria-label={`Image ${at + 1}: open viewer`}
-                  onClick={(event) => show(at, event.currentTarget)}
+                  aria-label="Previous image"
+                  disabled={index === 0}
+                  onClick={() => move(-1)}
                 >
-                  {image.status === 'loading' ? (
-                    <span className="tmt-block-image-placeholder" />
-                  ) : (
-                    <img
-                      src={image.src}
-                      alt={image.alt}
-                      onError={() => setFailed((old) => new Set(old).add(image.src))}
-                    />
-                  )}
+                  ←
                 </button>
-              )}
-              {(image.caption || image.tag) && (
-                <figcaption>
-                  {image.caption} {image.tag}
-                </figcaption>
-              )}
-            </figure>
-          ))}
-        </div>
-        {images.length > 1 && (
-          <div className="tmt-block-image-controls">
-            <button
-              type="button"
-              aria-label="Previous image"
-              disabled={index === 0}
-              onClick={() => move(-1)}
-            >
-              ←
-            </button>
-            <span aria-live="polite">
-              {index + 1} / {images.length}
-            </span>
-            <button
-              type="button"
-              aria-label="Next image"
-              disabled={index >= images.length - 1}
-              onClick={() => move(1)}
-            >
-              →
-            </button>
-            <span>{current?.caption}</span>
-          </div>
+                <span aria-live="polite">
+                  {index + 1} / {images.length}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next image"
+                  disabled={index >= images.length - 1}
+                  onClick={() => move(1)}
+                >
+                  →
+                </button>
+                <span>{current?.caption}</span>
+              </div>
+            )}
+          </>
         )}
         {files.map((file) => (
           <div className="tmt-block-file" key={file.name}>
+            <FileText aria-hidden="true" />
             <span>{file.name}</span>
-            <span>{file.size}</span>
+            <span>
+              {file.type ? `${file.type} · ` : ''}
+              {file.size}
+            </span>
             {file.href && (
               <a href={file.href} download={file.name} aria-label={`Download ${file.name}`}>
                 Download
@@ -225,80 +255,90 @@ export function ImageBlock({
             )}
           </div>
         ))}
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent
-            className="tmt-block-image-viewer"
-            onKeyDown={keys}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              opener.current?.focus();
-            }}
-          >
-            <DialogTitle>{current?.caption || current?.alt || 'Image viewer'}</DialogTitle>
-            {current && (
-              <div
-                className="tmt-block-image-viewer-canvas"
-                onWheel={wheel}
-                onTouchStart={start}
-                onTouchMove={touchMove}
-                onTouchEnd={end}
-              >
-                <img src={current.src} alt={current.alt} style={{ transform: `scale(${zoom})` }} />
-              </div>
-            )}
-            <div className="tmt-block-image-viewer-controls">
-              {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    aria-label="Previous image"
-                    disabled={index === 0}
-                    onClick={() => move(-1)}
-                  >
-                    ←
-                  </button>
-                  <span aria-live="polite">
-                    {index + 1} / {images.length}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Next image"
-                    disabled={index >= images.length - 1}
-                    onClick={() => move(1)}
-                  >
-                    →
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                aria-label="Zoom out"
-                disabled={zoom <= 1}
-                onClick={() => changeZoom(zoom - 0.25)}
-              >
-                −
-              </button>
-              <span>{Math.round(zoom * 100)}%</span>
-              <button
-                type="button"
-                aria-label="Zoom in"
-                disabled={zoom >= 4}
-                onClick={() => changeZoom(zoom + 0.25)}
-              >
-                +
-              </button>
-              {current?.src && (
-                <a
-                  href={current.src}
-                  download={current.filename || 'image'}
-                  aria-label={`Download ${current.filename || 'image'}`}
+        {variant === 'image' && (
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent
+              className="tmt-block-image-viewer"
+              onKeyDown={keys}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                if (layout === 'single') setIndex(openerIndex.current);
+                // The single-image layout may need a render to reveal the opener again.
+                opener.current?.ownerDocument.defaultView?.requestAnimationFrame(() =>
+                  opener.current?.focus(),
+                );
+              }}
+            >
+              <DialogTitle>{current?.caption || current?.alt || 'Image viewer'}</DialogTitle>
+              {current && (
+                <div
+                  className="tmt-block-image-viewer-canvas"
+                  onWheel={wheel}
+                  onTouchStart={start}
+                  onTouchMove={touchMove}
+                  onTouchEnd={end}
                 >
-                  Download
-                </a>
+                  <img
+                    src={current.src}
+                    alt={current.alt}
+                    style={{ transform: `scale(${zoom})` }}
+                  />
+                </div>
               )}
-            </div>
-          </DialogContent>
-        </Dialog>
+              <div className="tmt-block-image-viewer-controls">
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Previous image"
+                      disabled={index === 0}
+                      onClick={() => move(-1)}
+                    >
+                      ←
+                    </button>
+                    <span aria-live="polite">
+                      {index + 1} / {images.length}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Next image"
+                      disabled={index >= images.length - 1}
+                      onClick={() => move(1)}
+                    >
+                      →
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label="Zoom out"
+                  disabled={zoom <= 1}
+                  onClick={() => changeZoom(zoom - 0.25)}
+                >
+                  −
+                </button>
+                <span>{Math.round(zoom * 100)}%</span>
+                <button
+                  type="button"
+                  aria-label="Zoom in"
+                  disabled={zoom >= 4}
+                  onClick={() => changeZoom(zoom + 0.25)}
+                >
+                  +
+                </button>
+                {current?.src && (
+                  <a
+                    href={current.src}
+                    download={current.filename || 'image'}
+                    aria-label={`Download ${current.filename || 'image'}`}
+                  >
+                    Download
+                  </a>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </section>
     </UiTheme>
   );

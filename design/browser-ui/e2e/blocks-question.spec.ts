@@ -37,6 +37,7 @@ test('multiple choice keeps other selections when Other is cleared', async ({ pa
   await field.fill('Additional idea');
   await field.fill('');
   await expect(question.getByLabel('Other…')).not.toBeChecked();
+  await expect(question.getByLabel('Other…')).toBeFocused();
   await expect(question.getByLabel('Insert menu')).toBeChecked();
   await question.getByRole('button', { name: 'Send' }).click();
   await expect(page.locator('[data-answer]')).toHaveText('{"choices":["Insert menu"]}');
@@ -58,4 +59,35 @@ test('a short answer is bounded by characters and sends with a keyboard shortcut
   await expect(page.locator('[data-answer]')).toHaveText(
     JSON.stringify({ choices: [], text: '🟢'.repeat(200) }),
   );
+});
+
+test('an answered question expands and collapses with the answer retained', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/blocks-harness.tsx';
+    (await import(fixture)).mountAnsweredQuestion();
+  });
+  const strip = page.getByRole('button', { name: /Which screen first.*Insert menu/ });
+  await expect(strip).toHaveAttribute('aria-expanded', 'false');
+  await strip.click();
+  await expect(strip).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: 'Follow up' })).toBeVisible();
+  await strip.click();
+  await expect(strip).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('number shortcuts select choices and focus Other', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/blocks-harness.tsx';
+    (await import(fixture)).mountQuestion();
+  });
+  const question = page.getByRole('group', { name: 'Which screen first?' });
+  const first = question.getByLabel('Insert menu');
+  await first.focus();
+  await first.press('2');
+  await expect(question.getByLabel('Block handle')).toBeChecked();
+  await first.press('3');
+  await expect(question.getByRole('textbox', { name: 'Other: your answer' })).toBeFocused();
+  await expect(question.getByLabel('Block handle')).not.toBeChecked();
 });

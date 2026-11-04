@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Button, UiTheme } from '../ui/index.js';
+import { PageListProjectChip, PageListStageChip } from '../data-table/index.js';
 
 export interface WorkBundlePage {
   title: string;
@@ -25,10 +27,14 @@ export interface WorkBundleProps {
   onOpenTicket?(ticket: WorkBundleTicket): void;
 }
 
-/** Read-only admission stays with the host. Subscriptions only invalidate this page's data. */
+/** Read-only admission and its single live subscription stay with the host. */
 export interface WorkBundleSource {
-  read(page: string, signal: AbortSignal): Promise<WorkBundlePage | undefined>;
-  watch(page: string, changed: () => void): () => void;
+  subscribe(
+    page: string,
+    signal: AbortSignal,
+    publish: (data: WorkBundlePage | undefined) => void,
+    failed: () => void,
+  ): () => void;
 }
 
 export function ConnectedWorkBundle({
@@ -41,31 +47,28 @@ export function ConnectedWorkBundle({
     data?: WorkBundlePage;
   }>({ page: props.page, state: 'loading' });
   useEffect(() => {
-    let current: AbortController | undefined;
-    let alive = true;
-    const refresh = () => {
-      current?.abort();
-      const request = new AbortController();
-      current = request;
-      void Promise.resolve()
-        .then(() => source.read(props.page, request.signal))
-        .then(
-          (data) => {
-            if (alive && !request.signal.aborted)
-              setView({ page: props.page, state: data ? 'ready' : 'unavailable', data });
-          },
-          () => {
-            if (alive && !request.signal.aborted)
-              setView({ page: props.page, state: 'unavailable' });
-          },
-        );
-    };
+    const controller = new AbortController();
     setView({ page: props.page, state: 'loading' });
-    const stop = source.watch(props.page, refresh);
-    refresh();
+    let stop: () => void;
+    try {
+      stop = source.subscribe(
+        props.page,
+        controller.signal,
+        (data) => {
+          if (!controller.signal.aborted)
+            setView({ page: props.page, state: data ? 'ready' : 'unavailable', data });
+        },
+        () => {
+          if (!controller.signal.aborted) setView({ page: props.page, state: 'unavailable' });
+        },
+      );
+    } catch {
+      controller.abort();
+      setView({ page: props.page, state: 'unavailable' });
+      return;
+    }
     return () => {
-      alive = false;
-      current?.abort();
+      controller.abort();
       stop();
     };
   }, [props.page, source]);
@@ -91,60 +94,73 @@ export function WorkBundle({
 }: WorkBundleProps) {
   const available = state === 'ready' && data !== undefined;
   return (
-    <article className="tmt-block-work" data-page={page}>
-      <header>
-        {number !== undefined && <span className="tmt-block-work-number">{number}</span>}
-        <div>
-          {state === 'loading' ? (
-            <span role="status">Loading page…</span>
-          ) : available ? (
-            <a href={data.href}>{data.title}</a>
-          ) : (
-            <span>Page not found</span>
-          )}
-          {available && (
-            <div className="tmt-block-work-meta">
-              {data.projects?.map((project) => (
-                <span key={project}>{project}</span>
-              ))}
-              {data.stage && <span>{data.stage}</span>}
-              {data.owner && <span>{data.owner}</span>}
-              {data.needsYou && <span>◆ Needs you</span>}
-              {data.updated && <span>{data.updated}</span>}
+    <div className="tmt-block-work-host">
+      <UiTheme>
+        <article className="tmt-block-work" data-page={page}>
+          <header>
+            {number !== undefined && <span className="tmt-block-work-number">{number}</span>}
+            <div>
+              {state === 'loading' ? (
+                <span role="status">Loading page…</span>
+              ) : available ? (
+                <a href={data.href}>{data.title}</a>
+              ) : (
+                <span>Page not found</span>
+              )}
+              {available && (
+                <div className="tmt-block-work-meta">
+                  {data.projects?.map((project) => (
+                    <PageListProjectChip key={project} name={project} />
+                  ))}
+                  {data.stage && <PageListStageChip stage={data.stage} label={data.stage} />}
+                  {data.owner && <span>{data.owner}</span>}
+                  {data.needsYou && (
+                    <span>
+                      <span className="tmt-block-work-attention" aria-hidden="true">
+                        ◆
+                      </span>{' '}
+                      Needs you
+                    </span>
+                  )}
+                  {data.updated && <span>{data.updated}</span>}
+                </div>
+              )}
+            </div>
+          </header>
+          {available && data.summary && <p>{data.summary}</p>}
+          {(work || onWorkChange) && (
+            <div className="tmt-block-work-field">
+              <span>Work</span>
+              {onWorkChange ? (
+                <textarea
+                  aria-label="Work"
+                  value={work}
+                  onChange={(event) => onWorkChange(event.target.value)}
+                />
+              ) : (
+                <p>{work}</p>
+              )}
             </div>
           )}
-        </div>
-      </header>
-      {available && data.summary && <p>{data.summary}</p>}
-      {(work || onWorkChange) && (
-        <div className="tmt-block-work-field">
-          <span>Work</span>
-          {onWorkChange ? (
-            <textarea
-              aria-label="Work"
-              value={work}
-              onChange={(event) => onWorkChange(event.target.value)}
-            />
-          ) : (
-            <p>{work}</p>
+          {tickets.length > 0 && (
+            <div className="tmt-block-work-tickets">
+              <span>GitHub</span>
+              {tickets.map((ticket) => (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  type="button"
+                  key={ticket.href}
+                  disabled={!onOpenTicket}
+                  onClick={() => onOpenTicket?.(ticket)}
+                >
+                  {ticket.label}
+                </Button>
+              ))}
+            </div>
           )}
-        </div>
-      )}
-      {tickets.length > 0 && (
-        <div className="tmt-block-work-tickets">
-          <span>GitHub</span>
-          {tickets.map((ticket) => (
-            <button
-              type="button"
-              key={ticket.href}
-              disabled={!onOpenTicket}
-              onClick={() => onOpenTicket?.(ticket)}
-            >
-              {ticket.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </article>
+        </article>
+      </UiTheme>
+    </div>
   );
 }

@@ -37,8 +37,54 @@ test('a scoped image viewer leaves controls outside its stage usable', async ({ 
   await page.getByRole('button', { name: 'Image 1: open viewer' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
+  await expect
+    .poll(async () => (await dialog.boundingBox())?.width ?? 0)
+    .toBeGreaterThanOrEqual(389);
+  await expect
+    .poll(async () => (await dialog.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(359);
   await page.getByRole('button', { name: 'Outside', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Outside clicked' })).toBeVisible();
   await expect(dialog).toBeVisible();
   expect(await dialog.evaluate((node) => !!node.closest('[data-tmt-ds-scope]'))).toBe(true);
+});
+
+test('the viewer fills a phone viewport and offers its close control', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/blocks-harness.tsx';
+    (await import(fixture)).mountImages();
+  });
+  await page.getByRole('button', { name: 'Image 1: open viewer' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect
+    .poll(async () => (await dialog.boundingBox())?.width ?? 0)
+    .toBeGreaterThanOrEqual(389);
+  await expect
+    .poll(async () => (await dialog.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(843);
+  expect((await dialog.boundingBox())!.x).toBeCloseTo(0, 0);
+  expect((await dialog.boundingBox())!.y).toBeCloseTo(0, 0);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test('single layout returns focus to the opened image after navigating the viewer', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/blocks-harness.tsx';
+    (await import(fixture)).mountImages('single');
+  });
+  const first = page.getByRole('button', { name: 'Image 1: open viewer' });
+  await expect(page.getByRole('button', { name: 'Image 2: open viewer' })).toBeHidden();
+  await first.click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Next image' }).click();
+  await expect(dialog).toContainText('Second image');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(first).toBeFocused();
 });
