@@ -125,7 +125,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26.12.1
-      - uses: actions/download-artifact@v4
+      # #5743: one bounded retry; a second download failure remains visible.
+      - uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag }}
           path: target/distrib

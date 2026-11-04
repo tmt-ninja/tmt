@@ -415,13 +415,14 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(setup).toContain('sha256sum --check');
 });
 
-it('keeps recovery within the existing steps and gives only the collector the read token', () => {
+it('keeps recovery and bounded failure evidence token-free and gives only the collector the read token', () => {
   const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
   const workflow = read('.github/workflows/workspace-partitions.yml');
   const producer = workflow.split('\n  producer:\n')[1].split('\n  consumers:')[0];
   const consumers = workflow.split('\n  consumers:\n')[1].split('\n  aggregate:')[0];
   const aggregate = workflow.split('\n  aggregate:\n')[1];
-  expect(producer.match(/\n      - /g)).toHaveLength(18);
+  expect(producer.match(/\n      - /g)).toHaveLength(19);
+  expect(producer).toContain('tail -n 120 "$RUNNER_TEMP/workspace-proof/colab-cloud-sync.log"');
   expect(consumers.match(/\n      - /g)).toHaveLength(8);
   expect(aggregate.match(/\n      - /g)).toHaveLength(7);
   expect(workflow.match(/actions: read/g)).toHaveLength(1);
@@ -557,6 +558,10 @@ it('keeps Ops on common setup plus Cargo/architecture while full scope owns the 
     [
       'name: Preserve independent inventory and phase evidence',
       "always() && inputs.scope == 'full'",
+    ],
+    [
+      'name: Print the failed Colab cloud sync evidence',
+      "failure() && steps.cloud-sync.outcome == 'failure'",
     ],
     ['name: Test Ops and architecture', "inputs.scope == 'ops'"],
   ]);

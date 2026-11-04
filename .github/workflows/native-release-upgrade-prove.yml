@@ -132,7 +132,9 @@ jobs:
           product: ${{ inputs.product }}
           tag: ${{ inputs.tag }}
           source-root: release-source
-      - uses: actions/download-artifact@v4
+      # #5743: one bounded retry; a second download failure remains visible.
+      - uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         with:
           name: upgrade-assets-${{ inputs.tag }}
           path: ${{ runner.temp }}/upgrade
@@ -225,7 +227,9 @@ jobs:
           node-version: 26.12.1
       # The logs were written by the release commit's own scripts; this job runs this
       # repository's code and reads them as data, so what it outputs is one bounded line.
-      - uses: actions/download-artifact@v4
+      # #5743: one bounded retry; a second download failure remains visible.
+      - uses: ./.github/actions/download-artifact-retry
+        timeout-minutes: 10
         if: needs.prove.result == 'failure'
         continue-on-error: true
         with:

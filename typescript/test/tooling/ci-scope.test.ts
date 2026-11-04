@@ -3655,6 +3655,23 @@ describe('required CI gate', () => {
         expect(caller.body, `${file}: ${caller.name}`).toMatch(/\n\s+timeout-minutes: 10\n/);
     }
 
+    for (const file of [
+      'native-release-bundle.yml',
+      'native-release-prepare.yml',
+      'native-release-upgrade-prove.yml',
+    ]) {
+      const workflow = read(`.github/workflows/${file}`);
+      const raw = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: actions/download-artifact@')
+      );
+      expect(raw.length, file).toBe(file === 'native-release-prepare.yml' ? 2 : 0);
+      const bounded = steps(workflow, '      ').filter((step) =>
+        step.body.includes('uses: ./.github/actions/download-artifact-retry')
+      );
+      expect(bounded.length, file).toBeGreaterThan(0);
+      for (const step of bounded) expect(step.body).toContain('timeout-minutes: 10');
+    }
+
     const prepare = read('.github/workflows/native-release-prepare.yml');
     const assemble = steps(prepare.split('\n  assemble:\n')[1].split('\n  verify:\n')[0], '      ');
     const download = assemble.findIndex((step) => step.body.includes('id: archives-download'));
@@ -4485,6 +4502,10 @@ describe('native Auth+Firestore emulator selection', () => {
     expect(job.indexOf('native-qualify.mjs')).toBeLessThan(
       job.indexOf('extensions/tmt-colab/scripts/cloud-sync-emulator.mjs')
     );
+    expect(job).toContain('shell: bash');
+    expect(job).toContain('tee "$RUNNER_TEMP/workspace-proof/colab-cloud-sync.log"');
+    expect(job).toContain('tail -n 120');
+    expect(job).toContain('steps.cloud-sync.outcome');
     const runner = readFileSync(
       new URL('../../../extensions/tmt-colab/scripts/cloud-sync-emulator.mjs', import.meta.url),
       'utf8'
