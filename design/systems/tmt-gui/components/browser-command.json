@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-command",
+  "source": "browser-command.js",
+  "props": {
+    "text": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserCommand"
+  ],
+  "examples": [
+    {
+      "title": "BrowserCommand",
+      "markup": "<tmt-ui-browser-command text=\"tmt status\"></tmt-ui-browser-command>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

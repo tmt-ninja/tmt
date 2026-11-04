@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "field",
+  "source": "field.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "placeholder": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserField"
+  ],
+  "examples": [
+    {
+      "title": "BrowserField",
+      "markup": "<tmt-ui-field label=\"Name\" placeholder=\"Enter name\"></tmt-ui-field>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

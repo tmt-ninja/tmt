@@ -414,3 +414,38 @@ export interface IconActionProps {
   disabled?: boolean;
   children?: ReactNode;
 }
+
+/** <tmt-ui-field>: props from its schema, slots as nodes. */
+export interface FieldProps {
+  label?: string;
+  placeholder?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-count-chip>: props from its schema, slots as nodes. */
+export interface CountChipProps {
+  label?: string;
+  count?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-table>: props from its schema, slots as nodes. */
+export interface TableProps {
+  label?: string;
+  columns?: string;
+  rows?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-browser-command>: props from its schema, slots as nodes. */
+export interface BrowserCommandProps {
+  text?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-browser-tabs>: props from its schema, slots as nodes. */
+export interface BrowserTabsProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}

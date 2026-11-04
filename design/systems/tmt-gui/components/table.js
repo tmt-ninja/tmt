@@ -1,0 +1,3 @@
+export default ({ React, ui }) => ({ label = 'Table', columns = '', rows = '' }) =>
+  React.createElement(ui.BrowserTable, { label, columns: columns.split(',').map((x) => x.trim()),
+    rows: rows ? rows.split(';').map((row) => row.split(',').map((x) => x.trim())) : [] });

@@ -1751,7 +1751,132 @@
    ],
    "css": "",
    "code": "return ({ React, ui }) => ({ label = 'Action', disabled, children }) =>\n  React.createElement(ui.BrowserIconAction, { label, disabled, type: 'button', variant: 'secondary', icon: children, onActivate: () => {} });\n"
+  },
+  {
+   "tag": "tmt-ui-field",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "placeholder": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserField"
+   ],
+   "examples": [
+    {
+     "title": "BrowserField",
+     "markup": "<tmt-ui-field label=\"Name\" placeholder=\"Enter name\"></tmt-ui-field>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function Field({ label = 'Field', placeholder }) {\n  const id = React.useId();\n  return React.createElement(ui.BrowserField, { controlId: id, label,\n    renderControl: (props) => React.createElement('input', { ...props, placeholder }) });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-count-chip",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "count": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserCountChip"
+   ],
+   "examples": [
+    {
+     "title": "BrowserCountChip",
+     "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"3\"></tmt-ui-count-chip>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'Count', count }) =>\n  React.createElement(ui.BrowserCountChip, { label, count: count === undefined ? undefined : Number(count), onActivate: () => {} });\n"
+  },
+  {
+   "tag": "tmt-ui-table",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "columns": {
+     "type": "string"
+    },
+    "rows": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserTable"
+   ],
+   "examples": [
+    {
+     "title": "BrowserTable",
+     "markup": "<tmt-ui-table label=\"Pages\" columns=\"Name,State\" rows=\"Home,Ready;Notes,Draft\"></tmt-ui-table>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ label = 'Table', columns = '', rows = '' }) =>\n  React.createElement(ui.BrowserTable, { label, columns: columns.split(',').map((x) => x.trim()),\n    rows: rows ? rows.split(';').map((row) => row.split(',').map((x) => x.trim())) : [] });\n"
+  },
+  {
+   "tag": "tmt-ui-browser-command",
+   "props": {
+    "text": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserCommand"
+   ],
+   "examples": [
+    {
+     "title": "BrowserCommand",
+     "markup": "<tmt-ui-browser-command text=\"tmt status\"></tmt-ui-browser-command>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => ({ text = '' }) => React.createElement(ui.BrowserCommand, { text });\n"
+  },
+  {
+   "tag": "tmt-ui-browser-tabs",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "BrowserTabs"
+   ],
+   "examples": [
+    {
+     "title": "BrowserTabs",
+     "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active\"></tmt-ui-browser-tabs>"
+    }
+   ],
+   "css": "",
+   "code": "return ({ React, ui }) => function Tabs({ label = 'Views', items = '', children }) {\n  const base = React.useId();\n  const tabs = items.split(',').map((item) => item.trim()).filter(Boolean)\n    .map((item, index) => ({ id: item, label: item, tabId: `${base}-tab-${index}`, panelId: `${base}-panel-${index}` }));\n  const [selected, setSelected] = React.useState(tabs[0]?.id ?? '');\n  return React.createElement(ui.BrowserTabs, { label, tabs, selected, onSelect: setSelected, children: () => children });\n};\n"
   }
  ],
- "hash": "sha256-469878f332c1fe01e1e79a3e2b0664ab914df52ad447cb483d57cf40843b29ba"
+ "hash": "sha256-7d81de740bf1d20b6a9e4fe5062d8773a7fcd7cb45102abc7601ec907734fe08"
 }

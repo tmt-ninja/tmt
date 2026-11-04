@@ -161,6 +161,11 @@ export async function renderDocs() {
           ['choice', 'choice'],
           ['menu', 'menu'],
           ['icon-action', 'icon-action'],
+          ['field', 'field'],
+          ['count-chip', 'count-chip'],
+          ['table', 'table'],
+          ['browser-command', 'browser-command'],
+          ['browser-tabs', 'browser-tabs'],
         ].map(([slug, tag]) => {
           const doc = browserDocs.find((entry) => entry.slug === slug);
           if (!doc) throw new Error(`Missing Browser component docs: ${slug}`);

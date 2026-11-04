@@ -636,6 +636,46 @@
     "files": [
      "design/browser-ui/docs/browser-catalog.tsx"
     ]
+   },
+   {
+    "slug": "field",
+    "title": "Field",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "count-chip",
+    "title": "Count chip",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "table",
+    "title": "Table",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "browser-command",
+    "title": "Command (Browser)",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "browser-tabs",
+    "title": "Tabs (Browser)",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
    }
   ]
  },

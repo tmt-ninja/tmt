@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "count-chip",
+  "source": "count-chip.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "count": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserCountChip"
+  ],
+  "examples": [
+    {
+      "title": "BrowserCountChip",
+      "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"3\"></tmt-ui-count-chip>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

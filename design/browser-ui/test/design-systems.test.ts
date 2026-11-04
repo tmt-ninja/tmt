@@ -130,6 +130,11 @@ describe('buildBundle', () => {
       'tmt-ui-choice',
       'tmt-ui-menu',
       'tmt-ui-icon-action',
+      'tmt-ui-field',
+      'tmt-ui-count-chip',
+      'tmt-ui-table',
+      'tmt-ui-browser-command',
+      'tmt-ui-browser-tabs',
     ]);
   });
 

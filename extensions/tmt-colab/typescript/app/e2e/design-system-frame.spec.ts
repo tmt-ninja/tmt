@@ -201,13 +201,18 @@ test('Browser menu and pager tags respond to user input', async ({ page }) => {
     page,
     `<meta name="tmt-ds" content="${pin}">
     <tmt-ui-menu label="Actions" items="Open,Archive"></tmt-ui-menu>
-    <tmt-ui-pager label="Pages" count="3"></tmt-ui-pager>`,
+    <tmt-ui-pager label="Pages" count="3"></tmt-ui-pager>
+    <tmt-ui-field label="Name"></tmt-ui-field>
+    <tmt-ui-browser-tabs label="Views" items="All,Active"></tmt-ui-browser-tabs>`,
   );
   await frame.getByRole('button', { name: 'Actions' }).click();
   await expect(frame.getByRole('menuitem', { name: 'Open' })).toBeVisible();
   await frame.getByRole('menuitem', { name: 'Open' }).click();
   await frame.getByRole('button', { name: 'Next' }).click();
   await expect(frame.getByRole('status', { name: 'Pages 2 of 3' })).toBeVisible();
+  await frame.getByRole('textbox', { name: 'Name' }).fill('Alex');
+  await frame.getByRole('tab', { name: 'Active' }).click();
+  await expect(frame.getByRole('tab', { name: 'Active' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {

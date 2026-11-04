@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "browser-tabs",
+  "source": "browser-tabs.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "items": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "BrowserTabs"
+  ],
+  "examples": [
+    {
+      "title": "BrowserTabs",
+      "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active\"></tmt-ui-browser-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

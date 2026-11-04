@@ -165,6 +165,21 @@
     },
     {
       "doc": "components/icon-action.json"
+    },
+    {
+      "doc": "components/field.json"
+    },
+    {
+      "doc": "components/count-chip.json"
+    },
+    {
+      "doc": "components/table.json"
+    },
+    {
+      "doc": "components/browser-command.json"
+    },
+    {
+      "doc": "components/browser-tabs.json"
     }
   ],
   "principles": {

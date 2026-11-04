@@ -1,0 +1,7 @@
+export default ({ React, ui }) => function Tabs({ label = 'Views', items = '', children }) {
+  const base = React.useId();
+  const tabs = items.split(',').map((item) => item.trim()).filter(Boolean)
+    .map((item, index) => ({ id: item, label: item, tabId: `${base}-tab-${index}`, panelId: `${base}-panel-${index}` }));
+  const [selected, setSelected] = React.useState(tabs[0]?.id ?? '');
+  return React.createElement(ui.BrowserTabs, { label, tabs, selected, onSelect: setSelected, children: () => children });
+};
