@@ -474,7 +474,10 @@ A built-in member stopped by job control (`paused`, [extension API](extension-ap
 refuses delivery: `talk` returns `MEMBER_PAUSED` (exit 1) with the request's ID and a
 message naming `terminal.resume`; nothing is pasted, its wake settles as unavailable, and
 the request stays queued. Digest checklists and notices for it are held like those of any
-member that cannot be reached.
+member that cannot be reached. A built-in member whose agent ended on its kept terminal
+(`ended`, or a relaunched shell in the foreground; [extension API](extension-api.md#relaunch-on-a-kept-terminal))
+refuses delivery the same way with `MEMBER_ENDED`, naming `terminal.relaunch`, while its
+presence stays active.
 Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake.
@@ -920,6 +923,7 @@ Each code has one sentence, owned by Core: the CLI, the API's fault `message` an
 | `DELIVERY_UNCERTAIN`           | It may have been sent. Delivery is not confirmed, so do not send it again.          |
 | `RECIPIENT_NOT_AGENT`          | Could not send now: the member runs a plain program, not an AI agent                |
 | `MEMBER_PAUSED`                | Could not send now: the member is paused (Ctrl-Z); continue it with terminal.resume |
+| `MEMBER_ENDED`                 | Could not send now: the member's agent ended; start it again with terminal.relaunch |
 
 ## Verification ownership
 

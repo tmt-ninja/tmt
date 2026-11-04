@@ -277,8 +277,8 @@ stream through the public `terminal.stream` API rather than deriving socket path
 - **Kept terminal (#5988).** The terminal belongs to the member, not to one run of its
   program. When the program ends, the supervisor tells clients (`Exited`, connections
   stay), records the end and keeps its socket, lock, `vt100` screen and loop; keys typed
-  while nothing runs are dropped. `Inspect`'s `State` adds a trailing six-byte group after
-  `paused`, `ended` (tag and `i32`) and `shell`, which older supervisors omit. `pane_pid`
+  while nothing runs are dropped. `Inspect`'s `State` adds a trailing seven-byte group after
+  `paused`, `ended` (tag and `i32`), `shell` and `relaunching`, which older supervisors omit. `pane_pid`
   stays the process the binding's marker belongs to, so with no member program running
   (`ended`, or a shell) `host::pty` reports the pane with an unknown incarnation, without
   the supervisor/pane pair check, and the binding stays Active; `caller` finds no member
@@ -297,7 +297,11 @@ stream through the public `terminal.stream` API rather than deriving socket path
   `$SHELL -l`. The relaunched launcher's own `tmt resume` preflight passes because it
   checks the recorded agent process, which is gone; the old binding then reads
   `EndpointLost` (a new pane PID in the same pane) and is replaced as for a resume in a new
-  pane. A relaunched launcher that ends before publishing its marker (a refused resume)
+  pane. Until the launcher publishes, `State` says `relaunching`, and every reader except the
+  launcher itself (the pane process) gets no snapshot (`PtyDriver::snapshot_from`), so its
+  probe is `Unknown` and no reconcile drops the binding the launcher would restore. Delivery
+  to a kept terminal with no agent (`ended`, or a shell) is refused with `MEMBER_ENDED`, and
+  restore skips such a member as `ended`. A relaunched launcher that ends before publishing its marker (a refused resume)
   restores the previous member PID and marker, so the binding is unchanged. `tmt run`/`tmt
 resume` of an identity whose kept terminal runs no agent relaunch there with their own
   re-entry argv (`run_command::pty::relaunch_kept`) instead of starting a second

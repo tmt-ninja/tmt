@@ -140,7 +140,8 @@ then includes `ended` (`{code}` or `{signal}`), and `foreground: "shell"` while 
 relaunched login shell runs there
 ([`terminal.relaunch`](extension-api.md#relaunch-on-a-kept-terminal)). Both are read
 fresh from its supervisor with `paused` and are absent otherwise. Neither makes the
-member reachable: its session is ended, and delivery waits as for any ended agent.
+member reachable: its session is ended, and `tmt talk` returns `MEMBER_ENDED` while the
+request stays queued and Digest keeps holding its items.
 
 ## List pane location
 

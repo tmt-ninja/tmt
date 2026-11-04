@@ -470,7 +470,7 @@ starts a program there, under the same binding:
   answer `{identityId, relaunched}` comes once the launch is admitted.
 - `shell` runs the user's login shell (`$SHELL -l`, else `/bin/sh -l`) in the member's
   launch directory. It is no agent: `foreground` is `"shell"`, the session stays ended,
-  and delivery is refused as for any ended agent.
+  and delivery is refused with `MEMBER_ENDED`, as for an ended agent.
 
 Core checks the binding as `terminal.stream` does (`NAME_NOT_FOUND`,
 `TERMINAL_STREAM_UNAVAILABLE`), then the supervisor's capabilities before sending
@@ -1234,7 +1234,8 @@ lease: the send verifies the pane again. A built-in member stopped by job contro
 carries `paused: true`, read fresh from its supervisor; the key is absent otherwise, and
 delivery to it is refused with `MEMBER_PAUSED` until
 [`terminal.resume`](#resume-a-paused-member) continues it. `ended` and `foreground` follow
-[`terminal.stream`](#terminal-stream). Whether the answer can be captured is not part
+[`terminal.stream`](#terminal-stream); delivery to a member with either is refused with
+`MEMBER_ENDED`. Whether the answer can be captured is not part
 of it; without the turn-end hook the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion
