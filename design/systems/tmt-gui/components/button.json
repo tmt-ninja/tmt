@@ -106,6 +106,22 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Variants",
+      "markup": "<tmt-ui-button variant=\"default\">Primary</tmt-ui-button> <tmt-ui-button variant=\"outline\">Outline</tmt-ui-button> <tmt-ui-button variant=\"secondary\">Secondary</tmt-ui-button> <tmt-ui-button variant=\"ghost\">Ghost</tmt-ui-button> <tmt-ui-button variant=\"destructive\">Destructive</tmt-ui-button> <tmt-ui-button variant=\"link\">Link</tmt-ui-button>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Collapsing action",
+      "markup": "<tmt-ui-button variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button> <tmt-ui-button collapse-label=\"New page\"><tmt-icon slot=\"icon\" name=\"plus\"></tmt-icon></tmt-ui-button>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "notes": "<p>One action. Use <b>primary</b> for the one main action on a surface, <b>outline</b> or <b>secondary</b> for the others and <b>ghost</b> inside dense rows. The label says what happens.</p><p>Keyboard: Tab reaches it, Enter and Space press it. A disabled button is skipped and announced as unavailable.</p>",

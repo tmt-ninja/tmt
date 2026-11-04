@@ -99,6 +99,7 @@ export interface TabsProps {
   items?: string;
   value?: string;
   children?: ReactNode;
+  actions?: ReactNode;
 }
 
 /** <tmt-ui-block-document>: props from its schema, slots as nodes. */

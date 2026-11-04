@@ -33,6 +33,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "With a header action",
+      "markup": "<tmt-ui-card heading=\"Release plan\" description=\"Ready to review\"><tmt-ui-button slot=\"action\" variant=\"outline\" size=\"sm\">Open</tmt-ui-button>Plan and discuss the next release.</tmt-ui-card>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "uiParts": [

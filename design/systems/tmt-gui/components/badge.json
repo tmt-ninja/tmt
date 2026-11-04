@@ -60,6 +60,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Variants",
+      "markup": "<tmt-ui-badge>Default</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Outline</tmt-ui-badge> <tmt-ui-badge variant=\"secondary\">Secondary</tmt-ui-badge> <tmt-ui-badge variant=\"ghost\">Ghost</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">Blocked</tmt-ui-badge>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ],
   "uiParts": [

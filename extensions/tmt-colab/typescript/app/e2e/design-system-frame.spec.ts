@@ -161,6 +161,33 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
+test('a Card header action stays interactive inside its slot', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-card heading="Release plan"><tmt-ui-button slot="action" variant="outline">Open</tmt-ui-button>Discuss the release.</tmt-ui-card>`,
+  );
+  await expect(frame.getByText('Release plan', { exact: true })).toBeVisible();
+  const action = frame.getByRole('button', { name: 'Open' });
+  await expect(action).toBeVisible();
+  await action.click();
+});
+
+test('tabs with trailing actions keep selection and the action interactive', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-tabs items="All,Needs you,Done" value="All"><tmt-ui-button slot="actions" variant="outline">Save</tmt-ui-button></tmt-ui-tabs>`,
+  );
+  await frame.getByRole('tab', { name: 'Needs you' }).click();
+  await expect(frame.getByRole('tab', { name: 'Needs you' })).toHaveAttribute(
+    'data-state',
+    'active',
+  );
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+  await frame.getByRole('button', { name: 'Save' }).click();
+});
+
 test('Browser overlay and meter examples use their real parts', async ({ page }) => {
   const frame = await mount(
     page,

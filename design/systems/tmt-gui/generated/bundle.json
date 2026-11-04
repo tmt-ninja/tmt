@@ -86,6 +86,14 @@
     {
      "title": "Disabled",
      "markup": "<tmt-ui-button disabled>Send</tmt-ui-button> <tmt-ui-button busy busy-label=\"Sending\"></tmt-ui-button>"
+    },
+    {
+     "title": "Variants",
+     "markup": "<tmt-ui-button variant=\"default\">Primary</tmt-ui-button> <tmt-ui-button variant=\"outline\">Outline</tmt-ui-button> <tmt-ui-button variant=\"secondary\">Secondary</tmt-ui-button> <tmt-ui-button variant=\"ghost\">Ghost</tmt-ui-button> <tmt-ui-button variant=\"destructive\">Destructive</tmt-ui-button> <tmt-ui-button variant=\"link\">Link</tmt-ui-button>"
+    },
+    {
+     "title": "Collapsing action",
+     "markup": "<tmt-ui-button variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button> <tmt-ui-button collapse-label=\"New page\"><tmt-icon slot=\"icon\" name=\"plus\"></tmt-icon></tmt-ui-button>"
     }
    ],
    "css": "",
@@ -132,6 +140,10 @@
     {
      "title": "Destructive",
      "markup": "<tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>"
+    },
+    {
+     "title": "Variants",
+     "markup": "<tmt-ui-badge>Default</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Outline</tmt-ui-badge> <tmt-ui-badge variant=\"secondary\">Secondary</tmt-ui-badge> <tmt-ui-badge variant=\"ghost\">Ghost</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">Blocked</tmt-ui-badge>"
     }
    ],
    "css": "",
@@ -386,6 +398,10 @@
     {
      "title": "With a footer",
      "markup": "<tmt-ui-card heading=\"Night shift\">Codex members run the queue.<span slot=\"footer\">Starts at 00:00</span></tmt-ui-card>"
+    },
+    {
+     "title": "With a header action",
+     "markup": "<tmt-ui-card heading=\"Release plan\" description=\"Ready to review\"><tmt-ui-button slot=\"action\" variant=\"outline\" size=\"sm\">Open</tmt-ui-button>Plan and discuss the next release.</tmt-ui-card>"
     }
    ],
    "css": "",
@@ -517,10 +533,12 @@
     }
    },
    "slots": [
-    "default"
+    "default",
+    "actions"
    ],
    "uiParts": [
     "Tabs",
+    "TabsBar",
     "TabsList",
     "TabsTrigger"
    ],
@@ -532,10 +550,14 @@
     {
      "title": "Two views",
      "markup": "<tmt-ui-tabs items=\"Open, Done\" value=\"Done\"></tmt-ui-tabs>"
+    },
+    {
+     "title": "Tabs row with actions",
+     "markup": "<tmt-ui-tabs items=\"All,Needs you,In progress,Done\" value=\"All\"><tmt-ui-button slot=\"actions\" variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button></tmt-ui-tabs>"
     }
    ],
    "css": "",
-   "code": "// The real browser-ui Tabs parts own keyboard and selection behavior.\nreturn ({ React, ui }) => function Tabs({ items = '', value, children }) {\n  const list = items.split(',').map((item) => item.trim()).filter(Boolean);\n  const [selected, setSelected] = React.useState(value ?? list[0]);\n  React.useEffect(() => { if (value !== undefined) setSelected(value); }, [value]);\n  const h = React.createElement;\n  return h(ui.Tabs, { value: selected, onValueChange: setSelected },\n    h(ui.TabsList, null, ...list.map((item) => h(ui.TabsTrigger, { key: item, value: item }, item))),\n    children);\n};\n"
+   "code": "// The real browser-ui Tabs parts own keyboard and selection behavior.\nreturn ({ React, ui }) => function Tabs({ items = '', value, actions, children }) {\n  const list = items.split(',').map((item) => item.trim()).filter(Boolean);\n  const [selected, setSelected] = React.useState(value ?? list[0]);\n  React.useEffect(() => { if (value !== undefined) setSelected(value); }, [value]);\n  const h = React.createElement;\n  const tabList = h(ui.TabsList, null, ...list.map((item) => h(ui.TabsTrigger, { key: item, value: item }, item)));\n  return h(ui.Tabs, { value: selected, onValueChange: setSelected },\n    actions ? h(ui.TabsBar, { actions }, tabList) : tabList,\n    children);\n};\n"
   },
   {
    "tag": "tmt-ui-block-document",
@@ -2327,6 +2349,14 @@
     {
      "title": "Projects",
      "markup": "<tmt-ui-data-table label=\"Projects\" columns=\"Name,Status\" rows=\"Colab,Active;Remote,Ready\"></tmt-ui-data-table>"
+    },
+    {
+     "title": "Loading",
+     "markup": "<tmt-ui-page-view label=\"Pages\" state=\"loading\"></tmt-ui-page-view>"
+    },
+    {
+     "title": "Error",
+     "markup": "<tmt-ui-page-view label=\"Pages\" state=\"error\"></tmt-ui-page-view>"
     }
    ],
    "css": "",
@@ -2352,6 +2382,14 @@
     {
      "title": "Page-List",
      "markup": "<tmt-ui-page-list rows=\"Home,Ready;Notes,Draft\"></tmt-ui-page-list>"
+    },
+    {
+     "title": "Project and stage",
+     "markup": "<tmt-ui-page-list rows=\"Release plan,Needs you;Night execution,In progress;Notes,Done\"></tmt-ui-page-list>"
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-page-list></tmt-ui-page-list>"
     }
    ],
    "css": "",
@@ -2662,5 +2700,5 @@
    "code": "return ({ React, ui }) => ({ label = 'Chart', values = '' }) => {\n  const points = values.split(',').map((value) => Number(value.trim())).filter(Number.isFinite);\n  return React.createElement(ui.BrowserChart, { options: { title: label, kind: 'line',\n    x: points.map((_, index) => String(index + 1)), series: [{ key: 'series', label, values: points }] } });\n};\n"
   }
  ],
- "hash": "sha256-3ab596ba03e6926775223bc0145bf540690b74542775019987ee7c8e95ff97b4"
+ "hash": "sha256-d3324ca3db55058ceb514126c44839cc2e6cef22f0f603c482cc5c43009dd141"
 }

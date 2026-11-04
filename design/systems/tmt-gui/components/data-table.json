@@ -46,6 +46,22 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Loading",
+      "markup": "<tmt-ui-page-view label=\"Pages\" state=\"loading\"></tmt-ui-page-view>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Error",
+      "markup": "<tmt-ui-page-view label=\"Pages\" state=\"error\"></tmt-ui-page-view>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

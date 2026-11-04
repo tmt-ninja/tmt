@@ -66,6 +66,7 @@ export const UI_PARTS = [
   'EmptyDescription',
   'EmptyContent',
   'Tabs',
+  'TabsBar',
   'TabsList',
   'TabsTrigger',
   'Dialog',

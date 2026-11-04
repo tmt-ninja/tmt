@@ -440,6 +440,22 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Variants",
+     "markup": "<tmt-ui-button variant=\"default\">Primary</tmt-ui-button> <tmt-ui-button variant=\"outline\">Outline</tmt-ui-button> <tmt-ui-button variant=\"secondary\">Secondary</tmt-ui-button> <tmt-ui-button variant=\"ghost\">Ghost</tmt-ui-button> <tmt-ui-button variant=\"destructive\">Destructive</tmt-ui-button> <tmt-ui-button variant=\"link\">Link</tmt-ui-button>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Collapsing action",
+     "markup": "<tmt-ui-button variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button> <tmt-ui-button collapse-label=\"New page\"><tmt-icon slot=\"icon\" name=\"plus\"></tmt-icon></tmt-ui-button>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "notes": "<p>One action. Use <b>primary</b> for the one main action on a surface, <b>outline</b> or <b>secondary</b> for the others and <b>ghost</b> inside dense rows. The label says what happens.</p><p>Keyboard: Tab reaches it, Enter and Space press it. A disabled button is skipped and announced as unavailable.</p>",
@@ -505,6 +521,14 @@
     {
      "title": "Destructive",
      "markup": "<tmt-ui-badge variant=\"destructive\">✕ Blocked</tmt-ui-badge>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Variants",
+     "markup": "<tmt-ui-badge>Default</tmt-ui-badge> <tmt-ui-badge variant=\"outline\">Outline</tmt-ui-badge> <tmt-ui-badge variant=\"secondary\">Secondary</tmt-ui-badge> <tmt-ui-badge variant=\"ghost\">Ghost</tmt-ui-badge> <tmt-ui-badge variant=\"destructive\">Blocked</tmt-ui-badge>",
      "widths": [
       1440,
       390
@@ -847,6 +871,14 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "With a header action",
+     "markup": "<tmt-ui-card heading=\"Release plan\" description=\"Ready to review\"><tmt-ui-button slot=\"action\" variant=\"outline\" size=\"sm\">Open</tmt-ui-button>Plan and discuss the next release.</tmt-ui-card>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "uiParts": [
@@ -1031,7 +1063,8 @@
     }
    },
    "slots": [
-    "default"
+    "default",
+    "actions"
    ],
    "examples": [
     {
@@ -1049,14 +1082,23 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Tabs row with actions",
+     "markup": "<tmt-ui-tabs items=\"All,Needs you,In progress,Done\" value=\"All\"><tmt-ui-button slot=\"actions\" variant=\"outline\" collapse-label=\"Save as shortcut\"><tmt-icon slot=\"icon\" name=\"bookmark\"></tmt-icon></tmt-ui-button></tmt-ui-tabs>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "uiParts": [
     "Tabs",
+    "TabsBar",
     "TabsList",
     "TabsTrigger"
    ],
-   "source": "// The real browser-ui Tabs parts own keyboard and selection behavior.\nexport default ({ React, ui }) => function Tabs({ items = '', value, children }) {\n  const list = items.split(',').map((item) => item.trim()).filter(Boolean);\n  const [selected, setSelected] = React.useState(value ?? list[0]);\n  React.useEffect(() => { if (value !== undefined) setSelected(value); }, [value]);\n  const h = React.createElement;\n  return h(ui.Tabs, { value: selected, onValueChange: setSelected },\n    h(ui.TabsList, null, ...list.map((item) => h(ui.TabsTrigger, { key: item, value: item }, item))),\n    children);\n};\n",
+   "source": "// The real browser-ui Tabs parts own keyboard and selection behavior.\nexport default ({ React, ui }) => function Tabs({ items = '', value, actions, children }) {\n  const list = items.split(',').map((item) => item.trim()).filter(Boolean);\n  const [selected, setSelected] = React.useState(value ?? list[0]);\n  React.useEffect(() => { if (value !== undefined) setSelected(value); }, [value]);\n  const h = React.createElement;\n  const tabList = h(ui.TabsList, null, ...list.map((item) => h(ui.TabsTrigger, { key: item, value: item }, item)));\n  return h(ui.Tabs, { value: selected, onValueChange: setSelected },\n    actions ? h(ui.TabsBar, { actions }, tabList) : tabList,\n    children);\n};\n",
    "css": ""
   },
   {
@@ -3360,6 +3402,22 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Loading",
+     "markup": "<tmt-ui-page-view label=\"Pages\" state=\"loading\"></tmt-ui-page-view>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Error",
+     "markup": "<tmt-ui-page-view label=\"Pages\" state=\"error\"></tmt-ui-page-view>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
    "source": "// The real DataTable receives a small page-authored projection.\nexport default ({ React, ui }) => ({ label = 'Table', columns = 'Name', rows = '' }) => {\n  const headings = columns.split(',').map((value) => value.trim()).filter(Boolean);\n  const entries = rows ? rows.split(';').map((row, id) => ({ id: String(id), cells: row.split(',').map((value) => value.trim()) })) : [];\n  const fields = headings.map((header, index) => ({ id: String(index), header, role: index === 0 ? 'primary' : 'text', text: (row) => row.cells[index] ?? '' }));\n  return React.createElement(ui.UiTheme, null, React.createElement(ui.DataTable, { label, rows: entries, columns: fields,\n    rowKey: (row) => row.id, rowLabel: (row) => row.cells[0] ?? '' }));\n};\n",
@@ -3387,6 +3445,22 @@
     {
      "title": "Page-List",
      "markup": "<tmt-ui-page-list rows=\"Home,Ready;Notes,Draft\"></tmt-ui-page-list>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Project and stage",
+     "markup": "<tmt-ui-page-list rows=\"Release plan,Needs you;Night execution,In progress;Notes,Done\"></tmt-ui-page-list>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-page-list></tmt-ui-page-list>",
      "widths": [
       1440,
       390
@@ -3813,5 +3887,5 @@
    "css": ""
   }
  ],
- "mirrorRevision": "1e549d5247880b363eda515bf93fcd9381ed0961f1310fd8dbe4937a9f1cfd9e"
+ "mirrorRevision": "6b6959a0bbd8925c4f3353a0d4a94456e1092225fe6d42f8f515c10185a4afcc"
 }

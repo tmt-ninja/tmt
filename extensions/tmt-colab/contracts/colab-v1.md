@@ -5493,7 +5493,7 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `BrowserAction`, `BrowserToggle`, `Badge`, `Input`, `Textarea`, `Separator`, `Surface`,
 `Skeleton`, `Switch`, `Checkbox`, `Card`, `CardHeader`, `CardTitle`, `CardDescription`,
 `CardAction`, `CardContent`, `CardFooter`, `Alert`, `AlertTitle`, `AlertDescription`, `Empty`,
-`EmptyHeader`, `EmptyMedia`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `Tabs`, `TabsList`
+`EmptyHeader`, `EmptyMedia`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `Tabs`, `TabsBar`, `TabsList`,
 `TabsTrigger`, `Dialog`, `DialogTrigger`, `DialogContent`, `DialogTitle`, `DialogDescription`,
 `Sheet`, `SheetTrigger`, `SheetContent`, `SheetTitle`, `SheetDescription`, `Popover`,
 `PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
