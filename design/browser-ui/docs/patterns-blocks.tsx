@@ -78,7 +78,7 @@ export const blockPatterns: PatternDoc[] = [
     states: [['selection', 'Three blocks selected']],
     height: 820,
     rules: [
-      'Selected blocks use the selection tint and aria-selected.',
+      'Selected blocks use the selection tint, and their label ends in “selected”.',
       'Esc again clears the selection.',
     ],
     Body: editor,

@@ -35,6 +35,8 @@ export interface BlockProps extends Omit<ComponentProps<'div'>, 'aria-label'> {
   level?: 2 | 3;
   state?: BlockState;
   selected?: boolean;
+  /** Added to the label of a selected block, for screen readers. */
+  selectedLabel?: string;
   /** 1 inside a card. */
   depth?: 0 | 1;
   readonly?: boolean;
@@ -51,6 +53,7 @@ export function Block({
   level,
   state,
   selected,
+  selectedLabel = 'selected',
   depth,
   readonly,
   className,
@@ -60,8 +63,10 @@ export function Block({
     <div
       data-slot="block"
       role="group"
-      aria-label={label}
-      aria-selected={selected ? 'true' : undefined}
+      // A group cannot carry aria-selected, and several blocks can be selected at once, so the
+      // selection is in the label.
+      aria-label={selected ? `${label}, ${selectedLabel}` : label}
+      data-selected={selected ? '' : undefined}
       data-kind={kind}
       data-level={level}
       data-state={state && state !== 'idle' ? state : undefined}

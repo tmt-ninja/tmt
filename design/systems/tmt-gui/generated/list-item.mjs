@@ -6,7 +6,7 @@ export default ({ html }) => {
   const classes = {"slots":{"list-item":"tmt-block-list"},"base":"tmt-block-list","by":{"":""},"parts":{}};
   void classes;
   return function ListItemBlock({ marker = 'bullet', number = '1', indent = '0', children }) {
-    return html`<div data-slot="list-item" role="listitem" className="tmt-block-list" data-marker=${marker} style=${indent !== '0' ? { '--tmt-block-indent': indent } : undefined}>
+    return html`<div data-slot="list-item" className="tmt-block-list" data-marker=${marker} style=${indent !== '0' ? { '--tmt-block-indent': indent } : undefined}>
       <span className="tmt-block-list-marker" aria-hidden="true">${marker === 'number' ? `${number}.` : indent === '1' ? '◦' : '•'}</span>
       <div>${children}</div>
     </div>`;

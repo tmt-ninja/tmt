@@ -76,7 +76,6 @@ export function ListItemBlock({
   return (
     <div
       data-slot="list-item"
-      role="listitem"
       className="tmt-block-list"
       data-marker={marker}
       style={indent ? ({ '--tmt-block-indent': indent } as CSSProperties) : undefined}

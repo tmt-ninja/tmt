@@ -39,7 +39,9 @@ for (const theme of ['light', 'dark'])
     await block.click();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowUp');
-    await expect(block).toHaveAttribute('aria-selected', 'true');
+    await expect(block).toHaveAttribute('data-selected', '');
+    await expect(block).toHaveAttribute('aria-label', /, selected$/);
+    await expect(block).not.toHaveAttribute('aria-selected');
     const selected = await block.evaluate((element) => getComputedStyle(element).backgroundColor);
     expect(selected).not.toBe(transparent);
     expect(selected).not.toBe(hover);
@@ -117,9 +119,9 @@ test('keyboard selection extends with Shift+arrows and Alt+Shift+arrows move the
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Shift+ArrowDown');
-  await expect(page.locator('[aria-selected="true"][data-block-id]')).toHaveCount(2);
+  await expect(page.locator('[data-selected][data-block-id]')).toHaveCount(2);
   await page.keyboard.press('Escape');
-  await expect(page.locator('[aria-selected="true"][data-block-id]')).toHaveCount(0);
+  await expect(page.locator('[data-selected][data-block-id]')).toHaveCount(0);
   await page.locator('[data-block-id="b-5"]').focus();
   await page.keyboard.press('Alt+Shift+ArrowUp');
   const order = await page

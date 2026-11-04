@@ -41,7 +41,7 @@
 .tmt-block[data-state='hover'] {
   background: var(--tmt-ui-surface-hover);
 }
-.tmt-block[aria-selected='true'],
+.tmt-block[data-selected],
 .tmt-block[data-state='selected'] {
   background: var(--tmt-ui-surface-selection);
 }
