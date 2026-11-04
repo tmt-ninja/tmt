@@ -17,6 +17,7 @@ export function statusNotificationForAsk(
   threads: readonly ThreadView[],
   context: StatusNotificationContext,
   senderDevice: string,
+  pageId: string,
 ) {
   const captured = context.thread;
   const matches = threads.filter((value) => value.threadId === captured.threadId);
@@ -68,6 +69,7 @@ export function statusNotificationForAsk(
     quote: captured.anchor?.exact ?? '',
     comment: conversationText(
       comments,
+      pageId,
       thread.threadId,
       `Thread resolved by ${status.deviceName || 'a person'}.`,
       [],

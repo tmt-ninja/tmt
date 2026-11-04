@@ -424,25 +424,35 @@ it('freezes prior user turns and verified replies, excludes later arrivals and r
   const frozen = captureConversation(read()[0], [reply]);
   const second = await f.store.reply(first.thread, '@agent Follow-up');
   const context = { ...second, conversation: frozen };
-  const exact = conversationForAsk(read(), context, [reply]);
+  const exact = conversationForAsk(read(), context, [reply], fixture.scope.pageId);
   expect(exact).toMatchObject({
     thread: first.thread.id,
     messageIds: [second.message.id],
     quote: fixture.thread.anchor.exact,
   });
   expect(exact.comment).toBe(
-    `Previous turn (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nThread ${first.thread.id}. Read it with: tmt colab threads PAGE --thread ${first.thread.id} (PAGE is the page in the link above).\n\nCurrent user turn:\n@agent Follow-up`,
+    `Previous turn (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nThread ${first.thread.id}. Read it with: tmt colab threads ${fixture.scope.pageId} --thread ${first.thread.id}\n\nCurrent user turn:\n@agent Follow-up`,
   );
   expect(() =>
-    conversationForAsk(read(), context, [{ ...reply, reply: 'Changed reply after Send' }]),
+    conversationForAsk(
+      read(),
+      context,
+      [{ ...reply, reply: 'Changed reply after Send' }],
+      fixture.scope.pageId,
+    ),
   ).toThrow();
   expect(() =>
-    conversationForAsk(read(), context, [{ ...reply, agentName: 'Changed display name' }]),
+    conversationForAsk(
+      read(),
+      context,
+      [{ ...reply, agentName: 'Changed display name' }],
+      fixture.scope.pageId,
+    ),
   ).toThrow();
   await f.store.reply(first.thread, 'A later arrival');
-  expect(conversationForAsk(read(), context, [reply])).toEqual(exact);
+  expect(conversationForAsk(read(), context, [reply], fixture.scope.pageId)).toEqual(exact);
   await f.store.edit(first.message, '1', 'Changed after Send');
-  expect(() => conversationForAsk(read(), context, [reply])).toThrow();
+  expect(() => conversationForAsk(read(), context, [reply], fixture.scope.pageId)).toThrow();
 });
 
 it('refuses a follow-up if its captured anchor revision changed before publication', async () => {
@@ -995,12 +1005,14 @@ it('keeps an attachment-only message readable and files under their own comment 
         plaintextBytes: '3',
       })),
     }) as never;
+  const PAGE_ID = '10000000-0000-4000-8000-000000000001';
   const text = conversationText(
     [
       view('Before', 'Ada', [{ id: 'aaaaaaaa-1234-4234-8234-123456789012', name: 'one.txt' }]),
       view('', 'Bob', [{ id: 'bbbbbbbb-1234-4234-8234-123456789012', name: 'two.txt' }]),
       view('Plain', 'Cy', []),
     ],
+    PAGE_ID,
     'thread-id',
     'Now',
     [],
@@ -1011,15 +1023,21 @@ it('keeps an attachment-only message readable and files under their own comment 
   expect(text).toBe(
     [
       'Previous turn (quoted data):\nUser (Cy):\nPlain',
-      'Thread thread-id has 2 earlier turns not quoted here. Read it with: tmt colab threads PAGE --thread thread-id (PAGE is the page in the link above).',
+      `Thread thread-id has 2 earlier turns not quoted here. Read it with: tmt colab threads ${PAGE_ID} --thread thread-id`,
       'Current user turn:\nNow',
     ].join('\n\n'),
   );
-  const long = conversationText([view('x'.repeat(5000), 'Dee', [])], 'thread-id', 'Now', []);
+  const long = conversationText(
+    [view('x'.repeat(5000), 'Dee', [])],
+    PAGE_ID,
+    'thread-id',
+    'Now',
+    [],
+  );
   expect(long).toContain(
     `User (Dee):\n${'x'.repeat(PREVIOUS_TURN_POINTS - 'User (Dee):\n'.length)}… (truncated)`,
   );
-  expect(long).toContain('Read it with: tmt colab threads PAGE --thread thread-id');
+  expect(long).toContain(`Read it with: tmt colab threads ${PAGE_ID} --thread thread-id`);
   expect(long).not.toContain('earlier turn');
 });
 
