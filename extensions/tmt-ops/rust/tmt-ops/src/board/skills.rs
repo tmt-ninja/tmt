@@ -307,7 +307,14 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         .position(|row| *row == Row::Skill(completion.selected))
         .unwrap_or(0);
     let shown = usize::from(height.saturating_sub(1));
-    let start = selected_row.saturating_sub(shown.saturating_sub(1));
+    let mut start = selected_row.saturating_sub(shown.saturating_sub(1));
+    if start > 0
+        && matches!(rows.get(start), Some(Row::Skill(_)))
+        && matches!(rows.get(start - 1), Some(Row::Title(_)))
+        && selected_row < start - 1 + shown
+    {
+        start -= 1;
+    }
     let name_cells = completion
         .matches
         .iter()
@@ -334,7 +341,7 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
             Line::styled(info, look.role(Role::Muted))
         } else {
             match rows.get(start + usize::from(row)) {
-                Some(Row::Title(group)) => Line::styled(
+                Some(Row::Title(group)) if usize::from(row) + 1 < shown => Line::styled(
                     format!(
                         "  {}",
                         match group {
@@ -388,6 +395,7 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                     }
                     Line::from(spans)
                 }
+                Some(Row::Title(_)) => Line::default(),
                 None => Line::styled(
                     match app.skills.report(&recipient) {
                         None => "Loading skills".to_owned(),
@@ -402,7 +410,9 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         };
         // Explicit opaque cell fill keeps pane text from leaking into short rows; strip
         // owns escaping and cell clipping.
-        for col in rect.x..rect.right() {
+        let clear_left = anchor.x.saturating_sub(1).max(screen.x);
+        let clear_right = anchor.right().saturating_add(1).min(screen.right());
+        for col in clear_left..clear_right {
             let cell = &mut frame.buffer_mut()[(col, rect.y)];
             cell.reset();
             if selected {

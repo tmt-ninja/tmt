@@ -226,6 +226,7 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "skills-empty",
     "skills-dismissed",
     "skills-mid-message",
+    "skills-project",
 ];
 
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
@@ -244,6 +245,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
     app.view.as_mut().unwrap().look = look;
     app.paste(match scene {
         "skills-filtered" => "/colab",
+        "skills-project" => "/dev",
         "skills-dismissed" => "/tmt-colab",
         "skills-mid-message" => "Please /colab",
         _ => "/",
@@ -289,4 +291,53 @@ fn short_screen_keeps_the_composer_visible_while_the_menu_is_open() {
         .unwrap();
     assert_eq!(terminal.backend().buffer()[(0, 6)].symbol(), "/");
     assert!(!app.skills.hits.borrow().is_empty());
+}
+
+#[test]
+fn menu_rows_are_opaque_and_headings_always_have_a_visible_skill() {
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, height) in [(60, 8), (160, 8), (120, 36)] {
+        let mut app = capture_case("skills-claude", crate::look::Look::default());
+        app.input_viewport
+            .set(Some((Rect::new(1, height - 2, width - 2, 1), 0)));
+        app.input_band
+            .set(Some(Rect::new(1, height - 2, width - 2, 2)));
+        for selected in 0..app.skills.completion.matches.len() {
+            app.skills.completion.selected = selected;
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    for y in 0..height - 2 {
+                        for x in 0..width {
+                            frame.buffer_mut()[(x, y)].set_symbol("#");
+                        }
+                    }
+                    render(frame, &app);
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let lines = (0..height)
+                .map(|y| {
+                    (0..width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>();
+            for (y, line) in lines.iter().enumerate() {
+                if ["  TMT", "  Claude Code's own", "  This project"]
+                    .iter()
+                    .any(|heading| line.starts_with(heading))
+                {
+                    assert!(
+                        lines.get(y + 1).is_some_and(|next| next.contains('/')),
+                        "{width}x{height} selection {selected}: {lines:?}"
+                    );
+                }
+            }
+            for (rect, _) in app.skills.hits.borrow().iter() {
+                assert_ne!(buffer[(0, rect.y)].symbol(), "#");
+                assert_ne!(buffer[(width - 1, rect.y)].symbol(), "#");
+            }
+        }
+    }
 }
