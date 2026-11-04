@@ -33,6 +33,48 @@ function installSquad(fixture: E2EFixture): void {
   fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
 }
 
+/** Walk a rendered list one row at a time; never send a burst past the target. */
+async function selectRow(
+  fixture: E2EFixture,
+  pane: string,
+  label: string,
+  selected: (screen: string) => string | undefined
+): Promise<void> {
+  const failure = () =>
+    new Error(
+      `Could not select ${label} within 60 steps or selection stopped.\n${fixture.capture(100, pane)}`
+    );
+  let screen = await fixture.waitForCapture((output) => selected(output) !== undefined, pane);
+  for (let step = 0; step < 60; step++) {
+    const current = selected(screen);
+    if (current === label || current?.startsWith(`${label} `)) return;
+    fixture.tmux(['send-keys', '-t', pane, 'Down']);
+    try {
+      screen = await fixture.waitForCapture(
+        (output) => selected(output) !== undefined && selected(output) !== current,
+        pane
+      );
+    } catch (error) {
+      throw new Error(failure().message, { cause: error });
+    }
+  }
+  throw failure();
+}
+
+/** The action menu overlays the settings list; each retains its own marker. */
+function menuSelection(side: 'left' | 'right'): (screen: string) => string | undefined {
+  return (screen) => {
+    const rows = screen.split('\n').flatMap((line) =>
+      [...line.matchAll(/›([^│]*)/g)].map((match) => ({
+        index: match.index ?? 0,
+        text: match[1].trim(),
+      }))
+    );
+    rows.sort((a, b) => (side === 'left' ? a.index - b.index : b.index - a.index));
+    return rows[0]?.text;
+  };
+}
+
 /** Extension options follow the extension name, so `--json` goes last. */
 function squadCli<T = Record<string, unknown>>(fixture: E2EFixture, args: string[]) {
   return fixture.runCli<T>(['ops', 'squad', ...args, '--json']);
@@ -511,7 +553,21 @@ renameSync(output+'.tmp',output);
         ]);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Home', 'Down', 'n']);
+        await fixture.waitForCapture((screen) => /^[ \t]*[▸▾] product\b/m.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Home']);
+        // The detail header names the selected tree row; ▸ only indicates expansion.
+        const selectedSquad = (screen: string) => {
+          const talkRow = screen.split('\n').find((line) => /\bTalk\b/.test(line));
+          return /[─━]{2,}[ \t]+(.+?)[ \t]+[─━]{2,}/.exec(
+            talkRow?.slice(talkRow.indexOf('Talk')) ?? ''
+          )?.[1];
+        };
+        await fixture.waitForCapture(
+          (screen) => selectedSquad(screen) === 'Common pool',
+          shell.pane
+        );
+        await selectRow(fixture, shell.pane, 'product', selectedSquad);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
         await fixture.waitForCapture(
           (screen) => screen.includes('New member') && screen.includes('agent name'),
           shell.pane
@@ -1569,36 +1625,6 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       const state = durableState(fixture);
       const beforeRequests = requestAttempts(fixture);
       {
-        // The Actions menu overlays the settings list, so pick the focused marker from
-        // the appropriate side and wait for each move before sending the next key.
-        const selectRow = async (label: string, side: 'left' | 'right') => {
-          const selected = (screen: string): string | undefined => {
-            const rows = screen.split('\n').flatMap((line) => {
-              return [...line.matchAll(/›([^│]*)/g)].map((match) => ({
-                index: match.index ?? 0,
-                text: match[1].trim(),
-              }));
-            });
-            rows.sort((a, b) => (side === 'left' ? a.index - b.index : b.index - a.index));
-            return rows[0]?.text;
-          };
-          let screen = await fixture.waitForCapture(
-            (output) => selected(output) !== undefined,
-            shell.pane
-          );
-          for (let step = 0; step < 60; step++) {
-            const current = selected(screen);
-            if (current === label || current?.startsWith(`${label} `)) return;
-            fixture.tmux(['send-keys', '-t', shell.pane, 'Down']);
-            screen = await fixture.waitForCapture(
-              (output) => selected(output) !== undefined && selected(output) !== current,
-              shell.pane
-            );
-          }
-          throw new Error(
-            `Could not select ${label} after 60 steps.\n${fixture.tmux(['capture-pane', '-p', '-t', shell.pane])}`
-          );
-        };
         fixture.tmux([
           'send-keys',
           '-t',
@@ -1616,14 +1642,14 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           (screen) => screen.includes('Enter apply or open') && screen.includes('Actions'),
           shell.pane
         );
-        await selectRow('Actions', 'left');
+        await selectRow(fixture, shell.pane, 'Actions', menuSelection('left'));
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         // The Actions menu opens as a layer over the ? panel.
         await fixture.waitForCapture(
           (screen) => screen.includes('Enter runs · Esc closes'),
           shell.pane
         );
-        await selectRow('Checklist', 'right');
+        await selectRow(fixture, shell.pane, 'Checklist', menuSelection('right'));
         fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
         // ↓ on the empty list reaches the Filter chip; → moves to Actions.

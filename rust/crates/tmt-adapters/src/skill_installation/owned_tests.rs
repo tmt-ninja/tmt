@@ -43,6 +43,27 @@ fn claimed(error: &std::io::Error) -> Option<(String, String)> {
 }
 
 #[test]
+fn published_sources_deduplicates_nonadjacent_owner_directories() {
+    let (_directory, _env, global, _root) = fixture();
+    fs::create_dir_all(&global).unwrap();
+    let digest_a = "a".repeat(64);
+    let digest_b = "b".repeat(64);
+    let registry = serde_json::json!({"version": 1, "skills": {
+        "first": {"owner": "squad", "digest": digest_a, "targets": []},
+        "middle": {"owner": "squad", "digest": digest_b, "targets": []},
+        "third": {"owner": "squad", "digest": digest_a, "targets": []}
+    }});
+    fs::write(global.join("skill-owners.json"), registry.to_string()).unwrap();
+    let sources = super::published_sources(&global).unwrap();
+    assert_eq!(
+        sources.len(),
+        3,
+        "one bundle and two unique owner directories"
+    );
+    assert!(sources.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
 fn an_owner_publishes_repeats_as_a_no_op_and_updates_to_new_content() {
     let (_directory, env, global, root) = fixture();
     let first = install_owned(&env, &global, "squad", &[skill("tmt-ops", "v1")], false).unwrap();
