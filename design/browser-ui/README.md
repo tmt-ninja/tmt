@@ -111,6 +111,11 @@ Button changes colour only (a press never shrinks its hit area); Skeleton pulses
 `vite.docs.config.ts`) on `http://127.0.0.1:5100` for development; `docs/embed.tsx` (export `./docs-embed`)
 is the hosted entry Colab's Design route loads, and its host adds the `./docs-oracle` Vite plugin
 (`tuiOracle()`), which reads the Ops oracle at build time.
+The `./pattern-parts` and `./pattern-parts.css` entries provide the shared page-row, work-band,
+message-row and status-line parts used by the pattern examples. Colab's generated Design pages
+render the same foundation and pattern examples through the renderer's declared runtime 4 UI
+allowlist; composed patterns use sized scopes in both themes. The runtime contract and the
+separate host-data capabilities are defined in [colab-v1](../../extensions/tmt-colab/contracts/colab-v1.md).
 
 The mark has no paint servers or document IDs; multiple live or hidden shells render independently.
 
