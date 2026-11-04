@@ -97,10 +97,33 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             view.conversations
                 .threads
                 .retain(|thread| &thread.id == only);
-            view.conversations.asks.retain(|ask| &ask.thread == only);
             if view.conversations.threads.is_empty() {
                 return Err(Fault::Missing.into());
             }
+            let thread = &view.conversations.threads[0];
+            let comments: Vec<(&str, &str)> = thread
+                .comments
+                .iter()
+                .map(|comment| (comment.writer.as_str(), comment.id.as_str()))
+                .collect();
+            let keep: Vec<bool> = view
+                .conversations
+                .asks
+                .iter()
+                .map(|ask| {
+                    asks_about(
+                        &ask.thread,
+                        &ask.writer,
+                        &ask.message_ids,
+                        &thread.id,
+                        &comments,
+                    )
+                })
+                .collect();
+            let mut keep = keep.into_iter();
+            view.conversations
+                .asks
+                .retain(|_| keep.next().unwrap_or(false));
         }
         if json_output {
             let mut value = serde_json::to_value(&view)?;
@@ -221,4 +244,57 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether an Ask is about one thread: an Ask names its own thread, and a batch Ask (several answer
+/// comments, #2875) is also about each comment it lists in another of the group's threads, but only
+/// a comment its own writer wrote. The browser's `asksAbout` keeps the same rule (#6012).
+fn asks_about(
+    ask_thread: &str,
+    ask_writer: &str,
+    message_ids: &[String],
+    thread: &str,
+    comments: &[(&str, &str)],
+) -> bool {
+    ask_thread == thread
+        || (message_ids.len() > 1
+            && comments.iter().any(|(writer, id)| {
+                *writer == ask_writer && message_ids.iter().any(|message| message == id)
+            }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asks_about;
+
+    #[test]
+    fn a_batch_ask_reads_with_every_answer_thread_it_lists() {
+        let ids = |v: &[&str]| v.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        let batch = ids(&["first", "second"]);
+        // The canonical thread is the first answer's; the second answer's thread still shows it.
+        assert!(asks_about("one", "me", &batch, "one", &[("me", "first")]));
+        assert!(asks_about("one", "me", &batch, "two", &[("me", "second")]));
+        // Another writer's comment with a listed ID, or a single Ask, does not reach another thread.
+        assert!(!asks_about(
+            "one",
+            "me",
+            &batch,
+            "two",
+            &[("you", "second")]
+        ));
+        assert!(!asks_about(
+            "one",
+            "me",
+            &ids(&["second"]),
+            "two",
+            &[("me", "second")]
+        ));
+        assert!(!asks_about(
+            "one",
+            "me",
+            &batch,
+            "three",
+            &[("me", "other")]
+        ));
+    }
 }

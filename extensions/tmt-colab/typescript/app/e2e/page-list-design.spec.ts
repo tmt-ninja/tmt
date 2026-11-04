@@ -125,6 +125,11 @@ for (const width of [390, 1440])
       const readOnly = root.getByRole('row').filter({ hasText: 'Alpha plan' });
       await expect(readOnly.getByRole('checkbox', { name: 'Select Alpha plan' })).toBeDisabled();
       await expect(readOnly).toContainText('Read-only');
+      if (width === 1440) {
+        // #6015: the Access cell shows the whole label, not "Read-o…".
+        const label = readOnly.locator('.tmt-data-table-text').filter({ hasText: 'Read-only' });
+        expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      }
       const searchBox = root.locator('.page-list-search-box > .tmt-rich-input');
       await expect(searchBox).toHaveCSS('border-top-width', '1px');
       expect((await searchBox.boundingBox())!.height).toBeGreaterThanOrEqual(32);

@@ -108,7 +108,8 @@ const columns: DataTableColumn<PageListRow>[] = [
     header: 'Access',
     role: 'access',
     min: 70,
-    max: 96,
+    // Wide enough for its icon and the longest label, "Read-only", at desktop widths (#6015).
+    max: 116,
     phone: 'menu',
     text: (page) => page.access,
     cell: (page) => (

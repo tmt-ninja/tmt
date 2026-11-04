@@ -5336,6 +5336,46 @@ function createShellMenuInteractions(current, drawIcon, activate, announce) {
 	};
 }
 //#endregion
+//#region ../../../../design/browser-ui/src/trusted-activation.ts
+/** A Radix keyboard selection produces a synthetic click in the same key event. */
+function trustedActivation(click, key) {
+	return click.isTrusted || key?.isTrusted === true;
+}
+/**
+* A one-shot trusted key turn: the Enter or Space that will be followed by a click on the same
+* element. The caller records the key events it accepts; a click is admitted when it is trusted
+* itself or lands inside the element that took the recorded key. The turn expires on its own:
+* - `microtask` suits a React handler, where the synthetic click follows in the same key event.
+* - `task` suits plain DOM listeners: the browser runs a microtask checkpoint between native
+*   listeners of one key, so the turn must last until the next task.
+*/
+function keyTurn(expiry) {
+	let current;
+	return {
+		record(event) {
+			if (event.defaultPrevented || !event.isTrusted) return;
+			current = event;
+			const expire = () => {
+				if (current === event) current = void 0;
+			};
+			if (expiry === "task") setTimeout(expire, 0);
+			else queueMicrotask(expire);
+		},
+		/** Whether a click is a person's: trusted, or inside the element that took the key turn. A
+		* click that is admitted uses the turn up. */
+		admit(click) {
+			const origin = current?.target;
+			const target = click.target;
+			const admitted = trustedActivation(click, current && !current.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? current : void 0);
+			if (admitted) current = void 0;
+			return admitted;
+		},
+		clear() {
+			current = void 0;
+		}
+	};
+}
+//#endregion
 //#region ../../../../design/browser-ui/src/theme.ts
 /**
 * The per-browser colour theme (#3937). The tokens answer to `data-theme` on the root: `light` and
@@ -6215,22 +6255,14 @@ function mountShell(root, view, select, layerHost) {
 			button.append(icon(document, mark));
 			tipFor(button, action.label);
 		} else button.textContent = action.label;
-		let keyTurn;
+		const turn = keyTurn("task");
 		const recordKey = (event) => {
-			if (event.defaultPrevented || !event.isTrusted || !(event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup")) return;
-			keyTurn = event;
-			setTimeout(() => {
-				if (keyTurn === event) keyTurn = void 0;
-			}, 0);
+			if (event.key === "Enter" && event.type === "keydown" || event.key === " " && event.type === "keyup") turn.record(event);
 		};
 		button.addEventListener("keydown", recordKey);
 		button.addEventListener("keyup", recordKey);
 		button.onclick = (event) => {
-			const origin = keyTurn?.target;
-			const target = event.target;
-			const matchingKey = !keyTurn?.defaultPrevented && origin instanceof Node && target instanceof Node && origin.contains(target) ? keyTurn : void 0;
-			const admitted = event.isTrusted || matchingKey?.isTrusted === true;
-			if (admitted) keyTurn = void 0;
+			const admitted = turn.admit(event);
 			if (event.defaultPrevented || !admitted || button.disabled) return;
 			setDrawer(false);
 			activate();

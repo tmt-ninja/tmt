@@ -208,7 +208,7 @@ export class Live implements PageBinding {
             const asks = await pageAsks(own, connection.admission, (writer) =>
               connection.objects.ownSigningKey(writer),
             );
-            return conversationForAsk(threads, context, asks);
+            return conversationForAsk(threads, context, asks, page.pageId);
           },
           answerContext: (batch) => {
             const connection = this.#connection;
@@ -235,7 +235,7 @@ export class Live implements PageBinding {
               (writer) => connection.objects.ownSigningKey(writer),
               (writer) => connection.objects.statusWriter(writer),
             );
-            return statusNotificationForAsk(threads, context, registration.deviceId);
+            return statusNotificationForAsk(threads, context, registration.deviceId, page.pageId);
           },
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,

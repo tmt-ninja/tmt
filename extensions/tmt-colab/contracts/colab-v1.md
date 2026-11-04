@@ -3831,7 +3831,8 @@ action only if the entire own group still satisfies the predicate; it never send
 Only the previous turn (the latest prior user comment with its verified agent replies) is
 included as quoted data, capped at 2,000 code points and marked `… (truncated)` when cut, followed
 by a pointer line naming the thread, how many earlier turns are not quoted, and
-`tmt colab threads PAGE --thread THREAD` to read them (#6002). The anchored passage in `Quote:` is
+`tmt colab threads <page ID> --thread THREAD` with the page's own full ID to read them (#6002,
+#6012). The anchored passage in `Quote:` is
 capped and marked the same way; the thread keeps both whole. All captured references/revisions,
 quoted or not, are rechecked before signing. Display timestamps never determine record ordering or
 authority. Deleted/stale context and byte overflow refuse. A failure after
