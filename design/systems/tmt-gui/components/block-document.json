@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "block-document",
+  "source": "block-document.js",
+  "props": {},
+  "slots": [
+    "default"
+  ],
+  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "ui": {
+    "module": "/src/blocks/block.tsx",
+    "component": "BlockDocument"
+  },
+  "examples": [
+    {
+      "title": "A page of blocks",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Heading: First block set\" kind=\"heading\"><tmt-ui-heading-block>First block set</tmt-ui-heading-block></tmt-ui-block><tmt-ui-block label=\"Paragraph: Blocks read as one document\"><tmt-ui-text-block>Blocks read as one document: no borders, fills or boxes between them.</tmt-ui-text-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "block-toast",
+  "source": "block-toast.js",
+  "props": {
+    "undo": {
+      "type": "string"
+    },
+    "shortcut": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "block-toast.css",
+  "ui": {
+    "module": "/src/blocks/mention.tsx",
+    "component": "BlockToast",
+    "parts": [],
+    "compose": "<BlockToast shortcut=\"{shortcut}\">{children}</BlockToast>"
+  },
+  "examples": [
+    {
+      "title": "After a delete",
+      "markup": "<tmt-ui-block-toast>Deleted 1 block (Table)</tmt-ui-block-toast>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

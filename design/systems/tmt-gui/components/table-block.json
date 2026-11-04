@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "table-block",
+  "source": "table-block.js",
+  "props": {
+    "label": {
+      "type": "string"
+    },
+    "columns": {
+      "type": "string"
+    },
+    "rows": {
+      "type": "string"
+    },
+    "hide-narrow": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "table-block.css",
+  "examples": [
+    {
+      "title": "A hidden column under 480px",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Table: Ticket status\" kind=\"table\"><tmt-ui-table-block label=\"Ticket status\" columns=\"Ticket, Owner, State, Note\" rows=\"#5980 DsScope | gui-3 | ● Working | The default frame of the mockup block; #5981 Block parts | gui-2 | ◆ Waiting | The parts on this page\" hide-narrow=\"Note\"></tmt-ui-table-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

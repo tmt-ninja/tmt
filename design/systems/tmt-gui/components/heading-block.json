@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "heading-block",
+  "source": "heading-block.js",
+  "props": {
+    "level": {
+      "enum": [
+        "2",
+        "3"
+      ],
+      "default": "2"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "heading-block.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "HeadingBlock",
+    "parts": [],
+    "compose": "<HeadingBlock level=\"{level}\">{children}</HeadingBlock>"
+  },
+  "examples": [
+    {
+      "title": "## and ###",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"Heading\" kind=\"heading\"><tmt-ui-heading-block>First block set: Colab and the design system own the look, authors fill in content</tmt-ui-heading-block></tmt-ui-block><tmt-ui-block label=\"Heading\" kind=\"heading\"><tmt-ui-heading-block level=\"3\">One level smaller</tmt-ui-heading-block></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "list-item",
+  "source": "list-item.js",
+  "props": {
+    "marker": {
+      "enum": [
+        "bullet",
+        "number"
+      ],
+      "default": "bullet"
+    },
+    "number": {
+      "type": "string"
+    },
+    "indent": {
+      "enum": [
+        "0",
+        "1",
+        "2"
+      ],
+      "default": "0"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "list-item.css",
+  "ui": {
+    "module": "/src/blocks/content.tsx",
+    "component": "ListItemBlock",
+    "parts": [],
+    "compose": "<ListItemBlock marker=\"{marker}\" number=\"{number}\" indent=\"{indent}\">{children}</ListItemBlock>"
+  },
+  "examples": [
+    {
+      "title": "Bullets, nested",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"List item\" kind=\"list-item\"><tmt-ui-list-item>Post the plan on the issue first, then build each part with its catalog entry</tmt-ui-list-item></tmt-ui-block><tmt-ui-block label=\"List item\" kind=\"list-item\"><tmt-ui-list-item indent=\"1\">Every pull request carries captures at 390 and 1440</tmt-ui-list-item></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Numbered",
+      "markup": "<tmt-ui-block-document><tmt-ui-block label=\"List item\" kind=\"list-item\"><tmt-ui-list-item marker=\"number\" number=\"1\">Plan on the issue</tmt-ui-list-item></tmt-ui-block><tmt-ui-block label=\"List item\" kind=\"list-item\"><tmt-ui-list-item marker=\"number\" number=\"2\">Captures on every pull request</tmt-ui-list-item></tmt-ui-block></tmt-ui-block-document>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

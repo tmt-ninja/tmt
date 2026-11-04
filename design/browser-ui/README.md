@@ -942,6 +942,46 @@ text when `content` is absent and the accessible name of an option (`label`, plu
 description when it has one); a chip's remove control keeps its own `removeLabel`.
 `content` never changes ordering, filtering, caps or events; the host owns what it draws.
 
+## Structured-page blocks
+
+`@tmt/browser-ui/blocks` holds the structured-page blocks (#5981) and imports its own
+`blocks.css`, so the shared page UI keeps its byte cap. The parts read the static `--tmt-ui-*`
+tokens; the host owns block data, editing, persistence, clipboard and timers. The entry reaches
+the root graph (`./react`) and reuses its parts rather than copying markup: `BrowserCheckbox`,
+`BrowserTable` (its `hideNarrow` and `nowrap` column indexes only mark cells),
+`BrowserNotice` (`title` may be left out, `headingLevel="h3"`, `announcement="note"` gives
+`role="note"`) and `BrowserCommand`.
+
+- `BlockDocument` is the page column with the handle gutter. Every block sits in a `Block`
+  (`role="group"`, labelled with its type and opening text). At rest a block draws no border,
+  fill or shadow; hover is the `surface-hover` tint, `selected` the `surface-selection` tint and
+  wins over hover, and the focus ring shows only on `:focus-visible`.
+- Render one `BlockHandle` per editor, inside the hovered or keyboard-focused block; it sits in
+  the gutter 8px left of that block, is out of the Tab order and hides under 480px of document
+  width. Its grip opens the block menu and starts a drag (`state="dragging"`, `BlockDropLine`,
+  `BlockGhost`).
+- `blockKeyAction` is the one keyboard table: Menu, Shift+F10 or Cmd/Ctrl+/ open the block menu;
+  Esc selects; arrows move and Shift+arrows extend the selection; Alt+Shift+arrows move;
+  Cmd/Ctrl+D duplicates; Delete deletes; Cmd/Ctrl+Z undoes.
+- `BlockMenu` is the insert listbox or, with `kind="actions"`, the block menu (`blockActions`;
+  it never changes a block's type). Focus stays in the editor: drive `activeId` with
+  `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows.
+- Content: `HeadingBlock` (levels 2 and 3 only; the page title is the GUI header's),
+  `TextBlock`, `ListItemBlock`, `TodoBlock` (`BrowserCheckbox`), `TableBlock` (columns marked
+  `hideNarrow` leave the view below 480px of the block's own width), `CardBlock` (the only
+  framed and nesting block, one level, no resting shadow), `Callout` (the tinted notice as a note
+  in four tones, each with its mark and word, `calloutLabels`), `CodeBlock` (header with filename,
+  language and Copy; the `command` variant is `BrowserCommand`), `BlockMention` and `BlockToast`
+  (Undo after a delete).
+
+The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-ui-block-menu`,
+`tmt-ui-heading-block`, `tmt-ui-text-block`, `tmt-ui-list-item`, `tmt-ui-todo`,
+`tmt-ui-table-block`, `tmt-ui-card-block`, `tmt-ui-callout`, `tmt-ui-code-block`,
+`tmt-ui-block-mention` and `tmt-ui-block-toast`; `block-document` carries `blocks.css` for all
+of them. `tmt-ui-table-block` takes its columns and rows as text lists, so the port drift check
+skips it. The gallery's `?frame=blocks&part=<part>` frames and `part=editor` demo back the
+catalog entries, the block patterns and `e2e/blocks.spec.ts`.
+
 ## Motion
 
 Two durations (`fast` 120ms, `base` 180ms), two easings (`ease-out` entering, `ease-in` leaving),

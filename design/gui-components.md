@@ -67,6 +67,13 @@ them. Consumer changes require the owning lead's code review and UX review.
 - The private `design-tokens` component attributes token changes to Colab and Remote
   through `releaseConsumers` in the [component map](../.github/components.json).
 
+## Structured-page blocks
+
+The leaf's [structured-page blocks](browser-ui/README.md#structured-page-blocks) own the block
+shell, the one shared handle, the insert and block menus, the content blocks, the @block chip
+and the undo toast, and their tmt GUI tags. Editors retain block data, editing, persistence,
+clipboard and undo history; they render the parts rather than restyling them.
+
 ## Commands and inline code
 
 Use the leaf's [command and inline-code presentation](browser-ui/README.md#controlled-input-contracts)

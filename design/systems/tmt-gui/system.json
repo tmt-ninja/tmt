@@ -48,6 +48,45 @@
     },
     {
       "doc": "components/tabs.json"
+    },
+    {
+      "doc": "components/block-document.json"
+    },
+    {
+      "doc": "components/block.json"
+    },
+    {
+      "doc": "components/block-menu.json"
+    },
+    {
+      "doc": "components/heading-block.json"
+    },
+    {
+      "doc": "components/text-block.json"
+    },
+    {
+      "doc": "components/list-item.json"
+    },
+    {
+      "doc": "components/todo.json"
+    },
+    {
+      "doc": "components/table-block.json"
+    },
+    {
+      "doc": "components/card-block.json"
+    },
+    {
+      "doc": "components/callout.json"
+    },
+    {
+      "doc": "components/code-block.json"
+    },
+    {
+      "doc": "components/block-mention.json"
+    },
+    {
+      "doc": "components/block-toast.json"
     }
   ],
   "principles": {
