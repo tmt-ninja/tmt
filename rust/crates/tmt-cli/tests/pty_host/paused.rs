@@ -12,11 +12,11 @@ use nix::sys::signal::killpg;
 use std::io::{Read, Write};
 use tmt_adapters::pty::protocol::{ClientMessage, Decoder, Exit, Frame, ServerMessage, VERSION};
 
-const ECHO_LOOP: &str =
+pub(super) const ECHO_LOOP: &str =
     r#"printf 'paused-ready\r\n'; while IFS= read -r line; do printf 'got:%s\r\n' "$line"; done"#;
 
 /// One Core API call through `tmt api`, as an extension makes it.
-fn call(world: &World, operation: &str, input: Value) -> Value {
+pub(super) fn call(world: &World, operation: &str, input: Value) -> Value {
     let mut child = world
         .command(&["api"])
         .stdin(Stdio::piped())
@@ -33,7 +33,7 @@ fn call(world: &World, operation: &str, input: Value) -> Value {
     serde_json::from_slice(&output.stdout).unwrap_or_else(|_| panic!("{output:?}"))
 }
 
-fn stream(world: &World, identity: &str) -> Value {
+pub(super) fn stream(world: &World, identity: &str) -> Value {
     call(
         world,
         "terminal.stream",
@@ -50,7 +50,7 @@ fn resume(world: &World, identity: &str) -> Value {
 }
 
 /// The identity's `identities.status` entry.
-fn status(world: &World, identity: &str) -> Value {
+pub(super) fn status(world: &World, identity: &str) -> Value {
     let answer = call(
         world,
         "identities.status",
@@ -89,7 +89,7 @@ fn wait_paused(world: &World, identity: &str, paused: bool) {
 
 /// Starts a saved member running `args` under the basic driver's name and returns its
 /// identity and pane.
-fn member(world: &mut World, name: &str, args: &[&str]) -> (String, String) {
+pub(super) fn member(world: &mut World, name: &str, args: &[&str]) -> (String, String) {
     let agent = world.agent();
     let mut command = vec!["run", "--no-channel", "--save", name, agent.as_str()];
     command.extend_from_slice(args);
@@ -122,13 +122,13 @@ fn launcher(world: &World, pane: &str) -> Pid {
     Pid::from_raw(pane_pid as i32)
 }
 
-fn screen(world: &mut World, name: &str) -> String {
+pub(super) fn screen(world: &mut World, name: &str) -> String {
     let checked = world.run(&["check", name]);
     assert!(checked.status.success(), "{checked:?}");
     String::from_utf8_lossy(&checked.stdout).into_owned()
 }
 
-fn wait_screen(world: &mut World, name: &str, needle: &str) {
+pub(super) fn wait_screen(world: &mut World, name: &str, needle: &str) {
     let deadline = Instant::now() + WAIT;
     loop {
         let text = screen(world, name);
@@ -141,13 +141,13 @@ fn wait_screen(world: &mut World, name: &str, needle: &str) {
 }
 
 /// A raw stream connection, as the Ops Terminal tab opens one.
-struct View {
+pub(super) struct View {
     stream: std::os::unix::net::UnixStream,
     decoder: Decoder,
 }
 
 impl View {
-    fn open(world: &World, identity: &str) -> Self {
+    pub(super) fn open(world: &World, identity: &str) -> Self {
         let found = stream(world, identity);
         let socket = found["socket"].as_str().expect("a published socket");
         let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
@@ -161,11 +161,11 @@ impl View {
         view
     }
 
-    fn send(&mut self, message: &ClientMessage) {
+    pub(super) fn send(&mut self, message: &ClientMessage) {
         self.stream.write_all(&message.encode()).unwrap();
     }
 
-    fn next(&mut self) -> ServerMessage {
+    pub(super) fn next(&mut self) -> ServerMessage {
         let mut buffer = [0u8; 8192];
         loop {
             if let Some(message) = self.decoder.frame::<ServerMessage>().unwrap() {
@@ -177,7 +177,7 @@ impl View {
         }
     }
 
-    fn exit(&mut self) -> Exit {
+    pub(super) fn exit(&mut self) -> Exit {
         loop {
             match self.next() {
                 ServerMessage::Exited(exit) => return exit,
@@ -236,15 +236,18 @@ fn a_member_that_ends_while_paused_still_reports_its_exit() {
     wait_paused(&world, &identity, true);
     killpg(group, Signal::SIGKILL).unwrap();
     assert_eq!(view.exit(), Exit::Signal(9));
+    // The terminal is kept (#5988): the stream reports the end, and nothing is paused.
     let deadline = Instant::now() + WAIT;
     loop {
         let after = stream(&world, &identity);
-        if after["error"]["code"] == "TERMINAL_STREAM_UNAVAILABLE" {
+        if after["ended"] == serde_json::json!({"signal": 9}) {
+            assert_eq!(after["paused"], false, "{after}");
             break;
         }
-        assert!(Instant::now() < deadline, "still published: {after}");
+        assert!(Instant::now() < deadline, "never reported ended: {after}");
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert!(status(&world, &identity).get("paused").is_none());
     assert!(world.clean());
 }
 

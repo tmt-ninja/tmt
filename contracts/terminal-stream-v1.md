@@ -20,9 +20,12 @@ derives the path. Discovery is the extension API operation
 [`terminal.stream`](extension-api.md#terminal-stream): `{identityId}` answers
 `{identityId, host: "pty", socket, pane, paused}` for a member whose current binding is on
 the built-in host and whose supervisor is running. Any other member, one with no
-binding, or one that has ended, is `TERMINAL_STREAM_UNAVAILABLE`, and a view shows no
-terminal for it. `paused` says the member is stopped by job control; the stream has no
-frame for it, and [`terminal.resume`](extension-api.md#resume-a-paused-member) continues it.
+binding, or one whose supervisor is gone, is `TERMINAL_STREAM_UNAVAILABLE`, and a view
+shows no terminal for it. `paused` says the member is stopped by job control; the stream
+has no frame for it, and [`terminal.resume`](extension-api.md#resume-a-paused-member)
+continues it. A member whose program ended keeps its terminal: the answer adds `ended`, and
+`foreground: "shell"` while a relaunched shell runs
+([`terminal.relaunch`](extension-api.md#relaunch-on-a-kept-terminal)).
 
 ## Access
 
@@ -57,7 +60,7 @@ Supervisor to client:
 |---|---|---|---|
 | `0x81` | `Welcome` | `version: u16`, size | Accepted; the size now in force. |
 | `0x82` | `Output` | 1 to 16 KiB | Program output, passed through untouched. |
-| `0x83` | `Exited` | tag `0` code or `1` signal, `i32` | The program ended; the supervisor closes after this. |
+| `0x83` | `Exited` | tag `0` code or `1` signal, `i32` | The program ended. A supervisor that keeps its terminal stays connected; an older one closes after this. |
 | `0x84` | `Evicted` | `0` taken over, `1` too slow | This client is disconnected. |
 | `0x85` | `Refused` | `0` version, `1` handshake, `2` owner, `3` full | The connection is refused. |
 | `0x86` | `Resized` | size | The size in force changed. It always reports the actual size, whichever client won. |
@@ -110,8 +113,10 @@ Output is read whether or not anyone is attached and is not retained. A client w
 256 KiB of frames queued pauses the program, so a slow view slows the program instead
 of losing output. One that reads none of what waits for 3 s is evicted (`TooSlow`). A
 view that loses the stream, or is evicted, reconnects with a new `Hello` and a new
-`Snapshot`; connection loss never proves the agent ended. `Exited` ends the stream and
-carries the exit code or the signal.
+`Snapshot`; connection loss never proves the agent ended. `Exited` carries the exit code
+or the signal. The terminal and connection stay: a relaunched program's output follows on
+the same stream, and keys typed while nothing runs are dropped. An older supervisor ends
+the stream after `Exited`.
 
 ## What the stream does not offer
 

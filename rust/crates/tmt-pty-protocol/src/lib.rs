@@ -6,7 +6,7 @@
 //! The crate has no dependencies and no effects.
 
 mod control;
-pub use control::{Control, ControlReply};
+pub use control::{Control, ControlReply, RelaunchKind};
 
 use std::fmt;
 

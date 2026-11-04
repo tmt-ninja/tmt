@@ -8,8 +8,8 @@ use super::{
 use crate::{
     process::{CommandError, CommandRunner, ancestry, runtime},
     pty::{
-        Connection,
-        protocol::{Control, ControlReply},
+        Connection, LaunchOutcome,
+        protocol::{Control, ControlReply, Exit, RelaunchKind},
     },
 };
 use std::{
@@ -57,6 +57,9 @@ const BUDGET: Duration = Duration::from_secs(3);
 /// How long closing a member waits for its supervisor to end after the program did.
 const CLOSE_WAIT: Duration = Duration::from_secs(3);
 const CLOSE_POLL: Duration = Duration::from_millis(50);
+/// How long a relaunched agent launcher may take to admit its launch, as for a
+/// new member (`pty::start_member`).
+const RELAUNCH_WAIT: Duration = Duration::from_secs(60);
 
 fn error(reason: &'static str) -> HostError {
     HostError::Evidence {
@@ -107,6 +110,20 @@ struct State {
     idle: Option<u64>,
     /// Stopped by job control (Ctrl-Z); see `resume`.
     paused: bool,
+    /// How the member's program ended, while the kept terminal runs nothing.
+    ended: Option<Exit>,
+    /// A relaunched shell holds the kept terminal.
+    shell: bool,
+}
+
+impl State {
+    /// Whether the member's program (`pane_pid`) runs. Otherwise the supervisor
+    /// keeps an ended member's terminal, and `pane_pid` names the process the
+    /// binding's marker belongs to, which is gone: the supervisor alone vouches
+    /// for the pane, and there is no pane process to pair with it.
+    fn program_running(&self) -> bool {
+        self.ended.is_none() && !self.shell
+    }
 }
 fn state(socket: &str, pane: &str, deadline: Instant) -> Result<State, HostError> {
     decode_state(call(socket, pane, Control::Inspect, deadline)?)
@@ -119,6 +136,8 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         key_idle_ms,
         marker,
         paused,
+        ended,
+        shell,
     } = reply
     else {
         return Err(error("the supervisor did not return state"));
@@ -143,36 +162,74 @@ fn decode_state(reply: ControlReply) -> Result<State, HostError> {
         marker,
         idle: key_idle_ms,
         paused,
+        ended,
+        shell,
     })
 }
 
 /// What a supervisor's answer to `Control::Capabilities` grants beyond
 /// conditional publication, which every answer grants.
+#[derive(Default)]
 struct Capabilities {
     resume: bool,
+    /// The supervisor keeps the terminal after the program ends and relaunches.
+    relaunch: bool,
+    close: bool,
 }
 
 /// Decodes a capabilities answer. A supervisor that predates the flags answers
 /// `Applied(true)`, which grants conditional publication only.
 fn capabilities(reply: ControlReply) -> Result<Capabilities, HostError> {
     match reply {
-        ControlReply::Applied(true) => Ok(Capabilities { resume: false }),
-        ControlReply::Capabilities { resume } => Ok(Capabilities { resume }),
+        ControlReply::Applied(true) => Ok(Capabilities::default()),
+        ControlReply::Capabilities {
+            resume,
+            relaunch,
+            close,
+        } => Ok(Capabilities {
+            resume,
+            relaunch,
+            close,
+        }),
         _ => Err(error("the supervisor returned invalid capabilities")),
     }
+}
+
+/// What one fresh read of a built-in member's supervisor shows beyond presence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalState {
+    pub paused: bool,
+    /// The program ended and nothing runs on the kept terminal.
+    pub ended: Option<Exit>,
+    /// A relaunched shell, not the member's agent, runs on the kept terminal.
+    pub shell: bool,
+}
+
+/// One fresh read of a built-in member's terminal, or `None` on any doubt
+/// (another host, an unreachable supervisor, another supervisor incarnation).
+pub fn member_terminal(binding: &Binding) -> Option<TerminalState> {
+    if binding.server.host != HostKind::pty() {
+        return None;
+    }
+    state(
+        &binding.server.socket_path,
+        &binding.pane_id,
+        Instant::now() + BUDGET,
+    )
+    .ok()
+    .filter(|state| state.server_pid == binding.server.server_pid)
+    .map(|state| TerminalState {
+        paused: state.paused,
+        ended: state.ended,
+        shell: state.shell,
+    })
 }
 
 /// Whether a built-in member is stopped by job control, from one fresh read of
 /// its supervisor. Any doubt (another host, an unreachable supervisor, another
 /// supervisor incarnation at that socket) is not a pause.
 pub(crate) fn member_paused(binding: &Binding) -> bool {
-    binding.server.host == HostKind::pty()
-        && state(
-            &binding.server.socket_path,
-            &binding.pane_id,
-            Instant::now() + BUDGET,
-        )
-        .is_ok_and(|state| state.paused && state.server_pid == binding.server.server_pid)
+    member_terminal(binding).is_some_and(|state| state.paused)
 }
 
 /// Why a built-in member was not resumed.
@@ -202,6 +259,96 @@ pub(crate) fn resume(binding: &Binding) -> Result<(), ResumeError> {
         Ok(ControlReply::Applied(true)) => Ok(()),
         _ => Err(ResumeError::Unconfirmed),
     }
+}
+
+/// Why a program was not relaunched on a built-in member's kept terminal.
+#[derive(Debug)]
+pub enum RelaunchError {
+    /// The member's supervisor predates kept terminals. Nothing was sent.
+    Unsupported,
+    /// The supervisor refused: a program is still running.
+    Refused(String),
+    /// The relaunched launcher ended before admitting its launch, for example on a
+    /// resume refusal; `output` is the bounded tail it printed. The terminal is kept.
+    Exited { status: Exit, output: String },
+    /// The supervisor could not be reached or did not confirm; a program may
+    /// have started.
+    Unconfirmed(String),
+}
+
+/// Starts `program` on the kept terminal of a built-in member whose program ended.
+/// Support is decided from the supervisor's capabilities before anything is sent;
+/// a closed connection is a transport error, never a capability answer. A shell is
+/// confirmed once started; an agent launcher once it admitted its launch, on the
+/// same connection, so no output it printed before ending can be missed. A launcher's
+/// answer is its committed binding marker; a shell has none.
+pub fn relaunch(
+    binding: &Binding,
+    kind: RelaunchKind,
+    program: Vec<String>,
+) -> Result<Option<String>, RelaunchError> {
+    let deadline = Instant::now() + BUDGET;
+    let (socket, pane) = (&binding.server.socket_path, &binding.pane_id);
+    let unconfirmed = |cause: &dyn std::fmt::Display| RelaunchError::Unconfirmed(cause.to_string());
+    let granted = call(socket, pane, Control::Capabilities, deadline)
+        .and_then(capabilities)
+        .map_err(|cause| unconfirmed(&cause))?;
+    if !granted.relaunch {
+        return Err(RelaunchError::Unsupported);
+    }
+    let mut client = connection(socket, pane, deadline).map_err(|cause| unconfirmed(&cause))?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    match client.control(Control::Relaunch { kind, program }, left) {
+        Ok(ControlReply::Applied(true)) => {}
+        Ok(ControlReply::Error(reason)) => return Err(RelaunchError::Refused(reason)),
+        Ok(other) => return Err(unconfirmed(&format!("unexpected answer {other:?}"))),
+        Err(cause) => return Err(unconfirmed(&cause)),
+    }
+    if kind == RelaunchKind::Shell {
+        return Ok(None);
+    }
+    match client.await_launch(RELAUNCH_WAIT) {
+        Ok(LaunchOutcome::Launched(marker)) => Ok(Some(marker)),
+        Ok(LaunchOutcome::Exited { status, output }) => {
+            Err(RelaunchError::Exited { status, output })
+        }
+        Err(cause) => Err(unconfirmed(&cause)),
+    }
+}
+
+/// Ends a built-in member's supervisor that keeps its terminal: `Close` hangs up
+/// whatever runs there and removes the socket and lock. A supervisor without the
+/// capability, or one that cannot be reached, is sent nothing; either way this
+/// then waits the bounded time for that exact supervisor incarnation to end.
+fn close_terminal<R: CommandRunner>(runner: &R, binding: &Binding) -> Result<(), ActionError> {
+    let deadline = Instant::now() + BUDGET;
+    let (socket, pane) = (&binding.server.socket_path, &binding.pane_id);
+    let closable = call(socket, pane, Control::Capabilities, deadline)
+        .and_then(capabilities)
+        .is_ok_and(|granted| granted.close)
+        // The socket names one member forever; the PID check keeps a stale
+        // binding from closing whatever answers there now.
+        && state(socket, pane, deadline)
+            .is_ok_and(|state| state.server_pid == binding.server.server_pid);
+    if closable {
+        // A lost reply is not a failure here: the wait below decides.
+        let _ = call(socket, pane, Control::Close, deadline);
+    }
+    wait_for_supervisor_end(
+        runner,
+        binding.server.server_pid,
+        &binding.server.server_start_time,
+        CLOSE_WAIT,
+    )
+}
+
+/// Closes the kept terminal of a built-in member that was just removed, so no
+/// supervisor outlives its identity. Advisory: the removal stands either way.
+pub(crate) fn close_removed(binding: &Binding) -> Result<(), ActionError> {
+    if binding.server.host != HostKind::pty() {
+        return Ok(());
+    }
+    close_terminal(&crate::process::UnixCommandRunner, binding)
 }
 
 fn verify_pair<R: CommandRunner>(
@@ -236,6 +383,11 @@ pub(super) fn caller<R: CommandRunner>(
         .and_then(|v| v.to_str())
         .ok_or_else(|| error("the caller socket locator is missing"))?;
     let observed = state(socket, pane, deadline)?;
+    // A kept terminal with no member program (ended, or a relaunched shell) has
+    // no member process for a caller to descend from.
+    if !observed.program_running() {
+        return Ok(None);
+    }
     verify_pair(runner, &observed, deadline)?;
     let owned;
     let chain = match pinned {
@@ -303,7 +455,9 @@ pub(super) fn target_exists<R: CommandRunner>(
         return Ok(false);
     }
     let answer = state(socket, pane, deadline)?;
-    verify_pair(runner, &answer, deadline)?;
+    if answer.program_running() {
+        verify_pair(runner, &answer, deadline)?;
+    }
     Ok(true)
 }
 
@@ -315,14 +469,21 @@ pub(super) fn resolve<R: CommandRunner, I: HostServerIds>(
     deadline: Instant,
 ) -> Result<ServerEvidence, HostError> {
     let answer = state(socket, pane, deadline)?;
-    verify_pair(runner, &answer, deadline)?;
+    let running = answer.program_running();
+    if running {
+        verify_pair(runner, &answer, deadline)?;
+    }
+    let pids = if running {
+        vec![answer.server_pid, answer.pane_pid]
+    } else {
+        vec![answer.server_pid]
+    };
     let mut starts =
-        runtime::observe_starts(runner, &[answer.server_pid, answer.pane_pid], deadline)
-            .map_err(HostError::Process)?;
+        runtime::observe_starts(runner, &pids, deadline).map_err(HostError::Process)?;
     let supervisor = starts
         .remove(&answer.server_pid)
         .ok_or_else(|| error("the supervisor process is unverified"))?;
-    if !starts.contains_key(&answer.pane_pid) {
+    if running && !starts.contains_key(&answer.pane_pid) {
         return Err(error("the pane process is unverified"));
     }
     let server_id = ids
@@ -402,7 +563,10 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
         panes: &[String],
         answer: State,
     ) -> Result<EndpointSnapshot, HostError> {
-        verify_pair(self.runner, &answer, self.deadline)?;
+        let running = answer.program_running();
+        if running {
+            verify_pair(self.runner, &answer, self.deadline)?;
+        }
         // The member's live directory, as tmux reports a pane's: display and skill roots
         // only, never authority or a binding fence. It is read before the start observation
         // below, so a member whose start that observation finds was alive, and owned the pid,
@@ -410,13 +574,15 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
         // which fails the binding fence that every trusting reader checks. Doubt is `None`.
         let cwd = i32::try_from(answer.pane_pid)
             .ok()
+            .filter(|_| running)
             .and_then(tmt_sys::process_cwd);
-        let starts = runtime::observe_starts(
-            self.runner,
-            &[answer.server_pid, answer.pane_pid],
-            self.deadline,
-        )
-        .map_err(HostError::Process)?;
+        let pids = if running {
+            vec![answer.server_pid, answer.pane_pid]
+        } else {
+            vec![answer.server_pid]
+        };
+        let starts = runtime::observe_starts(self.runner, &pids, self.deadline)
+            .map_err(HostError::Process)?;
         if answer.server_pid != server.server_pid
             || !starts
                 .get(&answer.server_pid)
@@ -426,16 +592,29 @@ impl<R: CommandRunner> PtyDriver<'_, R> {
         }
         let mut found = Vec::new();
         if panes.is_empty() || panes.iter().any(|id| id == pane) {
-            let incarnation = starts
-                .get(&answer.pane_pid)
-                .ok_or_else(|| error("the pane process is unverified"))?;
+            // A kept terminal's pane has no live process: its incarnation is
+            // unknown, which leaves the PID and the supervisor's marker to decide
+            // (`evaluate_binding`), so the member's binding stays Active. The
+            // marker is the one the ended program published, or none after an
+            // agent relaunch, whose launcher publishes its own.
+            let incarnation = if running {
+                Some(
+                    starts
+                        .get(&answer.pane_pid)
+                        .ok_or_else(|| error("the pane process is unverified"))?
+                        .start_identity()
+                        .into(),
+                )
+            } else {
+                None
+            };
             found.push(PaneObservation {
                 id: pane.into(),
                 target: None,
                 cwd,
                 command: String::new(),
                 pane_pid: answer.pane_pid,
-                pane_incarnation: Some(incarnation.start_identity().into()),
+                pane_incarnation: incarnation,
                 suggested_name: None,
                 marker: answer.marker,
                 location: Some(PaneLocation {
@@ -763,18 +942,14 @@ impl<R: CommandRunner> HostDriver for PtyDriver<'_, R> {
             binding.server.host == HostKind::pty() && HostKind::pty().is_pane_id(&binding.pane_id),
         ))
     }
-    /// Closing a built-in member means its program has exited and its supervisor has ended and
-    /// removed its socket and lock. Nothing is signalled and no control is sent: the verified
-    /// stop already ended the agent, and a supervisor ends by itself with its program. This waits
-    /// a bounded time for that exact supervisor incarnation to be gone, and refuses while its
-    /// program still runs.
+    /// Closing a built-in member means its supervisor has ended and removed its socket and
+    /// lock. A supervisor that keeps its terminal is sent `Close`, which hangs up whatever
+    /// still runs there (a shell, or a program the stop left), as closing a tmux pane does.
+    /// An older one ends by itself with its program and is sent nothing. Either way this waits
+    /// a bounded time for that exact supervisor incarnation to be gone, and refuses while an
+    /// older supervisor's program still runs.
     fn close_pane(&mut self, binding: &Binding) -> Result<(), ActionError> {
-        wait_for_supervisor_end(
-            self.runner,
-            binding.server.server_pid,
-            &binding.server.server_start_time,
-            CLOSE_WAIT,
-        )
+        close_terminal(self.runner, binding)
     }
     fn name_agent(&mut self, _: &Binding, _: &str) -> Result<AgentNaming, HostError> {
         Ok(AgentNaming::NotLinked)
@@ -881,6 +1056,8 @@ mod tests {
             marker: None,
             idle: None,
             paused: false,
+            ended: None,
+            shell: false,
         };
         let runner = Counting {
             calls: Default::default(),
@@ -1015,6 +1192,8 @@ mod tests {
                             key_idle_ms: None,
                             marker: marker.clone(),
                             paused: false,
+                            ended: None,
+                            shell: false,
                         }
                     }
                     ClientMessage::Control(Control::Publish {
@@ -1176,7 +1355,11 @@ mod tests {
         let (_root, binding, handle) = fake_supervisor(
             |request| {
                 Some(match request {
-                    Control::Capabilities => ControlReply::Capabilities { resume: true },
+                    Control::Capabilities => ControlReply::Capabilities {
+                        resume: true,
+                        relaunch: false,
+                        close: false,
+                    },
                     Control::Resume => ControlReply::Applied(true),
                     other => panic!("unexpected {other:?}"),
                 })
@@ -1190,6 +1373,142 @@ mod tests {
         );
     }
 
+    const SHELL: RelaunchKind = RelaunchKind::Shell;
+
+    fn shell_program() -> Vec<String> {
+        vec!["/bin/sh".into(), "-l".into()]
+    }
+
+    #[test]
+    fn a_supervisor_without_the_relaunch_or_close_flags_is_sent_neither() {
+        // A supervisor from #5926 grants resume only; one from before answers Applied(true).
+        for old in [
+            ControlReply::Capabilities {
+                resume: true,
+                relaunch: false,
+                close: false,
+            },
+            ControlReply::Applied(true),
+        ] {
+            let answer = old.clone();
+            let (_root, binding, handle) = fake_supervisor(
+                move |request| match request {
+                    Control::Capabilities => Some(answer.clone()),
+                    other => panic!("sent {other:?} to a supervisor without relaunch"),
+                },
+                1,
+            );
+            assert!(matches!(
+                relaunch(&binding, SHELL, shell_program()),
+                Err(RelaunchError::Unsupported)
+            ));
+            assert_eq!(handle.join().unwrap(), vec![Control::Capabilities]);
+
+            let answer = old.clone();
+            let (_root, binding, handle) = fake_supervisor(
+                move |request| match request {
+                    Control::Capabilities => Some(answer.clone()),
+                    other => panic!("sent {other:?} to a supervisor without close"),
+                },
+                1,
+            );
+            // Its supervisor (PID 1 with another start) is not the binding's: the
+            // close waits for nothing and was sent nothing.
+            close_terminal(&UnixCommandRunner, &binding).unwrap();
+            assert_eq!(handle.join().unwrap(), vec![Control::Capabilities]);
+        }
+    }
+
+    #[test]
+    fn a_closed_capability_connection_never_relaunches() {
+        let (_root, binding, handle) = fake_supervisor(|_| None, 1);
+        assert!(matches!(
+            relaunch(&binding, SHELL, shell_program()),
+            Err(RelaunchError::Unconfirmed(_))
+        ));
+        assert_eq!(handle.join().unwrap(), vec![Control::Capabilities]);
+    }
+
+    fn granting(request: &Control, relaunch: ControlReply) -> Option<ControlReply> {
+        Some(match request {
+            Control::Capabilities => ControlReply::Capabilities {
+                resume: true,
+                relaunch: true,
+                close: true,
+            },
+            Control::Relaunch { .. } => relaunch,
+            Control::Inspect => ControlReply::State {
+                supervisor_pid: 1,
+                pane_pid: 2,
+                key_idle_ms: None,
+                marker: None,
+                paused: false,
+                ended: Some(Exit::Code(0)),
+                shell: false,
+            },
+            Control::Close => ControlReply::Applied(true),
+            other => panic!("unexpected {other:?}"),
+        })
+    }
+
+    #[test]
+    fn a_granting_supervisor_is_sent_relaunch_and_its_refusal_is_returned() {
+        let (_root, binding, handle) =
+            fake_supervisor(|request| granting(request, ControlReply::Applied(true)), 2);
+        relaunch(&binding, SHELL, shell_program()).unwrap();
+        assert_eq!(
+            handle.join().unwrap(),
+            vec![
+                Control::Capabilities,
+                Control::Relaunch {
+                    kind: SHELL,
+                    program: shell_program()
+                }
+            ]
+        );
+        let refused = "the shell is still running; exit it first";
+        let (_root, binding, handle) = fake_supervisor(
+            move |request| granting(request, ControlReply::Error(refused.into())),
+            2,
+        );
+        assert!(matches!(
+            relaunch(&binding, SHELL, shell_program()),
+            Err(RelaunchError::Refused(reason)) if reason == refused
+        ));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn a_granting_supervisor_of_the_binding_is_sent_close() {
+        let (_root, binding, handle) =
+            fake_supervisor(|request| granting(request, ControlReply::Applied(false)), 3);
+        close_terminal(&UnixCommandRunner, &binding).unwrap();
+        assert_eq!(
+            handle.join().unwrap(),
+            vec![Control::Capabilities, Control::Inspect, Control::Close]
+        );
+    }
+
+    #[test]
+    fn a_kept_terminal_decodes_as_a_member_program_that_is_not_running() {
+        let state = |ended, shell| {
+            decode_state(ControlReply::State {
+                supervisor_pid: 1,
+                pane_pid: 2,
+                key_idle_ms: None,
+                marker: None,
+                paused: false,
+                ended,
+                shell,
+            })
+            .unwrap()
+            .program_running()
+        };
+        assert!(state(None, false));
+        assert!(!state(Some(Exit::Signal(2)), false));
+        assert!(!state(None, true));
+    }
+
     #[test]
     fn a_state_from_a_supervisor_before_pausing_decodes_as_not_paused() {
         let legacy = ControlReply::State {
@@ -1198,6 +1517,8 @@ mod tests {
             key_idle_ms: None,
             marker: None,
             paused: false,
+            ended: None,
+            shell: false,
         };
         assert!(!decode_state(legacy).unwrap().paused);
         let paused = ControlReply::State {
@@ -1206,6 +1527,8 @@ mod tests {
             key_idle_ms: None,
             marker: None,
             paused: true,
+            ended: None,
+            shell: false,
         };
         assert!(decode_state(paused).unwrap().paused);
     }

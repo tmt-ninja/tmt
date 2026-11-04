@@ -66,6 +66,7 @@ const OPS: &[&str] = &[
     "pane.screen",
     "terminal.stream",
     "terminal.resume",
+    "terminal.relaunch",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -243,6 +244,11 @@ pub enum Request {
     /// Continues a built-in member stopped by job control.
     TerminalResume {
         identity_id: String,
+    },
+    /// Starts a program on an ended built-in member's kept terminal.
+    TerminalRelaunch {
+        identity_id: String,
+        kind: crate::pty::protocol::RelaunchKind,
     },
     ConsumptionHistory {
         identities: Vec<String>,
@@ -445,6 +451,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "pane.screen" => pane::decode(input)?,
         "terminal.stream" => terminal::decode(input)?,
         "terminal.resume" => terminal::decode_resume(input)?,
+        "terminal.relaunch" => terminal::decode_relaunch(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -643,6 +650,9 @@ impl Session {
             } => agent_skills::list(paths, storage, &identity_id, if_stamp.as_deref()),
             Request::TerminalStream { identity_id } => terminal::stream(storage, &identity_id),
             Request::TerminalResume { identity_id } => terminal::resume(storage, &identity_id),
+            Request::TerminalRelaunch { identity_id, kind } => {
+                terminal::relaunch(storage, &identity_id, kind)
+            }
             Request::ConsumptionHistory {
                 identities,
                 windows,

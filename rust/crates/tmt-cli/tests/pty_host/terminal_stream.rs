@@ -181,14 +181,16 @@ done"#;
             unexpected => panic!("expected the exit: {unexpected:?}"),
         }
     }
-    // Once the member has ended there is nothing to connect to, and Core says so.
+    // The member's terminal is kept after its program ends: the view stays connected and
+    // Core still publishes the same stream, now saying how the program ended (#5988).
     let deadline = Instant::now() + WAIT;
     loop {
         let after = api(&world, &identity);
-        if after["error"]["code"] == "TERMINAL_STREAM_UNAVAILABLE" {
+        if after["ended"] == serde_json::json!({"code": 0}) {
+            assert_eq!(after["socket"], found["socket"], "{after}");
             break;
         }
-        assert!(Instant::now() < deadline, "still published: {after}");
+        assert!(Instant::now() < deadline, "never reported ended: {after}");
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(world.clean());

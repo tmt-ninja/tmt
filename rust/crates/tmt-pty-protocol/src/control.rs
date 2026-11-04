@@ -1,7 +1,7 @@
 //! Core-internal controls, on the supervisor socket at protocol version 1.
 //! These kinds are separate from the attach stream; they are not its public API.
 
-use crate::{Frame, MAX_PAYLOAD, ProtocolError};
+use crate::{Exit, Frame, MAX_PAYLOAD, ProtocolError};
 
 const INSPECT: u8 = 0x20;
 const PUBLISH: u8 = 0x21;
@@ -15,6 +15,8 @@ const WAIT_LAUNCHER: u8 = 0x28;
 const PUBLISH_IF: u8 = 0x29;
 const CAPABILITIES: u8 = 0x2a;
 const RESUME: u8 = 0x2b;
+const RELAUNCH: u8 = 0x2c;
+const CLOSE: u8 = 0x2d;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
@@ -23,6 +25,13 @@ const LAUNCHED: u8 = 0xa4;
 const CAPABILITY_FLAGS: u8 = 0xa5;
 /// Bit 0 of the capability flags: the supervisor answers `Control::Resume`.
 const RESUME_FLAG: u8 = 0x01;
+/// Bit 1: the supervisor keeps its terminal after the program ends and answers
+/// `Control::Relaunch`.
+const RELAUNCH_FLAG: u8 = 0x02;
+/// Bit 2: the supervisor answers `Control::Close`.
+const CLOSE_FLAG: u8 = 0x04;
+/// At most this many program words in one relaunch.
+const PROGRAM_WORDS: usize = 256;
 const KEY_LIMIT: usize = 128;
 const MARKER_LIMIT: usize = 2048;
 
@@ -64,6 +73,34 @@ pub enum Control {
     /// Continue a member stopped by job control. Idempotent; a supervisor
     /// that predates it closes the connection on the unknown kind.
     Resume,
+    /// Start a new program on the kept terminal of a member whose program has
+    /// ended. Refused while a program runs; `kind` is recorded, not interpreted.
+    Relaunch {
+        kind: RelaunchKind,
+        program: Vec<String>,
+    },
+    /// End the supervisor: hang up a running program, tell clients, remove the
+    /// socket and lock. Idempotent from Core's side.
+    Close,
+}
+
+/// What a relaunch starts. Only `Shell` changes what the supervisor reports:
+/// a shell is not the member's agent, so it never takes the member's pane PID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelaunchKind {
+    Resume,
+    New,
+    Shell,
+}
+
+impl RelaunchKind {
+    fn byte(self) -> u8 {
+        match self {
+            Self::Resume => 0,
+            Self::New => 1,
+            Self::Shell => 2,
+        }
+    }
 }
 
 /// A reply to the one outstanding control on a connection. Output can precede it.
@@ -77,6 +114,12 @@ pub enum ControlReply {
         /// The member is stopped by job control. One trailing byte; a payload
         /// from a supervisor that predates it omits the byte and reads as false.
         paused: bool,
+        /// How the member's program ended, while no program runs on the kept
+        /// terminal. With `shell`, a trailing group of six bytes that older
+        /// supervisors omit (read as none and false).
+        ended: Option<Exit>,
+        /// A relaunched shell, not the member's agent, holds the terminal.
+        shell: bool,
     },
     Applied(bool),
     Screen(String),
@@ -88,6 +131,8 @@ pub enum ControlReply {
     /// ignored on read so later controls can add bits.
     Capabilities {
         resume: bool,
+        relaunch: bool,
+        close: bool,
     },
 }
 
@@ -146,6 +191,8 @@ impl Frame for Control {
             Self::WaitLauncher => WAIT_LAUNCHER,
             Self::LaunchReady { .. } => LAUNCH_READY,
             Self::Resume => RESUME,
+            Self::Relaunch { .. } => RELAUNCH,
+            Self::Close => CLOSE,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -173,13 +220,25 @@ impl Frame for Control {
             Self::Clear { key } => put(out, key),
             Self::Paste(bytes) => out.extend_from_slice(bytes),
             Self::LaunchReady { pane_pid } => out.extend_from_slice(&pane_pid.to_be_bytes()),
+            Self::Relaunch { kind, program } => {
+                out.push(kind.byte());
+                out.extend_from_slice(
+                    &u16::try_from(program.len())
+                        .expect("bounded program words")
+                        .to_be_bytes(),
+                );
+                for word in program {
+                    put(out, word);
+                }
+            }
             Self::Inspect
             | Self::Capabilities
             | Self::Capture
             | Self::Enter
             | Self::AwaitLaunch
             | Self::WaitLauncher
-            | Self::Resume => {}
+            | Self::Resume
+            | Self::Close => {}
         }
     }
     fn read(kind: u8, mut bytes: &[u8]) -> Result<Self, ProtocolError> {
@@ -191,6 +250,27 @@ impl Frame for Control {
             AWAIT_LAUNCH => Self::AwaitLaunch,
             WAIT_LAUNCHER => Self::WaitLauncher,
             RESUME => Self::Resume,
+            CLOSE => Self::Close,
+            RELAUNCH => {
+                let kind = match take(&mut bytes, 1)? {
+                    [0] => RelaunchKind::Resume,
+                    [1] => RelaunchKind::New,
+                    [2] => RelaunchKind::Shell,
+                    _ => return Err(malformed()),
+                };
+                let count = u16::from_be_bytes(take(&mut bytes, 2)?.try_into().unwrap()) as usize;
+                if count == 0 || count > PROGRAM_WORDS {
+                    return Err(malformed());
+                }
+                let mut program = Vec::with_capacity(count);
+                for _ in 0..count {
+                    program.push(string(&mut bytes, MAX_PAYLOAD)?);
+                }
+                if program[0].is_empty() {
+                    return Err(malformed());
+                }
+                Self::Relaunch { kind, program }
+            }
             LAUNCH_READY => {
                 let pane_pid = u32::from_be_bytes(take(&mut bytes, 4)?.try_into().unwrap());
                 if pane_pid == 0 {
@@ -257,15 +337,38 @@ impl Frame for ControlReply {
                 key_idle_ms,
                 marker,
                 paused,
+                ended,
+                shell,
             } => {
                 out.extend_from_slice(&supervisor_pid.to_be_bytes());
                 out.extend_from_slice(&pane_pid.to_be_bytes());
                 out.extend_from_slice(&key_idle_ms.unwrap_or(u64::MAX).to_be_bytes());
                 put(out, marker.as_deref().unwrap_or(""));
                 out.push(u8::from(*paused));
+                let (tag, value) = match ended {
+                    None => (0u8, 0),
+                    Some(Exit::Code(code)) => (1, *code),
+                    Some(Exit::Signal(signal)) => (2, *signal),
+                };
+                out.push(tag);
+                out.extend_from_slice(&value.to_be_bytes());
+                out.push(u8::from(*shell));
             }
             Self::Applied(value) => out.push(u8::from(*value)),
-            Self::Capabilities { resume } => out.push(if *resume { RESUME_FLAG } else { 0 }),
+            Self::Capabilities {
+                resume,
+                relaunch,
+                close,
+            } => out.push(
+                [
+                    (resume, RESUME_FLAG),
+                    (relaunch, RELAUNCH_FLAG),
+                    (close, CLOSE_FLAG),
+                ]
+                .into_iter()
+                .filter(|(granted, _)| **granted)
+                .fold(0, |flags, (_, bit)| flags | bit),
+            ),
             Self::Screen(text) | Self::Error(text) | Self::Launched(text) => {
                 out.extend_from_slice(text.as_bytes())
             }
@@ -281,10 +384,25 @@ impl Frame for ControlReply {
                 }
                 let idle = u64::from_be_bytes(take(&mut bytes, 8)?.try_into().unwrap());
                 let marker = string(&mut bytes, MARKER_LIMIT)?;
-                let paused = match bytes {
-                    [] => false,
-                    [0] => false,
-                    [1] => true,
+                // Each later field is a trailing group an older supervisor omits.
+                let flag = |byte: u8| match byte {
+                    0 => Ok(false),
+                    1 => Ok(true),
+                    _ => Err(malformed()),
+                };
+                let (paused, ended, shell) = match bytes {
+                    [] => (false, None, false),
+                    [paused] => (flag(*paused)?, None, false),
+                    [paused, tag, a, b, c, d, shell] => {
+                        let value = i32::from_be_bytes([*a, *b, *c, *d]);
+                        let ended = match (tag, value) {
+                            (0, 0) => None,
+                            (1, code) => Some(Exit::Code(code)),
+                            (2, signal) => Some(Exit::Signal(signal)),
+                            _ => return Err(malformed()),
+                        };
+                        (flag(*paused)?, ended, flag(*shell)?)
+                    }
                     _ => return Err(malformed()),
                 };
                 bytes = &[];
@@ -294,6 +412,8 @@ impl Frame for ControlReply {
                     key_idle_ms: (idle != u64::MAX).then_some(idle),
                     marker: (!marker.is_empty()).then_some(marker),
                     paused,
+                    ended,
+                    shell,
                 }
             }
             APPLIED => {
@@ -310,6 +430,8 @@ impl Frame for ControlReply {
                 };
                 Self::Capabilities {
                     resume: flags & RESUME_FLAG != 0,
+                    relaunch: flags & RELAUNCH_FLAG != 0,
+                    close: flags & CLOSE_FLAG != 0,
                 }
             }
             LAUNCHED => {

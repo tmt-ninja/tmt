@@ -151,6 +151,7 @@ remain independent of storage access.
 | `pane.screen`            | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                                                                               |
 | `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `socket`, `pane`, `paused`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                     |
 | `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
+| `terminal.relaunch`      | `identityId` (canonical UUID), `kind`: `resume`, `new` or `shell`                                                                                   | `identityId`, `relaunched`: starts a program on the kept terminal of a built-in-host member whose program ended (see [below](#relaunch-on-a-kept-terminal))                                                                             |
 | `dispatch.show`          | `operationId`                                                                                                                                       | Immutable acceptance receipt                                                                                                                                                                                                            |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                                                                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                                                                                      |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                                                                               | Room resource                                                                                                                                                                                                                           |
@@ -173,7 +174,7 @@ remain independent of storage access.
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                                                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
 | `identity.stop`          | `identityId` (canonical UUID), `expectedName`, `close` (bool)                                                                                       | `outcome`: `stopped`, `already-ended`, `not-running`, `conflict` or `not-found`; with `close`, `pane`: `closed`, `gone` or `kept` (see [below](#verified-stop-and-identity-remove))                                                     |
 | `identity.remove`        | `identityId` (canonical UUID), `expectedName`                                                                                                       | `outcome`: `removed`, `conflict` or `not-found`; refuses `AGENT_RUNNING` (see [below](#verified-stop-and-identity-remove))                                                                                                              |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)) and `paused` when stopped by job control                                        |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)), `paused`, `ended` and `foreground` as for `terminal.stream`                    |
 | `extensions.uses`        | `extension`, `feature`                                                                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                                                                            |
 
 `storage.root` reports the data directory selected by the invoking core, including
@@ -428,14 +429,17 @@ the member's Unix socket and `pane` its pane ID. The path layout is not part of 
 a client connects to the `socket` it is given. `paused` is `true` while the member is
 stopped by job control (Ctrl-Z, `SIGSTOP`), as its supervisor last observed it (within
 about 200 ms); a supervisor from before this field reports `false`. Ctrl-Z typed into the
-stream is passed to the terminal like any key.
+stream is passed to the terminal like any key. Two keys are present only in their state.
+`ended` is `{code}` or `{signal}`: the member's program ended and nothing runs on its kept
+terminal. `foreground` is `"shell"` while a relaunched login shell runs there.
 
 Core checks the identity's recorded binding against fresh host evidence first, as
 `pane.screen` does, and a read opens no connection, starts or wakes nothing and types
 nothing. Access to the socket is unchanged: it is owner-only and local. Errors use the
 existing envelope with exit 1. `NAME_NOT_FOUND` is an unknown or retired UUID.
 `TERMINAL_STREAM_UNAVAILABLE` is an identity that has no binding, a binding on another
-host, or a member whose supervisor is gone. `API_UNAVAILABLE` is host evidence that
+host, or a member whose supervisor is gone. A member whose program ended keeps its
+terminal and binding, so its stream stays available. `API_UNAVAILABLE` is host evidence that
 could not be read. Callers read `capabilities` first; if `terminal.stream` is absent the
 view is unavailable.
 
@@ -451,6 +455,32 @@ another host is `TERMINAL_RESUME_UNSUPPORTED`. Core asks the supervisor's capabi
 before sending anything: a supervisor started by an older tmt cannot resume and is
 `TERMINAL_RESUME_UNSUPPORTED` with the advice to restart the member. A supervisor that
 cannot be reached or does not confirm is `API_UNAVAILABLE`; the member may still be paused.
+
+### Relaunch on a kept terminal
+
+A built-in-host member's terminal belongs to the member, not to one run of its program:
+when the program ends, its supervisor keeps the terminal, screen and binding until the
+member is closed (`identity.stop` with `close`, `identity.remove`, `tmt rm`), and
+`terminal.stream` reports `ended`. `terminal.relaunch` takes `{identityId, kind}` and
+starts a program there, under the same binding:
+
+- `resume` and `new` run, inside the terminal, the launcher that `tmt resume -- <id>` and
+  `tmt resume --new -- <id>` run in a new supervisor, with the member's original launch
+  environment. Its refusals, session selection and learning are `tmt resume`'s own. The
+  answer `{identityId, relaunched}` comes once the launch is admitted.
+- `shell` runs the user's login shell (`$SHELL -l`, else `/bin/sh -l`) in the member's
+  launch directory. It is no agent: `foreground` is `"shell"`, the session stays ended,
+  and delivery is refused as for any ended agent.
+
+Core checks the binding as `terminal.stream` does (`NAME_NOT_FOUND`,
+`TERMINAL_STREAM_UNAVAILABLE`), then the supervisor's capabilities before sending
+anything. Another host, or a supervisor started by an older tmt (which ends with its
+program as before), is `TERMINAL_RELAUNCH_UNSUPPORTED`. A program still running is
+`TERMINAL_RELAUNCH_REFUSED` ("the program is still running; exit it first", or "the shell
+is still running; exit it first"). A launcher that ends before admitting its launch, such
+as a resume refusal or a missing session, is `TERMINAL_RELAUNCH_FAILED` with its exit and
+its last lines; the terminal is kept. `TERMINAL_RELAUNCH_UNCONFIRMED` means the supervisor
+did not confirm, and a program may have started.
 
 ## Conditional identity rename
 
@@ -1203,7 +1233,8 @@ refused). The set is open: treat an unknown reason as unavailable. It is a hint,
 lease: the send verifies the pane again. A built-in member stopped by job control also
 carries `paused: true`, read fresh from its supervisor; the key is absent otherwise, and
 delivery to it is refused with `MEMBER_PAUSED` until
-[`terminal.resume`](#resume-a-paused-member) continues it. Whether the answer can be captured is not part
+[`terminal.resume`](#resume-a-paused-member) continues it. `ended` and `foreground` follow
+[`terminal.stream`](#terminal-stream). Whether the answer can be captured is not part
 of it; without the turn-end hook the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion

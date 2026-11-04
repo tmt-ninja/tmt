@@ -328,6 +328,13 @@ fn live_builtin_members(paths: &ConfigPaths, deadline: Instant) -> io::Result<Ve
         if Instant::now() >= deadline {
             break;
         }
+        // A kept terminal whose agent ended (or that runs a relaunched shell) is no
+        // running member: restore brings back only agents that were running (#5988).
+        if crate::host::member_terminal(binding)
+            .is_some_and(|terminal| terminal.ended.is_some() || terminal.shell)
+        {
+            continue;
+        }
         let Ok(snapshot) = Host::for_server(&binding.server).observe_snapshot(OperationOptions {
             deadline: Some(deadline),
             pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
