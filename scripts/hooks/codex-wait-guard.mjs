@@ -783,7 +783,7 @@ async function main() {
   const seat = whoami();
   const started = Date.now();
   const content = { tool, input: redact(before ?? command).slice(0, INPUT_CHARS) };
-  if (before !== null) content.then = 'the call then starts scripts/ci-wake.sh, which is allowed';
+  if (before !== null) content.next = 'the call then starts scripts/ci-wake.sh, which is allowed';
   const judged = before === null ? scripts : readScripts(payload.cwd, before);
   if (judged.length > 0) {
     content.scripts = judged.map((script) => ({

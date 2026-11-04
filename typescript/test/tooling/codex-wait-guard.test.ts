@@ -440,7 +440,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(sent(0)).toEqual({
       tool: 'Bash',
       input: 'apply-edits && git commit -qam fix && git push -q && gh pr edit 6046 --body x',
-      then: 'the call then starts scripts/ci-wake.sh, which is allowed',
+      next: 'the call then starts scripts/ci-wake.sh, which is allowed',
     });
     expect(sent(1)).toMatchObject({ input: 'cargo build' });
     // The waiter's own polling loop is not sent with the rest.
