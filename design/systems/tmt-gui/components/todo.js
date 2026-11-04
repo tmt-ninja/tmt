@@ -1,12 +1,29 @@
 // Ports browser-ui's TodoBlock (#5981): plain JavaScript and htm on the skeleton (React, html, cn).
-// The compiler checks every example draws like the browser-ui part composed as `ui.compose` says; the part's classes are
-// plain names from src/blocks/blocks.css, so `classes` is filled but not read.
+// The compiler checks every example draws like the browser-ui part composed as `ui.compose` says. Its own
+// classes are plain names from src/blocks/blocks.css; `classes.slots.checkbox` is the ui Checkbox's,
+// drawn like the checkbox port with Radix's hidden form input after the control.
 export default ({ html }) => {
   const classes = /* classes */ null;
-  void classes;
   return function TodoBlock({ checked, assignee, due, overdue, children }) {
     return html`<div data-slot="todo" className="tmt-block-todo" data-checked=${checked ? '' : undefined} data-overdue=${overdue ? '' : undefined}>
-      <input type="checkbox" className="tmt-ui-checkbox" checked=${Boolean(checked)} readOnly aria-label=${typeof children === 'string' ? children : undefined} />
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked=${Boolean(checked)}
+        aria-label=${typeof children === 'string' ? children : undefined}
+        data-state=${checked ? 'checked' : 'unchecked'}
+        value="on"
+        data-slot="checkbox"
+        className=${classes.slots.checkbox}
+      ></button><input
+        type="checkbox"
+        aria-hidden="true"
+        tabIndex="-1"
+        style=${{ position: 'absolute', pointerEvents: 'none', opacity: 0, margin: 0, transform: 'translateX(-100%)' }}
+        checked=${Boolean(checked)}
+        readOnly
+        value="on"
+      />
       <span className="tmt-block-todo-text">${children}</span>
       ${(assignee !== undefined || due !== undefined) &&
       html`<span className="tmt-block-todo-meta">${assignee}${due !== undefined && html`<span className="tmt-block-todo-due">${due}</span>`}</span>`}

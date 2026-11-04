@@ -1,11 +1,11 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
+import { Checkbox } from '../ui/index.js';
 import './blocks.css';
 
-// The entry is its own graph (no imports from the root leaf), so it draws the shared static
-// checkbox, table, notice and command by their stable class names, as the tmt GUI ports do.
+// The entry reaches only ./ui. The static table, tinted notice and command exist only in the root
+// graph, so it draws them by their stable class names, as the tmt GUI ports do (#6032 review).
 const c = {
-  checkbox: 'tmt-ui-checkbox',
   table: 'tmt-ui-table',
   notice: 'tmt-ui-notice',
   noticeEyebrow: 'tmt-ui-notice-eyebrow',
@@ -128,12 +128,9 @@ export function TodoBlock({
       data-overdue={overdue ? '' : undefined}
       style={indent ? ({ '--tmt-block-indent': indent } as CSSProperties) : undefined}
     >
-      <input
-        type="checkbox"
-        className={c.checkbox}
+      <Checkbox
         checked={checked}
-        readOnly={!onCheckedChange}
-        onChange={(event) => onCheckedChange?.(event.target.checked)}
+        onCheckedChange={(next) => onCheckedChange?.(next === true)}
         aria-label={label ?? (typeof children === 'string' ? children : undefined)}
       />
       <span className="tmt-block-todo-text">{children}</span>

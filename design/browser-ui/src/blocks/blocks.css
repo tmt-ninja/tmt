@@ -291,7 +291,7 @@
   align-items: start;
   padding-inline-start: calc(var(--tmt-block-indent, 0) * 24px);
 }
-.tmt-block-todo .tmt-ui-checkbox {
+.tmt-block-todo [data-slot='checkbox'] {
   margin: 4px 0 0;
 }
 .tmt-block-todo-text {

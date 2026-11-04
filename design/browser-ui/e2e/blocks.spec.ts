@@ -182,7 +182,7 @@ test('only the card draws a frame among the content blocks', async ({ page }) =>
     await open(page, `part=${part}`);
     const framed = await page.locator('.tmt-block-doc [data-slot]').evaluateAll((all) =>
       all
-        .filter((element) => !['code-block'].includes(element.getAttribute('data-slot')!))
+        .filter((element) => !['code-block', 'checkbox'].includes(element.getAttribute('data-slot')!))
         .filter((element) => getComputedStyle(element).borderTopStyle !== 'none')
         .map((element) => element.getAttribute('data-slot')),
     );
