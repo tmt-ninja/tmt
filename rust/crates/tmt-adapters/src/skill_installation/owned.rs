@@ -912,6 +912,7 @@ pub(crate) fn published_sources(global: &Path) -> io::Result<Vec<PathBuf>> {
             sources.push(digest.to_path_buf());
         }
     }
+    sources.sort();
     sources.dedup();
     Ok(sources)
 }
