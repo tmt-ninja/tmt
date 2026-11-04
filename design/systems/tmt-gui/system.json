@@ -180,6 +180,12 @@
     },
     {
       "doc": "components/browser-tabs.json"
+    },
+    {
+      "doc": "components/select.json"
+    },
+    {
+      "doc": "components/tooltip.json"
     }
   ],
   "principles": {

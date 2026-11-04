@@ -449,3 +449,16 @@ export interface BrowserTabsProps {
   items?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-select>: props from its schema, slots as nodes. */
+export interface SelectProps {
+  label?: string;
+  items?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-tooltip>: props from its schema, slots as nodes. */
+export interface TooltipProps {
+  label?: string;
+  children?: ReactNode;
+}

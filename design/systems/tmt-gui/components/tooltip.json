@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "tooltip",
+  "source": "tooltip.js",
+  "props": {
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "button.css",
+  "uiParts": [
+    "UiTheme",
+    "TooltipProvider",
+    "Tooltip",
+    "TooltipTrigger",
+    "TooltipContent",
+    "Button"
+  ],
+  "examples": [
+    {
+      "title": "Tooltip",
+      "markup": "<tmt-ui-tooltip label=\"Help\">More information</tmt-ui-tooltip>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

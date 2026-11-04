@@ -5495,7 +5495,8 @@ browser-ui parts running on the page runtime's React. A component declares its n
 `PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
 `DropdownMenuItem`, `UiTheme`, `BrowserHeader`, `BrowserNotice`, `BrowserPager`, `BrowserList`,
 `BrowserChoice`, `BrowserMenu`, `BrowserIconAction`, `BrowserField`, `BrowserCountChip`,
-`BrowserTable`, `BrowserCommand` and `BrowserTabs`. Unknown, duplicate, undeclared,
+`BrowserTable`, `BrowserCommand`, `BrowserTabs`, `Select`, `SelectTrigger`, `SelectValue`,
+`SelectContent`, `SelectItem`, `TooltipProvider`, `Tooltip`, `TooltipTrigger` and `TooltipContent`. Unknown, duplicate, undeclared,
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.

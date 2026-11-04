@@ -215,6 +215,23 @@ test('Browser menu and pager tags respond to user input', async ({ page }) => {
   await expect(frame.getByRole('tab', { name: 'Active' })).toHaveAttribute('aria-selected', 'true');
 });
 
+test('Select and Tooltip tags open their real scoped layers', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-ds-scope>
+      <tmt-ui-select label="State" items="Ready,Draft"></tmt-ui-select>
+      <tmt-ui-tooltip label="Help">More information</tmt-ui-tooltip>
+    </tmt-ui-ds-scope>`,
+  );
+  const scope = frame.locator('[data-tmt-ds-scope]');
+  await scope.getByRole('combobox', { name: 'State' }).click();
+  await scope.getByRole('option', { name: 'Ready' }).click();
+  await expect(scope.getByRole('combobox', { name: 'State' })).toContainText('Ready');
+  await scope.getByRole('button', { name: 'Help' }).focus();
+  await expect(scope.getByRole('tooltip')).toContainText('More information');
+});
+
 test('a bundle that does not match the pin draws a notice instead', async ({ page }) => {
   const forged = { ...bundle, tokensCss: '' };
   const frame = await mount(

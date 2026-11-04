@@ -244,6 +244,7 @@ describe('template, publish and the renderer source', () => {
       'acme-popover',
       'acme-question-block',
       'acme-section',
+      'acme-select',
       'acme-separator',
       'acme-sheet',
       'acme-skeleton',
@@ -257,6 +258,7 @@ describe('template, publish and the renderer source', () => {
       'acme-textarea',
       'acme-todo',
       'acme-toggle',
+      'acme-tooltip',
       'acme-work-bundle',
     ]);
     expect(await bundleHash(bundle!)).toBe(release!.bundle);

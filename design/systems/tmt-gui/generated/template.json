@@ -262,6 +262,14 @@
    {
     "tag": "browser-tabs",
     "status": "stable"
+   },
+   {
+    "tag": "select",
+    "status": "stable"
+   },
+   {
+    "tag": "tooltip",
+    "status": "stable"
    }
   ]
  },
@@ -2597,6 +2605,75 @@
     }
    ],
    "source": "export default ({ React, ui }) => function Tabs({ label = 'Views', items = '', children }) {\n  const base = React.useId();\n  const tabs = items.split(',').map((item) => item.trim()).filter(Boolean)\n    .map((item, index) => ({ id: item, label: item, tabId: `${base}-tab-${index}`, panelId: `${base}-panel-${index}` }));\n  const [selected, setSelected] = React.useState(tabs[0]?.id ?? '');\n  return React.createElement(ui.BrowserTabs, { label, tabs, selected, onSelect: setSelected, children: () => children });\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "select",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "Select",
+    "SelectTrigger",
+    "SelectValue",
+    "SelectContent",
+    "SelectItem"
+   ],
+   "examples": [
+    {
+     "title": "Select",
+     "markup": "<tmt-ui-select label=\"State\" items=\"Ready,Draft\"></tmt-ui-select>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real Select and its parts.\nexport default ({ React, ui }) => function Select({ label = 'Select', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.UiTheme, null, h(ui.Select, null,\n    h(ui.SelectTrigger, { 'aria-label': label }, h(ui.SelectValue, { placeholder: label })),\n    h(ui.SelectContent, null, ...choices.map((item) => h(ui.SelectItem, { key: item, value: item }, item)))));\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "tooltip",
+   "props": {
+    "label": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "TooltipProvider",
+    "Tooltip",
+    "TooltipTrigger",
+    "TooltipContent",
+    "Button"
+   ],
+   "examples": [
+    {
+     "title": "Tooltip",
+     "markup": "<tmt-ui-tooltip label=\"Help\">More information</tmt-ui-tooltip>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// Runtime 4 supplies the real Tooltip and its originating theme.\nexport default ({ React, ui }) => function Tooltip({ label = 'Help', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.TooltipProvider, null, h(ui.Tooltip, null,\n    h(ui.TooltipTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.TooltipContent, null, children))));\n};\n",
    "css": ""
   }
  ]

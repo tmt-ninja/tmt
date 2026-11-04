@@ -1876,7 +1876,64 @@
    ],
    "css": "",
    "code": "return ({ React, ui }) => function Tabs({ label = 'Views', items = '', children }) {\n  const base = React.useId();\n  const tabs = items.split(',').map((item) => item.trim()).filter(Boolean)\n    .map((item, index) => ({ id: item, label: item, tabId: `${base}-tab-${index}`, panelId: `${base}-panel-${index}` }));\n  const [selected, setSelected] = React.useState(tabs[0]?.id ?? '');\n  return React.createElement(ui.BrowserTabs, { label, tabs, selected, onSelect: setSelected, children: () => children });\n};\n"
+  },
+  {
+   "tag": "tmt-ui-select",
+   "props": {
+    "label": {
+     "type": "string"
+    },
+    "items": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "Select",
+    "SelectTrigger",
+    "SelectValue",
+    "SelectContent",
+    "SelectItem"
+   ],
+   "examples": [
+    {
+     "title": "Select",
+     "markup": "<tmt-ui-select label=\"State\" items=\"Ready,Draft\"></tmt-ui-select>"
+    }
+   ],
+   "css": "",
+   "code": "// Runtime 4 supplies the real Select and its parts.\nreturn ({ React, ui }) => function Select({ label = 'Select', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.UiTheme, null, h(ui.Select, null,\n    h(ui.SelectTrigger, { 'aria-label': label }, h(ui.SelectValue, { placeholder: label })),\n    h(ui.SelectContent, null, ...choices.map((item) => h(ui.SelectItem, { key: item, value: item }, item)))));\n};\n"
+  },
+  {
+   "tag": "tmt-ui-tooltip",
+   "props": {
+    "label": {
+     "type": "string"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "UiTheme",
+    "TooltipProvider",
+    "Tooltip",
+    "TooltipTrigger",
+    "TooltipContent",
+    "Button"
+   ],
+   "examples": [
+    {
+     "title": "Tooltip",
+     "markup": "<tmt-ui-tooltip label=\"Help\">More information</tmt-ui-tooltip>"
+    }
+   ],
+   "css": "",
+   "code": "// Runtime 4 supplies the real Tooltip and its originating theme.\nreturn ({ React, ui }) => function Tooltip({ label = 'Help', children }) {\n  const h = React.createElement;\n  return h(ui.UiTheme, null, h(ui.TooltipProvider, null, h(ui.Tooltip, null,\n    h(ui.TooltipTrigger, { asChild: true }, h(ui.Button, { variant: 'outline' }, label)),\n    h(ui.TooltipContent, null, children))));\n};\n"
   }
  ],
- "hash": "sha256-7d81de740bf1d20b6a9e4fe5062d8773a7fcd7cb45102abc7601ec907734fe08"
+ "hash": "sha256-a8ca273c79d35974f004c0cd0e66dc40d938c9acef6aae949b914421e0a4cc3a"
 }

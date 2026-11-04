@@ -135,6 +135,8 @@ describe('buildBundle', () => {
       'tmt-ui-table',
       'tmt-ui-browser-command',
       'tmt-ui-browser-tabs',
+      'tmt-ui-select',
+      'tmt-ui-tooltip',
     ]);
   });
 
