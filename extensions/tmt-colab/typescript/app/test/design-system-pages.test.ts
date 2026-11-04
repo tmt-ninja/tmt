@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { DesignSystemConfig } from '../../../../../design/systems/compiler.mjs';
-import { bundleHash } from '../src/design-system.js';
+import { bundleHash, DesignDraftError, noticeFrame } from '../src/design-system.js';
 import {
   adoptDesignSystem,
   createDesignSystem,
   DESIGN_PROJECT,
   listDesignSystems,
   nextVersion,
+  compileDraft,
+  DRAFT_SETTLE_MS,
   pageDesignSystems,
   pinDesignTree,
   publishDesignSystem,
@@ -32,6 +34,9 @@ function space() {
     }
   >();
   let next = 0;
+  // Live views the way a binding publishes them: every edit reaches the page's subscribers.
+  const subscribers = new Map<string, Set<(view: { source: string }) => void>>();
+  const open = { count: 0 };
   const make = (title: string) => {
     const id = `page-${++next}`;
     pages.set(id, { title, source: `<h1>${title}</h1>`, order: [], projects: [], attachments: [] });
@@ -40,10 +45,19 @@ function space() {
   const binding = (id: string): PageBinding => {
     const page = () => pages.get(id)!;
     return {
-      close: () => {},
+      close: () => {
+        open.count--;
+      },
+      subscribe: (publish: (view: { source: string }) => void) => {
+        const set = subscribers.get(id) ?? new Set();
+        subscribers.set(id, set);
+        set.add(publish);
+        return () => set.delete(publish);
+      },
       edit: async (source: string, base: string) => {
         if (base !== page().source) throw new Error('stale base');
         page().source = source;
+        for (const publish of subscribers.get(id) ?? []) publish({ source });
         return { merged: false };
       },
       work: async (action: string, body: Record<string, unknown>) => {
@@ -81,6 +95,7 @@ function space() {
     page: async (id: string) => {
       const page = pages.get(id);
       if (!page) throw new Error('Page unavailable');
+      open.count++;
       return {
         id,
         title: page.title,
@@ -110,7 +125,7 @@ function space() {
       },
     },
   } as unknown as PageTransport;
-  return { pages, make, binding, transport };
+  return { pages, make, binding, transport, open };
 }
 
 describe('data blocks', () => {
@@ -151,17 +166,17 @@ describe('template, publish and the renderer source', () => {
     expect(config).toMatchObject({ name: 'Acme', prefix: 'acme', id: rootId, version: '0.1.0' });
     expect(config.releases).toHaveLength(1);
     const [release] = config.releases;
-    const pin = `${rootId}@0.1.0#${release!.bundle}`;
+    // The tree follows the draft (#5967): every page names the system without a lock.
+    const pin = rootId;
     expect(root.source).toContain(`<meta name="tmt-ds" content="${pin}">`);
     const buttonId = config.components[0]!.page!;
     const button = pages.get(buttonId)!;
-    expect(button.source).toContain(`content="${pin}"`);
+    expect(button.source).toContain(`content="${pin}">`);
     expect(button.source).toContain('<acme-button variant="outline">');
     expect(readBlock(button.source, 'component')).toMatchObject({ tag: 'button' });
     for (const id of [rootId, buttonId]) expect(pages.get(id)!.projects).toEqual([DESIGN_PROJECT]);
     // The renderer reads the release attachment and the bundle verifies against its pin.
-    const bundle = await pageDesignSystems(transport)({
-      system: rootId,
+    const bundle = await pageDesignSystems(transport).release(rootId, {
       version: '0.1.0',
       hash: release!.bundle,
     });
@@ -185,7 +200,9 @@ describe('template, publish and the renderer source', () => {
     const second = await publishNext(transport, rootId);
     expect(second.version).toBe('0.1.1');
     expect(readBlock<DesignSystemConfig>(root.source, 'design-system')!.releases).toHaveLength(2);
-    expect(button.source).toContain(second.pin);
+    // A release locks nothing in the tree: the component page still follows the draft.
+    expect(button.source).toContain(`content="${rootId}">`);
+    expect(second.pin).toBe(`${rootId}@0.1.1#${second.bundle.hash}`);
   });
 
   it('publishes each component with the examples its page shows', async () => {
@@ -202,12 +219,17 @@ describe('template, publish and the renderer source', () => {
     expect(examples.flat().length).toBeGreaterThan(30);
   });
 
-  it('reports the pages a publish could not move to the new pin, and retries them', async () => {
+  it('reports the tree pages a publish could not move to the draft, and retries them', async () => {
     const { pages, make, transport } = space();
     make('Notes');
     const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
     const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
     const stuck = config.components[0]!.page!;
+    // A page locked to a release (made before the tree followed the draft).
+    pages.get(stuck)!.source = writePin(
+      pages.get(stuck)!.source,
+      `${rootId}@0.1.0#${config.releases[0]!.bundle}`,
+    );
     let refuse = true;
     const flaky = {
       ...transport,
@@ -228,10 +250,11 @@ describe('template, publish and the renderer source', () => {
     } as PageTransport;
     const result = await publishNext(flaky, rootId);
     expect(result.unpinned).toEqual([pages.get(stuck)!.title]);
-    expect(pages.get(stuck)!.source).not.toContain(result.pin);
+    const follows = `<meta name="tmt-ds" content="${rootId}">`;
+    expect(pages.get(stuck)!.source).not.toContain(follows);
     refuse = false;
-    expect(await pinDesignTree(flaky, rootId, result.pin)).toEqual([]);
-    expect(pages.get(stuck)!.source).toContain(result.pin);
+    expect(await pinDesignTree(flaky, rootId)).toEqual([]);
+    expect(pages.get(stuck)!.source).toContain(follows);
   });
 
   it('lists by opening one page at a time, each tree page once, and reports an unreadable root', async () => {
@@ -330,5 +353,81 @@ describe('template, publish and the renderer source', () => {
     await expect(
       publishDesignSystem(transport, rootId, binding(rootId), root.source, '0.1.1'),
     ).rejects.toThrow('has no component block');
+  });
+});
+
+describe('live draft (#5967)', () => {
+  // An edit of a component's CSS, the way a Design author changes a component page.
+  const recolor = (source: string) => {
+    const block = readBlock<{ css: string }>(source, 'component')!;
+    return writeBlock(source, 'component', { ...block, css: `${block.css}.acme-draft-mark{}` });
+  };
+  it('compiles the draft as publish does, and locked pages keep their release', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const published = await publishNext(transport, rootId);
+    expect((await compileDraft(transport, rootId, published.version)).hash).toBe(
+      published.bundle.hash,
+    );
+    pages.get(button)!.source = recolor(pages.get(button)!.source);
+    const source = pageDesignSystems(transport);
+    const draft = await source.draft(rootId);
+    expect(draft.components.find((entry) => entry.tag === 'acme-button')!.css).toContain(
+      'acme-draft-mark',
+    );
+    const locked = await source.release(rootId, {
+      version: published.version,
+      hash: published.bundle.hash,
+    });
+    expect(locked!.components.find((entry) => entry.tag === 'acme-button')!.css).not.toContain(
+      'acme-draft-mark',
+    );
+    // The Design header's release view reads that release for a live pin.
+    const shown = await pageDesignSystems(transport, () => published.version).draft(rootId);
+    expect(shown.hash).toBe(published.bundle.hash);
+  });
+
+  it('tells followers once a component edit settles, recompiles, and closes pages when they leave', async () => {
+    const { pages, make, transport, open } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    const source = pageDesignSystems(transport);
+    const before = open.count;
+    let changes = 0;
+    const stop = source.watch(rootId, () => changes++);
+    const first = await source.draft(rootId);
+    expect(await source.draft(rootId)).toBe(first);
+    const page = await transport.page(button);
+    await page.binding!.edit(recolor(page.source), page.source);
+    await page.binding!.edit(recolor(pages.get(button)!.source), pages.get(button)!.source);
+    page.binding!.close();
+    expect(changes).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_SETTLE_MS + 50));
+    expect(changes).toBe(1);
+    const second = await source.draft(rootId);
+    expect(second.hash).not.toBe(first.hash);
+    stop();
+    expect(open.count).toBe(before);
+  });
+
+  it('draws the notice, never a blank page, when the draft is broken', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const rootId = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
+    const config = readBlock<DesignSystemConfig>(pages.get(rootId)!.source, 'design-system')!;
+    const button = config.components.find((entry) => entry.tag === 'button')!.page!;
+    pages.get(button)!.source = '<h1>Button</h1>';
+    const broken = pageDesignSystems(transport).draft(rootId);
+    await expect(broken).rejects.toBeInstanceOf(DesignDraftError);
+    await expect(broken).rejects.toThrow('The button page has no component block.');
+    // The renderer turns it into the page's notice (loadDesignSystem, browser-only DOMParser).
+    const frame = noticeFrame('draft-broken', 'The button page has no component block.');
+    expect(frame.script).toContain('data-tmt-ds-notice');
+    expect(frame.script).toContain('does not compile. Fix it in Design. The button page');
   });
 });

@@ -96,7 +96,8 @@ such as `button:secondary`. That text is not in the source as written. Find the 
 instead: `page read PAGE --grep 'data-ds-example="button:secondary"' --context 6`. Patch its
 live markup and its escaped `<pre>` snippet together, as two pairs in one patch. The component's
 `data-tmt-ds` block holds only what publish compiles (props, slots, source, CSS). A change there
-reaches the examples only after the system publishes a version, which stays the person's step.
+reaches the examples, and every page that follows the system's draft, once the edit settles.
+Publishing a version, which pages can lock to, stays the person's step.
 
 ## When it conflicts
 

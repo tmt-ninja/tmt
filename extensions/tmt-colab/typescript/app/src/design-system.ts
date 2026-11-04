@@ -1,6 +1,7 @@
 /**
- * Design systems on pages (#5821, Colab baea16b8): a page pins one released bundle with
- * `<meta name="tmt-ds" content="<system>@<version>#sha256-…">` and writes its components as
+ * Design systems on pages (#5821, Colab baea16b8): a page names its system with
+ * `<meta name="tmt-ds" content="<system>">` and follows the system's live draft (#5967), or locks
+ * one release with `content="<system>@<version>#sha256-…"`, and writes its components as
  * `<prefix>-<tag>` elements. The parent resolves and verifies the bundle and hands the frame the
  * `{script, style}` that defines those elements on the page runtime's React; the skeleton glue
  * below is runtime 2 and ships with the app, never in a bundle.
@@ -20,8 +21,12 @@ const MARKER = 'tmt-ds';
 export const DS_SCRIPT_BYTES = 512 * 1024;
 export const DS_STYLE_BYTES = 512 * 1024;
 
+/** A page's pin: the system, and the release it is locked to; without a lock it follows the draft. */
 export interface DesignSystemPin {
   readonly system: string;
+  readonly lock?: DesignSystemLock;
+}
+export interface DesignSystemLock {
   readonly version: string;
   readonly hash: string;
 }
@@ -54,8 +59,8 @@ export interface FrameDesignSystem {
   readonly style: string;
 }
 
-/** `<system>@<version>#<hash>`; the system is its root page's id. */
-const PIN = /^([A-Za-z0-9_-]{1,128})@(\d+\.\d+\.\d+)#(sha256-[0-9a-f]{64})$/;
+/** `<system>` or `<system>@<version>#<hash>`; the system is its root page's id. */
+const PIN = /^([A-Za-z0-9_-]{1,128})(?:@(\d+\.\d+\.\d+)#(sha256-[0-9a-f]{64}))?$/;
 /** The page's pin: the first `<meta name="tmt-ds">` in document order, parsed with scripting off. */
 export function designSystemPin(source: string): DesignSystemPin | null {
   if (!source.includes(MARKER)) return null;
@@ -65,7 +70,10 @@ export function designSystemPin(source: string): DesignSystemPin | null {
     ?.getAttribute('content')
     ?.trim();
   const match = content ? PIN.exec(content) : null;
-  return match ? { system: match[1]!, version: match[2]!, hash: match[3]! } : null;
+  if (!match) return null;
+  return match[2]
+    ? { system: match[1]!, lock: { version: match[2], hash: match[3]! } }
+    : { system: match[1]! };
 }
 /** Whether the page names a design system at all, pinned well or not. */
 export const namesDesignSystem = (source: string) =>
@@ -87,20 +95,31 @@ export type DesignSystemFailure =
   | 'unknown-release'
   | 'hash-mismatch'
   | 'newer-runtime'
-  | 'newer-schema';
-/** Where a pinned bundle's bytes come from: the system root page's release attachment, read by the
- * caller with the access it has. Undefined when the release or its attachment cannot be read. */
-export type DesignSystemSource = (pin: DesignSystemPin) => Promise<DesignSystemBundle | undefined>;
+  | 'newer-schema'
+  | 'draft-broken';
+/** A draft that does not compile, naming what to fix in Design. */
+export class DesignDraftError extends Error {}
+/** Where a page's bundle comes from, read by the caller with the access it has. */
+export interface DesignSystemSource {
+  /** A locked release: the system root page's release attachment. Undefined when the release or
+   * its attachment cannot be read; the renderer verifies the bytes. */
+  release(system: string, lock: DesignSystemLock): Promise<DesignSystemBundle | undefined>;
+  /** The system's live draft, compiled as publish compiles it. Throws `DesignDraftError`. */
+  draft(system: string): Promise<DesignSystemBundle>;
+  /** Calls `changed` when the system's draft may have changed; returns the stop. */
+  watch(system: string, changed: () => void): () => void;
+}
 
-/** The verified bundle a pin names, or why it cannot be used. */
+/** The verified bundle a locked pin names, or why it cannot be used. */
 export async function resolveDesignSystem(
-  pin: DesignSystemPin,
+  system: string,
+  lock: DesignSystemLock,
   source: DesignSystemSource,
 ): Promise<DesignSystemBundle | DesignSystemFailure> {
-  const bundle = await source(pin).catch(() => undefined);
-  if (!bundle || bundle.version !== pin.version) return 'unknown-release';
+  const bundle = await source.release(system, lock).catch(() => undefined);
+  if (!bundle || bundle.version !== lock.version) return 'unknown-release';
   if (bundle.schema > 1) return 'newer-schema';
-  if (bundle.hash !== pin.hash || (await bundleHash(bundle)) !== pin.hash) return 'hash-mismatch';
+  if (bundle.hash !== lock.hash || (await bundleHash(bundle)) !== lock.hash) return 'hash-mismatch';
   if (bundle.runtime !== SKELETON_RUNTIME) return 'newer-runtime';
   return bundle;
 }
@@ -112,12 +131,16 @@ const notices: Record<DesignSystemFailure, string> = {
   'hash-mismatch': 'This page’s design system bundle does not match its pin.',
   'newer-runtime': 'This page needs a newer TMT to show its components.',
   'newer-schema': 'This page needs a newer TMT to show its components.',
+  'draft-broken': 'This page’s design system draft does not compile. Fix it in Design.',
 };
 const closes = (text: string, tag: string) =>
   text.includes('<!--') || text.toLowerCase().includes(`</${tag}`);
 /** A frame script that only says why the components cannot be drawn. */
-export function noticeFrame(failure: DesignSystemFailure): FrameDesignSystem {
-  const text = JSON.stringify(notices[failure]).replace(/</g, '\\u003c');
+export function noticeFrame(failure: DesignSystemFailure, detail?: string): FrameDesignSystem {
+  const text = JSON.stringify(detail ? `${notices[failure]} ${detail}` : notices[failure]).replace(
+    /</g,
+    '\\u003c',
+  );
   return {
     style: '',
     script: `addEventListener('DOMContentLoaded',()=>{const n=document.createElement('p');n.setAttribute('data-tmt-ds-notice','');n.setAttribute('role','alert');n.textContent=${text};document.body.prepend(n);});`,
@@ -181,21 +204,40 @@ function findingsScript(findings: readonly Finding[]): string {
 
 /** How long a page waits for its pinned release before it renders with a notice instead. */
 export const PIN_WAIT_MS = 4000;
-/** Each pin's outcome for the session, by the whole pin: a verified bundle or the failure. A release
- * never changes under its pin, and a pin that failed is not fetched again until a reload, so one
- * page's bad pin can never stand in for another release, and a dead pin costs one read. */
+/** Each locked pin's outcome for the session, by the whole pin: a verified bundle or the failure.
+ * A release never changes under its pin, and a pin that failed is not fetched again until a
+ * reload, so one page's bad pin can never stand in for another release, and a dead pin costs one
+ * read. A draft changes, so its source keeps (and drops) its own compiled bundle. */
 const outcomes = new Map<string, Promise<DesignSystemBundle | DesignSystemFailure>>();
-function outcome(pin: DesignSystemPin, from: DesignSystemSource) {
-  const key = `${pin.system}@${pin.version}#${pin.hash}`;
+type Outcome = DesignSystemBundle | { failure: DesignSystemFailure; detail?: string };
+function outcome(pin: DesignSystemPin, from: DesignSystemSource): Promise<Outcome> {
+  const { system, lock } = pin;
+  if (!lock)
+    return from.draft(system).then(
+      (bundle) => (bundle.runtime === SKELETON_RUNTIME ? bundle : { failure: 'newer-runtime' }),
+      (error: unknown) => ({
+        failure: 'draft-broken',
+        ...(error instanceof DesignDraftError && { detail: error.message }),
+      }),
+    );
+  const key = `${system}@${lock.version}#${lock.hash}`;
   let result = outcomes.get(key);
-  if (!result) outcomes.set(key, (result = resolveDesignSystem(pin, from)));
-  return result;
+  if (!result) outcomes.set(key, (result = resolveDesignSystem(system, lock, from)));
+  return result.then((value) => (typeof value === 'string' ? { failure: value } : value));
 }
 const deadline = () =>
-  new Promise<'unavailable'>((resolve) => setTimeout(() => resolve('unavailable'), PIN_WAIT_MS));
+  new Promise<Outcome>((resolve) =>
+    setTimeout(() => resolve({ failure: 'unavailable' }), PIN_WAIT_MS),
+  );
+
+/** The system a page follows live (its pin has no lock), for the renderer to watch. */
+export function followedSystem(source: string): string | undefined {
+  const pin = namesDesignSystem(source) ? designSystemPin(source) : null;
+  return pin && !pin.lock ? pin.system : undefined;
+}
 
 /** The frame's design system for a page, or undefined when it needs none: the components of the
- * pinned release, the page check's findings, or the notice that the release cannot be used. */
+ * draft or locked release, the page check's findings, or the notice that they cannot be used. */
 export async function loadDesignSystem(
   source: string,
   from: DesignSystemSource | undefined,
@@ -209,7 +251,7 @@ export async function loadDesignSystem(
   // A slow or stuck read never blanks the page: past the deadline it renders with the notice, and
   // the read goes on for the next open.
   const bundle = await Promise.race([outcome(pin, from), deadline()]);
-  if (typeof bundle === 'string') return noticeFrame(bundle);
+  if ('failure' in bundle) return noticeFrame(bundle.failure, bundle.detail);
   const frame = frameDesignSystem(bundle);
   const findings = findingsScript(checkElements(elements, pin, bundle as unknown as Bundle));
   return { style: frame.style, script: `${frame.script}${findings}` };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import type { DesignSystemSource } from './design-system.js';
+import { followedSystem, type DesignSystemSource } from './design-system.js';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
 import type { QuoteSelector } from './thread-records.js';
@@ -98,6 +98,16 @@ export function usePageRenderer({
   // system). `remounts` counts the in-place updates that fell back to a fresh frame.
   const frameKey = useMemo(() => sourceFrameKey(view.source), [view.source]);
   const [remounts, setRemounts] = useState(0);
+  // A page that follows a design system's draft (#5967) redraws when the draft changes.
+  const followed = useMemo(() => followedSystem(view.source), [view.source]);
+  const [drafts, setDrafts] = useState(0);
+  useEffect(
+    () =>
+      followed
+        ? designSystems.current?.watch(followed, () => setDrafts((count) => count + 1))
+        : undefined,
+    [followed],
+  );
   const latestSource = useRef(view.source);
   latestSource.current = view.source;
   // The source the open frame shows, or is being mounted or updated with.
@@ -157,7 +167,15 @@ export function usePageRenderer({
     void mountRenderer(host.current!, latestSource.current, {
       signal: controller.signal,
       layout: view.layout,
-      designSystem: async (pin) => designSystems.current?.(pin),
+      designSystem: {
+        release: async (system, lock) => designSystems.current?.release(system, lock),
+        draft: async (system) => {
+          const source = designSystems.current;
+          if (!source) throw new Error('No design systems here.');
+          return source.draft(system);
+        },
+        watch: (system, changed) => designSystems.current?.watch(system, changed) ?? (() => {}),
+      },
       onState: (next) => {
         if (next !== 'ready') resetPageLinks();
         setState(next);
@@ -208,6 +226,7 @@ export function usePageRenderer({
     snapshot.id,
     frameKey,
     remounts,
+    drafts,
     view.layout,
     view.pageType,
     endedError,

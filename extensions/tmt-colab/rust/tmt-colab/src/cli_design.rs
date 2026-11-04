@@ -39,11 +39,11 @@ macro_rules! command_spec {
 }
 
 pub fn command() -> Command {
-    command_spec!("design","Read the space's design systems","tmt colab design show tmt-ui --json","A design system is a tree of Colab pages in the Design tab; each published version is a release a page pins with <meta name=\"tmt-ds\">. These commands only read. The tmt-design-system skill says how to use them.")
+    command_spec!("design","Read the space's design systems","tmt colab design show tmt-ui --json","A design system is a tree of Colab pages in the Design tab; a page names its system with <meta name=\"tmt-ds\"> and follows its live draft, or locks one published release. These commands only read. The tmt-design-system skill says how to use them.")
         .mut_arg("json", |arg| arg.global(true))
         .subcommand_required(true)
         .subcommand(command_spec!("ls","List design systems and their released versions","tmt colab design ls --json","Lists the built-in tmt GUI release, then the space's own systems from the local store. A system with no release yet is listed with latest none and cannot be pinned.").alias("list"))
-        .subcommand(command_spec!("show","Show what one release offers: its pin, principles and components","tmt colab design show tmt-ui@1.0.2 --json","SYSTEM is the system ID from ls (a root page ID, unique prefix or tmt-gui), the tag prefix or the name; a space's own system wins over the built-in one. @VERSION picks a release (default: the latest). Prints the pin line to copy and each component's tag, props, slots and examples. A space's release is read through the running serve (run tmt colab serve first); the built-in one ships in this executable.").arg(Arg::new("system").required(true).index(1).value_name("SYSTEM[@VERSION]").help("The system, optionally with @version")))
+        .subcommand(command_spec!("show","Show what one release offers: its pin, principles and components","tmt colab design show tmt-ui@1.0.2 --json","SYSTEM is the system ID from ls (a root page ID, unique prefix or tmt-gui), the tag prefix or the name; a space's own system wins over the built-in one. @VERSION picks a release (default: the latest). Prints the pin line to copy (follows the draft), the line that locks this release instead, and each component's tag, props, slots and examples. A space's release is read through the running serve (run tmt colab serve first); the built-in one ships in this executable.").arg(Arg::new("system").required(true).index(1).value_name("SYSTEM[@VERSION]").help("The system, optionally with @version")))
 }
 
 /// The root page's config block, parsed; the block's JSON never holds a raw `<`.
@@ -274,7 +274,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 "The release bundle does not match its release record.",
             ));
         }
-        let pin = format!(
+        let lock = format!(
             "{}@{}#{}",
             system.id,
             release["version"].as_str().unwrap_or(""),
@@ -291,7 +291,10 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             format!("{} · {}", bundle["name"].as_str().unwrap_or(""), system.id),
         ));
         rows.push(("version", bundle["version"].as_str().unwrap_or("").into()));
+        // The default pin follows the system's live draft (#5967); a lock fixes this release.
+        let pin = &system.id;
         rows.push(("pin", format!("<meta name=\"tmt-ds\" content=\"{pin}\">")));
+        rows.push(("lock", format!("<meta name=\"tmt-ds\" content=\"{lock}\">")));
         for c in &components {
             let props: Vec<String> = c["props"]
                 .as_object()
@@ -317,6 +320,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         rows.push(("examples", "use --json".into()));
         json!({"spaceId":space_id,"system":system.id,"name":bundle["name"],"prefix":bundle["prefix"],
             "version":bundle["version"],"pin":pin,"meta":format!("<meta name=\"tmt-ds\" content=\"{pin}\">"),
+            "lock":lock,"lockMeta":format!("<meta name=\"tmt-ds\" content=\"{lock}\">"),
             "principles":bundle["principles"],"components":components})
     };
     let mut output = tmt_cli_style::stream::stdout(args.get_flag("json"));

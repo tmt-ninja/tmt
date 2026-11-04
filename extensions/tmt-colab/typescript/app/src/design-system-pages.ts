@@ -5,7 +5,12 @@ import {
   type ComponentDoc,
   type DesignSystemConfig,
 } from '../../../../../design/systems/compiler.mjs';
-import type { DesignSystemBundle, DesignSystemSource } from './design-system.js';
+import {
+  DesignDraftError,
+  type DesignSystemBundle,
+  type DesignSystemLock,
+  type DesignSystemSource,
+} from './design-system.js';
 import type {
   PageBinding,
   PageSnapshot,
@@ -118,31 +123,174 @@ async function readyFiles(page: Snapshot) {
   return files;
 }
 
-/** The built-in system's ID in a pin: `tmt-gui@<version>#<hash>`, no page behind it. */
+/** The built-in system's ID in a pin: `tmt-gui`, no page behind it. */
 export const BUILT_IN_SYSTEM = 'tmt-gui';
-/** Where the renderer reads a pinned bundle: the system root page's release of that version. The
- * renderer verifies it and keeps each pin's outcome for the session (design-system.ts). */
-export function pageDesignSystems(transport: PageTransport): DesignSystemSource {
-  return (pin) => {
-    if (pin.system === BUILT_IN_SYSTEM)
-      // The built-in tmt GUI release ships with the app: every install can pin it (#5921).
-      return import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
-        ({ default: builtIn }) => builtIn as unknown as DesignSystemBundle,
-      );
-    return withPage(transport, pin.system, async (root) => {
-      const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
-      const release = config?.releases.find(
-        (entry) => entry.version === pin.version && entry.bundle === pin.hash,
-      );
-      const descriptor = root.attachments?.find(
-        (entry) => entry.attachmentId === release?.attachment,
-      );
-      if (!descriptor) return undefined;
-      const files = await readyFiles(root);
-      const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
-      return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
+/** The built-in tmt GUI release ships with the app: every install can use it (#5921). Its draft is
+ * that release: it has no pages to edit. */
+const builtIn = () =>
+  import('../../../../../design/systems/tmt-gui/generated/bundle.json').then(
+    ({ default: bundle }) => bundle as unknown as DesignSystemBundle,
+  );
+/** How long a burst of edits to a system's pages settles before its followers redraw. */
+export const DRAFT_SETTLE_MS = 500;
+
+/** One followed system: its open page subscriptions and the draft compiled since the last edit. */
+interface Follow {
+  readonly listeners: Set<() => void>;
+  readonly stops: Map<string, () => void>;
+  readonly seen: Map<string, string>;
+  timer?: ReturnType<typeof setTimeout>;
+  draft?: Promise<DesignSystemBundle>;
+  /** Its last follower left: a page still opening closes again. */
+  stopped?: boolean;
+}
+
+/**
+ * Where the renderer reads a page's bundle (design-system.ts verifies a locked one): a locked
+ * release is the root page's release attachment of that version; a live pin is the draft, compiled
+ * from the root and component pages as publish compiles them. While a page follows a system, its
+ * root and component pages stay subscribed, the compiled draft is kept until one of them changes,
+ * and followers hear of a change once the edits settle. `shown` lets the Design header show a
+ * release in place of the draft.
+ */
+export function pageDesignSystems(
+  transport: PageTransport,
+  shown?: (system: string) => string | undefined,
+): DesignSystemSource {
+  const follows = new Map<string, Follow>();
+  const release = (system: string, lock: DesignSystemLock) =>
+    system === BUILT_IN_SYSTEM
+      ? builtIn()
+      : withPage(transport, system, async (root) => {
+          const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
+          const entry = config?.releases.find(
+            (item) => item.version === lock.version && item.bundle === lock.hash,
+          );
+          const descriptor = root.attachments?.find(
+            (item) => item.attachmentId === entry?.attachment,
+          );
+          if (!descriptor) return undefined;
+          const files = await readyFiles(root);
+          const bytes = await files.attachments.open({ kind: 'document' }, descriptor);
+          return JSON.parse(new TextDecoder().decode(bytes)) as DesignSystemBundle;
+        });
+  const shownRelease = async (system: string, version: string) => {
+    const hash = await withPage(transport, system, async (root) =>
+      readBlock<DesignSystemConfig>(root.source, 'design-system')?.releases.find(
+        (item) => item.version === version,
+      ),
+    );
+    const bundle = hash && (await release(system, { version, hash: hash.bundle }));
+    if (!bundle) throw new DesignDraftError(`Release ${version} cannot be read.`);
+    return bundle;
+  };
+  const notify = (follow: Follow) => {
+    follow.draft = undefined;
+    clearTimeout(follow.timer);
+    follow.timer = setTimeout(() => {
+      for (const listener of follow.listeners) listener();
+    }, DRAFT_SETTLE_MS);
+  };
+  // Open one page of the followed system and keep it subscribed; the root's view also names the
+  // component pages, which are opened the same way.
+  const track = async (follow: Follow, id: string, root: boolean): Promise<void> => {
+    if (follow.stops.has(id)) return;
+    follow.stops.set(id, () => {});
+    const page = await transport.page(id).catch(() => undefined);
+    if (!page?.binding) return;
+    if (follow.stopped) {
+      page.binding.close();
+      return;
+    }
+    const binding = page.binding;
+    const seen = (source: string) => {
+      const before = follow.seen.get(id);
+      follow.seen.set(id, source);
+      if (before !== undefined && before !== source) notify(follow);
+      if (root)
+        for (const entry of readBlock<DesignSystemConfig>(source, 'design-system')?.components ??
+          [])
+          if (entry.page) void track(follow, entry.page, false);
+    };
+    seen(page.source);
+    const unsubscribe = binding.subscribe(
+      (view) => seen(view.source),
+      () => {},
+    );
+    follow.stops.set(id, () => {
+      unsubscribe();
+      binding.close();
     });
   };
+  return {
+    release,
+    draft(system) {
+      const version = shown?.(system);
+      if (system === BUILT_IN_SYSTEM) return builtIn();
+      if (version) return shownRelease(system, version);
+      const follow = follows.get(system);
+      if (!follow) return compileDraft(transport, system);
+      return (follow.draft ??= compileDraft(transport, system).catch((error: unknown) => {
+        follow.draft = undefined;
+        throw error;
+      }));
+    },
+    watch(system, changed) {
+      if (system === BUILT_IN_SYSTEM) return () => {};
+      let follow = follows.get(system);
+      if (!follow) {
+        follow = { listeners: new Set(), stops: new Map(), seen: new Map() };
+        follows.set(system, follow);
+        void track(follow, system, true);
+      }
+      const active = follow;
+      active.listeners.add(changed);
+      return () => {
+        active.listeners.delete(changed);
+        if (active.listeners.size) return;
+        clearTimeout(active.timer);
+        active.stopped = true;
+        for (const stop of active.stops.values()) stop();
+        follows.delete(system);
+      };
+    },
+  };
+}
+
+/** The draft as publish compiles it: the root's config and each component page's block, at the
+ * version the next publish makes. Throws `DesignDraftError` naming what is broken. */
+export async function compileDraft(
+  transport: PageTransport,
+  rootId: string,
+  version?: string,
+): Promise<DesignSystemBundle> {
+  const config = await withPage(transport, rootId, async (root) =>
+    readBlock<DesignSystemConfig>(root.source, 'design-system'),
+  );
+  if (!config) throw new DesignDraftError('The design system page has no design-system block.');
+  return draftOf(transport, rootId, config, version ?? nextVersion(config));
+}
+async function draftOf(
+  transport: PageTransport,
+  rootId: string,
+  config: DesignSystemConfig,
+  version: string,
+): Promise<Bundle> {
+  const components: ComponentDoc[] = [];
+  for (const entry of config.components) {
+    if (!entry.page) throw new DesignDraftError(`${entry.tag} has no page.`);
+    const doc = await withPage(transport, entry.page, async (page) => {
+      const block = readBlock<ComponentDoc>(page.source, 'component');
+      return block && { ...block, examples: pageExamples(page.source) };
+    });
+    if (!doc) throw new DesignDraftError(`The ${entry.tag} page has no component block.`);
+    components.push(doc);
+  }
+  try {
+    return await buildBundle(rootId, { ...config, version }, components, sha256Hex);
+  } catch (error) {
+    throw new DesignDraftError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** The next patch version after the latest release, or the config's own version for the first. */
@@ -174,24 +322,22 @@ export function pageExamples(source: string): { title: string; markup: string }[
 export interface PublishResult {
   pin: string;
   bundle: Bundle;
-  /** Pages of the tree still on an older pin; `pinDesignTree` retries them. */
+  /** Pages of the tree that do not follow the draft yet; `pinDesignTree` retries them. */
   unpinned: string[];
 }
-/** Move every page of a system's tree (but its root, which publish pins itself) to this pin. A
- * page that cannot be opened or edited is reported, not fatal: the release is already recorded. */
-export async function pinDesignTree(
-  transport: PageTransport,
-  rootId: string,
-  pin: string,
-): Promise<string[]> {
+/** Make every page of a system's tree (but its root, which publish pins itself) follow its draft;
+ * a page already following it is not edited. A page that cannot be opened or edited is reported,
+ * not fatal: the release is already recorded. */
+export async function pinDesignTree(transport: PageTransport, rootId: string): Promise<string[]> {
   const unpinned: string[] = [];
   const visit = async (id: string, depth: number): Promise<void> => {
     let children: string[] = [];
     try {
       children = await withPage(transport, id, async (page) => {
         try {
-          if (id !== rootId && page.binding)
-            await page.binding.edit(writePin(page.source, pin), page.source);
+          const followed = writePin(page.source, rootId);
+          if (id !== rootId && page.binding && followed !== page.source)
+            await page.binding.edit(followed, page.source);
         } catch {
           unpinned.push(page.title);
         }
@@ -206,8 +352,9 @@ export async function pinDesignTree(
   return unpinned;
 }
 /**
- * Publish a version from the open root page: compile its component pages, attach the bundle to the
- * root page, record the release in its config and move every component page's pin to it.
+ * Publish a version from the open root page: compile its component pages as the draft compiles,
+ * attach the bundle to the root page and record the release in its config. Pages lock to it with
+ * the returned pin; the system's own tree keeps following the draft.
  */
 export async function publishDesignSystem(
   transport: PageTransport,
@@ -218,17 +365,7 @@ export async function publishDesignSystem(
 ): Promise<PublishResult> {
   const config = readBlock<DesignSystemConfig>(source, 'design-system');
   if (!config) throw new Error('This page has no design-system block.');
-  const components: ComponentDoc[] = [];
-  for (const entry of config.components) {
-    if (!entry.page) throw new Error(`${entry.tag} has no page.`);
-    const doc = await withPage(transport, entry.page, async (page) => {
-      const block = readBlock<ComponentDoc>(page.source, 'component');
-      return block && { ...block, examples: pageExamples(page.source) };
-    });
-    if (!doc) throw new Error(`The ${entry.tag} page has no component block.`);
-    components.push(doc);
-  }
-  const bundle = await buildBundle(rootId, { ...config, version }, components, sha256Hex);
+  const bundle = await draftOf(transport, rootId, config, version);
   const files = binding.files;
   if (!files) throw new Error('Files are not available on this page.');
   const stored = await files.attachments.upload(
@@ -256,11 +393,12 @@ export async function publishDesignSystem(
       },
     ],
   };
-  // The attachment edit kept the source; the config and the home page's pin change now.
-  await binding.edit(writePin(writeBlock(source, 'design-system', next), pin), source);
-  // Every page of the system's tree draws with this version: the components, the doc pages
-  // (they take its CSS) and the section pages.
-  return { pin, bundle, unpinned: await pinDesignTree(transport, rootId, pin) };
+  // The attachment edit kept the source; the config records the release. The tree follows the
+  // draft, so a release changes no page's look: it is what a page can lock to.
+  await binding.edit(writePin(writeBlock(source, 'design-system', next), rootId), source);
+  // A tree made before its pages followed the draft (or a page whose pin was edited) moves to it:
+  // the components, the doc pages (they take its CSS) and the section pages.
+  return { pin, bundle, unpinned: await pinDesignTree(transport, rootId) };
 }
 
 const escape = (text: string) =>
@@ -341,7 +479,7 @@ export function rootPageSource(config: DesignSystemConfig) {
 <p class="${docs.block}">Tag prefix <code class="${docs.code}">${escape(config.prefix)}-</code> · runtime ${escape(config.runtime)}</p>
 <h2 class="${docs.h2}">Components</h2>
 <ul class="list-disc pl-6 space-y-1">${config.components.map(component).join('')}</ul>
-<p class="${docs.block}">Publish a version from this page to pin it on other pages.</p>`;
+<p class="${docs.block}">Pages that name this system follow its draft. Publish a version to give pages a release they can lock to.</p>`;
 }
 
 /** One section of the tmt GUI docs a new system copies: its title and its static doc pages. */

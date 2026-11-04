@@ -457,3 +457,41 @@ test('an agent patch of an example re-renders the open Design page live', async 
   expect(Object.keys(block)).not.toContain('examples');
   expect(Object.keys(block)).not.toContain('notes');
 });
+
+test('a component edit shows at once on the draft, and the header can show a release (#5967)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await pickSystem(page, 'Acme');
+  await designFrame(page)
+    .getByRole('link', { name: /acme-button/ })
+    .click();
+  const button = designFrame(page)
+    .locator('[data-ds-example="button:secondary"]')
+    .getByRole('button', { name: 'Draft', exact: true });
+  await expect(button).toBeVisible();
+  const outline = () => button.evaluate((element) => getComputedStyle(element).outlineColor);
+  const marked = 'rgb(1, 2, 3)';
+  expect(await outline()).not.toBe(marked);
+  // A Design author's edit of the component's CSS, unpublished: the draft draws it.
+  const pageId = page.url().split('/').pop()!;
+  await page.evaluate((id) => {
+    (
+      window as unknown as {
+        designFixture: { patch(id: string, find: string, replace: string): void };
+      }
+    ).designFixture.patch(id, '"css": "', '"css": "[data-variant]{outline:3px solid rgb(1, 2, 3)}');
+  }, pageId);
+  await expect.poll(outline).toBe(marked);
+  const shown = page.getByRole('button', { name: /^Shown version/ });
+  await expect(shown).toContainText('Draft');
+  // The release view shows what 0.1.0 locked, without the edit, and Draft brings it back.
+  await shown.click();
+  await page.getByRole('menuitemradio', { name: 'Release 0.1.0', exact: true }).click();
+  await expect(shown).toContainText('Release 0.1.0');
+  await expect.poll(outline).not.toBe(marked);
+  await shown.click();
+  await page.getByRole('menuitemradio', { name: 'Draft', exact: true }).click();
+  await expect.poll(outline).toBe(marked);
+});
