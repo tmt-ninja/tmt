@@ -392,6 +392,19 @@ a.tmt-ui-rail-sub-item > .tmt-ui-shell-icon {
   font: inherit;
   font-weight: var(--tmt-ui-type-h3-weight);
 }
+nav.tmt-ui-rail .tmt-ui-rail-alert {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 6px 12px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 12px;
+}
+nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
+  color: var(--tmt-ui-color-disabled-text);
+  cursor: not-allowed;
+}
+
 .tmt-ui-rail-group-action:hover {
   background: var(--tmt-ui-surface-hover);
 }

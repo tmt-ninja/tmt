@@ -74,7 +74,6 @@ export function commentsForAnswerBatch(
       comment.deviceAuthor === true &&
         comment.ref.writer === deviceId &&
         answer !== undefined &&
-        !thread.proposal &&
         thread.anchor !== null,
     );
     return { origin, title: question[0].title, answer };

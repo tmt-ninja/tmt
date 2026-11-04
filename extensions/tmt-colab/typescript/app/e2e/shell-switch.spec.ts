@@ -55,12 +55,12 @@ for (const width of [1440, 390])
       };
       requestAnimationFrame(tick);
     });
-    // The list loads slowly: the router keeps Settings on screen until it resolves, and the header
-    // must keep naming Settings meanwhile.
+    // The list loads slowly: its skeleton and title replace Settings together.
     await fixture(page, 'holdHome');
     await go(/^All pages/);
     await page.waitForTimeout(400);
-    await expect(app.getByRole('region', { name: 'Reference defaults' })).toBeVisible();
+    await expect(app.getByLabel('Loading pages')).toBeVisible();
+    await expect(app.getByRole('region', { name: 'Reference defaults' })).toHaveCount(0);
     await fixture(page, 'releaseHome');
     await expect(app.getByRole('region', { name: 'Reference defaults' })).toHaveCount(0);
     await page.waitForTimeout(300);

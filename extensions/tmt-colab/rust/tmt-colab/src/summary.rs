@@ -26,11 +26,11 @@ const ANSWER_PREFIX: &str = "Answer to \u{201c}";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Summary {
     /// Non-deleted comments in the page's annotation threads, open and resolved, agent replies
-    /// included; Chat messages, status actions, proposal decisions and question answers excluded.
+    /// included; Chat messages, status actions and question answers excluded.
     pub comments: u32,
-    /// At least one proposal, reading, answer block or review needs the reader.
+    /// At least one reading, answer block or review needs the reader.
     pub waiting: bool,
-    /// Pending proposals, readings, answer groups and reviews, deduplicated by target ID.
+    /// Pending readings, answer groups and reviews, deduplicated by target ID.
     pub needs_you: u32,
     /// The creator label, or the original-author display label on a legacy page.
     pub author: Option<String>,
@@ -51,7 +51,7 @@ impl Summary {
 
 /// Comment counting, pure over projected conversations; pending state has one owner in
 /// `summary_pending`. An annotation thread is
-/// one that is not deleted, carries no proposal and is anchored; the Chat thread has no anchor.
+/// one that is not deleted and is anchored; the Chat thread has no anchor.
 fn count(conversations: &Conversations, meta: &Value, needs_you: u32) -> Summary {
     let creator = crate::question_registry::creator_agent(meta);
     let author = creator
@@ -64,7 +64,7 @@ fn count(conversations: &Conversations, meta: &Value, needs_you: u32) -> Summary
         .iter()
         .filter(|thread| !thread.deleted)
     {
-        if thread.proposal.is_none() && thread.anchor.is_some() {
+        if thread.anchor.is_some() {
             let own = thread
                 .comments
                 .iter()
@@ -159,7 +159,7 @@ fn fold_details(source: &mut Source, page: &str) -> Result<(SummaryProjection, O
         SummaryProjection {
             summary,
             readings,
-            needs: crate::summary_passages::needs(&report, &conversations, &pending, &questions),
+            needs: crate::summary_passages::needs(&report, &pending, &questions),
             latest: crate::summary_passages::latest(&conversations),
         },
         title,
@@ -490,22 +490,8 @@ mod tests {
             device_name: "d".into(),
             at: "1".into(),
             comments,
-            proposal: None,
-            decision: None,
             status: None,
             notifications: Vec::new(),
-        }
-    }
-    fn proposal() -> crate::threads::Proposal {
-        crate::threads::Proposal {
-            proposal_id: "p".into(),
-            title: "t".into(),
-            body: "b".into(),
-            proposer: crate::threads::Proposer {
-                machine_id: "m".into(),
-                agent_id: "a".into(),
-                label: "l".into(),
-            },
         }
     }
     fn conversations(threads: Vec<Thread>) -> Conversations {
@@ -531,12 +517,6 @@ mod tests {
         resolved.resolved = true;
         let mut deleted = thread("deleted", true, vec![comment("c4", false, "gone")]);
         deleted.deleted = true;
-        let mut proposed = thread(
-            "proposal",
-            true,
-            vec![comment("c5", false, "on a proposal")],
-        );
-        proposed.proposal = Some(proposal());
         let view = conversations(vec![
             // Two live comments, one deleted, one question answer.
             thread(
@@ -551,26 +531,10 @@ mod tests {
             ),
             resolved,
             deleted,
-            proposed,
             // The Chat thread has no anchor.
             thread("chat", false, vec![comment("c6", false, "hello")]),
         ]);
         assert_eq!(count(&view, None).comments, 3);
-    }
-
-    #[test]
-    fn a_page_waits_only_for_a_live_unresolved_undecided_proposal() {
-        let pending = |edit: &dyn Fn(&mut Thread)| {
-            let mut t = thread("p", false, Vec::new());
-            t.proposal = Some(proposal());
-            edit(&mut t);
-            count(&conversations(vec![t]), None).waiting
-        };
-        assert!(pending(&|_| {}));
-        assert!(!pending(&|t| t.resolved = true));
-        assert!(!pending(&|t| t.deleted = true));
-        assert!(!count(&conversations(vec![thread("q", true, Vec::new())]), None).waiting);
-        assert!(!count(&conversations(Vec::new()), None).waiting);
     }
 
     #[test]

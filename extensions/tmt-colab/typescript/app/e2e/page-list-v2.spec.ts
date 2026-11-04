@@ -11,13 +11,19 @@ async function mount(page: Page, size: 'work' | 'few' | 'unmanaged' = 'work') {
 }
 const row = (page: Page, title: string) =>
   app(page)
-    .locator('.pages [data-page-id]')
+    .locator('.page-list-table [data-page-id]')
     .filter({ has: page.getByRole('link', { name: title, exact: true }) });
 async function pin(page: Page, title: string) {
   const target = row(page, title);
   await target.scrollIntoViewIfNeeded();
-  await target.getByRole('button', { name: `Pin ${title}` }).focus();
-  await target.getByRole('button', { name: `Pin ${title}` }).click();
+  await target.hover();
+  if (!(await target.getByRole('button', { name: `Pin ${title}` }).isVisible())) {
+    await target.getByRole('button', { name: `More for ${title}` }).click();
+    await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  } else {
+    await target.getByRole('button', { name: `Pin ${title}` }).focus();
+    await target.getByRole('button', { name: `Pin ${title}` }).click();
+  }
 }
 test('concept17 shows real pins in owner order, wraps after three and shares the list scope', async ({
   page,
@@ -84,7 +90,32 @@ for (const width of [1586, 1440, 1150, 901, 900, 651, 650, 390])
       await expect(
         app(page).getByRole('list', { name: 'Pinned pages' }).getByRole('link'),
       ).toHaveCount(3);
-      expect(await section.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      const overflow = await section.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return {
+          amount: node.scrollWidth - node.clientWidth,
+          overflowing: [...node.querySelectorAll('*')]
+            .filter((child) => child.scrollWidth > child.clientWidth + 1)
+            .slice(0, 15)
+            .map(
+              (child) =>
+                `${child.tagName}.${(child as HTMLElement).className}:${child.scrollWidth - child.clientWidth}`,
+            ),
+          outside: [...node.querySelectorAll('*')]
+            .filter((child) => {
+              const rect = child.getBoundingClientRect();
+              return (
+                rect.width > 0 &&
+                rect.right > box.right + 0.5 &&
+                !child.closest('[data-slot="tabs-bar-scroller"]')
+              );
+            })
+            .slice(0, 10)
+            .map((child) => `${child.tagName}.${(child as HTMLElement).className}`),
+        };
+      });
+      expect(overflow.amount, JSON.stringify(overflow)).toBe(0);
+      expect(overflow.outside).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -110,7 +141,7 @@ test('the header selection includes matching pages not drawn yet and clears as o
 }) => {
   await page.setViewportSize({ width: 1586, height: 992 });
   await mount(page);
-  await expect(app(page).locator('.pages [data-page-id]')).toHaveCount(50);
+  await expect(app(page).locator('.page-list-table [data-page-id]')).toHaveCount(50);
   await app(page).getByRole('checkbox', { name: 'Select all matching pages' }).check();
   await expect(app(page).getByRole('region', { name: 'Bulk actions' })).toContainText('75');
   await app(page).getByRole('button', { name: 'Clear selection', exact: true }).click();

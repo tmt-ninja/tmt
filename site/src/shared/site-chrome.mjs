@@ -17,7 +17,15 @@ function linkUrl(value) {
   return escape(value);
 }
 
-export function siteChrome({ sectionPath, brandHref, markUrl, links, rssUrl, xHandle }) {
+export function siteChrome({
+  sectionPath,
+  brandHref,
+  markUrl,
+  links,
+  rssUrl,
+  xHandle,
+  controls = false,
+}) {
   if (
     !Array.isArray(links) ||
     links.some(
@@ -25,10 +33,13 @@ export function siteChrome({ sectionPath, brandHref, markUrl, links, rssUrl, xHa
         !item ||
         typeof item.label !== "string" ||
         !item.label.trim() ||
-        typeof item.published !== "boolean",
+        typeof item.published !== "boolean" ||
+        (item.external !== undefined && typeof item.external !== "boolean"),
     )
   )
-    throw new Error("Site chrome links require label, URL and published boolean");
+    throw new Error(
+      "Site chrome links require label, URL and published boolean; external must be a boolean when provided",
+    );
   // Validate hidden destinations too: publishing a page must not activate an unsafe URL.
   const visible = links
     .map((item) => ({ ...item, href: linkUrl(item.url) }))
@@ -43,16 +54,16 @@ export function siteChrome({ sectionPath, brandHref, markUrl, links, rssUrl, xHa
     : "";
   const nav = visible
     .map(
-      ({ label, href }) =>
-        `<a href="${href}">${escape(label)}${label === "GitHub" ? " ↗" : ""}</a>`,
+      ({ label, href, external }) =>
+        `<a href="${href}">${escape(label)}${external ? " ↗" : ""}</a>`,
     )
     .join("");
-  const github = visible
-    .filter(({ label }) => label === "GitHub")
-    .map(({ href }) => `<a href="${href}">GitHub ↗</a>`)
+  const externalLinks = visible
+    .filter(({ external }) => external)
+    .map(({ label, href }) => `<a href="${href}">${escape(label)} ↗</a>`)
     .join("");
   return {
-    header: `<header class="site-chrome-header" lang="en"><a class="site-chrome-brand" href="${linkUrl(brandHref)}"><img vite-ignore src="${linkUrl(markUrl)}" width="30" height="30" alt=""><b>tmt</b><span class="site-chrome-path">${escape(sectionPath)}<span class="site-chrome-cursor" aria-hidden="true"></span></span></a><nav class="site-chrome-nav" aria-label="Main">${nav}${x}</nav></header>`,
-    footer: `<footer class="site-chrome-footer" lang="en"><span><b>tmt</b> · Tools for people and agents.</span><nav aria-label="Footer"><a class="site-chrome-mail" href="mailto:tofu@tmt.ninja">tofu@tmt.ninja</a>${x}${github}<a href="${linkUrl(rssUrl)}">RSS ↗</a></nav></footer>`,
+    header: `<header class="site-chrome-header" lang="en"><a class="site-chrome-brand" href="${linkUrl(brandHref)}"><img vite-ignore src="${linkUrl(markUrl)}" width="30" height="30" alt=""><b>tmt</b><span class="site-chrome-path"><span class="site-chrome-path-text">${escape(sectionPath)}</span><span class="site-chrome-cursor" aria-hidden="true"></span></span></a><div class="site-chrome-actions"><nav class="site-chrome-nav" aria-label="Main">${nav}${x}</nav>${controls ? '<div class="site-chrome-controls" data-site-chrome-controls></div>' : ""}</div></header>`,
+    footer: `<footer class="site-chrome-footer" lang="en"><span><b>tmt</b> · Tools for people and agents.</span><nav aria-label="Footer"><a class="site-chrome-mail" href="mailto:tofu@tmt.ninja">tofu@tmt.ninja</a>${x}${externalLinks}<a href="${linkUrl(rssUrl)}">RSS ↗</a></nav></footer>`,
   };
 }

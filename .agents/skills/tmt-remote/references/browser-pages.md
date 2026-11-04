@@ -39,7 +39,7 @@ browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
 [shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Host pages use 14px body text,
-controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Static hosts use the shared aurora SVG from the
+controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Static hosts use the shared ninja SVG on its dark tile from the
 leaf’s static-host contract, pinned by Remote-owned literal
 tests; Cargo does not read the leaf’s React source or fetch the mark at runtime.
 

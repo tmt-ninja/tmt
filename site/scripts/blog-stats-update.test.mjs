@@ -88,6 +88,15 @@ test("only repository sessions count, and unchanged logs are not rescanned", asy
     const third = await sessionIntervals(files, first.cache);
     assert.equal(third.scanned, 1);
     assert.equal(third.loopSeconds, 600);
+
+    // A deleted log keeps its cached intervals, so cumulative totals never shrink.
+    const fourth = await sessionIntervals(
+      files.filter(({ path }) => path !== ours),
+      third.cache,
+    );
+    assert.equal(fourth.scanned, 0);
+    assert.equal(fourth.loopSeconds, 600);
+    assert.equal(fourth.agentSeconds, third.agentSeconds);
   }));
 
 test("line counts skip lockfiles, generated files, fixtures, docs and binaries", () => {

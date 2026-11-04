@@ -25,6 +25,7 @@ import type {
 import { text } from './strings.js';
 import { verifiedQuestionStates } from './question-registry.js';
 import type { CommentContext } from './thread-store.js';
+import { useQuestionDismissal } from './use-question-dismissal.js';
 
 /** The parent owns logical groups and viewer disclosures. The frame supplies quotes/geometry. */
 export function useQuestionLayer({
@@ -59,6 +60,7 @@ export function useQuestionLayer({
   blocked: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
 }) {
+  const dismissal = useQuestionDismissal(view, snapshot.binding);
   const [anchors, setAnchors] = useState<QuestionAnchor[] | null>(null);
   const onQuestions = useCallback((next: QuestionAnchor[], checked = true) => {
     setAnchors(checked ? next : null);
@@ -70,7 +72,7 @@ export function useQuestionLayer({
   const focusPanel = useRef<string | undefined>(undefined);
   const navigationFocus = useRef<string | undefined>(undefined);
   const threads = useMemo(
-    () => (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal),
+    () => (view.threads ?? []).filter((thread) => !thread.deleted),
     [view.threads],
   );
   const associated = useCallback(
@@ -278,6 +280,7 @@ export function useQuestionLayer({
     },
     inline: (
       <>
+        {dismissal.notice}
         {rows.map(({ group, members }) => {
           const current = selected(group);
           const slot = slots.find((value) => value.id === (group.split ? current : group.id));
@@ -323,7 +326,7 @@ export function useQuestionLayer({
                       <div
                         data-inline-slot={id}
                         data-inline-question={current}
-                        className="proposal-inline question-inline question-compact-inline"
+                        className="inline-block-layer question-inline question-compact-inline"
                         data-detached={!position?.chip || undefined}
                         style={{
                           display: position?.hidden ? 'none' : undefined,
@@ -354,6 +357,7 @@ export function useQuestionLayer({
                 readOnly={view.archived}
                 connectionPresentation={connectionPresentation}
                 onRecorded={onRecorded}
+                onDismiss={dismissal.canDismiss ? (id) => void dismissal.dismiss(id) : undefined}
               />
             </div>
           );

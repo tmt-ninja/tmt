@@ -25,10 +25,8 @@ const pages = {
 const cases = {
   'question group': async (page: Page, options: object) => {
     await run(page, 'questionGroup', options);
-    await page.locator('[data-question-group] .question-line').first().click();
   },
-  'question and proposal': (page: Page, options: object) =>
-    run(page, 'question', { mixed: true, other: true, ...options }),
+  question: (page: Page, options: object) => run(page, 'question', { other: true, ...options }),
   reading: (page: Page, options: object) => run(page, 'reading', { count: 1, ...options }),
   review: (page: Page, options: object) => run(page, 'review', { sections: 1, ...options }),
 } as const;
@@ -85,7 +83,7 @@ const measure = (page: Page, backdrop: string) =>
     };
     const text: { text: string; ratio: number; ink: string; surface: string }[] = [];
     const cards: { selector: string; fill: string; rule: string; other: string }[] = [];
-    for (const root of document.querySelectorAll('.proposal-inline')) {
+    for (const root of document.querySelectorAll('.inline-block-layer')) {
       if (!visible(root)) continue;
       for (const element of [root, ...root.querySelectorAll('*')]) {
         // An inactive control is exempt from the text bound, as in WCAG.
@@ -105,8 +103,12 @@ const measure = (page: Page, backdrop: string) =>
             surface: `rgb(${surface.slice(0, 3).map(Math.round)})`,
           });
         }
-        // A card's own surface and boundary: the question block and the proposal card.
-        if (element.matches('.question-compact-block, .proposal-card')) {
+        // A card's own surface and boundary: the question block.
+        if (
+          element.matches(
+            '.question-compact-block:not([data-multiple]), .question-compact-block[data-multiple] > .question-group-row:first-child, .question-compact-block[data-multiple] > .question-group-row[data-answered]',
+          )
+        ) {
           const style = getComputedStyle(element);
           // Both draw their rule as a border (the block's top and bottom); neither carries an outline.
           const border = `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`;
@@ -134,19 +136,21 @@ for (const width of [1440, 390])
           await page.goto('/');
           await run(page, 'mount');
           await mount(page, options);
-          await expect(page.locator('.proposal-inline:not([data-detached])').first()).toBeVisible();
+          await expect(
+            page.locator('.inline-block-layer:not([data-detached])').first(),
+          ).toBeVisible();
           await expect(
             page.frameLocator('#ask-page-fixture iframe').locator('html'),
           ).toHaveAttribute('data-theme', theme);
           // The frame reports what the page paints once it has loaded; a bare page paints white.
           // A reading and a review band sit on the app's paper and keep the app's scheme.
-          const cardsOnPage = name === 'question group' || name === 'question and proposal';
+          const cardsOnPage = name === 'question group' || name === 'question';
           const scheme = paint === 'dark' ? 'dark' : 'light';
           if (cardsOnPage)
             await expect(
               page
                 .locator('.page-cards', {
-                  has: page.locator('.proposal-inline:not([data-detached])'),
+                  has: page.locator('.inline-block-layer:not([data-detached])'),
                 })
                 .first(),
             ).toHaveAttribute('data-theme', scheme);

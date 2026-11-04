@@ -43,6 +43,8 @@ const PENDING_SCROLL_MS = 2000;
 const GROWTH_REPORT_LIMIT = 5;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
+/** Maximum measured height of one in-flow block, within the frame geometry budget. */
+export const INLINE_SLOT_HEIGHT = MAX_RENDER_HEIGHT;
 
 export interface EditLockPosition {
   id: string;
@@ -236,6 +238,7 @@ export async function mountRenderer(
     unsent?: UnsentHighlight[],
   ): void;
   slots(slots: InlineSlot[]): void;
+  threadReferences(entries: { id: string; number: number; excerpt: string }[]): void;
   questions(
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
@@ -313,6 +316,8 @@ export async function mountRenderer(
   const stopTheme = subscribeTheme(sendTheme);
   let lockRequestId = '';
   let lockTargets: RenderEditLock[] = [];
+  let referenceRequestId = '';
+  let references: { id: string; number: number; excerpt: string }[] = [];
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
   // The resolved thread open in the Discussion panel: drawn quietly, never selected.
@@ -901,6 +906,21 @@ export async function mountRenderer(
       typeof value === 'object' &&
       !Array.isArray(value) &&
       Object.keys(value).length === 4 &&
+      value.type === 'colab.render.open-reference' &&
+      value.renderId === snapshot.renderId &&
+      value.requestId === referenceRequestId &&
+      navigator.userActivation?.isActive === true &&
+      typeof value.id === 'string' &&
+      references.some((entry) => entry.id === value.id)
+    ) {
+      options.onOpenThread?.(value.id);
+      return;
+    }
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 4 &&
       value.type === 'colab.render.open-thread' &&
       value.renderId === snapshot.renderId &&
       value.requestId === requestId &&
@@ -1256,8 +1276,10 @@ export async function mountRenderer(
       return;
     const heights = input.map(({ id, height, before, chip }) => ({
       id,
-      height: Math.min(2000, Math.max(0, Math.ceil(height))),
-      ...(before !== undefined ? { before: Math.min(2000, Math.max(0, Math.ceil(before))) } : {}),
+      height: Math.min(INLINE_SLOT_HEIGHT, Math.max(0, Math.ceil(height))),
+      ...(before !== undefined
+        ? { before: Math.min(INLINE_SLOT_HEIGHT, Math.max(0, Math.ceil(before))) }
+        : {}),
       ...(chip
         ? {
             chip: {
@@ -1420,6 +1442,17 @@ export async function mountRenderer(
       }
     });
   };
+  const threadReferences = (entries: { id: string; number: number; excerpt: string }[]) => {
+    if (stopped || !ready || entries.length > 1000) return;
+    references = structuredClone(entries);
+    referenceRequestId = crypto.randomUUID();
+    channel.port1.postMessage({
+      type: 'colab.render.thread-references',
+      renderId: snapshot.renderId,
+      requestId: referenceRequestId,
+      entries: references,
+    });
+  };
   return {
     resize,
     snapshot,
@@ -1428,6 +1461,7 @@ export async function mountRenderer(
     highlight,
     slots,
     questions,
+    threadReferences,
     scrollAnchor,
     focusThread,
     select,

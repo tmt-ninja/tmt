@@ -1,27 +1,23 @@
-import { useId } from 'react';
-import { brandMarkInner, brandMarkSmall } from './brand-mark-svg.js';
+import { brandMarkInner } from './brand-mark-svg.js';
 
-/** The 04D-1 mark (`brand-mark-svg.ts` holds its one definition). Every surface shows this one
- * mark, tuned per theme by the brand roles; print shows the mono beam. */
+/** Ben's selected ninja on its dark tile, generated from the canonical blog artwork (#5971). */
 export interface BrandMarkProps {
-  /** Rendered size in px; selects the simplified form below 28. */
+  /** Rendered square size in px; the canonical silhouette is unchanged at every size. */
   size?: number;
   className?: string;
 }
 
 export function BrandMark({ size, className }: BrandMarkProps) {
-  const id = useId().replaceAll(':', '');
-  const small = brandMarkSmall(size);
   return (
     <svg
+      xmlns="http://www.w3.org/2000/svg"
       className={className ? `tmt-brand-mark ${className}` : 'tmt-brand-mark'}
-      data-form={small ? 'small' : 'full'}
       viewBox="0 0 96 96"
       aria-hidden="true"
       width={size}
       height={size}
       // Trusted constant markup from the mark's single definition, never user input.
-      dangerouslySetInnerHTML={{ __html: brandMarkInner(small, id) }}
+      dangerouslySetInnerHTML={{ __html: brandMarkInner() }}
     />
   );
 }

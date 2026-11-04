@@ -12,7 +12,7 @@ export function mount(waiting: boolean) {
   const host = document.getElementById('root')!;
   root ??= createRoot(host);
   root.render(
-    <section className="proposal-inline reading-inline" style={{ position: 'static' }}>
+    <section className="inline-block-layer reading-inline" style={{ position: 'static' }}>
       <NeedsYouBar
         tone="needs"
         word="Please read"

@@ -63,7 +63,15 @@ export interface SignedAsk {
 export function formatAskMessage(
   input: Pick<AdmittedSelection, 'title' | 'url' | 'quote' | 'comment'>,
 ) {
-  return `Page: ${input.title}\nLink: ${input.url}\n\nQuote:\n${input.quote}\n\nComment:\n${input.comment}`;
+  return `Page: ${input.title}\nLink: ${input.url}\n\nQuote:\n${capped(input.quote, QUOTE_POINTS)}\n\nComment:\n${input.comment}`;
+}
+
+/** The most code points of an anchored passage an Ask quotes (#6002); the thread keeps it whole. */
+export const QUOTE_POINTS = 2000;
+/** `text` cut to `points` code points, marked when cut. */
+export function capped(text: string, points: number) {
+  const chars = [...text];
+  return chars.length <= points ? text : `${chars.slice(0, points).join('')}… (truncated)`;
 }
 
 /** No capability crosses into the renderer. Strings are immutable; byte getters

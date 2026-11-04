@@ -17,6 +17,17 @@ test('Esc closes the window and focus returns to the action that opened it', asy
   await expect(closes(page)).toHaveAttribute('data-closes', 'escape');
 });
 
+test('Esc closes Chat immediately after its hovered action opens it', async ({ page }) => {
+  await page.goto('/?frame=floating');
+  await chat(page).hover();
+  await expect(page.getByRole('tooltip', { name: 'Chat · Unread' })).toBeVisible();
+  await chat(page).click();
+  await expect(page.getByRole('dialog', { name: 'Chat' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Chat' })).toHaveCount(0);
+  await expect(chat(page)).toBeFocused();
+});
+
 test('Close and Esc take the same path, and one window is open at a time', async ({ page }) => {
   await page.goto('/?frame=floating');
   await chat(page).click();

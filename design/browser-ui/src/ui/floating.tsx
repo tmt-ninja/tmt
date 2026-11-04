@@ -115,7 +115,7 @@ export function FloatingAction({
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
+      {!expanded && <TooltipContent side="top">{label}</TooltipContent>}
     </Tooltip>
   );
 }

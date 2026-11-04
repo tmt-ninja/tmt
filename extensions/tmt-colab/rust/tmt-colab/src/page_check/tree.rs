@@ -254,6 +254,10 @@ impl Tree {
             .map(|(_, value)| value.as_str())
     }
 
+    pub(super) fn attr_names(&self, id: Id) -> impl Iterator<Item = &str> {
+        self.element(id).attrs.iter().map(|(name, _)| name.as_str())
+    }
+
     pub(super) fn child_elements(&self, id: Id) -> impl Iterator<Item = Id> + '_ {
         self.nodes[id]
             .children
@@ -315,7 +319,7 @@ impl Tree {
     pub(super) fn excluded(&self, id: Id) -> bool {
         matches!(
             self.name(id),
-            "head" | "script" | "style" | "template" | "noscript"
+            "head" | "script" | "style" | "template" | "noscript" | "tmt-thread-ref"
         ) || ["hidden", "data-colab-highlight", "data-colab-image"]
             .iter()
             .any(|name| self.attr(id, name).is_some())

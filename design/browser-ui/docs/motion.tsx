@@ -160,22 +160,20 @@ export function BrandPage() {
   return (
     <>
       <p>
-        Under palette B the mark is red, black and white. Two options for the glyph on dark; the
-        lead will ask Ben to pick one. Everything else in the docs uses option A until then.
+        Ben selected the blog’s pale ninja (#5971). Its dark tile stays visible in light and dark
+        themes, including palette B. Every size uses the same silhouette and terminal prompt.
       </p>
-      {(['a', 'b'] as const).map((option) => (
-        <section key={option} className="docs-brand-option" data-tmt-mark={option}>
-          <h2>{option === 'a' ? 'A · white glyph on red' : 'B · red glyph on black'}</h2>
-          <div className="docs-canvas docs-brand-row">
-            {[16, 24, 32, 48].map((size) => (
-              <span key={size} className="docs-brand-size">
-                <BrandMark size={size} />
-                <span className="docs-muted">{size}px</span>
-              </span>
-            ))}
-          </div>
-        </section>
-      ))}
+      <section className="docs-brand-option">
+        <h2>One mark at every size</h2>
+        <div className="docs-canvas docs-brand-row">
+          {[16, 24, 32, 48].map((size) => (
+            <span key={size} className="docs-brand-size">
+              <BrandMark size={size} />
+              <span className="docs-muted">{size}px</span>
+            </span>
+          ))}
+        </div>
+      </section>
     </>
   );
 }

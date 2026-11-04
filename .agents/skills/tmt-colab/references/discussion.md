@@ -33,9 +33,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   ledger's current admission/grant checks. Loading and result re-checking never notify.
   `Live` supplies `ThreadStore` its verified thread projection only for the exact current
   own snapshot, connection and admission; otherwise the store re-reads admitted records.
-  Resolve/Reopen controls show their pending action with a busy/disabled fence. Proposal
-  cards and the selected proposal share the proposal layer's pending map; confirmed projection replaces
-  it, and publication failure clears it and shows the existing error.
+  Resolve/Reopen controls show their pending action with a busy/disabled fence; publication
+  failure clears it and shows the existing error.
   `thread-status-notification.ts` re-admits the committed action/recipient and captured
   discussion before Ask freezing, then projects held/refused/failure/uncertain outcomes
   without granting dispatch. `thread-status-view.ts` owns the shared status metadata,
@@ -55,40 +54,23 @@ owns record fields, limits, revision semantics and trust boundaries.
   `kind:"own"` publication that `main.rs::publish_write` sends through the offline lock or
   the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
   and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
-  `cli_proposal.rs` adapts `proposal add/ls/resolve`; `discussion::prepare_proposal`
-  admits or verifies a retained local-writer record, then CLI placement uses the
-  ordinary page expected-revision path. `discussion::prepare_proposal` owns native
-  cross-writer proposal bounds; `discussion::prepare_decision` checks finality against
-  the same captured fold before the generic own writer freezes either edit. Proposal
-  fields, causal ordering and recovery live in the contract above; no extra root,
-  store or dispatcher exists. `proposal-layer.tsx` owns proposal state, card/composer
-  rendering; `inline-slots.ts` owns the shared proposal/question measurement batch;
-  `router.tsx` only wires these layers. `components/proposal-card.tsx`
-  presents admitted cards. Parent-drawn in-page Proposal overlays inherit Colab’s effective theme throughout
-  the body, decisions and follow-up composer, like question cards. Their 1px bordered
-  sheet and control/focus roles follow that theme, independently of authored page colors. `proposal-actions.ts`
-  fences live decisions, publishes the final decision first, then the ordinary
-  decision comment and existing explicit Ask. Failed notification never rolls back
-  or resumes on reload. `renderer.ts` owns bounded cosmetic slot admission on the
-  existing channel; the iframe owns spacers only, with no record text or action
-  capability. Parent measurement reserves card
-  height. Height exchanges retain admitted placement and composer focus until the
-  renderer confirms a vanished/duplicate slot; inner-scroll fallback detaches to Comments.
-  Explicit trusted Send, Approve or Decline may dispatch; render/sync/recovery never do.
-  Proposal creation requires canonical caller and machine provenance through bounded public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
-  `thread-status-view.ts` owns the one combined pending predicate; Comments filters
-  presentation only. Resolved proposal cards fold to a title/state/Reopen row;
-  reopening restores retained metadata/history without changing a final decision.
-  Actor labels and clocks remain display assertions.
+  `inline-slots.ts` measures the question, reading and review overlays; `renderer.ts`
+  admits their cosmetic spacers on the existing channel. The iframe holds no record
+  authority. A thread reference activates only a thread in the parent's admitted projection;
+  the [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md) owns its markup.
 - Answer blocks: `questions.ts` validates inert authored structure and fixed plain-text
   answers; `question-layer.tsx` associates verified ordinary annotations by the
   renderer's existing normal quote resolver. `components/question-group-card.tsx`
   owns drafts and visible recipient chips, delegates explicit Send to `sendAnswers`,
-  and supplies controlled `QuestionCard` panels. Shared replies/retries resolve from
+  and supplies controlled `QuestionCard` panels. Each current answer is presented once
+  with its existing comment actions and Ask status; the underlying record stays unchanged. Shared replies/retries resolve from
   verified comments and Ask records, with the canonical thread rendering the reply.
   Send includes the immutable registered `questionId` on each ordinary answer comment before
   its independent Ask. `questionStates` consumes verified own comments for Open/Answered/Handled;
   source-removed registrations remain visible in Questions and pending counts stay per registration.
+  Dismiss removes the source through the page edit path, then handles an open question;
+  Undo restores the source and reopens a question that was open before dismissal. Success notices
+  expire after six seconds; failed metadata writes keep Retry available without reversing the edit.
   Creator and Handle/Reopen use the owner-only conditional metadata port; no commenter writes an
   answered content value. Latest device provenance is projected by `readThreads`, never stored in a record;
   edits read admitted records rather than copying projection metadata. Agent replies
@@ -124,8 +106,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
   Sent-image grids in threads, Chat and answers share `attachment-tray.css`: top-aligned
   equal thumbnails, single-line ellipsized name/size labels, and the full filename in its title.
-  A single image reserves a 200×120 frame before decoding; `scale-down` preserves
-  small images at natural size, aligned to the top left against the existing thumbnail background.
+  A single image reserves a 320px 16:10 frame before decoding and shows the whole image
+  (`contain`); two or more share a two-column 4:3 grid. A failed read is said once, inside its
+  tile, with Retry; an automatic thumbnail read the page changed under is read once more before
+  the failure shows, and a click is never replayed (#5955).
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
   retain display URLs only for their live binding/scope/reference; hidden overflow images
@@ -148,8 +132,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   projects that checked CSS alongside its paint roles into the opaque frame.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
   editor, recipient and Send ownership stays unchanged. Its notices (a refusal, a recipient
-  not reached, a recorded message's next step) share one reserved one-line slot, `RichInput`'s
-  `header` row inside the input above the text, so neither the history nor the field moves (#5911).
+  not reached, a recorded message's next step) share one slot, `RichInput`'s `header`, that
+  takes no room: empty, it is not drawn; filled, it floats as one line just above the field,
+  over the history's end, so neither the history nor the field moves (#5911, #5953).
   The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
 - `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's

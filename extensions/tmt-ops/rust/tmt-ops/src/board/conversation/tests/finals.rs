@@ -395,8 +395,8 @@ fn stored_finals_render_in_full_and_keep_their_source_after_wrapping_and_resize(
             .unwrap();
         let at = row.find("newest final 19").unwrap();
         assert!(
-            row[..at].trim_end().ends_with('│'),
-            "a final body row keeps the body gutter: {row}"
+            row[..at].ends_with("  ") && !row[..at].trim_end().ends_with('│'),
+            "a final body row keeps the body indent, without a rule: {row}"
         );
     }
 }

@@ -237,7 +237,7 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   owns the complete-pair grammar and strict-reader compatibility rules; this native/non-UI
   boundary does not integrate the browser's creator-default toggle.
 - Routing: anchored CLI page patches and shell actions, attributed creator/question metadata,
-  thread status and proposals publish through the content-publication path (offline, or the local
+  thread status publish through the content-publication path (offline, or the local
   `page-publish` route when `serve` holds the lock); browser Save and closed creator/handled/reopen
   metadata commands use the owner sync socket, signed by the root-local writer.
 - `page patch` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle

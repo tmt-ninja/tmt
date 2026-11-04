@@ -42,6 +42,7 @@ import { gatherAttachments } from './export-attachments.js';
 import { standaloneRequest } from './export-runtime.js';
 import { text } from './strings.js';
 import { RecoveryRequiredError } from './session-recovery.js';
+import { pageHidden, addVisibilityListener, removeVisibilityListener } from './page-visibility.js';
 
 export interface LiveSession {
   registration: Registration;
@@ -169,8 +170,7 @@ export class Live implements PageBinding {
           : { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' },
     });
     this.#replaceAsk(remote);
-    if (typeof document !== 'undefined')
-      document.addEventListener('visibilitychange', this.#visibility);
+    if (typeof document !== 'undefined') addVisibilityListener(this.#visibility);
     signal?.addEventListener('abort', this.#abort, { once: true });
     if (signal?.aborted) this.close();
   }
@@ -302,7 +302,7 @@ export class Live implements PageBinding {
   }
   #abort = () => this.close();
   #visibility = () => {
-    if (document.visibilityState === 'hidden') {
+    if (pageHidden()) {
       this.#observation?.abort();
     } else {
       this.#refreshOlderAsks = true;
@@ -317,7 +317,7 @@ export class Live implements PageBinding {
       this.#error ||
       this.#observation ||
       this.#listeners.size === 0 ||
-      (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+      pageHidden()
     )
       return;
     const controller = new AbortController();
@@ -334,12 +334,7 @@ export class Live implements PageBinding {
       })
       .finally(() => {
         if (this.#observation === controller) this.#observation = null;
-        if (
-          controller.signal.aborted &&
-          !this.#closed &&
-          (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-        )
-          this.#observe();
+        if (controller.signal.aborted && !this.#closed && !pageHidden()) this.#observe();
       });
   }
   #owns(open: LiveOpen) {
@@ -1061,8 +1056,7 @@ export class Live implements PageBinding {
     this.#progressReads.close();
     this.#opening = null;
     this.#observation?.abort();
-    if (typeof document !== 'undefined')
-      document.removeEventListener('visibilitychange', this.#visibility);
+    if (typeof document !== 'undefined') removeVisibilityListener(this.#visibility);
     this.signal?.removeEventListener('abort', this.#abort);
     this.ask?.close();
     this.#pendingView = null;

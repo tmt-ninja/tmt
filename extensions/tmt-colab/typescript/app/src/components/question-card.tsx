@@ -13,11 +13,11 @@ import { CommentExchange } from '../thread-panel.js';
 import type { PageAsk, AskBinding, AskRetryInput } from '../ask-panel.js';
 import type { ThreadBinding } from '../thread-store.js';
 import type { ThreadView } from '../thread-records.js';
-import { ArchivedDraft } from '../annotation-input.js';
+import { AnnotationInput, ArchivedDraft } from '../annotation-input.js';
+import type { CreatorTarget } from '../creator-default.js';
 import { attachmentInputHandlers } from '../attachment-drop.js';
 import type { AttachmentDraft } from '../attachment-draft.js';
-import { AttachButton, PendingAttachments } from '../attachment-tray.js';
-import { MessageAttachments } from '../message-attachments.js';
+import { PendingAttachments } from '../attachment-tray.js';
 import { text } from '../strings.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
@@ -53,6 +53,7 @@ export function QuestionCard({
   onRetry,
   retryInput,
   files,
+  followUpRecipient,
 }: {
   question: Question;
   draft: QuestionDraft;
@@ -79,6 +80,7 @@ export function QuestionCard({
   /** The answer's attachment draft, owned by the group like the text draft. Absent where this
    * binding cannot upload files. */
   files?: AttachmentDraft;
+  followUpRecipient?: CreatorTarget & { label?: string };
 }) {
   const heading = useId();
   const { choices, other, value, changing } = draft;
@@ -91,6 +93,11 @@ export function QuestionCard({
   const disabled = blocked || busy || recorded || !discussion;
   const attachable = !!files && !disabled;
   const compose = !answer || changing;
+  // Change answer replaces the focused strip action; keep keyboard focus in the reopened card.
+  useEffect(() => {
+    if (!changing) return;
+    section.current?.querySelector<HTMLElement>('input:not([type="hidden"]), textarea')?.focus();
+  }, [changing]);
   // A failed send re-opens the card on its error row; the reader must act on it, so Retry has focus.
   const retryable = !!error && !!onRetry;
   useEffect(() => {
@@ -100,23 +107,6 @@ export function QuestionCard({
       return;
     section.current?.querySelector<HTMLElement>('.question-status button')?.focus();
   }, [retryable]);
-  const changeAction =
-    !readOnly && answer && !changing ? (
-      <BrowserAction
-        label="Change answer"
-        type="button"
-        variant="text"
-        disabled={disabled}
-        onActivate={(event) => {
-          if (event.isTrusted) {
-            onDraft({ changing: true });
-            queueMicrotask(() =>
-              section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
-            );
-          }
-        }}
-      />
-    ) : undefined;
   return (
     <section
       className="question-card"
@@ -147,13 +137,6 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
-        {answer && (
-          <div className="question-answer">
-            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
-            <MessageAttachments comment={answer} binding={discussion?.attachments} />
-            {changeAction}
-          </div>
-        )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>
@@ -164,47 +147,50 @@ export function QuestionCard({
                 legend={text.questionInstruction(question.kind, question.other)}
               >
                 {question.choices.map((choice, index) => (
-                  <BrowserChoice
-                    key={choice.label}
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    label={choice.label}
-                    description={choice.description}
-                    aria-label={choice.label}
-                    data-choice-index={index + 1}
-                    aria-keyshortcuts={String(index + 1)}
-                    title={text.questionKey(index + 1)}
-                    disabled={disabled}
-                    checked={choices.includes(choice.label)}
-                    onChange={(event) => {
-                      if (question.kind === 'single') {
-                        onDraft({ choices: [choice.label], other: false });
-                      } else
-                        onDraft({
-                          choices: event.target.checked
-                            ? [...choices, choice.label]
-                            : choices.filter((item) => item !== choice.label),
-                        });
-                    }}
-                  />
+                  <span key={choice.label} className={`${c.chip} question-choice-chip`}>
+                    <BrowserChoice
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      label={choice.label}
+                      description={choice.description}
+                      aria-label={choice.label}
+                      data-choice-index={index + 1}
+                      aria-keyshortcuts={String(index + 1)}
+                      title={text.questionKey(index + 1)}
+                      disabled={disabled}
+                      checked={choices.includes(choice.label)}
+                      onChange={(event) => {
+                        if (question.kind === 'single') {
+                          onDraft({ choices: [choice.label], other: false });
+                        } else
+                          onDraft({
+                            choices: event.target.checked
+                              ? [...choices, choice.label]
+                              : choices.filter((item) => item !== choice.label),
+                          });
+                      }}
+                    />
+                  </span>
                 ))}
                 {question.other && (
-                  <BrowserChoice
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    label="Other"
-                    data-choice-index={question.choices.length + 1}
-                    aria-keyshortcuts={String(question.choices.length + 1)}
-                    title={text.questionKey(question.choices.length + 1)}
-                    disabled={disabled}
-                    checked={other}
-                    onChange={(event) => {
-                      onDraft({
-                        other: event.target.checked,
-                        ...(question.kind === 'single' ? { choices: [] } : {}),
-                      });
-                    }}
-                  />
+                  <span className={`${c.chip} question-choice-chip`}>
+                    <BrowserChoice
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      label="Other"
+                      data-choice-index={question.choices.length + 1}
+                      aria-keyshortcuts={String(question.choices.length + 1)}
+                      title={text.questionKey(question.choices.length + 1)}
+                      disabled={disabled}
+                      checked={other}
+                      onChange={(event) => {
+                        onDraft({
+                          other: event.target.checked,
+                          ...(question.kind === 'single' ? { choices: [] } : {}),
+                        });
+                      }}
+                    />
+                  </span>
                 )}
               </BrowserChoiceGroup>
             )}
@@ -245,30 +231,16 @@ export function QuestionCard({
                     rows={question.kind === 'long' ? 4 : 1}
                   />
                 )}
-                {files && (
-                  <>
-                    <PendingAttachments
-                      draft={files}
-                      disabled={!attachable}
-                      onRemoved={() => {
-                        section.current
-                          ?.querySelector<HTMLElement>(`[id="${heading}-answer"]`)
-                          ?.focus({ preventScroll: true });
-                      }}
-                    />
-                    <div className="question-attach">
-                      <AttachButton
-                        draft={files}
-                        disabled={!attachable}
-                        labeled
-                        label={text.messageAttach}
-                      />
-                    </div>
-                  </>
-                )}
               </div>
             )}
           </>
+        )}
+        {files && compose && (
+          <PendingAttachments
+            draft={files}
+            disabled={!attachable}
+            onRemoved={() => section.current?.focus({ preventScroll: true })}
+          />
         )}
         {!readOnly && error && (!connectionPresentation || recorded) && (
           // Only a failure takes a line: the alert and its Retry stand on one row.
@@ -301,7 +273,7 @@ export function QuestionCard({
         )}
         {threads.some((thread) => thread.comments.length) && (
           <div className="question-history">
-            <h3>
+            <h3 className={c.visuallyHidden}>
               Conversation
               {asks.some(
                 (record) =>
@@ -315,8 +287,13 @@ export function QuestionCard({
                 {thread.comments.map((comment) => (
                   <CommentExchange
                     readOnly={readOnly}
-                    // The answer's files show once, in the answer block above.
-                    attachments={comment.messageId !== answer?.messageId}
+                    answerText={
+                      comment.ref.writer === answer?.ref.writer && comment.ref.id === answer?.ref.id
+                        ? pageLine >= 0
+                          ? answerText?.slice(0, pageLine)
+                          : answerText
+                        : undefined
+                    }
                     key={`${comment.ref.writer}:${comment.ref.id}`}
                     comment={comment}
                     thread={thread}
@@ -331,6 +308,38 @@ export function QuestionCard({
               </div>
             ))}
           </div>
+        )}
+        {answer && !changing && thread && discussion && !readOnly && (
+          <AnnotationInput
+            binding={ask}
+            discussion={discussion}
+            anchor={thread.anchor}
+            thread={thread}
+            asks={asks}
+            title={title}
+            creationRecipient={followUpRecipient}
+            initialEdit={
+              followUpRecipient?.label
+                ? {
+                    value: `@${followUpRecipient.label} `,
+                    mentions: [
+                      {
+                        key: {
+                          agent: followUpRecipient.agentId,
+                          machine: followUpRecipient.machineId,
+                        },
+                        range: { start: 0, end: followUpRecipient.label.length + 1 },
+                      },
+                    ],
+                    edited: false,
+                  }
+                : undefined
+            }
+            blocked={blocked}
+            connectionPresentation={connectionPresentation}
+            cancel={() => {}}
+            committed={() => {}}
+          />
         )}
       </div>
     </section>

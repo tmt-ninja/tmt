@@ -134,6 +134,15 @@ export interface OwnProjection {
   replies: Record<string, JsonValue>;
 }
 export type OwnState = Record<string, OwnProjection>;
+/** Retired proposal records remain in the writer document but are not projected. */
+export function retiredDiscussionRecord(root: string, value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (root === 'threads' && record.kind === 'thread' && Object.hasOwn(record, 'proposal')) ||
+    (root === 'messages' && record.kind === 'proposal-decision')
+  );
+}
 export function validateOwn(value: unknown): asserts value is OwnState {
   requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
   requireValue(text(JSON.stringify(value)).length <= STATE_BYTES);
@@ -159,7 +168,6 @@ export function validateOwn(value: unknown): asserts value is OwnState {
     }
   }
   let threads = 0;
-  const proposals = new Set<string>();
   const entries = Object.entries(value);
   requireValue(entries.length <= 256);
   for (const [writer, roots] of entries) {
@@ -206,30 +214,14 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           record &&
           typeof record === 'object' &&
           !Array.isArray(record) &&
-          [
-            'thread',
-            'comment',
-            'thread-status',
-            'thread-notification',
-            'proposal-decision',
-          ].includes(String((record as Record<string, unknown>).kind))
+          ['thread', 'comment', 'thread-status', 'thread-notification'].includes(
+            String((record as Record<string, unknown>).kind),
+          )
         )
           validateDiscussionRecord(root, key, record);
       }
     }
     threads += Object.keys(projection.threads).length;
-    for (const record of Object.values(projection.threads)) {
-      if (
-        record &&
-        typeof record === 'object' &&
-        !Array.isArray(record) &&
-        record.kind === 'thread' &&
-        record.proposal &&
-        typeof record.proposal === 'object' &&
-        !Array.isArray(record.proposal)
-      )
-        proposals.add(`${writer}:${record.proposal.proposalId}`);
-    }
     for (const message of Object.values(projection.messages)) {
       if (message !== null && typeof message === 'object' && Object.hasOwn(message, 'body')) {
         const body = (message as Record<string, unknown>).body;
@@ -238,7 +230,6 @@ export function validateOwn(value: unknown): asserts value is OwnState {
     }
   }
   requireValue(threads <= 1000);
-  requireValue(proposals.size <= 200);
   validateEditLockLimits(value as OwnState);
 }
 export interface FoldResult extends Projection {
