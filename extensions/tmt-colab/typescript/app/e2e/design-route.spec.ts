@@ -2,6 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { servePageRuntime } from './page-runtime.js';
+/** The selected product mark's shape, as product-brand.spec reads it. */
+const brandShape = readFileSync(
+  new URL('../../../../../design/browser-ui/src/brand-mark.svg', import.meta.url),
+  'utf8',
+).match(/<path[^>]* d="([^"]+)"/)![1]!;
 const nativePolicy = readFileSync(
   new URL('../../../rust/tmt-colab/src/browser_policy.rs', import.meta.url),
   'utf8',
@@ -108,6 +113,18 @@ async function openGuiButton(page: Page) {
     'design/browser-ui/src/ui/button.tsx',
   );
 }
+/** The owner's generated Brand page draws the product mark (the brand spec covers the viewer's
+ * code docs). */
+async function expectGuiBrand(page: Page) {
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  const toggle = page.locator('.design-nav-toggle');
+  if (!(await tree.isVisible())) await toggle.click();
+  await tree.getByRole('link', { name: /^Brand/ }).click();
+  await expect(page).toHaveURL(/\/ds\/gui\/[a-z-]+\/brand$/);
+  const marks = designFrame(page).locator('svg.tmt-brand-mark');
+  await expect(marks.first()).toBeVisible();
+  expect(await marks.first().locator('path').first().getAttribute('d')).toBe(brandShape);
+}
 async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
@@ -130,6 +147,7 @@ for (const width of [1440, 390])
         page.getByRole('button', { name: 'New design system', exact: true }),
       ).toBeVisible();
       await openGuiButton(page);
+      await expectGuiBrand(page);
       const withDesignDocs = await chromePaint(page);
       await capture(page, `design-gui-button-${width}-${theme}.png`);
       await pickSystem(page, 'tmt TUI');
