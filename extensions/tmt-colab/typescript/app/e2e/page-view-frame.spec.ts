@@ -455,5 +455,36 @@ for (const width of [1440, 390]) {
     await expect(frame.locator('#inside')).toHaveJSProperty('inert', false);
     await expect(open).toBeFocused();
     await frame.getByRole('button', { name: 'Outside' }).click();
+    const block = frame.locator('tmt-ui-image-block');
+    await block.evaluate((node) =>
+      node.setAttribute(
+        'images',
+        JSON.stringify([
+          {
+            src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+            alt: 'First',
+          },
+        ]),
+      ),
+    );
+    await expect(open.locator('img')).toHaveAttribute('src', /^data:image\/gif;base64,/);
+    await frame.locator('body').evaluate((body) => {
+      const image = document.createElement('img');
+      image.id = 'another-attachment';
+      image.src = 'colab-attachment:11111111';
+      body.append(image);
+    });
+    await expect(frame.locator('#another-attachment')).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,/,
+    );
+    await expect(open.locator('img')).toHaveAttribute('src', /^data:image\/gif;base64,/);
+    await block.evaluate((node) =>
+      node.setAttribute(
+        'images',
+        JSON.stringify([{ src: 'colab-attachment:11111111', alt: 'First' }]),
+      ),
+    );
+    await expect(open.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
   });
 }
