@@ -1,9 +1,19 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { BrowserCheckbox } from '../checkbox.js';
-import { BrowserCommand } from '../command.js';
-import { browserUiClasses as c, type BrowserNoticeTone } from '../static.js';
 import './blocks.css';
+
+// The entry is its own graph (no imports from the root leaf), so it draws the shared static
+// checkbox, table, notice and command by their stable class names, as the tmt GUI ports do.
+const c = {
+  checkbox: 'tmt-ui-checkbox',
+  table: 'tmt-ui-table',
+  notice: 'tmt-ui-notice',
+  noticeEyebrow: 'tmt-ui-notice-eyebrow',
+  noticeHeading: 'tmt-ui-notice-heading',
+  noticeBody: 'tmt-ui-notice-body',
+  command: 'tmt-ui-command',
+  commandText: 'tmt-ui-command-text',
+} as const;
 
 const empty = (children: ReactNode) =>
   children === undefined || children === null || children === '';
@@ -118,7 +128,9 @@ export function TodoBlock({
       data-overdue={overdue ? '' : undefined}
       style={indent ? ({ '--tmt-block-indent': indent } as CSSProperties) : undefined}
     >
-      <BrowserCheckbox
+      <input
+        type="checkbox"
+        className={c.checkbox}
         checked={checked}
         readOnly={!onCheckedChange}
         onChange={(event) => onCheckedChange?.(event.target.checked)}
@@ -206,7 +218,7 @@ export function CardBlock({ variant = 'card', title, meta, children }: CardBlock
   );
 }
 
-export type CalloutTone = Exclude<BrowserNoticeTone, 'muted'>;
+export type CalloutTone = 'working' | 'waiting' | 'review' | 'blocked';
 /** Each tone's mark and word, so a tone never relies on colour alone. */
 export const calloutEyebrows: Record<CalloutTone, string> = {
   working: '● Working',
@@ -266,7 +278,14 @@ export function CodeBlock({
   copyLabel = 'Copy code',
   copiedLabel = 'Copied',
 }: CodeBlockProps) {
-  if (variant === 'command') return <BrowserCommand text={text} />;
+  if (variant === 'command')
+    return (
+      <div className={c.command}>
+        <pre className={c.commandText}>
+          <code>{text}</code>
+        </pre>
+      </div>
+    );
   return (
     <div data-slot="code-block" className="tmt-block-code">
       <div className="tmt-block-code-head">
