@@ -579,6 +579,17 @@ fn a_menu_owns_every_cell_it_covers() {
     click(&mut framed.app, x, y);
     for line in draw(&framed.app, 60, 36).iter().skip(1).take(6) {
         let inside = line.split('│').nth(1).unwrap_or_default();
-        assert!(!inside.contains("cargo") && !inside.contains("workspace"), "{line}");
+        assert!(
+            !inside.contains("cargo") && !inside.contains("workspace"),
+            "{line}"
+        );
     }
+}
+
+#[test]
+fn a_box_title_is_followed_by_its_rule() {
+    let mut framed = Framed::new(b"x");
+    framed.app.terminal.set_menu(Some(FrameMenu::Session));
+    let lines = draw(&framed.app, 60, 36);
+    assert!(lines[1].contains("工作階段 ──"), "{}", lines[1]);
 }

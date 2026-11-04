@@ -213,7 +213,9 @@ fn boxed(
     let border = look.role(Role::Muted);
     let fill = look.conversation();
     let inner = usize::from(area.width.saturating_sub(4));
-    let title = crate::board::view::fit(&format!(" {title} "), inner);
+    let mut title = crate::board::view::fit(&format!(" {title}"), inner.saturating_sub(1));
+    title.truncate(title.trim_end().len());
+    title.push(' ');
     let mut lines = vec![Line::from(vec![
         Span::styled("┌─", border),
         Span::styled(title.clone(), look.role(Role::Text)),
@@ -295,7 +297,12 @@ fn paint_dialog(frame: &mut ratatui::Frame, app: &App, screen: Rect, dialog: Dia
             _ => String::new(),
         };
         let mark = if index == cursor { "›" } else { " " };
-        body.push(row(&format!("{mark} {label}"), &format!("{cap} "), inner, style));
+        body.push(row(
+            &format!("{mark} {label}"),
+            &format!("{cap} "),
+            inner,
+            style,
+        ));
     }
     if let Some(notice) = &notice {
         body.push(Line::default());
