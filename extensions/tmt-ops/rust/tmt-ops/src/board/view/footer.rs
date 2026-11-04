@@ -598,6 +598,26 @@ fn digest_pairs(app: &App, width: usize) -> Vec<Hint> {
     fit_hints(hints, tail, width)
 }
 
+/// These actions remain bound and discoverable in Help, but do not occupy the base footer.
+fn help_only(verb: crate::action::Verb) -> bool {
+    use crate::action::{OpsUiAction as Ui, Verb};
+    matches!(
+        verb,
+        Verb::NextPane
+            | Verb::Copy
+            | Verb::Jump
+            | Verb::Open
+            | Verb::Ui(
+                Ui::WorkspaceSnapshots
+                    | Ui::Unread
+                    | Ui::RevealHidden
+                    | Ui::Pin
+                    | Ui::Timers
+                    | Ui::AllTimers
+            )
+    )
+}
+
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
     if app.shell.tab == crate::board::shell::OpsTab::Digest && !app.searching {
         return digest_pairs(app, width);
@@ -672,6 +692,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
             }
 
             !matches!(event.as_str(), "click" | "double-click")
+                && !help_only(action.verb)
                 && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
                     action.verb,
@@ -1153,6 +1174,44 @@ mod tests {
                 .cloned()
                 .collect();
             assert!(missing.is_empty(), "{target:?}: {missing:?}");
+        }
+    }
+
+    #[test]
+    fn base_footer_omits_help_only_actions_without_changing_bindings() {
+        use crate::action::{OpsUiAction as Ui, Verb};
+        use crate::board::app::workspace::tests::{MEMBER, ROOM, help_lists};
+        use crate::board::workspace::OpsTarget;
+        let app = selected(OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        });
+        let hidden = [
+            Verb::NextPane,
+            Verb::Copy,
+            Verb::Jump,
+            Verb::Open,
+            Verb::Ui(Ui::WorkspaceSnapshots),
+            Verb::Ui(Ui::Unread),
+            Verb::Ui(Ui::RevealHidden),
+            Verb::Ui(Ui::Pin),
+            Verb::Ui(Ui::Timers),
+            Verb::Ui(Ui::AllTimers),
+        ];
+        for verb in hidden {
+            assert!(help_only(verb), "{verb:?}");
+        }
+        assert!(!help_only(Verb::Ui(Ui::SavingsUnit)));
+        assert!(!help_only(Verb::Ui(Ui::Search)));
+        let pairs = workspace_pairs(&app, 1000);
+        for (key, action) in app.bindings() {
+            if help_only(action.verb) {
+                assert!(help_lists(&app, &key), "{key} remains in Help");
+                assert!(
+                    !pairs.contains(&(key_label(&key).to_owned(), hint_word(&app, &action))),
+                    "{key} remains in footer"
+                );
+            }
         }
     }
 }
