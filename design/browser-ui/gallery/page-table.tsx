@@ -1,17 +1,29 @@
 import { useMemo, useState } from 'react';
-import { Archive, ExternalLink, FileText, Lock, Pin, Trash2, Users } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ExternalLink,
+  Eye,
+  FileText,
+  Lock,
+  Pin,
+  Users,
+} from 'lucide-react';
 import {
   DataTable,
+  PageListBulkActions,
+  PageListRowMenu,
   type DataTableColumn,
   type DataTableProps,
   type DataTableSort,
 } from '../src/data-table/index.js';
-import { Badge, Button, DropdownMenuItem } from '../src/ui/index.js';
+import { Badge } from '../src/ui/index.js';
 
 /*
  * The Colab page list on DataTable (#5821 A6/C9), with sample data shared by the gallery frame, the
  * /docs pattern and the /mock/colab list. Titles include CJK text on purpose: the table must
  * truncate and align it like Latin text (technically required fixture data, the repository language exception).
+ * The bulk bar and the row menu are the shared page-list parts the real Colab list uses.
  */
 export type PageStage = 'discussion' | 'in-progress' | 'done' | 'archived';
 export interface SamplePage {
@@ -24,7 +36,8 @@ export interface SamplePage {
   updated: string;
   updatedRank: number;
   author: string;
-  access: 'Shared' | 'Private';
+  /** As Colab's page summary: only a link or public page reads Shared. */
+  sharing: 'private' | 'link' | 'public';
   pinned?: boolean;
   unread?: boolean;
 }
@@ -92,7 +105,7 @@ export const samplePages: SamplePage[] = Array.from({ length: 60 }, (_, index) =
     updated: times[Math.min(times.length - 1, Math.floor(index / 7))]!,
     updatedRank: index,
     author: people[index % people.length]!,
-    access: index % 4 === 1 ? 'Shared' : 'Private',
+    sharing: index % 8 === 1 ? 'link' : index % 8 === 5 ? 'public' : 'private',
     pinned: index < 3,
     unread: index % 5 === 0,
   };
@@ -133,6 +146,33 @@ function StageChip({ page }: { page: SamplePage }) {
     </Badge>
   );
 }
+
+/** The Access cell's word, as the Colab list derives it; a read-only list says so on every row. */
+const pageAccess = (page: SamplePage, readOnly = false) =>
+  readOnly ? 'Read-only' : page.sharing === 'private' ? 'Private' : 'Shared';
+const projectNames = [...new Set(projectSets.flat())].sort();
+
+const accessColumn = (readOnly: boolean): DataTableColumn<SamplePage> => ({
+  id: 'access',
+  header: 'Access',
+  role: 'access',
+  min: 84,
+  max: 96,
+  phone: 'menu',
+  text: (page) => pageAccess(page, readOnly),
+  cell: (page) => (
+    <>
+      {readOnly ? (
+        <Eye aria-hidden="true" />
+      ) : page.sharing === 'private' ? (
+        <Lock aria-hidden="true" />
+      ) : (
+        <Users aria-hidden="true" />
+      )}
+      <span className="tmt-data-table-text">{pageAccess(page, readOnly)}</span>
+    </>
+  ),
+});
 
 export const pageColumns: DataTableColumn<SamplePage>[] = [
   {
@@ -185,21 +225,7 @@ export const pageColumns: DataTableColumn<SamplePage>[] = [
     phone: 'menu',
     text: (page) => page.author,
   },
-  {
-    id: 'access',
-    header: 'Access',
-    role: 'access',
-    min: 84,
-    max: 96,
-    phone: 'menu',
-    text: (page) => page.access,
-    cell: (page) => (
-      <>
-        {page.access === 'Private' ? <Lock aria-hidden="true" /> : <Users aria-hidden="true" />}
-        <span className="tmt-data-table-text">{page.access}</span>
-      </>
-    ),
-  },
+  accessColumn(false),
 ];
 
 const compare = (sort: DataTableSort) => (a: SamplePage, b: SamplePage) => {
@@ -208,71 +234,115 @@ const compare = (sort: DataTableSort) => (a: SamplePage, b: SamplePage) => {
   return sort.direction === 'ascending' ? order : -order;
 };
 
-/** The page list as Colab would build it: sort, selection with bulk actions, hover actions, menu. */
+/** The page list as Colab builds it: sort, selection with the bulk bar, hover actions, row menu. */
 export function PageTable({
   rows = samplePages,
   initialSelected = [],
+  readOnly = false,
   onOpen,
   ...props
 }: Partial<Omit<DataTableProps<SamplePage>, 'rows'>> & {
   rows?: readonly SamplePage[];
   initialSelected?: string[];
+  /** The list opened without a paired machine: no selection, and the menu explains each refusal. */
+  readOnly?: boolean;
 }) {
   const [sort, setSort] = useState<DataTableSort>({ column: 'updated', direction: 'ascending' });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(initialSelected));
   const sorted = useMemo(() => [...rows].sort(compare(sort)), [rows, sort]);
+  const columns = useMemo(
+    () => (readOnly ? [...pageColumns.slice(0, -1), accessColumn(true)] : pageColumns),
+    [readOnly],
+  );
+  const chosen = rows.filter((page) => selected.has(page.id));
+  const none = () => {};
   return (
     <DataTable
       label="Pages"
       rows={sorted}
       rowKey={(page) => page.id}
       rowLabel={(page) => page.title}
-      columns={pageColumns}
+      columns={columns}
       sort={sort}
       onSortChange={setSort}
       selected={selected}
       onSelectedChange={setSelected}
+      canSelect={readOnly ? () => false : undefined}
       bulkActions={() => (
-        <>
-          <Button type="button" variant="outline" size="sm">
-            <Archive aria-hidden="true" /> Archive
-          </Button>
-          <Button type="button" variant="outline" size="sm">
-            Move to project
-          </Button>
-        </>
+        <PageListBulkActions
+          projects={projectNames.map((name) => ({
+            name,
+            checked: chosen.every((page) => page.projects.includes(name))
+              ? true
+              : chosen.some((page) => page.projects.includes(name))
+                ? 'indeterminate'
+                : false,
+          }))}
+          canArchive={chosen.some((page) => page.stage !== 'archived')}
+          canRestore={chosen.some((page) => page.stage === 'archived')}
+          onProject={none}
+          onNewProject={none}
+          onArchive={none}
+          onRestore={none}
+          onDelete={none}
+        />
       )}
-      actions={(page) => [
-        {
-          id: 'open',
-          label: `Open ${page.title} in a new tab`,
-          icon: <ExternalLink aria-hidden="true" />,
-          onSelect: () => {},
-        },
-        {
-          id: 'pin',
-          label: page.pinned ? `Unpin ${page.title}` : `Pin ${page.title} to the top`,
-          icon: <Pin aria-hidden="true" />,
-          onSelect: () => {},
-        },
-        {
-          id: 'archive',
-          label: `Archive ${page.title}`,
-          icon: <Archive aria-hidden="true" />,
-          onSelect: () => {},
-        },
-      ]}
-      menu={() => (
-        <>
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-          <DropdownMenuItem>Move to project…</DropdownMenuItem>
-          <DropdownMenuItem variant="destructive">
-            <Trash2 aria-hidden="true" /> Delete
-          </DropdownMenuItem>
-        </>
+      // As the shared page-list table: a read-only row has no hover actions, only its menu.
+      actions={(page) =>
+        readOnly
+          ? []
+          : [
+              {
+                id: 'open',
+                label: `Open ${page.title} in a new tab`,
+                icon: <ExternalLink aria-hidden="true" />,
+                onSelect: none,
+              },
+              ...(page.stage !== 'archived'
+                ? [
+                    {
+                      id: 'pin',
+                      pressed: !!page.pinned,
+                      label: page.pinned ? `Unpin ${page.title}` : `Pin ${page.title} to the top`,
+                      icon: <Pin aria-hidden="true" />,
+                      onSelect: none,
+                    },
+                  ]
+                : []),
+              {
+                id: 'archive',
+                hasPopup: 'dialog' as const,
+                label: `${page.stage === 'archived' ? 'Restore' : 'Archive'} ${page.title}`,
+                icon:
+                  page.stage === 'archived' ? (
+                    <ArchiveRestore aria-hidden="true" />
+                  ) : (
+                    <Archive aria-hidden="true" />
+                  ),
+                onSelect: none,
+              },
+            ]
+      }
+      menu={(page) => (
+        <PageListRowMenu
+          archived={page.stage === 'archived'}
+          readOnly={readOnly}
+          pinned={page.pinned}
+          onOpenInNewTab={none}
+          onPin={!readOnly && page.stage !== 'archived' ? none : undefined}
+          onManage={none}
+          onProjects={none}
+          onArchive={none}
+          onDelete={none}
+          onCopyId={none}
+          footer={<span className="page-table-retention">expires in 28 days</span>}
+        />
       )}
-      onOpen={onOpen ?? (() => {})}
-      rowData={(page) => ({ unread: page.unread ? '' : undefined })}
+      onOpen={onOpen ?? none}
+      rowData={(page) => ({
+        unread: page.unread ? '' : undefined,
+        archived: page.stage === 'archived' ? '' : undefined,
+      })}
       {...props}
     />
   );

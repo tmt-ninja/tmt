@@ -28,5 +28,7 @@ for (const width of [390, 1440])
       await capture('filtered-empty', '?filter=none');
       await capture('loading', '?data=loading');
       await capture('error', '?data=error');
+      await capture('read-only', '?data=readonly');
+      await capture('sticky', '?sticky=1');
     });
   }

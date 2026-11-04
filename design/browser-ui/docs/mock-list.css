@@ -243,3 +243,7 @@
 .list-tabs-row {
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+/* While the control row is stuck, its New page stands in for the tabs-row one. */
+.list-create-stuck {
+  visibility: hidden;
+}

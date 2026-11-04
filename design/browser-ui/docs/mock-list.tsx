@@ -67,7 +67,6 @@ interface Row {
   workers?: string[];
   updated: string;
   author: string;
-  access: 'Shared' | 'Private';
   pinned?: boolean;
   unread?: boolean;
 }
@@ -81,7 +80,6 @@ const rows: Row[] = [
     workers: ['sample-2'],
     updated: '2 min ago',
     author: 'sample-2',
-    access: 'Shared',
     pinned: true,
     unread: true,
   },
@@ -93,7 +91,6 @@ const rows: Row[] = [
     workers: ['sample-1', 'sample-lead'],
     updated: '18 min ago',
     author: 'sample-lead',
-    access: 'Shared',
     pinned: true,
   },
   {
@@ -103,7 +100,6 @@ const rows: Row[] = [
     needs: 1,
     updated: '40 min ago',
     author: 'sample-lead',
-    access: 'Shared',
     unread: true,
   },
   {
@@ -113,7 +109,6 @@ const rows: Row[] = [
     work: '0 of 2 done',
     updated: '1 h ago',
     author: 'sample-1',
-    access: 'Shared',
   },
   {
     title: 'CI flake triage',
@@ -121,7 +116,6 @@ const rows: Row[] = [
     stage: 'discussion',
     updated: '3 h ago',
     author: 'sample-2',
-    access: 'Private',
   },
   {
     title: 'Remote pairing walkthrough',
@@ -130,7 +124,6 @@ const rows: Row[] = [
     work: '4 of 4 done',
     updated: 'Yesterday',
     author: 'sample-1',
-    access: 'Shared',
     pinned: true,
   },
   {
@@ -140,7 +133,6 @@ const rows: Row[] = [
     needs: 1,
     updated: 'Yesterday',
     author: 'sample-lead',
-    access: 'Shared',
   },
   {
     title: 'Token tiers',
@@ -148,7 +140,6 @@ const rows: Row[] = [
     stage: 'done',
     updated: 'Mon',
     author: 'sample-2',
-    access: 'Shared',
   },
   {
     title: 'Brand sheet',
@@ -156,7 +147,6 @@ const rows: Row[] = [
     stage: 'done',
     updated: '27 Oct',
     author: 'sample-lead',
-    access: 'Private',
   },
   {
     title: 'Weekly plan, week 44',
@@ -164,7 +154,6 @@ const rows: Row[] = [
     stage: 'discussion',
     updated: '26 Oct',
     author: 'sample-lead',
-    access: 'Shared',
   },
 ];
 const stageName: Record<Stage, string> = {
@@ -254,7 +243,7 @@ const designChip = { kind: 'project', text: 'project:design', range: { start: 0,
 
 /** The search row (#5821 C2): the chip search takes the row, then Filter and Sort, bordered at
  * control-size-l; under 760px both turn square. */
-function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
+function Controls({ stuck, filtered, cold }: { stuck: boolean; filtered: boolean; cold: boolean }) {
   const [search, setSearch] = useState<RichInputValue>(
     filtered ? { value: 'project:design ', chips: [designChip] } : emptyRichInputValue,
   );
@@ -267,6 +256,7 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
         placeholder="Search pages, or type project:"
         value={search}
         resetKey={filtered ? 'filtered' : 'all'}
+        disabled={cold}
         onChange={(next) => {
           setSearch(next);
           const has = next.chips.some((chip) => chip.text === 'project:design');
@@ -287,7 +277,7 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" collapseLabel="Filter">
+          <Button type="button" variant="outline" collapseLabel="Filter" disabled={cold}>
             <ListFilter aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
@@ -309,7 +299,7 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
       </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" collapseLabel="Sort">
+          <Button type="button" variant="outline" collapseLabel="Sort" disabled={cold}>
             <ArrowUpDown aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
@@ -320,6 +310,12 @@ function Controls({ stuck, filtered }: { stuck: boolean; filtered: boolean }) {
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      {/* Stuck, the row carries New page, so it stays in reach while the list scrolls. */}
+      {stuck && (
+        <Button type="button" collapseLabel="New page" disabled={cold}>
+          <Plus aria-hidden="true" />
+        </Button>
+      )}
     </div>
   );
 }
@@ -339,7 +335,8 @@ export const listControls: StateControl[] = [
     label: 'Data',
     options: [
       ['', 'Pages'],
-      ['loading', 'Loading'],
+      ['loading', 'Cold read'],
+      ['readonly', 'Read-only'],
       ['empty', 'Empty'],
       ['error', 'Error'],
     ],
@@ -398,6 +395,9 @@ export function ListScreen({
   const data = query.get('data');
   const filter = query.get('filter');
   const needs = query.get('needs') !== 'cleared';
+  // The first read: structure only, with no pins, counts or commands until pages arrive.
+  const cold = data === 'loading';
+  const stuck = query.get('sticky') === '1';
   const [view, setView] = useState('all');
   const shown =
     filter === 'none'
@@ -411,7 +411,7 @@ export function ListScreen({
     <TooltipProvider>
       <ListBar needs={needs} />
       <div className="list-page">
-        {data !== 'empty' && (
+        {data !== 'empty' && !cold && (
           <ul className="list-pins" aria-label="Pinned pages">
             {rows
               .filter((row) => row.pinned)
@@ -441,10 +441,18 @@ export function ListScreen({
             className="list-tabs-row"
             actions={
               <>
-                <Button type="button" variant="outline" collapseLabel="Save as shortcut">
-                  <Bookmark aria-hidden="true" />
-                </Button>
-                <Button type="button" collapseLabel="New page">
+                {/* Shortcuts need the paired machine and a first read, so a read-only or cold list has none. */}
+                {data !== 'readonly' && !cold && (
+                  <Button type="button" variant="outline" collapseLabel="Save as shortcut">
+                    <Bookmark aria-hidden="true" />
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  collapseLabel="New page"
+                  disabled={cold}
+                  className={stuck ? 'list-create-stuck' : undefined}
+                >
                   <Plus aria-hidden="true" />
                 </Button>
               </>
@@ -452,17 +460,17 @@ export function ListScreen({
           >
             <TabsList variant="line" className="list-tabs" aria-label="Page views">
               {views.map(([id, label, count]) => (
-                <TabsTrigger key={id} value={id}>
-                  {label} <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
+                <TabsTrigger key={id} value={id} disabled={cold}>
+                  {label}{' '}
+                  {!cold && (
+                    <span className="list-count">{id === 'needs' && !needs ? 0 : count}</span>
+                  )}
                 </TabsTrigger>
               ))}
             </TabsList>
           </TabsBar>
         </Tabs>
-        <Controls
-          stuck={query.get('sticky') === '1'}
-          filtered={filter === '1' || filter === 'none'}
-        />
+        <Controls stuck={stuck} filtered={filter === '1' || filter === 'none'} cold={cold} />
         {data === 'loading' ? (
           <div className="list-loading" aria-label="Loading pages">
             {Array.from({ length: 6 }, (_, index) => (
@@ -508,7 +516,11 @@ export function ListScreen({
         ) : (
           <>
             <p className="list-quiet list-status">{shown.length} pages in this view</p>
-            <PageTable rows={shown} onOpen={() => navigate(`${colabMockBase}/page`)} />
+            <PageTable
+              rows={shown}
+              readOnly={data === 'readonly'}
+              onOpen={() => navigate(`${colabMockBase}/page`)}
+            />
           </>
         )}
         <section className="reader-notes">
