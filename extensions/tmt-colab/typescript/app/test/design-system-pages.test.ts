@@ -243,6 +243,7 @@ describe('template, publish and the renderer source', () => {
       'acme-empty',
       'acme-field',
       'acme-floating',
+      'acme-foundation',
       'acme-header',
       'acme-heading-block',
       'acme-icon-action',

@@ -83,7 +83,7 @@ export async function renderDocs() {
       {
         title: 'Foundations',
         pages: tokenPages.map((doc) =>
-          page(doc.slug, doc.title, article(doc.title, doc.lead, h(doc.render)), tokenFiles)
+          page(doc.slug, doc.title, h('tmt-ui-foundation', { page: doc.slug }), tokenFiles)
         ),
       },
       {

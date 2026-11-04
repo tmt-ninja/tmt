@@ -5,6 +5,7 @@ import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
 import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
 import { RichInput } from '@tmt/browser-ui/rich-input';
+import { FoundationPage } from '@tmt/browser-ui/docs-foundations';
 import {
   BlockDocument,
   Block,
@@ -295,6 +296,7 @@ const runtime = Object.freeze({
   sharedData: Object.freeze({ page: useWorkPage }),
   ui: Object.freeze({
     Button,
+    FoundationPage,
     Badge,
     Card,
     CardHeader,

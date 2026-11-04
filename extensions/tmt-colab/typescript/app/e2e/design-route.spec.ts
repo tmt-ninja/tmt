@@ -210,6 +210,17 @@ for (const width of [1440, 390])
       if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
       await page
         .getByRole('navigation', { name: 'Brio pages', exact: true })
+        .getByRole('link', { name: /^Colour/ })
+        .click();
+      await expect(
+        designFrame(page).getByRole('heading', { name: 'Colour', exact: true }),
+      ).toBeVisible();
+      await expect(designFrame(page).locator('.docs-swatch .docs-value').first()).toHaveText(
+        /^#[0-9a-f]{6}/,
+      );
+      if (width === 390) await page.getByRole('button', { name: 'Pages', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: 'Brio pages', exact: true })
         // The tree shows each page's title, and a component page's tag under it.
         .getByRole('link', { name: /^Button\s*brio-button$/ })
         .click();
@@ -261,7 +272,7 @@ for (const width of [1440, 390])
       expect(bundlePaint.background).toBe(bundlePaint.accentPaint);
       // Each example is a live element of the page, anchored by `<component>:<example id>`.
       const examples = designFrame(page).locator('[data-ds-example]');
-      await expect(examples).toHaveCount(8);
+      await expect(examples).toHaveCount(10);
       expect(
         await examples.evaluateAll((nodes) =>
           nodes.map((node) => node.getAttribute('data-ds-example')),
@@ -275,8 +286,10 @@ for (const width of [1440, 390])
         'button:sizes',
         'button:with-an-icon',
         'button:disabled',
+        'button:variants',
+        'button:collapsing-action',
       ]);
-      for (let index = 0; index < 8; index++) {
+      for (let index = 0; index < 10; index++) {
         const button = examples.nth(index).getByRole('button').first();
         // The port of browser-ui's ui Button (#5866): its slot and the ui utility classes.
         await expect(button).toHaveAttribute('data-slot', 'button');

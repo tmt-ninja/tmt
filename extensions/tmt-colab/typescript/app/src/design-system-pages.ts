@@ -536,6 +536,7 @@ async function fillFromTemplate(
   };
   const live = new Map(components.map((doc) => [doc.tag, doc]));
   const entries: DesignSystemConfig['components'] = [];
+  let foundationPage: string | undefined;
   await withPage(transport, rootId, async (root) => {
     if (!root.binding?.work) throw new Error('The design system page cannot hold sub-pages.');
     const make = async (parent: Snapshot, title: string, source: string) => {
@@ -554,11 +555,21 @@ async function fillFromTemplate(
           const component = ['Components', 'Browser components'].includes(section.title)
             ? live.get(doc.slug)
             : undefined;
-          const id = await make(
-            sectionPage,
-            doc.title,
-            component ? componentPageSource(component, prefix, doc) : doc.html,
-          );
+          let body = component ? componentPageSource(component, prefix, doc) : doc.html;
+          if (section.title === 'Foundations') {
+            body = body.replaceAll('tmt-ui-foundation', `${prefix}-foundation`);
+            if (doc.slug === 'colour') {
+              const foundation = live.get('foundation');
+              if (!foundation) throw new Error('The template has no foundation component.');
+              const { notes: _notes, examples: _examples, ...compiled } = foundation;
+              // The colour page owns the shared component in a copied system. Its hidden example
+              // lets publishing retain a usable sample while the visible page stays the live doc.
+              const markup = `<${prefix}-foundation page="colour"></${prefix}-foundation>`;
+              body = `${blockHtml('component', compiled)}\n${body}\n<section hidden><h3>Colour</h3><div data-ds-example="foundation:colour"><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+            }
+          }
+          const id = await make(sectionPage, doc.title, body);
+          if (section.title === 'Foundations' && doc.slug === 'colour') foundationPage = id;
           if (component) entries.push({ page: id, tag: component.tag, status: 'stable' });
           made.push({ id, title: doc.title });
         }
@@ -567,6 +578,8 @@ async function fillFromTemplate(
         await sectionPage.binding!.edit(sectionSource(section.title, made), sectionPage.source);
       });
     }
+    if (!foundationPage) throw new Error('The template has no colour foundation page.');
+    entries.push({ page: foundationPage, tag: 'foundation', status: 'stable' });
     const config: DesignSystemConfig = {
       ...system,
       id: rootId,

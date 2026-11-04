@@ -205,6 +205,31 @@ test('Browser overlay and meter examples use their real parts', async ({ page })
   await expect(frame.getByText('Details about the page.')).toBeHidden();
 });
 
+test('foundations read live token values and run the motion controls', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <div class="tmt-design-docs"><tmt-ui-foundation page="colour"></tmt-ui-foundation>
+     <tmt-ui-foundation page="type"></tmt-ui-foundation>
+     <tmt-ui-foundation page="spacing"></tmt-ui-foundation>
+     <tmt-ui-foundation page="radius"></tmt-ui-foundation>
+     <tmt-ui-foundation page="motion"></tmt-ui-foundation>
+     <tmt-ui-foundation page="elevation"></tmt-ui-foundation>
+     <tmt-ui-foundation page="brand"></tmt-ui-foundation></div>`,
+  );
+  for (const name of ['Colour', 'Type', 'Spacing', 'Radius', 'Motion', 'Elevation', 'Brand'])
+    await expect(frame.getByRole('heading', { name, exact: true })).toBeVisible();
+  await expect(frame.locator('.docs-swatch .docs-value').first()).toHaveText(/^#[0-9a-f]{6}/);
+  await expect(frame.locator('.docs-scale-value').first()).not.toBeEmpty();
+  const toggle = frame.getByRole('button', { name: 'Simulate reduced motion' });
+  await toggle.click();
+  await expect(frame.getByRole('button', { name: 'Reduced motion: on' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(frame.locator('svg.tmt-brand-mark').first()).toBeVisible();
+});
+
 test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({
   page,
 }) => {

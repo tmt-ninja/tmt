@@ -11,6 +11,9 @@
   },
   "components": [
     {
+      "doc": "components/foundation.json"
+    },
+    {
       "doc": "components/button.json"
     },
     {
