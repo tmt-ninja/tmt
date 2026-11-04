@@ -2276,6 +2276,8 @@ describe('CI diff and command integration', () => {
         browser_ui: 'false',
         native_scope: 'ops',
         native_notices: 'false',
+        remote_runtime_proof: 'false',
+        colab_runtime_proof: 'false',
         remote_firestore: 'false',
         colab_firestore: 'false',
         native_sync_emulator: 'false',
@@ -2293,7 +2295,11 @@ describe('CI diff and command integration', () => {
       const remoteOutput = capture();
       const remoteLog = capture();
       runCiScope([opsHead, remoteHead], { cwd: root, stdout: remoteOutput, stderr: remoteLog });
-      expect(outputs(remoteOutput.text())).toEqual({ ...full, colab_hosted_emulator: 'true' });
+      expect(outputs(remoteOutput.text())).toEqual({
+        ...full,
+        colab_hosted_emulator: 'true',
+        remote_runtime_proof: 'true',
+      });
       expect(remoteLog.text()).toContain(
         'Hosted reader emulator PR selection (hosted reader, native producer or qualifier inputs): true.'
       );
@@ -2307,7 +2313,11 @@ describe('CI diff and command integration', () => {
       const rulesHead = commit();
       const rulesOutput = capture();
       runCiScope([remoteHead, rulesHead], { cwd: root, stdout: rulesOutput, stderr: capture() });
-      expect(outputs(rulesOutput.text())).toEqual({ ...full, remote_firestore: 'true' });
+      expect(outputs(rulesOutput.text())).toEqual({
+        ...full,
+        remote_firestore: 'true',
+        remote_runtime_proof: 'true',
+      });
       const colabRulesDir = 'extensions/tmt-colab/firestore';
       mkdirSync(path.join(root, colabRulesDir), { recursive: true });
       writeFileSync(path.join(root, colabRulesDir, 'admission.rules'), '// Colab Rules\n');
@@ -2319,7 +2329,11 @@ describe('CI diff and command integration', () => {
         stdout: colabRulesOutput,
         stderr: colabRulesLog,
       });
-      expect(outputs(colabRulesOutput.text())).toEqual({ ...full, colab_firestore: 'true' });
+      expect(outputs(colabRulesOutput.text())).toEqual({
+        ...full,
+        colab_firestore: 'true',
+        colab_runtime_proof: 'true',
+      });
       expect(colabRulesLog.text()).toContain(
         'Colab Firestore Rules emulator selection (Unit tests job): true.'
       );

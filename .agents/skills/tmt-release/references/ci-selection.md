@@ -86,6 +86,12 @@ a guard rejects a native test file in no shard or two. Full scope requires all t
 a scoped component that names native tests requires the build and shard 1 with shard 2
 skipped, and anything else fails (`ci-scope.mjs gate-process`).
 
+The process build also runs seconds-scale source runtime contracts for changed Remote
+and Colab paths (#6052). Remote checks the built debug executable's help with the
+archive proof's command expectations; Colab checks source skills with the same
+reference collector and name validation as the archive proof. These checks do not
+select additional packaging rehearsals or replace matching-host archive verification.
+
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
 `test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs the pinned
 adapter environment slice), component scope requires shard 1 when its `scopedChecks.e2eFiles`
