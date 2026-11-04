@@ -190,3 +190,50 @@ fn the_caller_trigger_opens_the_picker_and_other_prefixes_do_not() {
     completion.update(&Editor::from("ask tmt/ni"), &candidates(), "");
     assert!(!completion.open(), "an empty trigger never opens");
 }
+#[test]
+fn grouped_matches_stay_in_inventory_groups_and_details_match_after_labels() {
+    let inventory: Vec<(Candidate, String)> = [
+        ("tmt", "tmt-colab", "Create and update Colab pages"),
+        ("tmt", "tmt-ops", "Read the squad board"),
+        ("user", "code-review", "Review the current diff"),
+        ("project", "tmt-dev", "Development workflow for this repo"),
+    ]
+    .into_iter()
+    .map(|(kind, label, detail)| {
+        (
+            Candidate {
+                id: format!("skill:{label}"),
+                kind: kind.into(),
+                label: label.into(),
+                insertion: format!("/{label}"),
+            },
+            detail.to_owned(),
+        )
+    })
+    .collect();
+    let mut completion = Completion::default();
+    let ids = |completion: &Completion| {
+        completion
+            .matches
+            .iter()
+            .map(|candidate| candidate.label.clone())
+            .collect::<Vec<_>>()
+    };
+    // An empty query lists every group in inventory order.
+    completion.update_grouped(&Editor::from("/"), &inventory, "/");
+    assert_eq!(
+        ids(&completion),
+        ["tmt-colab", "tmt-ops", "code-review", "tmt-dev"]
+    );
+    // Groups keep their order whatever the rank: a better `code-review` match stays after
+    // `tmt-colab`.
+    completion.update_grouped(&Editor::from("ask /co"), &inventory, "/");
+    assert_eq!(ids(&completion), ["tmt-colab", "code-review"]);
+    // A description-only match counts, with no emphasis in the label.
+    completion.update_grouped(&Editor::from("/board"), &inventory, "/");
+    assert_eq!(ids(&completion), ["tmt-ops"]);
+    assert!(completion.matched_ranges(0).is_empty());
+    // A second trigger inside the token is a path, not a query.
+    completion.update_grouped(&Editor::from("/usr/bin"), &inventory, "/");
+    assert!(!completion.open());
+}

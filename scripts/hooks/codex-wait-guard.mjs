@@ -17,7 +17,13 @@
 //    `skip`: `apply_patch`, and a Bash command that is one simple command (no
 //    unquoted `; & | < > ( ) $` backtick, backslash or newline) running `rg`,
 //    `grep`, `ls`, `cat`, `head`, `wc` or `pwd`, `git status|diff|log|show`, or
-//    `sed -n`. `tail` is left out, since `tail -f` waits.
+//    `sed -n`. `tail` is left out, since `tail -f` waits. Starting this
+//    repository's scripts/ci-wake.sh, the required CI waiter, is also a
+//    `skip` (reason `ci-wake`): one command whose program resolves (realpath)
+//    to `<worktree>/scripts/ci-wake.sh`, run directly or by `sh`/`bash`, with
+//    any plain arguments, an optional leading `nohup`, trailing redirections
+//    and a trailing `&`. A copy elsewhere, or anything chained or wrapped
+//    around it, is judged.
 // 5. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
@@ -114,6 +120,7 @@ function judgeUrl() {
 
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED].
 Deny the call when it waits, sleeps or polls in any form, including inside a script or heredoc it writes or runs: sleep, a retry or watch loop, a background loop (&, nohup, while true), a timer or scheduled task, or repeated status checks of CI, pull requests, merge queues, deploys or other agents. The agent should start scripts/ci-wake.sh (or a provider background task that wakes it) and end its turn instead.
+Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
 Record your decision with the verdict tool, with a reason of one short sentence.`;
 
@@ -187,6 +194,35 @@ export function allowlisted(tool, command) {
   if (READ_ONLY.has(program)) return words.length > 1;
   if (program === 'git') return ['status', 'diff', 'log', 'show'].includes(first);
   return program === 'sed' && first === '-n';
+}
+
+/** A trailing `&`, and redirections such as `> log 2>&1` or `< /dev/null`, at the end of a command. */
+const TRAILING_REDIRECT =
+  /\s+(?:\d*>&\d+|(?:\d*>>?|&>|<)\s*(?:'[^']*'|"[^"]*"|[^\s;&|<>()`$\\'"]+))$/;
+
+/**
+ * Whether the command only starts this repository's scripts/ci-wake.sh, the required
+ * CI waiter, so its own polling loop is not mistaken for a wait in the main session. Anything chained or wrapped around it, or a copy elsewhere, is judged.
+ */
+export function startsCiWake(cwd, command) {
+  let rest = command.trim();
+  if (rest.endsWith('&') && !rest.endsWith('&&')) rest = rest.slice(0, -1).trimEnd();
+  for (let match = TRAILING_REDIRECT.exec(rest); match; match = TRAILING_REDIRECT.exec(rest)) {
+    rest = rest.slice(0, match.index);
+  }
+  const { words, simple } = shellWords(rest);
+  if (!simple) return false;
+  let at = words[0] === 'nohup' ? 1 : 0;
+  if (['sh', 'bash'].includes(words[at])) at += 1;
+  const program = words[at];
+  if (!program || !program.includes('/')) return false;
+  const root = worktree(cwd);
+  if (!root) return false;
+  try {
+    return realpathSync(path.resolve(cwd, program)) === path.join(root, 'scripts', 'ci-wake.sh');
+  } catch {
+    return false;
+  }
 }
 
 const SECRET_PATTERNS = [
@@ -562,6 +598,9 @@ async function main() {
     return finish({ verdict: 'deny', enforced: true, reason: 'key cache' });
   }
   if (allowlisted(tool, command)) return finish({ verdict: 'skip' });
+  if (tool === 'Bash' && startsCiWake(payload.cwd, command)) {
+    return finish({ verdict: 'skip', reason: 'ci-wake' });
+  }
   const seat = whoami();
   const started = Date.now();
   const content = { tool, input: redact(command).slice(0, INPUT_CHARS) };

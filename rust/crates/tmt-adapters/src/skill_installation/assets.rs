@@ -23,7 +23,7 @@ fn framed_digest<B: AsRef<[u8]>>(parts: &[B]) -> String {
     digest(&bytes)
 }
 
-fn bundle_digest() -> String {
+pub(super) fn bundle_digest() -> String {
     framed_digest(&BUNDLED.iter().map(|skill| skill.bytes).collect::<Vec<_>>())
 }
 

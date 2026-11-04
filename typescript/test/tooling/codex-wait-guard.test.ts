@@ -315,6 +315,49 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     });
   });
 
+  it("skips the model for starting this repository's ci-wake.sh, and judges anything around it", async () => {
+    const c = newCase();
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    const waker = path.join(repository, 'scripts', 'ci-wake.sh');
+    const starts = [
+      'sh scripts/ci-wake.sh 6028 --identity infra-1',
+      'bash scripts/ci-wake.sh 6028 --identity infra-1 --until merged',
+      './scripts/ci-wake.sh 6028 --identity infra-1',
+      `sh ${waker} 6028 --identity infra-1`,
+      'sh scripts/ci-wake.sh 6028 --identity infra-1 &',
+      'nohup sh scripts/ci-wake.sh 6028 --identity infra-1 > /tmp/ci-wake.log 2>&1 &',
+      'sh scripts/ci-wake.sh 6028 --identity infra-1 < /dev/null >> "wake log.txt" 2>&1',
+    ];
+    for (const command of starts) {
+      const result = await c.guard(bash(command));
+      expect(result.stdout, command).toBe('');
+    }
+    expect(received).toEqual([]);
+    for (const line of c.lines()) {
+      expect(line).toMatchObject({ verdict: 'skip', reason: 'ci-wake' });
+    }
+
+    const copy = path.join(c.dir, 'ci-wake.sh');
+    writeFileSync(copy, readFileSync(waker));
+    answer = verdict('deny', 'Waits in the main session.');
+    const judged = [
+      `sh ${copy} 6028 --identity infra-1`,
+      'sh scripts/ci-wake.sh 6028 --identity infra-1; sleep 60',
+      'sh scripts/ci-wake.sh 6028 --identity infra-1 && gh pr checks 6028',
+      'while true; do sh scripts/ci-wake.sh 6028 --identity infra-1; done',
+      'sh scripts/ci-wake.sh $(sleep 9)',
+      'sleep 5 & sh scripts/ci-wake.sh 6028 --identity infra-1',
+    ];
+    for (const command of judged) await c.guard(bash(command));
+    expect(received).toHaveLength(judged.length);
+    // The policy names the waker as the allowed way to wait.
+    expect(received[0].body.system).toContain(
+      'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
+    );
+  });
+
   it('is inert outside this repository, and logs every call when switched off', async () => {
     const c = newCase();
     answer = verdict('deny');

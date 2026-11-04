@@ -92,6 +92,7 @@ impl App {
             })
     }
     pub(super) fn update_mentions(&mut self) {
+        self.update_skills();
         if !self.message_field() && !self.workspace_reference_field() {
             self.mentions = State::default();
             return;
@@ -162,6 +163,9 @@ impl App {
     }
 
     pub(super) fn mention_key(&mut self, key: KeyEvent) -> Option<Effect> {
+        if let Some(effect) = self.skill_key(key) {
+            return Some(effect);
+        }
         if !self.mentions.completion.open() {
             return None;
         }
@@ -185,6 +189,9 @@ impl App {
         Some(Effect::None)
     }
     pub(super) fn mention_mouse(&mut self, event: MouseEvent) -> bool {
+        if self.skill_mouse(event) {
+            return true;
+        }
         if !self.mentions.completion.open() {
             return false;
         }

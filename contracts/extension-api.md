@@ -149,7 +149,8 @@ remain independent of storage access.
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–50, default 10), optional `before` (cursor)                                                      | `identityId`, `items`, `coverage`, `capture?`, `nextBefore?`: locally retained provider-final pane output (see below)                                                                                                                   |
 | `responses.timeline`     | `identityId`, optional `limit` (1–50, default 50), optional opaque `before`                                                                         | Ordered captured inputs and replies, canonical final bodies, coverage and painted-answer acknowledgement keys (see below)                                                                                                               |
 | `pane.screen`            | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `format`, `text`: the identity's current visible pane screen, read-only (see below)                                                                                                                               |
-| `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `socket`, `pane`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                               |
+| `terminal.stream`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `host`, `socket`, `pane`, `paused`: where a built-in-host member's terminal stream is (see [below](#terminal-stream))                                                                                                     |
+| `terminal.resume`        | `identityId` (canonical UUID)                                                                                                                       | `identityId`, `resumed`: continues a built-in-host member stopped by job control (see [below](#resume-a-paused-member))                                                                                                                 |
 | `dispatch.show`          | `operationId`                                                                                                                                       | Immutable acceptance receipt                                                                                                                                                                                                            |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`                                                                 | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch))                                                                                                                      |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                                                                               | Room resource                                                                                                                                                                                                                           |
@@ -162,7 +163,7 @@ remain independent of storage access.
 | `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                                                                               | `acknowledged`                                                                                                                                                                                                                          |
 | `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                                                                                | `owner`, `published` targets                                                                                                                                                                                                            |
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                                                                 | `owner`, `removed` and `kept` targets                                                                                                                                                                                                   |
-| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                   | The skills that member's agent can invoke: `syntax`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                            |
+| `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                   | The skills that member's agent can invoke: `syntax`, `driver`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                  |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                                                                           | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                      |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                 | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                    |
 | `consumption.limits`     | `{}`                                                                                                                                                | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                   |
@@ -172,7 +173,7 @@ remain independent of storage access.
 | `identity.rename`        | `identityId` (canonical UUID), `expectedName`, `name`                                                                                               | `outcome`: `applied`, `conflict` or `not-found`; atomic conditional rename (see below)                                                                                                                                                  |
 | `identity.stop`          | `identityId` (canonical UUID), `expectedName`, `close` (bool)                                                                                       | `outcome`: `stopped`, `already-ended`, `not-running`, `conflict` or `not-found`; with `close`, `pane`: `closed`, `gone` or `kept` (see [below](#verified-stop-and-identity-remove))                                                     |
 | `identity.remove`        | `identityId` (canonical UUID), `expectedName`                                                                                                       | `outcome`: `removed`, `conflict` or `not-found`; refuses `AGENT_RUNNING` (see [below](#verified-stop-and-identity-remove))                                                                                                              |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, and `canPassthrough` (see [below](#passthrough-dispatch))                                                                             |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                                                                        | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`, `canPassthrough` (see [below](#passthrough-dispatch)) and `paused` when stopped by job control                                        |
 | `extensions.uses`        | `extension`, `feature`                                                                                                                              | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                                                                                            |
 
 `storage.root` reports the data directory selected by the invoking core, including
@@ -422,9 +423,12 @@ errors and the byte cap.
 [terminal stream](terminal-stream-v1.md) is, for a view such as the Ops Terminal tab.
 Input is `{identityId}`: a required canonical identity UUID; names, other fields and
 envelope originator attribution are `API_INPUT_INVALID`. The resource is
-`{identityId, host, socket, pane}`: `host` is `pty`, `socket` the absolute path of the
-member's Unix socket and `pane` its pane ID. The path layout is not part of the contract:
-a client connects to the `socket` it is given.
+`{identityId, host, socket, pane, paused}`: `host` is `pty`, `socket` the absolute path of
+the member's Unix socket and `pane` its pane ID. The path layout is not part of the contract:
+a client connects to the `socket` it is given. `paused` is `true` while the member is
+stopped by job control (Ctrl-Z, `SIGSTOP`), as its supervisor last observed it (within
+about 200 ms); a supervisor from before this field reports `false`. Ctrl-Z typed into the
+stream is passed to the terminal like any key.
 
 Core checks the identity's recorded binding against fresh host evidence first, as
 `pane.screen` does, and a read opens no connection, starts or wakes nothing and types
@@ -434,6 +438,19 @@ existing envelope with exit 1. `NAME_NOT_FOUND` is an unknown or retired UUID.
 host, or a member whose supervisor is gone. `API_UNAVAILABLE` is host evidence that
 could not be read. Callers read `capabilities` first; if `terminal.stream` is absent the
 view is unavailable.
+
+### Resume a paused member
+
+`terminal.resume` takes the same `{identityId}` input and continues a built-in-host
+member stopped by job control: its supervisor sends `SIGCONT` to the member's process
+group and to the terminal's foreground group when that differs. It answers
+`{identityId, resumed: true}`, also for a member that was not paused; `paused` clears
+once the supervisor observes the member continue. Core first checks the binding as
+`terminal.stream` does (`NAME_NOT_FOUND`, `TERMINAL_STREAM_UNAVAILABLE`), and a member on
+another host is `TERMINAL_RESUME_UNSUPPORTED`. Core asks the supervisor's capabilities
+before sending anything: a supervisor started by an older tmt cannot resume and is
+`TERMINAL_RESUME_UNSUPPORTED` with the advice to restart the member. A supervisor that
+cannot be reached or does not confirm is `API_UNAVAILABLE`; the member may still be paused.
 
 ## Conditional identity rename
 
@@ -1026,6 +1043,7 @@ The result is:
 ```json
 {
   "syntax": { "kind": "prefix", "sigil": "/" },
+  "driver": "claude",
   "skills": [
     { "name": "tmt", "description": "…", "source": { "group": "tmt" } },
     { "name": "kit:deploy", "description": "…", "source": { "group": "plugin", "plugin": "kit" } }
@@ -1038,6 +1056,10 @@ The result is:
 
 - `syntax` is how the composer inserts a skill: `{kind:"prefix", sigil}` (Claude Code `/`,
   Codex `$`) or `{kind:"unsupported"}`.
+- `driver` is the member's remembered harness id (for example `claude` or `codex`), or `null`
+  for an unknown identity or one with no remembered driver. It comes only from Core's
+  remembered harness, never from a path or a pane. The field was added within v1, so a reader
+  that ignores unknown fields is unaffected.
 - `name` is the exact token after the sigil. A name that is not one token (lowercase ASCII
   letters, digits and `-`, 1–64 bytes; a plugin skill is `plugin:name` with both parts so)
   is dropped.
@@ -1050,7 +1072,10 @@ All skill text is untrusted display data: a reader renders it and never runs it.
 
 **Which member and which directories.** The member's remembered driver answers. An
 identity that is unknown or has no remembered driver, and a driver without skill invocation,
-answer `unsupported` with no skills; neither is an error.
+answer `unsupported` and list only TMT's own skills (#5924); neither is an error. Those come
+from this tmt's published skill set: its bundle directory under `skill-assets` and each
+extension-owned skill's recorded source. They are read through the same bounded walk as the
+other groups, with no provider directory and no link followed.
 
 - The driver's provider roots come from the ambient environment of the process answering,
   the same rule as [account limits](#account-limits). A member launched under a different
@@ -1183,7 +1208,10 @@ from stored facts only (no probe), so a client can offer the action. `reason` is
 `available` is false and is one of `no_pane` (no binding, or retired), `not_running` (its
 agent ended) or `awaiting_approval` (it is waiting on its user, so the delivery would be
 refused). The set is open: treat an unknown reason as unavailable. It is a hint, not a
-lease: the send verifies the pane again. Whether the answer can be captured is not part
+lease: the send verifies the pane again. A built-in member stopped by job control also
+carries `paused: true`, read fresh from its supervisor; the key is absent otherwise, and
+delivery to it is refused with `MEMBER_PAUSED` until
+[`terminal.resume`](#resume-a-paused-member) continues it. Whether the answer can be captured is not part
 of it; without the turn-end hook the answer reads `no_answer` and the send still works.
 
 ### Admission, wake and completion

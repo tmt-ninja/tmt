@@ -22,8 +22,8 @@ mod refresh_tests;
 pub use drift::inspect_local_drift;
 /// The skill name and file path rules, shared with native release archives.
 pub(crate) use owned::{
-    MAXIMUM_FILE_BYTES, MAXIMUM_FILES, MAXIMUM_SKILLS, valid_file as valid_skill_file,
-    valid_name as valid_skill_name,
+    MAXIMUM_FILE_BYTES, MAXIMUM_FILES, MAXIMUM_SKILLS, published_sources,
+    valid_file as valid_skill_file, valid_name as valid_skill_name,
 };
 pub use owned::{
     OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned,

@@ -900,6 +900,22 @@ pub fn owned_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<P
     Ok(optional_roots(env, &global)?.into_keys().collect())
 }
 
+/// The directories TMT's own current skills are read from, for a skills menu (#5924):
+/// this binary's bundle and each extension-owned skill's recorded source. Read-only and
+/// provider-independent; each directory's children are skills.
+pub(crate) fn published_sources(global: &Path) -> io::Result<Vec<PathBuf>> {
+    let global = files::resolved(global)?;
+    let assets = SkillAssets::new(&global);
+    let mut sources = vec![assets.root().join(super::assets::bundle_digest())];
+    for (name, entry) in read_owners(&global)?.skills {
+        if let Some(digest) = source(&assets, &entry.owner, &entry.digest, &name).parent() {
+            sources.push(digest.to_path_buf());
+        }
+    }
+    sources.dedup();
+    Ok(sources)
+}
+
 /// The skills an owner holds and each one's recorded targets.
 pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
     let global = files::resolved(global)?;
