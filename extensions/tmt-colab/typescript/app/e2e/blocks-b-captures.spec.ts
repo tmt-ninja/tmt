@@ -36,7 +36,7 @@ for (const width of [1440, 390])
         <tmt-ui-mockup-block height="200"><tmt-ui-button>Approve</tmt-ui-button></tmt-ui-mockup-block>
         <tmt-ui-work-bundle page="allowed" work="Review the shared component."></tmt-ui-work-bundle>
         <tmt-ui-page-view label="Spec pages"></tmt-ui-page-view>`;
-        await mountRenderer(host, source, {
+        const renderer = await mountRenderer(host, source, {
           signal: new AbortController().signal,
           onState: () => {},
           designSystem: {
@@ -84,6 +84,9 @@ for (const width of [1440, 390])
             },
           },
         });
+        (
+          window as unknown as { captureRenderer: { images(input: unknown): void } }
+        ).captureRenderer = renderer;
         const frame = host.querySelector('iframe');
         if (frame) frame.style.width = '100%';
       }, bundle);
@@ -97,8 +100,49 @@ for (const width of [1440, 390])
       ]) {
         const target = frame.locator(selector);
         await expect(target).toBeVisible();
-        if (captureDir)
-          await target.screenshot({ path: join(captureDir, `${name}-${width}-${theme}.png`) });
+        if (captureDir) {
+          const capture = await target.screenshot({
+            path: join(captureDir, `${name}-${width}-${theme}.png`),
+          });
+          if (name === 'question') {
+            await page.evaluate(
+              ({ base64, length }) => {
+                const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+                (
+                  window as unknown as { captureRenderer: { images(input: unknown): void } }
+                ).captureRenderer.images({
+                  descriptors: [
+                    {
+                      attachmentId: '11111111-1111-4111-8111-111111111111',
+                      filename: 'question.png',
+                      mediaType: 'image/png',
+                      plaintextBytes: String(length),
+                    },
+                  ],
+                  binding: { scope: () => 'capture', open: async () => bytes },
+                });
+              },
+              { base64: capture.toString('base64'), length: capture.length },
+            );
+            await frame.locator('tmt-ui-image-block').evaluate((node) => {
+              node.setAttribute(
+                'images',
+                JSON.stringify([
+                  {
+                    src: 'colab-attachment:11111111',
+                    alt: 'Screen',
+                    filename: 'question.png',
+                    caption: 'Question preview',
+                    tag: 'Review',
+                  },
+                ]),
+              );
+            });
+            await expect(
+              frame.getByRole('button', { name: 'Open Screen' }).locator('img'),
+            ).toHaveAttribute('src', /^data:image\/png;base64,/);
+          }
+        }
       }
       await expect(frame.getByText('Structured pages')).toBeVisible();
       await expect(frame.getByText('Shared page components')).toBeVisible();

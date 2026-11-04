@@ -712,6 +712,7 @@
               if (!item.placeholder?.isConnected) continue;
               if (url) {
                 item.image.src = url;
+                item.resolvedUrl = url;
                 item.image.style.maxWidth = '100%';
                 item.placeholder.replaceWith(item.image);
                 item.placeholder = null;
@@ -724,7 +725,9 @@
             // A live component can remove its images; do not retain detached React trees.
             for (const [reference, items] of images) {
               const live = items.filter(
-                (item) => item.image.isConnected || item.placeholder?.isConnected,
+                (item) =>
+                  item.placeholder?.isConnected ||
+                  (item.image.isConnected && item.image.getAttribute('src') === item.resolvedUrl),
               );
               if (live.length) images.set(reference, live);
               else images.delete(reference);
@@ -2931,19 +2934,23 @@
             resolve();
           };
           const observer = new MutationObserver((mutations) => {
-            // Custom-element parts can insert attachment images after the initial page scan.
-            // Scan only additions containing a new reference, not our own resolved image updates.
+            // Parts can insert images or change their source after the initial page scan.
+            // Our own resolved data URLs and removed source attributes are not new references.
             if (
               imageRequestId &&
               mutations.some(
                 (m) =>
-                  m.type === 'childList' &&
-                  [...m.addedNodes].some(
-                    (node) =>
-                      node instanceof Element &&
-                      (node.matches('img[src^="colab-attachment:"]') ||
-                        node.querySelector('img[src^="colab-attachment:"]')),
-                  ),
+                  (m.type === 'attributes' &&
+                    m.attributeName === 'src' &&
+                    m.target instanceof HTMLImageElement &&
+                    m.target.matches('img[src^="colab-attachment:"]')) ||
+                  (m.type === 'childList' &&
+                    [...m.addedNodes].some(
+                      (node) =>
+                        node instanceof Element &&
+                        (node.matches('img[src^="colab-attachment:"]') ||
+                          node.querySelector('img[src^="colab-attachment:"]')),
+                    )),
               )
             )
               configureImages(imageRequestId);
@@ -2954,6 +2961,7 @@
                   !unsentLayer?.contains(m.target) &&
                   !markers?.contains(m.target) &&
                   !hover?.contains(m.target) &&
+                  !(m.type === 'attributes' && m.attributeName === 'src') &&
                   !(
                     m.target instanceof Element && m.target.hasAttribute('data-colab-block-slot')
                   ) &&
@@ -2976,7 +2984,7 @@
                 childList: true,
                 characterData: true,
                 attributes: true,
-                attributeFilter: ['hidden', 'open', 'data-id', 'style', 'class'],
+                attributeFilter: ['hidden', 'open', 'data-id', 'style', 'class', 'src'],
               });
               rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
