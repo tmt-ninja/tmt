@@ -168,7 +168,7 @@ logs of this repository (activity gaps over five minutes end an interval), merge
 PRs from one GitHub search, and added lines from `origin/main` numstat minus the
 exclusion list in that file. Subscriptions add $400 on each 27th from 27 September
 2026. A per-file cache under `$XDG_CACHE_HOME/tmt-blog-stats/` (size and mtime)
-rescans only changed logs. The command refuses to write when any cumulative metric
+rescans only changed logs and keeps the intervals of logs the providers have since deleted. The command refuses to write when any cumulative metric
 would go down. A daily tmt-mkt Squad cron commits the result as a data-only PR.
 
 Optional post metadata `keyNumber` is exactly `{ "value": "2.9×", "label": "tokens per line" }`.
