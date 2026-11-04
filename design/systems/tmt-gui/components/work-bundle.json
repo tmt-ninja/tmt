@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-bundle",
+  "source": "work-bundle.js",
+  "data": ["page"],
+  "props": {
+    "page": {"type": "string"},
+    "number": {"type": "string"},
+    "work": {"type": "string"},
+    "tickets": {"type": "string"}
+  },
+  "slots": ["default"],
+  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "examples": [{
+    "title": "A page and its work",
+    "markup": "<tmt-ui-work-bundle page=\"example-page\" number=\"1\" work=\"Review the shared component.\"></tmt-ui-work-bundle>",
+    "widths": [1440, 390]
+  }]
+}

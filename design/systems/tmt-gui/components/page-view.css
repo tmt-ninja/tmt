@@ -1,0 +1,7 @@
+.tmt-page-view-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tmt-ui-space-s);
+  margin-bottom: var(--tmt-ui-space-s);
+}

@@ -5462,6 +5462,14 @@ named shared parts in its `parts` list; the host currently permits only `PageLis
 component receives only its declared names, and an attempt to access another part is refused.
 Runtime 2 bundles keep their existing skeleton and cannot declare shared parts. A reader without
 runtime 3 reports that the page needs a newer TMT rather than executing that bundle.
+Runtime 3 separately permits a component to declare the `page` data capability: it reads only the
+referenced page's bounded display metadata through the current viewer's admitted transport. The
+frame is not given a transport, management methods or an arbitrary page-read function.
+When an owner page includes `tmt-ui-page-view`, its frame receives a bounded, read-only projection
+of the admitted page list: at most 200 records and 64 KiB, with page identifiers, titles, projects,
+stage, update label, author and access only. The subscription ends with the frame and follows the
+owner list's refreshes. A frame without an owner list sees an unavailable state; it receives no
+transport or management capability. Each page system remains responsible for its own filters.
 
 The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
 owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each

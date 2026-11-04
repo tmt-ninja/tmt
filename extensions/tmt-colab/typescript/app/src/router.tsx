@@ -4,6 +4,8 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
+import { watchPageView } from './page-view-source.js';
+import { workBundleSource } from './work-bundle-source.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
@@ -1910,6 +1912,18 @@ function OpenPage({
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
   );
+  const pageViewSource = useMemo(
+    () =>
+      transport.management
+        ? (publish: Parameters<typeof watchPageView>[2], failed: () => void) =>
+            watchPageView(transport, space, publish, failed, (id) => routing.pageHref(id))
+        : undefined,
+    [transport, space, routing],
+  );
+  const workSource = useMemo(
+    () => workBundleSource(transport, space, (id) => routing.pageHref(id)),
+    [transport, space, routing],
+  );
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,
@@ -1930,6 +1944,8 @@ function OpenPage({
     requestPageLink,
     onContentApplied: () => setContentRevision((count) => count + 1),
     designSystem: designSystems,
+    pageView: pageViewSource,
+    workBundle: workSource,
     handlers: {
       onSelection,
       onAnnotate: annotate,

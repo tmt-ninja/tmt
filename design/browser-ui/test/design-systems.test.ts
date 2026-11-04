@@ -29,7 +29,7 @@ describe('buildBundle', () => {
     const bundle = await buildBundle('x', system, [page], sha256Hex);
     expect(bundle.runtime).toBe('3');
     expect(bundle.components[0]?.parts).toEqual(['PageListTable']);
-    await expect(buildBundle('x', template.system, [page], sha256Hex)).rejects.toThrow('runtime 3');
+    await expect(buildBundle('x', { ...template.system, runtime: '2' }, [page], sha256Hex)).rejects.toThrow('runtime 3');
     await expect(buildBundle('x', system, [{ ...page, parts: ['Other'] }], sha256Hex)).rejects.toThrow(
       'shared part',
     );
@@ -51,6 +51,9 @@ describe('buildBundle', () => {
       'tmt-ui-surface',
       'tmt-ui-empty',
       'tmt-ui-tabs',
+      'tmt-ui-page-view',
+      'tmt-ui-work-bundle',
+      'tmt-ui-mockup-block',
     ]);
   });
 
@@ -144,7 +147,7 @@ describe('checkElements', () => {
   });
 });
 
-it('keeps generated template pages iframe-free and names the deferred scene tags', () => {
+it('keeps generated template pages iframe-free and restores page-view tags', () => {
   const pages = JSON.parse(
     readFileSync(new URL('../../systems/tmt-gui/generated/pages.json', import.meta.url), 'utf8'),
   ) as { pages: { slug: string; html: string }[] }[];
@@ -152,6 +155,6 @@ it('keeps generated template pages iframe-free and names the deferred scene tags
   expect(all.some((page) => /<iframe\b/i.test(page.html))).toBe(false);
   for (const slug of ['page-list', 'data-table']) {
     const page = all.find((entry) => entry.slug === slug);
-    expect(page?.html).toContain('Live preview returns with the page-view tags in #5981 part B.');
+    expect(page?.html).toContain('<tmt-ui-page-view');
   }
 });

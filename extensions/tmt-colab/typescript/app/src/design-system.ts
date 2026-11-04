@@ -10,10 +10,13 @@
 import {
   checkElements,
   findingText,
+  DATA_CAPABILITIES,
   SHARED_PARTS,
   type Bundle,
   type Finding,
 } from '../../../../../design/systems/compiler.mjs';
+import pageListCss from '../../../../../design/browser-ui/src/data-table/page-list.css?inline';
+import dataTableCss from '../../../../../design/browser-ui/src/data-table/data-table.css?inline';
 
 /** The skeleton API this app runs bundles on: the page runtime's React and htm, plus cn. */
 export const SKELETON_RUNTIME = '2';
@@ -42,6 +45,7 @@ export interface DesignSystemComponent {
   readonly props: Readonly<Record<string, DesignSystemProp>>;
   readonly slots: readonly string[];
   readonly parts?: readonly string[];
+  readonly data?: readonly string[];
   readonly css: string;
   readonly code: string;
 }
@@ -60,6 +64,25 @@ export interface DesignSystemBundle {
 export interface FrameDesignSystem {
   readonly script: string;
   readonly style: string;
+}
+function supportsCapabilities(bundle: DesignSystemBundle): boolean {
+  return bundle.components.every((component) =>
+    (
+      [
+        ['parts', SHARED_PARTS],
+        ['data', DATA_CAPABILITIES],
+      ] as const
+    ).every(([field, allowed]) => {
+      const names = component[field];
+      return (
+        names === undefined ||
+        (bundle.runtime === '3' &&
+          Array.isArray(names) &&
+          new Set(names).size === names.length &&
+          names.every((name) => allowed.includes(name)))
+      );
+    }),
+  );
 }
 
 /** `<system>` or `<system>@<version>#<hash>`; the system is its root page's id. */
@@ -123,7 +146,7 @@ export async function resolveDesignSystem(
   if (!bundle || bundle.version !== lock.version) return 'unknown-release';
   if (bundle.schema > 1) return 'newer-schema';
   if (bundle.hash !== lock.hash || (await bundleHash(bundle)) !== lock.hash) return 'hash-mismatch';
-  if (!supportsRuntime(bundle.runtime)) return 'newer-runtime';
+  if (!supportsRuntime(bundle.runtime) || !supportsCapabilities(bundle)) return 'newer-runtime';
   return bundle;
 }
 
@@ -158,6 +181,7 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
   if (!supportsRuntime(bundle.runtime)) throw new Error('Unsupported design system runtime');
   for (const component of bundle.components) {
     const parts = component.parts ?? [];
+    const data = component.data ?? [];
     if (
       !Array.isArray(parts) ||
       (parts.length && bundle.runtime !== '3') ||
@@ -165,25 +189,38 @@ export function frameDesignSystem(bundle: DesignSystemBundle): FrameDesignSystem
       parts.some((part) => !SHARED_PARTS.includes(part))
     )
       throw new Error(`Invalid shared parts for ${component.tag}`);
+    if (
+      !Array.isArray(data) ||
+      (data.length && bundle.runtime !== '3') ||
+      new Set(data).size !== data.length ||
+      data.some((name) => !DATA_CAPABILITIES.includes(name))
+    )
+      throw new Error(`Invalid data capabilities for ${component.tag}`);
   }
   const meta = JSON.stringify(
-    bundle.components.map(({ tag, props, slots, parts }) => ({
+    bundle.components.map(({ tag, props, slots, parts, data }) => ({
       tag,
       props,
       slots,
       parts: parts ?? [],
+      data: data ?? [],
     })),
   ).replace(/</g, '\\u003c');
   // An element is only its rendered component's host, except at the top of the page: there it is
   // the box the frame's column rules (width, inset) apply to, so it stands on the column with the text.
   const tags = bundle.components.map(({ tag }) => tag).join(',');
-  const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
+  const sharedCss = bundle.components.some((component) =>
+    component.parts?.includes('PageListTable'),
+  )
+    ? `${pageListCss}\n${dataTableCss}`
+    : '';
+  const style = `@layer tmt-ui{${bundle.tokensCss}\n:where(${tags}){display:contents}body>:where(${tags}){display:block}\n${sharedCss}\n${bundle.components.map(({ css }) => css).join('\n')}}`;
   const script = `(()=>{const t=window.tmt;const meta=${meta};
 const factories=[${bundle.components.map(({ code }) => `(function(){${code}})()`).join(',')}];
 if(!t||!t.React||!t.html||!t.createRoot)return;
 const React=t.React,cn=(...parts)=>parts.filter(Boolean).join(' ');
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
-meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const skeleton=Object.freeze(${bundle.runtime === '3' ? '{React,html:t.html,cn,parts}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
+meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const skeleton=Object.freeze(${bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
 connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}this.root=t.createRoot(this);}this.paint();}
 attributeChangedCallback(){if(this.root)this.paint();}
@@ -232,7 +269,10 @@ function outcome(pin: DesignSystemPin, from: DesignSystemSource): Promise<Outcom
   const { system, lock } = pin;
   if (!lock)
     return from.draft(system).then(
-      (bundle) => (supportsRuntime(bundle.runtime) ? bundle : { failure: 'newer-runtime' }),
+      (bundle) =>
+        supportsRuntime(bundle.runtime) && supportsCapabilities(bundle)
+          ? bundle
+          : { failure: 'newer-runtime' },
       (error: unknown) => ({
         failure: 'draft-broken',
         ...(error instanceof DesignDraftError && { detail: error.message }),

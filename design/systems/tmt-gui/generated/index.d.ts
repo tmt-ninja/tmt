@@ -97,3 +97,33 @@ export interface TabsProps {
   value?: string;
   children?: ReactNode;
 }
+
+/** <tmt-ui-page-view>: props from its schema, slots as nodes. */
+export interface PageViewProps {
+  label?: string;
+  rows?: string;
+  "group-by"?: "state" | "project" | "owner" | "none";
+  state?: "auto" | "loading" | "empty" | "error";
+  density?: "compact" | "comfortable";
+  selected?: string;
+  selectable?: boolean;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-bundle>: props from its schema, slots as nodes. */
+export interface WorkBundleProps {
+  page?: string;
+  number?: string;
+  work?: string;
+  tickets?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-mockup-block>: props from its schema, slots as nodes. */
+export interface MockupBlockProps {
+  system?: string;
+  lock?: string;
+  preset?: "390" | "1440";
+  height?: string;
+  children?: ReactNode;
+}

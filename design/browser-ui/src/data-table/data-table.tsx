@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useLayoutEffect,
   useRef,
   useState,
@@ -84,6 +85,10 @@ export interface DataTableProps<Row> {
   /** A row's name in control labels: "Select …", "More for …". */
   rowLabel: (row: Row) => string;
   columns: readonly DataTableColumn<Row>[];
+  /** Contiguous row groups share this grid's header and column widths. */
+  rowGroup?: (row: Row) => { id: string; label: string };
+  collapsedGroups?: ReadonlySet<string>;
+  onGroupToggle?: (id: string) => void;
   density?: 'compact' | 'comfortable';
   sort?: DataTableSort | null;
   onSortChange?: (sort: DataTableSort) => void;
@@ -207,6 +212,9 @@ export function DataTable<Row>({
   rowKey,
   rowLabel,
   columns,
+  rowGroup,
+  collapsedGroups,
+  onGroupToggle,
   density = 'compact',
   sort,
   onSortChange,
@@ -238,7 +246,17 @@ export function DataTable<Row>({
   const menuFacts = narrow && columns.some((column) => column.phone === 'menu');
   const trailing = !!(actions || menu || menuFacts);
   const slots = actions ? Math.max(0, ...rows.map((row) => actions(row).length)) : 0;
-  const keys = state === 'ready' ? rows.map(rowKey) : [];
+  const shown =
+    state === 'ready'
+      ? rows.filter((row) => !rowGroup || !collapsedGroups?.has(rowGroup(row).id))
+      : [];
+  const keys = shown.map(rowKey);
+  const groupCounts = new Map<string, number>();
+  if (rowGroup && state === 'ready')
+    for (const row of rows) {
+      const id = rowGroup(row).id;
+      groupCounts.set(id, (groupCounts.get(id) ?? 0) + 1);
+    }
   const focusKey = active !== null && keys.includes(active) ? active : (keys[0] ?? null);
   const eligible =
     state === 'ready'
@@ -435,7 +453,7 @@ export function DataTable<Row>({
         <div
           role="grid"
           aria-label={label}
-          aria-rowcount={keys.length + 1}
+          aria-rowcount={keys.length + 1 + groupCounts.size}
           className="tmt-data-table-grid"
         >
           <div role="rowgroup" className="tmt-data-table-head" ref={head}>
@@ -475,151 +493,184 @@ export function DataTable<Row>({
                   ? spanRow(error, 'error')
                   : rows.map((row, index) => {
                       const key = rowKey(row);
+                      const group = rowGroup?.(row);
+                      const first =
+                        group && (index === 0 || rowGroup?.(rows[index - 1]!).id !== group.id);
+                      const visibleIndex = keys.indexOf(key);
                       const name = rowLabel(row);
                       const rowActions = actions?.(row) ?? [];
                       const menuColumns = narrow
                         ? columns.filter((column) => column.phone === 'menu')
                         : [];
                       return (
-                        <div
-                          key={key}
-                          role="row"
-                          aria-rowindex={index + 2}
-                          aria-selected={
-                            selectable ? selected.has(key) && canSelect?.(row) !== false : undefined
-                          }
-                          className="tmt-data-table-row"
-                          data-table-row=""
-                          data-selected={
-                            (selected.has(key) && canSelect?.(row) !== false) || undefined
-                          }
-                          tabIndex={key === focusKey ? 0 : -1}
-                          onFocus={() => setActive(key)}
-                          onKeyDown={(event) => onRowKey(event, row, index)}
-                          {...Object.fromEntries(
-                            Object.entries(rowData?.(row) ?? {}).map(([name, value]) => [
-                              `data-${name}`,
-                              value,
-                            ]),
-                          )}
-                        >
-                          {selectable && (
-                            <div role="gridcell" className="tmt-data-table-cell" data-role="select">
-                              <Checkbox
-                                tabIndex={-1}
-                                aria-label={`Select ${name}`}
-                                checked={selected.has(key) && canSelect?.(row) !== false}
-                                disabled={canSelect?.(row) === false}
-                                onCheckedChange={(on) => setRow(key, on === true)}
-                              />
+                        <Fragment key={key}>
+                          {first && (
+                            <div role="row" className="tmt-data-table-row" data-span="group">
+                              <div role="gridcell" className="tmt-data-table-cell" data-role="span">
+                                <button
+                                  type="button"
+                                  className="tmt-data-table-group-toggle"
+                                  aria-expanded={!collapsedGroups?.has(group.id)}
+                              disabled={!onGroupToggle}
+                                  onClick={() => onGroupToggle?.(group.id)}
+                                >
+                                  {group.label} <span>{groupCounts.get(group.id)}</span>
+                                </button>
+                              </div>
                             </div>
                           )}
-                          {columns.map((column) => (
+                          {visibleIndex >= 0 && (
                             <div
-                              key={column.id}
-                              role="gridcell"
-                              className="tmt-data-table-cell"
-                              data-role={column.role}
-                              data-align={column.align}
-                              data-phone={column.phone}
-                            >
-                              {column.role === 'primary' ? (
-                                <>
-                                  <span className="tmt-data-table-line">
-                                    {column.lead && (
-                                      <span className="tmt-data-table-lead">
-                                        {column.lead(row)}
-                                      </span>
-                                    )}
-                                    {cellFor(column, row)}
-                                  </span>
-                                  {column.sub && (
-                                    <span className="tmt-data-table-sub">{column.sub(row)}</span>
-                                  )}
-                                </>
-                              ) : (
-                                cellFor(column, row)
+                              role="row"
+                              aria-rowindex={rowGroup ? undefined : index + 2}
+                              aria-selected={
+                                selectable
+                                  ? selected.has(key) && canSelect?.(row) !== false
+                                  : undefined
+                              }
+                              className="tmt-data-table-row"
+                              data-table-row=""
+                              data-selected={
+                                (selected.has(key) && canSelect?.(row) !== false) || undefined
+                              }
+                              tabIndex={key === focusKey ? 0 : -1}
+                              onFocus={() => setActive(key)}
+                              onKeyDown={(event) => onRowKey(event, row, visibleIndex)}
+                              {...Object.fromEntries(
+                                Object.entries(rowData?.(row) ?? {}).map(([name, value]) => [
+                                  `data-${name}`,
+                                  value,
+                                ]),
                               )}
-                            </div>
-                          ))}
-                          {trailing && (
-                            <div
-                              role="gridcell"
-                              className="tmt-data-table-cell"
-                              data-role="actions"
                             >
-                              <span className="tmt-data-table-actions">
-                                {rowActions.map((action) => (
-                                  <Tooltip key={action.id}>
-                                    <TooltipTrigger asChild>
+                              {selectable && (
+                                <div
+                                  role="gridcell"
+                                  className="tmt-data-table-cell"
+                                  data-role="select"
+                                >
+                                  <Checkbox
+                                    tabIndex={-1}
+                                    aria-label={`Select ${name}`}
+                                    checked={selected.has(key) && canSelect?.(row) !== false}
+                                    disabled={canSelect?.(row) === false}
+                                    onCheckedChange={(on) => setRow(key, on === true)}
+                                  />
+                                </div>
+                              )}
+                              {columns.map((column) => (
+                                <div
+                                  key={column.id}
+                                  role="gridcell"
+                                  className="tmt-data-table-cell"
+                                  data-role={column.role}
+                                  data-align={column.align}
+                                  data-phone={column.phone}
+                                >
+                                  {column.role === 'primary' ? (
+                                    <>
+                                      <span className="tmt-data-table-line">
+                                        {column.lead && (
+                                          <span className="tmt-data-table-lead">
+                                            {column.lead(row)}
+                                          </span>
+                                        )}
+                                        {cellFor(column, row)}
+                                      </span>
+                                      {column.sub && (
+                                        <span className="tmt-data-table-sub">
+                                          {column.sub(row)}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    cellFor(column, row)
+                                  )}
+                                </div>
+                              ))}
+                              {trailing && (
+                                <div
+                                  role="gridcell"
+                                  className="tmt-data-table-cell"
+                                  data-role="actions"
+                                >
+                                  <span className="tmt-data-table-actions">
+                                    {rowActions.map((action) => (
+                                      <Tooltip key={action.id}>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-sm"
+                                            tabIndex={-1}
+                                            aria-label={action.label}
+                                            aria-haspopup={action.hasPopup}
+                                            aria-pressed={action.pressed}
+                                            onClick={(event) => {
+                                              if (event.nativeEvent.isTrusted) action.onSelect();
+                                            }}
+                                          >
+                                            {action.icon}
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>{action.label}</TooltipContent>
+                                      </Tooltip>
+                                    ))}
+                                  </span>
+                                  <DropdownMenu
+                                    open={menuFor === key}
+                                    onOpenChange={(open) => setMenuFor(open ? key : null)}
+                                  >
+                                    <DropdownMenuTrigger asChild>
                                       <Button
                                         type="button"
                                         variant="ghost"
                                         size="icon-sm"
                                         tabIndex={-1}
-                                        aria-label={action.label}
-                                        aria-haspopup={action.hasPopup}
-                                        aria-pressed={action.pressed}
-                                        onClick={(event) => {
-                                          if (event.nativeEvent.isTrusted) action.onSelect();
-                                        }}
+                                        className="tmt-data-table-menu"
+                                        aria-label={`More for ${name}`}
                                       >
-                                        {action.icon}
+                                        <MoreHorizontal aria-hidden="true" />
                                       </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>{action.label}</TooltipContent>
-                                  </Tooltip>
-                                ))}
-                              </span>
-                              <DropdownMenu
-                                open={menuFor === key}
-                                onOpenChange={(open) => setMenuFor(open ? key : null)}
-                              >
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    tabIndex={-1}
-                                    className="tmt-data-table-menu"
-                                    aria-label={`More for ${name}`}
-                                  >
-                                    <MoreHorizontal aria-hidden="true" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="end"
-                                  returnFocus={() =>
-                                    body.current?.querySelectorAll<HTMLElement>('[data-table-row]')[
-                                      index
-                                    ] ?? null
-                                  }
-                                >
-                                  {menuColumns.map((column) => (
-                                    <DropdownMenuLabel
-                                      key={column.id}
-                                      className="tmt-data-table-menu-fact"
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="end"
+                                      returnFocus={() =>
+                                        body.current?.querySelectorAll<HTMLElement>(
+                                          '[data-table-row]',
+                                        )[visibleIndex] ?? null
+                                      }
                                     >
-                                      {column.header}: {cellFor(column, row)}
-                                    </DropdownMenuLabel>
-                                  ))}
-                                  {menuColumns.length > 0 && <DropdownMenuSeparator />}
-                                  {includeActionsInMenu &&
-                                    rowActions.map((action) => (
-                                      <TrustedMenuItem key={action.id} onSelect={action.onSelect}>
-                                        {action.icon}
-                                        {action.label}
-                                      </TrustedMenuItem>
-                                    ))}
-                                  {includeActionsInMenu && rowActions.length > 0 && menu && (
-                                    <DropdownMenuSeparator />
-                                  )}
-                                  {menu?.(row)}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                                      {menuColumns.map((column) => (
+                                        <DropdownMenuLabel
+                                          key={column.id}
+                                          className="tmt-data-table-menu-fact"
+                                        >
+                                          {column.header}: {cellFor(column, row)}
+                                        </DropdownMenuLabel>
+                                      ))}
+                                      {menuColumns.length > 0 && <DropdownMenuSeparator />}
+                                      {includeActionsInMenu &&
+                                        rowActions.map((action) => (
+                                          <TrustedMenuItem
+                                            key={action.id}
+                                            onSelect={action.onSelect}
+                                          >
+                                            {action.icon}
+                                            {action.label}
+                                          </TrustedMenuItem>
+                                        ))}
+                                      {includeActionsInMenu && rowActions.length > 0 && menu && (
+                                        <DropdownMenuSeparator />
+                                      )}
+                                      {menu?.(row)}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              )}
                             </div>
                           )}
-                        </div>
+                        </Fragment>
                       );
                     })}
           </div>

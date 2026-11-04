@@ -13,6 +13,8 @@ import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import type { PageLayout } from './page-layout.js';
+import type { PageViewRecord } from './page-view-source.js';
+import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { switcherModifiers, type SwitcherKeyRequest } from './quick-switcher-key.js';
@@ -223,6 +225,9 @@ export async function mountRenderer(
     layout?: PageLayout;
     /** Reads the bundle a page pins with `<meta name="tmt-ds">` (#5821); absent draws the notice. */
     designSystem?: DesignSystemSource;
+    /** Read-only bounded page-list projection, subscribed only for a page-view tag. */
+    pageView?: (publish: (rows: PageViewRecord[]) => void, failed: () => void) => () => void;
+    workBundle?: WorkBundleSource;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -283,6 +288,8 @@ export async function mountRenderer(
   let stopped = false,
     loads = 0,
     ready = false;
+  let stopPageView: (() => void) | undefined;
+  const stopWorkBundles: (() => void)[] = [];
   const channel = new MessageChannel();
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
@@ -450,6 +457,8 @@ export async function mountRenderer(
       });
     }
     stopped = true;
+    stopPageView?.();
+    stopWorkBundles.forEach((stop) => stop());
     stopTheme();
     options.onSlots?.([]);
     options.onEditLocks?.([]);
@@ -630,6 +639,67 @@ export async function mountRenderer(
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
     images(imageInput);
+    if (new DOMParser().parseFromString(source, 'text/html').querySelector('tmt-ui-page-view')) {
+      const unavailable = () => {
+        if (!stopped)
+          channel.port1.postMessage({
+            type: 'colab.render.page-view',
+            renderId: snapshot.renderId,
+            rows: null,
+          });
+      };
+      stopPageView = options.pageView?.((rows) => {
+        if (!stopped)
+          channel.port1.postMessage({
+            type: 'colab.render.page-view',
+            renderId: snapshot.renderId,
+            rows,
+          });
+      }, unavailable);
+      if (!options.pageView) unavailable();
+    }
+    const workPages = new Set(
+      [
+        ...new DOMParser()
+          .parseFromString(source, 'text/html')
+          .querySelectorAll('tmt-ui-work-bundle[page]'),
+      ]
+        .map((node) => node.getAttribute('page') ?? '')
+        .filter((page) => /^[A-Za-z0-9_-]{1,128}$/.test(page))
+        .slice(0, 20),
+    );
+    for (const page of workPages) {
+      const send = (data: unknown) => {
+        const message = {
+          type: 'colab.render.work-bundle',
+          renderId: snapshot.renderId,
+          page,
+          data,
+        };
+        if (stopped) return;
+        channel.port1.postMessage(
+          new TextEncoder().encode(JSON.stringify(message)).byteLength <= 16 * 1024
+            ? message
+            : { ...message, data: null },
+        );
+      };
+      if (!options.workBundle) {
+        send(null);
+        continue;
+      }
+      try {
+        stopWorkBundles.push(
+          options.workBundle.subscribe(
+            page,
+            options.signal,
+            (data) => send(data ?? null),
+            () => send(null),
+          ),
+        );
+      } catch {
+        send(null);
+      }
+    }
     options.onState('ready');
   };
   // A message the port cannot deliver may have been the answer to an update: mount afresh.

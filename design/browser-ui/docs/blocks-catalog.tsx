@@ -3,7 +3,7 @@ import { useState } from 'react';
 import {
   ImageBlock,
   MockupBlock,
-  PageViewToolbar,
+  PageView,
   QuestionBlock,
   WorkBundle,
 } from '../src/blocks/index.js';
@@ -27,30 +27,34 @@ function QuestionDemo() {
 }
 function PageViewControlsDemo() {
   const [filters, setFilters] = useState([{ id: 'project', label: 'Project: spec' }]);
-  const [groupBy, setGroupBy] = useState<'state' | 'project' | 'owner' | 'none'>('state');
-  const [visible, setVisible] = useState<readonly string[]>([
-    'title',
-    'state',
-    'progress',
-    'owner',
-    'updated',
-  ]);
-  const columns = [
-    { id: 'title', label: 'Page', required: true },
-    { id: 'state', label: 'State' },
-    { id: 'progress', label: 'Sub-pages' },
-    { id: 'owner', label: 'Owner' },
-    { id: 'updated', label: 'Updated' },
-  ].map((column) => ({ ...column, visible: visible.includes(column.id) }));
+  const rows = [
+    {
+      id: 'one',
+      name: 'Structured pages',
+      title: 'Structured pages',
+      projects: ['spec'],
+      stage: { id: 'open', label: 'Awaiting decision' },
+      updated: '11 minutes ago',
+      author: 'tmt-gui-lead',
+      access: 'Team',
+    },
+    {
+      id: 'two',
+      name: 'Night execution plan',
+      title: 'Night execution plan',
+      projects: ['night'],
+      stage: { id: 'active', label: 'In progress' },
+      updated: '2 hours ago',
+      author: 'night-lead',
+      access: 'Team',
+    },
+  ];
   return (
-    <PageViewToolbar
+    <PageView
       title="Spec pages"
       filters={filters}
-      groupBy={groupBy}
-      columns={columns}
+      rows={rows}
       onRemoveFilter={(id) => setFilters((items) => items.filter((item) => item.id !== id))}
-      onGroupChange={setGroupBy}
-      onColumnsChange={setVisible}
     />
   );
 }
@@ -185,9 +189,9 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'page-view',
     name: 'Page view',
     description:
-      'Filter, group and choose visible columns for a shared page list. PageViewToolbar owns the controls; the host owns the data.',
+      'Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data.',
     preview: () => <PageViewControlsDemo />,
-    usage: `${entry('PageViewToolbar')}<PageViewToolbar title="Spec pages" filters={filters} groupBy={groupBy} columns={columns} />`,
+    usage: `${entry('PageView')}<PageView title="Spec pages" rows={pages} />`,
     variants: [],
   },
 ];

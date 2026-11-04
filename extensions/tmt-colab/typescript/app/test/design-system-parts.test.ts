@@ -1,6 +1,11 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vite-plus/test';
-import { frameDesignSystem, type DesignSystemBundle } from '../src/design-system.js';
+import {
+  bundleHash,
+  frameDesignSystem,
+  resolveDesignSystem,
+  type DesignSystemBundle,
+} from '../src/design-system.js';
 
 const bundle = (runtime: string, code: string, parts?: string[]): DesignSystemBundle => ({
   schema: 1,
@@ -27,6 +32,7 @@ function load(value: DesignSystemBundle) {
         html: () => {},
         createRoot: () => {},
         sharedParts: { PageListTable: table },
+        sharedData: { page: () => undefined },
       },
     },
     customElements: { get: () => undefined, define: (name: string) => defined.push(name) },
@@ -52,6 +58,30 @@ describe('design-system shared parts', () => {
     );
     expect(() => load(bundle('3', 'return () => null;', ['Other']))).toThrow(
       'Invalid shared parts',
+    );
+  });
+  it('refuses undeclared page data and allows only the named runtime 3 capability', () => {
+    expect(() => load(bundle('3', 'return ({data}) => data.page;'))).toThrow(
+      'Undeclared data capability',
+    );
+    const base = bundle('3', 'return ({data}) => data.page;');
+    const allowed = { ...base, components: [{ ...base.components[0]!, data: ['page'] }] };
+    expect(load(allowed)).toEqual(['test-page']);
+    const unknown = { ...base, components: [{ ...base.components[0]!, data: ['arbitrary'] }] };
+    expect(() => load(unknown)).toThrow('Invalid data capabilities');
+  });
+  it('reports a newer-runtime notice for a valid release with an unknown capability', async () => {
+    const base = bundle('3', 'return () => null;');
+    const candidate = { ...base, components: [{ ...base.components[0]!, data: ['future'] }] };
+    const hash = await bundleHash(candidate);
+    const release = { ...candidate, hash };
+    const source = {
+      release: async () => release,
+      draft: async () => release,
+      watch: () => () => {},
+    };
+    expect(await resolveDesignSystem('test', { version: '1.0.0', hash }, source)).toBe(
+      'newer-runtime',
     );
   });
 });

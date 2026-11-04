@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "mockup-block",
+  "source": "mockup-block.js",
+  "props": {
+    "system": {"type": "string", "default": "tmt-gui"},
+    "lock": {"type": "string", "default": "follow"},
+    "preset": {"enum": ["390", "1440"], "default": "390"},
+    "height": {"type": "string", "default": "400"}
+  },
+  "slots": ["default"],
+  "css": "../../../browser-ui/src/blocks/blocks.css",
+  "examples": [{
+    "title": "A scoped stage",
+    "markup": "<tmt-ui-mockup-block system=\"tmt-gui\" preset=\"390\"><tmt-ui-button>Save</tmt-ui-button></tmt-ui-mockup-block>",
+    "widths": [1440, 390]
+  }]
+}

@@ -129,12 +129,15 @@ const columns: DataTableColumn<PageListRow>[] = [
 export function PageListTable({
   rows,
   actions,
+  visibleColumns,
   ...props
 }: Omit<
   DataTableProps<PageListRow>,
   'label' | 'rows' | 'rowKey' | 'rowLabel' | 'columns' | 'canSelect'
 > & {
   rows: readonly PageListRow[];
+  /** Optional column selection. The title is always present. */
+  visibleColumns?: readonly string[];
 }) {
   return (
     <DataTable
@@ -142,7 +145,11 @@ export function PageListTable({
       rows={rows}
       rowKey={(page) => page.id}
       rowLabel={(page) => page.name}
-      columns={columns}
+      columns={
+        visibleColumns
+          ? columns.filter((column) => column.id === 'title' || visibleColumns.includes(column.id))
+          : columns
+      }
       selectAllLabel="Select all matching pages"
       includeActionsInMenu={false}
       canSelect={(page) => !page.readOnly}

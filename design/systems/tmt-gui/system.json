@@ -5,7 +5,7 @@
   "name": "tmt GUI",
   "prefix": "tmt-ui",
   "version": "0.1.0",
-  "runtime": "2",
+  "runtime": "3",
   "tokens": {
     "source": "design/tokens/tokens.json"
   },
@@ -48,6 +48,15 @@
     },
     {
       "doc": "components/tabs.json"
+    },
+    {
+      "doc": "components/page-view.json"
+    },
+    {
+      "doc": "components/work-bundle.json"
+    },
+    {
+      "doc": "components/mockup-block.json"
     }
   ],
   "principles": {

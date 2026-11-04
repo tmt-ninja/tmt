@@ -2429,6 +2429,26 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.work-bundle' && Object.keys(v).length === 4 &&
+              v.renderId === renderId && typeof v.page === 'string' &&
+              /^[A-Za-z0-9_-]{1,128}$/.test(v.page) &&
+              (v.data === null || (v.data && typeof v.data === 'object' && !Array.isArray(v.data))) &&
+              utf8.encode(JSON.stringify(v)).length <= 16 * 1024
+            ) {
+              window.dispatchEvent(new CustomEvent('tmt-work-bundle-data', { detail: { page: v.page, data: v.data } }));
+              return;
+            }
+            if (
+              v?.type === 'colab.render.page-view' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              (v.rows === null || (Array.isArray(v.rows) && v.rows.length <= 200)) &&
+              utf8.encode(JSON.stringify(v)).length <= 66 * 1024
+            ) {
+              window.dispatchEvent(new CustomEvent('tmt-page-view-data', { detail: v.rows }));
+              return;
+            }
+            if (
               v?.type === 'colab.render.source' &&
               Object.keys(v).length === 4 &&
               typeof v.requestId === 'string' &&

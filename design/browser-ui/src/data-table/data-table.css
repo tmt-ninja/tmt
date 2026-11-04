@@ -262,6 +262,18 @@
   height: auto;
   padding: calc(var(--tmt-foundation-spacing-unit) * 4);
 }
+.tmt-data-table-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-space-s);
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 
 /* Under 760px each row is a two-line card: select, primary and menu, then the other values. */
 @container tmt-data-table (max-width: 759px) {

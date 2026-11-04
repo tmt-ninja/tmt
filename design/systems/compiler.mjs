@@ -7,6 +7,7 @@ export const SCHEMA = 1;
 export const RUNTIME = '2';
 /** Runtime 3 adds only these explicitly declared host-provided parts. */
 export const SHARED_PARTS = ['PageListTable'];
+export const DATA_CAPABILITIES = ['page'];
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
 const GLOBAL_ATTRIBUTES = /^(class|id|style|slot|title|lang|dir|hidden|tabindex|role|data-.+|aria-.+)$/;
@@ -99,11 +100,14 @@ export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
   components.forEach((doc) => {
-    if (doc.parts === undefined) return;
-    if (config.runtime !== '3') fail(`${doc.tag}: shared parts require runtime 3`);
-    if (!Array.isArray(doc.parts) || new Set(doc.parts).size !== doc.parts.length ||
-        doc.parts.some((part) => typeof part !== 'string' || !SHARED_PARTS.includes(part)))
-      fail(`${doc.tag}: unknown or duplicate shared part`);
+    for (const [field, allowed] of [['parts', SHARED_PARTS], ['data', DATA_CAPABILITIES]]) {
+      const names = doc[field];
+      if (names === undefined) continue;
+      if (config.runtime !== '3') fail(`${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`);
+      if (!Array.isArray(names) || new Set(names).size !== names.length ||
+          names.some((name) => typeof name !== 'string' || !allowed.includes(name)))
+        fail(`${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`);
+    }
   });
   const tags = components.map((doc) => doc.tag);
   if (new Set(tags).size !== tags.length) fail('two components share a tag');
@@ -121,6 +125,7 @@ export async function buildBundle(system, config, components, sha256Hex) {
       props: doc.props,
       slots: doc.slots,
       ...(doc.parts === undefined ? {} : { parts: doc.parts }),
+      ...(doc.data === undefined ? {} : { data: doc.data }),
       examples: (doc.examples ?? []).map(({ title, markup }) => ({
         title,
         markup: markup.replaceAll('tmt-ui-', `${config.prefix}-`),
