@@ -21,6 +21,10 @@ pub(in crate::board) const SCENES: &[&str] = &[
     "digest-chart-month",
     "digest-chart-gaps",
     "digest-inline-mode",
+    "digest-populated-timer",
+    "digest-zero-and-no-source",
+    "digest-dollar-totals",
+    "digest-all-readonly",
 ];
 
 pub(in crate::board) fn capture_case(
@@ -165,6 +169,18 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
         member["savings"]["series"] = (0..count).map(|n| { let gap = scene == "digest-chart-gaps" && n == 3; serde_json::json!({"fromMs":from+n as u64*bucket,"toMs":from+(n+1) as u64*bucket,"estimatedInputTokensAvoided":if gap {None} else {Some(((n+1)*(i+1)*20) as u64)},"avoidedSeparateDeliveries":2,"complete":!gap,"gap":if gap {Some("uncollected_deliveries")} else {None}}) }).collect();
         member
     }).collect();
+    if scene == "digest-zero-and-no-source" && report.seats.len() >= 2 {
+        report.seats.remove(0);
+        let seat = &mut report.seats[0];
+        seat.input = 0;
+        seat.output = 0;
+        if let Some(series) = seat.window_series.as_mut() {
+            for point in &mut series.points {
+                point.tokens = 0;
+                point.complete = true;
+            }
+        }
+    }
     app.digest_window = window;
     app.labels = crate::labels::Supplied::from_document("digest", &doc, false);
     app.usage_report.apply(Delivery {
@@ -173,6 +189,24 @@ fn install_chart(app: &mut App, scene: &str, now: u64) {
     });
     app.workspace_reconcile();
     select_worker(app);
+    if scene == "digest-dollar-totals" {
+        app.digest_cost = true;
+    }
+    if scene == "digest-all-readonly" {
+        app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
+    }
+    if scene == "digest-populated-timer" {
+        let mut job = crate::board::cronboard::test_view(
+            "worker",
+            "check status",
+            Some(now as i64 + 2_460_000),
+        );
+        job.job.owner_id = Some(MEMBER.into());
+        app.cron.replace(Ok(crate::board::cronboard::test_cron(
+            vec![job],
+            tmt_ops::cron::ClockStatus::NoClock,
+        )));
+    }
     if scene == "digest-inline-mode" {
         let choose = crate::labels::Choose::parse("digest", &serde_json::json!({"kind":"choose","argv":["digest",MEMBER,"{value}"],"current":"default","options":[{"label":"Use default","value":"default"},{"label":"Auto","value":"auto"},{"label":"Off","value":"off"}]})).unwrap();
         app.digest_inline = Some(crate::board::digest::Inline {
@@ -268,7 +302,7 @@ fn both_totals_units_keep_independent_coverage_and_money_never_enters_the_chart(
         let compact = summary_lines(&app, 160, 3);
         assert!(compact[1].contains("Window list-price equivalent"));
         assert!(compact[1].contains("not a bill"));
-        let full = summary_lines(&app, 160, 7);
+        let full = summary_lines(&app, 160, 8);
         assert!(full[1].contains("used TOK") && !full[1].contains("used $"));
     }
 }
@@ -491,5 +525,32 @@ fn money_never_skips_an_unfit_context_field() {
             !line.contains("≈ list price saved") || line.contains("Saved "),
             "money must follow context at width {width}: {line}"
         );
+    }
+}
+
+#[test]
+fn chart_axis_stays_inside_the_plot_and_shows_the_selected_window() {
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = capture_case("digest-chart-day", crate::look::Look::default());
+    for (window, start, middle) in [
+        (DigestWindow::Day, "−24h", "−12h"),
+        (DigestWindow::Week, "−7d", "−3.5d"),
+        (DigestWindow::Month, "−30d", "−15d"),
+    ] {
+        app.digest_window = window;
+        for width in [100, 120, 160] {
+            let rows = summary_lines(&app, width, 8);
+            let axis = &rows[4];
+            assert!(
+                axis.contains(start) && axis.contains(middle) && axis.contains("now"),
+                "{window:?} {width}: {axis}"
+            );
+            if width >= 120 {
+                assert!(
+                    axis.chars().skip((width - 40) as usize).all(|c| c == ' '),
+                    "{axis}"
+                );
+            }
+        }
     }
 }

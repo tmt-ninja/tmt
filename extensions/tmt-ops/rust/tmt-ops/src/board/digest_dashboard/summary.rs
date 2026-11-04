@@ -20,7 +20,7 @@ use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 pub(super) fn height(_app: &App, _width: u16, available: u16) -> u16 {
-    if available >= 17 { 7 } else { 3.min(available) }
+    if available >= 18 { 8 } else { 3.min(available) }
 }
 
 /// One unit's amount without its coverage: a conflict names itself, missing is `—`.
@@ -130,7 +130,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     };
-    if area.height < 7 {
+    if area.height < 8 {
         line(frame, 1, totals, Role::Text);
         return;
     }
@@ -202,11 +202,35 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
             );
         }
     }
-    line(frame, 4, totals, Role::Text);
-    super::allowance::paint_inline(frame, app, Rect::new(area.x, area.y + 5, area.width, 1));
+    let chart_width = area.width - side - u16::from(side > 0);
+    let (start, middle) = match app.digest_window() {
+        crate::config::DigestWindow::Day => ("−24h", "−12h"),
+        crate::config::DigestWindow::Week => ("−7d", "−3.5d"),
+        crate::config::DigestWindow::Month => ("−30d", "−15d"),
+    };
+    let end = "now";
+    let width = usize::from(chart_width);
+    let start_width = start.width();
+    let end_width = end.width();
+    if width >= start_width + end_width + 1 {
+        let mut labels = vec![(0, start), (width - end_width, end)];
+        let mid_x = width.saturating_sub(middle.width()) / 2;
+        if mid_x > start_width && mid_x + middle.width() < width - end_width {
+            labels.push((mid_x, middle));
+        }
+        for (x, label) in labels {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(area.x + x as u16, area.y + 4, label.width() as u16, 1),
+                Line::styled(label, app.look().role(Role::Muted)),
+            );
+        }
+    }
+    line(frame, 5, totals, Role::Text);
+    super::allowance::paint_inline(frame, app, Rect::new(area.x, area.y + 6, area.width, 1));
     line(
         frame,
-        6,
+        7,
         "Saved = avoided input · estimate, not a bill".into(),
         Role::Muted,
     );
