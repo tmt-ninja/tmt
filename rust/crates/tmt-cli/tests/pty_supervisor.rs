@@ -17,7 +17,7 @@ use std::{
 };
 use tmt_adapters::pty::{
     Connection, lock_path,
-    protocol::{Exit, ServerMessage},
+    protocol::{Control, ControlReply, Exit, ServerMessage},
     socket_path,
 };
 
@@ -137,7 +137,7 @@ fn output_until(connection: &mut Connection, needle: &str) -> String {
 }
 
 #[test]
-fn the_program_has_a_terminal_of_its_own_and_the_supervisor_ends_with_it() {
+fn the_program_has_a_terminal_of_its_own_and_the_supervisor_keeps_it_until_closed() {
     let mut fixture = Fixture::new("terminal");
     // Standard streams are the terminal, and /dev/tty opens only with a
     // controlling terminal, which a fresh session's leader acquires.
@@ -166,6 +166,17 @@ fn the_program_has_a_terminal_of_its_own_and_the_supervisor_ends_with_it() {
             None => panic!("no exit"),
         }
     }
+    // The terminal outlives its program (#5988) until Core closes it.
+    wait_until("the program to be gone", || !alive(started.program));
+    assert!(socket_path(&fixture.directory, "pty_a").exists());
+    assert!(lock_path(&fixture.directory, "pty_a").exists());
+    assert_eq!(
+        fixture
+            .connect("pty_a")
+            .control(Control::Close, WAIT)
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
     let status = fixture.supervisors[started.child].wait().unwrap();
     assert!(status.success(), "the supervisor ends cleanly: {status:?}");
     assert!(!socket_path(&fixture.directory, "pty_a").exists());

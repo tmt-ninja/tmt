@@ -33,6 +33,8 @@ pub enum LaunchError {
         pane: String,
         cause: io::Error,
     },
+    /// The member's kept terminal refused a relaunch: a program still runs there.
+    Refused(String),
 }
 impl std::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -44,6 +46,7 @@ impl std::fmt::Display for LaunchError {
             Self::Unconfirmed { pane, cause } => {
                 write!(f, "launch in {pane} is not confirmed: {cause}")
             }
+            Self::Refused(reason) => write!(f, "the member's terminal refused: {reason}"),
         }
     }
 }
@@ -52,7 +55,7 @@ impl std::error::Error for LaunchError {
         match self {
             Self::NotStarted(error) => Some(error),
             Self::Unconfirmed { cause, .. } => Some(cause),
-            Self::Exited { .. } => None,
+            Self::Exited { .. } | Self::Refused(_) => None,
         }
     }
 }
@@ -60,6 +63,19 @@ impl From<io::Error> for LaunchError {
     fn from(value: io::Error) -> Self {
         Self::NotStarted(value)
     }
+}
+
+/// The words after the executable that a relaunch on a kept terminal runs for
+/// `tmt resume -- IDENTITY` (`fresh`: `--new`). They must stay the in-terminal
+/// re-entry `tmt resume` builds for a new supervisor; a test beside that
+/// builder (`tmt-cli` `run_command::pty`) keeps the two equal.
+pub fn relaunch_arguments(identity: &str, fresh: bool) -> Vec<&str> {
+    let mut words = vec!["resume", "--host", "pty"];
+    if fresh {
+        words.push("--new");
+    }
+    words.extend(["--", identity]);
+    words
 }
 
 pub fn start_member(
@@ -125,27 +141,44 @@ pub fn start_member(
         super::LaunchOutcome::Launched(marker) => marker,
         super::LaunchOutcome::Exited { status, output } => {
             // The member has ended, so this is a confirmed outcome, never an
-            // uncertain launch that could still be running.
+            // uncertain launch that could still be running. A member that never
+            // started keeps no terminal: its supervisor is closed (best effort).
+            if let Ok(mut client) = Connection::connect(&directory, &pane) {
+                let _ = client.control(tmt_pty_protocol::Control::Close, Duration::from_secs(3));
+            }
             let _ = fs::remove_file(&log_path);
             return Err(LaunchError::Exited { status, output });
         }
     };
-    let marker: tmt_driver_protocol::Marker =
-        serde_json::from_str(&marker).map_err(|error| uncertain(io::Error::other(error)))?;
-    let cleanup_warning = fs::remove_file(&log_path).err().map(|error| {
+    let mut started = StartedMember::from_marker(
+        &marker,
+        pane.clone(),
+        socket_path(&directory, &pane)
+            .to_string_lossy()
+            .into_owned(),
+    )
+    .map_err(uncertain)?;
+    started.cleanup_warning = fs::remove_file(&log_path).err().map(|error| {
         format!(
             "could not remove startup diagnostics {}: {error}",
             log_path.display()
         )
     });
-    Ok(StartedMember {
-        identity_id: marker.identity_id,
-        binding_id: marker.binding_id,
-        name: marker.name,
-        cleanup_warning,
-        socket: socket_path(&directory, &pane)
-            .to_string_lossy()
-            .into_owned(),
-        pane,
-    })
+    Ok(started)
+}
+
+impl StartedMember {
+    /// The member a committed binding marker names, in `pane` served at `socket`.
+    pub fn from_marker(marker: &str, pane: String, socket: String) -> io::Result<Self> {
+        let marker: tmt_driver_protocol::Marker =
+            serde_json::from_str(marker).map_err(io::Error::other)?;
+        Ok(Self {
+            identity_id: marker.identity_id,
+            binding_id: marker.binding_id,
+            name: marker.name,
+            cleanup_warning: None,
+            socket,
+            pane,
+        })
+    }
 }

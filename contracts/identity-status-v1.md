@@ -133,6 +133,16 @@ Digest keeps holding its items ([request/response](request-response-v1.md)).
 [`terminal.resume`](extension-api.md#resume-a-paused-member) continues it. `tmt ls`
 does not carry the key.
 
+## Kept terminal
+
+A built-in-host member whose program ended keeps its terminal and binding. Its entry
+then includes `ended` (`{code}` or `{signal}`), and `foreground: "shell"` while a
+relaunched login shell runs there
+([`terminal.relaunch`](extension-api.md#relaunch-on-a-kept-terminal)). Both are read
+fresh from its supervisor with `paused` and are absent otherwise. Neither makes the
+member reachable: its session is ended, and `tmt talk` returns `MEMBER_ENDED` while the
+request stays queued and Digest keeps holding its items.
+
 ## List pane location
 
 Collection `tmt ls --json` identity rows with a live pane optionally include

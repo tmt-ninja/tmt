@@ -1,7 +1,7 @@
 //! Built-in host recovery: which members were running, and where. A restart loses
 //! only this; identities, rooms, presets and remembered sessions stay durable in Core.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{MAX_PANES, StoredIdentity, WorkspaceIdentity};
 
@@ -115,6 +115,9 @@ pub enum BuiltinMemberAction {
     IdentityMissing,
     /// Already running on the built-in host; restore leaves it alone.
     Live,
+    /// Its agent ended on a terminal the built-in host kept; restore leaves it to the
+    /// user, who relaunches it there (#5988).
+    Ended,
     /// The recorded folder no longer exists.
     FolderMissing,
     NoRememberedSession,
@@ -127,12 +130,21 @@ impl BuiltinMemberAction {
         match self {
             Self::IdentityMissing => "identity_missing",
             Self::Live => "live",
+            Self::Ended => "ended",
             Self::FolderMissing => "folder_missing",
             Self::NoRememberedSession => "no_remembered_session",
             Self::StaleRequiresRetry => "stale_requires_retry",
             Self::Resumable => "resumable",
         }
     }
+}
+
+/// What a member bound now is doing, by identity UUID; a member absent is not running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberRun {
+    Running,
+    /// Its agent ended and the built-in host kept its terminal.
+    Ended,
 }
 
 pub struct BuiltinMemberPlan<'a> {
@@ -142,11 +154,11 @@ pub struct BuiltinMemberPlan<'a> {
 }
 
 /// Current durable identities and preferences decide, never the recorded annotation. `live`
-/// holds the UUIDs running on the built-in host now; `folder_exists` reads the filesystem.
+/// holds the UUIDs bound now and what each runs; `folder_exists` reads the filesystem.
 pub fn member_plan<'a>(
     snapshot: &'a BuiltinSnapshot,
     identities: &'a [StoredIdentity],
-    live: &HashSet<String>,
+    live: &HashMap<String, MemberRun>,
     folder_exists: impl Fn(&str) -> bool,
 ) -> Vec<BuiltinMemberPlan<'a>> {
     snapshot
@@ -158,7 +170,12 @@ pub fn member_plan<'a>(
                 .find(|record| record.entry.identity.id == member.identity.id);
             let action = match identity {
                 None => BuiltinMemberAction::IdentityMissing,
-                Some(_) if live.contains(&member.identity.id) => BuiltinMemberAction::Live,
+                Some(_) if live.get(&member.identity.id) == Some(&MemberRun::Running) => {
+                    BuiltinMemberAction::Live
+                }
+                Some(_) if live.get(&member.identity.id) == Some(&MemberRun::Ended) => {
+                    BuiltinMemberAction::Ended
+                }
                 Some(_) if member.cwd.as_deref().is_some_and(|cwd| !folder_exists(cwd)) => {
                     BuiltinMemberAction::FolderMissing
                 }
@@ -297,7 +314,7 @@ mod tests {
             record("d", Some(2), true),
             record("e", None, true),
         ];
-        let live = HashSet::from(["b".to_owned()]);
+        let mut live = HashMap::from([("b".to_owned(), MemberRun::Running)]);
         let mut gone = snapshot.clone();
         gone.members[2].cwd = Some("/gone".into());
         let actions: Vec<_> = member_plan(&gone, &records, &live, |cwd| cwd != "/gone")
@@ -314,9 +331,15 @@ mod tests {
                 BuiltinMemberAction::Resumable,
             ]
         );
+        // An agent that ended on its kept terminal is not restored, whatever else holds.
+        live.insert("e".to_owned(), MemberRun::Ended);
+        assert_eq!(
+            member_plan(&snapshot, &records, &live, |_| true)[4].action,
+            BuiltinMemberAction::Ended
+        );
         let unremembered = [record("e", None, false)];
         assert_eq!(
-            member_plan(&snapshot, &unremembered, &HashSet::new(), |_| true)[4].action,
+            member_plan(&snapshot, &unremembered, &HashMap::new(), |_| true)[4].action,
             BuiltinMemberAction::NoRememberedSession
         );
     }

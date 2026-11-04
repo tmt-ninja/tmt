@@ -5,19 +5,26 @@
 //! state is shared. Output is read whether or not anyone is attached. While a
 //! client lags far behind, reading pauses so the program slows to its pace; a
 //! client that stops reading altogether is evicted, never buffered without bound.
+//!
+//! The terminal belongs to the member, not to one run of its program (#5988):
+//! when the program ends the supervisor tells its clients (`Exited`) and keeps
+//! serving the same terminal and screen until Core relaunches a program on it
+//! (`Control::Relaunch`) or closes it (`Control::Close`).
 
 use super::{lock_path, socket_path, validate};
 use crate::{file_lock, private_file::ensure_private_directory};
 use nix::{
     errno::Errno,
-    fcntl::{FcntlArg, FdFlag, Flock, OFlag, fcntl},
+    fcntl::{FcntlArg, FdFlag, Flock, OFlag, fcntl, open},
     poll::{PollFd, PollFlags, PollTimeout, poll},
     pty::{Winsize, openpty},
     sys::{
         signal::{Signal, killpg},
+        stat::Mode,
+        termios::{SetArg, Termios, tcgetattr, tcsetattr},
         wait::{WaitPidFlag, WaitStatus, waitpid},
     },
-    unistd::{Pid, tcgetpgrp},
+    unistd::{Pid, tcgetpgrp, ttyname},
 };
 use std::{
     collections::VecDeque,
@@ -35,7 +42,7 @@ use std::{
 };
 use tmt_pty_protocol::{
     ClientMessage, Control, ControlReply, Decoder, Eviction, Exit, Frame, MAX_OUTPUT, MAX_PAYLOAD,
-    Refusal, ServerMessage, Size, VERSION,
+    Refusal, RelaunchKind, ServerMessage, Size, VERSION,
 };
 
 /// How often the program's end and job-control state are checked when nothing
@@ -58,6 +65,13 @@ const CLOSING_GRACE: Duration = Duration::from_secs(1);
 const FLUSH_GRACE: Duration = Duration::from_millis(500);
 /// Opportunistic crash cleanup must not grow with the member directory.
 const RECLAIM_ENTRIES: usize = 64;
+/// How long a program hung up by `Control::Close` may take to end before its
+/// groups are killed.
+const HANGUP_GRACE: Duration = Duration::from_secs(2);
+/// How long a relaunched agent launcher may run without publishing its marker before
+/// it is hung up, which restores the member it replaced. Longer than Core's wait for
+/// the admission (`host::pty`'s 60 s), so a launch Core still awaits is never cut.
+const RELAUNCH_ADMISSION: Duration = Duration::from_secs(90);
 
 /// Where and how to run one member.
 pub struct Launch {
@@ -216,7 +230,40 @@ enum Pump {
 pub struct Supervisor {
     listener: UnixListener,
     master: File,
-    child: Child,
+    /// The program running on the terminal; `None` once it ended and before a
+    /// relaunch, while the terminal is kept.
+    child: Option<Child>,
+    /// What the running child was relaunched as; `None` for the first program.
+    child_kind: Option<RelaunchKind>,
+    /// The process a binding's marker belongs to: the first program, or the
+    /// last relaunched agent launcher. A shell never takes it, so the member's
+    /// binding outlives an ended agent and the shell that follows it.
+    member_pid: u32,
+    /// The member process and marker a relaunched agent launcher replaced, until it
+    /// publishes its own marker. A launcher that ends before that (a refused resume)
+    /// never bound, so they are restored and the member's binding is unchanged.
+    replaced: Option<(u32, Option<(String, String)>)>,
+    /// When the relaunched launcher started, and when it was hung up for missing its
+    /// admission (`RELAUNCH_ADMISSION`); both end with `replaced`.
+    relaunched_at: Instant,
+    admission_hangup: Option<Instant>,
+    admission: Duration,
+    /// How the last program ended, while no program runs.
+    ended: Option<Exit>,
+    /// The terminal's device. A relaunch opens it again rather than keeping a
+    /// descriptor: a kept descriptor would hide the end of the program's output
+    /// (the master never sees the last close), and macOS revokes every
+    /// descriptor of a controlling terminal when its session leader exits.
+    slave_path: PathBuf,
+    /// The settings the terminal started with; each relaunch starts on them, so
+    /// a program that ended in raw mode cannot hand that to the next one.
+    settings: Termios,
+    /// Child-only host locators, applied again to every relaunched program.
+    environment: Vec<(OsString, Option<OsString>)>,
+    /// The terminal still has an open slave end (a program may still write).
+    master_open: bool,
+    /// `Control::Close` was received: the loop ends after this tick.
+    closing: bool,
     size: Size,
     clients: Vec<Client>,
     next_client: u64,
@@ -321,23 +368,25 @@ impl Supervisor {
             fcntl(end, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
         }
         fcntl(&terminal.master, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
-        let mut command = Command::new(name);
-        command.args(arguments);
-        for (name, value) in environment {
-            match value {
-                Some(value) => {
-                    command.env(name, value);
-                }
-                None => {
-                    command.env_remove(name);
-                }
-            }
-        }
-        let child = tmt_sys::spawn_on_terminal(command, terminal.slave)?;
+        let slave_path = ttyname(&terminal.slave)?;
+        let settings = tcgetattr(&terminal.slave)?;
+        let child = spawn(name, arguments, &environment, terminal.slave)?;
         Ok(Self {
             listener,
             master: File::from(terminal.master),
-            child,
+            member_pid: child.id(),
+            replaced: None,
+            relaunched_at: Instant::now(),
+            admission_hangup: None,
+            admission: RELAUNCH_ADMISSION,
+            child: Some(child),
+            child_kind: None,
+            ended: None,
+            slave_path,
+            settings,
+            environment,
+            master_open: true,
+            closing: false,
             size,
             clients: Vec::new(),
             next_client: 0,
@@ -359,21 +408,21 @@ impl Supervisor {
 
     /// The program's process id.
     pub fn program_pid(&self) -> u32 {
-        self.child.id()
+        self.member_pid
     }
 
-    /// Serves until the program ends, then tells the attached clients and removes
-    /// the socket. Returns an error only when the supervisor itself fails; the
-    /// terminal then hangs up and the program receives SIGHUP.
+    /// Serves until Core closes the terminal. When the program ends the attached
+    /// clients are told (`Exited`) and the terminal, socket and screen are kept
+    /// for a relaunch. Returns an error only when the supervisor itself fails;
+    /// the terminal then hangs up and a running program receives SIGHUP.
     pub fn run(mut self) -> io::Result<()> {
-        let mut master_open = true;
-        let exit = loop {
-            let ready = self.wait(master_open)?;
+        loop {
+            let ready = self.wait()?;
             if ready.listener {
                 self.accept()?;
             }
-            if master_open && ready.master_read {
-                master_open = self.pump_output(16) != Pump::Closed;
+            if self.master_open && ready.master_read {
+                self.master_open = self.pump_output(16) != Pump::Closed;
             }
             if ready.master_write {
                 self.pump_input();
@@ -384,38 +433,163 @@ impl Supervisor {
                 }
             }
             self.sweep();
-            if let Some(exit) = self.reap()? {
-                break exit;
+            if let Some(exit) = self.reap(WaitPidFlag::WNOHANG)? {
+                self.ended_with(exit);
+            }
+            self.enforce_admission();
+            if self.closing {
+                break;
             }
             if self.foreground.0.elapsed() >= Duration::from_millis(TICK.into()) {
                 self.foreground = (Instant::now(), self.foreground_stopped());
             }
             self.paused = self.launcher_stopped || self.foreground.1;
-        };
-        if master_open {
-            for _ in 0..256 {
-                if self.pump_output(16) != Pump::More {
-                    break;
-                }
-            }
         }
-        self.broadcast(&ServerMessage::Exited(exit));
+        self.hang_up()?;
         self.flush_clients();
         Ok(())
     }
 
-    /// The launcher leads its own session and process group, so its pid is its
-    /// group id.
-    fn launcher(&self) -> Pid {
-        Pid::from_raw(i32::try_from(self.child.id()).expect("a child pid fits a pid_t"))
+    /// A relaunched launcher that has not published within `admission` never bound: it
+    /// is hung up (SIGHUP, then SIGKILL after `HANGUP_GRACE`), and its end restores the
+    /// member it replaced, so `relaunching` always ends.
+    fn enforce_admission(&mut self) {
+        if self.replaced.is_none() || self.relaunched_at.elapsed() < self.admission {
+            return;
+        }
+        let signals: &[Signal] = match self.admission_hangup {
+            None => &[Signal::SIGHUP, Signal::SIGCONT],
+            Some(at) if at.elapsed() >= HANGUP_GRACE => &[Signal::SIGKILL],
+            Some(_) => return,
+        };
+        for group in self.groups() {
+            for signal in signals {
+                let _ = killpg(group, *signal);
+            }
+        }
+        self.admission_hangup = Some(Instant::now());
     }
 
-    /// Drains every status the launcher has reported since the last tick: a stop
-    /// or continue updates `launcher_stopped`, and an end is the member's exit.
-    fn reap(&mut self) -> io::Result<Option<Exit>> {
-        let flags = WaitPidFlag::WNOHANG | WaitPidFlag::WUNTRACED | WaitPidFlag::WCONTINUED;
+    #[cfg(test)]
+    pub(crate) fn with_admission(mut self, admission: Duration) -> Self {
+        self.admission = admission;
+        self
+    }
+
+    /// Tells the clients the program ended, after its last output, and keeps the
+    /// terminal. Requests that waited for this program are answered by `Exited`.
+    fn ended_with(&mut self, exit: Exit) {
+        if self.master_open {
+            for _ in 0..256 {
+                match self.pump_output(16) {
+                    Pump::More => {}
+                    Pump::Closed => {
+                        self.master_open = false;
+                        break;
+                    }
+                    Pump::Idle => break,
+                }
+            }
+        }
+        self.broadcast(&ServerMessage::Exited(exit));
+        if let Some((member_pid, marker)) = self.replaced.take() {
+            self.member_pid = member_pid;
+            self.marker = marker;
+        }
+        self.child = None;
+        self.child_kind = None;
+        self.ended = Some(exit);
+        self.launcher_stopped = false;
+        self.paused = false;
+        self.foreground = (Instant::now(), false);
+        // Nothing will read keystrokes until a relaunch; they must not reach it.
+        self.input.clear();
+        for client in &mut self.clients {
+            client.wait_launch = false;
+            client.wait_launcher = false;
+        }
+    }
+
+    /// Ends a running program the way a closing terminal would: SIGHUP (and
+    /// SIGCONT, so a stopped one sees it) to its groups, then SIGKILL after
+    /// `HANGUP_GRACE`. Output is read and dropped meanwhile, since a program
+    /// cannot finish closing a terminal whose output nobody reads.
+    fn hang_up(&mut self) -> io::Result<()> {
+        if self.child.is_none() {
+            return Ok(());
+        }
+        let groups = self.groups();
+        for signal in [Signal::SIGHUP, Signal::SIGCONT] {
+            for group in &groups {
+                let _ = killpg(*group, signal);
+            }
+        }
+        let mut deadline = Instant::now() + HANGUP_GRACE;
+        let mut killed = false;
+        let mut buffer = [0u8; MAX_OUTPUT];
         loop {
-            match waitpid(self.launcher(), Some(flags)) {
+            if let Some(exit) = self.reap(WaitPidFlag::WNOHANG)? {
+                self.broadcast(&ServerMessage::Exited(exit));
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                if killed {
+                    // Left to init: the terminal it holds goes when this ends.
+                    return Ok(());
+                }
+                for group in &groups {
+                    let _ = killpg(*group, Signal::SIGKILL);
+                }
+                killed = true;
+                deadline = Instant::now() + HANGUP_GRACE;
+            }
+            while self.master_open {
+                match self.master.read(&mut buffer) {
+                    Ok(0) => self.master_open = false,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(_) => self.master_open = false,
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// The running program's launcher leads its own session and process group,
+    /// so its pid is its group id.
+    fn launcher(&self) -> Option<Pid> {
+        self.child.as_ref().map(|child| {
+            Pid::from_raw(i32::try_from(child.id()).expect("a child pid fits a pid_t"))
+        })
+    }
+
+    /// The running program's group and, when another group holds the terminal,
+    /// that group too.
+    fn groups(&self) -> Vec<Pid> {
+        let Some(launcher) = self.launcher() else {
+            return Vec::new();
+        };
+        let mut groups = vec![launcher];
+        if let Ok(group) = tcgetpgrp(self.master.as_fd())
+            && group != launcher
+            && group.as_raw() > 0
+        {
+            groups.push(group);
+        }
+        groups
+    }
+
+    /// Drains every status the running launcher has reported since the last
+    /// tick: a stop or continue updates `launcher_stopped`, and an end is the
+    /// program's exit. Nothing runs, nothing is reaped.
+    fn reap(&mut self, wait: WaitPidFlag) -> io::Result<Option<Exit>> {
+        let Some(launcher) = self.launcher() else {
+            return Ok(None);
+        };
+        let flags = wait | WaitPidFlag::WUNTRACED | WaitPidFlag::WCONTINUED;
+        loop {
+            match waitpid(launcher, Some(flags)) {
                 Ok(WaitStatus::StillAlive) => return Ok(None),
                 Ok(WaitStatus::Stopped(..)) => self.launcher_stopped = true,
                 Ok(WaitStatus::Continued(_)) => self.launcher_stopped = false,
@@ -444,10 +618,13 @@ impl Supervisor {
     /// stops alone on Ctrl-Z while the launcher keeps running, and only this
     /// read sees it. A failed read is not evidence of a stop.
     fn foreground_stopped(&self) -> bool {
+        let Some(launcher) = self.launcher() else {
+            return false;
+        };
         let Ok(group) = tcgetpgrp(self.master.as_fd()) else {
             return false;
         };
-        if group == self.launcher() || group.as_raw() <= 0 {
+        if group == launcher || group.as_raw() <= 0 {
             return false;
         }
         crate::process::job_stopped(
@@ -458,17 +635,9 @@ impl Supervisor {
 
     /// Continues the launcher's group and, when another group holds the
     /// terminal, that group too. Continuing a running group changes nothing,
-    /// so a repeated resume is applied as well.
+    /// so a repeated resume is applied as well, and so is one with no program.
     fn resume(&self) -> ControlReply {
-        let launcher = self.launcher();
-        let mut groups = vec![launcher];
-        if let Ok(group) = tcgetpgrp(self.master.as_fd())
-            && group != launcher
-            && group.as_raw() > 0
-        {
-            groups.push(group);
-        }
-        for group in groups {
+        for group in self.groups() {
             if let Err(error) = killpg(group, Signal::SIGCONT) {
                 return ControlReply::Error(format!("the member could not be continued: {error}"));
             }
@@ -476,10 +645,68 @@ impl Supervisor {
         ControlReply::Applied(true)
     }
 
-    fn wait(&self, master_open: bool) -> io::Result<Ready> {
+    /// Starts `program` on the kept terminal once the last one ended. Core
+    /// builds the program; the supervisor's only rule is that none is running.
+    fn relaunch(&mut self, kind: RelaunchKind, program: Vec<String>) -> ControlReply {
+        if self.child.is_some() {
+            return ControlReply::Error(
+                if self.child_kind == Some(RelaunchKind::Shell) {
+                    "the shell is still running; exit it first"
+                } else {
+                    "the program is still running; exit it first"
+                }
+                .into(),
+            );
+        }
+        let Some((name, arguments)) = program.split_first() else {
+            return ControlReply::Error("a relaunch needs a program".into());
+        };
+        let arguments: Vec<OsString> = arguments.iter().map(OsString::from).collect();
+        let started = open(
+            &self.slave_path,
+            OFlag::O_RDWR | OFlag::O_NOCTTY | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(io::Error::from)
+        .and_then(|slave| {
+            tcsetattr(&slave, SetArg::TCSANOW, &self.settings)?;
+            let _ = tmt_sys::set_window_size(self.master.as_fd(), self.size.cols, self.size.rows);
+            spawn(
+                OsString::from(name).as_os_str(),
+                &arguments,
+                &self.environment,
+                slave,
+            )
+        });
+        let child = match started {
+            Ok(child) => child,
+            Err(error) => {
+                let mut reason = format!("the program could not start: {error}");
+                reason.truncate(reason.floor_char_boundary(200));
+                return ControlReply::Error(reason);
+            }
+        };
+        if kind != RelaunchKind::Shell {
+            // A new launcher binds and publishes its own marker; the old one
+            // belonged to the program that ended.
+            self.replaced = Some((self.member_pid, self.marker.take()));
+            self.relaunched_at = Instant::now();
+            self.admission_hangup = None;
+            self.member_pid = child.id();
+            self.launch_ready = false;
+            self.launcher_listening = false;
+        }
+        self.child = Some(child);
+        self.child_kind = Some(kind);
+        self.ended = None;
+        self.master_open = true;
+        ControlReply::Applied(true)
+    }
+
+    fn wait(&self) -> io::Result<Ready> {
         let mut set = vec![PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
         let mut master_events = PollFlags::empty();
-        if master_open && !self.congested() {
+        if self.master_open && !self.congested() {
             master_events |= PollFlags::POLLIN;
         }
         if !self.input.is_empty() {
@@ -705,6 +932,8 @@ impl Supervisor {
             }
             ClientMessage::Control(control) => self.control(index, control),
             ClientMessage::Snapshot => self.snapshot(index),
+            // Keys typed while no program runs would reach the next one.
+            ClientMessage::Input(_) if self.child.is_none() => {}
             ClientMessage::Input(data) => {
                 self.last_key = Some(Instant::now());
                 // Typing from another window brings the terminal to that window.
@@ -764,6 +993,13 @@ impl Supervisor {
     /// Controls share the supervisor's serialization with the stream. No control
     /// creates key activity, resizes the terminal or captures scrollback.
     fn control(&mut self, index: usize, request: Control) {
+        // Nothing runs to listen or launch after the program ended, so a wait that
+        // arrives then is answered at once instead of never.
+        if matches!(request, Control::WaitLauncher | Control::AwaitLaunch) && self.child.is_none() {
+            let answer = ControlReply::Error("the program has ended".into());
+            self.clients[index].queue(&ServerMessage::Control(answer));
+            return;
+        }
         if request == Control::WaitLauncher && !self.launcher_listening {
             self.clients[index].wait_launcher = true;
             return;
@@ -790,7 +1026,7 @@ impl Supervisor {
             ),
             Control::WaitLauncher => ControlReply::Applied(true),
             Control::LaunchReady { pane_pid } => {
-                let matches = pane_pid == self.child.id();
+                let matches = pane_pid == self.member_pid;
                 if matches {
                     self.launch_ready = true;
                     for client in self
@@ -812,25 +1048,38 @@ impl Supervisor {
                 }
                 ControlReply::Applied(matches)
             }
-            Control::Capabilities => ControlReply::Capabilities { resume: true },
+            Control::Capabilities => ControlReply::Capabilities {
+                resume: true,
+                relaunch: true,
+                close: true,
+            },
             Control::Resume => self.resume(),
+            Control::Relaunch { kind, program } => self.relaunch(kind, program),
+            Control::Close => {
+                self.closing = true;
+                ControlReply::Applied(true)
+            }
             Control::Inspect => ControlReply::State {
                 supervisor_pid: std::process::id(),
-                pane_pid: self.child.id(),
+                pane_pid: self.member_pid,
                 key_idle_ms: self
                     .last_key
                     .map(|at| u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX - 1)),
                 marker: self.marker.as_ref().map(|(_, marker)| marker.clone()),
                 paused: self.paused,
+                ended: self.ended,
+                shell: self.child.is_some() && self.child_kind == Some(RelaunchKind::Shell),
+                relaunching: self.replaced.is_some(),
             },
             Control::Publish {
                 pane_pid,
                 key,
                 marker,
             } => {
-                let matches = pane_pid == self.child.id();
+                let matches = pane_pid == self.member_pid;
                 if matches {
                     self.marker = Some((key, marker));
+                    self.replaced = None;
                 }
                 ControlReply::Applied(matches)
             }
@@ -840,13 +1089,14 @@ impl Supervisor {
                 expected_key,
                 marker,
             } => {
-                let matches = pane_pid == self.child.id()
+                let matches = pane_pid == self.member_pid
                     && match self.marker.as_ref() {
                         None => expected_key.is_none(),
                         Some((old, _)) => old == &key || expected_key.as_ref() == Some(old),
                     };
                 if matches {
                     self.marker = Some((key, marker));
+                    self.replaced = None;
                 }
                 ControlReply::Applied(matches)
             }
@@ -855,7 +1105,16 @@ impl Supervisor {
                 if matches {
                     self.marker = None;
                 }
-                ControlReply::Applied(matches)
+                // The relaunched launcher unbinding the member it replaces: that
+                // marker must not come back if the launcher then ends.
+                let replaced = match &mut self.replaced {
+                    Some((_, marker)) if marker.as_ref().is_some_and(|(old, _)| old == &key) => {
+                        *marker = None;
+                        true
+                    }
+                    _ => false,
+                };
+                ControlReply::Applied(matches || replaced)
             }
             Control::Capture => {
                 let text = self.screen.screen().contents();
@@ -864,6 +1123,9 @@ impl Supervisor {
                 } else {
                     ControlReply::Screen(text)
                 }
+            }
+            Control::Paste(_) | Control::Enter if self.child.is_none() => {
+                ControlReply::Error("the program has ended".into())
             }
             Control::Paste(data) => {
                 if self.screen.screen().bracketed_paste() {
@@ -950,6 +1212,29 @@ impl Supervisor {
             let _ = poll(&mut set, PollTimeout::from(wait));
         }
     }
+}
+
+/// Starts `name` on `slave` as the leader of a new session the terminal
+/// controls, with this process's environment and directory plus `environment`.
+fn spawn(
+    name: &std::ffi::OsStr,
+    arguments: &[OsString],
+    environment: &[(OsString, Option<OsString>)],
+    slave: std::os::fd::OwnedFd,
+) -> io::Result<Child> {
+    let mut command = Command::new(name);
+    command.args(arguments);
+    for (name, value) in environment {
+        match value {
+            Some(value) => {
+                command.env(name, value);
+            }
+            None => {
+                command.env_remove(name);
+            }
+        }
+    }
+    tmt_sys::spawn_on_terminal(command, slave)
 }
 
 fn winsize(size: Size) -> Winsize {

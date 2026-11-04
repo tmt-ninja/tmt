@@ -187,7 +187,18 @@ pub fn remove_by_name<O: BindingEndpoint>(
     selector: &str,
     force: bool,
 ) -> Result<BindingEntry, BindingError<StorageError, O::Error>> {
-    remove_identity(storage, endpoint, selector, force, guard)
+    let removed = remove_identity(storage, endpoint, selector, force, guard)?;
+    close_kept_terminal(&removed);
+    Ok(removed)
+}
+
+/// A built-in member's supervisor keeps its terminal after the agent ends, so a removed
+/// identity's terminal is closed with it. Advisory: the removal already committed, and a
+/// supervisor that is not closed in time keeps serving a terminal nothing is bound to.
+fn close_kept_terminal(removed: &BindingEntry) {
+    if let Some(binding) = &removed.binding {
+        let _ = crate::host::close_removed_member(binding);
+    }
 }
 
 /// `identity.remove`: removes one exact UUID while its name is `expected_name`.
@@ -207,7 +218,7 @@ pub fn remove_by_id(
         None => Host::for_host(HostKind::Tmux, UnixCommandRunner, external::approved()),
     };
     let mut endpoint = host.session();
-    remove_identity_by_id(
+    let outcome = remove_identity_by_id(
         storage,
         &mut endpoint,
         identity_id,
@@ -222,5 +233,9 @@ pub fn remove_by_id(
             }
             guard(entry, evidence)
         },
-    )
+    )?;
+    if let RemoveOutcome::Removed(entry) = &outcome {
+        close_kept_terminal(entry);
+    }
+    Ok(outcome)
 }

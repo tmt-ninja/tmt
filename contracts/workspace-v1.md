@@ -198,8 +198,8 @@ reports its empty list, and the other commands fail with `WORKSPACE_SNAPSHOT_NOT
 Both add `socketStores`, the tmux sockets that have a store (read from each store's newest
 document), and a hint naming the `--socket` form. List and save add `host` (`"tmux"` or `"pty"`) to their documents; a built-in
 document has no `socket`. `show --host pty` reports each member with its current `action`
-(`resumable`, `no_remembered_session`, `stale_requires_retry`, `identity_missing`, `live` or
-`folder_missing`) from current durable state, never the annotation.
+(`resumable`, `no_remembered_session`, `stale_requires_retry`, `identity_missing`, `live`,
+`ended` or `folder_missing`) from current durable state, never the annotation.
 
 `tmt workspace restore --host pty [SNAPSHOT] [--expect DIGEST] [--fresh]` selects as the tmux
 restore does, including smaller-than-protected consent, and then handles members one at a time
@@ -207,7 +207,9 @@ in recorded order. At each member's turn it rereads only that member: its identi
 whether it runs now on whatever host it is bound to (a member resumed elsewhere counts as
 running), its folder and its remembered session, within its own second of the overall budget.
 The preview grants nothing. A member already
-running is `skipped` (`live`) and never stopped, signalled or rebound. A resumable member starts
+running is `skipped` (`live`) and never stopped, signalled or rebound. A member whose agent
+ended on a terminal the built-in host kept is `skipped` (`ended`, "ended, not restored") with the
+`retry` command that relaunches it there; restore never relaunches it itself. A resumable member starts
 through ordinary `tmt resume --host pty -- <name>` as a child process in its recorded folder (the
 caller's folder when none was recorded), so binding, preset and channel admission keep their one
 owner; `--fresh` passes `--new` instead and also starts members with a stale or no remembered
@@ -215,7 +217,7 @@ conversation. Each start has 20 seconds and the whole restore 120 seconds. Membe
 in time are reported, never dropped, so a rerun finishes the rest and skips what is now live.
 
 Each member reports `status` and `reason`: `started` (`resume_requested`, `fresh`), `skipped`
-(`live`), `needs_you` (`budget`, `identity_missing`, `folder_missing`, `no_remembered_session`,
+(`live`, `ended`), `needs_you` (`budget`, `identity_missing`, `folder_missing`, `no_remembered_session`,
 `stale`, `unchecked`) or `failed` (`start_failed` with the start's output `tail`, or `unconfirmed`
 when the start did not answer in time and may still be starting). Every `needs_you` with a
 manual fix and every `start_failed` carries the exact `retry` command; an `unconfirmed` member

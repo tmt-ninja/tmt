@@ -241,11 +241,11 @@ channels and the driver protocol. The owner map is in
   host to close that one pane (`HostDriver::{close_preflight, opened_by_tmt, close_pane}`,
   policy in `host::driver::close_opened_pane`). The op is optional and capability-gated: tmux
   closes through `Tmux::close_opened_pane` (one `kill-pane`, never a session's only pane),
-  an external driver through its `close` op, and the built-in pty host by waiting up to
-  `CLOSE_WAIT` for the member's supervisor process to end (`PtyDriver::close_pane` checks the
-  process incarnation only; core never signals it, and a program still running is refused with
-  the evidence). The supervisor ends by itself once the program exits and removes its own
-  socket and lock. A host without any of these leaves the
+  an external driver through its `close` op, and the built-in pty host by sending `Close` to a
+  supervisor that keeps its terminal (it hangs up whatever still runs there, as `kill-pane`
+  does) and then waiting up to `CLOSE_WAIT` for that supervisor incarnation to end
+  (`PtyDriver::close_pane`). An older supervisor is sent nothing: it ends with its program,
+  and one whose program still runs is refused with the evidence. A host without any of these leaves the
   pane open. An unmarked or unknown pane is never closed, a pane the host proves gone is
   reported as already gone (`PaneClose::AlreadyGone`), and no close is retried.
 - A runtime driver's hook path is declarative (`RuntimeDeclaration` plus `decode_hook`, no
@@ -268,13 +268,49 @@ stream through the public `terminal.stream` API rather than deriving socket path
   (hidden; `tmt-adapters::pty::serve_process`) leaves its session, takes the member's lock,
   binds the socket, starts the program on a new pseudo-terminal (a new session whose
   controlling terminal it is), prints `ready <program pid>` and points its standard streams
-  at `/dev/null`, so a launcher can read its pipes to the end. It ends when the program
-  does: it tells attached clients (`Exited`), then removes its socket and lock. A supervisor
+  at `/dev/null`, so a launcher can read its pipes to the end. A supervisor
   that dies, even by SIGKILL, closes the terminal and the kernel hangs the program up. The
   next `Supervisor::start`, after taking its own lock, scans at most 64 directory entries and
   only tries another ID's lock when its socket exists, then reclaims the socket and lock while
   holding that ID's nonblocking exclusive flock. Lock-only starters, live or unknown locks and
   scan/removal errors are left alone without failing startup.
+- **Kept terminal (#5988).** The terminal belongs to the member, not to one run of its
+  program. When the program ends, the supervisor tells clients (`Exited`, connections
+  stay), records the end and keeps its socket, lock, `vt100` screen and loop; keys typed
+  while nothing runs are dropped. `Inspect`'s `State` adds a trailing seven-byte group after
+  `paused`, `ended` (tag and `i32`), `shell` and `relaunching`, which older supervisors omit. `pane_pid`
+  stays the process the binding's marker belongs to, so with no member program running
+  (`ended`, or a shell) `host::pty` reports the pane with an unknown incarnation, without
+  the supervisor/pane pair check, and the binding stays Active; `caller` finds no member
+  process there. `Relaunch { kind, program }` (`0x2c`) reopens the slave by its device path
+  (a kept descriptor would hide the end of output, and macOS revokes a controlling
+  terminal's descriptors when its session leader exits), restores the starting termios and
+  starts `program` with `spawn_on_terminal` and the original child environment; it is
+  refused while a program runs. A `resume`/`new` child becomes the member process and its
+  marker is dropped for the launcher to publish again; a `shell` changes neither.
+  `Close` (`0x2d`) ends the supervisor: SIGHUP then SIGCONT to a running program's groups,
+  SIGKILL after 2 s, `Exited`, then socket and lock removal. `Capabilities` bits 1 and 2
+  grant relaunch and close; Core sends neither without its bit, and a supervisor without
+  them still ends with its program. Core's `terminal.relaunch` builds the program: the
+  re-entry argv of `tmt resume [--new] -- <id>` (`pty::relaunch_arguments`, kept equal to
+  `run_command::pty` by a test), awaited on the Relaunch connection like `start_member`, or
+  `$SHELL -l`. The relaunched launcher's own `tmt resume` preflight passes because it
+  checks the recorded agent process, which is gone; the old binding then reads
+  `EndpointLost` (a new pane PID in the same pane) and is replaced as for a resume in a new
+  pane. Until the launcher publishes, `State` says `relaunching`, and every reader except the
+  launcher itself (the pane process) gets no snapshot (`PtyDriver::snapshot_from`), so its
+  probe is `Unknown` and no reconcile drops the binding the launcher would restore. `relaunching`
+  always ends: the launcher's exit restores the member, and a launcher that has not published
+  within 90 s (past Core's 60 s admission wait) is hung up, then killed after 2 s. Delivery
+  to a kept terminal with no agent (`ended`, or a shell) is refused with `MEMBER_ENDED`, and
+  restore skips such a member as `ended`. A relaunched launcher that ends before publishing its marker (a refused resume)
+  restores the previous member PID and marker, so the binding is unchanged. `tmt run`/`tmt
+resume` of an identity whose kept terminal runs no agent relaunch there with their own
+  re-entry argv (`run_command::pty::relaunch_kept`) instead of starting a second
+  supervisor, which the kept binding would refuse. A member whose program ends during
+  startup is closed by `start_member`. `close_pane` (`stop --close`) and
+  `tmt rm`/`identity.remove` send `Close` before the existing wait for the supervisor's
+  end; restore captures only members whose agent runs.
 - **Ownership.** `tmt-pty-protocol` is a dependency-free leaf for the frames
   (`kind: u8`, `length: u32`, payload of at most 64 KiB; strict decode; the version is in
   `Hello`/`Welcome`). `tmt-adapters::pty` owns the effects (`Supervisor`, `Connection`);
@@ -368,7 +404,8 @@ stream through the public `terminal.stream` API rather than deriving socket path
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
-  `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux; its
+  `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux
+  (`pty_host/relaunch.rs`: kept terminal, relaunch kinds, refusals, `tmt rm`); its
   `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
   loses one supervisor and explicitly resumes its recorded session in a new pane: identity,
   retained exchanges and exactly-once processing survive; queued work is never silently

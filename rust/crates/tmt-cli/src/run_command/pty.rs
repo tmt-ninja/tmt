@@ -67,11 +67,9 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
         )
         .caused_by(error)
     })?;
-    let started = match tmt_adapters::pty::start_member(
-        executable.as_os_str(),
-        &arguments(request),
-        paths,
-    ) {
+    let started = match relaunch_kept(&executable, request, paths).unwrap_or_else(|| {
+        tmt_adapters::pty::start_member(executable.as_os_str(), &arguments(request), paths)
+    }) {
         Ok(started) => started,
         Err(tmt_adapters::pty::LaunchError::Exited { status, output }) => {
             let (code, outcome) = match status {
@@ -105,6 +103,11 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
                     "PTY_LAUNCH_FAILED", "The built-in host launch was not confirmed; a member may have started. Do not blindly rerun.", 1)
                     .suggestion(format!("Inspect the pane first: tmt check -- {}", crate::output::shell_word(pane))),
                 tmt_adapters::pty::LaunchError::Exited { .. } => unreachable!("handled above"),
+                tmt_adapters::pty::LaunchError::Refused(reason) => Failure::new(
+                    "PTY_LAUNCH_FAILED",
+                    format!("No member was launched: its terminal refused ({reason})."),
+                    1,
+                ),
             };
             return Err(failure.caused_by(error));
         }
@@ -141,6 +144,55 @@ pub(super) fn start(request: RunRequest<'_>, paths: &ConfigPaths) -> Result<u8, 
         });
     }
     Ok(0)
+}
+
+/// The member's terminal belongs to the member (#5988): when its supervisor kept the
+/// terminal after the agent ended, a run or resume of that identity starts there, with the
+/// same re-entry it would run in a new supervisor, rather than in a second terminal that
+/// the kept one's binding would refuse. `None` is "no kept terminal": start a new one.
+fn relaunch_kept(
+    executable: &std::path::Path,
+    request: RunRequest<'_>,
+    paths: &ConfigPaths,
+) -> Option<Result<tmt_adapters::pty::StartedMember, tmt_adapters::pty::LaunchError>> {
+    use tmt_adapters::{host, pty::LaunchError, pty::protocol::RelaunchKind};
+    let binding = {
+        let storage = tmt_adapters::storage::Storage::open(&paths.database).ok()?;
+        let identity = storage.resolve_identity(request.name).ok()??;
+        storage.current_binding(&identity.id).ok()??
+    };
+    let terminal = host::member_terminal(&binding)?;
+    if terminal.ended.is_none() && !terminal.shell {
+        return None;
+    }
+    let program = std::iter::once(executable.as_os_str().to_owned())
+        .chain(arguments(request))
+        .map(|word| word.into_string().ok())
+        .collect::<Option<Vec<_>>>()?;
+    let kind = if request.resume.is_some_and(|resume| !resume.fresh) {
+        RelaunchKind::Resume
+    } else {
+        RelaunchKind::New
+    };
+    let unconfirmed = |cause: String| LaunchError::Unconfirmed {
+        pane: binding.pane_id.clone(),
+        cause: std::io::Error::other(cause),
+    };
+    Some(match host::relaunch_member(&binding, kind, program) {
+        Ok(Some(marker)) => tmt_adapters::pty::StartedMember::from_marker(
+            &marker,
+            binding.pane_id.clone(),
+            binding.server.socket_path.clone(),
+        )
+        .map_err(|error| unconfirmed(error.to_string())),
+        Ok(None) => Err(unconfirmed("the terminal answered without a launch".into())),
+        Err(host::RelaunchError::Unsupported) => return None,
+        Err(host::RelaunchError::Refused(reason)) => Err(LaunchError::Refused(reason)),
+        Err(host::RelaunchError::Exited { status, output }) => {
+            Err(LaunchError::Exited { status, output })
+        }
+        Err(host::RelaunchError::Unconfirmed(cause)) => Err(unconfirmed(cause)),
+    })
 }
 
 #[cfg(test)]
@@ -225,6 +277,35 @@ mod tests {
             .collect::<Vec<_>>()
         );
     }
+    /// `terminal.relaunch` on a kept terminal runs the same re-entry as a resume
+    /// into a new supervisor, so its preflight and session learning are the same.
+    #[test]
+    fn a_kept_terminal_relaunch_runs_the_resume_reentry() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        for fresh in [false, true] {
+            let argv = arguments(RunRequest {
+                name: id,
+                options: &LaunchSettings::default(),
+                command: &[],
+                resume: Some(Resume {
+                    driver: None,
+                    retry: false,
+                    move_running: false,
+                    fresh,
+                }),
+                save: false,
+                channel: ChannelMode::Default,
+            });
+            assert_eq!(
+                argv,
+                tmt_adapters::pty::relaunch_arguments(id, fresh)
+                    .into_iter()
+                    .map(OsString::from)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
     #[test]
     fn resume_reentry_keeps_driver_move_retry_and_model_preferences() {
         let options = LaunchSettings {

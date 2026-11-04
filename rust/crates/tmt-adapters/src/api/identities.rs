@@ -57,14 +57,17 @@ pub(super) fn status(storage: &Storage, identities: Vec<String>) -> Result<Vec<u
                     {
                         value["plainProgram"] = program.into();
                     }
-                    // A built-in member stopped by job control; `terminal.resume` continues it.
-                    if storage
+                    // A built-in member stopped by job control (`terminal.resume` continues
+                    // it), or whose program ended on a kept terminal (`ended`) or runs a
+                    // relaunched shell (`foreground`); one supervisor read for all three.
+                    let terminal = storage
                         .current_binding(id)
                         .map_err(|_| Fault::unavailable())?
-                        .is_some_and(|binding| crate::host::member_paused(&binding))
-                    {
+                        .and_then(|binding| crate::host::member_terminal(&binding));
+                    if terminal.is_some_and(|state| state.paused) {
                         value["paused"] = true.into();
                     }
+                    super::terminal::add_terminal_fields(&mut value, terminal);
                     value
                 }
             },

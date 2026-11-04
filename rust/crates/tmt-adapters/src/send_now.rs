@@ -55,6 +55,7 @@ pub fn untyped_failure(delivery: &Delivery) -> (&'static str, &'static str) {
         Delivery::AwaitingApproval => SendNowUntyped::AwaitingApproval,
         Delivery::NotAgent(_) => SendNowUntyped::NotAgent,
         Delivery::MemberPaused => SendNowUntyped::MemberPaused,
+        Delivery::MemberEnded => SendNowUntyped::MemberEnded,
         Delivery::Offline | Delivery::Unavailable => SendNowUntyped::Unreachable,
         Delivery::ChannelUnavailable(_) => SendNowUntyped::ChannelUnavailable,
         Delivery::Uncertain | Delivery::Unacknowledged | Delivery::Transport(_) => {

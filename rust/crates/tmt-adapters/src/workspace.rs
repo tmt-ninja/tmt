@@ -27,7 +27,7 @@ use tmt_core::{
     host::HostKind,
     workspace::{
         ExternalCommand, MAX_BYTES, WorkspaceSnapshot,
-        builtin::{BuiltinMember, BuiltinSnapshot},
+        builtin::{BuiltinMember, BuiltinSnapshot, MemberRun},
         generations::WorkspaceGeneration,
         identity_for_pane,
     },
@@ -233,21 +233,19 @@ pub fn forget_builtin_member(paths: &ConfigPaths, identity: &str) -> io::Result<
 /// started, stopped or repaired. A spent budget fails rather than publish a partial set.
 fn capture_builtin(paths: &ConfigPaths, deadline: Instant) -> io::Result<BuiltinSnapshot> {
     Ok(BuiltinSnapshot {
-        members: live_builtin_members(paths, deadline)?,
+        members: live_builtin_members(paths, deadline)?.0,
         captured_at_ms: crate::request_runtime::wall_time_ms(),
     })
 }
 
 /// A built-in preview's input: current durable records for the recorded UUIDs, and the UUIDs
-/// running on the built-in host now. Read only; it grants no restore authority.
+/// running on the built-in host now or ended on a kept terminal. Read only; it grants no
+/// restore authority.
 pub fn builtin_plan_input(
     paths: &ConfigPaths,
     snapshot: &BuiltinSnapshot,
     deadline: Instant,
-) -> io::Result<(
-    Vec<tmt_core::workspace::StoredIdentity>,
-    std::collections::HashSet<String>,
-)> {
+) -> io::Result<(Vec<tmt_core::workspace::StoredIdentity>, MembersNow)> {
     if !paths.database.exists() {
         return Ok(Default::default());
     }
@@ -258,9 +256,11 @@ pub fn builtin_plan_input(
         .collect::<Vec<_>>();
     let identities =
         Storage::workspace_plan_identities(&paths.database, &ids).map_err(io::Error::other)?;
-    let live = live_builtin_members(paths, deadline)?
+    let (running, ended) = live_builtin_members(paths, deadline)?;
+    let live = running
         .into_iter()
-        .map(|member| member.identity.id)
+        .map(|member| (member.identity.id, MemberRun::Running))
+        .chain(ended.into_iter().map(|id| (id, MemberRun::Ended)))
         .collect();
     Ok((identities, live))
 }
@@ -273,20 +273,20 @@ pub fn builtin_member_check(
     paths: &ConfigPaths,
     identity: &str,
     deadline: Instant,
-) -> io::Result<(
-    Vec<tmt_core::workspace::StoredIdentity>,
-    std::collections::HashSet<String>,
-)> {
+) -> io::Result<(Vec<tmt_core::workspace::StoredIdentity>, MembersNow)> {
     if !paths.database.exists() {
         return Ok(Default::default());
     }
     let records = Storage::workspace_plan_identities(&paths.database, &[identity])
         .map_err(io::Error::other)?;
-    let mut live = std::collections::HashSet::new();
-    if let Some(binding) = records
+    let mut live = MembersNow::new();
+    let binding = records
         .iter()
         .find(|record| record.entry.identity.id == identity)
-        .and_then(|record| record.entry.binding.as_ref())
+        .and_then(|record| record.entry.binding.as_ref());
+    if binding.is_some_and(ended_on_kept_terminal) {
+        live.insert(identity.to_owned(), MemberRun::Ended);
+    } else if let Some(binding) = binding
         && let Ok(snapshot) = Host::for_server(&binding.server).observe_snapshot(OperationOptions {
             deadline: Some(deadline),
             pane_ids: Some(std::slice::from_ref(&binding.pane_id)),
@@ -303,7 +303,7 @@ pub fn builtin_member_check(
             .is_some()
         })
     {
-        live.insert(identity.to_owned());
+        live.insert(identity.to_owned(), MemberRun::Running);
     }
     if Instant::now() >= deadline {
         return Err(io::Error::new(
@@ -314,19 +314,40 @@ pub fn builtin_member_check(
     Ok((records, live))
 }
 
-fn live_builtin_members(paths: &ConfigPaths, deadline: Instant) -> io::Result<Vec<BuiltinMember>> {
+/// What each bound member runs now, by identity UUID.
+type MembersNow = std::collections::HashMap<String, MemberRun>;
+
+/// A kept terminal whose agent ended, or that runs a relaunched shell, runs no agent.
+fn ended_on_kept_terminal(binding: &tmt_core::binding::Binding) -> bool {
+    crate::host::member_terminal(binding)
+        .is_some_and(|terminal| terminal.ended.is_some() || terminal.shell)
+}
+
+/// The members running on the built-in host now, and the UUIDs whose agent ended on a
+/// kept terminal.
+fn live_builtin_members(
+    paths: &ConfigPaths,
+    deadline: Instant,
+) -> io::Result<(Vec<BuiltinMember>, Vec<String>)> {
     let records = if paths.database.exists() {
         Storage::builtin_workspace_identities(&paths.database).map_err(io::Error::other)?
     } else {
         Vec::new()
     };
     let mut members = Vec::new();
+    let mut ended = Vec::new();
     for binding in records
         .iter()
         .filter_map(|record| record.entry.binding.as_ref())
     {
         if Instant::now() >= deadline {
             break;
+        }
+        // A kept terminal whose agent ended (or that runs a relaunched shell) is no
+        // running member: restore brings back only agents that were running (#5988).
+        if ended_on_kept_terminal(binding) {
+            ended.push(binding.identity_id.clone());
+            continue;
         }
         let Ok(snapshot) = Host::for_server(&binding.server).observe_snapshot(OperationOptions {
             deadline: Some(deadline),
@@ -359,7 +380,7 @@ fn live_builtin_members(paths: &ConfigPaths, deadline: Instant) -> io::Result<Ve
         (&left.identity.id, &left.identity.binding)
             .cmp(&(&right.identity.id, &right.identity.binding))
     });
-    Ok(members)
+    Ok((members, ended))
 }
 
 /// One previous-document read gates optional capture under the publication lock.

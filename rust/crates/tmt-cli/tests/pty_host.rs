@@ -284,6 +284,35 @@ impl Drop for World {
     }
 }
 
+/// Waits until the member's supervisor reports its program ended. The supervisor keeps the
+/// terminal and the binding (#5988), so presence alone does not show the end.
+fn wait_program_ended(world: &mut World, name: &str) {
+    let pane: String = rusqlite::Connection::open_with_flags(
+        support::state_dir(&world.root).join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap()
+    .query_row(
+        "SELECT b.pane_id FROM bindings b JOIN identities i ON i.id=b.identity_id \
+         WHERE i.canonical_name=?",
+        [name],
+        |row| row.get(0),
+    )
+    .unwrap();
+    let directory = support::state_dir(&world.root).join("pty");
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Ok(ControlReply::State { ended: Some(_), .. }) =
+            Connection::connect(&directory, &pane)
+                .and_then(|mut client| client.control(Control::Inspect, Duration::from_secs(3)))
+        {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{name}'s program did not end");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
 fn run_without_tmux_starts_independent_members_and_check_reads_causal_output() {
     let mut world = World::new();
@@ -502,11 +531,7 @@ fn stored_binding_reads_rename_and_force_remove_use_the_pty_host_without_tmux() 
         // in its own terminal, here by EOF, and then removes.
         terminal.input(b"\x04").unwrap();
         drop(terminal);
-        let deadline = Instant::now() + WAIT;
-        while world.json(&["ls", "renamed", "--json"])["presence"] == "active" {
-            assert!(Instant::now() < deadline, "the program did not end");
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        wait_program_ended(&mut world, "renamed");
         let removed = world.json(&["rm", "renamed", "--force", "--json"]);
         assert_eq!(removed["removed"], true, "{removed:#}");
         assert_eq!(removed["identity"]["id"], id);
@@ -571,7 +596,7 @@ fn a_member_running_a_plain_program_receives_nothing_and_says_why() {
 }
 
 #[test]
-fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_member() {
+fn closing_a_built_in_member_closes_its_kept_terminal_and_touches_no_other_member() {
     use tmt_adapters::host::{Host, PaneClose};
     let mut world = World::new();
     let script = format!(
@@ -612,20 +637,6 @@ fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_membe
     let server = alpha.binding.as_ref().unwrap().server.clone();
     let host = Host::for_server(&server);
 
-    // Its program is still running: refused after the bound, and nothing was ended.
-    let refused = host.session().close_opened_pane(&alpha);
-    assert!(
-        matches!(refused, Err(tmt_adapters::host::ActionError::Evidence(_))),
-        "{refused:?}"
-    );
-    for name in ["alpha", "beta"] {
-        let checked = world.run(&["check", name]);
-        assert!(
-            String::from_utf8_lossy(&checked.stdout).contains("up"),
-            "{name} must still serve: {checked:?}"
-        );
-    }
-
     let pane = row("alpha")["pane"].as_str().unwrap().to_owned();
     let directory = support::state_dir(&world.root).join("pty");
     let socket = PathBuf::from(&server.socket_path);
@@ -646,16 +657,33 @@ fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_membe
     ));
     fs::rename(&parked, &socket).unwrap();
 
-    // Its program ends on its own; the supervisor follows, and the close finds it gone.
+    // Its program ends on its own and the supervisor keeps the terminal (#5988).
     let mut terminal = Connection::connect(&directory, &pane).unwrap();
     terminal.input(b"quit\r").unwrap();
     drop(terminal);
     world.remember();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !supervisor_ended() {
-        assert!(Instant::now() < deadline, "the supervisor did not end");
+    loop {
+        let ControlReply::State { ended, .. } = Connection::connect(&directory, &pane)
+            .unwrap()
+            .control(Control::Inspect, Duration::from_secs(3))
+            .unwrap()
+        else {
+            panic!("no state");
+        };
+        if ended.is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the program did not end");
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert!(!supervisor_ended(), "the supervisor outlives its program");
+    assert!(socket.try_exists().unwrap());
+
+    // Closing it ends the supervisor, which removes its socket and lock.
+    let closed = host.session().close_opened_pane(&alpha).unwrap();
+    assert_eq!(closed, PaneClose::Closed);
+    assert!(supervisor_ended());
     assert!(
         !socket.try_exists().unwrap(),
         "the supervisor left its socket"
@@ -664,14 +692,38 @@ fn closing_a_built_in_member_waits_for_its_supervisor_and_touches_no_other_membe
         !socket.with_extension("lock").try_exists().unwrap(),
         "the supervisor left its lock"
     );
-    let closed = host.session().close_opened_pane(&alpha).unwrap();
-    assert_eq!(closed, PaneClose::AlreadyGone);
+    // Closed is final: a second close finds it gone.
+    let again = host.session().close_opened_pane(&alpha).unwrap();
+    assert_eq!(again, PaneClose::AlreadyGone);
 
-    // The other member is untouched.
+    // The other member is untouched, and closing it while its program still runs hangs
+    // that program up, as closing a terminal does.
     let checked = world.run(&["check", "beta"]);
     assert!(
         String::from_utf8_lossy(&checked.stdout).contains("up"),
         "{checked:?}"
+    );
+    let beta = tmt_adapters::storage::Storage::context_by_identity(
+        &database,
+        row("beta")["id"].as_str().unwrap(),
+        0,
+    )
+    .unwrap()
+    .unwrap()
+    .entry;
+    let beta_server = beta.binding.as_ref().unwrap().server.clone();
+    assert_eq!(
+        Host::for_server(&beta_server)
+            .session()
+            .close_opened_pane(&beta)
+            .unwrap(),
+        PaneClose::Closed
+    );
+    assert!(recorded_process_gone(beta_server.server_pid));
+    assert!(
+        !PathBuf::from(&beta_server.socket_path)
+            .try_exists()
+            .unwrap()
     );
     assert!(world.clean());
 }
@@ -1200,6 +1252,27 @@ fn a_fast_exit_reports_completion_and_a_missing_program_is_not_success() {
         "{failed:?}"
     );
     assert!(!String::from_utf8_lossy(&failed.stderr).contains("not confirmed"));
+    // A temporary member whose start fails leaves no identity behind (#5988).
+    let temporary = world.run(&["run", "--no-channel", "gamma", "/bin/sh", "-c", "exit 3"]);
+    assert_eq!(temporary.status.code(), Some(3), "{temporary:?}");
+    let listed = world.json(&["ls", "--json"]);
+    let names: Vec<_> = listed["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].clone())
+        .collect();
+    assert!(!names.contains(&"gamma".into()), "{listed:#}");
+    // A failed start closes its terminal: no supervisor socket is left.
+    let directory = support::state_dir(&world.root).join("pty");
+    let sockets: Vec<_> = fs::read_dir(&directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sock"))
+        .map(|entry| entry.path())
+        .collect();
+    assert!(sockets.is_empty(), "{sockets:?}");
     assert!(world.clean());
 }
 
@@ -1209,6 +1282,8 @@ mod attach;
 mod e2e;
 #[path = "pty_host/paused.rs"]
 mod paused;
+#[path = "pty_host/relaunch.rs"]
+mod relaunch;
 #[path = "pty_host/terminal_stream.rs"]
 mod terminal_stream;
 
@@ -1283,11 +1358,7 @@ fn built_in_members_are_recorded_leave_only_on_purpose_and_restore_never_touches
         .parse()
         .unwrap();
     kill(Pid::from_raw(beta), Signal::SIGKILL).unwrap();
-    let deadline = Instant::now() + WAIT;
-    while world.json(&["ls", "beta", "--json"])["presence"] == "active" {
-        assert!(Instant::now() < deadline, "beta's supervisor did not end");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_program_ended(&mut world, "beta");
     member(&mut world, "gamma");
     let listed = world.json(&["workspace", "ls", "--host", "pty", "--json"]);
     // Later captures of the same live set may follow as shrinks; the protected one is the merge.
@@ -1324,9 +1395,23 @@ fn built_in_members_are_recorded_leave_only_on_purpose_and_restore_never_touches
         .parse()
         .unwrap();
     kill(Pid::from_raw(gamma), Signal::SIGKILL).unwrap();
+    wait_program_ended(&mut world, "gamma");
+    // Its kept terminal is not restored (relaunch.rs covers that); with the terminal
+    // gone too, gamma is a member restore must resume.
+    let pane = world.member_row("gamma")["pane"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let directory = support::state_dir(&world.root).join("pty");
+    let mut client = Connection::connect(&directory, &pane).unwrap();
+    assert_eq!(
+        client.control(Control::Close, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
+    drop(client);
     let deadline = Instant::now() + WAIT;
-    while world.json(&["ls", "gamma", "--json"])["presence"] == "active" {
-        assert!(Instant::now() < deadline, "gamma's supervisor did not end");
+    while directory.join(format!("{pane}.sock")).exists() {
+        assert!(Instant::now() < deadline, "gamma's terminal did not close");
         std::thread::sleep(Duration::from_millis(50));
     }
     let report = support::state_dir(&world.root).join("restore-last-pty.json");

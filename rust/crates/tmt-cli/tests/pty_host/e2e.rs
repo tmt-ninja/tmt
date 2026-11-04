@@ -21,7 +21,7 @@ fn received(world: &World, name: &str, text: &str) -> usize {
 
 /// A member that logs every line it is given, and answers a pasted request the way a
 /// cooperating agent does. The log shows a replayed request twice.
-fn replying_script(world: &World, name: &str) -> String {
+pub(super) fn replying_script(world: &World, name: &str) -> String {
     let root = world.root.display();
     let executable = quote(env!("CARGO_BIN_EXE_tmt"));
     format!(
@@ -29,11 +29,11 @@ fn replying_script(world: &World, name: &str) -> String {
     )
 }
 
-const SESSION: &str = "11111111-1111-4111-8111-111111111111";
+pub(super) const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 
 // Reuse the native provider-shaped parent: hooks must come from a real admitted
 // provider descendant, and resume must discover that same executable/session.
-fn replying_provider(world: &mut World) -> PathBuf {
+pub(super) fn replying_provider(world: &mut World) -> PathBuf {
     let example = std::path::Path::new(env!("CARGO_BIN_EXE_tmt"))
         .parent()
         .unwrap()
@@ -106,7 +106,7 @@ fn attempts(world: &World, request: &str) -> Vec<(String, String)> {
         .unwrap()
 }
 
-fn gone(process: &ProcessIncarnation) -> bool {
+pub(super) fn gone(process: &ProcessIncarnation) -> bool {
     match observe_runtime_process(
         &UnixCommandRunner,
         process.pid(),
@@ -118,8 +118,22 @@ fn gone(process: &ProcessIncarnation) -> bool {
     }
 }
 
+/// Waits for a member's program to end while its supervisor keeps the terminal, then
+/// closes that terminal.
+fn end_and_close(directory: &std::path::Path, pane: &str, program: &ProcessIncarnation) {
+    wait_for("the member's program to end", || gone(program));
+    assert!(directory.join(format!("{pane}.sock")).exists());
+    assert_eq!(
+        Connection::connect(directory, pane)
+            .unwrap()
+            .control(Control::Close, WAIT)
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+}
+
 impl World {
-    fn talk_for_reply(&mut self, name: &str, text: &str) -> Value {
+    pub(super) fn talk_for_reply(&mut self, name: &str, text: &str) -> Value {
         let reply = self.json(&[
             "talk",
             name,
@@ -134,7 +148,7 @@ impl World {
         reply
     }
 
-    fn member_row(&mut self, name: &str) -> Value {
+    pub(super) fn member_row(&mut self, name: &str) -> Value {
         let listed = self.json(&["ls", "--json"]);
         listed["identities"]
             .as_array()
@@ -145,7 +159,7 @@ impl World {
             .clone()
     }
 
-    fn supervisor_of(&mut self, name: &str) -> ProcessIncarnation {
+    pub(super) fn supervisor_of(&mut self, name: &str) -> ProcessIncarnation {
         let pane = self.member_row(name)["pane"].as_str().unwrap().to_owned();
         let mut client =
             Connection::connect(&support::state_dir(&self.root).join("pty"), &pane).unwrap();
@@ -351,6 +365,8 @@ fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
     let mut terminal = Connection::connect(&directory, &resumed_pane).unwrap();
     terminal.input(b"quit\r").unwrap();
     drop(terminal);
+    // The terminal outlives the program (#5988) until it is closed.
+    end_and_close(&directory, &resumed_pane, &restarted_program);
     wait_for("resumed member and supervisor to end", || {
         gone(&restarted_supervisor) && gone(&restarted_program)
     });
@@ -363,7 +379,8 @@ fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
         }
     }
 
-    // Beta ends on its own; its supervisor follows and removes its socket and lock.
+    // Beta ends on its own; once its kept terminal is closed, its supervisor removes its
+    // socket and lock.
     let directory = support::state_dir(&world.root).join("pty");
     let pane = world.member_row("beta")["pane"]
         .as_str()
@@ -372,6 +389,7 @@ fn two_members_talk_attach_and_resume_after_supervisor_loss_without_tmux() {
     let mut terminal = Connection::connect(&directory, &pane).unwrap();
     terminal.input(b"quit\r").unwrap();
     drop(terminal);
+    end_and_close(&directory, &pane, &beta_program);
     wait_for("beta's supervisor and program to end", || {
         gone(&beta_supervisor) && gone(&beta_program)
     });

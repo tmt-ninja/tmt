@@ -50,7 +50,8 @@ pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 pub use driver::{AgentNameRefusal, AgentNaming};
 pub use driver::{Kept, PaneClose, PaneSwap};
-pub(crate) use pty::{ResumeError, member_paused, resume as resume_member};
+pub use pty::{RelaunchError, TerminalState, member_terminal, relaunch as relaunch_member};
+pub(crate) use pty::{ResumeError, close_removed as close_removed_member, resume as resume_member};
 pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 

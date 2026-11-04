@@ -40,10 +40,16 @@ struct Member {
 
 impl Member {
     fn start(program: &[&str]) -> Self {
+        Self::start_with(program, |supervisor| supervisor)
+    }
+
+    fn start_with(program: &[&str], configure: impl FnOnce(Supervisor) -> Supervisor) -> Self {
         let root = TestDirectory::new();
         let directory = root.path.join("pty");
-        let supervisor = Supervisor::start(launch(&directory, "pty_test", program))
-            .expect("start the supervisor");
+        let supervisor = configure(
+            Supervisor::start(launch(&directory, "pty_test", program))
+                .expect("start the supervisor"),
+        );
         let pid = supervisor.program_pid();
         Self {
             _root: root,
@@ -58,29 +64,86 @@ impl Member {
         Connection::connect(&self.directory, &self.id).expect("attach to the supervisor")
     }
 
-    /// Waits for the supervisor to end and returns how.
+    /// Waits for the program to end on its own, then closes the kept terminal and
+    /// waits for the supervisor to end, returning how.
     fn finish(mut self) -> io::Result<()> {
-        let thread = self.thread.take().unwrap();
-        let deadline = Instant::now() + WAIT;
-        while !thread.is_finished() {
-            assert!(Instant::now() < deadline, "the supervisor did not end");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        thread.join().expect("the supervisor thread panicked")
+        wait_ended(&self.directory, &self.id);
+        close(&self.directory, &self.id);
+        join(self.thread.take().unwrap())
     }
 }
 
 impl Drop for Member {
     fn drop(&mut self) {
-        // A test that failed leaves the program running; a supervisor that
-        // ended has already reaped it, so only a live one is signalled.
+        // A test that failed leaves the supervisor serving: close it, which hangs up
+        // a running program, and only then fall back to signalling the program.
         if let Some(thread) = self.thread.take() {
             if !thread.is_finished() {
+                if let Ok(mut client) = Connection::connect(&self.directory, &self.id) {
+                    let _ = client.control(tmt_pty_protocol::Control::Close, WAIT);
+                }
+                let deadline = Instant::now() + WAIT;
+                while !thread.is_finished() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+            if thread.is_finished() {
+                let _ = thread.join();
+            } else {
                 let _ = kill(Pid::from_raw(self.pid as i32), Signal::SIGKILL);
             }
-            let _ = thread.join();
         }
     }
+}
+
+fn join(thread: JoinHandle<io::Result<()>>) -> io::Result<()> {
+    let deadline = Instant::now() + WAIT;
+    while !thread.is_finished() {
+        assert!(Instant::now() < deadline, "the supervisor did not end");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    thread.join().expect("the supervisor thread panicked")
+}
+
+/// One fresh Inspect of the member's supervisor.
+fn inspect(directory: &Path, id: &str) -> tmt_pty_protocol::ControlReply {
+    Connection::connect(directory, id)
+        .expect("attach to the supervisor")
+        .control(tmt_pty_protocol::Control::Inspect, WAIT)
+        .unwrap()
+}
+
+/// Waits until the supervisor reports the program ended, and returns how.
+fn wait_ended(directory: &Path, id: &str) -> Exit {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let tmt_pty_protocol::ControlReply::State {
+            ended: Some(exit), ..
+        } = inspect(directory, id)
+        {
+            return exit;
+        }
+        assert!(Instant::now() < deadline, "the program did not end");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn close(directory: &Path, id: &str) {
+    assert_eq!(
+        Connection::connect(directory, id)
+            .expect("attach to the supervisor")
+            .control(tmt_pty_protocol::Control::Close, WAIT)
+            .unwrap(),
+        tmt_pty_protocol::ControlReply::Applied(true)
+    );
+}
+
+/// Serves a supervisor whose program ends by itself, then closes its kept terminal.
+fn run_until_closed(directory: &Path, id: &str, supervisor: Supervisor) {
+    let thread = std::thread::spawn(move || supervisor.run());
+    wait_ended(directory, id);
+    close(directory, id);
+    join(thread).unwrap();
 }
 
 fn launch(directory: &Path, id: &str, program: &[&str]) -> Launch {
@@ -207,6 +270,64 @@ fn the_exit_status_and_the_signal_are_reported() {
     let mut client = member.connect();
     client.input(b"\r").unwrap();
     collect(&mut client, exited(Exit::Signal(9)));
+    member.finish().unwrap();
+}
+
+#[test]
+fn a_control_answer_after_an_unread_exit_on_the_same_connection_is_still_the_answer() {
+    let member = Member::start(&["sh", "-c", "read l; exit 3"]);
+    let mut client = member.connect();
+    client.input(b"\r").unwrap();
+    // The exit is published before this client reads anything, so `Exited` is queued
+    // ahead of the answer on its connection.
+    assert_eq!(wait_ended(&member.directory, &member.id), Exit::Code(3));
+    assert!(matches!(
+        client
+            .control(tmt_pty_protocol::Control::Inspect, WAIT)
+            .unwrap(),
+        tmt_pty_protocol::ControlReply::State {
+            ended: Some(Exit::Code(3)),
+            ..
+        }
+    ));
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
+fn a_waiting_control_ends_with_the_program_instead_of_running_out_its_time() {
+    let member = Member::start(&["sh", "-c", "read l"]);
+    let mut wrapper = member.connect();
+    let waiting = std::thread::spawn(move || {
+        let started = Instant::now();
+        let reply = wrapper.control(tmt_pty_protocol::Control::WaitLauncher, WAIT);
+        (reply, started.elapsed())
+    });
+    // No launcher listens, so only the program's exit can answer the wait.
+    let mut client = member.connect();
+    client.input(b"\r").unwrap();
+    let (reply, took) = waiting.join().unwrap();
+    // A wait already queued ends with the exit; one that arrives after it is refused.
+    match reply {
+        Err(error) => assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof),
+        Ok(reply) => assert!(
+            matches!(reply, tmt_pty_protocol::ControlReply::Error(_)),
+            "{reply:?}"
+        ),
+    }
+    assert!(took < WAIT, "the wait ended with the exit, not its timeout");
+    wait_ended(&member.directory, &member.id);
+    // After the exit, both waits are answered at once.
+    for request in [
+        tmt_pty_protocol::Control::WaitLauncher,
+        tmt_pty_protocol::Control::AwaitLaunch,
+    ] {
+        assert!(matches!(
+            member.connect().control(request, WAIT).unwrap(),
+            tmt_pty_protocol::ControlReply::Error(_)
+        ));
+    }
+    drop(client);
     member.finish().unwrap();
 }
 
@@ -671,7 +792,7 @@ fn a_second_supervisor_for_the_member_is_refused_and_a_dead_ones_socket_is_repla
     assert!(socket_path(&directory, "pty_old").exists());
     let supervisor =
         Supervisor::start(launch(&directory, "pty_old", &["sh", "-c", "exit 0"])).unwrap();
-    supervisor.run().unwrap();
+    run_until_closed(&directory, "pty_old", supervisor);
     assert!(!socket_path(&directory, "pty_old").exists());
 }
 
@@ -697,7 +818,7 @@ fn starting_a_different_member_reclaims_unlocked_neighbours_and_preserves_live_o
 
     let supervisor = Supervisor::start(launch(directory, "pty_new", &["sh", "-c", "exit 0"]))
         .expect("unknown neighbours must not fail the new start");
-    supervisor.run().unwrap();
+    run_until_closed(directory, "pty_new", supervisor);
     for extension in ["sock", "lock"] {
         assert!(!directory.join(format!("{dead}.{extension}")).exists());
         for id in [&member.id, "pty_unknown", "pty_unremovable"] {
@@ -721,7 +842,7 @@ fn an_unlocked_neighbour_without_a_socket_is_left_alone() {
     drop(crate::file_lock::exclusive(&lock_path(&directory, starting)).unwrap());
     let supervisor =
         Supervisor::start(launch(&directory, "pty_new", &["sh", "-c", "exit 0"])).unwrap();
-    supervisor.run().unwrap();
+    run_until_closed(&directory, "pty_new", supervisor);
     assert!(lock_path(&directory, starting).exists());
     assert!(!socket_path(&directory, starting).exists());
 }
@@ -820,7 +941,11 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
     let mut client = member.connect();
     assert_eq!(
         client.control(Control::Capabilities, WAIT).unwrap(),
-        ControlReply::Capabilities { resume: true }
+        ControlReply::Capabilities {
+            resume: true,
+            relaunch: true,
+            close: true,
+        }
     );
     let deadline = Instant::now() + WAIT;
     loop {
@@ -1297,3 +1422,316 @@ if ($pid == 0) {
 }
 waitpid($pid, 0);
 exit(WIFEXITED($?) ? WEXITSTATUS($?) : 128 + WTERMSIG($?));"#;
+
+fn control(member: &Member, request: tmt_pty_protocol::Control) -> tmt_pty_protocol::ControlReply {
+    member.connect().control(request, WAIT).unwrap()
+}
+
+fn relaunch_echo(kind: tmt_pty_protocol::RelaunchKind) -> tmt_pty_protocol::Control {
+    tmt_pty_protocol::Control::Relaunch {
+        kind,
+        program: ["sh", "-c", ECHO_LOOP].map(str::to_owned).to_vec(),
+    }
+}
+
+#[test]
+fn the_terminal_is_kept_after_the_program_ends_and_reports_how_it_ended() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    let member = Member::start(&["sh", "-c", "read l; echo got:$l; exit 3"]);
+    let mut client = member.connect();
+    client.input(b"first\r").unwrap();
+    collect(&mut client, exited(Exit::Code(3)));
+    // Existing viewers got Exited and keep their connection; new ones attach.
+    let socket = socket_path(&member.directory, &member.id);
+    assert_eq!(wait_ended(&member.directory, &member.id), Exit::Code(3));
+    assert!(socket.exists() && lock_path(&member.directory, &member.id).exists());
+    let ControlReply::State {
+        pane_pid,
+        ended,
+        shell,
+        ..
+    } = control(&member, Control::Inspect)
+    else {
+        panic!("not a state");
+    };
+    assert_eq!(
+        (pane_pid, ended, shell),
+        (member.pid, Some(Exit::Code(3)), false)
+    );
+    // The screen is kept, and nothing types into a terminal that runs nothing.
+    let ControlReply::Screen(screen) = control(&member, Control::Capture) else {
+        panic!("no screen");
+    };
+    assert!(screen.contains("got:first"), "{screen}");
+    assert_eq!(
+        control(&member, Control::Paste(b"lost".to_vec())),
+        ControlReply::Error("the program has ended".into())
+    );
+    // Closing a terminal that runs nothing ends the supervisor at once.
+    close(&member.directory, &member.id);
+    let directory = member.directory.clone();
+    let mut member = member;
+    join(member.thread.take().unwrap()).unwrap();
+    assert!(!socket.exists());
+    assert!(!lock_path(&directory, "pty_test").exists());
+}
+
+#[test]
+fn every_relaunch_kind_starts_a_program_on_the_kept_terminal() {
+    use tmt_pty_protocol::{Control, ControlReply, RelaunchKind};
+    for kind in [RelaunchKind::Resume, RelaunchKind::New, RelaunchKind::Shell] {
+        let member = Member::start(&["sh", "-c", "read l; echo first:$l"]);
+        let mut client = member.connect();
+        client.input(b"one\r").unwrap();
+        collect(&mut client, exited(Exit::Code(0)));
+        assert_eq!(
+            control(
+                &member,
+                Control::PublishIf {
+                    pane_pid: member.pid,
+                    key: "binding".into(),
+                    expected_key: None,
+                    marker: "ended-marker".into(),
+                }
+            ),
+            ControlReply::Applied(true)
+        );
+        // Typed while nothing runs: it must not reach the relaunched program.
+        client.input(b"lost\r").unwrap();
+        assert_eq!(
+            client.control(relaunch_echo(kind), WAIT).unwrap(),
+            ControlReply::Applied(true)
+        );
+        client.input(b"ready\r").unwrap();
+        let seen = collect(&mut client, says("got:ready"));
+        assert!(!seen.text.contains("got:lost"), "{kind:?}: {}", seen.text);
+        let ControlReply::State {
+            pane_pid,
+            ended,
+            shell,
+            marker,
+            ..
+        } = control(&member, Control::Inspect)
+        else {
+            panic!("not a state");
+        };
+        assert_eq!(ended, None, "{kind:?}");
+        if kind == RelaunchKind::Shell {
+            // The shell is not the member's agent: the binding's process and marker stay.
+            assert!(shell);
+            assert_eq!(pane_pid, member.pid);
+            assert_eq!(marker.as_deref(), Some("ended-marker"));
+        } else {
+            assert!(!shell);
+            assert_ne!(pane_pid, member.pid);
+            assert_eq!(
+                marker, None,
+                "{kind:?}: the old marker belonged to the ended program"
+            );
+        }
+        let ControlReply::Screen(screen) = control(&member, Control::Capture) else {
+            panic!("no screen");
+        };
+        assert!(
+            screen.contains("first:one") && screen.contains("got:ready"),
+            "{screen}"
+        );
+        client.input(&[4]).unwrap();
+        collect(&mut client, exited(Exit::Code(0)));
+        drop(client);
+        member.finish().unwrap();
+    }
+}
+
+#[test]
+fn a_relaunch_is_refused_while_a_program_or_a_shell_runs() {
+    use tmt_pty_protocol::{Control, ControlReply, RelaunchKind};
+    let member = Member::start(&["sh", "-c", ECHO_LOOP]);
+    let mut client = member.connect();
+    ready(&mut client);
+    assert_eq!(
+        control(&member, relaunch_echo(RelaunchKind::Resume)),
+        ControlReply::Error("the program is still running; exit it first".into())
+    );
+    client.input(b"alive\r").unwrap();
+    collect(&mut client, says("got:alive"));
+    client.input(&[4]).unwrap();
+    collect(&mut client, exited(Exit::Code(0)));
+    assert_eq!(
+        client
+            .control(relaunch_echo(RelaunchKind::Shell), WAIT)
+            .unwrap(),
+        ControlReply::Applied(true)
+    );
+    ready(&mut client);
+    for kind in [RelaunchKind::Resume, RelaunchKind::New, RelaunchKind::Shell] {
+        assert_eq!(
+            control(&member, relaunch_echo(kind)),
+            ControlReply::Error("the shell is still running; exit it first".into())
+        );
+    }
+    // A program that cannot start is refused and leaves the terminal kept.
+    client.input(&[4]).unwrap();
+    collect(&mut client, exited(Exit::Code(0)));
+    let ControlReply::Error(reason) = control(
+        &member,
+        Control::Relaunch {
+            kind: RelaunchKind::New,
+            program: vec!["/nonexistent/program".into()],
+        },
+    ) else {
+        panic!("a missing program must be refused");
+    };
+    assert!(
+        reason.starts_with("the program could not start"),
+        "{reason}"
+    );
+    assert_eq!(wait_ended(&member.directory, &member.id), Exit::Code(0));
+    drop(client);
+    member.finish().unwrap();
+}
+
+#[test]
+fn close_hangs_up_a_running_program_and_removes_the_files() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    let member = Member::start(&["sh", "-c", ECHO_LOOP]);
+    let mut client = member.connect();
+    ready(&mut client);
+    assert_eq!(
+        control(&member, Control::Close),
+        ControlReply::Applied(true)
+    );
+    // The program ends as a closing terminal ends it, and the viewer is told.
+    collect(&mut client, exited(Exit::Signal(Signal::SIGHUP as i32)));
+    drop(client);
+    let directory = member.directory.clone();
+    let mut member = member;
+    join(member.thread.take().unwrap()).unwrap();
+    assert!(!socket_path(&directory, "pty_test").exists());
+    assert!(!lock_path(&directory, "pty_test").exists());
+    assert!(
+        nix::sys::signal::kill(Pid::from_raw(member.pid as i32), None).is_err(),
+        "the program was reaped"
+    );
+}
+
+#[test]
+fn a_relaunched_launcher_that_never_binds_leaves_the_member_as_it_was() {
+    use tmt_pty_protocol::{Control, ControlReply, RelaunchKind};
+    let member = Member::start(&["sh", "-c", "read l; echo first:$l"]);
+    let mut client = member.connect();
+    client.input(b"one\r").unwrap();
+    collect(&mut client, exited(Exit::Code(0)));
+    let publish = |pane_pid| Control::PublishIf {
+        pane_pid,
+        key: "binding".into(),
+        expected_key: None,
+        marker: "kept-marker".into(),
+    };
+    assert_eq!(
+        control(&member, publish(member.pid)),
+        ControlReply::Applied(true)
+    );
+    // A refused resume: the launcher prints its reason and ends without publishing.
+    let refusal = Control::Relaunch {
+        kind: RelaunchKind::Resume,
+        program: ["sh", "-c", "read l; echo refused:$l; exit 1"]
+            .map(str::to_owned)
+            .to_vec(),
+    };
+    assert_eq!(
+        client.control(refusal, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert!(relaunching(&member), "the launcher has not published yet");
+    client.input(b"two\r").unwrap();
+    collect(&mut client, exited(Exit::Code(1)));
+    let ControlReply::State {
+        pane_pid,
+        marker,
+        ended,
+        relaunching,
+        ..
+    } = control(&member, Control::Inspect)
+    else {
+        panic!("not a state");
+    };
+    // Relaunching ends with the launcher, and the member reads as before: ended, kept.
+    assert_eq!(
+        (pane_pid, marker.as_deref(), ended, relaunching),
+        (member.pid, Some("kept-marker"), Some(Exit::Code(1)), false)
+    );
+    drop(client);
+    member.finish().unwrap();
+}
+
+fn relaunching(member: &Member) -> bool {
+    matches!(
+        control(member, tmt_pty_protocol::Control::Inspect),
+        tmt_pty_protocol::ControlReply::State {
+            relaunching: true,
+            ..
+        }
+    )
+}
+
+#[test]
+fn a_relaunched_launcher_that_misses_its_admission_is_hung_up_and_the_member_restored() {
+    use tmt_pty_protocol::{Control, ControlReply, RelaunchKind};
+    let member = Member::start_with(&["sh", "-c", "read l; echo first:$l"], |supervisor| {
+        supervisor.with_admission(Duration::from_millis(500))
+    });
+    let mut client = member.connect();
+    client.input(b"one\r").unwrap();
+    collect(&mut client, exited(Exit::Code(0)));
+    assert_eq!(
+        control(
+            &member,
+            Control::PublishIf {
+                pane_pid: member.pid,
+                key: "binding".into(),
+                expected_key: None,
+                marker: "kept-marker".into(),
+            }
+        ),
+        ControlReply::Applied(true)
+    );
+    // A launcher that hangs before it binds, and ignores the hang-up: it is killed.
+    let hung = Control::Relaunch {
+        kind: RelaunchKind::Resume,
+        program: [
+            "sh",
+            "-c",
+            "trap '' HUP; echo hung; while :; do sleep 1; done",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    };
+    assert_eq!(
+        client.control(hung, WAIT).unwrap(),
+        ControlReply::Applied(true)
+    );
+    assert!(relaunching(&member));
+    collect(&mut client, exited(Exit::Signal(Signal::SIGKILL as i32)));
+    let ControlReply::State {
+        pane_pid,
+        marker,
+        ended,
+        relaunching,
+        ..
+    } = control(&member, Control::Inspect)
+    else {
+        panic!("not a state");
+    };
+    assert_eq!(
+        (pane_pid, marker.as_deref(), ended, relaunching),
+        (
+            member.pid,
+            Some("kept-marker"),
+            Some(Exit::Signal(Signal::SIGKILL as i32)),
+            false
+        )
+    );
+    drop(client);
+    member.finish().unwrap();
+}
