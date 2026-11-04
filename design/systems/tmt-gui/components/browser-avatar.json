@@ -32,8 +32,24 @@
   ],
   "examples": [
     {
-      "title": "BrowserAvatar",
-      "markup": "<tmt-ui-browser-avatar name=\"Alex\" kind=\"agent\"></tmt-ui-browser-avatar>",
+      "title": "Person and agent",
+      "markup": "<tmt-ui-browser-avatar name=\"Ben\" kind=\"person\"></tmt-ui-browser-avatar> <tmt-ui-browser-avatar name=\"tmt-ux-lead\" kind=\"agent\"></tmt-ui-browser-avatar>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Small",
+      "markup": "<tmt-ui-browser-avatar name=\"Ben\" size=\"s\"></tmt-ui-browser-avatar> <tmt-ui-browser-avatar name=\"core-3\" kind=\"agent\" size=\"s\"></tmt-ui-browser-avatar>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Decorative",
+      "markup": "<tmt-ui-browser-avatar name=\"tmt-ux-lead\" kind=\"agent\" size=\"s\" decorative></tmt-ui-browser-avatar> tmt-ux-lead",
       "widths": [
         1440,
         390

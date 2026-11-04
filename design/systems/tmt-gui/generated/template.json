@@ -1865,8 +1865,24 @@
    ],
    "examples": [
     {
-     "title": "BrowserAvatar",
-     "markup": "<tmt-ui-browser-avatar name=\"Alex\" kind=\"agent\"></tmt-ui-browser-avatar>",
+     "title": "Person and agent",
+     "markup": "<tmt-ui-browser-avatar name=\"Ben\" kind=\"person\"></tmt-ui-browser-avatar> <tmt-ui-browser-avatar name=\"tmt-ux-lead\" kind=\"agent\"></tmt-ui-browser-avatar>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Small",
+     "markup": "<tmt-ui-browser-avatar name=\"Ben\" size=\"s\"></tmt-ui-browser-avatar> <tmt-ui-browser-avatar name=\"core-3\" kind=\"agent\" size=\"s\"></tmt-ui-browser-avatar>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Decorative",
+     "markup": "<tmt-ui-browser-avatar name=\"tmt-ux-lead\" kind=\"agent\" size=\"s\" decorative></tmt-ui-browser-avatar> tmt-ux-lead",
      "widths": [
       1440,
       390
@@ -1926,8 +1942,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserSection",
-     "markup": "<tmt-ui-section heading=\"Details\">Content</tmt-ui-section>",
+     "title": "Section title",
+     "markup": "<tmt-ui-section heading=\"Details\" variant=\"title\">Page details</tmt-ui-section>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Label and divider",
+     "markup": "<tmt-ui-section heading=\"Properties\" variant=\"label\" divided>Details about this page</tmt-ui-section>",
      "widths": [
       1440,
       390
@@ -1957,8 +1981,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserDisclosure",
-     "markup": "<tmt-ui-disclosure summary=\"Details\">Content</tmt-ui-disclosure>",
+     "title": "Expandable details",
+     "markup": "<tmt-ui-disclosure summary=\"More details\">Details appear when the disclosure opens.</tmt-ui-disclosure>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Divided",
+     "markup": "<tmt-ui-disclosure summary=\"Advanced\" divided>Additional options.</tmt-ui-disclosure>",
      "widths": [
       1440,
       390
@@ -2115,8 +2147,24 @@
    ],
    "examples": [
     {
-     "title": "BrowserStatusTile",
-     "markup": "<tmt-ui-status-tile label=\"Page\" value=\"Available\"></tmt-ui-status-tile>",
+     "title": "Agent status",
+     "markup": "<tmt-ui-status-tile label=\"Page\" value=\"Available\" tone=\"working\"></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Session\" value=\"Read\" tone=\"info\"></tmt-ui-status-tile>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Counts",
+     "markup": "<tmt-ui-status-tile label=\"Needs you\" value=\"2\" tone=\"waiting\" numeric></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Blocked\" value=\"1\" tone=\"blocked\" numeric></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Working\" value=\"3\" tone=\"working\" numeric></tmt-ui-status-tile>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Review and offline",
+     "markup": "<tmt-ui-status-tile label=\"Review\" value=\"Needs review\" tone=\"review\"></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Machine\" value=\"Offline\" tone=\"muted\"></tmt-ui-status-tile>",
      "widths": [
       1440,
       390
@@ -2234,8 +2282,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserToggle",
-     "markup": "<tmt-ui-toggle label=\"Grid view\"></tmt-ui-toggle>",
+     "title": "Off and on",
+     "markup": "<tmt-ui-toggle label=\"Grid view\"></tmt-ui-toggle> <tmt-ui-toggle label=\"List view\" pressed></tmt-ui-toggle>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-toggle label=\"Grid view\" pressed disabled></tmt-ui-toggle>",
      "widths": [
       1440,
       390
@@ -2410,8 +2466,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserHeader",
-     "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\"></tmt-ui-header>",
+     "title": "Page header",
+     "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\" caption=\"Find and organize your pages\"></tmt-ui-header>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Without caption",
+     "markup": "<tmt-ui-header heading=\"Design\" product=\"TMT\"></tmt-ui-header>",
      "widths": [
       1440,
       390
@@ -2450,8 +2514,32 @@
    ],
    "examples": [
     {
-     "title": "BrowserNotice",
-     "markup": "<tmt-ui-notice heading=\"Ready\" state=\"Ready\">Details</tmt-ui-notice>",
+     "title": "Waiting",
+     "markup": "<tmt-ui-notice heading=\"Waiting for a reply\" state=\"Waiting\" tone=\"waiting\">The request is still open.</tmt-ui-notice>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Blocked",
+     "markup": "<tmt-ui-notice heading=\"Cannot continue\" state=\"Blocked\" tone=\"blocked\">Check the connection and try again.</tmt-ui-notice>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Working",
+     "markup": "<tmt-ui-notice heading=\"Opening page\" state=\"Working\" tone=\"working\">Preparing the page.</tmt-ui-notice>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Review",
+     "markup": "<tmt-ui-notice heading=\"Ready to review\" state=\"Review\" tone=\"review\">A decision is needed.</tmt-ui-notice>",
      "widths": [
       1440,
       390
@@ -2481,8 +2569,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserPager",
+     "title": "Multiple pages",
      "markup": "<tmt-ui-pager label=\"Pages\" count=\"3\"></tmt-ui-pager>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "One page",
+     "markup": "<tmt-ui-pager label=\"Pages\" count=\"1\"></tmt-ui-pager>",
      "widths": [
       1440,
       390
@@ -2509,8 +2605,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserList",
-     "markup": "<tmt-ui-list label=\"Pages\"><li>Example</li></tmt-ui-list>",
+     "title": "Pages",
+     "markup": "<tmt-ui-list label=\"Pages\"><li>Home</li><li>Notes</li><li>Project</li></tmt-ui-list>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-list label=\"Pages\"></tmt-ui-list>",
      "widths": [
       1440,
       390
@@ -2549,8 +2653,24 @@
    ],
    "examples": [
     {
-     "title": "BrowserChoice",
-     "markup": "<tmt-ui-choice label=\"Select\" type=\"checkbox\"></tmt-ui-choice>",
+     "title": "Checkbox",
+     "markup": "<tmt-ui-choice label=\"Subscribe\" type=\"checkbox\"></tmt-ui-choice> <tmt-ui-choice label=\"Include archived\" type=\"checkbox\" checked></tmt-ui-choice>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Radio",
+     "markup": "<tmt-ui-choice label=\"Compact rail\" type=\"radio\" checked></tmt-ui-choice>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-choice label=\"Unavailable\" type=\"checkbox\" disabled></tmt-ui-choice>",
      "widths": [
       1440,
       390
@@ -2693,8 +2813,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserField",
+     "title": "Label and placeholder",
      "markup": "<tmt-ui-field label=\"Name\" placeholder=\"Enter name\"></tmt-ui-field>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Search",
+     "markup": "<tmt-ui-field label=\"Search pages\" placeholder=\"Search\"></tmt-ui-field>",
      "widths": [
       1440,
       390
@@ -2714,6 +2842,18 @@
     },
     "count": {
      "type": "string"
+    },
+    "tone": {
+     "enum": [
+      "neutral",
+      "attention"
+     ]
+    },
+    "disabled": {
+     "type": "boolean"
+    },
+    "pressed": {
+     "type": "boolean"
     }
    },
    "slots": [
@@ -2724,15 +2864,39 @@
    ],
    "examples": [
     {
-     "title": "BrowserCountChip",
-     "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"3\"></tmt-ui-count-chip>",
+     "title": "Neutral",
+     "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"2\"></tmt-ui-count-chip>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Attention",
+     "markup": "<tmt-ui-count-chip label=\"Needs you\" count=\"5\" tone=\"attention\"></tmt-ui-count-chip>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "No count and over 99",
+     "markup": "<tmt-ui-count-chip label=\"Comments\"></tmt-ui-count-chip> <tmt-ui-count-chip label=\"Comments\" count=\"120\"></tmt-ui-count-chip>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Disabled",
+     "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"2\" disabled></tmt-ui-count-chip>",
      "widths": [
       1440,
       390
      ]
     }
    ],
-   "source": "export default ({ React, ui }) => ({ label = 'Count', count }) =>\n  React.createElement(ui.BrowserCountChip, { label, count: count === undefined ? undefined : Number(count), onActivate: () => {} });\n",
+   "source": "export default ({ React, ui }) => ({ label = 'Count', count, children, ...props }) =>\n  React.createElement(ui.BrowserCountChip, { ...props, label, count: count === undefined ? undefined : Number(count), icon: children, onActivate: () => {} });\n",
    "css": ""
   },
   {
@@ -2758,8 +2922,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserTable",
+     "title": "Pages",
      "markup": "<tmt-ui-table label=\"Pages\" columns=\"Name,State\" rows=\"Home,Ready;Notes,Draft\"></tmt-ui-table>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Empty",
+     "markup": "<tmt-ui-table label=\"Pages\" columns=\"Name,State\"></tmt-ui-table>",
      "widths": [
       1440,
       390
@@ -2786,8 +2958,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserCommand",
+     "title": "Status command",
      "markup": "<tmt-ui-browser-command text=\"tmt status\"></tmt-ui-browser-command>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "List pages",
+     "markup": "<tmt-ui-browser-command text=\"tmt colab page list\"></tmt-ui-browser-command>",
      "widths": [
       1440,
       390
@@ -2817,8 +2997,16 @@
    ],
    "examples": [
     {
-     "title": "BrowserTabs",
-     "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active\"></tmt-ui-browser-tabs>",
+     "title": "Views",
+     "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active,Archived\">Selected view</tmt-ui-browser-tabs>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Details and activity",
+     "markup": "<tmt-ui-browser-tabs label=\"Page\" items=\"Details,Activity\">Page information</tmt-ui-browser-tabs>",
      "widths": [
       1440,
       390
@@ -3123,8 +3311,16 @@
    ],
    "examples": [
     {
-     "title": "Browser-Chips",
-     "markup": "<tmt-ui-browser-chips label=\"People\" items=\"Alex,Sam\"></tmt-ui-browser-chips>",
+     "title": "People",
+     "markup": "<tmt-ui-browser-chips label=\"People\" items=\"Alex,Sam,Jo\"></tmt-ui-browser-chips>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Agents",
+     "markup": "<tmt-ui-browser-chips label=\"Agents\" items=\"core-ops,ux-4,remote-1\"></tmt-ui-browser-chips>",
      "widths": [
       1440,
       390

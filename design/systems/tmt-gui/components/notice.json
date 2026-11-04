@@ -29,8 +29,32 @@
   ],
   "examples": [
     {
-      "title": "BrowserNotice",
-      "markup": "<tmt-ui-notice heading=\"Ready\" state=\"Ready\">Details</tmt-ui-notice>",
+      "title": "Waiting",
+      "markup": "<tmt-ui-notice heading=\"Waiting for a reply\" state=\"Waiting\" tone=\"waiting\">The request is still open.</tmt-ui-notice>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Blocked",
+      "markup": "<tmt-ui-notice heading=\"Cannot continue\" state=\"Blocked\" tone=\"blocked\">Check the connection and try again.</tmt-ui-notice>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Working",
+      "markup": "<tmt-ui-notice heading=\"Opening page\" state=\"Working\" tone=\"working\">Preparing the page.</tmt-ui-notice>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Review",
+      "markup": "<tmt-ui-notice heading=\"Ready to review\" state=\"Review\" tone=\"review\">A decision is needed.</tmt-ui-notice>",
       "widths": [
         1440,
         390

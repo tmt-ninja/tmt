@@ -20,8 +20,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserTabs",
-      "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active\"></tmt-ui-browser-tabs>",
+      "title": "Views",
+      "markup": "<tmt-ui-browser-tabs label=\"Views\" items=\"All,Active,Archived\">Selected view</tmt-ui-browser-tabs>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Details and activity",
+      "markup": "<tmt-ui-browser-tabs label=\"Page\" items=\"Details,Activity\">Page information</tmt-ui-browser-tabs>",
       "widths": [
         1440,
         390

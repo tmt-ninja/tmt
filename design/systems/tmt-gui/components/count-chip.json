@@ -9,6 +9,18 @@
     },
     "count": {
       "type": "string"
+    },
+    "tone": {
+      "enum": [
+        "neutral",
+        "attention"
+      ]
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "pressed": {
+      "type": "boolean"
     }
   },
   "slots": [
@@ -20,8 +32,32 @@
   ],
   "examples": [
     {
-      "title": "BrowserCountChip",
-      "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"3\"></tmt-ui-count-chip>",
+      "title": "Neutral",
+      "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"2\"></tmt-ui-count-chip>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Attention",
+      "markup": "<tmt-ui-count-chip label=\"Needs you\" count=\"5\" tone=\"attention\"></tmt-ui-count-chip>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "No count and over 99",
+      "markup": "<tmt-ui-count-chip label=\"Comments\"></tmt-ui-count-chip> <tmt-ui-count-chip label=\"Comments\" count=\"120\"></tmt-ui-count-chip>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-count-chip label=\"Comments\" count=\"2\" disabled></tmt-ui-count-chip>",
       "widths": [
         1440,
         390

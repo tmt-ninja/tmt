@@ -17,8 +17,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserCommand",
+      "title": "Status command",
       "markup": "<tmt-ui-browser-command text=\"tmt status\"></tmt-ui-browser-command>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "List pages",
+      "markup": "<tmt-ui-browser-command text=\"tmt colab page list\"></tmt-ui-browser-command>",
       "widths": [
         1440,
         390

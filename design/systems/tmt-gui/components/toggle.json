@@ -23,8 +23,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserToggle",
-      "markup": "<tmt-ui-toggle label=\"Grid view\"></tmt-ui-toggle>",
+      "title": "Off and on",
+      "markup": "<tmt-ui-toggle label=\"Grid view\"></tmt-ui-toggle> <tmt-ui-toggle label=\"List view\" pressed></tmt-ui-toggle>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Disabled",
+      "markup": "<tmt-ui-toggle label=\"Grid view\" pressed disabled></tmt-ui-toggle>",
       "widths": [
         1440,
         390

@@ -20,8 +20,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserPager",
+      "title": "Multiple pages",
       "markup": "<tmt-ui-pager label=\"Pages\" count=\"3\"></tmt-ui-pager>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "One page",
+      "markup": "<tmt-ui-pager label=\"Pages\" count=\"1\"></tmt-ui-pager>",
       "widths": [
         1440,
         390

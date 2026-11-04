@@ -430,6 +430,9 @@ export interface FieldProps {
 export interface CountChipProps {
   label?: string;
   count?: string;
+  tone?: "neutral" | "attention";
+  disabled?: boolean;
+  pressed?: boolean;
   children?: ReactNode;
 }
 

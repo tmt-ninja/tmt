@@ -79,6 +79,48 @@ test('Browser action examples show busy, disabled and pressed states', async ({ 
   await expect(frame.getByRole('button', { name: 'Pin' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('Browser catalog examples render their states and interactive controls', async ({ page }) => {
+  const template = JSON.parse(
+    readFileSync(
+      new URL('../../../../../design/systems/tmt-gui/generated/template.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { components: { tag: string; examples: { markup: string }[] }[] };
+  const names = new Set([
+    'toggle',
+    'browser-avatar',
+    'count-chip',
+    'status-tile',
+    'pager',
+    'header',
+    'notice',
+    'section',
+    'disclosure',
+    'field',
+    'browser-tabs',
+    'browser-chips',
+    'choice',
+    'list',
+    'table',
+    'browser-command',
+  ]);
+  const examples = template.components
+    .filter((component) => names.has(component.tag))
+    .flatMap((component) => component.examples.map((example) => example.markup));
+  expect(examples.length).toBeGreaterThan(30);
+  const frame = await mount(page, `<meta name="tmt-ds" content="${pin}">${examples.join('\n')}`);
+  await expect(frame.getByRole('button', { name: 'Needs you: 5' })).toHaveAttribute(
+    'data-tone',
+    'attention',
+  );
+  await expect(frame.getByRole('button', { name: 'Comments: 2' }).last()).toBeDisabled();
+  const toggle = frame.getByRole('button', { name: 'Grid view' }).first();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(frame.getByRole('heading', { name: 'Cannot continue' })).toBeVisible();
+  await expect(frame.getByRole('table', { name: 'Pages' }).first()).toBeVisible();
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test(`a pinned GUI page uses palette B in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme });

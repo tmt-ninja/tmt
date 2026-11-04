@@ -33,8 +33,24 @@
   ],
   "examples": [
     {
-      "title": "BrowserStatusTile",
-      "markup": "<tmt-ui-status-tile label=\"Page\" value=\"Available\"></tmt-ui-status-tile>",
+      "title": "Agent status",
+      "markup": "<tmt-ui-status-tile label=\"Page\" value=\"Available\" tone=\"working\"></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Session\" value=\"Read\" tone=\"info\"></tmt-ui-status-tile>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Counts",
+      "markup": "<tmt-ui-status-tile label=\"Needs you\" value=\"2\" tone=\"waiting\" numeric></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Blocked\" value=\"1\" tone=\"blocked\" numeric></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Working\" value=\"3\" tone=\"working\" numeric></tmt-ui-status-tile>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Review and offline",
+      "markup": "<tmt-ui-status-tile label=\"Review\" value=\"Needs review\" tone=\"review\"></tmt-ui-status-tile> <tmt-ui-status-tile label=\"Machine\" value=\"Offline\" tone=\"muted\"></tmt-ui-status-tile>",
       "widths": [
         1440,
         390

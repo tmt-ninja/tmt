@@ -23,8 +23,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserHeader",
-      "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\"></tmt-ui-header>",
+      "title": "Page header",
+      "markup": "<tmt-ui-header heading=\"Pages\" product=\"Colab\" caption=\"Find and organize your pages\"></tmt-ui-header>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Without caption",
+      "markup": "<tmt-ui-header heading=\"Design\" product=\"TMT\"></tmt-ui-header>",
       "widths": [
         1440,
         390

@@ -17,8 +17,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserList",
-      "markup": "<tmt-ui-list label=\"Pages\"><li>Example</li></tmt-ui-list>",
+      "title": "Pages",
+      "markup": "<tmt-ui-list label=\"Pages\"><li>Home</li><li>Notes</li><li>Project</li></tmt-ui-list>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Empty",
+      "markup": "<tmt-ui-list label=\"Pages\"></tmt-ui-list>",
       "widths": [
         1440,
         390

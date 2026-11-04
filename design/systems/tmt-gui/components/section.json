@@ -26,8 +26,16 @@
   ],
   "examples": [
     {
-      "title": "BrowserSection",
-      "markup": "<tmt-ui-section heading=\"Details\">Content</tmt-ui-section>",
+      "title": "Section title",
+      "markup": "<tmt-ui-section heading=\"Details\" variant=\"title\">Page details</tmt-ui-section>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Label and divider",
+      "markup": "<tmt-ui-section heading=\"Properties\" variant=\"label\" divided>Details about this page</tmt-ui-section>",
       "widths": [
         1440,
         390
