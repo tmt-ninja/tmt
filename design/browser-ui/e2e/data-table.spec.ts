@@ -37,7 +37,9 @@ test('at 1440 hover actions stay inside the actions column and never touch anoth
       }
       return { out, visible: buttons.length };
     });
-    expect(faults.visible).toBe(4);
+    // An archived page has no Pin, as in the Colab list.
+    const archived = (await row.getAttribute('data-archived')) !== null;
+    expect(faults.visible).toBe(archived ? 3 : 4);
     expect(faults.out).toEqual([]);
   }
   await rows(page).nth(1).hover();
@@ -159,15 +161,15 @@ test('rows take the keyboard: arrows move, Space selects, Enter opens, the menu 
   const id = await page.evaluate(() => document.body.dataset.opened);
   expect(id).toMatch(/^page-/);
   await page.keyboard.press('Shift+F10');
-  await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Manage…' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('menuitem', { name: 'Rename' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Manage…' })).toHaveCount(0);
   // The menu hands focus back to its row, so the row keys keep working.
   await expect(third).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(rows(page).nth(3)).toBeFocused();
   await page.keyboard.press('ContextMenu');
-  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  await page.getByRole('menuitem', { name: 'Manage…' }).click();
   await expect(rows(page).nth(3)).toBeFocused();
   await page.keyboard.press('Home');
   await expect(rows(page).first()).toBeFocused();

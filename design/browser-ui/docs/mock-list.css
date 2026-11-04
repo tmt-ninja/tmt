@@ -243,3 +243,41 @@
 .list-tabs-row {
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+/* While the control row is stuck, its New page stands in for the tabs-row one. */
+.list-create-stuck {
+  visibility: hidden;
+}
+/* The read-only list (Colab with no paired machine): New page sits in its own row above the search. */
+.list-actions {
+  display: flex;
+  gap: var(--tmt-ui-ref-space-2);
+  margin-bottom: var(--tmt-ui-ref-space-3);
+}
+/* With no stage tabs, Needs you is a filter chip, as Colab's needs-filter-button. */
+.list-needs-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  box-sizing: border-box;
+  min-height: 24px;
+  margin-top: var(--tmt-ui-ref-space-3);
+  padding: 4px 8px;
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-pill);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.list-needs-filter[aria-pressed='true'] {
+  background: var(--tmt-ui-surface-selection);
+}
+.list-needs-filter:focus-visible {
+  outline: 2px solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
+.list-needs-filter-mark {
+  color: var(--tmt-ui-color-waiting);
+}
