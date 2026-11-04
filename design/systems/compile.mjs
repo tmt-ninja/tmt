@@ -47,7 +47,12 @@ function tokensCss() {
   const css = readFileSync(join(repo, 'design/browser-ui/generated/static.css'), 'utf8');
   const end = css.search(/^@media \(max-width: 760px\)/m);
   if (end < 0) throw new Error('static.css: the token blocks end marker moved');
-  return stripComments(css.slice(0, end));
+  // A pinned tmt GUI page is itself the palette B island. Its copied template keeps the same
+  // palette without changing Colab's surrounding application chrome.
+  return stripComments(css.slice(0, end)).replaceAll(
+    "[data-tmt-palette='b']",
+    ':root:root[data-colab-design]',
+  );
 }
 
 /** The UI island's CSS (browser-ui's generated ui.css) on a page of its own: the island is the
@@ -61,7 +66,8 @@ function pageUiCss() {
     .replaceAll("[data-tmt-palette='b'] [data-tmt-ui],\n[data-tmt-ui][data-tmt-palette='b']", ":root[data-tmt-palette='b']")
     .replaceAll("[data-tmt-palette='b'] [data-tmt-ui] ", ":root[data-tmt-palette='b'] ")
     .replaceAll("[data-tmt-ui][data-tmt-palette='b'] ", ":root[data-tmt-palette='b'] ")
-    .replaceAll('[data-tmt-ui]', ':root');
+    .replaceAll('[data-tmt-ui]', ':root')
+    .replaceAll(":root[data-tmt-palette='b']", ':root:root[data-colab-design]');
   if (/data-tmt-ui|data-tmt-theme/.test(scoped)) throw new Error('ui.css: an island selector was left');
   return scoped;
 }

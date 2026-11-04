@@ -66,6 +66,27 @@ test('a pinned page draws its components with their props, slots and tokens', as
   await expect(frame.locator('[data-tmt-ds-notice]')).toHaveCount(0);
 });
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`a pinned GUI page uses palette B in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme });
+    const frame = await mount(
+      page,
+      `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Save</tmt-ui-button>`,
+    );
+    await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+    const roles = await frame.locator('html').evaluate((node, theme) => {
+      const style = getComputedStyle(node);
+      return {
+        sheet: style.getPropertyValue('--tmt-ui-surface-sheet').trim(),
+        expected: style
+          .getPropertyValue(theme === 'dark' ? '--tmt-ui-ref-ink-900' : '--tmt-ui-ref-paper-50')
+          .trim(),
+      };
+    }, theme);
+    expect(roles.sheet).toBe(roles.expected);
+  });
+}
+
 test('a pinned page keeps the editorial ramp unless it asked for the runtime (#5917)', async ({
   page,
 }) => {

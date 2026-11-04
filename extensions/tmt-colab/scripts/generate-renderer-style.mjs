@@ -35,9 +35,9 @@ const numberStyle = await readFile(
   'utf8',
 );
 const referenceStyle = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.css', import.meta.url), 'utf8');
-// A page the design system paints takes the scheme it paints for these roles too (see data-colab-scheme
-// below); these rules are unlayered, so they must name it as well as the viewer's theme.
-const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}${referenceStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
+// Fallback annotation roles follow the painted scheme. They sit below page design-system tokens,
+// so a pinned system can supply its own roles while ordinary pages retain these defaults.
+const css = `@layer colab-frame{:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}:root[data-colab-scheme="light"]{${variables('light')}}:root[data-colab-scheme="dark"]{${variables('dark')}}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}${referenceStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
 const referenceComponent = await readFile(new URL('../typescript/app/src/components/comment-reference-chip.js', import.meta.url), 'utf8');
 const frameStyle = (
   await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')
