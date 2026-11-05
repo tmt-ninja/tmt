@@ -7,7 +7,7 @@
 # `tmt talk <self>` with the outcome. A failed send is logged and never retried.
 #
 # usage: ci-wake.sh <pr> --identity <self> [--until checks|merged]
-#                   [--interval <seconds>] [--cap <seconds>]
+#                   [--interval <seconds>] [--cap <seconds>] [--foreground]
 # --interval is at least and by default 180 s (plus 0-30 s jitter); --cap is
 # at most and by default 7200 s.
 #
@@ -22,8 +22,12 @@
 # - Either mode: the PR merged or closed, its head changed, or the cap.
 # The log (under ${TMPDIR:-/tmp}/ci-wake, owner-only) is removed after a
 # delivered wake and kept when the send fails.
-# Exit codes: 0 started (or, in the waiting process, woke the seat); 2 usage;
-# 3 the seat's identity cannot be resolved or the wake could not be sent.
+# Exit codes: 0 started (detached) or completed (foreground); 2 usage;
+# 3 unsafe detached context, unresolved identity, or failed wake delivery.
+# Codex tool calls must use --foreground in a provider-native retained task;
+# detached children of a fast-completing exec call may be killed before startup.
+# Foreground mode does not return until the wait ends. Other shells keep the
+# detached default. Launch, waiter startup, exit and caught signals are logged.
 # GH, TMT, CI_WAKE_SLEEP and CI_WAKE_CLOCK override the executables, for isolated tests.
 set -eu
 
@@ -35,7 +39,7 @@ MIN_INTERVAL=180
 MAX_CAP=7200
 
 usage() {
-  printf '%s\n' 'usage: ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <seconds>] [--cap <seconds>]' >&2
+  printf '%s\n' 'usage: ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <seconds>] [--cap <seconds>] [--foreground]' >&2
   exit 2
 }
 number() {
@@ -43,6 +47,7 @@ number() {
 }
 
 run=
+foreground=
 if [ "${1:-}" = __run ]; then
   run=1
   shift
@@ -56,6 +61,11 @@ until=checks
 interval=$MIN_INTERVAL
 cap=$MAX_CAP
 while [ "$#" -gt 0 ]; do
+  if [ "$1" = --foreground ]; then
+    foreground=1
+    shift
+    continue
+  fi
   [ "$#" -ge 2 ] || usage
   case $1 in
     --identity) self=$2 ;;
@@ -83,6 +93,10 @@ anonymous() {
 }
 
 if [ -z "$run" ]; then
+  if [ -z "$foreground" ] && [ -n "${CODEX_TOOL_CALL_ID:-}" ]; then
+    printf '%s\n' 'ci-wake: detached launch is unsafe in Codex tool calls; start with --foreground in a provider-native retained background task.' >&2
+    exit 3
+  fi
   # Refuse at once, in the seat's own turn, when there is nobody to wake.
   if ! anonymous "$TMT" identity show "$self" --json >/dev/null 2>&1; then
     printf 'ci-wake: identity %s cannot be resolved; nothing started.\n' "$self" >&2
@@ -94,7 +108,14 @@ if [ -z "$run" ]; then
   mkdir -p "$logs"
   chmod 700 "$logs"
   log=$logs/$pr-$$.log
-  : >"$log"
+  launch_mode=detached
+  [ -z "$foreground" ] || launch_mode=foreground
+  printf '%s launcher pid=%s requested %s mode\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$launch_mode" >"$log"
+  if [ -n "$foreground" ]; then
+    printf 'ci-wake: foreground pid %s waiting on #%s (%s); log %s\n' "$$" "$pr" "$until" "$log"
+    CI_WAKE_LOG=$log exec /bin/sh "$0" __run "$pr" --identity "$self" \
+      --until "$until" --interval "$interval" --cap "$cap" >>"$log" 2>&1
+  fi
   # A new session, so the seat's process group ending does not end the wait.
   # macOS has no setsid(1); perl's POSIX module is on both hosts.
   if command -v setsid >/dev/null 2>&1; then
@@ -113,11 +134,21 @@ note() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
 }
 
+phase=starting
+exit_reason=exit
+trap 'exit_code=$?; trap - 0; note "waiter exit status=$exit_code phase=$phase reason=$exit_reason"' 0
+trap 'exit_reason=signal:HUP; exit 129' HUP
+trap 'exit_reason=signal:INT; exit 130' INT
+trap 'exit_reason=signal:TERM; exit 143' TERM
+note "waiter started pid=$$"
+
 wake() {
+  phase=notification
   text="ci-wake #$pr ${head%"${head#????????????}"}: $1"
   note "$text"
   if anonymous "$TMT" talk "$self" "$text" --detach --urgent --kind fyi >/dev/null 2>&1; then
     # Delivered: the log has nothing left to explain.
+    exit_reason=delivered
     [ -z "$log" ] || rm -f "$log"
     exit 0
   fi
@@ -131,6 +162,7 @@ pull() {
     --jq '[.state, (.merged | tostring), .head.sha] | join(" ")'
 }
 
+phase=initial-read
 read -r state merged head <<EOF
 $(pull)
 EOF
@@ -141,6 +173,7 @@ EOF
 start_head=$head
 started=$("$CLOCK" +%s)
 while :; do
+  phase=read-state
   read -r state merged now_head <<EOF
 $(pull || echo "unknown unknown $head")
 EOF
@@ -192,6 +225,7 @@ EOF
   if [ "$elapsed" -ge "$cap" ]; then
     wake "no final state after $((cap / 60)) min; this wait ended"
   fi
+  phase=interval
   jitter=$(awk 'BEGIN { srand(); print int(rand() * 31) }')
   "$SLEEP" $((interval + jitter))
 done

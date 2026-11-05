@@ -39,6 +39,7 @@ beforeAll(() => {
     `echo "$*" >> "$HOME/gh.log"
 case $* in
   */pulls/*)
+    if [ -f "$HOME/gh-fails" ]; then echo 'fixture GH failure' >&2; exit 7; fi
     echo x >> "$HOME/pull-count"
     n=$(wc -l < "$HOME/pull-count" | tr -d ' ')
     total=$(wc -l < "$HOME/pulls" | tr -d ' ')
@@ -64,7 +65,7 @@ esac`
   tool('tick', 'cat "$HOME/clock" 2>/dev/null || echo 0');
   tool(
     'nap',
-    'echo "$*" >> "$HOME/sleeps.log"; echo $(($(cat "$HOME/clock" 2>/dev/null || echo 0) + $1)) > "$HOME/clock"'
+    'if [ -f "$HOME/terminate-waiter" ]; then kill -"$(cat "$HOME/terminate-waiter")" "$PPID"; exit 0; fi; echo "$*" >> "$HOME/sleeps.log"; echo $(($(cat "$HOME/clock" 2>/dev/null || echo 0) + $1)) > "$HOME/clock"'
   );
 });
 
@@ -278,6 +279,76 @@ describe('scripts/ci-wake.sh', () => {
     expect(readFileSync(log, 'utf8')).toContain('wake could not be sent to core-ops; not retried');
     expect(statSync(log).mode & 0o777).toBe(0o600);
     expect(c.lines('talk.log')).toHaveLength(1);
+  });
+
+  it('refuses an unsafe detached start from a Codex tool call before claiming success', () => {
+    const c = newCase([open]);
+    const result = c.run(['42', '--identity', 'core-ops'], { CODEX_TOOL_CALL_ID: 'fixture-call' });
+    expect(result.status).toBe(3);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('detached launch is unsafe in Codex tool calls');
+    expect(result.stderr).toContain('--foreground');
+    expect(c.lines('gh.log')).toEqual([]);
+    expect(c.lines('talk.log')).toEqual([]);
+    expect(existsSync(path.join(c.home, 'ci-wake'))).toBe(false);
+  });
+
+  it('runs foreground mode to completion for a native retained Codex task', () => {
+    const c = newCase([open], { runs: tsv(check('in_progress', '', 'rust')) });
+    const result = c.run(['42', '--identity', 'core-ops', '--foreground', '--cap', '1'], {
+      CODEX_TOOL_CALL_ID: 'fixture-call',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('ci-wake: foreground pid');
+    expect(c.lines('sleeps.log')).toHaveLength(1);
+    expect(c.lines('talk.log')).toEqual([expect.stringContaining(': no final state after 0 min')]);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    expect(existsSync(log)).toBe(false);
+  });
+
+  it('retains startup and exit evidence when a foreground notification fails', () => {
+    const c = newCase([open], {
+      runs: tsv(check('completed', 'success', 'rust')),
+      'talk-fails': '',
+    });
+    const result = c.run(['42', '--identity', 'core-ops', '--foreground']);
+    expect(result.status).toBe(3);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    const evidence = readFileSync(log, 'utf8');
+    expect(evidence).toContain('requested foreground mode');
+    expect(evidence).toContain('waiter started pid=');
+    expect(evidence).toContain('waiter exit status=3 phase=notification reason=exit');
+    expect(statSync(log).mode & 0o777).toBe(0o600);
+  });
+
+  it.each([
+    { signal: 'HUP', status: 129 },
+    { signal: 'INT', status: 130 },
+    { signal: 'TERM', status: 143 },
+  ])('records $signal from its own fixture child', ({ signal, status }) => {
+    const c = newCase([open], {
+      runs: tsv(check('in_progress', '', 'rust')),
+      'terminate-waiter': signal,
+    });
+    const result = c.run(['42', '--identity', 'core-ops', '--foreground']);
+    expect(result.status).toBe(status);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    expect(readFileSync(log, 'utf8')).toContain(
+      `waiter exit status=${status} phase=interval reason=signal:${signal}`
+    );
+    expect(c.lines('talk.log')).toEqual([]);
+  });
+
+  it('keeps the initial read cause and exit phase instead of an empty log', () => {
+    const c = newCase([open], { 'gh-fails': '' });
+    const result = c.run(['42', '--identity', 'core-ops', '--foreground']);
+    expect(result.status).toBe(3);
+    const log = /; log (\S+)\n$/.exec(result.stdout)![1];
+    const evidence = readFileSync(log, 'utf8');
+    expect(evidence).toContain('fixture GH failure');
+    expect(evidence).toContain('cannot read #42');
+    expect(evidence).toContain('waiter exit status=3 phase=initial-read reason=exit');
+    expect(c.lines('talk.log')).toEqual([]);
   });
 
   it('refuses to start when the seat cannot be resolved', () => {

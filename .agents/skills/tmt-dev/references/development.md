@@ -293,8 +293,17 @@ Tracker rules:
 scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
 ```
 
+Codex tool calls use `scripts/ci-wake.sh <pr> --identity <self> --foreground` in a
+provider-native retained background task (a persistent execution session). The
+waiter stays in that task until it sends the wake; keep its session identifier.
+Do not wrap it in `nohup` or `&`: a fast-completing Codex exec call can kill its
+detached children before startup. The script refuses that unsafe default when
+`CODEX_TOOL_CALL_ID` identifies the tool context. Ordinary and Claude shells keep
+the detached default.
+
 The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the script's
-header documents its final states, bounds, log and exit codes.
+header documents its final states, bounds, log and exit codes. Logs record launch,
+waiter startup and exit status/phase, including caught HUP, INT and TERM signals.
 
 For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](../../../../scripts/hooks/codex-wait-guard.mjs) is an
 optional `PreToolUse` hook that asks a model to judge calls inside this repository that hold a
