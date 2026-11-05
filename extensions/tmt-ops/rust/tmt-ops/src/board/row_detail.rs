@@ -1001,7 +1001,14 @@ pub(super) fn render(
                     "",
                     Line::styled(
                         super::view::fit(
-                            &format!("… {} more lines · v view", lines.len() - 6),
+                            &format!(
+                                "{} · v view",
+                                tmt_tui::components::design_system::MoreHint::label(
+                                    (lines.len() - 6) as u64,
+                                    tmt_tui::components::design_system::MoreDirection::Truncated,
+                                    false
+                                )
+                            ),
                             value_width,
                         )
                         .trim_end()

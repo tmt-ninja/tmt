@@ -75,7 +75,13 @@ pub(in crate::board) fn footer(
 ) -> Line<'static> {
     use unicode_width::UnicodeWidthStr;
     let available = width.saturating_sub(2);
-    let more = (more > 0).then(|| format!("+{more} more"));
+    let more = (more > 0).then(|| {
+        tmt_tui::components::design_system::MoreHint::label(
+            more as u64,
+            tmt_tui::components::design_system::MoreDirection::Truncated,
+            false,
+        )
+    });
     let shortcut = key.map(|key| format!("{} timers", crate::board::view::footer::key_label(key)));
     let mut spans = vec![Span::raw(" ")];
     match (more, shortcut) {
@@ -121,6 +127,14 @@ pub(in crate::board) fn footer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn timer_footer_more_hint_renders_exact_text() {
+        assert_eq!(
+            footer(2, None, 80, Look::default()).to_string().trim(),
+            "+2 more"
+        );
+    }
+
     #[test]
     fn timer_tracks_match_the_mock_and_paused_rows_are_neutral() {
         let look = Look::default();

@@ -72,7 +72,7 @@ fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixe
         let typed = draw(&mut app, width, 36);
         let text = band_text(&typed, app.input_band.get().unwrap());
         assert!(
-            text.contains("eighth") && text.contains("↑ 2 more"),
+            text.contains("eighth") && text.contains("2 more ↑"),
             "{text}"
         );
         assert!(

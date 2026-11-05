@@ -948,7 +948,11 @@ fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
     if lines.len() > 4 {
         let more = lines.len() - 3;
         lines.truncate(3);
-        lines.push(format!("… ({more} more)"));
+        lines.push(tmt_tui::components::design_system::MoreHint::label(
+            more as u64,
+            tmt_tui::components::design_system::MoreDirection::Truncated,
+            false,
+        ));
     }
     lines
 }
@@ -1588,7 +1592,7 @@ pub(in crate::board) mod tests {
             true,
         );
         assert_eq!(lines.len(), 4);
-        assert!(lines[3].starts_with("… (") && lines[3].ends_with(" more)"));
+        assert!(lines[3].starts_with('+') && lines[3].ends_with(" more"));
     }
     #[test]
     fn overlay_scrolls_escaped_values_and_closes_without_row_actions() {

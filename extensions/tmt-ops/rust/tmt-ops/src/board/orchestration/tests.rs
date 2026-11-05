@@ -517,3 +517,44 @@ pub(in crate::board) mod captures {
         app
     }
 }
+
+#[test]
+fn orchestration_matrix_more_hint_renders_exact_row_and_column_counts() {
+    use super::input::Control;
+    let mut app = matrix_app();
+    let mut snapshot = observe(pair_api);
+    let template = snapshot.document.members[0].clone();
+    snapshot.document.members = (0..60)
+        .map(|n| {
+            let mut member = template.clone();
+            member.identity_id = format!("10000000-0000-4000-8000-{n:012}");
+            member.name = format!("agent-{n}");
+            member
+        })
+        .collect();
+    app.orchestration.apply(
+        app.orchestration.read(),
+        Observation::Ready(Box::new(snapshot)),
+    );
+    let text = screen(&app);
+    let hits = app.orchestration.hits.borrow();
+    let rows = hits
+        .iter()
+        .filter_map(|(_, control)| match control {
+            Control::Cell(row, _) => Some(row + 1),
+            _ => None,
+        })
+        .max()
+        .unwrap();
+    let columns = hits
+        .iter()
+        .filter_map(|(_, control)| match control {
+            Control::Cell(_, column) => Some(column + 1),
+            _ => None,
+        })
+        .max()
+        .unwrap();
+    assert!(rows < 60 && columns < 60);
+    let expected = format!("{} more ↓ · {} more → ·", 60 - rows, 60 - columns);
+    assert!(text.contains(&expected), "expected {expected}: {text}");
+}

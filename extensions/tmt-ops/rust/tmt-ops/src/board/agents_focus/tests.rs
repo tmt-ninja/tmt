@@ -112,7 +112,7 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
         long.conversation.borrow().pane.unwrap().bottom()
     );
     assert!(
-        text.contains("earlier") && text.contains("Observed line 119"),
+        text.contains("more ↑") && text.contains("Observed line 119"),
         "{text}"
     );
     long.scroll_pane(Pane::Replies, Step::Top);
@@ -394,4 +394,23 @@ fn overflowing_agents_panes_reach_the_painted_footer_in_both_focuses() {
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     });
+}
+
+#[test]
+fn squad_timer_overflow_more_hint_renders_exact_text() {
+    use crate::board::cronboard::{test_cron, test_views};
+    use tmt_ops::cron::ClockStatus;
+    let mut app = observed("Lead reply.");
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    app.cron.replace(Ok(test_cron(
+        test_views(5, "product", ROOM),
+        ClockStatus::NoClock,
+    )));
+    let text = screen(&draw(&mut app, 148, 80));
+    assert!(
+        text.lines()
+            .any(|line| line.rsplit('│').next().unwrap_or(line).trim() == "+2 more"),
+        "{text}"
+    );
 }

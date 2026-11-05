@@ -396,7 +396,19 @@ fn matrix(frame: &mut Frame, app: &App, snapshot: &Snapshot, area: Rect) {
     let mut legend =
         String::from("Dir direct · B batch · Urg urgent · ✕ sender rule · ◆ needs a person");
     if hidden_rows + hidden_columns > 0 || sending.truncated {
-        legend = format!("↓ {hidden_rows} more · → {hidden_columns} more · {legend}");
+        legend = format!(
+            "{} · {} · {legend}",
+            tmt_tui::components::design_system::MoreHint::label(
+                hidden_rows as u64,
+                tmt_tui::components::design_system::MoreDirection::Down,
+                false
+            ),
+            tmt_tui::components::design_system::MoreHint::label(
+                hidden_columns as u64,
+                tmt_tui::components::design_system::MoreDirection::Right,
+                false
+            )
+        );
     }
     if sending.truncated {
         legend = format!("Too many members for one matrix; filter with / · {legend}");

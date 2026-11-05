@@ -346,17 +346,37 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 "more-ascii",
                 &MoreHintProps {
                     count: 2,
+                    direction: MoreDirection::Down,
                     ascii: true,
                 },
                 width,
                 &theme,
                 depth,
             );
+            for (name, direction) in [
+                ("more-up", MoreDirection::Up),
+                ("more-right", MoreDirection::Right),
+                ("more-truncated", MoreDirection::Truncated),
+            ] {
+                record::<MoreHint>(
+                    &mut out,
+                    name,
+                    &MoreHintProps {
+                        count: 2,
+                        direction,
+                        ascii: false,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
             record::<MoreHint>(
                 &mut out,
                 "more",
                 &MoreHintProps {
                     count: 2,
+                    direction: MoreDirection::Down,
                     ascii: false,
                 },
                 width,

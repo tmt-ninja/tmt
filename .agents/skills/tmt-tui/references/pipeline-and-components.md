@@ -73,7 +73,9 @@ at the native buffer boundary. Snapshot tests pin the cells in four looks at fiv
 widths, including the narrow layouts. The existing board stacked chart uses this
 same component without changing its output. `PaneFrame` matches the boxed board
 frame; `Sparkline` renders exact buckets with a caller-supplied shared scale.
-`Mark` derives its role and emphasis from its state.
+`Mark` derives its role and emphasis from its state. `MoreHint` renders scroll
+counts with a trailing direction arrow and truncated non-scrollable counts as
+`+N more`.
 
 ## Application layer and component behavior
 

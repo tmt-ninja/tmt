@@ -341,10 +341,18 @@ impl Scrolls {
             let below = content.saturating_sub(offset + viewport);
             let mut parts = Vec::new();
             if above > 0 {
-                parts.push(format!("↑ {above}"));
+                parts.push(tmt_tui::components::design_system::MoreHint::label(
+                    above as u64,
+                    tmt_tui::components::design_system::MoreDirection::Up,
+                    false,
+                ));
             }
             if below > 0 {
-                parts.push(format!("{below} more ↓"));
+                parts.push(tmt_tui::components::design_system::MoreHint::label(
+                    below as u64,
+                    tmt_tui::components::design_system::MoreDirection::Down,
+                    false,
+                ));
             }
             let indicator = Rect {
                 y: area.y + viewport as u16,
@@ -354,7 +362,11 @@ impl Scrolls {
             if let Some(key) = exchange {
                 let mut text = Vec::new();
                 if above > 0 {
-                    text.push(format!("↑ {above} earlier"));
+                    text.push(tmt_tui::components::design_system::MoreHint::label(
+                        above as u64,
+                        tmt_tui::components::design_system::MoreDirection::Up,
+                        false,
+                    ));
                 }
                 if below > 0 {
                     text.push(format!("↓ {below} later"));
@@ -371,9 +383,17 @@ impl Scrolls {
                 );
             } else if list {
                 let text = if below > 0 {
-                    format!("↓ {below} more")
+                    tmt_tui::components::design_system::MoreHint::label(
+                        below as u64,
+                        tmt_tui::components::design_system::MoreDirection::Down,
+                        false,
+                    )
                 } else {
-                    format!("↑ {above} earlier")
+                    tmt_tui::components::design_system::MoreHint::label(
+                        above as u64,
+                        tmt_tui::components::design_system::MoreDirection::Up,
+                        false,
+                    )
                 };
                 strip::paint_left(
                     frame.buffer_mut(),
@@ -397,7 +417,14 @@ impl Scrolls {
                         1,
                     ),
                     Line::styled(
-                        format!("{start}–{end} / {content} rows  ·  {below} more ↓"),
+                        format!(
+                            "{start}–{end} / {content} rows  ·  {}",
+                            tmt_tui::components::design_system::MoreHint::label(
+                                below as u64,
+                                tmt_tui::components::design_system::MoreDirection::Down,
+                                false
+                            )
+                        ),
                         look.role(Role::Dim),
                     ),
                 );

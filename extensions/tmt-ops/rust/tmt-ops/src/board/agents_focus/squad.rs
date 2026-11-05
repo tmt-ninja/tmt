@@ -266,7 +266,17 @@ pub(super) fn render(
                 frame,
                 area,
                 y,
-                neutral(format!(" +{} more", model.total - model.rows.len()), look),
+                neutral(
+                    format!(
+                        " {}",
+                        tmt_tui::components::design_system::MoreHint::label(
+                            (model.total - model.rows.len()) as u64,
+                            tmt_tui::components::design_system::MoreDirection::Truncated,
+                            false
+                        )
+                    ),
+                    look,
+                ),
             );
         }
     }

@@ -33,7 +33,7 @@ fn the_shared_renderer_wraps_limits_and_keeps_only_the_gutter_selected() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.to_string().contains("more lines · v view"))
+                    .any(|line| line.to_string().contains("more · v view"))
             );
             assert!(lines.iter().any(|line| line.to_string().contains('…')));
             assert!(lines.iter().all(|line| line.style.bg.is_none()
@@ -42,6 +42,23 @@ fn the_shared_renderer_wraps_limits_and_keeps_only_the_gutter_selected() {
             assert_eq!(lines[0].spans[1].style, look.role(Role::Accent));
         }
     }
+}
+
+#[test]
+fn row_detail_more_hint_renders_exact_text_with_view_action() {
+    let body = "line\n\n".repeat(30);
+    let value =
+        json!({"fields":[],"show_reply":true,"reply":{"from":"one","age":"1m","body":body}});
+    let look = Look::default();
+    let expected_count = super::super::markdown::render(&body, 150, look).len() - 6;
+    let expected = format!("+{expected_count} more · v view");
+    let lines = render(&value, 160, 3, look, true);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.to_string().trim_end().ends_with(&expected)),
+        "{lines:?}"
+    );
 }
 
 #[test]

@@ -181,7 +181,11 @@ pub(in crate::board) fn viewport(
         if count <= usize::from(area.height) {
             return (area, None);
         }
-        let label = format!("↑ {} more", count - usize::from(area.height));
+        let label = tmt_tui::components::design_system::MoreHint::label(
+            (count - usize::from(area.height)) as u64,
+            tmt_tui::components::design_system::MoreDirection::Up,
+            false,
+        );
         let reserved = (label.width() + 1).min(usize::from(area.width.saturating_sub(1))) as u16;
         let next = area.width - reserved;
         if next >= width {
@@ -414,7 +418,7 @@ mod viewport_tests {
         assert_eq!(editor.height, 3);
         assert!(editor.right() < hint.x);
         assert!(editor.intersection(hint).is_empty());
-        assert!(label.starts_with("↑ ") && label.ends_with(" more"));
+        assert!(label.ends_with(" more ↑"));
         assert_eq!(text.as_str(), "first\nsecond\nthird\nfourth\nfifth");
     }
     #[test]

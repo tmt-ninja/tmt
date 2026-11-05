@@ -312,3 +312,30 @@ fn sparkline_preserves_missing_zero_scale_and_insufficient_track() {
     Sparkline::render(&props, area(4, 1), &mut grid);
     assert_eq!(grid, before);
 }
+
+#[test]
+fn more_hints_distinguish_directions_and_truncation_in_unicode_and_ascii() {
+    for (direction, unicode, ascii) in [
+        (MoreDirection::Down, "12 more ↓", "12 more v"),
+        (MoreDirection::Up, "12 more ↑", "12 more ^"),
+        (MoreDirection::Right, "12 more →", "12 more >"),
+        (MoreDirection::Truncated, "+12 more", "+12 more"),
+    ] {
+        assert_eq!(MoreHint::label(12, direction, false), unicode);
+        assert_eq!(MoreHint::label(12, direction, true), ascii);
+        let mut grid = CellGrid::new(Size {
+            width: 20,
+            height: 1,
+        });
+        MoreHint::render(
+            &MoreHintProps {
+                count: 12,
+                direction,
+                ascii: false,
+            },
+            area(20, 1),
+            &mut grid,
+        );
+        assert_eq!(lines(&grid)[0].trim_end(), unicode);
+    }
+}
