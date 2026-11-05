@@ -712,18 +712,48 @@ export function redact(text) {
 
 const PYTHONS = new Set(['python', 'python3']);
 
-/**
- * Text before a triple-quoted string that makes it prose: a docstring-style statement of its own,
- * or text written out or printed. Any other string, such as one handed to subprocess, os.system,
- * exec or eval, or assigned to a name, stays code.
- */
-const PYTHON_PROSE_BEFORE = /(?:^|\n)[ \t]*$|\b(?:write|write_text|writelines|print)\(\s*$/;
+/** Text before a string that makes it prose written out or printed, inside that call. */
+const PYTHON_WRITE_BEFORE = /\b(?:write|write_text|writelines|print)\(\s*$/;
 
-/** Python source without its comments and its prose triple-quoted strings. */
+/**
+ * Python source without its comments and its prose triple-quoted strings (#6003): a
+ * docstring-style statement of its own at bracket depth 0, or an argument of a call that writes
+ * or prints it. Any other string, such as one handed to subprocess, os.system, exec or eval, on
+ * the same line or a continuation line, or assigned to a name, stays code. Comments are found
+ * outside strings only.
+ */
 function pythonCode(text) {
-  return text.replace(/'''[\s\S]*?'''|"""[\s\S]*?"""|#[^\n]*/g, (match, at) =>
-    match.startsWith('#') || PYTHON_PROSE_BEFORE.test(text.slice(0, at)) ? ' ' : match
-  );
+  let out = '';
+  let depth = 0;
+  for (let at = 0; at < text.length;) {
+    const ch = text[at];
+    const triple = ["'''", '"""'].find((quote) => text.startsWith(quote, at));
+    if (triple) {
+      const end = text.indexOf(triple, at + 3);
+      const close = end === -1 ? text.length : end + 3;
+      const before = text.slice(0, at);
+      const statement = depth === 0 && /(?:^|\n)[ \t]*$/.test(before);
+      out += statement || PYTHON_WRITE_BEFORE.test(before) ? ' ' : text.slice(at, close);
+      at = close;
+    } else if (ch === "'" || ch === '"') {
+      let end = at + 1;
+      while (end < text.length && text[end] !== ch && text[end] !== '\n') {
+        end += text[end] === '\\' ? 2 : 1;
+      }
+      out += text.slice(at, end + 1);
+      at = end + 1;
+    } else if (ch === '#') {
+      const end = text.indexOf('\n', at);
+      at = end === -1 ? text.length : end;
+      out += ' ';
+    } else {
+      if ('([{'.includes(ch)) depth += 1;
+      else if (')]}'.includes(ch)) depth = Math.max(0, depth - 1);
+      out += ch;
+      at += 1;
+    }
+  }
+  return out;
 }
 
 const INTERPRETERS = new Set([

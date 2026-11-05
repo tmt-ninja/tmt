@@ -453,6 +453,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'python3 - <<\'PY\'\nimport os\nos.system("sleep 5")\nPY',
       "python3 - <<'PY'\nimport subprocess\nsubprocess.run('''sleep 60''', shell=True)\nPY",
       "python3 - <<'PY'\nexec('''import time\ntime.sleep(5)''')\nPY",
+      // On a continuation line inside the call, and a `#` inside a string, it is still code.
+      'python3 - <<\'PY\'\nimport subprocess\nsubprocess.run(\n    """sleep 60""", shell=True)\nPY',
+      "python3 - <<'PY'\nexec(\n'''import time\ntime.sleep(5)''')\nPY",
+      'python3 - <<\'PY\'\nimport os\nos.system("echo #; sleep 5")\nPY',
     ];
     for (const command of judged) await c.guard({ ...bash(command), cwd: repo }, {}, hook);
     expect(received).toHaveLength(judged.length);
