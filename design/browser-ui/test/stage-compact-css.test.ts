@@ -57,6 +57,17 @@ describe('stage compact shell CSS', () => {
     expect(generated.length).toBeGreaterThan(2);
   });
 
+  it('refuses a window unit it cannot read from the stage', () => {
+    const narrow = (value: string) =>
+      `@media (max-width: 900px) {\n  .x {\n    height: ${value};\n  }\n}`;
+    expect(stageCompactCss(narrow('100dvh'))).toContain('100cqh');
+    expect(stageCompactCss(narrow('calc(100vw - 8px)'))).toContain('100cqw');
+    for (const value of ['50vh', '100svh', '100lvh', '40dvw', '10vmin', '2vi'])
+      expect(() => stageCompactCss(narrow(value)), value).toThrow(/window unit/);
+    // A unit outside the narrow blocks is not copied, so it is not refused.
+    expect(() => stageCompactCss(`.y { height: 50vh; }\n${narrow('1px')}`)).not.toThrow();
+  });
+
   it('ships every narrow selector in a stage container block of the same width', () => {
     // The shipped, minified file: what a page and the docs load.
     const shipped = blocks(
