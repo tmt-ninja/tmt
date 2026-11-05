@@ -512,6 +512,7 @@ fn a_family_that_lost_ground_starts_a_new_baseline_like_a_counter_that_went_back
         counts: Counts::default(),
         rows: None,
         complete: true,
+        reason: None,
     };
     let after = codex_with(
         &sessions.root(),
@@ -535,6 +536,7 @@ fn an_incomplete_family_marks_the_total_incomplete_and_the_mark_survives_a_hook_
         counts: counts(10, 1, 0),
         rows: None,
         complete: false,
+        reason: None,
     };
     let state = codex_with(&sessions.root(), &main, None, Some(&incomplete), now).unwrap();
     assert!(!state.value.complete);
@@ -570,6 +572,7 @@ fn the_state_with_a_family_round_trips_and_a_total_below_the_family_is_refused()
         counts: counts(10, 1, 0),
         rows: None,
         complete: true,
+        reason: None,
     };
     let state = codex_with(&sessions.root(), &main, None, Some(&contribution), now).unwrap();
     let document = state.document();
@@ -598,6 +601,7 @@ fn the_worst_case_state_with_a_family_still_fits_the_opaque_bound() {
         counts: counts(big / 2, big / 10, big / 4),
         rows: None,
         complete: false,
+        reason: None,
     };
     let state = codex_with(&sessions.root(), &main, None, Some(&contribution), now).unwrap();
     let document = serde_json::to_string(&state.document()).unwrap();
@@ -675,4 +679,87 @@ fn a_listing_cut_short_never_moves_the_scan_past_the_day_it_could_not_finish() {
     // (a rollout already followed from the cut-short listing is not placed again).
     let scan = seat.stored.as_ref().unwrap().header.scan.clone().unwrap();
     assert!(scan.as_str() >= "2026-10-20T08-00-07", "{scan}");
+}
+
+/// A started session that grows with records other than usage is idle, not unknown: the
+/// family stays complete, the rollout is read to its end and folds once quiet (#6082).
+#[test]
+fn a_child_that_grows_without_usage_is_idle_and_folds_once_quiet() {
+    let sessions = Sessions::new();
+    let main = root_rollout(&sessions);
+    let mut seat = Seat::new(&sessions, ROOT, main);
+    let now = real_now();
+    seat.tick(now);
+    // Started after the first scan with no usage yet: followed from a zero state.
+    let child = sessions.rollout(T1, &id(1), Some(ROOT));
+    let first = seat.tick(now + 5_000);
+    assert!(first.contribution.complete);
+    assert_eq!(seat.followed(), [id(1).as_str()]);
+    // It keeps growing with known non-usage records only, a line still being written last.
+    sessions.model(&child, "gpt-6.1-terra");
+    append(
+        &child,
+        &json!({"type":"response_item","payload":{"type":"message"}}),
+    );
+    let mut file = fs::OpenOptions::new().append(true).open(&child).unwrap();
+    write!(file, "{{\"type\":\"event_msg\"").unwrap();
+    drop(file);
+    let idle = seat.tick(now + 10_000);
+    assert!(idle.contribution.complete, "{:?}", idle.contribution.reason);
+    assert_eq!(idle.contribution.reason, None);
+    assert_eq!(idle.contribution.counts, Counts::default());
+    // The read stops before the partial line, and the next tick reads nothing new.
+    let again = seat.tick(now + 15_000);
+    assert!(again.contribution.complete);
+    // Quiet for a day, it folds like any other idle child.
+    let folded = seat.tick(now + 10_000 + QUIET_MS + 1);
+    assert!(folded.contribution.complete);
+    assert!(seat.followed().is_empty());
+}
+
+/// A usage event that cannot be read is unknown usage, never idle; anything that is not a
+/// provider record is unreadable. Each says why (#6082).
+#[test]
+fn a_child_with_an_unreadable_usage_event_stays_incomplete_and_says_why() {
+    for (line, reason) in [
+        (
+            json!({"type":"event_msg","payload":{"type":"token_count","info":null}}).to_string(),
+            "child-usage-unreadable",
+        ),
+        (
+            json!({"type":"event_msg","payload":{"type":"token_count","info":{
+                "total_token_usage":{"input_tokens":5,"output_tokens":1,
+                    "cached_input_tokens":0,"total_tokens":99}}}})
+            .to_string(),
+            "child-usage-unreadable",
+        ),
+        ("not json".to_owned(), "child-unreadable"),
+        (json!({"payload":{}}).to_string(), "child-unreadable"),
+    ] {
+        let sessions = Sessions::new();
+        let main = root_rollout(&sessions);
+        let mut seat = Seat::new(&sessions, ROOT, main);
+        let now = real_now();
+        seat.tick(now);
+        let child = sessions.rollout(T1, &id(1), Some(ROOT));
+        seat.tick(now + 5_000);
+        let mut file = fs::OpenOptions::new().append(true).open(&child).unwrap();
+        writeln!(file, "{line}").unwrap();
+        drop(file);
+        let outcome = seat.tick(now + 10_000);
+        assert!(!outcome.contribution.complete, "{line}");
+        assert_eq!(outcome.contribution.reason, Some(reason), "{line}");
+        // The seat's own reading carries the reason to the usage report.
+        let state = codex_with(
+            &sessions.root(),
+            &seat.main,
+            None,
+            Some(&outcome.contribution),
+            now + 10_000,
+        )
+        .unwrap();
+        assert!(!state.value.complete);
+        assert_eq!(state.value.incomplete_reason.as_deref(), Some(reason));
+        assert!(state.value.valid());
+    }
 }

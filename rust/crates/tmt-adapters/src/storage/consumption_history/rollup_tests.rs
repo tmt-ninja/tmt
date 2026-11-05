@@ -816,3 +816,91 @@ fn corrupt_credits_or_tier_in_a_rollup_row_are_refused() {
         assert!(ask(&mut storage).is_ok());
     }
 }
+
+/// A sampler pause longer than two fine buckets inside one rollup bucket (#6082): the
+/// continuous complete pair covers that whole bucket in both tiers, so the rollup is still
+/// the sum of its fine buckets. A pause across a rollup boundary stays a gap.
+#[test]
+fn a_long_pair_inside_one_rollup_bucket_covers_it_and_one_across_a_boundary_does_not() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    let slot = 10 * ROLLUP_BUCKET_MS;
+    // The read that closes the slot before starts this slot's continuous coverage.
+    let mut sequence = 1;
+    let mut input = 0;
+    let mut read = |connection: &rusqlite::Connection, at: u64, tokens: u64| {
+        sequence += 1;
+        input += tokens;
+        record_sample(
+            connection,
+            &id,
+            Some(latest(input, input, sequence, at)),
+            at,
+        )
+        .unwrap();
+    };
+    read(connection, slot - BUCKET_MS, 0);
+    let mut at = slot - BUCKET_MS;
+    while at < slot + 100_000 {
+        at += BUCKET_MS;
+        read(connection, at, 1);
+    }
+    // A 60 s pause, both reads in this slot, then steady reads to the slot's end.
+    at += 60_000;
+    read(connection, at, 7);
+    while at < slot + ROLLUP_BUCKET_MS {
+        at += BUCKET_MS;
+        read(connection, at, 1);
+    }
+    // The next slot: a pause that crosses into the slot after it.
+    while at < 2 * ROLLUP_BUCKET_MS + slot - 20_000 {
+        at += BUCKET_MS;
+        read(connection, at, 1);
+    }
+    at += 40_000;
+    read(connection, at, 3);
+    let now = slot + 3 * ROLLUP_BUCKET_MS + 2_500;
+    let window = |storage: &mut Storage, window: u64, buckets: u64| {
+        storage
+            .consumption_history(
+                std::slice::from_ref(&id),
+                &[window],
+                buckets,
+                now,
+                false,
+                None,
+            )
+            .unwrap()["identities"][0]["windows"][0]["buckets"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let rolled = window(&mut storage, 3_900_000, 13);
+    let fine = window(&mut storage, FINE_WINDOW_MS, 12);
+    let at_slot = |buckets: &[Value], from: u64| {
+        buckets
+            .iter()
+            .find(|bucket| bucket["fromMs"] == from)
+            .unwrap()
+            .clone()
+    };
+    let paused = at_slot(&rolled, slot);
+    assert_eq!(paused["coveredMs"], ROLLUP_BUCKET_MS);
+    assert_eq!(paused["complete"], true);
+    assert_eq!(paused["gap"], false);
+    // The pair's tokens are all there: one per steady read (21 before the pause, 27 after
+    // it) and seven at its end.
+    assert_eq!(paused["inputTokens"], 21 + 7 + 27);
+    let crossing = at_slot(&rolled, slot + ROLLUP_BUCKET_MS);
+    assert_eq!(crossing["complete"], false);
+    assert_eq!(crossing["gap"], true);
+    // Every rollup bucket is still the sum of the fine buckets it covers.
+    for from in [slot, slot + ROLLUP_BUCKET_MS] {
+        let (rolled, fine) = (at_slot(&rolled, from), at_slot(&fine, from));
+        for key in ["inputTokens", "coveredMs", "complete", "gap"] {
+            assert_eq!(rolled[key], fine[key], "{key} at {from}");
+        }
+    }
+}

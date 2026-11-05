@@ -1,7 +1,7 @@
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-10-28",
-  "asOf": "2026-10-28",
+  "version": "2026-11-05",
+  "asOf": "2026-11-05",
   "basis": "standard-base-input",
   "models": [
     {
@@ -15,6 +15,11 @@
       "source": "https://platform.claude.com/docs/en/about-claude/pricing"
     },
     {
+      "modelId": "gpt-6-astra",
+      "usdMicrosPerMillionInputTokens": 10000000,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-astra"
+    },
+    {
       "modelId": "gpt-6-sol",
       "usdMicrosPerMillionInputTokens": 2000000,
       "source": "https://developers.openai.com/api/docs/models/gpt-6-sol"
@@ -23,6 +28,11 @@
       "modelId": "gpt-6.1-sol",
       "usdMicrosPerMillionInputTokens": 2000000,
       "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+    },
+    {
+      "modelId": "gpt-6.1-terra",
+      "usdMicrosPerMillionInputTokens": 1000000,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6.1-terra"
     },
     {
       "modelId": "gemini-3-flash-preview",
