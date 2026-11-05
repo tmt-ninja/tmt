@@ -19,11 +19,13 @@ impl<'de> Deserialize<'de> for Token {
             .ok_or_else(|| serde::de::Error::custom("unknown style role"))
     }
 }
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Size {
     pub width: u16,
     pub height: u16,
 }
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: u16,
@@ -31,11 +33,13 @@ pub struct Rect {
     pub width: u16,
     pub height: u16,
 }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Constraints {
     pub min: Size,
     pub max: Size,
 }
+
 impl Constraints {
     pub fn clamp(self, size: Size) -> Size {
         Size {
@@ -50,29 +54,64 @@ impl Constraints {
         }
     }
 }
+
+mod optional_role_serde {
+    use super::*;
+    pub fn serialize<S: Serializer>(role: &Option<Role>, serializer: S) -> Result<S::Ok, S::Error> {
+        role.map(Token).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Role>, D::Error> {
+        Option::<Token>::deserialize(deserializer).map(|token| token.map(|value| value.0))
+    }
+}
+
+/// Semantic secondary-chip surfaces resolved by the presentation adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChipSurface {
+    /// The normal unselected surface.
+    Idle,
+    /// A selected, focused, or hovered surface.
+    Hot,
+    /// A disabled surface that cannot be activated.
+    Disabled,
+}
+
 /// Continuations occupy the extra cells of a wide grapheme.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cell {
     pub glyph: String,
-    pub fg: Role,
+    #[serde(with = "optional_role_serde")]
+    pub fg: Option<Role>,
+    #[serde(with = "optional_role_serde")]
     pub bg: Option<Role>,
+    pub bold: bool,
+    pub chip_surface: Option<ChipSurface>,
     pub continuation: bool,
 }
+
 impl Default for Cell {
     fn default() -> Self {
         Self {
             glyph: " ".into(),
-            fg: Role::Text,
+            fg: None,
             bg: None,
+            bold: false,
+            chip_surface: None,
             continuation: false,
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellGrid {
     size: Size,
     cells: Vec<Cell>,
 }
+
 impl CellGrid {
     pub fn new(size: Size) -> Self {
         Self {
@@ -80,13 +119,16 @@ impl CellGrid {
             cells: vec![Cell::default(); usize::from(size.width) * usize::from(size.height)],
         }
     }
+
     pub fn size(&self) -> Size {
         self.size
     }
+
     pub fn get(&self, x: u16, y: u16) -> Option<&Cell> {
         (x < self.size.width && y < self.size.height)
             .then(|| &self.cells[usize::from(y) * usize::from(self.size.width) + usize::from(x)])
     }
+
     pub fn set(&mut self, x: u16, y: u16, cell: Cell) {
         if x < self.size.width && y < self.size.height {
             self.cells[usize::from(y) * usize::from(self.size.width) + usize::from(x)] = cell;
@@ -94,6 +136,23 @@ impl CellGrid {
     }
     /// Write complete graphemes only; never emit a partial wide character.
     pub fn text(&mut self, area: Rect, text: &str, fg: Role, bg: Option<Role>) {
+        self.text_with(area, text, Some(fg), bg, false);
+    }
+
+    /// Write a line with explicit semantic emphasis.
+    pub fn text_bold(&mut self, area: Rect, text: &str, fg: Role, bg: Option<Role>, bold: bool) {
+        self.text_with(area, text, Some(fg), bg, bold);
+    }
+
+    /// Write with an optional inherited foreground role.
+    pub fn text_with(
+        &mut self,
+        area: Rect,
+        text: &str,
+        fg: Option<Role>,
+        bg: Option<Role>,
+        bold: bool,
+    ) {
         let mut x = area.x;
         let end = area.x.saturating_add(area.width).min(self.size.width);
         if area.y >= self.size.height || area.height == 0 {
@@ -114,6 +173,8 @@ impl CellGrid {
                     glyph: grapheme.into(),
                     fg,
                     bg,
+                    bold,
+                    chip_surface: None,
                     continuation: false,
                 },
             );
@@ -125,6 +186,8 @@ impl CellGrid {
                         glyph: String::new(),
                         fg,
                         bg,
+                        bold,
+                        chip_surface: None,
                         continuation: true,
                     },
                 );
@@ -132,14 +195,33 @@ impl CellGrid {
             x += width as u16;
         }
     }
+    /// Paint a chip with its semantic surface; no palette is resolved here.
+    pub fn chip(&mut self, area: Rect, text: &str, surface: ChipSurface) {
+        self.text(area, text, Role::Text, None);
+        for y in area.y..area.y.saturating_add(area.height).min(self.size.height) {
+            for x in area.x..area.x.saturating_add(area.width).min(self.size.width) {
+                let index = usize::from(y) * usize::from(self.size.width) + usize::from(x);
+                self.cells[index].chip_surface = Some(surface);
+            }
+        }
+    }
+
     pub fn clear(&mut self, area: Rect) {
         for y in area.y..area.y.saturating_add(area.height).min(self.size.height) {
             for x in area.x..area.x.saturating_add(area.width).min(self.size.width) {
-                self.set(x, y, Cell::default());
+                self.set(
+                    x,
+                    y,
+                    Cell {
+                        fg: Some(Role::Text),
+                        ..Cell::default()
+                    },
+                );
             }
         }
     }
 }
+
 /// Opaque ID supplied by the caller, never an application action.
 pub type HitId = u64;
 pub trait Component {

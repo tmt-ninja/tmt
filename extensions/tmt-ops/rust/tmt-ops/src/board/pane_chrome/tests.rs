@@ -273,3 +273,83 @@ fn real_tree_retains_selected_uuid_and_cursor_but_tints_the_row_when_content_rec
         }
     }
 }
+
+#[test]
+fn design_system_pane_rule_matches_board_top_cells_and_styles() {
+    use tmt_cli_style::{Theme, theme::Base};
+    use tmt_tui::components::{
+        design_system::{CellGrid, Component, PaneRule, PaneRuleProps, Rect as GridRect, Size},
+        design_system_ratatui,
+    };
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        for width in [40, 60, 80, 120, 160] {
+            for focused in [false, true] {
+                for ascii in [false, true] {
+                    for back_hint in [false, true] {
+                        let mut app =
+                            crate::board::app::workspace::tests::capture_case("agents", look);
+                        app.cron_glyphs = GlyphSet::from_ascii(ascii);
+                        let pane = if back_hint { Pane::Replies } else { Pane::Rows };
+                        app.focus = match (focused, back_hint) {
+                            (true, false) | (false, true) => 0,
+                            _ => 1,
+                        };
+                        let title = if width <= 60 {
+                            "A long pane title with a tab\tand a newline\nthat must be fitted without hiding the back hint"
+                        } else {
+                            "Agents"
+                        };
+                        let area = Rect::new(0, 0, width, 8);
+                        let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+                        terminal
+                            .draw(|frame| {
+                                paint(frame, &app, area, pane, title);
+                            })
+                            .unwrap();
+                        let original = terminal.backend().buffer();
+                        let mut grid = CellGrid::new(Size { width, height: 1 });
+                        PaneRule::render(
+                            &PaneRuleProps {
+                                title: title.into(),
+                                focused,
+                                ascii,
+                                back_hint,
+                            },
+                            GridRect {
+                                x: 0,
+                                y: 0,
+                                width,
+                                height: 8,
+                            },
+                            &mut grid,
+                        );
+                        let mut actual = Buffer::empty(area);
+                        design_system_ratatui::paint(
+                            &grid,
+                            area,
+                            &mut actual,
+                            &look.theme,
+                            look.depth,
+                        );
+                        for x in 0..width {
+                            assert_eq!(
+                                actual[(x, 0)],
+                                original[(x, 0)],
+                                "x={x}, width={width}, focused={focused}, ascii={ascii}, back={back_hint}, look={base:?}/{depth:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,5 +1,6 @@
 use super::Rect;
 use serde::{Deserialize, Serialize};
+
 /// A fixed track, or a weighted share of the space left after fixed tracks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -7,6 +8,7 @@ pub enum Track {
     Fixed(u16),
     Fill(u16),
 }
+
 /// Split an area into rows or columns, clipping fixed tracks and distributing remainder deterministically.
 pub fn split(area: Rect, tracks: &[Track], horizontal: bool) -> Vec<Rect> {
     let available = if horizontal { area.width } else { area.height };

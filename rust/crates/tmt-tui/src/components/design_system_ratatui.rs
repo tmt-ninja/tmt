@@ -1,10 +1,16 @@
 //! Native adapter: resolve semantic roles only at the terminal boundary.
-use super::design_system::CellGrid;
-use ratatui::{buffer::Buffer, layout::Rect as NativeRect, style::Style};
-use tmt_cli_style::theme::Role;
+use super::design_system::{CellGrid, ChipSurface};
+use ratatui::{buffer::Buffer, layout::Rect as NativeRect};
+use tmt_cli_style::{
+    Depth, Theme,
+    theme::{
+        Role,
+        screen::{self, ChipKind, ChipState},
+    },
+};
 
 /// Copy a pure grid into an existing buffer with the caller's palette.
-pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, role: impl Fn(Role) -> Style) {
+pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, theme: &Theme, depth: Depth) {
     let size = grid.size();
     for y in 0..size.height.min(area.height) {
         for x in 0..size.width.min(area.width) {
@@ -18,7 +24,23 @@ pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, role: impl 
             {
                 continue;
             }
-            let mut style = role(cell.fg);
+            let role = |role: Role| screen::style(theme, role, depth);
+            let mut style = match cell.chip_surface {
+                Some(surface) => screen::chip(
+                    theme,
+                    ChipKind::Secondary,
+                    match surface {
+                        ChipSurface::Idle => ChipState::Idle,
+                        ChipSurface::Hot => ChipState::Hot,
+                        ChipSurface::Disabled => ChipState::Disabled,
+                    },
+                    depth,
+                ),
+                None => cell.fg.map(role).unwrap_or_default(),
+            };
+            if cell.bold {
+                style = style.add_modifier(ratatui::style::Modifier::BOLD);
+            }
             if let Some(bg) = cell.bg {
                 style = style.bg(role(bg).fg.unwrap_or_default());
             }

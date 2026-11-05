@@ -9,6 +9,7 @@ fn area(width: u16, height: u16) -> Rect {
         height,
     }
 }
+
 fn lines(grid: &CellGrid) -> Vec<String> {
     (0..grid.size().height)
         .map(|y| {
@@ -18,10 +19,13 @@ fn lines(grid: &CellGrid) -> Vec<String> {
         })
         .collect()
 }
+
 #[test]
 fn serde_and_grapheme_cells_round_trip_without_partial_wide_characters() {
     let p = GaugeProps {
         label: "usage".into(),
+        label_width: 17,
+        total: None,
         numerator: 2,
         denominator: 3,
         filled_role: Token(Role::Working),
@@ -39,11 +43,14 @@ fn serde_and_grapheme_cells_round_trip_without_partial_wide_characters() {
     assert_eq!(grid.get(1, 0).unwrap().glyph, "世");
     assert!(grid.get(2, 0).unwrap().continuation);
 }
+
 #[test]
 fn section_drops_note_before_ellipsizing_title() {
     let p = SectionRuleProps {
         title: "An unusually long title".into(),
         note: Some("important note".into()),
+        note_role: Some(Token(Role::Muted)),
+        focused: false,
     };
     let mut grid = CellGrid::new(Size {
         width: 18,
@@ -54,38 +61,39 @@ fn section_drops_note_before_ellipsizing_title() {
     assert!(!s.contains("important"));
     assert!(s.ends_with('…'));
 }
+
 #[test]
-fn chip_hits_are_emitted_from_the_painted_layout() {
-    let p = ChipRowProps {
+fn chip_hits_are_emitted_only_for_a_complete_visible_prefix() {
+    let props = ChipRowProps {
+        label: "".into(),
         chips: vec![
             Chip {
                 id: 7,
                 label: "first".into(),
+                gap: " ".into(),
                 enabled: true,
             },
             Chip {
                 id: 8,
                 label: "selected".into(),
-                enabled: true,
-            },
-            Chip {
-                id: 9,
-                label: "last".into(),
+                gap: "".into(),
                 enabled: true,
             },
         ],
         selected: Some(1),
-        focused: true,
+        cursor: Some(1),
+        active: true,
     };
     let mut grid = CellGrid::new(Size {
         width: 12,
         height: 1,
     });
-    let hits = ChipRow::render(&p, area(12, 1), &mut grid);
+    let hits = ChipRow::render(&props, area(12, 1), &mut grid);
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].1, 8);
-    assert!(lines(&grid)[0].contains("selected"));
+    assert_eq!(hits[0].1, 7);
+    assert!(!lines(&grid)[0].contains("selected"));
 }
+
 #[test]
 fn stacked_mixed_cell_keeps_fraction_and_role_background() {
     let p = StackedBarsProps {
@@ -104,9 +112,10 @@ fn stacked_mixed_cell_keeps_fraction_and_role_background() {
     StackedBars::render(&p, area(1, 2), &mut grid);
     let cell = grid.get(0, 1).unwrap();
     assert_eq!(cell.glyph, "▂");
-    assert_eq!(cell.fg, Role::Accent);
+    assert_eq!(cell.fg, Some(Role::Accent));
     assert_eq!(cell.bg, Some(Role::Text));
 }
+
 #[test]
 fn layout_allocates_bounded_tracks_without_gaps() {
     let rects = split(
@@ -116,6 +125,7 @@ fn layout_allocates_bounded_tracks_without_gaps() {
     );
     assert_eq!(rects.iter().map(|r| r.width).collect::<Vec<_>>(), [3, 2, 5]);
 }
+
 #[test]
 fn pure_design_system_does_not_import_terminal_or_board_modules() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/components/design_system");
@@ -165,22 +175,24 @@ fn totals_remove_low_priority_columns_without_truncating_values() {
 }
 
 #[test]
-fn chip_hits_are_clipped_to_the_actual_grid() {
-    let p = ChipRowProps {
+fn clipped_chips_never_publish_hits() {
+    let props = ChipRowProps {
+        label: "".into(),
         chips: vec![Chip {
             id: 7,
             label: "selected".into(),
+            gap: "".into(),
             enabled: true,
         }],
         selected: Some(0),
-        focused: true,
+        cursor: None,
+        active: true,
     };
     let mut grid = CellGrid::new(Size {
         width: 5,
         height: 1,
     });
-    let hits = ChipRow::render(&p, area(20, 1), &mut grid);
-    assert_eq!(hits[0].0.width, 5);
+    assert!(ChipRow::render(&props, area(20, 1), &mut grid).is_empty());
 }
 
 #[test]
@@ -204,4 +216,71 @@ fn row_and_column_use_the_same_track_rules() {
             .collect::<Vec<_>>(),
         [2, 4]
     );
+}
+
+#[test]
+fn gauge_matches_the_two_model_rows_in_digest_spec_f21e67b7() {
+    for (label, numerator, total, expected) in [
+        (
+            "claude-opus-5.5",
+            78,
+            "655M",
+            "claude-opus-5.5   ███████████████████·····  78%   655M",
+        ),
+        (
+            "claude-sonnet-5.5",
+            19,
+            "160M",
+            "claude-sonnet-5.5 █████···················  19%   160M",
+        ),
+    ] {
+        let props = GaugeProps {
+            label: label.into(),
+            label_width: 17,
+            numerator,
+            denominator: 100,
+            total: Some(total.into()),
+            filled_role: Token(Role::Text),
+            rest_role: Token(Role::Dim),
+        };
+        let mut grid = CellGrid::new(Size {
+            width: 80,
+            height: 1,
+        });
+        Gauge::render(&props, area(80, 1), &mut grid);
+        assert_eq!(lines(&grid)[0].trim_end(), expected);
+    }
+}
+
+#[test]
+fn portable_cell_serializes_bold_and_semantic_chip_surface() {
+    let cell = Cell {
+        glyph: "x".into(),
+        fg: Some(Role::Text),
+        bg: None,
+        bold: true,
+        chip_surface: Some(ChipSurface::Hot),
+        continuation: false,
+    };
+    let serialized = serde_json::to_string(&cell).unwrap();
+    assert_eq!(serde_json::from_str::<Cell>(&serialized).unwrap(), cell);
+    assert!(serialized.contains("\"bold\":true"));
+    assert!(serialized.contains("\"chip_surface\":\"hot\""));
+}
+
+#[test]
+fn empty_section_title_is_a_plain_rule() {
+    let props = SectionRuleProps {
+        title: String::new(),
+        note: None,
+        note_role: None,
+        focused: false,
+    };
+    let mut grid = CellGrid::new(Size {
+        width: 8,
+        height: 1,
+    });
+    SectionRule::render(&props, area(8, 1), &mut grid);
+    assert_eq!(lines(&grid)[0], "────────");
+    assert!((0..8).all(|x| grid.get(x, 0).unwrap().fg == Some(Role::Dim)));
 }

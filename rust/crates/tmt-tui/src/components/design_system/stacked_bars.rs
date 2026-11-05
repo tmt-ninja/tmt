@@ -1,10 +1,12 @@
 use super::{CellGrid, Component, Constraints, HitId, Rect, Size, Token};
 use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct StackedPoint {
     pub used: Option<u64>,
     pub saved: Option<u64>,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StackedBarsProps {
     pub points: Vec<StackedPoint>,
@@ -12,53 +14,57 @@ pub struct StackedBarsProps {
     pub saved_role: Token,
     pub missing_role: Token,
 }
+
 /// Two rows of used and saved values.
 ///
 /// `▁▄█·`
 ///
 /// The series is sampled across the width and clipped to two rows.
 pub struct StackedBars;
+
 impl Component for StackedBars {
     type Props = StackedBarsProps;
-    fn measure(p: &Self::Props, c: Constraints) -> Size {
-        c.clamp(Size {
-            width: p.points.len().min(usize::from(u16::MAX)) as u16,
+    fn measure(props: &Self::Props, constraints: Constraints) -> Size {
+        constraints.clamp(Size {
+            width: props.points.len().min(usize::from(u16::MAX)) as u16,
             height: 2,
         })
     }
-    fn render(p: &Self::Props, a: Rect, b: &mut CellGrid) -> Vec<(Rect, HitId)> {
-        b.clear(a);
-        if a.width == 0 || a.height == 0 {
+
+    fn render(props: &Self::Props, area: Rect, grid: &mut CellGrid) -> Vec<(Rect, HitId)> {
+        grid.clear(area);
+        if area.width == 0 || area.height == 0 {
             return vec![];
         }
-        if p.points.is_empty() {
-            b.text(
-                a,
+        if props.points.is_empty() {
+            grid.text(
+                area,
                 "No aligned used/saved observations yet",
-                p.missing_role.0,
+                props.missing_role.0,
                 None,
             );
             return vec![];
         }
-        let maximum = p
+        let maximum = props
             .points
             .iter()
-            .filter_map(|v| v.used?.checked_add(v.saved.unwrap_or(0)))
+            .filter_map(|item| item.used?.checked_add(item.saved.unwrap_or(0)))
             .max()
             .unwrap_or(1)
             .max(1);
         let blocks = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-        for y in 0..a.height.min(2) {
-            for x in 0..a.width {
-                let point = p.points[usize::from(x) * p.points.len() / usize::from(a.width)];
+        for y in 0..area.height.min(2) {
+            for x in 0..area.width {
+                let point =
+                    props.points[usize::from(x) * props.points.len() / usize::from(area.width)];
                 let rect = Rect {
-                    x: a.x.saturating_add(x),
-                    y: a.y.saturating_add(y),
+                    x: area.x.saturating_add(x),
+                    y: area.y.saturating_add(y),
                     width: 1,
                     height: 1,
                 };
                 let (Some(used), Some(saved)) = (point.used, point.saved) else {
-                    b.text(rect, "·", p.missing_role.0, None);
+                    grid.text(rect, "·", props.missing_role.0, None);
                     continue;
                 };
                 let base = u128::from(1 - y) * 8;
@@ -70,19 +76,23 @@ impl Component for StackedBars {
                     .saturating_sub(base)
                     .min(8) as usize;
                 let (glyph, fg, bg) = if saved_height > 0 && saved_height < height {
-                    (blocks[saved_height], p.saved_role.0, Some(p.used_role.0))
+                    (
+                        blocks[saved_height],
+                        props.saved_role.0,
+                        Some(props.used_role.0),
+                    )
                 } else {
                     (
                         blocks[height],
                         if saved_height > 0 {
-                            p.saved_role.0
+                            props.saved_role.0
                         } else {
-                            p.used_role.0
+                            props.used_role.0
                         },
                         None,
                     )
                 };
-                b.text(rect, glyph, fg, bg);
+                grid.text(rect, glyph, fg, bg);
             }
         }
         vec![]

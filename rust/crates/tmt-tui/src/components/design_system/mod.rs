@@ -2,6 +2,7 @@
 mod contract;
 mod layout;
 mod section_rule;
+mod text;
 pub use contract::*;
 pub use layout::*;
 pub use section_rule::*;

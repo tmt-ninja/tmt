@@ -2,10 +2,7 @@ use super::*;
 use crate::components::design_system::*;
 use ratatui::buffer::Buffer;
 use std::fmt::Write;
-use tmt_cli_style::{
-    Depth, Theme,
-    theme::{Base, screen},
-};
+use tmt_cli_style::{Depth, Theme, theme::Base};
 
 fn record<C: Component>(
     out: &mut String,
@@ -22,7 +19,7 @@ fn record<C: Component>(
             x: 0,
             y: 0,
             width,
-            height: 2,
+            height: if name.starts_with("pane") { 6 } else { 2 },
         },
         &mut grid,
     );
@@ -31,7 +28,8 @@ fn record<C: Component>(
         &grid,
         NativeRect::new(0, 0, width, 2),
         &mut buffer,
-        |role| screen::style(theme, role, depth),
+        theme,
+        depth,
     );
     writeln!(out, "[{name}] hits={hits:?}").unwrap();
     for y in 0..2 {
@@ -87,6 +85,8 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 &SectionRuleProps {
                     title: "Saved · 1d".into(),
                     note: Some("0.9% of input".into()),
+                    note_role: Some(Token(Role::Muted)),
+                    focused: false,
                 },
                 width,
                 &theme,
@@ -99,6 +99,8 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     title: "A long title that must remain visible when the width becomes narrow"
                         .into(),
                     note: Some("a note to drop first".into()),
+                    note_role: Some(Token(Role::Muted)),
+                    focused: false,
                 },
                 width,
                 &theme,
@@ -110,8 +112,24 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     "pane",
                     &PaneRuleProps {
                         title: "Agents".into(),
-                        note: Some("Search".into()),
                         focused,
+                        ascii: false,
+                        back_hint: false,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
+            for focused in [false, true] {
+                record::<PaneRule>(
+                    &mut out,
+                    "pane-ascii-back",
+                    &PaneRuleProps {
+                        title: "Replies".into(),
+                        focused,
+                        ascii: true,
+                        back_hint: true,
                     },
                     width,
                     &theme,
@@ -123,25 +141,30 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     &mut out,
                     "chips",
                     &ChipRowProps {
+                        label: "Range ".into(),
                         chips: vec![
                             Chip {
                                 id: 1,
                                 label: "1d".into(),
+                                gap: " ".into(),
                                 enabled: true,
                             },
                             Chip {
                                 id: 2,
                                 label: "7d".into(),
+                                gap: " ".into(),
                                 enabled: true,
                             },
                             Chip {
                                 id: 3,
                                 label: "30d".into(),
+                                gap: " ".into(),
                                 enabled: false,
                             },
                         ],
                         selected: Some(0),
-                        focused,
+                        cursor: Some(1),
+                        active: focused,
                     },
                     width,
                     &theme,
@@ -152,25 +175,30 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 &mut out,
                 "chips-narrow",
                 &ChipRowProps {
+                    label: "Range ".into(),
                     chips: vec![
                         Chip {
                             id: 10,
                             label: "a long unselected first choice".into(),
+                            gap: " ".into(),
                             enabled: true,
                         },
                         Chip {
                             id: 11,
                             label: "the selected choice survives".into(),
+                            gap: " ".into(),
                             enabled: true,
                         },
                         Chip {
                             id: 12,
                             label: "another lengthy option".into(),
+                            gap: " ".into(),
                             enabled: true,
                         },
                     ],
                     selected: Some(1),
-                    focused: true,
+                    cursor: Some(1),
+                    active: true,
                 },
                 width,
                 &theme,
@@ -182,6 +210,8 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     "gauge",
                     &GaugeProps {
                         label: "usage".into(),
+                        label_width: 17,
+                        total: (denominator != 0).then(|| "655M".into()),
                         numerator: 6,
                         denominator,
                         filled_role: Token(Role::Working),
@@ -288,9 +318,36 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 &mut out,
                 "mark",
                 &MarkProps {
-                    glyph: "●".into(),
+                    state: MarkState::Running,
                     label: "working".into(),
                     role: Token(Role::Working),
+                    bold: false,
+                },
+                width,
+                &theme,
+                depth,
+            );
+            for state in [MarkState::Failed, MarkState::Decision] {
+                record::<Mark>(
+                    &mut out,
+                    "mark-bold",
+                    &MarkProps {
+                        state,
+                        label: "attention".into(),
+                        role: Token(Role::Blocked),
+                        bold: true,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
+            record::<MoreHint>(
+                &mut out,
+                "more-ascii",
+                &MoreHintProps {
+                    count: 2,
+                    ascii: true,
                 },
                 width,
                 &theme,
@@ -299,7 +356,10 @@ fn component_cell_grids_match_all_looks_and_widths() {
             record::<MoreHint>(
                 &mut out,
                 "more",
-                &MoreHintProps { count: 2 },
+                &MoreHintProps {
+                    count: 2,
+                    ascii: false,
+                },
                 width,
                 &theme,
                 depth,
@@ -310,8 +370,9 @@ fn component_cell_grids_match_all_looks_and_widths() {
         env!("CARGO_MANIFEST_DIR"),
         "/src/components/design_system_ratatui/cell-grids.txt"
     );
-    if std::env::var_os("TMT_RECORD_COMPONENT_GRIDS").is_some() {
-        std::fs::write(path, &out).unwrap();
+    if let Some(export) = std::env::var_os("TMT_COMPONENT_GRID_EXPORT") {
+        std::fs::write(export, &out).unwrap();
+    } else {
+        assert_eq!(out, std::fs::read_to_string(path).unwrap());
     }
-    assert_eq!(out, std::fs::read_to_string(path).unwrap());
 }
