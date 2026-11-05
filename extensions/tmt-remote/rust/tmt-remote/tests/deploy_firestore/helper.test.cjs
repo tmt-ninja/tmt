@@ -283,7 +283,10 @@ test('omitted empty field indexes match an explicit empty list without changing 
     const writes = mutations(f);
     assert.equal(writes.length, 1);
     assert.equal(writes[0].method, 'PATCH');
-    assert.equal(writes[0].url, `https://firestore.googleapis.com/v1/${field}?updateMask=indexConfig`);
+    assert.equal(
+      writes[0].url,
+      `https://firestore.googleapis.com/v1/${field}?updateMask=indexConfig`
+    );
     assert.deepEqual(writes[0].body, {
       name: field,
       indexConfig: {
@@ -665,10 +668,13 @@ test('login is re-resolved immediately before each effect, not cached from obser
 
 // Remote-owned API and plain-file fixture; no provider/account acceptance.
 const HOSTED_RAW = Buffer.from('raw');
-const HOSTED_GZIP = require('node:zlib').gzipSync(HOSTED_RAW,{level:6});HOSTED_GZIP[9]=255;
-const HOSTED_GZIP_DIGEST=hash(HOSTED_GZIP);
-const hostedRoots=[];
-after(()=>{for(const root of hostedRoots)fs.rmSync(root,{recursive:true});});
+const HOSTED_GZIP = require('node:zlib').gzipSync(HOSTED_RAW, { level: 6 });
+HOSTED_GZIP[9] = 255;
+const HOSTED_GZIP_DIGEST = hash(HOSTED_GZIP);
+const hostedRoots = [];
+after(() => {
+  for (const root of hostedRoots) fs.rmSync(root, { recursive: true });
+});
 function reservedHostingFiles() {
   return ['/__/firebase/init.js', '/__/firebase/init.json'].map((path) => ({
     path,
@@ -677,10 +683,11 @@ function reservedHostingFiles() {
   }));
 }
 function hostedFixture(siteId = PROJECT) {
-  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'hosting-helper-')));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'hosting-helper-')));
   hostedRoots.push(root);
-  const rawPath=path.join(root,'index.html');fs.writeFileSync(rawPath,HOSTED_RAW);
-  const file={path:rawPath,length:HOSTED_RAW.length,sha256:hash(HOSTED_RAW)};
+  const rawPath = path.join(root, 'index.html');
+  fs.writeFileSync(rawPath, HOSTED_RAW);
+  const file = { path: rawPath, length: HOSTED_RAW.length, sha256: hash(HOSTED_RAW) };
   const files = [
     {
       path: '/index.html',
@@ -704,9 +711,16 @@ function hostedFixture(siteId = PROJECT) {
     http: async (url, options) => {
       const { method } = options;
       let payload;
-      if(options.body?.pipe) {
-        const chunks=[];for await(const bytes of options.body)chunks.push(bytes);payload=Buffer.concat(chunks);
-      } else payload=Buffer.isBuffer(options.body)?options.body:options.body?JSON.parse(options.body):null;
+      if (options.body?.pipe) {
+        const chunks = [];
+        for await (const bytes of options.body) chunks.push(bytes);
+        payload = Buffer.concat(chunks);
+      } else
+        payload = Buffer.isBuffer(options.body)
+          ? options.body
+          : options.body
+            ? JSON.parse(options.body)
+            : null;
       calls.push({ url, method, payload });
       if (url.endsWith('/oauth2/v3/userinfo'))
         return { status: 200, body: { email: ACCOUNT, email_verified: true } };
@@ -775,8 +789,8 @@ function hostedFixture(siteId = PROJECT) {
         const status = new URL(url).searchParams.get('status') ?? 'EXPECTED';
         assert.ok(['EXPECTED', 'ACTIVE'].includes(status));
         const files = state.files.filter((file) => file.status === status);
-        const pageSize=Number(new URL(url).searchParams.get('pageSize'));
-        assert.equal(pageSize,1000);
+        const pageSize = Number(new URL(url).searchParams.get('pageSize'));
+        assert.equal(pageSize, 1000);
         if (files.length <= pageSize) return ok({ files });
         const offset = Number(new URL(url).searchParams.get('pageToken') ?? 0);
         assert.ok(Number.isInteger(offset) && offset >= 0);
@@ -797,24 +811,34 @@ function hostedFixture(siteId = PROJECT) {
         return ok({
           ...(state.omitRequired
             ? {}
-            : { uploadRequiredHashes: state.files.filter((f) => f.status === 'EXPECTED').map((f) => f.hash) }),
+            : {
+                uploadRequiredHashes: state.files
+                  .filter((f) => f.status === 'EXPECTED')
+                  .map((f) => f.hash),
+              }),
           uploadUrl:
             state.uploadUrl ??
             `https://upload-firebasehosting.googleapis.com/upload/sites/${siteId}/versions/one/files`,
         });
       }
       if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
-        assert.deepEqual(payload,HOSTED_GZIP);
-        state.files
-          .filter((f) => url.endsWith('/' + f.hash))
-          .forEach((f) => (f.status = 'ACTIVE'));
+        assert.deepEqual(payload, HOSTED_GZIP);
+        state.files.filter((f) => url.endsWith('/' + f.hash)).forEach((f) => (f.status = 'ACTIVE'));
         return ok(null);
       }
       if (route === `/v1beta1/sites/${siteId}/channels/live`)
-        return ok(state.live ? { release: {
-          ...state.live,
-          ...(Object.hasOwn(state, 'channelReleaseName') ? { name: state.channelReleaseName } : {}),
-        } } : {});
+        return ok(
+          state.live
+            ? {
+                release: {
+                  ...state.live,
+                  ...(Object.hasOwn(state, 'channelReleaseName')
+                    ? { name: state.channelReleaseName }
+                    : {}),
+                },
+              }
+            : {}
+        );
       if (route === `/v1beta1/sites/${siteId}/releases`) {
         assert.equal(new URL(url).searchParams.get('versionName'), state.versions[0].name);
         state.live = { name: `sites/${siteId}/releases/one`, version: state.versions[0] };
@@ -877,7 +901,10 @@ test('selected-site app association, publication and read-back never target the 
   for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   const file = x.input.hosting.content.files[0];
-  assert.equal((await x.call('apply-hosting', 'upload', { hash: file.gzipDigest, file: x.file })).state, 'done');
+  assert.equal(
+    (await x.call('apply-hosting', 'upload', { hash: file.gzipDigest, file: x.file })).state,
+    'done'
+  );
   for (const action of ['finalize', 'release'])
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   await x.call('verify-hosting', 'verify');
@@ -889,7 +916,9 @@ test('selected-site app association, publication and read-back never target the 
   assert.equal(x.state.site.defaultUrl, `https://${site}.web.app`);
   const requests = x.calls.filter((call) => call.url.includes('firebasehosting'));
   assert.ok(!requests.some((call) => new URL(call.url).pathname.includes(`/sites/${PROJECT}/`)));
-  const creates = requests.filter((call) => call.method === 'POST' && new URL(call.url).pathname.endsWith('/sites'));
+  const creates = requests.filter(
+    (call) => call.method === 'POST' && new URL(call.url).pathname.endsWith('/sites')
+  );
   assert.equal(creates.length, 1);
   assert.equal(new URL(creates[0].url).searchParams.get('siteId'), site);
 });
@@ -966,7 +995,10 @@ test('Hosting reserved files plus 15 planned files complete every later file che
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   await x.call('verify-hosting', 'verify');
   assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
-  const inventory = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
+  const inventory = await execute(
+    request('hosting-inventory', { project: PROJECT, site: PROJECT }),
+    x.f
+  );
   assert.deepEqual(
     inventory.live.files,
     x.input.hosting.content.files.map((file) => ({
@@ -977,27 +1009,65 @@ test('Hosting reserved files plus 15 planned files complete every later file che
   );
 });
 
-test('Hosting has no 256-file inventory cap and retains the provider listing parse bound',async()=>{
-  for(const [count,includeReserved,passes] of [[257,true,true],[10000,false,true],[10001,false,false]]) {
-    const x=hostedFixture();const first=x.input.hosting.content.files[0];
-    x.input.hosting.content.files=Array.from({length:Math.min(count,10000)},(_,i)=>({...first,path:`/file-${String(i).padStart(5,'0')}.html`}));
-    await x.call('apply-hosting','create');
-    x.state.files=[...(includeReserved?reservedHostingFiles():[]),...Array.from({length:count},(_,i)=>({path:`/file-${String(i).padStart(5,'0')}.html`,hash:first.gzipDigest,status:'ACTIVE'}))];
-    if(passes)assert.equal((await x.call('apply-hosting','populate')).state,'done');
-    else await assert.rejects(()=>x.call('apply-hosting','populate'),(error)=>{assert.equal(error.code,'unknown');assert.equal(error.cause.code,'inventory-incomplete');return true;});
-    assert.equal(x.calls.filter((c)=>c.url.endsWith(':populateFiles')).length,0);
+test('Hosting has no 256-file inventory cap and retains the provider listing parse bound', async () => {
+  for (const [count, includeReserved, passes] of [
+    [257, true, true],
+    [10000, false, true],
+    [10001, false, false],
+  ]) {
+    const x = hostedFixture();
+    const first = x.input.hosting.content.files[0];
+    x.input.hosting.content.files = Array.from({ length: Math.min(count, 10000) }, (_, i) => ({
+      ...first,
+      path: `/file-${String(i).padStart(5, '0')}.html`,
+    }));
+    await x.call('apply-hosting', 'create');
+    x.state.files = [
+      ...(includeReserved ? reservedHostingFiles() : []),
+      ...Array.from({ length: count }, (_, i) => ({
+        path: `/file-${String(i).padStart(5, '0')}.html`,
+        hash: first.gzipDigest,
+        status: 'ACTIVE',
+      })),
+    ];
+    if (passes) assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+    else
+      await assert.rejects(
+        () => x.call('apply-hosting', 'populate'),
+        (error) => {
+          assert.equal(error.code, 'unknown');
+          assert.equal(error.cause.code, 'inventory-incomplete');
+          return true;
+        }
+      );
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
   }
 });
 
-for(const swap of ['symlink','different','truncated','grown'])test(`Hosting refuses capture-to-upload ${swap} swap with no upload`,async()=>{
-  const x=hostedFixture();for(const action of ['web-app','site','configure','create','populate'])await x.call('apply-hosting',action);
-  if(swap==='symlink'){fs.renameSync(x.file.path,x.file.path+'.original');fs.symlinkSync(x.file.path+'.original',x.file.path);}
-  else fs.writeFileSync(x.file.path,swap==='different'?'bad':swap==='truncated'?'r':'grown');
-  await failure(()=>x.call('apply-hosting','upload',{hash:HOSTED_GZIP_DIGEST,file:x.file}),'provider-rejected');
-  assert.equal(x.calls.filter((c)=>c.url.startsWith('https://upload-firebasehosting.')).length,0);
-  assert(x.state.files.some((file)=>file.status==='EXPECTED'));
-  assert.equal(x.state.live,null);
-});
+for (const swap of ['symlink', 'different', 'truncated', 'grown'])
+  test(`Hosting refuses capture-to-upload ${swap} swap with no upload`, async () => {
+    const x = hostedFixture();
+    for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
+      await x.call('apply-hosting', action);
+    if (swap === 'symlink') {
+      fs.renameSync(x.file.path, x.file.path + '.original');
+      fs.symlinkSync(x.file.path + '.original', x.file.path);
+    } else
+      fs.writeFileSync(
+        x.file.path,
+        swap === 'different' ? 'bad' : swap === 'truncated' ? 'r' : 'grown'
+      );
+    await failure(
+      () => x.call('apply-hosting', 'upload', { hash: HOSTED_GZIP_DIGEST, file: x.file }),
+      'provider-rejected'
+    );
+    assert.equal(
+      x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
+      0
+    );
+    assert(x.state.files.some((file) => file.status === 'EXPECTED'));
+    assert.equal(x.state.live, null);
+  });
 
 test('Hosting validates reserved rows before exclusion and never exempts user hash drift', async () => {
   for (const mode of ['hash', 'duplicate', 'status', 'conflict', 'user-hash']) {
@@ -1039,7 +1109,10 @@ test('Hosting inventory admits an omitted default WebApp display name without an
     projectId: PROJECT,
     state: 'ACTIVE',
   });
-  const observed = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
+  const observed = await execute(
+    request('hosting-inventory', { project: PROJECT, site: PROJECT }),
+    x.f
+  );
   assert.deepEqual(observed.webApps, [{ id: '1:123:web:other', displayName: '', state: 'ACTIVE' }]);
   assert.equal((await x.call('observe-hosting', 'web-app')).state, 'absent');
   assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
@@ -1078,7 +1151,10 @@ test('Hosting omitted-name admission still refuses malformed or foreign WebApps 
   ]) {
     const x = hostedFixture();
     x.state.apps.push(value);
-    await failure(() => execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f), 'unknown');
+    await failure(
+      () => execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f),
+      'unknown'
+    );
     assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
   }
 });
@@ -1109,7 +1185,10 @@ test('Hosting retains an old foreign fingerprint and refuses before release, but
       return { status: 200, body: previous };
     return http(url.replace('/versions/previous/files', '/versions/one/files'), options, deadline);
   };
-  const observed = await execute(request('hosting-inventory', { project: PROJECT, site: PROJECT }), x.f);
+  const observed = await execute(
+    request('hosting-inventory', { project: PROJECT, site: PROJECT }),
+    x.f
+  );
   const canonical = (value) =>
     Array.isArray(value)
       ? value.map(canonical)
@@ -1151,35 +1230,52 @@ test('Hosting retains an old foreign fingerprint and refuses before release, but
 
 test('Hosting admits either same-site live release name without rewriting it', async () => {
   const names = [`sites/${PROJECT}/releases/one`, `sites/${PROJECT}/channels/live/releases/one`];
-  for (const post of names) for (const channel of names) {
-    const x = await finalizedHostingFixture();
-    x.state.postReleaseName = post;
-    x.state.channelReleaseName = channel;
-    assert.equal((await x.call('apply-hosting', 'release')).state, 'done');
-    assert.equal((await x.call('verify-hosting', 'verify')).release, channel);
-    assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
-    assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
-  }
+  for (const post of names)
+    for (const channel of names) {
+      const x = await finalizedHostingFixture();
+      x.state.postReleaseName = post;
+      x.state.channelReleaseName = channel;
+      assert.equal((await x.call('apply-hosting', 'release')).state, 'done');
+      assert.equal((await x.call('verify-hosting', 'verify')).release, channel);
+      assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
+      assert.equal(
+        x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+        1
+      );
+    }
 });
 
 test('Hosting refuses hostile release answers and mismatched live release identities without a second POST', async () => {
   const hostile = [
-    `sites/other-site/releases/one`, `sites/${PROJECT}/channels/preview/releases/one`,
-    `sites/${PROJECT}/releases/`, `sites/${PROJECT}/channels/live/releases/`,
-    `sites/${PROJECT}/releases/one/extra`, `sites/${PROJECT}/channels/live/releases/one/extra`,
-    `sites/${PROJECT}/releases/one?extra`, `sites/${PROJECT}/releases/${'a'.repeat(257)}`, null, undefined,
+    `sites/other-site/releases/one`,
+    `sites/${PROJECT}/channels/preview/releases/one`,
+    `sites/${PROJECT}/releases/`,
+    `sites/${PROJECT}/channels/live/releases/`,
+    `sites/${PROJECT}/releases/one/extra`,
+    `sites/${PROJECT}/channels/live/releases/one/extra`,
+    `sites/${PROJECT}/releases/one?extra`,
+    `sites/${PROJECT}/releases/${'a'.repeat(257)}`,
+    null,
+    undefined,
   ];
-  for (const field of ['postReleaseName', 'channelReleaseName']) for (const name of hostile) {
-    const x = await finalizedHostingFixture();
-    x.state[field] = name;
-    await failure(() => x.call('apply-hosting', 'release'), 'unknown');
-    assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
-  }
+  for (const field of ['postReleaseName', 'channelReleaseName'])
+    for (const name of hostile) {
+      const x = await finalizedHostingFixture();
+      x.state[field] = name;
+      await failure(() => x.call('apply-hosting', 'release'), 'unknown');
+      assert.equal(
+        x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+        1
+      );
+    }
   const x = await finalizedHostingFixture();
   x.state.postReleaseName = `sites/${PROJECT}/releases/one`;
   x.state.channelReleaseName = `sites/${PROJECT}/channels/live/releases/two`;
   await failure(() => x.call('apply-hosting', 'release'), 'unknown');
-  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+  assert.equal(
+    x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+    1
+  );
 });
 
 test('Hosting verification compares release identity across aliases and refuses changed IDs', async () => {
@@ -1187,25 +1283,41 @@ test('Hosting verification compares release identity across aliases and refuses 
   await alias.call('apply-hosting', 'release');
   const names = [`sites/${PROJECT}/releases/one`, `sites/${PROJECT}/channels/live/releases/one`];
   let aliasReads = 0;
-  Object.defineProperty(alias.state, 'channelReleaseName', { get() {
-    return names[aliasReads++ % names.length];
-  } });
+  Object.defineProperty(alias.state, 'channelReleaseName', {
+    get() {
+      return names[aliasReads++ % names.length];
+    },
+  });
   assert.ok(names.includes((await alias.call('verify-hosting', 'verify')).release));
   const x = await finalizedHostingFixture();
   await x.call('apply-hosting', 'release');
   let reads = 0;
-  Object.defineProperty(x.state, 'channelReleaseName', { get() {
-    return ++reads === 1 ? `sites/${PROJECT}/releases/one`
-      : `sites/${PROJECT}/channels/live/releases/two`;
-  } });
+  Object.defineProperty(x.state, 'channelReleaseName', {
+    get() {
+      return ++reads === 1
+        ? `sites/${PROJECT}/releases/one`
+        : `sites/${PROJECT}/channels/live/releases/two`;
+    },
+  });
   await failure(() => x.call('verify-hosting', 'verify'), 'unknown');
-  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length, 1);
+  assert.equal(
+    x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+    1
+  );
 });
 
 test('Hosting requires the supplied Rust content digest before any provider read', async () => {
   const valid = hostedFixture();
   assert.equal((await valid.call('observe-hosting', 'web-app')).state, 'absent');
-  for (const digest of [undefined, null, ['c'.repeat(64)], '', 'a'.repeat(63), 'A'.repeat(64), 'g'.repeat(64)]) {
+  for (const digest of [
+    undefined,
+    null,
+    ['c'.repeat(64)],
+    '',
+    'a'.repeat(63),
+    'A'.repeat(64),
+    'g'.repeat(64),
+  ]) {
     const f = hostedFixture();
     if (digest === undefined) delete f.input.contentDigest;
     else f.input.contentDigest = digest;
@@ -1687,7 +1799,14 @@ test('partial Hosting inventory records a closed list cause before any populate 
         phase: 'list',
         httpStatusClass: '2xx',
         files: { planned: 1, expected: 1, active: 0, listed: 1, missing: 1, extra: 1 },
-        fileSamples: [{ path: '/different.html', status: 'EXPECTED', hashPrefix: 'cccccccc', relation: 'path-missing' }],
+        fileSamples: [
+          {
+            path: '/different.html',
+            status: 'EXPECTED',
+            hashPrefix: 'cccccccc',
+            relation: 'path-missing',
+          },
+        ],
       });
       assert.ok(!JSON.stringify(error.cause).includes(PROJECT));
       return error.code === 'unknown';
@@ -2120,74 +2239,117 @@ function ownerFixture(initial = []) {
     const prefix = 'https://firestore.googleapis.com/v1/';
     assert.ok(url.startsWith(prefix), 'owner helper uses only the fixed Firestore endpoint');
     const name = url.slice(prefix.length);
-    if (options.method === 'GET') return docs.has(name)
-      ? {status:200,body:structuredClone(docs.get(name))}
-      : {status:404,body:{error:{status:'NOT_FOUND'}}};
+    if (options.method === 'GET')
+      return docs.has(name)
+        ? { status: 200, body: structuredClone(docs.get(name)) }
+        : { status: 404, body: { error: { status: 'NOT_FOUND' } } };
     assert.equal(name, `${database}/documents:commit`);
-    const {writes} = JSON.parse(options.body);
+    const { writes } = JSON.parse(options.body);
     for (const write of writes) {
-      if (write.delete) { docs.delete(write.delete); continue; }
+      if (write.delete) {
+        docs.delete(write.delete);
+        continue;
+      }
       const old = docs.get(write.update.name);
       if (write.currentDocument?.exists === false) assert.equal(old, undefined);
-      if (write.currentDocument?.updateTime) assert.equal(old?.updateTime, write.currentDocument.updateTime);
-      const fields = write.updateMask ? {...old.fields,...write.update.fields} : write.update.fields;
-      docs.set(write.update.name,{name:write.update.name,fields,updateTime:'2026-10-24T00:00:00Z'});
+      if (write.currentDocument?.updateTime)
+        assert.equal(old?.updateTime, write.currentDocument.updateTime);
+      const fields = write.updateMask
+        ? { ...old.fields, ...write.update.fields }
+        : write.update.fields;
+      docs.set(write.update.name, {
+        name: write.update.name,
+        fields,
+        updateTime: '2026-10-24T00:00:00Z',
+      });
     }
-    return {status:200,body:{commitTime:'2026-10-24T00:00:00Z',writeResults:writes.map(()=>({updateTime:'2026-10-24T00:00:00Z'}))}};
+    return {
+      status: 200,
+      body: {
+        commitTime: '2026-10-24T00:00:00Z',
+        writeResults: writes.map(() => ({ updateTime: '2026-10-24T00:00:00Z' })),
+      },
+    };
   });
-  return {docs,f};
+  return { docs, f };
 }
-function ownerInput(extra={}) {
-  return {project:PROJECT,machine:ID,uid:'native-owner',authenticationKey:Buffer.alloc(32,9).toString('base64'),descriptor:Buffer.from('fixed descriptor').toString('base64'),...extra};
+function ownerInput(extra = {}) {
+  return {
+    project: PROJECT,
+    machine: ID,
+    uid: 'native-owner',
+    authenticationKey: Buffer.alloc(32, 9).toString('base64'),
+    descriptor: Buffer.from('fixed descriptor').toString('base64'),
+    ...extra,
+  };
 }
 test('owner access is explicit, observed on rerun and never replaces another native pin', async () => {
-  const {docs,f}=ownerFixture();
-  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'absent');
-  assert.equal(mutations(f).length,0);
-  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
-  assert.equal(mutations(f).length,1);
-  const root=`${database}/documents/m/${ID}`;
-  assert.deepEqual(docs.get(root).fields,{uid:{stringValue:'native-owner'},authenticationKey:{bytesValue:ownerInput().authenticationKey},descriptor:{bytesValue:ownerInput().descriptor}});
-  assert.deepEqual(docs.get(`${database}/documents/owners/native-owner`).fields,{machine:{stringValue:ID}});
-  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'satisfied');
-  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
-  assert.equal(mutations(f).length,1,'an exact rerun writes nothing');
-  docs.get(root).fields.authenticationKey.bytesValue=Buffer.alloc(32,8).toString('base64');
-  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'owner-conflict');
-  assert.equal(mutations(f).length,1);
+  const { docs, f } = ownerFixture();
+  assert.equal(await execute(request('observe-owner-access', ownerInput()), f), 'absent');
+  assert.equal(mutations(f).length, 0);
+  assert.equal(await execute(request('apply-owner-access', ownerInput()), f), 'done');
+  assert.equal(mutations(f).length, 1);
+  const root = `${database}/documents/m/${ID}`;
+  assert.deepEqual(docs.get(root).fields, {
+    uid: { stringValue: 'native-owner' },
+    authenticationKey: { bytesValue: ownerInput().authenticationKey },
+    descriptor: { bytesValue: ownerInput().descriptor },
+  });
+  assert.deepEqual(docs.get(`${database}/documents/owners/native-owner`).fields, {
+    machine: { stringValue: ID },
+  });
+  assert.equal(await execute(request('observe-owner-access', ownerInput()), f), 'satisfied');
+  assert.equal(await execute(request('apply-owner-access', ownerInput()), f), 'done');
+  assert.equal(mutations(f).length, 1, 'an exact rerun writes nothing');
+  docs.get(root).fields.authenticationKey.bytesValue = Buffer.alloc(32, 8).toString('base64');
+  await failure(() => execute(request('apply-owner-access', ownerInput()), f), 'owner-conflict');
+  assert.equal(mutations(f).length, 1);
 });
 test('owner uid recovery preserves native key and descriptor and retires only its prior allow-list row', async () => {
-  const root=`${database}/documents/m/${ID}`;
-  const original={uid:{stringValue:'old-owner'},authenticationKey:{bytesValue:ownerInput().authenticationKey},descriptor:{bytesValue:Buffer.from('retained descriptor').toString('base64')}};
-  const {docs,f}=ownerFixture([
-    [root,{name:root,fields:structuredClone(original),updateTime:'2026-10-23T00:00:00Z'}],
-    [`${database}/documents/owners/old-owner`,{fields:{machine:{stringValue:ID}},updateTime:'2026-10-23T00:00:00Z'}],
+  const root = `${database}/documents/m/${ID}`;
+  const original = {
+    uid: { stringValue: 'old-owner' },
+    authenticationKey: { bytesValue: ownerInput().authenticationKey },
+    descriptor: { bytesValue: Buffer.from('retained descriptor').toString('base64') },
+  };
+  const { docs, f } = ownerFixture([
+    [root, { name: root, fields: structuredClone(original), updateTime: '2026-10-23T00:00:00Z' }],
+    [
+      `${database}/documents/owners/old-owner`,
+      { fields: { machine: { stringValue: ID } }, updateTime: '2026-10-23T00:00:00Z' },
+    ],
   ]);
-  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
-  assert.deepEqual(docs.get(root).fields,{...original,uid:{stringValue:'native-owner'}});
-  assert.equal(docs.has(`${database}/documents/owners/old-owner`),false);
-  const write=mutations(f)[0].body.writes.find(w=>w.update?.name===root);
-  assert.deepEqual(write.updateMask,{fieldPaths:['uid']});
-  assert.deepEqual(write.currentDocument,{updateTime:'2026-10-23T00:00:00Z'});
-  const attempts=mutations(f).length;
-  docs.get(root).fields.invitingOwner={stringValue:'11111111-1111-4111-8111-111111111111'};
-  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'owner-conflict');
-  assert.equal(mutations(f).length,attempts,'admin recovery cannot erase inviter provenance');
+  assert.equal(await execute(request('apply-owner-access', ownerInput()), f), 'done');
+  assert.deepEqual(docs.get(root).fields, { ...original, uid: { stringValue: 'native-owner' } });
+  assert.equal(docs.has(`${database}/documents/owners/old-owner`), false);
+  const write = mutations(f)[0].body.writes.find((w) => w.update?.name === root);
+  assert.deepEqual(write.updateMask, { fieldPaths: ['uid'] });
+  assert.deepEqual(write.currentDocument, { updateTime: '2026-10-23T00:00:00Z' });
+  const attempts = mutations(f).length;
+  docs.get(root).fields.invitingOwner = { stringValue: '11111111-1111-4111-8111-111111111111' };
+  await failure(() => execute(request('apply-owner-access', ownerInput()), f), 'owner-conflict');
+  assert.equal(mutations(f).length, attempts, 'admin recovery cannot erase inviter provenance');
 });
 
 test('a lost owner-access commit answer is observed without another mutation or pin change', async () => {
-  const {docs,f}=ownerFixture();
-  const send=f.http;
-  let lost=true;
-  f.http=async (url,options)=>{
-    const answer=await send(url,options);
-    if (lost && options.method==='POST') { lost=false; throw Error(CANARY); }
+  const { docs, f } = ownerFixture();
+  const send = f.http;
+  let lost = true;
+  f.http = async (url, options) => {
+    const answer = await send(url, options);
+    if (lost && options.method === 'POST') {
+      lost = false;
+      throw Error(CANARY);
+    }
     return answer;
   };
-  await failure(()=>execute(request('apply-owner-access',ownerInput()),f),'unknown');
-  assert.equal(mutations(f).length,1);
-  assert.equal(await execute(request('observe-owner-access',ownerInput()),f),'satisfied');
-  assert.equal(await execute(request('apply-owner-access',ownerInput()),f),'done');
-  assert.equal(mutations(f).length,1);
-  assert.equal(docs.get(`${database}/documents/m/${ID}`).fields.authenticationKey.bytesValue,ownerInput().authenticationKey);
+  await failure(() => execute(request('apply-owner-access', ownerInput()), f), 'unknown');
+  assert.equal(mutations(f).length, 1);
+  assert.equal(await execute(request('observe-owner-access', ownerInput()), f), 'satisfied');
+  assert.equal(await execute(request('apply-owner-access', ownerInput()), f), 'done');
+  assert.equal(mutations(f).length, 1);
+  assert.equal(
+    docs.get(`${database}/documents/m/${ID}`).fields.authenticationKey.bytesValue,
+    ownerInput().authenticationKey
+  );
 });

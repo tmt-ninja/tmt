@@ -79,8 +79,7 @@ be real, with supported bare content types. There are no product file-count, per
 byte caps. The manifest must fit the 256 KiB reply bound, and its portable metadata must keep
 `deploy-declaration` within 64 KiB.
 Non-renderer manifest files carry the hosted CSP with exactly the three Firebase connect hosts;
-native parent and renderer policies retain their existing boundaries. Runtime bytes and the
-canonical manifest is a Cargo snapshot; hosted bytes remain plain release files. Explicitly
+native parent and renderer policies retain their existing boundaries. The canonical manifest is a Cargo snapshot; hosted bytes remain plain release files. Explicitly
 marked `/assets/` files whose 16 lowercase hex hash suffix matches the verified SHA-256 prefix receive immutable caching; other cache policies stay unchanged.
 
 `tmt colab deploy-declaration --json` adds the canonical manifest as the declaration's last

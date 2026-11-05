@@ -19,7 +19,7 @@ export function colabFixtureBinary(root: string): string {
   accessSync(source, constants.X_OK);
   const executable = path.join(root, 'colab-fixture');
   writeExecutable(executable, readFileSync(source), 0o700);
-  mkdirSync(path.join(root,'dist-hosted'),{recursive:true});
-  writeFileSync(path.join(root,'dist-hosted/index.html'),'a');
+  mkdirSync(path.join(root, 'dist-hosted'), { recursive: true });
+  writeFileSync(path.join(root, 'dist-hosted/index.html'), 'a');
   return executable;
 }

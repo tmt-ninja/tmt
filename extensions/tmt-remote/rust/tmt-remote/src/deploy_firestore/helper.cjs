@@ -177,20 +177,46 @@ function validate(request) {
     (!Array.isArray(i.permissions) ||
       i.permissions.length === 0 ||
       i.permissions.length > PERMISSION_COUNT ||
-      i.permissions.some(permission =>
-        typeof permission !== 'string' || permission.length > PERMISSION_BYTES ||
-        !/^[a-z][a-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*){2,}$/.test(permission)) ||
+      i.permissions.some(
+        (permission) =>
+          typeof permission !== 'string' ||
+          permission.length > PERMISSION_BYTES ||
+          !/^[a-z][a-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*){2,}$/.test(permission)
+      ) ||
       new Set(i.permissions).size !== i.permissions.length)
-  ) fail('provider-rejected');
+  )
+    fail('provider-rejected');
   if (i.project !== undefined && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(i.project))
     fail('provider-rejected');
-  if (request.operation === 'owner-access-config' &&
-      (typeof i.appId !== 'string' || !i.appId || i.appId.length > 256 || /[\x00-\x1f\x7f/]/.test(i.appId))) fail('provider-rejected');
+  if (
+    request.operation === 'owner-access-config' &&
+    (typeof i.appId !== 'string' ||
+      !i.appId ||
+      i.appId.length > 256 ||
+      /[\x00-\x1f\x7f/]/.test(i.appId))
+  )
+    fail('provider-rejected');
   if (request.operation.endsWith('-owner-access')) {
-    const uid = (v) => typeof v === 'string' && v.length > 0 && v.length <= 128 && !['.','..'].includes(v) && !/[\x00-\x1f\x7f/]/.test(v);
-    const encoded = (v, max) => typeof v === 'string' && v.length <= Math.ceil(max / 3) * 4 && Buffer.from(v, 'base64').length > 0 && Buffer.from(v, 'base64').length <= max && Buffer.from(v, 'base64').toString('base64') === v;
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i.machine) || !uid(i.uid) ||
-        !encoded(i.authenticationKey, 32) || Buffer.from(i.authenticationKey, 'base64').length !== 32 || !encoded(i.descriptor, CLOUD_DESCRIPTOR_BYTES)) fail('provider-rejected');
+    const uid = (v) =>
+      typeof v === 'string' &&
+      v.length > 0 &&
+      v.length <= 128 &&
+      !['.', '..'].includes(v) &&
+      !/[\x00-\x1f\x7f/]/.test(v);
+    const encoded = (v, max) =>
+      typeof v === 'string' &&
+      v.length <= Math.ceil(max / 3) * 4 &&
+      Buffer.from(v, 'base64').length > 0 &&
+      Buffer.from(v, 'base64').length <= max &&
+      Buffer.from(v, 'base64').toString('base64') === v;
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(i.machine) ||
+      !uid(i.uid) ||
+      !encoded(i.authenticationKey, 32) ||
+      Buffer.from(i.authenticationKey, 'base64').length !== 32 ||
+      !encoded(i.descriptor, CLOUD_DESCRIPTOR_BYTES)
+    )
+      fail('provider-rejected');
   }
   if (i.location !== undefined && !/^[a-z0-9-]{1,32}$/.test(i.location)) fail('provider-rejected');
   if (i.provider !== undefined && !['anonymous', 'google.com'].includes(i.provider))
@@ -217,10 +243,12 @@ function validate(request) {
     if (!Array.isArray(i.composites) || i.composites.length > 200) fail('provider-rejected');
     i.composites.forEach(compositeInput);
   }
-  const siteId = (value) => typeof value === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(value);
+  const siteId = (value) =>
+    typeof value === 'string' && /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(value);
   if (request.operation === 'hosting-inventory' && !siteId(i.site)) fail('provider-rejected');
   if (request.operation.endsWith('-hosting')) {
-    if (!siteId(i.hosting?.site) || i.hosting.publicUrl !== `https://${i.hosting.site}.web.app`) fail('provider-rejected');
+    if (!siteId(i.hosting?.site) || i.hosting.publicUrl !== `https://${i.hosting.site}.web.app`)
+      fail('provider-rejected');
     if (
       !/^[0-9a-f]{64}$/.test(i.planDigest) ||
       typeof i.contentDigest !== 'string' ||
@@ -346,7 +374,11 @@ function providerOperation(service, route) {
     return 'project';
   }
   if (service === 'firestore') {
-    if (parts[4] === 'documents:commit' || (parts[4] === 'documents' && ['m','owners'].includes(parts[5]))) return 'owner-registration';
+    if (
+      parts[4] === 'documents:commit' ||
+      (parts[4] === 'documents' && ['m', 'owners'].includes(parts[5]))
+    )
+      return 'owner-registration';
     if (parts[4] === 'collectionGroups' && parts[6] === 'fields') return 'fields';
     if (parts[4] === 'collectionGroups' && parts[6] === 'indexes') return 'indexes';
     return 'database';
@@ -367,7 +399,7 @@ async function fetchJson(url, options, deadline) {
   try {
     response = await fetch(url, {
       ...options,
-      ...(options.body?.pipe ? {duplex: 'half'} : {}),
+      ...(options.body?.pipe ? { duplex: 'half' } : {}),
       redirect: 'error',
       signal: AbortSignal.timeout(Math.min(left, 20000)),
     });
@@ -495,12 +527,20 @@ async function execute(request, deps) {
       fail(fault(reply, reply.body), { operation: 'permission-probe', status: reply.status });
     }
     const body = reply.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body) ||
-        Object.keys(body).some(key => key !== 'permissions')) fail('unknown');
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      Array.isArray(body) ||
+      Object.keys(body).some((key) => key !== 'permissions')
+    )
+      fail('unknown');
     const granted = body.permissions === undefined ? [] : body.permissions;
-    if (!Array.isArray(granted) ||
-        granted.some(permission => !i.permissions.includes(permission)) ||
-        new Set(granted).size !== granted.length) fail('unknown');
+    if (
+      !Array.isArray(granted) ||
+      granted.some((permission) => !i.permissions.includes(permission)) ||
+      new Set(granted).size !== granted.length
+    )
+      fail('unknown');
     return granted;
   }
   async function api(
@@ -554,8 +594,11 @@ async function execute(request, deps) {
   }
   async function pages(service, route, key) {
     const pageSize =
-      service === 'hosting' && key === 'files' ? HOSTING_LIST_PAGE_FILES :
-      service === 'rules' || (service === 'hosting' && key === 'versions') ? 100 : 200;
+      service === 'hosting' && key === 'files'
+        ? HOSTING_LIST_PAGE_FILES
+        : service === 'rules' || (service === 'hosting' && key === 'versions')
+          ? 100
+          : 200;
     const all = [];
     let token = '';
     const seen = new Set();
@@ -570,7 +613,7 @@ async function execute(request, deps) {
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key])))
         fail('unknown', undefined, { code: 'inventory-incomplete' });
-      const rowBound=service==='hosting' && key==='files' ? HOSTING_LIST_PAGE_FILES : 200;
+      const rowBound = service === 'hosting' && key === 'files' ? HOSTING_LIST_PAGE_FILES : 200;
       if ((result[key] ?? []).length > rowBound)
         fail('unknown', undefined, { code: 'inventory-incomplete' });
       all.push(...(result[key] ?? []));
@@ -610,7 +653,10 @@ async function execute(request, deps) {
   }
   function releaseIdentity(name) {
     if (typeof name !== 'string') fail('unknown');
-    for (const prefix of [`sites/${targetSite}/releases/`, `sites/${targetSite}/channels/live/releases/`]) {
+    for (const prefix of [
+      `sites/${targetSite}/releases/`,
+      `sites/${targetSite}/channels/live/releases/`,
+    ]) {
       if (name.startsWith(prefix)) {
         resource(name, prefix);
         return { site: targetSite, id: name.slice(prefix.length) };
@@ -668,7 +714,10 @@ async function execute(request, deps) {
         new Set(listed.map((f) => f?.path)).size !== listed.length ||
         listed.some(
           (f) =>
-            !f || typeof f.path !== 'string' || !/^[0-9a-f]{64}$/.test(f.hash) || f.status !== status
+            !f ||
+            typeof f.path !== 'string' ||
+            !/^[0-9a-f]{64}$/.test(f.hash) ||
+            f.status !== status
         )
       )
         fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
@@ -698,8 +747,13 @@ async function execute(request, deps) {
     );
     if (site === null)
       return {
-        inventory: { siteExists: false, siteAppId: null, siteAppConfig: null,
-          webApps: await apps(), live: null },
+        inventory: {
+          siteExists: false,
+          siteAppId: null,
+          siteAppConfig: null,
+          webApps: await apps(),
+          live: null,
+        },
         releaseName: null,
       };
     if (
@@ -707,7 +761,13 @@ async function execute(request, deps) {
       site.defaultUrl !== `https://${targetSite}.web.app`
     )
       fail('unknown');
-    const channel = await api('hosting', `sites/${targetSite}/channels/live`, 'GET', undefined, true);
+    const channel = await api(
+      'hosting',
+      `sites/${targetSite}/channels/live`,
+      'GET',
+      undefined,
+      true
+    );
     let live = null;
     if (channel?.release) {
       const identity = releaseIdentity(channel.release.name);
@@ -897,15 +957,14 @@ async function execute(request, deps) {
     async function exactLive() {
       const observed = await liveHosting(expectedReleaseName);
       const live = observed.inventory.live;
-      const exact = (
+      const exact =
         live &&
         live.version === cp.version &&
         stable(live.files) === stable(files) &&
         stable(live.config) === stable(h.content.config) &&
         live.deploymentId === i.deployment &&
         live.planDigestPrefix === i.planDigest.slice(0, 12) &&
-        live.contentDigest === contentDigest.slice(0, 32)
-      );
+        live.contentDigest === contentDigest.slice(0, 32);
       if (exact && expectedReleaseName === undefined) expectedReleaseName = observed.releaseName;
       return exact;
     }
@@ -950,7 +1009,10 @@ async function execute(request, deps) {
         true
       );
       if (site !== null) {
-        if (site.name !== `projects/${project}/sites/${targetSite}` || site.defaultUrl !== h.publicUrl)
+        if (
+          site.name !== `projects/${project}/sites/${targetSite}` ||
+          site.defaultUrl !== h.publicUrl
+        )
           fail('unknown');
         return reply(applying ? 'done' : 'satisfied');
       }
@@ -991,8 +1053,7 @@ async function execute(request, deps) {
     if (i.action === 'populate') {
       const listed = await versionFiles();
       const expected = files.map(({ path, hash }) => ({ path, hash }));
-      if (sameFiles(listed))
-        return reply(applying ? 'done' : 'satisfied');
+      if (sameFiles(listed)) return reply(applying ? 'done' : 'satisfied');
       if (listed.length) fileMismatch(listed);
       if (!applying) return reply('absent');
       const result = await api('hosting', `${cp.version}:populateFiles`, 'POST', {
@@ -1001,7 +1062,8 @@ async function execute(request, deps) {
       const expectedUrl = `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files`;
       if (
         result.uploadUrl !== expectedUrl ||
-        (result.uploadRequiredHashes !== undefined && !Array.isArray(result.uploadRequiredHashes)) ||
+        (result.uploadRequiredHashes !== undefined &&
+          !Array.isArray(result.uploadRequiredHashes)) ||
         (result.uploadRequiredHashes ?? []).some((hash) => !files.some((f) => f.hash === hash))
       )
         fail('unknown');
@@ -1020,10 +1082,15 @@ async function execute(request, deps) {
         return reply(applying ? 'done' : 'satisfied');
       if (!applying) return reply('absent');
       const planned = h.content.files.find((f) => f.gzipDigest === i.hash);
-      if (!planned || !i.file || i.file.length !== planned.rawLength ||
-          i.file.sha256 !== planned.rawDigest) fail('provider-rejected');
+      if (
+        !planned ||
+        !i.file ||
+        i.file.length !== planned.rawLength ||
+        i.file.sha256 !== planned.rawDigest
+      )
+        fail('provider-rejected');
       keys(i.file, ['path', 'length', 'sha256']);
-      const expected = {sha256:i.hash, length:planned.gzipLength};
+      const expected = { sha256: i.hash, length: planned.gzipLength };
       let transfer;
       try {
         // Hash the complete raw file before HTTP; capture-to-upload swaps cannot leak content.
@@ -1031,19 +1098,27 @@ async function execute(request, deps) {
         if (prepared.sha256 !== expected.sha256 || prepared.length !== expected.length)
           fail('provider-rejected');
         transfer = hostingFileStream.upload(i.file, expected);
-      } catch { fail('provider-rejected'); }
+      } catch {
+        fail('provider-rejected');
+      }
       try {
         await beginMutation();
         const result = await deps.http(
           `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files/${i.hash}`,
-          { method: 'POST', headers: {
+          {
+            method: 'POST',
+            headers: {
               Authorization: `Bearer ${credential.token}`,
               'Content-Type': 'application/octet-stream',
-            }, body: transfer.body }, callBound);
+            },
+            body: transfer.body,
+          },
+          callBound
+        );
         await transfer.completion;
         httpStatusClass = `${Math.floor(result.status / 100)}xx`;
         if (result.status !== 200)
-          fail(fault(result, result.body), {operation:'hosting-upload',status:result.status});
+          fail(fault(result, result.body), { operation: 'hosting-upload', status: result.status });
       } finally {
         transfer.body.destroy();
         transfer.close();
@@ -1160,39 +1235,76 @@ async function execute(request, deps) {
     return sha(source) === i.replacedDigest;
   }
   async function ownerAccess(apply) {
-    const root = `${database}/documents`, machine = `${root}/m/${i.machine}`, owner = `${root}/owners/${i.uid}`;
+    const root = `${database}/documents`,
+      machine = `${root}/m/${i.machine}`,
+      owner = `${root}/owners/${i.uid}`;
     const current = await api('firestore', machine, 'GET', undefined, true);
     const admitted = await api('firestore', owner, 'GET', undefined, true);
-    const uid = (v) => typeof v === 'string' && v.length > 0 && v.length <= 128 && !['.','..'].includes(v) && !/[\x00-\x1f\x7f/]/.test(v);
+    const uid = (v) =>
+      typeof v === 'string' &&
+      v.length > 0 &&
+      v.length <= 128 &&
+      !['.', '..'].includes(v) &&
+      !/[\x00-\x1f\x7f/]/.test(v);
     function owns(row) {
-      return row && row.fields && Object.keys(row.fields).join('|') === 'machine' &&
-        row.fields.machine?.stringValue === i.machine;
+      return (
+        row &&
+        row.fields &&
+        Object.keys(row.fields).join('|') === 'machine' &&
+        row.fields.machine?.stringValue === i.machine
+      );
     }
     if (admitted !== null && !owns(admitted)) fail('owner-conflict');
     let oldUid;
     if (current !== null) {
-      if (!current.fields || current.name !== machine || typeof current.updateTime !== 'string' ||
-          Object.keys(current.fields).sort().join('|') !== 'authenticationKey|descriptor|uid' ||
-          current.fields.authenticationKey?.bytesValue !== i.authenticationKey ||
-          typeof current.fields.descriptor?.bytesValue !== 'string' || !uid(current.fields.uid?.stringValue)) fail('owner-conflict');
+      if (
+        !current.fields ||
+        current.name !== machine ||
+        typeof current.updateTime !== 'string' ||
+        Object.keys(current.fields).sort().join('|') !== 'authenticationKey|descriptor|uid' ||
+        current.fields.authenticationKey?.bytesValue !== i.authenticationKey ||
+        typeof current.fields.descriptor?.bytesValue !== 'string' ||
+        !uid(current.fields.uid?.stringValue)
+      )
+        fail('owner-conflict');
       oldUid = current.fields.uid.stringValue;
     }
-    if (current !== null && oldUid === i.uid && admitted !== null) return apply ? 'done' : 'satisfied';
+    if (current !== null && oldUid === i.uid && admitted !== null)
+      return apply ? 'done' : 'satisfied';
     if (!apply) return 'absent';
     const writes = [];
-    if (admitted === null) writes.push({update:{name:owner,fields:{machine:{stringValue:i.machine}}},currentDocument:{exists:false}});
-    if (current === null) writes.push({update:{name:machine,fields:{uid:{stringValue:i.uid},authenticationKey:{bytesValue:i.authenticationKey},descriptor:{bytesValue:i.descriptor}}},currentDocument:{exists:false}});
+    if (admitted === null)
+      writes.push({
+        update: { name: owner, fields: { machine: { stringValue: i.machine } } },
+        currentDocument: { exists: false },
+      });
+    if (current === null)
+      writes.push({
+        update: {
+          name: machine,
+          fields: {
+            uid: { stringValue: i.uid },
+            authenticationKey: { bytesValue: i.authenticationKey },
+            descriptor: { bytesValue: i.descriptor },
+          },
+        },
+        currentDocument: { exists: false },
+      });
     else if (oldUid !== i.uid) {
-      writes.push({update:{name:machine,fields:{uid:{stringValue:i.uid}}},updateMask:{fieldPaths:['uid']},currentDocument:{updateTime:current.updateTime}});
+      writes.push({
+        update: { name: machine, fields: { uid: { stringValue: i.uid } } },
+        updateMask: { fieldPaths: ['uid'] },
+        currentDocument: { updateTime: current.updateTime },
+      });
       const oldName = `${root}/owners/${oldUid}`;
       const oldOwner = await api('firestore', oldName, 'GET', undefined, true);
       if (oldOwner !== null) {
         if (!owns(oldOwner) || typeof oldOwner.updateTime !== 'string') fail('owner-conflict');
-        writes.push({delete:oldName,currentDocument:{updateTime:oldOwner.updateTime}});
+        writes.push({ delete: oldName, currentDocument: { updateTime: oldOwner.updateTime } });
       }
     }
-    await api('firestore', `${root}:commit`, 'POST', {writes});
-    if (await ownerAccess(false) !== 'satisfied') fail('unknown');
+    await api('firestore', `${root}:commit`, 'POST', { writes });
+    if ((await ownerAccess(false)) !== 'satisfied') fail('unknown');
     return 'done';
   }
   async function compositeInventory() {
@@ -1244,7 +1356,8 @@ async function execute(request, deps) {
     const p = await api('firebase', `projects/${project}`);
     if (p.projectId !== project || p.state !== 'ACTIVE') fail('provider-rejected');
     if (r.operation === 'owner-access-config') return await publicConfig(i.appId);
-    if (r.operation.endsWith('-owner-access')) return await ownerAccess(r.operation.startsWith('apply'));
+    if (r.operation.endsWith('-owner-access'))
+      return await ownerAccess(r.operation.startsWith('apply'));
     if (r.operation === 'live-rules' || r.operation === 'observe-rules') return await liveRules();
     if (r.operation === 'index-budget') {
       // Plan-only inventory includes unrelated live configs, before any effect.

@@ -131,7 +131,13 @@ export function selectNativeArtifact(
   const hosted = product === 'colab' && (release || assets.includes(hostedRoot));
   assert.deepEqual(
     assets.sort(),
-    [...requiredFiles, ...carried, ...declared, ...(hosted ? [hostedRoot] : []), ...(declaration ? ['TMT-USES.json'] : [])].sort(),
+    [
+      ...requiredFiles,
+      ...carried,
+      ...declared,
+      ...(hosted ? [hostedRoot] : []),
+      ...(declaration ? ['TMT-USES.json'] : []),
+    ].sort(),
     'Manifest must describe exactly the native runtime files'
   );
   if (release) {
@@ -200,10 +206,16 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         const inHosted = metadata.hosted && entry.path.startsWith(`${hostedTree}/`);
         const hostedDirectory = metadata.hosted && (entry.path === hostedTree || inHosted);
         if (hostedDirectory) {
-          const relative = entry.path.slice(hostedTree.length).replace(/^\//, '').replace(/\/$/, '');
+          const relative = entry.path
+            .slice(hostedTree.length)
+            .replace(/^\//, '')
+            .replace(/\/$/, '');
           assert(relative.length + 1 <= 1024, 'Hosted path exceeds its route bound');
-          assert(!relative || relative.split('/').every((part) =>
-            /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part)), 'Invalid hosted archive path');
+          assert(
+            !relative ||
+              relative.split('/').every((part) => /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part)),
+            'Invalid hosted archive path'
+          );
           if (entry.type === 'Directory') {
             assert.equal(entry.mode & 0o7000, 0, 'Hosted directories must not set special bits');
             hostedDirectories.add(entry.path.replace(/\/$/, ''));
@@ -242,9 +254,15 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
       for (const required of ['index.html', 'THIRD-PARTY-NOTICES.txt'])
         assert(hostedFiles.has(`${hostedTree}/${required}`), 'Hosted entry or notices missing');
       for (const directory of hostedDirectories)
-        assert([...hostedFiles].some((file) => file.startsWith(`${directory}/`)), 'Empty hosted archive directory');
+        assert(
+          [...hostedFiles].some((file) => file.startsWith(`${directory}/`)),
+          'Empty hosted archive directory'
+        );
       for (const file of hostedFiles)
-        assert(![...hostedFiles].some((other) => other.startsWith(`${file}/`)), 'Conflicting hosted archive paths');
+        assert(
+          ![...hostedFiles].some((other) => other.startsWith(`${file}/`)),
+          'Conflicting hosted archive paths'
+        );
     }
     const extracted = path.join(staging, 'extracted');
     fs.mkdirSync(extracted);

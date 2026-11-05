@@ -74,7 +74,7 @@ const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
       expect(colabFiles[index].contentType).toBe(declared.contentType);
     }
 
-    expect(manifest.files.some((file)=>file.immutable===true)).toBe(true);
+    expect(manifest.files.some((file) => file.immutable === true)).toBe(true);
     // Every declared path answers 200 with exact bytes, type, CSP and cache policy.
     const shell = manifest.files.find((file) => file.path === '/index.html')!;
     for (const declared of manifest.files) {
@@ -90,7 +90,7 @@ const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
         declared.csp ?? null,
       );
       expect(response.headers.get('x-content-type-options'), declared.path).toBe('nosniff');
-      expect(response.headers.get('cache-control'),declared.path).toBe(
+      expect(response.headers.get('cache-control'), declared.path).toBe(
         declared.immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
       );
     }

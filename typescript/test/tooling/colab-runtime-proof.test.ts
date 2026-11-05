@@ -280,13 +280,13 @@ describe('declared app entries', () => {
 });
 
 describe('plain Colab hosting manifest', () => {
-  let nextHosting=0;
+  let nextHosting = 0;
   function inventory() {
-    const directory=path.join(root,`hosting-${nextHosting++}`);
-    mkdirSync(path.join(directory,'dist-hosted'),{recursive:true});
-    const executable=path.join(directory,'tmt-colab');
-    writeFileSync(executable,'fixture executable');
-    const file=path.join(directory,'dist-hosted/index.html');
+    const directory = path.join(root, `hosting-${nextHosting++}`);
+    mkdirSync(path.join(directory, 'dist-hosted'), { recursive: true });
+    const executable = path.join(directory, 'tmt-colab');
+    writeFileSync(executable, 'fixture executable');
+    const file = path.join(directory, 'dist-hosted/index.html');
     const bytes = Buffer.from('hosted entry');
     const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
     const hosting = {
@@ -301,14 +301,15 @@ describe('plain Colab hosting manifest', () => {
         },
       ],
     };
-    writeFileSync(file,bytes);
+    writeFileSync(file, bytes);
     return {
-      executable,file,
+      executable,
+      file,
       declaration: { hosting },
       bundle: {
         version: 1,
         manifestDigest: hash(JSON.stringify(hosting)),
-        files: [{...hosting.files[0],path:fs.realpathSync(file)}],
+        files: [{ ...hosting.files[0], path: fs.realpathSync(file) }],
       },
     };
   }
@@ -356,18 +357,27 @@ describe('plain Colab hosting manifest', () => {
     if (drift === 'empty') bundle.files = [];
     if (drift === 'extra') Object.assign(declaration.hosting, { unexpected: true });
     if (drift === 'csp') declaration.hosting.files[0].csp += '; img-src data:';
-    if (drift === 'bytes') writeFileSync(file,'hosted Entry');
-    if (drift === 'length') { declaration.hosting.files[0].length++; bundle.files[0].length++; }
+    if (drift === 'bytes') writeFileSync(file, 'hosted Entry');
+    if (drift === 'length') {
+      declaration.hosting.files[0].length++;
+      bundle.files[0].length++;
+    }
     if (drift === 'path') bundle.files[0].path = '/wrong.html';
     if (drift === 'digest') bundle.manifestDigest = '0'.repeat(64);
     if (drift === 'notices') {
-      declaration.hosting.files[0].path='/sdk/THIRD-PARTY-NOTICES-remote.txt';
-      const target=path.join(path.dirname(executable),'dist-hosted/sdk/THIRD-PARTY-NOTICES-remote.txt');
-      mkdirSync(path.dirname(target),{recursive:true});writeFileSync(target,'hosted entry');
-      bundle.files[0].path=fs.realpathSync(target);
+      declaration.hosting.files[0].path = '/sdk/THIRD-PARTY-NOTICES-remote.txt';
+      const target = path.join(
+        path.dirname(executable),
+        'dist-hosted/sdk/THIRD-PARTY-NOTICES-remote.txt'
+      );
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, 'hosted entry');
+      bundle.files[0].path = fs.realpathSync(target);
     }
-    if (!['absent','digest'].includes(drift)) bundle.manifestDigest=createHash('sha256')
-      .update(JSON.stringify(declaration.hosting)).digest('hex');
+    if (!['absent', 'digest'].includes(drift))
+      bundle.manifestDigest = createHash('sha256')
+        .update(JSON.stringify(declaration.hosting))
+        .digest('hex');
     expect(() =>
       verifyColabHosting(
         { executable, cwd: '/', env: {}, notices: '' },

@@ -3549,8 +3549,8 @@ reserved. Composition requires disjoint paths and an HTML `/index.html`; raw/gzi
 ServingConfig and plan digests cover every file. Default headers are `nosniff`, `no-cache` and
 `Referrer-Policy: no-referrer`, with the declared CSP verbatim. Only explicitly immutable files
 under `/assets/` whose final filename hash segment after `-` is exactly the first 16 lowercase
-hex digits of the verified SHA-256 receive `Cache-Control: public, max-age=31536000, immutable`; a mismatched mark or non-`/assets/` path
-receives `no-cache`, as do other assets/shells.
+hex digits of the verified SHA-256 receive `Cache-Control: public, max-age=31536000, immutable`;
+a mismatched mark or non-`/assets/` path receives `no-cache`, as do other assets/shells.
 HTML, CSS, JavaScript, JSON and plain text append `; charset=utf-8`, not SVG/binary.
 
 Instructions and exact `/join` retain `no-store`; `/join` rewrites to `/join.html` with its own

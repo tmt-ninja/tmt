@@ -36,14 +36,20 @@ global.fetch = async (url, options) => {
   if (
     options.method === 'GET' &&
     parsed.origin === 'https://firestore.googleapis.com' &&
-    /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(parsed.pathname)
+    /^\/v1\/projects\/[^/]+\/databases\/[^/]+\/collectionGroups\/[^/]+\/(fields|indexes)$/.test(
+      parsed.pathname
+    )
   ) {
     const token = parsed.searchParams.get('pageToken');
     const filter = parsed.pathname.endsWith('/fields')
-      ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*' : '';
-    const expected = filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
+      ? '?filter=indexConfig.usesAncestorConfig=false%20OR%20ttlConfig:*'
+      : '';
+    const expected =
+      filter + (token ? `${filter ? '&' : '?'}pageToken=${encodeURIComponent(token)}` : '');
     if (parsed.search !== expected)
-      return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), { status: 400 });
+      return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), {
+        status: 400,
+      });
   }
   if (
     options.method === 'GET' &&
@@ -51,47 +57,81 @@ global.fetch = async (url, options) => {
     /^\/v1\/projects\/[^/]+\/rulesets$/.test(parsed.pathname) &&
     Number(parsed.searchParams.get('pageSize')) > 100
   )
-    return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), { status: 400 });
+    return new Response(JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT' } }), {
+      status: 400,
+    });
   if (value.readFailure && url.includes(value.readFailure.path)) {
-    return new Response(JSON.stringify({ error: { message: value.canary } }), { status: value.readFailure.status });
+    return new Response(JSON.stringify({ error: { message: value.canary } }), {
+      status: value.readFailure.status,
+    });
   }
-  if (url === `https://cloudresourcemanager.googleapis.com/v3/projects/${value.project}:testIamPermissions`) {
+  if (
+    url ===
+    `https://cloudresourcemanager.googleapis.com/v3/projects/${value.project}:testIamPermissions`
+  ) {
     if (options.method !== 'POST') throw Error('TOKEN_CANARY_PERMISSION_METHOD');
     const input = JSON.parse(options.body);
     if (Object.keys(input).join() !== 'permissions' || !Array.isArray(input.permissions))
       throw Error('TOKEN_CANARY_PERMISSION_BODY');
-    return new Response(JSON.stringify({permissions: value.grantedPermissions ?? input.permissions}), {status: 200});
+    return new Response(
+      JSON.stringify({ permissions: value.grantedPermissions ?? input.permissions }),
+      { status: 200 }
+    );
   }
   // Strict owner-registration fake; native Auth is separately seeded through
   // its ordinary owner with an injected Http, never a real provider/account.
   const documents = `projects/${value.project}/databases/(default)/documents`;
   const name = parsed.pathname.slice('/v1/'.length);
-  if (parsed.origin === 'https://firestore.googleapis.com' &&
-      (name === `${documents}:commit` || name.startsWith(`${documents}/m/`) || name.startsWith(`${documents}/owners/`))) {
+  if (
+    parsed.origin === 'https://firestore.googleapis.com' &&
+    (name === `${documents}:commit` ||
+      name.startsWith(`${documents}/m/`) ||
+      name.startsWith(`${documents}/owners/`))
+  ) {
     const rows = value.ownerDocuments ?? {};
-    let result, status = 200;
+    let result,
+      status = 200;
     if (options.method === 'GET') {
       result = rows[name];
-      if (!result) { status = 404; result = {}; }
+      if (!result) {
+        status = 404;
+        result = {};
+      }
     } else {
-      if (name !== `${documents}:commit` || options.method !== 'POST') throw Error('TOKEN_CANARY_OWNER_ROUTE');
+      if (name !== `${documents}:commit` || options.method !== 'POST')
+        throw Error('TOKEN_CANARY_OWNER_ROUTE');
       const writes = JSON.parse(options.body).writes;
       for (const write of writes) {
         const target = write.update?.name ?? write.delete;
-        if (!target.startsWith(`${documents}/m/`) && !target.startsWith(`${documents}/owners/`)) throw Error('TOKEN_CANARY_OWNER_TARGET');
+        if (!target.startsWith(`${documents}/m/`) && !target.startsWith(`${documents}/owners/`))
+          throw Error('TOKEN_CANARY_OWNER_TARGET');
         const old = rows[target];
-        if (write.currentDocument?.exists === false && old) throw Error('TOKEN_CANARY_OWNER_EXISTS');
-        if (write.currentDocument?.updateTime && old?.updateTime !== write.currentDocument.updateTime) throw Error('TOKEN_CANARY_OWNER_CHANGED');
-        if (write.delete) { delete rows[target]; continue; }
-        if (write.updateMask && JSON.stringify(write.updateMask.fieldPaths) !== '["uid"]') throw Error('TOKEN_CANARY_OWNER_MASK');
-        const fields = write.updateMask ? {...old.fields, ...write.update.fields} : write.update.fields;
-        rows[target] = {name:target, fields, updateTime:'2026-10-24T00:00:00Z'};
+        if (write.currentDocument?.exists === false && old)
+          throw Error('TOKEN_CANARY_OWNER_EXISTS');
+        if (
+          write.currentDocument?.updateTime &&
+          old?.updateTime !== write.currentDocument.updateTime
+        )
+          throw Error('TOKEN_CANARY_OWNER_CHANGED');
+        if (write.delete) {
+          delete rows[target];
+          continue;
+        }
+        if (write.updateMask && JSON.stringify(write.updateMask.fieldPaths) !== '["uid"]')
+          throw Error('TOKEN_CANARY_OWNER_MASK');
+        const fields = write.updateMask
+          ? { ...old.fields, ...write.update.fields }
+          : write.update.fields;
+        rows[target] = { name: target, fields, updateTime: '2026-10-24T00:00:00Z' };
       }
       value.ownerDocuments = rows;
       fs.writeFileSync(path.join(__dirname, '../state.json'), JSON.stringify(value));
-      result = {commitTime:'2026-10-24T00:00:00Z',writeResults:writes.map(()=>({updateTime:'2026-10-24T00:00:00Z'}))};
+      result = {
+        commitTime: '2026-10-24T00:00:00Z',
+        writeResults: writes.map(() => ({ updateTime: '2026-10-24T00:00:00Z' })),
+      };
     }
-    return new Response(JSON.stringify(result), {status});
+    return new Response(JSON.stringify(result), { status });
   }
   if (
     value.hosting &&
@@ -109,9 +149,16 @@ global.fetch = async (url, options) => {
       h.siteId = requested;
     }
     const site = h.siteId;
-    let uploaded=null;
-    if(options.body?.pipe){const chunks=[];for await(const bytes of options.body)chunks.push(bytes);uploaded=Buffer.concat(chunks);}
-    const body = options.body && !Buffer.isBuffer(options.body) && uploaded===null ? JSON.parse(options.body) : null;
+    let uploaded = null;
+    if (options.body?.pipe) {
+      const chunks = [];
+      for await (const bytes of options.body) chunks.push(bytes);
+      uploaded = Buffer.concat(chunks);
+    }
+    const body =
+      options.body && !Buffer.isBuffer(options.body) && uploaded === null
+        ? JSON.parse(options.body)
+        : null;
     let result,
       status = 200;
     if (route.endsWith('/webApps')) {
@@ -178,7 +225,12 @@ global.fetch = async (url, options) => {
         uploadUrl: `https://upload-firebasehosting.googleapis.com/upload/sites/${site}/versions/one/files`,
       };
     } else if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
-      if(!uploaded || require('node:crypto').createHash('sha256').update(uploaded).digest('hex')!==url.split('/').at(-1)) throw Error('TOKEN_CANARY_UPLOAD_IDENTITY');
+      if (
+        !uploaded ||
+        require('node:crypto').createHash('sha256').update(uploaded).digest('hex') !==
+          url.split('/').at(-1)
+      )
+        throw Error('TOKEN_CANARY_UPLOAD_IDENTITY');
       h.files.filter((f) => url.endsWith('/' + f.hash)).forEach((f) => (f.status = 'ACTIVE'));
       result = null;
     } else if (route.endsWith('/versions/one/files')) {
