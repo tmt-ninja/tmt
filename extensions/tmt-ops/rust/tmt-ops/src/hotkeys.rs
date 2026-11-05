@@ -27,7 +27,9 @@ const FILE: &str = "ops.tmux.conf";
 const FORMER_FILE: &str = "squad.tmux.conf";
 
 /// What the board says once on tmux while no hotkeys are installed.
-pub const OFFER: &str = "tmux keys: prefix S opens this board, B beside your pane, G back to it. See them: tmt ops hotkeys install --print";
+/// Key-free, because `[tmux]` may choose other keys or a default may give way, and short
+/// enough for the footer at 80 columns.
+pub const OFFER: &str = "Keys: tmt ops hotkeys install --print";
 
 fn owned_note(note: &str) -> bool {
     [NOTE, FORMER_NOTE].iter().any(|prefix| {
