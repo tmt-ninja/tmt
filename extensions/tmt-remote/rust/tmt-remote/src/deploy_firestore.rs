@@ -1099,9 +1099,16 @@ mod cause_tests {
         let cause = error.cause.expect("bounded file counts are admitted");
         assert_eq!(serde_json::to_value(cause).unwrap()["files"]["missing"], 1);
         let encoded = String::from_utf8(bytes.to_vec()).unwrap();
+        let cap = crate::limits::HOSTING_LIST_PARSE_FILES;
+        let at_cap = encoded.replace("\"listed\":14", &format!("\"listed\":{cap}"));
+        let admitted = parse_reply(at_cap.as_bytes()).unwrap_err().cause.unwrap();
+        assert_eq!(
+            serde_json::to_value(admitted).unwrap()["files"]["listed"],
+            cap
+        );
         for invalid in [
             encoded.replace("\"missing\":1", "\"missing\":-1"),
-            encoded.replace("\"listed\":14", "\"listed\":257"),
+            encoded.replace("\"listed\":14", &format!("\"listed\":{}", cap + 1)),
             encoded.replace("\"extra\":0", "\"extra\":0,\"message\":\"SECRET\""),
         ] {
             assert!(parse_reply(invalid.as_bytes()).unwrap_err().cause.is_none());

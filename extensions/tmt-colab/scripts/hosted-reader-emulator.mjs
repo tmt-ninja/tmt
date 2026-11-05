@@ -2,7 +2,7 @@
 // No Docker, Hosting deployment, billing, credential import or production-network fallback.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -95,6 +95,12 @@ if (process.argv[2] === '--scenario') {
     const debug = path.join(root, 'rust/target/debug');
     for (const name of ['tmt', 'tmt-colab'])
       copyFileSync(path.join(debug, name), path.join(bins, name));
+    // The relocated Colab command reads its release's sibling tree, never checkout bytes.
+    cpSync(env.TMT_COLAB_HOSTING_DIR, path.join(bins, 'dist-hosted'), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
     run(
       'cargo',
       [
