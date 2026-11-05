@@ -2444,7 +2444,10 @@ code {
   justify-items: start;
 }
 .docs-code {
+  
+  max-width: none;
   margin: 0;
+  padding: 0;
   font: var(--tmt-ui-ref-size-2) / 1.5 var(--tmt-ui-font-mono);
   white-space: pre-wrap;
 }
@@ -2594,7 +2597,8 @@ code {
 
 .docs-canvas:has([data-preview-frame]),
 .docs-canvas:has(.tmt-data-table),
-.docs-canvas:has(.tmt-rich-input) {
+.docs-canvas:has(.tmt-rich-input),
+.docs-canvas:has(> .tmt-block-doc) {
   display: block;
   min-width: 0;
 }

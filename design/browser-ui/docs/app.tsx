@@ -1,16 +1,16 @@
-import { Suspense, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { BrandMark } from '../src/brand-mark.js';
 import { UiTheme } from '../src/ui/index.js';
-import { browserDocs, browserExports, type BrowserDoc } from './browser-catalog.js';
-import { components, type ComponentDoc } from './catalog.js';
+import { browserDocs } from './browser-catalog.js';
+import { components } from './catalog.js';
+import { BrowserPage, ComponentPage } from './component-page.js';
 import { patterns } from './patterns.js';
 import { morePatterns, PatternViewports } from './patterns-more.js';
-import { motionNotes, Replay } from './motion.js';
 import { tokenPages } from './tokens.js';
 import { tuiPages } from './tui-nav.js';
 import { usePreview } from './preview.js';
 import { follow, hosted } from './router.js';
-import { Article, ComponentTemplate, Snippet } from './templates.js';
+import { Article } from './templates.js';
 export { Article, Snippet } from './templates.js';
 import { colabMockBase, guiRoot, tuiMockBase, tuiRoot } from './routes.js';
 
@@ -334,45 +334,3 @@ function Principles() {
   );
 }
 
-function ComponentPage({ doc }: { doc: ComponentDoc }) {
-  return (
-    <ComponentTemplate
-      title={doc.name}
-      lead={doc.description}
-      preview={motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
-      motion={motionNotes[doc.slug]}
-      usage={doc.usage}
-      variants={doc.variants.map(([label, render]) => ({ label, render: render() }))}
-      dos={doc.dos}
-    />
-  );
-}
-
-/** A Browser component: the gallery's section for it, every demo in light and dark side by side. */
-function BrowserPage({ doc }: { doc: BrowserDoc }) {
-  const names = browserExports(doc);
-  return (
-    <Article title={doc.name} lead={doc.description}>
-      {names.length > 0 && (
-        <>
-          <h2>Usage</h2>
-          <Snippet
-            code={`import { ${names.join(', ')} } from '@tmt/browser-ui/${doc.entry ?? 'react'}';`}
-          />
-        </>
-      )}
-      <p className="docs-muted">
-        Styles: {doc.css.map((name) => `src/${name}.css`).join(', ')}
-        {doc.entry === 'pattern-parts'
-          ? ', exposed as @tmt/browser-ui/pattern-parts.css.'
-          : ', in the shared static.css.'}
-      </p>
-      <h2>Variants and states</h2>
-      <div className="docs-browser-demo">
-        <Suspense fallback={<p data-scene-loading="">Loading preview…</p>}>
-          <doc.Demo />
-        </Suspense>
-      </div>
-    </Article>
-  );
-}

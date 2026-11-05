@@ -7,6 +7,7 @@ import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
 import { RichInput } from '@tmt/browser-ui/rich-input';
 import { FoundationPage } from '@tmt/browser-ui/docs-foundations';
 import { PatternPage } from '@tmt/browser-ui/docs-patterns';
+import { DocsComponentPage, drawComponentScenesInline } from '@tmt/browser-ui/docs-components';
 import {
   BrowserMessageRow,
   BrowserPageRow,
@@ -249,6 +250,7 @@ const runtime = Object.freeze({
     Button,
     FoundationPage,
     PatternPage,
+    DocsComponentPage,
     BrowserMessageRow,
     BrowserPageRow,
     BrowserStatusLine,
@@ -376,3 +378,5 @@ Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });
 
 // Component scopes can be present in the initial page or inserted by the page later.
 if (typeof document !== 'undefined') installScopePortals(document);
+// The frame cannot load the docs' frame pages: a component docs page draws their scenes inline.
+drawComponentScenesInline();

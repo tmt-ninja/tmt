@@ -73,7 +73,7 @@ export async function renderDocs() {
     const { patterns } = await load('/docs/patterns.tsx');
     const { morePatterns } = await load('/docs/patterns-more.tsx');
     const { livePatternSlugs } = await load('/docs/pattern-page.tsx');
-    const { Article, ComponentTemplate } = await load('/docs/templates.tsx');
+    const { Article } = await load('/docs/templates.tsx');
     const page = (slug, title, node, files) => ({ slug, title, html: render(() => node), files });
     const tokenFiles = sourceFiles(
       'design/tokens/tokens.json',
@@ -89,59 +89,17 @@ export async function renderDocs() {
       },
       {
         title: 'Components',
-        pages: components.map((doc) =>
-          ({ ...page(
+        pages: components.map((doc) => ({
+          ...page(
             doc.slug,
             doc.name,
-            h(ComponentTemplate, {
-              title: doc.name,
-              lead: doc.description,
-              preview: h(doc.preview),
-              usage: doc.usage,
-              variants: doc.variants.map(([label, node], index) => ({
-                label,
-                // The page frame resolves this bundle tag live, without a frame or a scene registry.
-                render:
-                  (doc.slug === 'page-list' && index > 0) ||
-                  (doc.slug === 'data-table' && index < 7)
-                    ? h('tmt-ui-page-view', {
-                        label,
-                        'group-by': doc.slug === 'data-table' ? 'none' : 'state',
-                        ...(doc.slug === 'data-table' && index === 1
-                          ? { selectable: true, selected: 'two' }
-                          : {}),
-                        ...(doc.slug === 'data-table' && index === 2
-                          ? { density: 'comfortable' }
-                          : {}),
-                        ...(doc.slug === 'data-table' && index >= 4
-                          ? { state: ['loading', 'empty', 'error'][index - 4] }
-                          : {}),
-                        rows: JSON.stringify([
-                          {
-                            id: 'one',
-                            name: 'Structured pages',
-                            projects: ['spec'],
-                            stage: 'Awaiting decision',
-                            updated: 'Today',
-                            author: 'gui-lead',
-                          },
-                          {
-                            id: 'two',
-                            name: 'Night execution plan',
-                            projects: ['night'],
-                            stage: 'In progress',
-                            updated: 'Yesterday',
-                            author: 'night-lead',
-                          },
-                        ]),
-                      })
-                    : h(node),
-              })),
-              dos: doc.dos,
-            }),
+            h('tmt-ui-component-docs', { page: `components/${doc.slug}` }),
             componentFiles(doc.slug)
-          ), description: doc.description, usage: doc.usage, dos: doc.dos })
-        ),
+          ),
+          description: doc.description,
+          usage: doc.usage,
+          dos: doc.dos,
+        })),
       },
       {
         title: 'Browser components',
@@ -184,11 +142,13 @@ export async function renderDocs() {
           const doc = browserDocs.find((entry) => entry.slug === slug);
           if (!doc) throw new Error(`Missing Browser component docs: ${slug}`);
           return {
-            slug: tag,
-            title: doc.name,
+            ...page(
+              tag,
+              doc.name,
+              h('tmt-ui-component-docs', { page: `browser/${slug}` }),
+              sourceFiles('design/browser-ui/docs/browser-catalog.tsx')
+            ),
             description: doc.description,
-            html: '',
-            files: sourceFiles('design/browser-ui/docs/browser-catalog.tsx'),
           };
         }),
       },

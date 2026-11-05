@@ -616,7 +616,10 @@ code {
   justify-items: start;
 }
 .docs-code {
+  /* A host page may style a bare pre (Colab's editorial frame does); the docs' code sits flush. */
+  max-width: none;
   margin: 0;
+  padding: 0;
   font: var(--tmt-ui-ref-size-2) / 1.5 var(--tmt-ui-font-mono);
   white-space: pre-wrap;
 }
@@ -764,10 +767,12 @@ code {
   height: 10px;
 }
 
-/* A preview needs the whole available canvas width for its own size container. */
+/* A preview needs the whole available canvas width for its own size container. A size container
+   (a block document, say) has no intrinsic width, so a centred flex canvas would shrink it to 0. */
 .docs-canvas:has([data-preview-frame]),
 .docs-canvas:has(.tmt-data-table),
-.docs-canvas:has(.tmt-rich-input) {
+.docs-canvas:has(.tmt-rich-input),
+.docs-canvas:has(> .tmt-block-doc) {
   display: block;
   min-width: 0;
 }

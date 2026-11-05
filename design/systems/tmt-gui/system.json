@@ -17,6 +17,9 @@
       "doc": "components/pattern.json"
     },
     {
+      "doc": "components/component-docs.json"
+    },
+    {
       "doc": "components/button.json"
     },
     {

@@ -13,6 +13,12 @@ export interface PatternProps {
   children?: ReactNode;
 }
 
+/** <tmt-ui-component-docs>: props from its schema, slots as nodes. */
+export interface ComponentDocsProps {
+  page?: string;
+  children?: ReactNode;
+}
+
 /** <tmt-ui-button>: props from its schema, slots as nodes. */
 export interface ButtonProps {
   variant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";

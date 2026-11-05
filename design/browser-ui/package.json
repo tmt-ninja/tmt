@@ -22,6 +22,7 @@
     "./docs-embed": "./docs/embed.tsx",
     "./docs-foundations": "./docs/foundation-page.tsx",
     "./docs-patterns": "./docs/pattern-page.tsx",
+    "./docs-components": "./docs/component-page.tsx",
     "./pattern-parts.css": "./src/pattern-parts.css",
     "./pattern-parts": "./src/pattern-parts/index.ts",
     "./docs-oracle": "./docs/tui/oracle-module.mjs",
