@@ -60,8 +60,8 @@ one group at a time (#5647); until then each keeps its own keys and close path.
 
 ## Admission rules
 
-- Squad is the only reviewed consumer. A new consumer, a new dependency, an
-  app-neutral API change or any Squad term in the crate still needs tmt-lead review.
+- A new consumer, a new dependency, an app-neutral API change or any application
+  term in the crate needs tmt-lead review.
   The architecture guard permits
   XML parsing, borrowed JSON, shared style, private Taffy geometry and Ratatui
   buffer painting; never core, adapters, CLI or extension behavior.

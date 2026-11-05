@@ -145,60 +145,23 @@ Test evidence boundaries are in the [E2E reference](.agents/skills/tmt-e2e/refer
 
 ## Ops extension
 
-`extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, dispatched as `tmt ops`.
-`ui`, `hotkeys`, `skill` and `playbook` are Ops commands; member/state commands
-use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
-[Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
-own module/drawing boundaries and verification.
+Ops reaches Core through public JSON, the extension API, `tmt tick` and public
+host templates, never private Core, host or provider state. There are no Core/Ops
+Cargo or source dependencies. Core owns identity handoff, verified stop/remove,
+rooms and orchestration authority; Digest owns its delivery, locks and deadlines.
+Ops owns its extension data and disposable caches, not Core storage or the user's
+configuration. New public APIs need Core review.
 
-- **Seam.** Ops uses public JSON/API, `tmt tick` and
-  [`host templates`](contracts/driver-protocol-v1.md#launch-templates) via
-  `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/host_launch`
-  prepares/rechecks frozen argv for New member (new UUID before join)
-  and Switch tool (same UUID, requested running driver). Core owns
-  handoff and the verified stop/remove guard (`tmt-adapters::verified_stop`, shared by
-  the CLI and `identity.stop`/`identity.remove`). Ops uses that API for confirmed
-  close/delete, never private Core/host/provider state. Digest owns
-  locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
-  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`, `tmt-job-calendar`,
-  `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
-  Each UI shares separate lazy API sessions for background and interaction workers,
-  with worker-only I/O and no uncertain-request replay; the Digest tick opens one per minute.
-  The refresh owner admits bounded retained projections through successful cursors
-  and local stamps; independent clocks and action admission stay fresh.
-- **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
-  `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
-  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
-  `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS; checklists and legacy jobs live in
-  [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  Core owns jobs/runs; Ops imports legacy ones once.
-  `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
-  No Ops config/checklist data enters `config.json` or Core storage.
-  Confirmed lead changes separately offer the global squad-lead union through Core's
-  orchestration preview/consent/CAS; Core owns that list and its permission checks.
-- **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
-  Paint/input do no Core reads; WP1 owns conversation/editor/drafts. UUID selection, the virtual Common pool, membership pause/Resume and squad rename belong to the [surface](.agents/skills/tmt-ops-dev/references/board-home.md) and [cron](.agents/skills/tmt-ops-dev/references/board-cron.md) references.
-  Per-name view state stays in the disposable Ops cache, apart from shared Config preferences. Lifecycles and the HOME usage receipt: [refresh worker](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
-  Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
-  Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
-- **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
-- **Discovery.** The board consumes [Core discovery
-  v1](contracts/discovery-v1.md) through finite public `discover` and guarded
-  `add` commands on its existing ordered lane. Its private controller owns
-  explicit review, bounded scan generations and retained per-item outcomes;
-  paint/input perform no discovery I/O. Core retains native/digest/identity
-  authority, acquisition limits and binding effects. Successful public refresh
-  selects the returned UUID through the workspace projection.
-- **Checklist.** `checklist_command` uses the existing caller/room admission and
-  versioned room-UUID JSON in `ops.db`, with a mutation log committed in the same transaction. Reads create no files;
-  failed prepublication preserves bytes; uncertainty remains Unknown after
-  readback. The board consumes the same typed service.
-- **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
-  owns `sq ls`, `config`, `checklist` and `cron` JSON; native `ops.test.ts` verifies
-  them. Row JSON changes update that skill and its native regression in the same
-  PR. The Ops developer references own worker fences, cache/timing fields,
-  Core-owned Digest policy and independent CLI display projections.
+Board paint and input perform no I/O; workers own acquisition and effects.
+`tmt-tui` is an application-neutral presentation leaf: it acquires no terminal,
+clock, persistence or provider data and has no reverse product dependency.
+Applications own their data, effects and terminal lifecycle.
+
+The [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md) owns workspace, discovery,
+checklist and worker mechanics; [tmt-tui](.agents/skills/tmt-tui/SKILL.md) owns the
+drawing pipeline and parity checks. The [embedded Ops skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
+owns user-facing commands and JSON; row-shape changes update it and its native
+regression together.
 
 ## Release boundary
 
