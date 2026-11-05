@@ -136,6 +136,8 @@ pub struct Storage {
     capturing: bool,
     /// When a hook connection's bounded writer wait ends.
     hook_allowance: Option<Instant>,
+    /// A hook connection's busy wait for each writer attempt, set at open.
+    hook_wait: Option<Duration>,
 }
 
 impl Storage {
@@ -213,6 +215,7 @@ impl Storage {
             connection: Some(opened),
             capturing: false,
             hook_allowance: Some(allowance),
+            hook_wait: Some(wait),
         })
     }
 
@@ -265,6 +268,7 @@ impl Storage {
             connection: Some(connection),
             capturing,
             hook_allowance: None,
+            hook_wait: None,
         })
     }
 

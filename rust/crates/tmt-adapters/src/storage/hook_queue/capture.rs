@@ -590,6 +590,7 @@ impl Storage {
             connection: Some(connection),
             capturing: false,
             hook_allowance: None,
+            hook_wait: None,
         })
     }
     /// A completed Core transaction may wake the finite worker after a crash or
@@ -643,28 +644,25 @@ impl Storage {
         identity: &str,
         deadline: Instant,
     ) -> Result<(), StorageError> {
-        let previous = self.hook_allowance;
+        let (allowance, hook_wait) = (self.hook_allowance, self.hook_wait);
         let wait = super::super::worker_writer_wait(deadline, Instant::now());
-        self.waiting_for_writers(Instant::now() + wait)?;
+        self.bound_writer_wait(wait)?;
+        #[cfg(test)]
+        first_busy::install(self.connection()?);
+        self.hook_allowance = Some(Instant::now() + wait);
         let result = self.ingest_pending_for_identity(Some(identity), wait);
-        let restored = match previous {
-            Some(allowance) => self.waiting_for_writers(allowance),
+        // The connection's own wait and allowance, exactly as opened, for what follows.
+        self.hook_allowance = allowance;
+        let restored = match hook_wait {
+            Some(hook_wait) => self.bound_writer_wait(hook_wait),
             None => Ok(()),
         };
-        self.hook_allowance = previous;
         result.and(restored)
     }
-    /// Waits for other writers until `until`, which is also the allowance this
-    /// connection reports to its other callers.
-    fn waiting_for_writers(&mut self, until: Instant) -> Result<(), StorageError> {
-        let connection = self.connection()?;
-        connection
-            .busy_timeout(until.saturating_duration_since(Instant::now()))
-            .map_err(|error| super::super::errors::classify(error, "Bound worker writer wait"))?;
-        #[cfg(test)]
-        first_busy::install(connection);
-        self.hook_allowance = Some(until);
-        Ok(())
+    fn bound_writer_wait(&mut self, wait: Duration) -> Result<(), StorageError> {
+        self.connection()?
+            .busy_timeout(wait)
+            .map_err(|error| super::super::errors::classify(error, "Bound worker writer wait"))
     }
     fn ingest_pending_for_identity(
         &mut self,
