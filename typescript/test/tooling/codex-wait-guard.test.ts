@@ -615,6 +615,14 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'gh pr comment "$1" --body-file report.md\ntmt talk lead "CI is green" --detach\n'
     );
     const unreadable = path.join(c.dir, 'missing', 'capture.sh');
+    // The 09:39 enforced deny (#6003): a seat-owned script outside the worktree whose only loop
+    // reads lines; it waits for nothing.
+    mkdirSync(path.join(c.dir, 'tmp'), { recursive: true });
+    const specs = path.join(c.dir, 'tmp', 'run-specs.sh');
+    writeFileSync(
+      specs,
+      'cp -R e2e/specs "$1"\nnpx playwright test --reporter=line "$1"\nwhile read -r f; do rm -f "$f"; done < "$1/files"\n'
+    );
     answer = () => {
       throw new Error('the judge must not be called');
     };
@@ -634,6 +642,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       [`sh ${unreadable} --out /tmp/capture.json`, repo],
       // A status read, then a repository script that only posts messages.
       ['gh pr checks 6060 && sh scripts/publish.sh 6060', repo],
+      // Copy specs, one Playwright run and cleanup, through that script.
+      [`cp -R e2e/specs /tmp/run && sh ${specs} /tmp/run && rm -rf /tmp/run`, repo],
     ];
     for (const [command, cwd] of shapes) {
       const result = await c.guard({ ...bash(command), cwd }, {}, cwd === repo ? hook : script);
@@ -662,9 +672,14 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(sent(1)).toEqual({
       tool: 'Bash',
       input: `sh ${loop}`,
-      unsent: [{ path: loop, holds: 'while' }],
+      unsent: [{ path: loop, holds: 'sleep' }],
     });
     expect(JSON.stringify(received[1].body)).not.toContain('gh pr checks 6060');
+    // The judge is told when a primitive in an unseen script is enough to deny.
+    expect(received[1].body.system).toContain(
+      'deny for that script only when the primitive is sleep, watch or following a log'
+    );
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: true });
   });
 
   it('finds wait primitives in code the command runs, and none in quoted text', async () => {

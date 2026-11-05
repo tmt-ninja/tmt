@@ -61,7 +61,8 @@
 //    call: no `sleep`, `wait`, `while`/`until` loop, `watch` or `--watch`, `tail -f`,
 //    `timeout`, `retry`, `nohup` or background `&` (see waitPrimitive). Quoted text is data,
 //    except code handed to a shell or an interpreter. Scripts the call runs are read for
-//    the same primitives (the first 8 KiB): in the worktree, and outside it when the seat's
+//    primitives that actually wait (SCRIPT_WAIT_TEXT: a loop keyword or `wait` alone is
+//    not one) in their first 8 KiB: in the worktree, and outside it when the seat's
 //    uid owns them; only a script the hook cannot read (missing, or not permitted) counts by
 //    its command line. Starting ci-wake.sh anywhere in the command is never a primitive.
 // 7. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
@@ -170,7 +171,7 @@ const POLICY = `You review one tool call an AI coding agent is about to make in 
 Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
 Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background. A call that starts it and otherwise only runs commands that do not wait, such as pushing, opening a pull request, messaging, writing notes or stopping an old waiter, is allowed.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
-A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, judge the call as running that primitive.
+A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, deny for that script only when the primitive is sleep, watch or following a log (tail -f, tail -F, --follow); any other primitive there is judged by the command line, never by a guess about content you cannot see.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
 Record your decision with the verdict tool: first a reason of one short sentence, then the verdict that follows from it.`;
 
@@ -426,6 +427,14 @@ const WAIT_WORDS = new Set([
 /** The same primitives, and their library spellings, in code handed to an interpreter or a script. */
 const WAIT_TEXT =
   /\b(?:sleep|wait|while|until|watch|nohup|timeout|retry|setTimeout|setInterval)\b|--watch\b|--follow\b|\btail\s+(?:-\S*\s+)*-[A-Za-z]*[fF]\b|[^&|>]&\s*$/m;
+/**
+ * Primitives that wait, in the content of a script the call runs, in the repository or not
+ * (#6003): sleep, timeout, retry, watch or --watch, following a log, setTimeout or
+ * setInterval. A loop keyword or the word wait alone is not one there, since a `while read`
+ * loop does not wait; a real poll loop always carries one of these.
+ */
+const SCRIPT_WAIT_TEXT =
+  /\b(?:sleep|timeout|retry|watch|setTimeout|setInterval)\b|--watch\b|--follow\b|\btail\s+(?:-\S*\s+)*-[A-Za-z]*[fF]\b/m;
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash']);
 /** Options whose next (quoted) word is code to run. */
 const CODE_OPTIONS = new Set(['-c', '-lc', '-ic', '-e', '--eval']);
@@ -587,8 +596,8 @@ function programOf(words) {
  * sleep, wait, a while or until loop, watch or --watch, tail -f, timeout or retry, nohup, or a
  * background `&`. Quoted text is data, except code handed to a shell or an interpreter (`-c`,
  * `-e`, `eval`, `ssh`, a heredoc it reads, or `$(…)` in double quotes); a heredoc another
- * segment of the call runs as a file is code too. Scripts the call runs are read for the same
- * primitives, outside the worktree too when the seat owns them; a script the hook cannot read
+ * segment of the call runs as a file is code too. Scripts the call runs are read for the
+ * primitives that actually wait (SCRIPT_WAIT_TEXT), outside the worktree too when the seat owns them; a script the hook cannot read
  * counts by its command line only. Starting this repository's ci-wake.sh, in the foreground or
  * background, is never a primitive.
  */
@@ -659,7 +668,7 @@ export function waitPrimitive(cwd, command, depth = 0) {
       if (found) return found;
     }
     for (const script of readScripts(cwd, segment.raw, { anywhere: true })) {
-      const found = WAIT_TEXT.exec(script.content)?.[0];
+      const found = SCRIPT_WAIT_TEXT.exec(script.content)?.[0];
       if (found) return found.trim();
     }
   }
@@ -1201,7 +1210,7 @@ async function main() {
     .filter((script) => !script.inside)
     .map((script) => ({
       path: redact(script.path),
-      holds: WAIT_TEXT.exec(script.content)?.[0]?.trim(),
+      holds: SCRIPT_WAIT_TEXT.exec(script.content)?.[0]?.trim(),
     }))
     .filter((script) => script.holds);
   if (unsent.length > 0) content.unsent = unsent;
