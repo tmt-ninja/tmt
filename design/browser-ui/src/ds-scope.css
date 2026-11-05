@@ -42,7 +42,6 @@
 /* Keep a preview header's suffix on one line within its stage. */
 [data-tmt-ds-scope] .tmt-ui-heading-suffix {
   flex: 0 0 auto;
-  white-space: nowrap;
 }
 [data-tmt-ds-scope] .tmt-ui-shell {
   min-height: 100cqh;

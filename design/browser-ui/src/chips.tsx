@@ -3,7 +3,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react';
 import { X } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
+import { claimScopedBrowserPopup, placeBrowserPopup } from './popup.js';
 import { usePresence } from './presence.js';
 import { browserUiClasses as c } from './static.js';
 import type {
@@ -148,26 +148,15 @@ export function BrowserChips({
     const node = dialog.current;
     const anchor = trigger.current;
     if (!open || !node || !anchor) return;
-    const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
-    const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
-    const outside = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !node.contains(event.target) &&
-        !anchor.contains(event.target)
-      )
-        close(false);
-    };
-    scope?.addEventListener('pointerdown', outside, true);
+    const { scope, release } = claimScopedBrowserPopup(anchor, node, () => close(false));
     let disposePosition: () => void;
     try {
       if (scope) node.show();
       else node.showModal();
       report(true);
-      disposePosition = placeBrowserPopup(anchor, node, () => close(false));
+      disposePosition = placeBrowserPopup(anchor, node, () => close(false), scope);
       input.current?.focus();
     } catch (error) {
-      scope?.removeEventListener('pointerdown', outside, true);
       release();
       if (node.open) node.close();
       report(false);
@@ -175,7 +164,6 @@ export function BrowserChips({
     }
     return () => {
       disposePosition();
-      scope?.removeEventListener('pointerdown', outside, true);
       release();
       node.close();
       queueMicrotask(() => {

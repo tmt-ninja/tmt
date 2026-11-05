@@ -1,5 +1,5 @@
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
+import { claimScopedBrowserPopup, placeBrowserPopup } from './popup.js';
 
 export interface MenuEntry<Key extends string> {
   key: Key;
@@ -127,23 +127,12 @@ export function createMenuController<Key extends string, Event extends MenuActiv
       return;
     }
     if (detach) return detach;
-    const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
-    const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
-    const outside = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !node.contains(event.target) &&
-        !anchor.contains(event.target)
-      )
-        close(false);
-    };
-    scope?.addEventListener('pointerdown', outside, true);
+    const { scope, release } = claimScopedBrowserPopup(anchor, node, () => close(false));
     let position: (() => void) | undefined;
     const cleanup = () => {
       if (detach !== cleanup) return;
       detach = undefined;
       position?.();
-      scope?.removeEventListener('pointerdown', outside, true);
       release();
       if (node.open) node.close();
       // React effect replay keeps the node connected; only actual removal owes a close.
@@ -156,7 +145,7 @@ export function createMenuController<Key extends string, Event extends MenuActiv
     try {
       if (scope) node.show();
       else node.showModal();
-      position = placeBrowserPopup(anchor, node, () => close(false));
+      position = placeBrowserPopup(anchor, node, () => close(false), scope);
       if (!snapshot.open) return cleanup;
       report(true);
       if (!snapshot.open) return cleanup;

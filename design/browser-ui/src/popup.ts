@@ -14,14 +14,40 @@ export function claimBrowserPopup(
   };
 }
 
+/** One scope owns its popup and outside-pointer listener for the same lifetime. */
+export function claimScopedBrowserPopup(
+  anchor: HTMLElement,
+  surface: HTMLElement,
+  dismiss: () => void,
+): { scope: HTMLElement | null; release(): void } {
+  const scope = anchor.closest<HTMLElement>('[data-tmt-ds-scope]');
+  const release = claimBrowserPopup(scope ?? anchor.ownerDocument, dismiss);
+  const outside = (event: PointerEvent) => {
+    if (
+      event.target instanceof Node &&
+      !surface.contains(event.target) &&
+      !anchor.contains(event.target)
+    )
+      dismiss();
+  };
+  scope?.addEventListener('pointerdown', outside, true);
+  return {
+    scope,
+    release() {
+      scope?.removeEventListener('pointerdown', outside, true);
+      release();
+    },
+  };
+}
+
 export function placeBrowserPopup(
   anchor: HTMLElement,
   surface: HTMLElement,
   dismiss: () => void,
+  scope: HTMLElement | null = anchor.closest?.<HTMLElement>('[data-tmt-ds-scope]') ?? null,
 ): () => void {
   const view = anchor.ownerDocument.defaultView!;
   const viewport = view.visualViewport;
-  const scope = anchor.closest?.<HTMLElement>('[data-tmt-ds-scope]');
   const place = () => {
     if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
     const scopeBox = scope?.getBoundingClientRect();
