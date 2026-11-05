@@ -11,6 +11,7 @@ import DrvCodex from "./drv-codex.mdx";
 import DrvTmux from "./drv-tmux.mdx";
 import Extensions from "./extensions.mdx";
 import Meet from "./meet.mdx";
+import Orchestration from "./orchestration.mdx";
 import Remote from "./remote.mdx";
 import Settings from "./settings.mdx";
 import Squad from "./squad.mdx";
@@ -137,6 +138,15 @@ export const pages: Page[] = [
     status: { kind: "alpha", label: "alpha" },
     file: "squad",
     Content: Squad,
+  },
+  {
+    path: "/working/orchestration",
+    window: 2,
+    index: "2.2",
+    crumb: "working / orchestration",
+    title: "Orchestration: plans, messages and jobs",
+    file: "orchestration",
+    Content: Orchestration,
   },
   {
     path: "/extensions/colab",

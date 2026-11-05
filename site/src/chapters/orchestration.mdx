@@ -1,0 +1,92 @@
+import { Cmd } from "../components/Cmd";
+import { Callout, KeyList, Lede } from "../components/marks";
+
+<Lede>
+  A team does not need to be interrupted at the same pace all day. Orchestration sets the receiving,
+  sending and routine policy for each agent as the day changes.
+</Lede>
+
+<KeyList>
+  <li>
+    <strong>Plans</strong> apply policies to selected agents in local calendar slots.
+  </li>
+  <li>
+    <strong>Personal focus</strong> temporarily takes precedence over every plan.
+  </li>
+  <li>
+    <strong>Jobs</strong> send routine requests when the clock and current policy allow them.
+  </li>
+</KeyList>
+
+The same Core resolver supplies the CLI, Ops and the decisions used for messages and jobs. It does not stop an agent's running work. Base applies even when there are no plans: awake, configured Digest receiving, sending to anyone, routine jobs running and unlimited talks. Higher-priority matching plans override the fields they provide; per-member settings in a plan can override its defaults.
+
+### Read the day
+
+<Cmd>{`
+$ tmt orch
+$ tmt orch --range 7d --member worker --json
+$ tmt orch --at "2026-11-05 09:00" --plan Quiet
+$ tmt orch why req_11111111-1111-4111-8111-111111111111
+`}</Cmd>
+
+The timeline shows local calendar slots and effective policy. Choose `1d`, `7d` or `30d`; `--at` accepts a local date and time or an offset-bearing RFC3339 instant. An ambiguous or nonexistent local time needs an explicit offset. `--plan` filters the displayed timeline, not the other plans used to resolve a member's policy. `why` reads retained decisions; no recorded decision is not proof that nothing happened. A past overview evaluates today's configuration at that time, rather than reconstructing an old configuration.
+
+### Plans and focus
+
+<Cmd>{`
+$ tmt orch plan ls
+$ tmt orch plan show Quiet
+$ tmt orch preview --file plan.json
+$ tmt orch plan add --file plan.json
+$ tmt orch plan set Quiet --file plan.json
+$ tmt orch focus worker-1 2h
+$ tmt orch focus worker-1 off
+`}</Cmd>
+
+Plans target all agents, a saved identity or a name pattern, and define a schedule and policy fields. Preview a candidate without saving it; add, set and remove also show an effect preview before asking for consent. Noninteractive writes need `--yes` to apply; without it they return a preview. A stale preview is refused: read the current state and preview again. `tmt orch plan rm Quiet` removes a plan after the same review.
+
+The state supplies defaults which a plan can override: **awake** receives directly and runs jobs; **low** batches for 30 minutes and runs jobs; **focus** receives urgent traffic and holds jobs; **sleep** holds automatic traffic, including urgent traffic, and jobs. Sending is a separate field. Personal focus sets urgent receiving and holds routine jobs above all plans, without changing sending. Digest's global off switch forces direct receiving; person messages retain their separate admission rules.
+
+### Receiving and wake-up
+
+Held requests remain in the inbox. When a restriction releases, Digest can wake a ready agent with one line such as `you have N messages, K urgent: tmt inbox`; the agent reads its own inbox. Sleep changing to focus can release urgent messages while ordinary messages remain held. Wakes are spaced at least one second apart, and an offline, busy or approval-blocked agent remains pending. The notification does not answer the requests. Digest must be installed and its tick running for continued holding and release.
+
+<Callout title="A plan is not an interruption.">
+  Saving a plan does not stop running work or make a busy agent ready. Delivery still follows the
+  recipient's readiness and approval rules.
+</Callout>
+
+### Sending and talk limits
+
+A sender's policy can allow anyone, only leads, or pause new agent-to-agent requests. A restricted route is refused before a request is stored. `--urgent` does not bypass it. People, replies and result notices follow their own paths.
+
+<Cmd>{`
+$ tmt orch routes --member worker
+$ tmt orch leads set team-lead
+$ tmt orch route allow worker-1 reviewer --until 1h
+$ tmt orch talks
+$ tmt orch talks resume worker-1 reviewer
+`}</Cmd>
+
+The leads list is explicit; Ops can publish squad leads to it. A route allowance is for one ordered pair and expires; it does not clear a talk limit. Limits are unlimited by default. When a configured pair limit is reached, a new request is stored and held for a person, rather than dropped. Resume releases that pair through normal delivery; review its effect preview first.
+
+### Routine jobs and the clock
+
+<Cmd>{`
+$ tmt orch job ls
+$ tmt orch job show j1
+$ tmt orch job add --file job.json
+$ tmt orch job pause j1
+$ tmt orch job resume j1
+$ tmt tick status
+$ tmt tick run
+$ tmt tick timer preview
+`}</Cmd>
+
+Jobs belong to agents and carry a schedule and message. Inspect, add, edit, pause, resume, reassign or remove them through `tmt orch job`; changes preview before consent. A manual pause remains until explicitly resumed. A routine policy hold can retain one observed slot for release; it is separate from a manual pause. Acceptance of a request does not mean delivery or completion.
+
+`tmt tick` runs the current minute's jobs, Digest and workspace capture; `tmt tick run` holds the clock in the foreground until interrupted. An Ops board can also hold the clock. Only one clock owns the lease, and time with no clock does not create a backlog to replay. No timer is installed automatically. If you want an optional per-user timer, inspect `tmt tick timer preview` first; installing or removing it requires your consent. The timer runs a finite tick each minute, without starting the separate Ops idle-alert worker.
+
+### In Ops
+
+Open the **Orchestration** tab on the Ops board to inspect slots, plans, member policies and routes, or use **Ops → Orchestration** in the browser. Changes show a preview for confirmation. The CLI also provides text and `--json` for scripts.
