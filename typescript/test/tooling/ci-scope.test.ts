@@ -315,6 +315,79 @@ describe('complete trusted-main verification', () => {
     expect(writes).toBe(1);
   });
 
+  it('recovers an initially empty attempt-2 inventory and names the unacquired cancelled job (#6071)', () => {
+    const routes: string[] = [];
+    const delays: number[] = [];
+    let reads = 0;
+    let posted = '';
+    const result = notifyMainFullFailure(
+      { ...context, runId: '41849351882', runAttempt: '2' },
+      (route, method, body) => {
+        routes.push(route);
+        if (route.startsWith('actions/')) {
+          reads += 1;
+          return reads === 1
+            ? { total_count: 0, jobs: [] }
+            : {
+                total_count: 1,
+                jobs: [
+                  {
+                    id: 126686798102,
+                    name: 'Packed install (macOS arm64)',
+                    conclusion: 'cancelled',
+                    status: 'completed',
+                    run_attempt: 2,
+                    runner_id: 0,
+                    runner_name: '',
+                  },
+                ],
+              };
+        }
+        if (method === 'POST') {
+          posted = body!;
+          return { id: 99 };
+        }
+        return [];
+      },
+      {
+        sleep: (delay) => {
+          delays.push(delay);
+        },
+      }
+    );
+    expect(result).toEqual({ created: true, commentId: 99 });
+    expect(routes.slice(0, 2)).toEqual(
+      Array(2).fill('actions/runs/41849351882/attempts/2/jobs?per_page=100&page=1')
+    );
+    expect(delays).toEqual([1000]);
+    expect(posted).toContain('Packed install (macOS arm64): cancelled');
+    expect(posted).toContain('job/126686798102');
+  });
+
+  it.each([{ jobs: [] }, { jobs: [job(1)] }])(
+    'returns a bounded no-op with no writes when no failed jobs remain',
+    ({ jobs }) => {
+      let reads = 0;
+      const delays: number[] = [];
+      const result = notifyMainFullFailure(
+        context,
+        (_route, method) => {
+          expect(method).not.toBe('POST');
+          reads += 1;
+          return { total_count: jobs.length, jobs };
+        },
+        {
+          sleep: (delay) => {
+            delays.push(delay);
+          },
+        }
+      );
+      expect(result).toEqual({ created: false, commentId: null, reason: 'no-failed-jobs' });
+      expect(reads).toBe(3);
+      expect(delays).toEqual([1000, 2000]);
+    }
+  );
+
   it('retains a prior bot notification but does not trust an operator-controlled marker', () => {
     for (const login of ['github-actions[bot]', 'someone']) {
       let writes = 0;
@@ -351,7 +424,6 @@ describe('complete trusted-main verification', () => {
     expect(routes).toHaveLength(4);
     expect(routes[1]).toContain('page=2');
     for (const response of [
-      { total_count: 1, jobs: [job(1)] },
       { total_count: 2, jobs: [job(1, 'failure')] },
       { total_count: 501, jobs: [] },
     ]) {

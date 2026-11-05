@@ -191,5 +191,8 @@ export function admitMainFull(context: MainVerificationContext, readMain: () => 
 export function mainFullGatePasses(context: MainVerificationContext, needs: unknown): boolean;
 export function notifyMainFullFailure(
   context: MainVerificationContext,
-  request: MainVerificationRequest
-): { readonly created: boolean; readonly commentId: number };
+  request: MainVerificationRequest,
+  options?: { sleep?: (milliseconds: number) => void }
+):
+  | { readonly created: boolean; readonly commentId: number }
+  | { readonly created: false; readonly commentId: null; readonly reason: 'no-failed-jobs' };
