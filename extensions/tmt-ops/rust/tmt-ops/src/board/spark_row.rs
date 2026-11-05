@@ -726,7 +726,6 @@ pub(in crate::board) fn stacked(
 
 #[cfg(test)]
 mod digest_stack_tests {
-    use super::*;
     #[test]
     fn mixed_boundary_cell_keeps_saved_fraction_and_used_background() {
         use ratatui::{buffer::Buffer, layout::Rect};
