@@ -1247,7 +1247,9 @@ describe('bounded read-only tick transport', () => {
           },
           options
         )
-      ).toThrow('time budget exhausted (120 seconds; 1/80 calls');
+      ).toThrow(
+        'live run listing still inconsistent; backoff would exceed the 120 s deadline; retry once'
+      );
       expect(waits).toEqual([]);
       expect(api.evidence().requests).toBe(1);
       expect(now).toBe(118000);
@@ -1877,6 +1879,10 @@ else if(endpoint.includes('/actions/runs?')){
   console.log(JSON.stringify({total_count:racing&&page===2&&paged[1]==='count'?102:101,workflow_runs:batch}));
   process.exit(0);
  }
+ if(mode==='live-backoff-deadline'&&status==='queued'){
+  require('node:fs').writeFileSync(process.env.CLOCK_FILE,'118000');
+  console.log(JSON.stringify({total_count:1,workflow_runs:[]}));process.exit(0);
+ }
  const live=/^live-count-(transient|persistent)-(queued|in_progress)$/.exec(mode);
  if(live&&status===live[2]){
   const fs=require('node:fs'), reads=Number(fs.readFileSync(process.env.LIVE_READ_FILE,'utf8'));
@@ -1981,6 +1987,28 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
       cleanup: () => rmSync(directory, { recursive: true, force: true }),
     };
   }
+  it('names a live backoff deadline without a split hint or cursor advance', () => {
+    const test = volume(0, 'live-backoff-deadline');
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(1);
+      expect(test.currentCursor()).toBe(test.cursor);
+      const report = test.report();
+      expect(report.complete).toBe(false);
+      expect(report.windowSplit).toBeUndefined();
+      expect(report.anomalies[0].message).toBe(
+        'live run listing still inconsistent; backoff would exceed the 120 s deadline; retry once'
+      );
+      expect(result.stdout).toContain('Retry this invocation once');
+      expect(result.stdout).not.toContain('--until');
+      expect(test.calls().filter((row) => row.endpoint?.includes('status=queued&'))).toHaveLength(
+        1
+      );
+      expect(readFileSync(path.join(test.directory, 'clock.txt'), 'utf8')).toBe('118000');
+    } finally {
+      test.cleanup();
+    }
+  });
   it('refuses a busy 12-hour window with an exact boundary and completes both prefixes without skipping evidence', () => {
     const test = volume(0, 'split-budget');
     try {

@@ -5,11 +5,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import * as tar from 'tar';
@@ -616,5 +618,83 @@ describe('native curl bootstrap', () => {
         generateNativeBootstrap(first.manifest, path.dirname(first.archive))
       ).rejects.toThrow('Unsafe or unsupported bootstrap version');
     });
+  });
+});
+
+describe('bootstrap upgrade refusal context', () => {
+  type Options = { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number };
+  type Run = (executable: string, args: string[], options: Options) => string;
+  const commandOptions: Options = {
+    cwd: '/private/fixture',
+    env: { HOME: '/private/fixture' },
+    timeoutMs: 30000,
+  };
+  const executable = '/private/fixture with spaces/bin/tmt';
+  const load = async () =>
+    (await import(
+      pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-bootstrap-proof.mjs')).href
+    )) as {
+      runBootstrapUpgrade: (executable: string, options: Options, runCommand?: Run) => string;
+    };
+  it('preserves success and passes the exact command and bound once', async () => {
+    const { runBootstrapUpgrade } = await load();
+    const calls: unknown[] = [];
+    const output = '{"skippedPinned":true}\n';
+    expect(
+      runBootstrapUpgrade(executable, commandOptions, (file, args, options) => {
+        calls.push({ file, args, options });
+        return output;
+      })
+    ).toBe(output);
+    expect(calls).toEqual([
+      { file: executable, args: ['upgrade', '--json'], options: commandOptions },
+    ]);
+  });
+  it('names only a timed-out release-index read and retains its original cause', async () => {
+    const { runBootstrapUpgrade } = await load();
+    const original = Object.assign(new Error('spawnSync tmt ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    let calls = 0;
+    try {
+      runBootstrapUpgrade(executable, commandOptions, () => {
+        calls++;
+        throw original;
+      });
+      throw Error('Expected timeout refusal');
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        `release index unreachable within 30000 ms: ${executable} upgrade --json`
+      );
+      expect((error as Error).cause).toBe(original);
+    }
+    expect(calls).toBe(1);
+  });
+  it.each(['EACCES', 'ENOENT', 'other'])(
+    'preserves %s failures without relabeling them as index timeouts',
+    async (code) => {
+      const { runBootstrapUpgrade } = await load();
+      const original = Object.assign(new Error('original failure'), { code });
+      let caught;
+      try {
+        runBootstrapUpgrade(executable, commandOptions, () => {
+          throw original;
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(original);
+    }
+  );
+  it('adds context to the real packed-command timeout of an isolated fake executable', async () => {
+    const { runBootstrapUpgrade } = await load();
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-bootstrap-timeout-'));
+    try {
+      const fake = path.join(root, 'fake tmt');
+      writeExecutable(fake, `#!${process.execPath}\nsetTimeout(()=>{},10000);\n`, 0o700);
+      expect(() =>
+        runBootstrapUpgrade(fake, { cwd: root, env: { HOME: root }, timeoutMs: 30 })
+      ).toThrow(`release index unreachable within 30 ms: ${fake} upgrade --json`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

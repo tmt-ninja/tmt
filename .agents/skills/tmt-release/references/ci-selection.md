@@ -503,7 +503,8 @@ refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progre
 searches track older reruns without a created filter. A count/row or membership race
 discards the whole live scan and restarts at page one, at most three scans in the shared
 budget, waiting 3 s then 9 s between scans only if the wait fits the shared 120 s
-deadline. It then refuses with status/count/rows; created-window
+deadline. If backoff cannot fit, a dedicated live-listing refusal asks for one retry
+and never suggests a time-budget window split. It otherwise refuses with status/count/rows; created-window
 queries stay strict and other active states stay within the window. A live-listing
 `INCOMPLETE` already includes backoff; retry the lead invocation only once before
 escalating a persistent refusal. Unobserved older reruns

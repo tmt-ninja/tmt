@@ -9,7 +9,7 @@ import { generateNativeBootstrap } from './native-bootstrap.mjs';
 import { selectNativeArtifact } from './native-artifact-policy.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
-import { bootstrapTools } from './native-bootstrap-proof.mjs';
+import { bootstrapTools, runBootstrapUpgrade } from './native-bootstrap-proof.mjs';
 import { CLI_NAMESPACE, LEGACY_CLI_NAMESPACE, readCliLayout } from './native-install-layout.mjs';
 import {
   hasMovedInstallerHandoff,
@@ -106,7 +106,7 @@ try {
   const receipt = readCliLayout(prefix).receipt;
   assert.equal(receipt.pinned_version, metadata.version);
   // A pinned CLI decides before any discovery, so the whole run succeeds with no network (#6137).
-  const pinned = JSON.parse(withoutNetwork(executable, ['upgrade', '--json'], options));
+  const pinned = JSON.parse(runBootstrapUpgrade(executable, options, withoutNetwork));
   assert.equal(pinned.skippedPinned, true, 'Pinned managed executable must update without network');
   for (const row of pinned.products.slice(1)) {
     assert.equal(row.status, 'notChecked', `Pinned upgrade checked ${row.product}`);
