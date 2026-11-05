@@ -215,7 +215,11 @@ Only admitted main-full or `verify=false` seed events write; PRs, merge groups a
 other workers restore only. The process cache is cold until its first main save.
 `ci.yml` sets `SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'`, so a throttled or stalled restore
 (Actions cache egress limit) becomes a miss within two minutes, and every
-`setup-buildx-action` sets `cache-binary: false` to download its pinned binary (#5708).
+`setup-buildx-action` keeps `cache-binary: false` to avoid a stalled binary-cache
+restore (#5708). Docker E2E and its seed retain the pinned primary download; on
+failure they first require an available local `docker buildx` and omit the fallback
+version input, so fallback reuses that plugin without a GitHub Releases download.
+A missing local plugin fails closed before the fallback action (#6129).
 Artifact downloads in CI jobs and the release manifest step retry once after 45
 seconds within a bounded step; a second failure fails the job (#5743).
 CI disables dev debug info/incremental compilation; release profiles follow manifests.
