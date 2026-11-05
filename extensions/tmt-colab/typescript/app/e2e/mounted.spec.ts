@@ -824,6 +824,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     ]),
   );
   const contexts: string[] = [];
+  const management: { operation: string; pageId: string }[] = [];
   let withheld = false,
     requests = 0;
   await page.route(`**${mount}api/pages`, (route) =>
@@ -883,6 +884,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     );
     expect(c.decodeText(fields[4])).toBe(String(head.revision));
     expect(c.decodeText(fields[3])).toBe(selected.pageId);
+    management.push({ operation, pageId: selected.pageId });
     const envelope = await f.signed(operation, selected, head);
     head = (await envelope.verifyNext(f.space, f.ownerKey, head)).head;
     log.push(envelope);
@@ -961,7 +963,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Archive and stop edits', exact: true }).click();
   await expect(dialog.getByRole('status')).toContainText('Done.');
-  expect(contexts.at(-1)).toBe(pageId);
+  expect(management.find((request) => request.operation === 'page.archive')?.pageId).toBe(pageId);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(row(pageId)).toHaveCount(0);
   await expect(row(other)).toBeVisible();
@@ -996,13 +998,15 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog).toContainText(pageId);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(requests).toBe(3);
+  const contextsBeforeDelete = contexts.length;
   await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText(
     'Your machine accepted the deletion, but it is not confirmed yet',
   );
   await expect(dialog).not.toContainText('This device is not allowed to manage this page');
-  expect(contexts.at(-1)).toBe(other);
+  expect(management.find((request) => request.operation === 'page.delete')?.pageId).toBe(pageId);
+  expect(contexts.slice(contextsBeforeDelete)).toContain(other);
   withheld = false;
   await dialog.getByRole('button', { name: 'Check again' }).click();
   await expect(dialog.getByRole('status')).toContainText('Done.');
