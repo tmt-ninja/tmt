@@ -10,9 +10,12 @@
 // 2. `TMT_WAIT_HOOK=off` allows, logged as `off` (the per-seat group switch).
 // 3. A call that names the key cache is denied in every mode: its input, or a
 //    script it runs, contains the cache directory's name (`tmt-codex-wait-guard-`),
-//    resolves to it through a path or symlink, or globs a temporary directory into
-//    it. This hook's own source is the one script exempt; Codex seats cannot edit
-//    this hook or its test with apply_patch.
+//    resolves to it through a path or symlink, or is a glob (braces expanded) whose
+//    literal prefix is inside the cache, or is the temporary directory or one of
+//    its ancestors with the rest of the pattern able to match the way down to the
+//    cache's name. A glob under any other directory is not a cache read. This
+//    hook's own source is the one script exempt; Codex seats cannot edit this hook
+//    or its test with apply_patch.
 // 4. A short exact allowlist of calls that cannot wait skips the model, logged as
 //    `skip`: `apply_patch`, and a Bash command that is one simple command (no
 //    unquoted `; & | < > ( ) $` backtick, backslash or newline) running `rg`,
@@ -29,8 +32,8 @@
 //    (realpath) to `<worktree>/scripts/ci-wake.sh`, run directly or by
 //    `sh`/`bash`, with any plain arguments, an optional leading `nohup`,
 //    trailing redirections and a trailing `&`. A copy elsewhere, or anything
-//    chained or wrapped around it, is judged; a `;`/`&&` chain that ends with
-//    it is judged without that last segment (see 5). tmt-infra-lead's
+//    chained or wrapped around it, goes on to the checks below; a `;`/`&&`
+//    chain that ends with it is judged without that last segment (see 5). tmt-infra-lead's
 //    host-health gate is a `skip` (reason `host-health`) on the same terms, with
 //    exactly `--gate` and nothing else: its one ~60 s call takes both readings and
 //    is a sanctioned wait. The pin is its content, not its path: any script whose
@@ -48,11 +51,18 @@
 //    trusts the repository's reviewed package.json scripts in the call's
 //    worktree, and nothing outside it.
 // 5. A `;` or `&&` chain whose last segment starts this repository's ci-wake.sh
-//    (the check above) is judged without that segment, and the judge is told the
-//    call then starts it; only scripts the rest runs are read. Nothing left is a
-//    `skip` (reason `ci-wake`). A ci-wake.sh that is not last, or any chain with
-//    a loop keyword or parentheses, is judged whole.
-// 6. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
+//    (the check above) is sent to the judge, if it gets there (see 6), without
+//    that segment, and the judge is told the call then starts it; only scripts
+//    the rest runs are read. Nothing left is a `skip` (reason `ci-wake`). A
+//    ci-wake.sh that is not last, or any chain with a loop keyword or
+//    parentheses, is sent whole.
+// 6. A Bash command with no wait primitive is a `skip` (reason `no-wait`), with no model
+//    call: no `sleep`, `wait`, `while`/`until` loop, `watch` or `--watch`, `tail -f`,
+//    `timeout`, `retry`, `nohup` or background `&` (see waitPrimitive). Quoted text is data,
+//    except code handed to a shell or an interpreter; repository scripts the call runs are
+//    read for the same primitives, and a script the hook cannot read counts by its command
+//    line only. Starting ci-wake.sh anywhere in the command is never a primitive.
+// 7. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
 //    missing key allows (fail open), logged with that reason. Until ENFORCE is
@@ -149,11 +159,11 @@ function judgeUrl() {
   }
 }
 
-const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED].
-Deny the call when it waits, sleeps or polls in any form, including inside a script or heredoc it writes or runs: sleep, a retry or watch loop, a background loop (&, nohup, while true), a timer or scheduled task, or repeated status checks of CI, pull requests, merge queues, deploys or other agents. The agent should start scripts/ci-wake.sh (or a provider background task that wakes it) and end its turn instead.
-Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it.
+const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED]. A shell command reaches you only because it holds a wait primitive (sleep, wait, a while or until loop, watch, following a log, a timeout or retry, nohup or a background &).
+Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
+Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
-Writing or editing a file is not a wait, even when the text it writes mentions sleeping or polling; judge only what the call runs.
+A script whose content you are not shown is judged by its command line only; never deny because you cannot see it.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
 Record your decision with the verdict tool, with a reason of one short sentence.`;
 
@@ -373,6 +383,245 @@ export function beforeCiWake(cwd, command) {
   return rest;
 }
 
+/** Shell words that sleep, wait, loop, watch, time out, retry or detach a process (#6003). */
+const WAIT_WORDS = new Set([
+  'sleep',
+  'wait',
+  'while',
+  'until',
+  'watch',
+  'nohup',
+  'timeout',
+  'gtimeout',
+  'retry',
+]);
+/** The same primitives, and their library spellings, in code handed to an interpreter or a script. */
+const WAIT_TEXT =
+  /\b(?:sleep|wait|while|until|watch|nohup|timeout|retry|setTimeout|setInterval)\b|--watch\b|--follow\b|\btail\s+(?:-\S*\s+)*-[A-Za-z]*[fF]\b|[^&|>]&\s*$/m;
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash']);
+/** Options whose next (quoted) word is code to run. */
+const CODE_OPTIONS = new Set(['-c', '-lc', '-ic', '-e', '--eval']);
+/** Runners whose `-w` or `--ui` keeps them watching. */
+const WATCHERS = new Set(['vitest', 'vp', 'playwright', 'jest', 'tsc', 'tsx']);
+/** Programs whose quoted words are shell code. */
+const SHELL_RUNNERS = new Set(['eval', 'ssh', 'xargs']);
+
+/**
+ * The command split at unquoted `;`, `&&`, `||`, `|`, `&`, newlines, parentheses, `$(` and
+ * backticks. Each segment keeps its raw text, its words (quoted ones marked), whether it ends in
+ * a background `&`, its heredoc bodies, and the redirect targets it writes. Double-quoted text
+ * holding `$(` or a backtick is returned as shell code, since it runs.
+ */
+function shellSegments(command) {
+  const segments = [];
+  const code = [];
+  let segment;
+  let start = 0;
+  let word = '';
+  let inWord = false;
+  let quoted = false;
+  let target = false;
+  const pending = [];
+  const open = (at) => {
+    segment = { words: [], raw: '', background: false, heredocs: [], targets: [] };
+    start = at;
+  };
+  const endWord = () => {
+    if (inWord) {
+      segment.words.push({ text: word, quoted });
+      if (target) segment.targets.push(word);
+      target = false;
+    }
+    word = '';
+    inWord = false;
+    quoted = false;
+  };
+  const endSegment = (at, next, background = false) => {
+    endWord();
+    segment.raw = command.slice(start, at).trim();
+    segment.background = background;
+    if (segment.words.length > 0 || segment.heredocs.length > 0) segments.push(segment);
+    open(next);
+  };
+  open(0);
+  for (let at = 0; at < command.length; at += 1) {
+    const ch = command[at];
+    const next = command[at + 1];
+    if (ch === "'") {
+      const close = command.indexOf("'", at + 1);
+      const end = close === -1 ? command.length : close;
+      word += command.slice(at + 1, end);
+      inWord = true;
+      quoted = true;
+      at = end;
+    } else if (ch === '"') {
+      let text = '';
+      let runs = false;
+      for (at += 1; at < command.length && command[at] !== '"'; at += 1) {
+        if (command[at] === '\\') text += command[++at] ?? '';
+        else {
+          if (command[at] === '`' || (command[at] === '$' && command[at + 1] === '(')) runs = true;
+          text += command[at];
+        }
+      }
+      if (runs) code.push(text);
+      word += text;
+      inWord = true;
+      quoted = true;
+    } else if (ch === '\\') {
+      if (next === '\n') at += 1;
+      else {
+        word += next ?? '';
+        inWord = true;
+        at += 1;
+      }
+    } else if (ch === '#' && !inWord) {
+      while (at + 1 < command.length && command[at + 1] !== '\n') at += 1;
+    } else if (ch === '\n') {
+      endWord();
+      const at0 = at;
+      // Heredoc bodies start on the next line, in the order their `<<` appeared.
+      for (const heredoc of pending.splice(0)) {
+        const body = [];
+        let line = at + 1;
+        while (line <= command.length) {
+          const end = command.indexOf('\n', line);
+          const text = command.slice(line, end === -1 ? command.length : end);
+          const bare = heredoc.strip ? text.replace(/^\t+/, '') : text;
+          at = end === -1 ? command.length : end;
+          if (bare === heredoc.delimiter) break;
+          body.push(text);
+          if (end === -1) break;
+          line = end + 1;
+        }
+        heredoc.segment.heredocs.push({ body: body.join('\n'), quoted: heredoc.quoted });
+      }
+      endSegment(at0, at + 1);
+    } else if (/\s/.test(ch)) {
+      endWord();
+    } else if (ch === '<' && next === '<' && command[at + 2] !== '<') {
+      endWord();
+      at += 2;
+      const strip = command[at] === '-';
+      if (strip) at += 1;
+      while (command[at] === ' ' || command[at] === '\t') at += 1;
+      let delimiter = '';
+      let quotedDelimiter = false;
+      for (; at < command.length && !/[\s;&|<>()]/.test(command[at]); at += 1) {
+        if (command[at] === "'" || command[at] === '"' || command[at] === '\\') {
+          quotedDelimiter = true;
+        } else delimiter += command[at];
+      }
+      at -= 1;
+      pending.push({ delimiter, strip, quoted: quotedDelimiter, segment });
+    } else if (ch === '<' || ch === '>') {
+      endWord();
+      if (ch === '>' && next === '>') at += 1;
+      if (ch === '<' && next === '<') at += 2;
+      if (command[at + 1] === '&') at += 1;
+      else target = ch === '>';
+    } else if (ch === '&') {
+      if (next === '&') {
+        endSegment(at, at + 2);
+        at += 1;
+      } else if (next === '>') {
+        endWord();
+        at += 1;
+        if (command[at + 1] === '>') at += 1;
+        target = true;
+      } else endSegment(at, at + 1, true);
+    } else if (ch === '|') {
+      const skip = next === '|' || next === '&' ? 1 : 0;
+      endSegment(at, at + 1 + skip);
+      at += skip;
+    } else if (ch === ';' || ch === '(' || ch === ')' || ch === '`') {
+      endSegment(at, at + 1);
+    } else if (ch === '$' && next === '(') {
+      endSegment(at, at + 2);
+      at += 1;
+    } else {
+      word += ch;
+      inWord = true;
+    }
+  }
+  endSegment(command.length, command.length);
+  return { segments, code };
+}
+
+/** The first word that is not a `NAME=value` assignment, as a basename. */
+function programOf(words) {
+  const first = words.find((word) => word.quoted || !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word.text));
+  return first ? path.basename(first.text) : '';
+}
+
+/**
+ * The wait primitive a shell command holds, or null when it has none and needs no judge (#6003):
+ * sleep, wait, a while or until loop, watch or --watch, tail -f, timeout or retry, nohup, or a
+ * background `&`. Quoted text is data, except code handed to a shell or an interpreter (`-c`,
+ * `-e`, `eval`, `ssh`, a heredoc it reads, or `$(…)` in double quotes); a heredoc another
+ * segment of the call runs as a file is code too. Repository scripts the call runs are read for
+ * the same primitives; a script the hook cannot read counts by its command line only. Starting
+ * this repository's ci-wake.sh, in the foreground or background, is never a primitive.
+ */
+export function waitPrimitive(cwd, command, depth = 0) {
+  if (depth > 4) return 'nesting';
+  const { segments, code } = shellSegments(command);
+  const run = segments.filter(
+    (segment) => !startsCiWake(cwd, segment.background ? `${segment.raw} &` : segment.raw)
+  );
+  const named = new Set(
+    run.flatMap((segment) => segment.words.map((word) => path.basename(word.text)))
+  );
+  // Shell code is scanned like the command; other code, or code whose language is unknown, by text.
+  const inCode = (text, shell) =>
+    (shell && waitPrimitive(cwd, text, depth + 1)) || WAIT_TEXT.exec(text)?.[0]?.trim() || null;
+  for (const text of code) {
+    const found = waitPrimitive(cwd, text, depth + 1);
+    if (found) return found;
+  }
+  for (const segment of run) {
+    const program = programOf(segment.words);
+    for (const [at, word] of segment.words.entries()) {
+      if (word.quoted) {
+        const option = segment.words[at - 1]?.text;
+        if (CODE_OPTIONS.has(option) || SHELL_RUNNERS.has(program)) {
+          const found = inCode(word.text, SHELLS.has(program) || SHELL_RUNNERS.has(program));
+          if (found) return found;
+        }
+        continue;
+      }
+      if (WAIT_WORDS.has(path.basename(word.text))) return path.basename(word.text);
+      if (/^--watch(?:=|$)/.test(word.text)) return '--watch';
+      if (WATCH_FLAGS.test(word.text) && segment.words.some((w) => WATCHERS.has(w.text))) {
+        return word.text;
+      }
+      if (
+        program === 'tail' &&
+        /^(?:-[A-Za-z0-9]*[fF][A-Za-z0-9]*|--follow(?:=.*)?)$/.test(word.text)
+      ) {
+        return 'tail -f';
+      }
+    }
+    if (segment.background) return '&';
+    const runsBody =
+      INTERPRETERS.has(program) ||
+      segment.targets.some(
+        (file) => named.has(path.basename(file)) && run.some((other) => other !== segment)
+      );
+    for (const heredoc of segment.heredocs) {
+      const expands = !heredoc.quoted && /\$\(|`/.test(heredoc.body);
+      if (!runsBody && !expands) continue;
+      const found = inCode(heredoc.body, !INTERPRETERS.has(program) || SHELLS.has(program));
+      if (found) return found;
+    }
+    for (const script of readScripts(cwd, segment.raw)) {
+      const found = WAIT_TEXT.exec(script.content)?.[0];
+      if (found) return found.trim();
+    }
+  }
+  return null;
+}
+
 /**
  * The script one command starts and its arguments: one simple command, run directly or by
  * `sh`/`bash`, with an optional leading `nohup`, trailing redirections and a trailing `&`.
@@ -499,7 +748,66 @@ function strings(value) {
   return [];
 }
 
-const TEMP_ROOT = /TMPDIR|\/tmp\b|\/var\/folders|\/private\/var/;
+/** `a/{b,c}/d` as `a/b/d` and `a/c/d`, expanding every brace group. */
+function expandBraces(word) {
+  const match = /\{([^{}]*,[^{}]*)\}/.exec(word);
+  if (!match) return [word];
+  const head = word.slice(0, match.index);
+  const tail = word.slice(match.index + match[0].length);
+  return match[1].split(',').flatMap((choice) => expandBraces(head + choice + tail));
+}
+
+/** A glob path segment as an anchored regular expression. */
+function globSegment(segment) {
+  return new RegExp(
+    `^${segment
+      .replace(/[.+^${}()|\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')}$`
+  );
+}
+
+/**
+ * Whether a glob can reach the key cache (#6003): its literal prefix (before the first wildcard
+ * segment, `$NAME` expanded from this environment) is inside the cache, or is the temporary
+ * directory or one of its ancestors and the rest of the pattern matches the path from there to
+ * the cache directory's name. A glob under any other directory cannot, short of a symlink to the
+ * cache planted there, which is accepted like any non-Codex reader.
+ */
+function globReachesCache(pattern, cwd, temps, name) {
+  const expanded = pattern.replace(
+    /\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g,
+    (_, variable) => process.env[variable] ?? ''
+  );
+  const segments = expanded.split('/');
+  const first = segments.findIndex((segment) => /[*?[]/.test(segment));
+  if (first === -1) return false;
+  let prefix = path.resolve(
+    cwd,
+    segments.slice(0, first).join('/') || (expanded.startsWith('/') ? '/' : '.')
+  );
+  try {
+    prefix = realpathSync(prefix);
+  } catch {
+    // A prefix that does not exist is compared as written.
+  }
+  const rest = segments.slice(first).filter(Boolean);
+  for (const tmp of temps) {
+    const cache = path.join(tmp, name);
+    if (prefix === cache || prefix.startsWith(cache + path.sep)) return true;
+    if (prefix !== tmp && !tmp.startsWith(prefix === path.sep ? prefix : prefix + path.sep))
+      continue;
+    if (rest.includes('**')) return true;
+    const steps = path.relative(prefix, cache).split(path.sep);
+    if (
+      rest.length >= steps.length &&
+      steps.every((step, at) => globSegment(rest[at]).test(step))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -526,20 +834,14 @@ function touchesCache(tool, input, command, scripts, cwd) {
   } catch {
     tmp = os.tmpdir();
   }
+  const temps = [...new Set([tmp, path.resolve(os.tmpdir())])];
   const name = path.basename(cacheDir());
   const dir = path.join(tmp, name);
   for (const word of words) {
     if (/[*?[]/.test(word)) {
-      if (!TEMP_ROOT.test(word)) continue;
-      const glob = (segment) =>
-        new RegExp(
-          `^${segment
-            .replace(/[.+^${}()|\\]/g, '\\$&')
-            .replace(/\*/g, '.*')
-            .replace(/\?/g, '.')}$`
-        );
-      if (word.split('/').some((segment) => /[*?[]/.test(segment) && glob(segment).test(name)))
+      if (expandBraces(word).some((pattern) => globReachesCache(pattern, cwd, temps, name))) {
         return true;
+      }
       continue;
     }
     if (!word.includes('/')) continue;
@@ -780,6 +1082,10 @@ async function main() {
   // The allowed waiter at the end of a chain is not judged with the rest (#6003).
   const before = tool === 'Bash' ? beforeCiWake(payload.cwd, command) : null;
   if (before === '') return finish({ verdict: 'skip', reason: 'ci-wake' });
+  // Only a command that holds a wait primitive needs the judge (#6003).
+  if (tool === 'Bash' && !waitPrimitive(payload.cwd, command)) {
+    return finish({ verdict: 'skip', reason: 'no-wait' });
+  }
   const seat = whoami();
   const started = Date.now();
   const content = { tool, input: redact(before ?? command).slice(0, INPUT_CHARS) };
