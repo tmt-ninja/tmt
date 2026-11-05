@@ -128,6 +128,14 @@ pub(in crate::board) fn footer(
 mod tests {
     use super::*;
     #[test]
+    fn timer_footer_more_hint_renders_exact_text() {
+        assert_eq!(
+            footer(2, None, 80, Look::default()).to_string().trim(),
+            "+2 more"
+        );
+    }
+
+    #[test]
     fn timer_tracks_match_the_mock_and_paused_rows_are_neutral() {
         let look = Look::default();
         let mut row = Row {
