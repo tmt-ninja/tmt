@@ -117,6 +117,8 @@ export function ReaderApp({
   );
   const downloadRequest = useRef(attachmentDownload.request);
   downloadRequest.current = attachmentDownload.request;
+  const imageRequest = useRef(attachmentDownload.requestImage);
+  imageRequest.current = attachmentDownload.requestImage;
   const resetAttachmentDownload = attachmentDownload.reset;
   useEffect(() => {
     resetAttachmentDownload();
@@ -158,6 +160,7 @@ export function ReaderApp({
       },
       onLink: requestPageLink,
       onAttachmentDownload: (id) => downloadRequest.current(id),
+      onImageDownload: (image) => imageRequest.current(image),
       onEditLocks: editLockLayer.onEditLocks,
       // The band is pinned under the bar like the signed-in route's, so it insets the viewport.
       viewportInset: () => toolbarInset(bar.current) + bandSize.current,

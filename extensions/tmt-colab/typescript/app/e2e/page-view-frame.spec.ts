@@ -847,3 +847,89 @@ test('a page view on a page not written only by its owner gets no rows and a fix
   await expect(list.getByText('Page list unavailable')).toBeVisible();
   await expect.poll(frameHeight).toBe(heights[0]);
 });
+
+// #5981: a data: image the frame hands over is saved only on the reader's confirmation, under its
+// cleaned name, one request at a time, with the same cool-down after Cancel.
+test('a page image download asks once, saves the checked bytes and cools down after Cancel', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/e2e/attachment-download-fixture.tsx';
+    const { mountDownloadFixture } = await import(path);
+    mountDownloadFixture();
+  });
+  const dialog = page.getByRole('dialog', { name: 'Download image' });
+  await page.getByRole('button', { name: 'Image first' }).click();
+  await expect(dialog).toContainText('first.png');
+  // A second request while the bar asks is ignored. It arrives as a message, not a pointer press
+  // outside the bar (which would dismiss it), so the fixture's control is activated directly.
+  await page
+    .getByRole('button', { name: 'Image second' })
+    .evaluate((node) => (node as HTMLElement).click());
+  await expect(dialog).toContainText('first.png');
+  await expect(dialog).not.toContainText('second.png');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Image second' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(DOWNLOAD_COOLDOWN_MS);
+  await page.getByRole('button', { name: 'Image second' }).click();
+  await expect(dialog).toContainText('second.png');
+  const saved = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  const download = await saved;
+  expect(download.suggestedFilename()).toBe('second.png');
+  const { readFile } = await import('node:fs/promises');
+  expect([...(await readFile((await download.path())!))]).toEqual([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1, 2, 3,
+  ]);
+  await expect(dialog).toHaveCount(0);
+});
+
+test('the frame hands over a data: image download link, and the parent admits only checked images', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANAQID';
+  const fake = 'data:image/png;base64,/9j/4AAQAQIDBAUG';
+  const svg = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`;
+  await page.evaluate(
+    async ({ png, fake, svg }) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      host.id = 'probe';
+      document.body.prepend(host);
+      const asked: unknown[] = [];
+      (window as unknown as { asked: unknown[] }).asked = asked;
+      await mountRenderer(
+        host,
+        `<p><a id="png" download="chart.png" href="${png}">PNG</a>
+         <a id="fake" download="fake.png" href="${fake}">Fake</a>
+         <a id="svg" download="logo.svg" href="${svg}">SVG</a>
+         <a id="plain" href="${png}">Not a download</a></p>`,
+        {
+          signal: new AbortController().signal,
+          onState: (state: string) => {
+            host.dataset.state = state;
+          },
+          onImageDownload: (image: { filename: string; mediaType: string; length: number }) =>
+            asked.push({
+              filename: image.filename,
+              mediaType: image.mediaType,
+              length: image.length,
+            }),
+        },
+      );
+    },
+    { png, fake, svg },
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  for (const id of ['fake', 'svg', 'plain', 'png']) await frame.locator(`#${id}`).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { asked: unknown[] }).asked))
+    .toEqual([{ filename: 'chart.png', mediaType: 'image/png', length: 15 }]);
+});

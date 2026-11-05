@@ -914,6 +914,24 @@
               );
               return;
             }
+            // A `data:` image the sandbox cannot save (#5981): the parent checks it and asks the
+            // reader. Anything longer than the largest admitted image is never sent.
+            if (
+              link.hasAttribute('download') &&
+              href.startsWith('data:image/') &&
+              href.length <= 2796268
+            ) {
+              parent.postMessage(
+                {
+                  type: 'colab.render.image-download',
+                  renderId,
+                  src: href,
+                  filename: link.getAttribute('download').slice(0, 1024),
+                },
+                '*',
+              );
+              return;
+            }
             if (!href.startsWith('#')) {
               if (utf8.encode(href).length > 8 * 1024) return;
               parent.postMessage(

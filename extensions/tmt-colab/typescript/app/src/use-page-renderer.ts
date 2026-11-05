@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import type { ImageDownload } from './image-download.js';
 import { followedSystem, type DesignSystemSource } from './design-system.js';
 import { mountRenderer, sourceFrameKey } from './renderer.js';
 import type { PageScheme, RenderState, SelectionRect } from './renderer.js';
@@ -21,6 +22,7 @@ export interface RendererHandlers {
   onOpenThread(id: string): void;
   onOpenList(id: string): void;
   onAttachmentDownload?(id: string): void;
+  onImageDownload?(image: ImageDownload): void;
 }
 
 /** The page's inline layers, which the renderer reports its slots and anchors to. A new function
@@ -212,6 +214,7 @@ export function usePageRenderer({
       onOpenThread: (id) => current.current.onOpenThread(id),
       onOpenList: (id) => current.current.onOpenList(id),
       onAttachmentDownload: (id) => current.current.onAttachmentDownload?.(id),
+      onImageDownload: (image) => current.current.onImageDownload?.(image),
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();

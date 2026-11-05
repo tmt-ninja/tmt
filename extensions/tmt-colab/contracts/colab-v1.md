@@ -2649,7 +2649,20 @@ gesture alone never grants that read, and an unknown or ambiguous reference is i
 After the reader cancels the confirmation (its Cancel, Escape or a light dismiss), the parent
 ignores that frame's download requests for 3 seconds (#6094), so page script cannot keep reopening
 it. Requests during the cool-down neither restart nor extend it; a finished download starts none,
-and a new render or page clears it.
+and a new render or page clears it. The bar asks about one request at a time: while it is open, the
+frame's further requests are ignored.
+
+The frame's sandbox cannot save files, so a trusted activation of a `download` link whose `href` is a
+`data:image/` URL of at most 2,796,268 characters posts exactly
+`{type:"colab.render.image-download", renderId, src, filename}` (#5981). The parent accepts it only
+for the current render, and only as `data:image/(png|jpeg|gif|webp);base64,` with well-formed base64
+whose decoded size, counted from its length before decoding, is at most 2 MiB and whose first bytes
+match the type (PNG signature, JPEG SOI, `GIF87a`/`GIF89a`, `RIFF`…`WEBP`). SVG and every other
+scheme or type are ignored. The filename is plain text: control, direction-override and path
+characters are removed, leading dots trimmed, it is cut to 128 characters and ends in the verified
+type's extension (added when it ends in another); an empty name becomes `image.<ext>`. The same
+trusted bar shows that name, with the same cool-down and one-request rule, and only a trusted
+Download decodes the bytes and saves them as `application/octet-stream`. Nothing is fetched.
 
 On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state

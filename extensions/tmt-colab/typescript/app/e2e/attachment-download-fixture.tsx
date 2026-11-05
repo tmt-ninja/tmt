@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { usePageAttachmentDownload } from '../src/page-attachment-download.js';
+import { admitImageDownload } from '../src/image-download.js';
 import type { AttachmentBinding } from '../src/attachment-service.js';
 import type { attachment } from '@tmt/colab-client';
 
@@ -28,6 +29,21 @@ export function mountDownloadFixture() {
         <button onClick={() => download.request(descriptor.attachmentId)}>Request</button>
         <button onClick={() => download.request('unknown')}>Unknown</button>
         <button onClick={download.reset}>New render</button>
+        {(['first', 'second'] as const).map((name) => (
+          <button
+            key={name}
+            onClick={() => {
+              // An 8-byte PNG signature and a few bytes: what a frame hands over for a data: image.
+              const image = admitImageDownload(
+                'data:image/png;base64,iVBORw0KGgoAAAANAQID',
+                `../${name}.png`,
+              );
+              if (image) download.requestImage(image);
+            }}
+          >
+            {`Image ${name}`}
+          </button>
+        ))}
         {download.bar}
       </>
     );
