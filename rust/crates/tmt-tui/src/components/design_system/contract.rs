@@ -138,6 +138,7 @@ impl CellGrid {
             self.cells[usize::from(y) * usize::from(self.size.width) + usize::from(x)] = cell;
         }
     }
+
     /// Write complete graphemes only; never emit a partial wide character.
     pub fn text(&mut self, area: Rect, text: &str, fg: Role, bg: Option<Role>) {
         self.text_with(area, text, Some(fg), bg, false);
@@ -201,6 +202,7 @@ impl CellGrid {
             x += width as u16;
         }
     }
+
     /// Paint a chip with its semantic surface; no palette is resolved here.
     pub fn chip(&mut self, area: Rect, text: &str, surface: ChipSurface) {
         self.text(area, text, Role::Text, None);

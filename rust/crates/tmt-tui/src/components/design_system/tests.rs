@@ -261,3 +261,54 @@ fn empty_section_title_is_a_plain_rule() {
     assert_eq!(lines(&grid)[0], "────────");
     assert!((0..8).all(|x| grid.get(x, 0).unwrap().fg == Some(Role::Dim)));
 }
+
+#[test]
+fn mark_state_owns_attention_role_and_limits_emphasis() {
+    for (state, role, bold) in [
+        (MarkState::Working, Role::Muted, false),
+        (MarkState::Waiting, Role::Waiting, true),
+        (MarkState::Blocked, Role::Blocked, true),
+        (MarkState::Review, Role::Muted, false),
+        (MarkState::Idle, Role::Muted, false),
+        (MarkState::Offline, Role::Muted, false),
+        (MarkState::Ended, Role::Muted, false),
+        (MarkState::Shell, Role::Muted, false),
+    ] {
+        let mut grid = CellGrid::new(Size {
+            width: 20,
+            height: 1,
+        });
+        Mark::render(
+            &MarkProps {
+                state,
+                label: "state".into(),
+                emphasis: true,
+            },
+            area(20, 1),
+            &mut grid,
+        );
+        assert_eq!(grid.get(0, 0).unwrap().fg, Some(role));
+        assert_eq!(grid.get(0, 0).unwrap().bold, bold);
+    }
+}
+
+#[test]
+fn sparkline_preserves_missing_zero_scale_and_insufficient_track() {
+    let mut grid = CellGrid::new(Size {
+        width: 5,
+        height: 1,
+    });
+    let mut props = SparklineProps {
+        points: vec![None, Some(0), Some(1), Some(4), Some(8)],
+        scale: 8,
+        unavailable: false,
+    };
+    Sparkline::render(&props, area(5, 1), &mut grid);
+    assert_eq!(lines(&grid), ["· ▁▄█"]);
+    props.unavailable = true;
+    Sparkline::render(&props, area(5, 1), &mut grid);
+    assert_eq!(lines(&grid), ["     "]);
+    let before = grid.clone();
+    Sparkline::render(&props, area(4, 1), &mut grid);
+    assert_eq!(grid, before);
+}

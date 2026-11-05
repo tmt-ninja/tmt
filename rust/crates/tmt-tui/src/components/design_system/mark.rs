@@ -1,32 +1,39 @@
-use super::{CellGrid, Component, Constraints, HitId, Rect, Size, Token};
+use super::{CellGrid, Component, Constraints, HitId, Rect, Size};
 use serde::{Deserialize, Serialize};
-use tmt_cli_style::mark::Mark as Symbol;
+use tmt_cli_style::{mark::Mark as Symbol, theme::Role};
+use unicode_width::UnicodeWidthStr;
 
-/// Stable semantic states use the existing CLI mark table.
+/// The board's observable member states.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MarkState {
-    Running,
-    Offline,
+    Working,
+    Waiting,
+    Blocked,
+    Review,
     Idle,
-    Resumable,
-    Done,
-    Failed,
-    Warning,
-    Decision,
+    Offline,
+    Ended,
+    Shell,
 }
 
 impl MarkState {
-    fn symbol(self) -> Symbol {
+    fn glyph(self) -> &'static str {
         match self {
-            Self::Running => Symbol::Running,
-            Self::Offline => Symbol::Offline,
-            Self::Idle => Symbol::Idle,
-            Self::Resumable => Symbol::Resumable,
-            Self::Done => Symbol::Done,
-            Self::Failed => Symbol::Failed,
-            Self::Warning => Symbol::Warning,
-            Self::Decision => Symbol::Decision,
+            Self::Working => Symbol::Running.symbol(),
+            Self::Waiting => Symbol::Decision.symbol(),
+            Self::Blocked => Symbol::Failed.symbol(),
+            Self::Review => "◐",
+            Self::Idle => Symbol::Idle.symbol(),
+            Self::Offline | Self::Ended => Symbol::Offline.symbol(),
+            Self::Shell => "▪",
+        }
+    }
+    fn role(self) -> Role {
+        match self {
+            Self::Waiting => Role::Waiting,
+            Self::Blocked => Role::Blocked,
+            _ => Role::Muted,
         }
     }
 }
@@ -35,43 +42,52 @@ impl MarkState {
 pub struct MarkProps {
     pub state: MarkState,
     pub label: String,
-    pub role: Token,
-    pub bold: bool,
+    /// Emphasize the attention glyph in a selected row, count, or tab.
+    pub emphasis: bool,
 }
 
-/// A semantic mark and its word.
+/// A board state glyph and its neutral word.
 ///
 /// `● working`
 ///
-/// The text is ellipsized at the available width. ASCII marks await the shared symbol table.
+/// Only waiting and blocked glyphs accept emphasis. Text is ellipsized at the available width.
 pub struct Mark;
 
 impl Component for Mark {
     type Props = MarkProps;
-
     fn measure(props: &Self::Props, constraints: Constraints) -> Size {
-        use unicode_width::UnicodeWidthStr;
-        let text = format!("{} {}", props.state.symbol().symbol(), props.label);
+        let text = format!("{} {}", props.state.glyph(), props.label);
         constraints.clamp(Size {
             width: UnicodeWidthStr::width(text.as_str()).min(usize::from(u16::MAX)) as u16,
             height: 1,
         })
     }
-
     fn render(props: &Self::Props, area: Rect, grid: &mut CellGrid) -> Vec<(Rect, HitId)> {
         grid.clear(area);
-        let symbol = props.state.symbol();
-        let role = props.role.0;
-        grid.text_bold(
-            area,
-            &super::section_rule::fit(
-                &format!("{} {}", symbol.symbol(), props.label),
-                usize::from(area.width),
-            ),
-            role,
-            None,
-            props.bold,
-        );
+        let glyph = props.state.glyph();
+        let text =
+            super::section_rule::fit(&format!("{glyph} {}", props.label), usize::from(area.width));
+        if let Some(rest) = text.strip_prefix(glyph) {
+            grid.text_bold(
+                Rect { width: 1, ..area },
+                glyph,
+                props.state.role(),
+                None,
+                props.emphasis && matches!(props.state, MarkState::Waiting | MarkState::Blocked),
+            );
+            grid.text(
+                Rect {
+                    x: area.x.saturating_add(1),
+                    width: area.width.saturating_sub(1),
+                    ..area
+                },
+                rest,
+                Role::Muted,
+                None,
+            );
+        } else {
+            grid.text(area, &text, Role::Muted, None);
+        }
         vec![]
     }
 }

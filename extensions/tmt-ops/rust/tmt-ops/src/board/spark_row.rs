@@ -614,6 +614,62 @@ mod tests {
                 .contains("No token observations yet")
         );
     }
+
+    #[test]
+    fn design_system_sparkline_matches_the_board_bucket_track() {
+        use tmt_tui::components::{
+            design_system::{
+                CellGrid, Component, Rect as GridRect, Size, Sparkline, SparklineProps,
+            },
+            design_system_ratatui,
+        };
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ] {
+            let theme = Theme::new(base);
+            for width in [40, 60, 80, 120, 160] {
+                let mut source = data();
+                source.rows.truncate(1);
+                source.rows[0].values = vec![Some(0), Some(1), None, Some(4), Some(8)];
+                source.buckets = 5;
+                source.show_axis = false;
+                let scene = Scene::with_scale(&source, width, 0, 8).unwrap();
+                let mut board = Buffer::empty(Rect::new(0, 0, width, scene.rows()));
+                scene.paint(&mut board, &theme, depth, &[], None).unwrap();
+                let track = scene.spark_width;
+                let mut grid = CellGrid::new(Size {
+                    width: track,
+                    height: 1,
+                });
+                Sparkline::render(
+                    &SparklineProps {
+                        points: source.rows[0].values.clone(),
+                        scale: 8,
+                        unavailable: false,
+                    },
+                    GridRect {
+                        x: 0,
+                        y: 0,
+                        width: track,
+                        height: 1,
+                    },
+                    &mut grid,
+                );
+                let mut actual = Buffer::empty(Rect::new(0, 0, track, 1));
+                design_system_ratatui::paint(&grid, actual.area, &mut actual, &theme, depth);
+                for x in 0..track {
+                    assert_eq!(
+                        actual[(x, 0)],
+                        board[(source.name_width + 1 + x, 1)],
+                        "{base:?}/{depth:?} width={width} x={x}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Shared two-row chart quantization. Nullable buckets stay gaps; saved is the lower segment.
@@ -670,109 +726,6 @@ pub(in crate::board) fn stacked(
 
 #[cfg(test)]
 mod digest_stack_tests {
-    use super::*;
-    fn legacy_stacked(
-        buffer: &mut Buffer,
-        area: Rect,
-        points: &[(Option<u64>, Option<u64>)],
-        look: crate::look::Look,
-    ) {
-        use ratatui::text::Span;
-        use tmt_tui::components::strip;
-        if area.is_empty() {
-            return;
-        }
-        if points.is_empty() {
-            strip::paint_left(
-                buffer,
-                Rect { height: 1, ..area },
-                Line::styled(
-                    "No aligned used/saved observations yet",
-                    look.role(Role::Muted),
-                ),
-            );
-            return;
-        }
-        let maximum = points
-            .iter()
-            .filter_map(|(used, saved)| (*used)?.checked_add(saved.unwrap_or(0)))
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        for row in 0..area.height.min(2) {
-            let base = u128::from(1 - row) * 8;
-            let spans = (0..area.width)
-                .map(|x| {
-                    let (used, saved) =
-                        points[usize::from(x) * points.len() / usize::from(area.width)];
-                    let (Some(used), Some(saved)) = (used, saved) else {
-                        return Span::styled("·", look.role(Role::Dim));
-                    };
-                    let total = used.saturating_add(saved);
-                    let pixels = (u128::from(total) * 16).div_ceil(u128::from(maximum));
-                    let height = pixels.saturating_sub(base).min(8) as usize;
-                    let saved_pixels = (u128::from(saved) * 16) / u128::from(maximum);
-                    let saved_height = saved_pixels.saturating_sub(base).min(8) as usize;
-                    let blocks = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-                    if saved_height > 0 && saved_height < height {
-                        let used = look.role(Role::Text);
-                        let saved = look.role(Role::Accent);
-                        Span::styled(blocks[saved_height], saved.bg(used.fg.unwrap_or_default()))
-                    } else {
-                        let role = if saved_height > 0 {
-                            Role::Accent
-                        } else {
-                            Role::Text
-                        };
-                        Span::styled(blocks[height], look.role(role))
-                    }
-                })
-                .collect::<Vec<_>>();
-            strip::paint_left(
-                buffer,
-                Rect::new(area.x, area.y + row, area.width, 1),
-                Line::from(spans),
-            );
-        }
-    }
-
-    #[test]
-    fn design_system_stacked_bars_match_the_original_cells_and_styles() {
-        use tmt_cli_style::{Depth, Theme, theme::Base};
-        for (base, depth) in [
-            (Base::Tmt, Depth::TrueColor),
-            (Base::TmtLight, Depth::TrueColor),
-            (Base::Terminal, Depth::Ansi16),
-            (Base::Tmt, Depth::None),
-        ] {
-            let look = crate::look::Look {
-                theme: Theme::new(base),
-                depth,
-            };
-            for width in [40, 60, 80, 120, 160] {
-                for points in [
-                    vec![],
-                    vec![
-                        (None, Some(0)),
-                        (Some(0), Some(0)),
-                        (Some(14), Some(2)),
-                        (Some(8), Some(8)),
-                    ],
-                ] {
-                    let area = Rect::new(0, 0, width, 2);
-                    let mut original = Buffer::empty(area);
-                    let mut actual = Buffer::empty(area);
-                    legacy_stacked(&mut original, area, &points, look);
-                    stacked(&mut actual, area, &points, look);
-                    assert_eq!(
-                        actual, original,
-                        "width={width}, points={points:?}, look={base:?}/{depth:?}"
-                    );
-                }
-            }
-        }
-    }
-
     #[test]
     fn mixed_boundary_cell_keeps_saved_fraction_and_used_background() {
         use ratatui::{buffer::Buffer, layout::Rect};
