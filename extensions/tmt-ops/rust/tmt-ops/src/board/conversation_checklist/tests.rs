@@ -115,6 +115,28 @@ pub(in crate::board) fn reading(task: &Task, result: Result<Counts, String>) -> 
     }
 }
 
+/// A read of `task` returning items with these titles and completions, for scenes that show
+/// a list's contents.
+pub(in crate::board) fn reading_titled(task: &Task, items: &[(&str, Completion)]) -> Completed {
+    let items = items
+        .iter()
+        .enumerate()
+        .map(|(index, (title, completion))| {
+            let mut item = view(index as u8 + 1, None, *completion, false);
+            item.item.content.title = (*title).into();
+            item
+        })
+        .collect();
+    Completed {
+        key: task.key.clone(),
+        epoch: task.epoch,
+        outcome: Outcome::Read {
+            preview: Ok(preview(items)),
+            activity: activity::Read::default(),
+        },
+    }
+}
+
 pub(super) fn key() -> Key {
     Key {
         room: ROOM.into(),
@@ -137,14 +159,14 @@ fn open_counts_and_chip_exclude_completed_references_and_all_done_is_empty() {
         view(5, None, Completion::Open, true),
     ];
     let counts = Counts::of(&items);
-    assert_eq!(chip(Some(&Summary::Counts(counts))), "Checklist · 2 todo");
+    assert_eq!(chip(Some(&Summary::Counts(counts))), "Checklist 2");
     assert_eq!(
         counts.links, 1,
         "only open links contribute to the inventory"
     );
     assert_eq!(
         chip(Some(&Summary::Counts(Counts::of(&items[2..4])))),
-        "Checklist · empty"
+        "Checklist"
     );
 }
 
@@ -179,12 +201,12 @@ fn the_chip_reads_pending_empty_counts_and_unavailable() {
     };
     assert_eq!(chip(None), "Checklist");
     assert_eq!(chip(Some(&Summary::Pending)), "Checklist");
-    assert_eq!(chip(counts(0).as_ref()), "Checklist · empty");
-    assert_eq!(chip(counts(2).as_ref()), "Checklist · 2 todo");
-    assert_eq!(chip(counts(1).as_ref()), "Checklist · 1 todo");
+    assert_eq!(chip(counts(0).as_ref()), "Checklist");
+    assert_eq!(chip(counts(2).as_ref()), "Checklist 2");
+    assert_eq!(chip(counts(1).as_ref()), "Checklist 1");
     assert_eq!(
         chip(Some(&Summary::Unavailable("no".into()))),
-        "Checklist · unavailable"
+        "✗ Checklist"
     );
 }
 
@@ -504,8 +526,7 @@ pub(in crate::board) fn capture_case(
 }
 
 #[test]
-fn the_chip_fits_the_columns_it_is_given() {
-    use unicode_width::UnicodeWidthStr;
+fn the_chip_has_only_registered_glyphs() {
     let summaries = [
         None,
         Some(Summary::Counts(Counts::default())),
@@ -516,10 +537,6 @@ fn the_chip_fits_the_columns_it_is_given() {
         Some(Summary::Unavailable("no".into())),
     ];
     for summary in &summaries {
-        for columns in 0..=60 {
-            let text = fitted(summary.as_ref(), columns);
-            assert!(text.width() <= columns, "{columns}: {text:?}");
-        }
         let text = chip(summary.as_ref());
         assert_eq!(
             crate::board::glyph_guard::glyph_error(&text),
@@ -547,15 +564,16 @@ mod header {
         app.conversation_checklist_key()
             .expect("a squad member has a conversation")
     }
+    /// Wide enough for the Checklist chip beside the member state (#5992).
     fn screen(app: &App) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, app))
             .unwrap();
         let buffer = terminal.backend().buffer();
         (0..40)
             .map(|y| {
-                (0..120)
+                (0..160)
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>()
             })
@@ -567,6 +585,41 @@ mod header {
         let now = Instant::now();
         let task = app.notes.offer(Some(key), now).expect("a read is wanted");
         app.notes.finished(reading(&task, result), now);
+    }
+
+    #[test]
+    fn the_state_outranks_the_checklist_chip_on_a_narrow_talk_row() {
+        let mut app = board();
+        let key = select_member(&mut app);
+        answer(&mut app, &key, Ok(Counts { links: 0, todo: 12 }));
+        let (mut whole, mut counted_out, mut dropped) = (false, false, false);
+        for width in (80..=200).step_by(2) {
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let row = (0..40)
+                .map(|y| {
+                    (0..width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .find(|line| line.contains("Talk") && line.contains("Measure"))
+                .expect("the Talk/Measure row");
+            assert!(row.contains("working"), "{width}: the state is cut\n{row}");
+            // The chip gives up its count before itself.
+            let chip = row.contains("Checklist 12");
+            let bare = row.contains("Checklist ──");
+            assert!(chip || bare || !row.contains("Checklist"), "{width}: {row}");
+            whole |= chip;
+            counted_out |= bare;
+            dropped |= !row.contains("Checklist");
+        }
+        assert!(
+            whole && counted_out && dropped,
+            "wide rows keep the chip, narrower ones its word, the narrowest none"
+        );
     }
 
     #[test]
@@ -694,7 +747,7 @@ mod header {
         );
         let text = screen(&app);
         assert!(text.lines().next().unwrap().contains("○ 1 todo"), "{text}");
-        assert!(text.contains("Checklist · 1 todo"), "{text}");
+        assert!(text.contains("Checklist 1"), "{text}");
         assert!(
             text.lines().any(|line| line.contains("worker")
                 && line.contains("working")
@@ -704,7 +757,7 @@ mod header {
     }
 
     #[test]
-    fn the_member_header_shows_the_notes_summary_where_the_link_line_was() {
+    fn the_talk_measure_row_shows_the_notes_summary_and_the_link_line_is_gone() {
         let mut app = board();
         let key = select_member(&mut app);
         let text = screen(&app);
@@ -719,7 +772,12 @@ mod header {
 
         answer(&mut app, &key, Ok(Counts { links: 3, todo: 5 }));
         let text = screen(&app);
-        assert!(text.contains("Checklist · 5 todo"), "{text}");
+        assert!(
+            text.lines().any(|line| line.contains("Talk")
+                && line.contains("Measure")
+                && line.contains("Checklist 5")),
+            "the chip follows the tabs (#5992)\n{text}"
+        );
     }
 
     #[test]
@@ -727,12 +785,16 @@ mod header {
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Ok(Counts::default()));
-        assert!(screen(&app).contains("Checklist · empty"));
+        let text = screen(&app);
+        assert!(
+            text.contains("Checklist ") && !text.contains("Checklist 0"),
+            "{text}"
+        );
 
         let mut app = board();
         let key = select_member(&mut app);
         answer(&mut app, &key, Err("no recorded user".into()));
-        assert!(screen(&app).contains("Checklist · unavailable"));
+        assert!(screen(&app).contains("✗ Checklist"));
 
         let mut app = board();
         let last = app.workspace_rows().len() - 1;

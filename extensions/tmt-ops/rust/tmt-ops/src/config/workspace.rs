@@ -317,7 +317,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
             ("c", "timers"),
             ("C", "member-checklist"),
-            ("z", "terminal-zoom"),
+            ("ctrl-g", "member-back"),
             ("p", "pin"),
         ]
     } else {
@@ -342,6 +342,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("tab", "next-pane"),
             ("backtab", "next-pane"),
             ("ctrl-r", "refresh"),
+            ("ctrl-g", "member-back"),
             (",", "settings"),
             ("c", "timers"),
             ("M", "talk-measure"),
@@ -373,7 +374,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("o", "open"),
             ("x", "remove-member"),
             ("C", "member-checklist"),
-            ("z", "terminal-zoom"),
             ("m", "move-membership"),
             ("D", "digest"),
         ]),
@@ -953,9 +953,9 @@ impl Config {
                 }
                 continue;
             }
-            if action.verb == Verb::Ui(OpsUiAction::TerminalZoom) && !is_chord(&key) {
+            if action.verb == Verb::Ui(OpsUiAction::MemberBack) && !is_chord(&key) {
                 notices.push(format!(
-                    "`bind.{key}` = terminal-zoom also keeps `{key}` from reaching the agent while you type into its terminal; a ctrl- or alt- chord avoids that."
+                    "`bind.{key}` = member-back also keeps `{key}` from reaching the agent in its full-screen terminal; a ctrl- or alt- chord avoids that."
                 ));
             }
             let source = configured_binding_source(&key, host, &hosts, section);
@@ -1248,7 +1248,7 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            // `j` opens a built-in member's Terminal view (#5765); `terminal` has no default key.
+            // `j` fills the board with a built-in member's terminal (#5989).
             assert!(!factory.bindings.contains_key("t"), "{scope:?}");
             let measure_keys: Vec<_> = factory
                 .bindings
@@ -1466,14 +1466,14 @@ mod tests {
     #[test]
     fn unbound_on_a_key_nothing_binds_by_default_is_a_notice_not_an_error() {
         for scope in OpsKeyScope::ALL {
-            let keys = config("[bind]\nctrl-g='unbound'\n")
+            let keys = config("[bind]\nctrl-y='unbound'\n")
                 .workspace_keys(scope, None, None)
                 .unwrap();
-            assert!(!keys.bindings.contains_key("ctrl-g"), "{scope:?}");
+            assert!(!keys.bindings.contains_key("ctrl-y"), "{scope:?}");
             assert!(
                 keys.notices
                     .iter()
-                    .any(|notice| notice.contains("`bind.ctrl-g`")
+                    .any(|notice| notice.contains("`bind.ctrl-y`")
                         && notice.contains("no default binding to remove")),
                 "{scope:?}: {:?}",
                 keys.notices
@@ -1518,7 +1518,7 @@ mod tests {
     }
 
     #[test]
-    fn zoom_is_z_on_members_and_readers_only_and_a_bare_key_warns() {
+    fn member_back_is_ctrl_g_everywhere_and_a_bare_key_warns() {
         for scope in [
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
@@ -1526,18 +1526,14 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            match scope {
-                OpsKeyScope::Member | OpsKeyScope::Reader => {
-                    assert_eq!(factory.bindings["z"].text, "terminal-zoom", "{scope:?}");
-                }
-                _ => assert!(!factory.bindings.contains_key("z"), "{scope:?}"),
-            }
+            assert_eq!(factory.bindings["ctrl-g"].text, "member-back", "{scope:?}");
+            assert!(!factory.bindings.contains_key("z"), "{scope:?}");
         }
         for (key, warns) in [("x", true), ("ctrl-x", false), ("alt-x", false)] {
-            let keys = config(&format!("[bind]\n{key}='terminal-zoom'\n"))
+            let keys = config(&format!("[bind]\n{key}='member-back'\n"))
                 .workspace_keys(OpsKeyScope::Member, None, None)
                 .unwrap();
-            assert_eq!(keys.bindings[key].verb, Verb::Ui(OpsUiAction::TerminalZoom));
+            assert_eq!(keys.bindings[key].verb, Verb::Ui(OpsUiAction::MemberBack));
             assert_eq!(
                 keys.notices
                     .iter()

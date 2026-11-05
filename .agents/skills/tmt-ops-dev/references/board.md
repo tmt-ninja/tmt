@@ -629,67 +629,71 @@ the frozen parity approval/regeneration gate. Relevant tests live in `view/tests
 
 ## Terminal stream client
 
-`board/terminal_tab/` is the Terminal tab's model for a built-in-host member; the wire is
+`board/terminal_tab/` is the member frame's model for a built-in-host member; the wire is
 [terminal-stream-v1](../../../../contracts/terminal-stream-v1.md). `discovery` asks Core
-(`terminal.stream`, `{identityId}`) where the stream is and checks the answer; a
-`TERMINAL_STREAM_UNAVAILABLE` refusal means no tab, any other failure is retried. `stream` runs one
-thread per open tab that owns the Unix socket: `Hello`, `Welcome`, one `Snapshot`, then live output
-applied on top of the snapshot (frames before `SnapshotStart` are superseded, a second
-`SnapshotStart` discards an unfinished one). The board hands it a sink and sends commands; it
-receives `StreamEvent`s (a connection notice, a `Screen` at most every 33 ms, `Exited`, `Evicted`,
-`Refused`, `Lost`), so painting and key handling do no I/O and a late event for an old tab is
-dropped by its epoch. A lost connection or a `TooSlow` eviction reconnects with a fresh `Hello` and
-`Snapshot` after a bounded backoff; `TakenOver`, `Exited` and a refusal do not. A viewer never sends
-`TakeSole`, never sends `Resize` unless the caller asks (typing starts or the typing area changes),
-sends that window again after a reconnect only while typing (`stop_typing` forgets it, so a
-viewer that only watches never takes the size back), drops input while not attached, and never
-sends or reads Core's control frames. The screen model and key encoder are `tmt-tui`'s
-`components::terminal`; this module depends on `tmt-pty-protocol` for frames only.
+(`terminal.stream`, `{identityId}`) where the stream is and checks the answer, including whether
+the member is paused, whether its agent ended (`exit N`/`signal N`) and whether a shell runs in
+its place; a `TERMINAL_STREAM_UNAVAILABLE` refusal means no frame, any other failure is retried.
+`discovery::act` runs the frame's Core actions: `terminal.resume`, `terminal.relaunch` (`resume`,
+`new` or `shell`) and the Colab link. `stream` runs one thread per open frame that owns the Unix
+socket: `Hello`, `Welcome`, one `Snapshot`, then live output applied on top of the snapshot
+(frames before `SnapshotStart` are superseded, a second `SnapshotStart` discards an unfinished
+one). The board hands it a sink and sends commands; it receives `StreamEvent`s (a connection
+notice, a `Screen` at most every 33 ms, `Exited`, `Evicted`, `Refused`, `Lost`), so painting and
+key handling do no I/O and a late event for an old frame is dropped by its epoch. `Exited` does
+not end the stream: a supervisor that keeps its terminal stays connected and the relaunched
+program's output follows; an older supervisor's close ends it. A lost connection or a `TooSlow`
+eviction reconnects with a fresh `Hello` and `Snapshot` after a bounded backoff; `TakenOver` and a
+refusal do not. A viewer never sends `TakeSole`, sends `Resize` only for the window the frame asks
+for (again after a reconnect), drops input while not attached, and never sends or reads Core's
+control frames. The screen model and key encoder are `tmt-tui`'s `components::terminal`; this
+module depends on `tmt-pty-protocol` for frames only.
 
-### Terminal tab
+### Member frame
 
-`tab::Tab` (on `App`) holds what the tab knows: the answer of `terminal.stream` per member
-(`SelectedRead::TerminalStream`, asked last in the selected lane so the chat's reads never wait
-for it; a member with no stream is asked again after 60 s, a failed answer after 10 s), whether the
-tab is shown, and the one open `Stream` with the view it last drew. A stream that ended
-(`Exited`, `Evicted`, `Refused`, `Lost`) keeps its last screen, dimmed, under a line that says why;
-`⏎` (or leaving the tab and coming back) asks Core again and reconnects. `Tab::sync`, called once per
-board-loop pass, opens, replaces or drops the stream so it matches what is shown (the selected
-member's, only while the Terminal tab shows); every open takes a new epoch and
-`BoardEvent::Terminal` carries it, so a late event of a replaced stream is dropped.
+`j` on a built-in-host member (`App::jump_to_terminal`; a tmux member keeps the host jump), a
+clean built-in New member create, and Enter on a plain program open the frame
+(`App::open_member_frame`): the member's terminal fills the board under one TMT header row
+(`paint::frame`). `tab::Tab` (on `App`) holds the answer of `terminal.stream` per member
+(`SelectedRead::TerminalStream`, asked only for the framed member, again every second while it is
+framed; a member with no stream is asked again after 60 s, a failed answer after 10 s), the framed
+member, the one open `Stream` with the view it last drew, the dismissed dialog, the open header
+menu and the hit areas of the last draw. `Tab::sync`, called once per board-loop pass, opens,
+replaces or drops the stream so it matches the frame; every open takes a new epoch and
+`BoardEvent::Terminal` carries it. Core finding no stream for the framed member closes the frame
+and says so.
 
-The tab exists only for the selected member that has a stream. `j` on such a built-in member
-opens it (`App::jump_to_terminal`; a tmux member keeps the host jump) and `j` again or the Chat
-chip leads back; the catalog action `terminal` (no default key) switches the two when bound. The
-chips are tab-header controls, key then word (`Chat  j Terminal` from the chat, `j Chat  Terminal
-z Zoom` from the terminal), each key from the effective bindings and `j` on the view it switches to. The terminal view never offers the composer, whichever pane has focus; the terminal
-takes its rows. `paint` lays the cells on the pane with the program's own colours
-(`foreign::style`): a bigger screen is cut at the edge (a wide character that would straddle it is
-left out), a smaller one leaves the rest blank, and the screen is dimmed while the stream is not
-live. The program's cursor shows as one reversed cell (not the terminal cursor) in the live state only,
-hidden when the program hides it. While typing, the terminal's real cursor goes to the program's
-cursor cell instead (`Frame::caret`, recorded as `tab::Caret` by `paint`): `view::render` shows it
-there, and when the program hides its cursor `App::park_hidden_caret` moves it there after the draw,
-still hidden, so an input method draws uncommitted text at the program's input. A cell outside the
-drawn screen places nothing; leaving typing gives the caret back to the board.
+The header shows the member's name and state (`◌ connecting…` before the first screen,
+`◌ reconnecting…` while a lost stream retries, `● connected`, `■ paused` with Resume,
+`○ not connected` with Resume/New after the agent ended, `○ shell`), its Digest backlog, the
+`▾ Members`, `▾ Session` and `▾ Checklist N` menus, Colab, and the back key on the right. The
+header and its menus answer the mouse; an open menu also takes ↑↓, ⏎, Esc and its rows' letters.
+Members lists the other roster members with the Agents tree's STATE dot (`state_cell::glyph`
+with `columns::activity_style`, ✗ in the Blocked role), then Back to board and `n` Next member
+needing you (the first waiting or blocked member after the framed one); a member on another host
+closes the frame and selects its row. Checklist reads the framed member's list from the checklist
+service (the board reads that list while framed): open items with `☐`, a collapsed `Done N`, and
+`+ Add item`, which opens the checklist straight into a new item. Rows are `board::MenuRow`. The
+program gets the area below the header: the frame asks for that window (`Stream::resize`) when
+it opens and whenever the board's size changes.
 
-Typing: `⏎` (the `talk` action while the terminal shows) starts it; after the stream ended it attaches
-again instead. A clean built-in New member create calls `Tab::show_typing`, so that member's stream
-starts typing when it opens, as if clicked; another stream opening, another selection, a toggle, a
-reattach or Core finding no stream drops that wish. While typing `App::terminal_key`, `terminal_mouse` and `terminal_paste` run before
-every other handler, so each key (Esc, PageUp and Ctrl-C included), a paste and the wheel over the
-screen go to the program through `tmt-tui`'s encoders; only Ctrl-\ (or Ctrl-4) leaves, calls
-`Stream::stop_typing` and is never sent, and a press outside the screen leaves too. The window is
-asked for (`Stream::resize`) in the pass after typing starts and whenever the drawn area changes
-while typing, never otherwise, and leaving resizes nothing back. A stream that ends ends typing.
-While typing the footer is that one hint (`Ctrl-\` back).
+Every key, a paste and the wheel go to the program through `tmt-tui`'s encoders (Esc, PageUp,
+Ctrl-C and board letters included), except the `member-back` action (default `ctrl-g` in every
+scope), which closes the frame and is never sent; `workspace_keys` warns when that key is bare.
+A paused member (`MemberTerm::paused`) or an ended agent shows a dialog over the dimmed screen
+(`Dialog::Paused`: Resume, back; `Dialog::Ended`: Resume the last session, `n` a new one, `s` a
+shell here, back) that takes the keys until Esc dismisses it; the header keeps the state and
+the dialog comes back the next time that state begins. Each choice is a `Request::Terminal`
+whose failure shows in the dialog. A stream that ended (`Evicted`, `Refused`, `Lost`) keeps its
+last screen, dimmed, under a line that says why; `⏎` asks Core again and reconnects.
 
-`terminal-zoom` (default `z` on Member and Reader lists, available only while the terminal shows)
-makes the screen fill the board (`paint::zoomed`; the board's own hit lists are rebuilt, so
-nothing behind it is clickable); while zoomed only `⏎`, Esc and the zoom key mean anything. A zoom
-key the user wrote under `[bind]` also works while typing and is never sent; the default `z` does
-not, since the program may need it. `workspace_keys` warns when that key is bare (no ctrl-, alt-
-or super-).
+`paint` lays the cells with the program's own colours (`foreign::style`): a bigger screen is cut
+at the edge (a wide character that would straddle it is left out), a smaller one leaves the rest
+blank. The program's cursor goes to the terminal's real cursor (`Frame::caret`, recorded as
+`tab::Caret`); when the program hides it `App::park_hidden_caret` moves it there after the draw,
+still hidden, so an input method draws uncommitted text at the program's input. A left drag over
+the screen selects its text and copies it with the chat's Copy, unless the program asked for the
+mouse.
 
 ## Checklist controller
 

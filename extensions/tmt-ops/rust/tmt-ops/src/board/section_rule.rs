@@ -19,6 +19,13 @@ pub(in crate::board) fn plain(title: &str, width: usize) -> String {
 }
 
 /// Where `line` puts a note of `note_width` cells in `area`, when it fits beside the title.
+/// The columns a rule needs to show `title` and a note `note_width` wide whole, as [`line`]
+/// lays them out.
+pub(in crate::board) fn needed(title: &str, note_width: usize) -> usize {
+    let heading = format!("── {} ", crate::board::notes::single_line(title));
+    heading.width() + if note_width == 0 { 0 } else { note_width + 5 }
+}
+
 pub(in crate::board) fn note_area(title: &str, note_width: usize, area: Rect) -> Option<Rect> {
     let heading = format!("── {} ", crate::board::notes::single_line(title));
     if note_width == 0 || heading.width() + note_width + 4 + 1 > usize::from(area.width) {

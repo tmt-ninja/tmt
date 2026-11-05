@@ -504,6 +504,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         }
         Request::Digest(set) => digest::apply(core, set),
         Request::DigestSwitch(on) => digest::switch(core, on),
+        Request::Terminal { identity, op } => terminal_tab::discovery::act(core, &identity, &op),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),
@@ -800,15 +801,21 @@ fn session(
         if let Some(writer) = app.unread.writer.offer() {
             io(lane::Job::AcknowledgeAnswers(writer));
         }
-        let shown = app.conversation_checklist_key().or_else(|| {
-            if app.loading() || !app.workspace_selection_visible() {
-                return None;
-            }
-            match app.workspace.selected.as_ref()? {
-                workspace::OpsTarget::Squad(room) => Some(conversation_checklist::Key::room(room)),
-                _ => None,
-            }
-        });
+        // The member frame reads its member's list for the Checklist menu.
+        let framed = app.framed().then(|| app.framed_checklist_key()).flatten();
+        let shown = framed
+            .or_else(|| app.conversation_checklist_key())
+            .or_else(|| {
+                if app.loading() || !app.workspace_selection_visible() {
+                    return None;
+                }
+                match app.workspace.selected.as_ref()? {
+                    workspace::OpsTarget::Squad(room) => {
+                        Some(conversation_checklist::Key::room(room))
+                    }
+                    _ => None,
+                }
+            });
         if let Some(task) = app
             .notes
             .offer(shown.as_ref(), now)

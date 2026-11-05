@@ -80,7 +80,7 @@ fn an_unbound_checklist_key_leaves_the_footer_help_and_the_chip() {
 #[test]
 fn a_no_op_unbound_is_noticed_in_the_workspace_notices() {
     let mut app = board();
-    configured(&mut app, "[bind]\nctrl-g = 'unbound'\n", "noop");
+    configured(&mut app, "[bind]\nctrl-y = 'unbound'\n", "noop");
     let notices = &app
         .view
         .as_ref()
@@ -93,7 +93,7 @@ fn a_no_op_unbound_is_noticed_in_the_workspace_notices() {
     assert!(
         notices
             .iter()
-            .any(|notice| notice.contains("`bind.ctrl-g`") && notice.contains("no default binding")),
+            .any(|notice| notice.contains("`bind.ctrl-y`") && notice.contains("no default binding")),
         "{notices:?}"
     );
 }

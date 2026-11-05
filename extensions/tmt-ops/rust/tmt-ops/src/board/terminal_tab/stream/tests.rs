@@ -326,7 +326,7 @@ fn a_lost_connection_reconnects_with_a_new_hello_and_a_new_snapshot() {
 }
 
 #[test]
-fn a_reconnect_while_typing_asks_for_the_window_it_had_before_the_snapshot() {
+fn a_reconnect_asks_for_the_frames_window_before_the_snapshot() {
     let fake = Fake::new();
     let (stream, events) = fake.viewer(quick());
     let mut first = fake.accept();
@@ -343,42 +343,6 @@ fn a_reconnect_while_typing_asks_for_the_window_it_had_before_the_snapshot() {
     });
     assert_eq!(second.expect(), ClientMessage::Resize(size(50, 9)));
     assert_eq!(second.expect(), ClientMessage::Snapshot);
-}
-
-#[test]
-fn a_reconnect_after_typing_ended_sends_no_resize_and_takes_no_size_back() {
-    let fake = Fake::new();
-    let (stream, events) = fake.viewer(quick());
-    let mut first = fake.accept();
-    first.attach(size(10, 2), b"x");
-    screen(&events);
-    stream.resize(size(50, 9));
-    assert_eq!(first.expect(), ClientMessage::Resize(size(50, 9)));
-    stream.stop_typing();
-    // The command is applied before the next read; give the thread a poll or two.
-    thread::sleep(Duration::from_millis(50));
-    drop(first);
-    let mut second = fake.accept();
-    assert_eq!(second.expect(), ClientMessage::Hello { version: VERSION });
-    second.send(ServerMessage::Welcome {
-        version: VERSION,
-        size: size(10, 2),
-    });
-    assert_eq!(
-        second.expect(),
-        ClientMessage::Snapshot,
-        "the watching viewer asks for the screen and nothing else"
-    );
-    second.send(ServerMessage::SnapshotStart);
-    second.send(ServerMessage::SnapshotData(b"x".to_vec()));
-    second.send(ServerMessage::SnapshotEnd(size(10, 2)));
-    screen(&events);
-    drop(stream);
-    let mut rest = Vec::new();
-    while let Some(message) = second.receive() {
-        rest.push(message);
-    }
-    assert_eq!(rest, vec![ClientMessage::Detach], "no Resize at any point");
 }
 
 #[test]
@@ -406,7 +370,38 @@ fn a_viewer_evicted_for_being_too_slow_comes_back_and_one_taken_over_does_not() 
 }
 
 #[test]
-fn the_program_ending_is_reported_with_its_exit_and_ends_the_stream() {
+fn a_kept_terminal_stays_connected_after_the_exit_and_shows_the_relaunched_program() {
+    let fake = Fake::new();
+    let (_stream, events) = fake.viewer(quick());
+    let mut peer = fake.accept();
+    peer.attach(size(10, 2), b"one");
+    screen(&events);
+    peer.send(ServerMessage::Exited(Exit::Code(0)));
+    loop {
+        match next(&events) {
+            StreamEvent::Exited(exit) => {
+                assert_eq!(exit, Exit::Code(0));
+                break;
+            }
+            StreamEvent::Screen(_) => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    // A relaunch on the kept terminal: its output follows on the same connection.
+    peer.send(ServerMessage::Output(b"\r\ntwo".to_vec()));
+    loop {
+        match next(&events) {
+            StreamEvent::Screen(frame) if frame.row_text(1) == "two" => break,
+            StreamEvent::Screen(_) => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    fake.listener.set_nonblocking(true).unwrap();
+    assert!(fake.listener.accept().is_err(), "no second connection");
+}
+
+#[test]
+fn the_program_ending_is_reported_with_its_exit_and_an_older_supervisors_close_ends_the_stream() {
     let fake = Fake::new();
     let (_stream, events) = fake.viewer(quick());
     let mut peer = fake.accept();
@@ -414,6 +409,8 @@ fn the_program_ending_is_reported_with_its_exit_and_ends_the_stream() {
     screen(&events);
     peer.send(ServerMessage::Output(b"!".to_vec()));
     peer.send(ServerMessage::Exited(Exit::Code(3)));
+    // A supervisor from before kept terminals closes after `Exited`.
+    drop(peer);
     let mut last_screen = None;
     loop {
         match next(&events) {

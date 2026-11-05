@@ -382,16 +382,16 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     title: 'Empty, loading and error states',
     lead: 'Distinguishes absent content, a read in progress and retained failed-read data.',
     section: 'empty-loading-and-error-states',
-    anatomy: sample('conversation-loading', [20, 27]),
+    anatomy: sample('conversation-loading', [18, 25]),
     parts: [
-      { name: 'Content heading', row: 21, text: 'Conversation' },
-      { name: 'Loading content', row: 26, text: 'Loading conversation' },
+      { name: 'Content heading', row: 19, text: 'Conversation' },
+      { name: 'Loading content', row: 25, text: 'Loading conversation' },
     ],
     states: [
       {
         kind: 'normal',
         label: 'Recorded loading conversation',
-        sample: sample('conversation-loading', [20, 27]),
+        sample: sample('conversation-loading', [18, 25]),
       },
       { kind: 'empty', label: 'Empty workspace', sample: sample('empty') },
       { kind: 'error', label: 'Retained stale data', sample: sample('stale') },
@@ -507,7 +507,11 @@ const recordedParts: RecordedComponent[] = [
     ],
     states: [
       { kind: 'focused', label: 'List pane owns focus', sample: sample('agents', [7, 9]) },
-      { kind: 'normal', label: 'Detail pane owns focus', sample: sample('terminal-live', [7, 22]) },
+      {
+        kind: 'normal',
+        label: 'Detail pane owns focus',
+        sample: sample('conversation', [7, 9], 160),
+      },
     ],
     keys: [],
   }),
@@ -557,7 +561,7 @@ const recordedParts: RecordedComponent[] = [
       {
         kind: 'normal',
         label: 'Loading context only — busy glyph not recorded',
-        sample: sample('conversation-loading', [20, 27]),
+        sample: sample('conversation-loading', [18, 25]),
       },
     ],
     keys: [],
@@ -638,24 +642,24 @@ const recordedParts: RecordedComponent[] = [
   }),
   component('states', {
     slug: 'terminal',
-    title: 'Terminal surface',
-    lead: 'Displays the real terminal capture without drawing a replacement terminal.',
+    title: 'Member frame',
+    lead: "Shows a built-in member's real terminal full screen under one TMT header row.",
     source: [widget('terminal'), board('terminal_tab/paint')],
-    anatomy: sample('terminal-live', [20, 28]),
+    anatomy: sample('frame-live', [0, 7]),
     parts: [
-      { name: 'Terminal title and dimensions', row: 22, text: 'Terminal 48×8' },
-      { name: 'Captured prompt', row: 23, text: '$ cargo test' },
-      { name: 'Captured output', row: 27, text: 'test a ... ok' },
+      { name: 'Header with the way back', row: 1, text: 'ctrl-g' },
+      { name: 'Captured prompt', row: 2, text: '$ cargo test' },
+      { name: 'Captured output', row: 6, text: 'test a ... ok' },
     ],
     states: [
       {
         kind: 'normal',
         label: 'Live captured terminal',
-        sample: sample('terminal-live', [20, 28]),
+        sample: sample('frame-live', [0, 7]),
       },
-      { kind: 'empty', label: 'Connecting', sample: sample('terminal-connecting', [20, 26]) },
+      { kind: 'empty', label: 'Connecting', sample: sample('frame-connecting', [0, 2]) },
     ],
-    keys: ['Enter', 'Esc', 'z'],
+    keys: ['j', 'ctrl-g'],
   }),
   component('messages', {
     slug: 'messages',

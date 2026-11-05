@@ -1,23 +1,36 @@
-//! What the board does for the Terminal tab: which member it is about, when core is asked where
-//! the stream is, and what the loop keeps open. The state itself is [`Tab`](super::tab::Tab).
-use super::{discovery::Located, stream::StreamEvent};
+//! What the board does for the member frame (#5989): `j` on a built-in member fills the board with
+//! its terminal under one TMT header row. Every key but the back key is the program's; the header,
+//! its menus and the paused and ended dialogs answer the mouse, and the dialogs their own keys. The
+//! state itself is [`Tab`](super::tab::Tab).
+use super::{
+    discovery::{Located, MemberTerm},
+    stream::StreamEvent,
+    tab::{FrameHit, FrameMenu},
+};
 use crate::{
     action::{OpsUiAction, Verb},
-    board::{
-        app::{App, CopyFeedback, Effect, Request, event_name},
-        shell::{OpsTab, RightTab},
-    },
+    board::app::{App, CopyFeedback, Effect, Request, TerminalOp, event_name},
 };
 use ratatui::{
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     layout::Position,
 };
 use std::time::Duration;
-use tmt_tui::components::terminal::{MouseMode, is_leave, key_bytes, paste_bytes, wheel_bytes};
+use tmt_pty_protocol::RelaunchKind;
+use tmt_tui::components::terminal::{MouseMode, key_bytes, paste_bytes, wheel_bytes};
+
+/// What a dialog over the frame asks about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) enum Dialog {
+    /// Stopped by job control (#5994): resume, or back to the board.
+    Paused,
+    /// The agent ended on its kept terminal (#5988): resume, a new session, a shell, or back.
+    Ended,
+}
 
 impl App {
-    /// After a draw: a program that hides its cursor while typing still has the real cursor
-    /// moved to where it parked its own, kept hidden, so an input method draws there.
+    /// After a draw: a program that hides its cursor still has the real cursor moved to where it
+    /// parked its own, kept hidden, so an input method draws there.
     pub(in crate::board) fn park_hidden_caret<B: ratatui::backend::Backend>(
         &self,
         screen: &mut ratatui::Terminal<B>,
@@ -32,99 +45,234 @@ impl App {
         }
     }
 
-    /// The member the Terminal tab is about: the selected agent while the Agents tab shows Talk.
-    fn terminal_identity(&self) -> Option<String> {
-        if self.shell.tab != OpsTab::Agents || self.right_tab != RightTab::Talk {
-            return None;
-        }
-        let target = self.conversation_target()?;
-        let id = self.target_row(&target)?["id"].as_str()?;
-        crate::board::recent_responses::canonical_identity(id).then(|| id.to_owned())
+    /// The member that fills the board.
+    pub(in crate::board) fn framed_identity(&self) -> Option<String> {
+        self.terminal.framed().map(str::to_owned)
     }
 
-    /// What the open stream shows, when it is the selected member's.
+    /// The board is a member's frame.
+    pub(in crate::board) fn framed(&self) -> bool {
+        self.terminal.framed().is_some()
+    }
+
+    /// What the open stream shows, when it is the framed member's.
     pub(in crate::board) fn terminal_view(&self) -> Option<&super::tab::View> {
-        self.terminal.view(&self.terminal_identity()?)
+        self.terminal.view(self.terminal.framed()?)
     }
 
-    /// The selected member has a stream, so the tab can be shown.
-    pub(in crate::board) fn terminal_available(&self) -> bool {
-        self.terminal_identity()
-            .is_some_and(|id| self.terminal.address(&id).is_some())
+    /// What core last said runs on the framed member's terminal.
+    pub(in crate::board) fn framed_term(&self) -> Option<MemberTerm> {
+        self.terminal.member_term(self.terminal.framed()?)
     }
 
-    /// The Terminal tab, not the chat, is what the Talk pane shows.
-    pub(in crate::board) fn terminal_showing(&self) -> bool {
-        self.terminal_identity()
-            .is_some_and(|id| self.terminal.showing(&id))
-    }
-
-    /// The member core should be asked about next, when it has not answered or its answer is old.
+    /// The member core should be asked about next: only the framed one.
     pub(in crate::board) fn terminal_locate(&self) -> Option<String> {
-        // Like every background read, only for a pane that is on screen; a shown terminal is.
-        let id = self.terminal_identity()?;
-        if !self.terminal.shown_for(&id) && !self.scrolls.visible(crate::config::Pane::Replies) {
-            return None;
-        }
+        let id = self.framed_identity()?;
         self.terminal
             .needs_locating(&id, crate::status::now_ms())
             .then_some(id)
     }
 
-    /// How long until the selected member's answer is old enough to ask again.
+    /// How long until the framed member's answer is old enough to ask again.
     pub(in crate::board) fn terminal_wait(&self) -> Option<Duration> {
-        let id = self.terminal_identity()?;
+        let id = self.framed_identity()?;
         self.terminal.locating_wait(&id, crate::status::now_ms())
     }
 
     pub(in crate::board) fn apply_terminal_located(&mut self, identity: &str, located: Located) {
+        let gone = matches!(located, Located::NoStream) && self.terminal.framed() == Some(identity);
         self.terminal
             .located(identity, located, crate::status::now_ms());
+        if gone {
+            // The member's supervisor is gone (closed or removed): nothing is left to show.
+            self.terminal.close_frame();
+            self.say("The member's terminal is gone; back on the board.");
+        }
     }
 
-    /// `j` on a built-in member: its own screen is its Terminal view, not a host pane, and `j`
-    /// again returns to the chat. `None` for any other member, which keeps the host jump.
-    pub(in crate::board) fn jump_to_terminal(&mut self, row: &serde_json::Value) -> Option<Effect> {
-        if self.terminal_available() && self.terminal_identity().as_deref() == row["id"].as_str() {
-            // A second `j` leads back to the chat, so the keyboard alone moves both ways.
-            return Some(self.show_terminal(!self.terminal_showing()));
+    /// The row of `identity`, from the rows the board has.
+    fn identity_row(&self, identity: &str) -> Option<serde_json::Value> {
+        self.rows()
+            .into_iter()
+            .map(|(_, row)| row)
+            .find(|row| row["id"].as_str() == Some(identity))
+            .cloned()
+    }
+
+    /// The framed member's name, for the header and the dialogs.
+    pub(in crate::board) fn terminal_member_name(&self) -> String {
+        self.framed_identity()
+            .and_then(|id| self.identity_row(&id))
+            .and_then(|row| row["name"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| "agent".to_owned())
+    }
+
+    /// The framed member's held Digest items, as its row reports them.
+    pub(in crate::board) fn framed_digest_held(&self) -> u64 {
+        self.framed_identity()
+            .and_then(|id| self.identity_row(&id))
+            .and_then(|row| row["digest"]["heldCount"].as_u64())
+            .unwrap_or(0)
+    }
+
+    /// The framed member's open Checklist items, as the number the board shows; empty when none
+    /// or not read yet.
+    pub(in crate::board) fn framed_checklist_open(&self) -> String {
+        use crate::board::conversation_checklist::Summary;
+        match self
+            .framed_checklist_key()
+            .and_then(|key| self.notes.summary(&key))
+        {
+            Some(Summary::Counts(counts)) if counts.todo > 0 => counts.todo.to_string(),
+            _ => String::new(),
         }
-        (row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST).then(|| {
-            self.say("This built-in member's terminal is not available yet; select it on the Agents tab.")
+    }
+
+    /// The key bound to `member-back`, as the board writes keys.
+    pub(in crate::board) fn member_back_label(&self) -> String {
+        let bindings = self.workspace_bindings();
+        let mut keys: Vec<_> = bindings
+            .iter()
+            .filter(|(_, action)| action.verb == Verb::Ui(OpsUiAction::MemberBack))
+            .map(|(key, _)| crate::board::view::footer::key_label(key).to_owned())
+            .collect();
+        keys.sort();
+        keys.into_iter().next().unwrap_or_else(|| "Ctrl-g".into())
+    }
+
+    /// Every roster member by name, with the state its dot shows: waiting or blocked when its
+    /// squad or Core says so, otherwise its activity word.
+    pub(in crate::board) fn frame_roster(&self) -> Vec<RosterEntry> {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Vec::new();
+        };
+        let stale = self.activity_stale(std::time::Instant::now());
+        let now = crate::status::now_ms();
+        let mut entries: Vec<_> = snapshot
+            .roster
+            .members
+            .values()
+            .map(|member| {
+                let squad = snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .filter_map(|squad| squad.member_states.get(&member.id))
+                    .collect::<Vec<_>>();
+                let flagged = |word: &str| {
+                    member.state.as_deref() == Some(word)
+                        || squad
+                            .iter()
+                            .any(|state| state.state.as_deref() == Some(word))
+                };
+                let state = if member.waiting || squad.iter().any(|state| state.waiting) {
+                    "waiting".to_owned()
+                } else if flagged("blocked") {
+                    "blocked".to_owned()
+                } else {
+                    crate::board::activity::Member {
+                        activity: member.activity,
+                        waiting: false,
+                        idle_over: false,
+                        task: None,
+                    }
+                    .label(stale, now)
+                    .state
+                    .to_owned()
+                };
+                RosterEntry {
+                    id: member.id.clone(),
+                    name: crate::board::notes::single_line(&member.name),
+                    state,
+                }
+            })
+            .collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        entries
+    }
+
+    /// After the framed member in name order, the first member waiting on you or blocked.
+    pub(in crate::board) fn next_member_needing_you(&self) -> Option<String> {
+        let roster = self.frame_roster();
+        let framed = self.framed_identity();
+        let at = roster
+            .iter()
+            .position(|entry| Some(&entry.id) == framed.as_ref())
+            .map_or(0, |at| at + 1);
+        roster
+            .iter()
+            .cycle()
+            .skip(at)
+            .take(roster.len())
+            .find(|entry| {
+                Some(&entry.id) != framed.as_ref()
+                    && matches!(entry.state.as_str(), "waiting" | "blocked")
+            })
+            .map(|entry| entry.id.clone())
+    }
+
+    /// The framed member's conversation checklist.
+    pub(in crate::board) fn framed_checklist_key(
+        &self,
+    ) -> Option<crate::board::conversation_checklist::Key> {
+        let id = self.framed_identity()?;
+        // The row the frame was opened from, else the member's acquired membership.
+        let selected = self.workspace_selected_member().filter(|target| {
+            matches!(target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if *identity_id == id)
+        });
+        match selected {
+            Some(target) => crate::board::conversation_checklist::Key::of(target),
+            None => crate::board::conversation_checklist::Key::of(&self.member_link_target(&id)?),
+        }
+    }
+
+    /// Whether the board row of `identity` runs on the built-in host, so the frame can show it.
+    fn built_in_row(&self, identity: &str) -> bool {
+        self.identity_row(identity).is_some_and(|row| {
+            row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST
         })
     }
 
-    /// The `terminal` action (no default key): the chat and the terminal swap places in the
-    /// Talk pane. Without a stream it does nothing, and says nothing.
-    pub(in crate::board) fn toggle_terminal(&mut self) -> Effect {
-        if let Some(id) = self.terminal_identity()
-            && self.terminal.address(&id).is_some()
-        {
-            self.terminal.toggle(&id);
+    /// The selected row is a built-in-host member, which `j` opens full screen.
+    pub(in crate::board) fn selected_built_in(&self) -> bool {
+        self.selected_row().is_some_and(|row| {
+            row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST
+        })
+    }
+
+    /// `j` on a built-in member fills the board with its terminal. `None` for any other member,
+    /// which keeps the host jump.
+    pub(in crate::board) fn jump_to_terminal(&mut self, row: &serde_json::Value) -> Option<Effect> {
+        if row["pane"]["location"]["host"] != crate::board::new_member::model::BUILT_IN_HOST {
+            return None;
         }
+        let id = row["id"].as_str()?;
+        if !crate::board::recent_responses::canonical_identity(id) {
+            return None;
+        }
+        Some(self.open_member_frame(id))
+    }
+
+    /// Fills the board with `identity`'s terminal.
+    pub(in crate::board) fn open_member_frame(&mut self, identity: &str) -> Effect {
+        self.terminal.open_frame(identity);
+        self.invalidate_frame_geometry();
         Effect::None
     }
 
-    /// A click on a chip: the terminal when `show`, the chat otherwise.
-    pub(in crate::board) fn show_terminal(&mut self, show: bool) -> Effect {
-        if self.terminal_showing() != show {
-            return self.toggle_terminal();
-        }
+    /// Back to the board; the stream detaches on the next pass.
+    pub(in crate::board) fn close_member_frame(&mut self) -> Effect {
+        self.terminal.close_frame();
+        self.invalidate_frame_geometry();
         Effect::None
     }
 
-    /// Opens, replaces or drops the one stream so it matches what is shown. True when it changed.
+    /// Opens, replaces or drops the one stream so it matches the frame. True when it changed.
     pub(in crate::board) fn terminal_sync(&mut self) -> bool {
-        let selected = self.terminal_identity();
-        if let Some(id) = &selected {
-            self.terminal.selected(id);
-        }
-        let wanted = selected
-            .filter(|id| self.terminal.showing(id))
-            .and_then(|id| {
-                let address = self.terminal.address(&id)?.clone();
-                Some((id, address))
-            });
+        let wanted = self.framed_identity().and_then(|id| {
+            let address = self.terminal.address(&id)?.clone();
+            Some((id, address))
+        });
         let changed = self
             .terminal
             .sync(wanted.as_ref().map(|(id, address)| (id.as_str(), address)));
@@ -132,123 +280,309 @@ impl App {
         changed
     }
 
-    /// The selected member's name, for the lines under the screen.
-    pub(in crate::board) fn terminal_member_name(&self) -> String {
-        self.conversation_target()
-            .and_then(|target| {
-                self.target_row(&target)?["name"]
-                    .as_str()
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| "agent".to_owned())
+    /// The dialog the frame shows now, unless it was dismissed for this state.
+    pub(in crate::board) fn frame_dialog(&self) -> Option<Dialog> {
+        let term = self.framed_term()?;
+        let dialog = if term.paused {
+            Dialog::Paused
+        } else if term.ended.is_some() {
+            Dialog::Ended
+        } else {
+            return None;
+        };
+        (self.terminal.dismissed() != Some(dialog)).then_some(dialog)
     }
 
-    /// `⏎` on a shown terminal: keys go to the program until Ctrl-\. After the stream ended it
-    /// attaches again instead.
-    pub(in crate::board) fn type_into_terminal(&mut self) -> Effect {
+    /// The key is bound to `member-back` (Ctrl-g by default). It never reaches the member.
+    fn back_key(&self, key: KeyEvent) -> bool {
+        event_name(key).is_some_and(|name| {
+            self.workspace_bindings()
+                .get(&name)
+                .is_some_and(|action| action.verb == Verb::Ui(OpsUiAction::MemberBack))
+        })
+    }
+
+    /// While the frame is up every key is the program's, byte for byte, except the back key; a
+    /// dialog or a menu takes its own keys first.
+    pub(in crate::board) fn frame_key(&mut self, key: KeyEvent) -> Option<Effect> {
+        self.terminal.framed()?;
+        if self.back_key(key) {
+            return Some(self.close_member_frame());
+        }
+        if let Some(dialog) = self.frame_dialog() {
+            return Some(self.dialog_key(dialog, key));
+        }
+        if let Some(menu) = self.terminal.menu() {
+            return Some(self.frame_menu_key(menu, key));
+        }
         if self
             .terminal_view()
             .is_some_and(|view| view.condition.ended())
         {
-            self.terminal.reattach();
-        } else {
-            self.terminal.start_typing();
-        }
-        Effect::None
-    }
-
-    /// The tab fills the board and back. Only a shown terminal can fill it.
-    pub(in crate::board) fn toggle_terminal_zoom(&mut self) -> Effect {
-        let zoom = !self.terminal.zoomed() && self.terminal_showing();
-        self.terminal.set_zoomed(zoom);
-        self.invalidate_frame_geometry();
-        Effect::None
-    }
-
-    pub(in crate::board) fn terminal_zoomed(&self) -> bool {
-        self.terminal.zoomed() && self.terminal_showing()
-    }
-
-    /// The key is bound to `terminal-zoom`; with `authored` only a binding the user wrote
-    /// counts, since the default `z` is a key the program may need while typing.
-    fn zoom_key(&self, key: KeyEvent, authored: bool) -> bool {
-        let Some(name) = event_name(key) else {
-            return false;
-        };
-        self.workspace_bindings()
-            .get(&name)
-            .is_some_and(|action| action.verb == Verb::Ui(OpsUiAction::TerminalZoom))
-            && (!authored
-                || self
-                    .workspace_binding_sources()
-                    .and_then(|sources| sources.get(&name))
-                    .is_some_and(|source| source != "workspace default"))
-    }
-
-    /// While typing, every key but the way out and an authored zoom key is the program's, byte
-    /// for byte. While zoomed and not typing, only the way out of zoom and `⏎` mean anything.
-    pub(in crate::board) fn terminal_key(&mut self, key: KeyEvent) -> Option<Effect> {
-        if self.modal_open() {
-            return None;
-        }
-        if self.terminal.typing() {
-            if is_leave(&key) {
-                self.terminal.stop_typing();
-            } else if self.zoom_key(key, true) {
-                return Some(self.toggle_terminal_zoom());
-            } else if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {
-                self.terminal.send(&bytes);
+            if key.code == KeyCode::Enter {
+                self.terminal.reattach();
             }
             return Some(Effect::None);
         }
-        if !self.terminal_zoomed() {
-            return None;
-        }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            return None;
-        }
-        match key.code {
-            KeyCode::Enter => return Some(self.type_into_terminal()),
-            KeyCode::Esc => return Some(self.toggle_terminal_zoom()),
-            _ if self.zoom_key(key, false) => return Some(self.toggle_terminal_zoom()),
-            _ => {}
+        if let Some(bytes) = key_bytes(&key, self.terminal.modes()) {
+            self.terminal.send(&bytes);
         }
         Some(Effect::None)
     }
 
-    /// A left drag over a shown screen selects its text and the release copies it, unless the
-    /// program is being typed into and asked for the mouse itself. While typing, the wheel over
-    /// the screen is the program's and a press elsewhere ends typing (and then lands as usual).
-    pub(in crate::board) fn terminal_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
-        if self.modal_open() || !self.terminal_showing() {
-            return None;
+    fn dialog_key(&mut self, dialog: Dialog, key: KeyEvent) -> Effect {
+        let choices = dialog_choices(dialog);
+        match key.code {
+            KeyCode::Esc => {
+                self.terminal.dismiss(dialog);
+                Effect::None
+            }
+            KeyCode::Up => {
+                self.terminal.move_cursor(-1, choices.len());
+                Effect::None
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                self.terminal.move_cursor(1, choices.len());
+                Effect::None
+            }
+            KeyCode::Enter => {
+                let hit = choices[self.terminal.cursor().min(choices.len() - 1)]
+                    .1
+                    .clone();
+                self.frame_act(hit)
+            }
+            KeyCode::Char(letter) => choices
+                .iter()
+                .find(|(_, _, key)| *key == Some(letter))
+                .map(|(_, hit, _)| hit.clone())
+                .map_or(Effect::None, |hit| self.frame_act(hit)),
+            _ => Effect::None,
+        }
+    }
+
+    fn frame_menu_key(&mut self, menu: FrameMenu, key: KeyEvent) -> Effect {
+        let rows = self.menu_entries(menu);
+        match key.code {
+            KeyCode::Esc => self.terminal.set_menu(None),
+            KeyCode::Up => self.terminal.move_cursor_over(-1, &rows),
+            KeyCode::Down => self.terminal.move_cursor_over(1, &rows),
+            KeyCode::Enter => {
+                if let Some(hit) = rows.get(self.terminal.cursor()).and_then(MenuRow::hit) {
+                    return self.frame_act(hit.clone());
+                }
+            }
+            KeyCode::Char(letter) => {
+                let typed = letter.to_string();
+                if let Some(hit) = rows
+                    .iter()
+                    .find(|row| row.key() == Some(typed.as_str()))
+                    .and_then(MenuRow::hit)
+                {
+                    return self.frame_act(hit.clone());
+                }
+            }
+            _ => {}
+        }
+        Effect::None
+    }
+
+    /// The rows of an open header menu (mocks 2 and 7 on the #5926 spec page).
+    pub(in crate::board) fn menu_entries(&self, menu: FrameMenu) -> Vec<MenuRow> {
+        let term = self.framed_term().unwrap_or_default();
+        let ended = term.ended.is_some();
+        let choice = |label: &str, hit: Option<FrameHit>| MenuRow::Choice {
+            mark: None,
+            label: label.to_owned(),
+            key: None,
+            hit,
+        };
+        match menu {
+            FrameMenu::Members => {
+                // The other members (mock 2): the framed one is already on screen.
+                let framed = self.framed_identity();
+                let mut rows: Vec<_> = self
+                    .frame_roster()
+                    .into_iter()
+                    .filter(|entry| Some(&entry.id) != framed.as_ref())
+                    .map(|entry| MenuRow::Choice {
+                        mark: Some(Mark::State(entry.state)),
+                        label: entry.name,
+                        key: None,
+                        hit: Some(FrameHit::Member(entry.id)),
+                    })
+                    .collect();
+                rows.push(MenuRow::Divider);
+                rows.push(MenuRow::Choice {
+                    mark: None,
+                    label: "Back to board".into(),
+                    key: Some(self.member_back_label()),
+                    hit: Some(FrameHit::Back),
+                });
+                rows.push(MenuRow::Choice {
+                    mark: None,
+                    label: "Next member needing you".into(),
+                    key: Some("n".into()),
+                    hit: self.next_member_needing_you().map(FrameHit::Member),
+                });
+                rows
+            }
+            FrameMenu::Session => vec![
+                choice(
+                    "Resume the last session",
+                    ended.then_some(FrameHit::Relaunch(RelaunchKind::Resume)),
+                ),
+                choice(
+                    "Start a new session",
+                    ended.then_some(FrameHit::Relaunch(RelaunchKind::New)),
+                ),
+                choice(
+                    "Restart",
+                    ended.then_some(FrameHit::Relaunch(RelaunchKind::New)),
+                ),
+                choice(
+                    if term.paused {
+                        "Continue"
+                    } else {
+                        "Continue (not paused now)"
+                    },
+                    term.paused.then_some(FrameHit::Resume),
+                ),
+            ],
+            FrameMenu::Checklist => {
+                let preview = self
+                    .framed_checklist_key()
+                    .and_then(|key| self.notes.preview(&key));
+                let mut rows = Vec::new();
+                match preview {
+                    None => rows.push(MenuRow::Note("Reading the checklist…".into())),
+                    Some(preview) => {
+                        let items = &preview.current.items;
+                        rows.extend(
+                            items
+                                .iter()
+                                .filter(|view| {
+                                    crate::board::conversation_checklist::open_item(view)
+                                })
+                                .map(|view| MenuRow::Choice {
+                                    mark: Some(Mark::Open),
+                                    label: crate::board::notes::single_line(
+                                        &view.item.content.title,
+                                    ),
+                                    key: None,
+                                    hit: Some(FrameHit::Checklist),
+                                }),
+                        );
+                        let done = items
+                            .iter()
+                            .filter(|view| {
+                                !view.item.archived
+                                    && view.item.completion
+                                        == crate::checklist::model::Completion::Complete
+                            })
+                            .count();
+                        if done > 0 {
+                            rows.push(MenuRow::Note(format!("▸ Done {done}")));
+                        }
+                    }
+                }
+                rows.push(MenuRow::Divider);
+                rows.push(choice("+ Add item", Some(FrameHit::AddItem)));
+                rows
+            }
+        }
+    }
+
+    /// A click on the header, a menu row or a dialog choice.
+    pub(in crate::board) fn frame_act(&mut self, hit: FrameHit) -> Effect {
+        let Some(identity) = self.framed_identity() else {
+            return Effect::None;
+        };
+        self.terminal.set_menu(None);
+        let request = |op| {
+            Effect::Act(Request::Terminal {
+                identity: identity.clone(),
+                op,
+            })
+        };
+        match hit {
+            FrameHit::Back => self.close_member_frame(),
+            FrameHit::Menu(menu) => {
+                let open = self.terminal.menu() != Some(menu);
+                self.terminal.set_menu(open.then_some(menu));
+                if open {
+                    // The highlight starts on the first row that can be chosen.
+                    let rows = self.menu_entries(menu);
+                    let start = rows.iter().position(|row| row.hit().is_some()).unwrap_or(0);
+                    self.terminal.set_cursor(start);
+                }
+                Effect::None
+            }
+            FrameHit::Resume => {
+                self.terminal.recheck(&identity);
+                request(TerminalOp::Resume)
+            }
+            FrameHit::Relaunch(kind) => {
+                self.terminal.recheck(&identity);
+                request(TerminalOp::Relaunch(kind))
+            }
+            FrameHit::Colab => request(TerminalOp::Colab),
+            FrameHit::Member(id) if self.built_in_row(&id) => self.open_member_frame(&id),
+            // A member on another host has no frame: the board selects its row instead.
+            FrameHit::Member(id) => {
+                self.close_member_frame();
+                match self.member_link_target(&id) {
+                    Some(target) => self.member_link_action(&target, false),
+                    None => self.say("This member is unavailable; refresh the board."),
+                }
+            }
+            FrameHit::AddItem => {
+                let key = self.framed_checklist_key();
+                self.close_member_frame();
+                match key {
+                    Some(key) => self.open_notes_adding(key),
+                    None => self.say("This member's checklist is unavailable; refresh the board."),
+                }
+            }
+            FrameHit::Checklist => {
+                self.close_member_frame();
+                self.workspace_action(OpsUiAction::MemberNotes)
+            }
+            FrameHit::Dismiss(dialog) => {
+                self.terminal.dismiss(dialog);
+                Effect::None
+            }
+        }
+    }
+
+    /// The header and its menus are the mouse's; over the screen a drag selects and copies
+    /// unless the program asked for the mouse, and the wheel is the program's.
+    pub(in crate::board) fn frame_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
+        self.terminal.framed()?;
+        let at = Position::new(event.column, event.row);
+        if let MouseEventKind::Down(MouseButton::Left) = event.kind
+            && let Some(hit) = self.terminal.hit(at)
+        {
+            return Some(self.frame_act(hit));
+        }
+        if matches!(event.kind, MouseEventKind::Down(_)) && self.terminal.menu().is_some() {
+            self.terminal.set_menu(None);
+            return Some(Effect::None);
         }
         let area = self.terminal.area()?;
-        let typing = self.terminal.typing();
-        if !area.contains(Position::new(event.column, event.row)) {
-            if typing && matches!(event.kind, MouseEventKind::Down(_)) {
-                self.terminal.stop_typing();
-            }
-            return None;
+        if !area.contains(at) || self.frame_dialog().is_some() {
+            return Some(Effect::None);
         }
-        let at = (event.column - area.x, event.row - area.y);
-        let program_mouse = typing && self.terminal.modes().mouse != MouseMode::Off;
+        let cell = (event.column - area.x, event.row - area.y);
+        let program_mouse = self.terminal.modes().mouse != MouseMode::Off;
         match event.kind {
-            // The press only anchors a selection; it still lands on the board (focus, menus).
             MouseEventKind::Down(MouseButton::Left) if !program_mouse => {
-                self.terminal.select_from(at);
-                if !typing {
-                    return None;
-                }
+                self.terminal.select_from(cell);
             }
             MouseEventKind::Drag(MouseButton::Left) if !program_mouse => {
-                self.terminal.select_to(at);
-                if !typing && !self.terminal.dragged() {
-                    return None;
-                }
+                self.terminal.select_to(cell);
             }
             MouseEventKind::Up(MouseButton::Left) if !program_mouse => {
-                self.terminal.select_to(at);
+                self.terminal.select_to(cell);
                 if let Some(text) = self.terminal.selected_text() {
                     return Some(Effect::Act(Request::Copy {
                         text,
@@ -256,38 +590,111 @@ impl App {
                         feedback: CopyFeedback::Selection,
                     }));
                 }
-                if !typing {
-                    return None;
-                }
             }
-            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if typing => {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 if let Some(bytes) = wheel_bytes(
                     event.kind == MouseEventKind::ScrollUp,
-                    at.0,
-                    at.1,
+                    cell.0,
+                    cell.1,
                     self.terminal.modes(),
                 ) {
                     self.terminal.send(&bytes);
                 }
             }
-            // Watching, anything else over the screen is the board's as before.
-            _ if !typing => return None,
             _ => {}
         }
         Some(Effect::None)
     }
 
-    /// While typing, a paste is the program's.
-    pub(in crate::board) fn terminal_paste(&mut self, text: &str) -> Option<Effect> {
-        if !self.terminal.typing() || self.modal_open() {
-            return None;
+    /// While the frame is up, a paste is the program's.
+    pub(in crate::board) fn frame_paste(&mut self, text: &str) -> Option<Effect> {
+        self.terminal.framed()?;
+        if self.frame_dialog().is_none() {
+            self.terminal
+                .send(&paste_bytes(text, self.terminal.modes()));
         }
-        self.terminal
-            .send(&paste_bytes(text, self.terminal.modes()));
         Some(Effect::None)
     }
 
     pub(in crate::board) fn apply_terminal(&mut self, epoch: u64, event: StreamEvent) -> bool {
         self.terminal.apply(epoch, event)
+    }
+}
+
+/// A dialog's choices: the words, what each does, and its letter key.
+pub(in crate::board) fn dialog_choices(
+    dialog: Dialog,
+) -> Vec<(&'static str, FrameHit, Option<char>)> {
+    match dialog {
+        Dialog::Paused => vec![
+            ("Resume", FrameHit::Resume, None),
+            ("Back to board", FrameHit::Back, None),
+        ],
+        Dialog::Ended => vec![
+            (
+                "Resume the last session",
+                FrameHit::Relaunch(RelaunchKind::Resume),
+                None,
+            ),
+            (
+                "Start a new session",
+                FrameHit::Relaunch(RelaunchKind::New),
+                Some('n'),
+            ),
+            (
+                "Open a shell here",
+                FrameHit::Relaunch(RelaunchKind::Shell),
+                Some('s'),
+            ),
+            ("Back to board", FrameHit::Back, None),
+        ],
+    }
+}
+
+/// One roster member in the Members menu.
+pub(in crate::board) struct RosterEntry {
+    pub id: String,
+    pub name: String,
+    /// The state word its dot shows (`state_cell`).
+    pub state: String,
+}
+
+/// What stands before a menu row's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum Mark {
+    /// A member's state word, painted as the Agents tree paints its dot.
+    State(String),
+    /// An open checklist item, `☐`.
+    Open,
+}
+
+/// One row of a header menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum MenuRow {
+    /// Something to choose: `key` is its letter; with no `hit` it shows dim and cannot be chosen.
+    Choice {
+        mark: Option<Mark>,
+        label: String,
+        key: Option<String>,
+        hit: Option<FrameHit>,
+    },
+    /// A dim line that does nothing, such as the collapsed done count.
+    Note(String),
+    Divider,
+}
+
+impl MenuRow {
+    pub(in crate::board) fn hit(&self) -> Option<&FrameHit> {
+        match self {
+            Self::Choice { hit, .. } => hit.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn key(&self) -> Option<&str> {
+        match self {
+            Self::Choice { key, .. } => key.as_deref(),
+            _ => None,
+        }
     }
 }

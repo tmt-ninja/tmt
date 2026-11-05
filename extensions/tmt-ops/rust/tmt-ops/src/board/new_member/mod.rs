@@ -529,9 +529,9 @@ impl App {
             if let Some(message) = attach {
                 self.new_member = None;
                 self.right_tab = super::shell::RightTab::Talk;
-                // Only a member has a terminal to show; any other target opens on its chat.
+                // A built-in member opens full screen; any other target opens on its chat.
                 if let Some(identity) = typing_into {
-                    self.terminal.show_typing(&identity);
+                    self.open_member_frame(&identity);
                 }
                 self.say(message);
             }

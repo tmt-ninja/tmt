@@ -38,7 +38,7 @@ fn rule(frame: &mut Frame, app: &App, area: Rect, y: &mut u16, title: &str, note
         // The pane's top rule carries the Talk/Measure control.
         let line = Rect::new(area.x, *y, area.width, 1);
         let line = if *y == area.y {
-            crate::board::talk_measure::paint(frame.buffer_mut(), app, line)
+            crate::board::talk_measure::paint(frame.buffer_mut(), app, line, None, 0)
         } else {
             line
         };
@@ -215,6 +215,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             height: area.height.min(1),
             ..area
         },
+        Some(selected),
+        section_rule::needed(title, note.width()),
     );
     if matches!(selected, OpsTarget::Member { .. })
         && let Some(area) = section_rule::note_area(title, note.width(), title_rule)
@@ -229,12 +231,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.focused() == Pane::Replies,
         app.look(),
     );
-    // The composer belongs to the chat: the terminal view never offers it, whichever pane has
-    // focus, and the terminal takes its rows. While typing every key is the terminal's. A member
-    // running a plain program has no chat: a message would run as a command (#5770).
+    // A member running a plain program has no chat: a message would run as a command (#5770).
     let admitted_input = retained.is_none()
-        && !app.terminal_showing()
-        && !app.terminal.typing()
         && row.is_none_or(|row| row["plainProgram"].is_null())
         && app.composer_projection().is_some_and(|projection| {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
@@ -284,34 +282,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         // exchange rule yields too, keeping one gap below the focus title.
         blank(area, &mut y);
     } else {
-        let terminal = retained.is_none() && app.terminal_showing();
-        if retained.is_none() && app.terminal_available() && remaining > 4 {
-            crate::board::terminal_tab::paint::chips(
-                frame.buffer_mut(),
-                app,
-                Rect::new(area.x, y, area.width, 1),
-            );
-            y += 1;
-        }
         let shown = recipient
             .as_ref()
-            .filter(|_| app.screen_mode() && retained.is_none() && !terminal);
+            .filter(|_| app.screen_mode() && retained.is_none());
         rule(
             frame,
             app,
             area,
             &mut y,
-            &if terminal {
-                crate::board::terminal_tab::paint::title(
-                    app.terminal_view(),
-                    usize::from(area.width),
-                )
-            } else {
-                shown.map_or_else(
-                    || "Conversation".to_owned(),
-                    |target| conversation::screen::title(app, target, usize::from(area.width)),
-                )
-            },
+            &shown.map_or_else(
+                || "Conversation".to_owned(),
+                |target| conversation::screen::title(app, target, usize::from(area.width)),
+            ),
             recipient
                 .as_ref()
                 .and_then(|target| app.conversation_spinner(target))
@@ -343,16 +325,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         0
     };
     let gap = u16::from(input > 0 && available > input);
-    if app.terminal_showing() && retained.is_none() {
-        // The terminal takes the exchanges' place and the composer's.
-        crate::board::terminal_tab::paint::render(
-            frame.buffer_mut(),
-            app,
-            Rect::new(area.x, y, area.width, available.saturating_sub(input + gap)),
-            app.terminal_view(),
-            row.and_then(|row| row["name"].as_str()).unwrap_or("agent"),
-        );
-    } else if app.screen_mode() && retained.is_none() {
+    if app.screen_mode() && retained.is_none() {
         // The live screen takes the exchanges' place; the composer below stays.
         conversation::screen::render(
             frame,

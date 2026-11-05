@@ -417,7 +417,7 @@ each room list and each admitted room/member conversation once, independent of s
 collapse or viewport. Unknown and partial totals retain their existing presentation.
 [Acquisition ownership](board-home.md#checklist-todo-projection) stays on the existing lane.
 
-The conversation entry is `C  Checklist · …` (the key as a keycap, none when unbound); its modal is `Checklist · <member>`
+The conversation entry is the `C  Checklist 2` chip after Talk / Measure on the pane's tab row (`talk_measure::checklist`; the key as a keycap, none when unbound; left out when the row is too narrow); its modal is `Checklist · <member>`
 (with the item count), and a source form is `Add to checklist · <member>`.
 The list is one list in stored order (`rows.rs`, no kind grouping), with no header, in a sheet
 that asks for the whole board body; the modal then keeps its usual 90% cap, or the full width below

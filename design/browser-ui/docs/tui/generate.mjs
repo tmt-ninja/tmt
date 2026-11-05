@@ -52,8 +52,8 @@ export const scenes = [
   'conversation-loading',
   'usage-disabled-each',
   'mention-picker',
-  'terminal-live',
-  'terminal-connecting',
+  'frame-live',
+  'frame-connecting',
 ];
 /** The listed scenes from the Ops oracle. A listed scene the oracle no longer records fails here, so
  * the Ops change that renames or drops it fails its own browser_ui audits. */

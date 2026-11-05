@@ -21,8 +21,7 @@ pub enum OpsUiAction {
     MemberNotes,
     MarkRead,
     Unread,
-    Terminal,
-    TerminalZoom,
+    MemberBack,
     Previous,
     Next,
     Fold,
@@ -140,17 +139,10 @@ const SPECS: &[OpsUiSpec] = &[
         12
     ),
     spec!(
-        Terminal,
-        "terminal",
-        "terminal",
-        "switch the selected built-in-host agent between its chat and its live terminal",
-        6
-    ),
-    spec!(
-        TerminalZoom,
-        "terminal-zoom",
-        "zoom",
-        "make the live terminal fill the board, and back; bound to a key it also works while typing into the terminal",
+        MemberBack,
+        "member-back",
+        "back",
+        "leave a built-in-host agent's full-screen terminal for the board; the key never reaches the agent",
         6
     ),
     spec!(
@@ -586,8 +578,7 @@ impl OpsUiAction {
                 | Self::SwitchTool
                 | Self::MemberNotes
                 | Self::MarkRead
-                | Self::Terminal
-                | Self::TerminalZoom
+                | Self::MemberBack
         )
     }
 }

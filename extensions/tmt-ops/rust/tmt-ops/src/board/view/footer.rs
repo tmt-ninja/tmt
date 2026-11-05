@@ -51,10 +51,9 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
         Verb::Jump if lead => "jump lead",
-        Verb::Jump if app.terminal_available() => "terminal",
+        Verb::Jump if app.selected_built_in() => "full screen",
         Verb::Jump => "host",
         Verb::Menu => "menu",
-        Verb::Talk if app.terminal_showing() => "type",
         Verb::Talk | Verb::Reply => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
@@ -68,13 +67,6 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
                 "unpin"
             } else {
                 "pin"
-            }
-        }
-        Verb::Ui(crate::action::OpsUiAction::Terminal) => {
-            if app.terminal_showing() {
-                "chat view"
-            } else {
-                "terminal"
             }
         }
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "hidden",
@@ -113,11 +105,8 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
     if action.verb == Verb::Ui(crate::action::OpsUiAction::Pin) {
         return app.workspace_is_pinned().is_some();
     }
-    if action.verb == Verb::Ui(crate::action::OpsUiAction::Terminal) {
-        return app.terminal_available();
-    }
-    if action.verb == Verb::Ui(crate::action::OpsUiAction::TerminalZoom) {
-        return app.terminal_showing();
+    if action.verb == Verb::Ui(crate::action::OpsUiAction::MemberBack) {
+        return app.framed();
     }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     if action.verb == Verb::ViewReply {
@@ -312,7 +301,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
     use crate::action::{OpsUiAction as Ui, Verb};
     use crate::board::workspace::OpsTarget;
     if app.shell.tab != crate::board::shell::OpsTab::Agents
-        || app.terminal.typing()
+        || app.framed()
         || app.focused_pane() == Some(crate::config::Pane::Replies)
         || app.usage_chart.borrow().focused()
         || app.modal_open()
@@ -642,10 +631,6 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
         );
     }
     use crate::action::{OpsUiAction, Verb};
-    if app.terminal.typing() {
-        // Every other key is the program's: the only hint is the way out.
-        return fit_hints(vec![("Ctrl-\\".into(), "back".into())], vec![], width);
-    }
     let bindings = app.bindings();
     let mut entries: Vec<_> = bindings
         .iter()
@@ -684,7 +669,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                     action.verb,
                     Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
                 ) && (app.focused_pane() == Some(crate::config::Pane::Replies)
-                    || app.terminal_showing()))
+                    || app.framed()))
                 && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
                     action.verb,

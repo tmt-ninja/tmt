@@ -108,14 +108,23 @@ fn refused(app: &mut App, task: &Task, error: Error) {
 }
 
 fn paint(app: &App) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    paint_at(app, 120)
+}
+
+/// 160 columns leave room for the Checklist chip beside the member state (#5992).
+fn paint_wide(app: &App) -> String {
+    paint_at(app, 160)
+}
+
+fn paint_at(app: &App, width: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
     terminal
         .draw(|frame| crate::board::view::render(frame, app))
         .unwrap();
     let buffer = terminal.backend().buffer();
     (0..40)
         .map(|y| {
-            (0..120)
+            (0..width)
                 .map(|x| buffer[(x, y)].symbol())
                 .collect::<String>()
         })
@@ -144,10 +153,7 @@ fn completed_rows_leave_immediately_and_the_status_names_the_completed_title() {
             .items(&app.notes)
             .is_empty()
     );
-    assert_eq!(
-        super::super::chip(app.notes.summary(&key)),
-        "Checklist · empty"
-    );
+    assert_eq!(super::super::chip(app.notes.summary(&key)), "Checklist");
     assert_eq!(app.notes.preview(&key).unwrap().current.items.len(), 2);
 }
 
@@ -227,7 +233,7 @@ fn c_is_checklist_on_a_member_and_n_still_creates_a_squad_on_a_squad_row() {
         !app.bindings().contains_key("N"),
         "N no longer opens the list"
     );
-    let screen = paint(&app);
+    let screen = paint_wide(&app);
     assert!(screen.contains("C checklist"), "the footer names the verb");
     assert!(
         screen.contains(" C  Checklist"),
@@ -333,7 +339,7 @@ fn checklist_captions_escape_held_names_and_fit_long_unicode_names() {
 #[test]
 fn clicking_the_chip_opens_the_list_for_the_selected_member() {
     let (mut app, _) = read_with(vec![link(1)]);
-    paint(&app);
+    paint_wide(&app);
     let chip = app
         .workspace_action_hits
         .borrow()

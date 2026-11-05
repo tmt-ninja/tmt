@@ -1,7 +1,7 @@
 # Terminal stream v1
 
 The stream between a built-in-host member's supervisor and a terminal view
-(`tmt attach`, the Ops Terminal tab). It shows the member's current screen,
+(`tmt attach`, the Ops member frame). It shows the member's current screen,
 carries its live output, and types into and resizes its terminal. It is local and
 owner-only, and it grants no authority over identities, requests or delivery: those
 stay with Core, which uses separate control frames on the same socket that a stream

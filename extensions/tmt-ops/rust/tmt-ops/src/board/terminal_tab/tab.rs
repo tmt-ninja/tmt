@@ -1,18 +1,20 @@
-//! The Terminal tab's state: where each built-in-host member's stream was found, whether the tab
-//! is shown, and the one open stream with the screen it last drew. Nothing here paints or reads a
-//! socket; the board loop calls [`Tab::sync`] each pass, and the events the stream thread sends
-//! come back through [`Tab::apply`].
+//! The member frame's stream state (#5989): where each built-in-host member's stream was found,
+//! which member fills the board, and the one open stream with the screen it last drew. Nothing
+//! here paints or reads a socket; the board loop calls [`Tab::sync`] each pass, and the events the
+//! stream thread sends come back through [`Tab::apply`].
 use super::{
-    discovery::{Address, Located},
+    board::Dialog,
+    discovery::{Address, Located, MemberTerm},
     stream::{Stream, StreamEvent},
 };
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use std::{
-    cell::Cell,
-    collections::{HashMap, HashSet},
+    cell::{Cell, RefCell},
+    collections::HashMap,
     sync::Arc,
     time::Duration,
 };
+use tmt_pty_protocol::RelaunchKind;
 use tmt_pty_protocol::{Eviction, Exit, Refusal, Size};
 use tmt_tui::components::terminal::{Frame as Screenful, Modes, Occupant};
 
@@ -20,11 +22,14 @@ use tmt_tui::components::terminal::{Frame as Screenful, Modes, Occupant};
 const NO_STREAM_FOR_MS: u64 = 60_000;
 /// How long a failed answer waits before core is asked again.
 const FAILED_FOR_MS: u64 = 10_000;
+/// While a member fills the board, how old its answer may get: paused, ended and a relaunched
+/// shell are read from core this often, a bounded read only while the frame is open.
+const FRAMED_FOR_MS: u64 = 1_000;
 
 /// Opens the stream for one wanted terminal; the epoch tags every event it sends back.
 pub(in crate::board) type Connect = Box<dyn Fn(u64, Address) -> Stream>;
 
-/// What the open stream is doing, which decides the line under or instead of the screen.
+/// What the open stream is doing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) enum Condition {
     /// The first attempt is `1`; a higher one is a retry after the stream was lost.
@@ -32,6 +37,7 @@ pub(in crate::board) enum Condition {
         attempt: u32,
     },
     Live,
+    /// The program ended; the kept terminal stays connected for a relaunch.
     Exited(Exit),
     Evicted(Eviction),
     Refused(Refusal),
@@ -39,13 +45,35 @@ pub(in crate::board) enum Condition {
 }
 
 impl Condition {
-    /// The stream is over for now: only leaving the tab and coming back tries again.
+    /// The connection is over for now: only opening the frame again tries again.
     pub(in crate::board) fn ended(&self) -> bool {
-        !matches!(self, Self::Connecting { .. } | Self::Live)
+        matches!(self, Self::Evicted(_) | Self::Refused(_) | Self::Lost(_))
     }
 }
 
-/// What the tab shows of one terminal.
+/// A header menu; menus open only with the mouse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) enum FrameMenu {
+    Members,
+    Session,
+    Checklist,
+}
+
+/// What a click on the frame's header, a menu row or a dialog choice does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum FrameHit {
+    Back,
+    Menu(FrameMenu),
+    Resume,
+    Relaunch(RelaunchKind),
+    Colab,
+    Member(String),
+    Checklist,
+    AddItem,
+    Dismiss(Dialog),
+}
+
+/// What the frame shows of one terminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct View {
     pub condition: Condition,
@@ -65,7 +93,7 @@ struct Open {
     address: Address,
     epoch: u64,
     view: View,
-    /// The window this viewer last asked the terminal for; none until it types.
+    /// The window this viewer last gave the terminal.
     window: Option<Size>,
     /// Dropping it detaches from the supervisor.
     stream: Stream,
@@ -74,31 +102,28 @@ struct Open {
 #[derive(Default)]
 pub(in crate::board) struct Tab {
     seen: HashMap<String, Seen>,
-    /// The member whose terminal, not chat, was asked for. Every other member shows chat.
-    shown_for: Option<String>,
+    /// The member that fills the board. Keys go to its program, byte for byte.
+    framed: Option<String>,
     connect: Option<Connect>,
     open: Option<Open>,
     epoch: u64,
-    /// Members whose stream ended while shown: the next time the tab opens on one, core is asked.
-    ended: HashSet<String>,
-    /// Keys go to the program, byte for byte.
-    typing: bool,
-    /// The member whose stream starts typing as soon as it opens: a clean built-in create.
-    type_on_open: Option<String>,
-    /// The tab fills the board.
-    zoomed: bool,
-    /// Zoom just ended: the program is given the normal area once, then the window is forgotten.
-    refit: bool,
     /// Where the last frame drew the screen, which is the size the program is given.
     area: Cell<Option<Rect>>,
-    /// Where the last frame put the real cursor for the program while typing.
+    /// Where the last frame put the real cursor for the program.
     caret: Cell<Option<Caret>>,
     /// A drag over the screen, anchor then head, in screen cells. It belongs to the open stream.
     selection: Option<((u16, u16), (u16, u16))>,
+    /// The dialog Esc closed; it stays closed until that state ends.
+    dismissed: Option<Dialog>,
+    menu: Option<FrameMenu>,
+    /// The highlighted row of the open menu or dialog.
+    cursor: usize,
+    /// Where the last frame drew each clickable thing.
+    hits: RefCell<Vec<(Rect, FrameHit)>>,
 }
 
-/// The real cursor while typing: on the program's cursor cell, so an input method draws
-/// uncommitted text there. Hidden when the program hides its cursor, but still moved.
+/// The real cursor: on the program's cursor cell, so an input method draws uncommitted text
+/// there. Hidden when the program hides its cursor, but still moved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::board) struct Caret {
     pub at: ratatui::layout::Position,
@@ -113,7 +138,15 @@ impl Tab {
     /// The stream core named for `identity`, when it named one.
     pub(in crate::board) fn address(&self, identity: &str) -> Option<&Address> {
         match &self.seen.get(identity)?.located {
-            Located::Stream(address) => Some(address),
+            Located::Stream(address, _) => Some(address),
+            _ => None,
+        }
+    }
+
+    /// What core last said the member's terminal runs: paused, ended, or a relaunched shell.
+    pub(in crate::board) fn member_term(&self, identity: &str) -> Option<MemberTerm> {
+        match &self.seen.get(identity)?.located {
+            Located::Stream(_, term) => Some(term.clone()),
             _ => None,
         }
     }
@@ -121,7 +154,10 @@ impl Tab {
     /// Core has not answered for `identity`, or its answer is old enough to ask again.
     pub(in crate::board) fn needs_locating(&self, identity: &str, now_ms: u64) -> bool {
         self.seen.get(identity).is_none_or(|seen| {
-            seen.stale || Self::recheck_in(seen, now_ms).is_some_and(|wait| wait.is_zero())
+            seen.stale
+                || self
+                    .recheck_in(identity, seen, now_ms)
+                    .is_some_and(|wait| wait.is_zero())
         })
     }
 
@@ -129,12 +165,13 @@ impl Tab {
     pub(in crate::board) fn locating_wait(&self, identity: &str, now_ms: u64) -> Option<Duration> {
         self.seen
             .get(identity)
-            .and_then(|seen| Self::recheck_in(seen, now_ms))
+            .and_then(|seen| self.recheck_in(identity, seen, now_ms))
     }
 
-    fn recheck_in(seen: &Seen, now_ms: u64) -> Option<Duration> {
+    fn recheck_in(&self, identity: &str, seen: &Seen, now_ms: u64) -> Option<Duration> {
         let after = match seen.located {
-            Located::Stream(_) => return None,
+            Located::Stream(..) if self.framed.as_deref() == Some(identity) => FRAMED_FOR_MS,
+            Located::Stream(..) => return None,
             Located::NoStream => NO_STREAM_FOR_MS,
             Located::Failed(_) => FAILED_FOR_MS,
         };
@@ -144,9 +181,20 @@ impl Tab {
     }
 
     pub(in crate::board) fn located(&mut self, identity: &str, located: Located, now_ms: u64) {
-        // A failed answer is asked again; only no stream ends the wish.
-        if matches!(located, Located::NoStream) && self.type_on_open.as_deref() == Some(identity) {
-            self.type_on_open = None;
+        if self.framed.as_deref() == Some(identity) {
+            // A dismissed dialog comes back the next time its state begins.
+            let term = match &located {
+                Located::Stream(_, term) => term.clone(),
+                _ => MemberTerm::default(),
+            };
+            let still = match self.dismissed {
+                Some(Dialog::Paused) => term.paused,
+                Some(Dialog::Ended) => term.ended.is_some(),
+                None => false,
+            };
+            if !still {
+                self.dismissed = None;
+            }
         }
         self.seen.insert(
             identity.to_owned(),
@@ -158,52 +206,115 @@ impl Tab {
         );
     }
 
-    /// The terminal of `identity`, not its chat, was asked for.
-    pub(in crate::board) fn shown_for(&self, identity: &str) -> bool {
-        self.shown_for.as_deref() == Some(identity)
-    }
-
-    #[cfg(test)]
-    pub(in crate::board) fn shown(&self) -> bool {
-        self.shown_for.is_some()
-    }
-
-    /// Shows the terminal of `identity` and types into it once its stream opens, as a click
-    /// would. Any other stream opening, a toggle, a reattach or core finding no stream drops it.
-    pub(in crate::board) fn show_typing(&mut self, identity: &str) {
-        self.shown_for = Some(identity.to_owned());
-        self.type_on_open = Some(identity.to_owned());
-    }
-
-    #[cfg(test)]
-    pub(in crate::board) fn typing_wish(&self) -> Option<&str> {
-        self.type_on_open.as_deref()
-    }
-
-    /// The selection moved to `identity`: a typing wish for another member is dropped.
-    pub(in crate::board) fn selected(&mut self, identity: &str) {
-        if self.type_on_open.as_deref() != Some(identity) {
-            self.type_on_open = None;
-        }
-    }
-
-    /// The tab is on for `identity`: asked for, and a stream exists to show.
-    pub(in crate::board) fn showing(&self, identity: &str) -> bool {
-        self.shown_for(identity) && self.address(identity).is_some()
-    }
-
-    /// Switches `identity` between its chat and its terminal. Coming back to a terminal whose
-    /// stream ended asks core again, since the program may have been started anew.
-    pub(in crate::board) fn toggle(&mut self, identity: &str) {
-        let show = !self.shown_for(identity);
-        self.shown_for = show.then(|| identity.to_owned());
-        self.type_on_open = None;
-        if show
-            && self.ended.remove(identity)
-            && let Some(seen) = self.seen.get_mut(identity)
-        {
+    /// Core is asked about `identity` again on the next pass: after an action or an exit.
+    pub(in crate::board) fn recheck(&mut self, identity: &str) {
+        if let Some(seen) = self.seen.get_mut(identity) {
             seen.stale = true;
         }
+    }
+
+    /// The member that fills the board, if one does.
+    pub(in crate::board) fn framed(&self) -> Option<&str> {
+        self.framed.as_deref()
+    }
+
+    /// `identity` fills the board; core is asked again first, since its program may have changed.
+    pub(in crate::board) fn open_frame(&mut self, identity: &str) {
+        self.framed = Some(identity.to_owned());
+        self.dismissed = None;
+        self.menu = None;
+        self.cursor = 0;
+        self.recheck(identity);
+    }
+
+    /// Back to the board: the stream is dropped on the next pass, which detaches it.
+    pub(in crate::board) fn close_frame(&mut self) {
+        self.framed = None;
+        self.menu = None;
+        self.hits.borrow_mut().clear();
+        self.area.set(None);
+        self.caret.set(None);
+    }
+
+    pub(in crate::board) fn dismissed(&self) -> Option<Dialog> {
+        self.dismissed
+    }
+
+    pub(in crate::board) fn dismiss(&mut self, dialog: Dialog) {
+        self.dismissed = Some(dialog);
+        self.cursor = 0;
+    }
+
+    pub(in crate::board) fn menu(&self) -> Option<FrameMenu> {
+        self.menu
+    }
+
+    pub(in crate::board) fn set_menu(&mut self, menu: Option<FrameMenu>) {
+        self.menu = menu;
+        self.cursor = 0;
+    }
+
+    pub(in crate::board) fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub(in crate::board) fn set_cursor(&mut self, at: usize) {
+        self.cursor = at;
+    }
+
+    /// Moves the highlight by `step` to the next row that can be chosen, wrapping.
+    pub(in crate::board) fn move_cursor_over(
+        &mut self,
+        step: isize,
+        rows: &[super::board::MenuRow],
+    ) {
+        for _ in 0..rows.len() {
+            self.move_cursor(step, rows.len());
+            if rows[self.cursor].hit().is_some() {
+                return;
+            }
+        }
+    }
+
+    /// Moves the highlight by `step` within `len` rows, wrapping.
+    pub(in crate::board) fn move_cursor(&mut self, step: isize, len: usize) {
+        if len > 0 {
+            self.cursor = (self.cursor as isize + step).rem_euclid(len as isize) as usize;
+        }
+    }
+
+    /// The frame being drawn starts with no clickable places.
+    pub(in crate::board) fn clear_hits(&self) {
+        self.hits.borrow_mut().clear();
+    }
+
+    pub(in crate::board) fn add_hit(&self, area: Rect, hit: FrameHit) {
+        self.hits.borrow_mut().push((area, hit));
+    }
+
+    /// Where the header drew `menu`'s button, so the menu opens under it.
+    pub(in crate::board) fn menu_anchor(&self, menu: FrameMenu) -> Option<u16> {
+        self.hits
+            .borrow()
+            .iter()
+            .find(|(_, hit)| *hit == FrameHit::Menu(menu))
+            .map(|(area, _)| area.x)
+    }
+
+    /// What was drawn at `at`; the last drawn (a menu over the header) wins.
+    pub(in crate::board) fn hit(&self, at: Position) -> Option<FrameHit> {
+        self.hits
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(area, _)| area.contains(at))
+            .map(|(_, hit)| hit.clone())
+    }
+
+    /// The frame is up and its member has a stream to show.
+    #[cfg(test)]
+    pub(in crate::board) fn showing(&self, identity: &str) -> bool {
+        self.framed.as_deref() == Some(identity) && self.address(identity).is_some()
     }
 
     /// What the loop should keep open: the terminal of `wanted`, or nothing.
@@ -230,13 +341,6 @@ impl Tab {
                 stream: connect(self.epoch, address.clone()),
             });
         }
-        // Typing and zoom belong to one stream: they end with it. A new one starts typing when
-        // it is the stream a create asked for; any open stream uses up that wish.
-        self.typing = self.open.as_ref().is_some_and(|open| {
-            self.type_on_open.take().as_deref() == Some(open.identity.as_str())
-        });
-        self.zoomed &= self.open.is_some();
-        self.refit = false;
         self.selection = None;
         true
     }
@@ -251,11 +355,6 @@ impl Tab {
         if let Some((anchor, _)) = self.selection {
             self.selection = Some((anchor, at));
         }
-    }
-
-    /// The press has moved into a selection, so the drag and its release are the screen's.
-    pub(in crate::board) fn dragged(&self) -> bool {
-        self.selected_range().is_some()
     }
 
     /// The selection in reading order, first cell then last, both included; none for a press
@@ -307,52 +406,6 @@ impl Tab {
         (!text.trim().is_empty()).then_some(text)
     }
 
-    /// Drops the open stream so the next [`Tab::sync`] opens a fresh one: `⏎` after the stream
-    /// ended. Core is asked again, since the program may have been started anew.
-    pub(in crate::board) fn reattach(&mut self) {
-        self.type_on_open = None;
-        if let Some(open) = self.open.take() {
-            self.ended.remove(&open.identity);
-            if let Some(seen) = self.seen.get_mut(&open.identity) {
-                seen.stale = true;
-            }
-        }
-        self.typing = false;
-    }
-
-    pub(in crate::board) fn typing(&self) -> bool {
-        self.typing
-    }
-
-    /// Starts typing when a live stream is open. True when it did.
-    pub(in crate::board) fn start_typing(&mut self) -> bool {
-        let live = self
-            .open
-            .as_ref()
-            .is_some_and(|open| !open.view.condition.ended());
-        self.typing = live;
-        if live && let Some(open) = self.open.as_mut() {
-            // The window is asked for on the next pass, once the area it has is known.
-            open.window = None;
-        }
-        live
-    }
-
-    /// Typing ended: unless zoom still asks for it, the window is no longer this viewer's, and
-    /// nothing is resized back.
-    pub(in crate::board) fn stop_typing(&mut self) {
-        if !self.typing {
-            return;
-        }
-        self.typing = false;
-        if !self.zoomed
-            && let Some(open) = self.open.as_mut()
-        {
-            open.window = None;
-            open.stream.stop_typing();
-        }
-    }
-
     /// Bytes for the program; dropped by the stream while it is not attached.
     pub(in crate::board) fn send(&self, bytes: &[u8]) {
         if let Some(open) = &self.open {
@@ -367,17 +420,6 @@ impl Tab {
             .and_then(|open| open.view.screen.as_ref())
             .map(|screen| screen.modes)
             .unwrap_or_default()
-    }
-
-    pub(in crate::board) fn zoomed(&self) -> bool {
-        self.zoomed
-    }
-
-    /// Zooming asks for the window like typing does; leaving zoom gives the program the normal
-    /// area once more.
-    pub(in crate::board) fn set_zoomed(&mut self, zoomed: bool) {
-        self.refit = self.zoomed && !zoomed && self.open.is_some();
-        self.zoomed = zoomed;
     }
 
     /// Where the screen was drawn in the last frame.
@@ -398,13 +440,10 @@ impl Tab {
         self.caret.set(caret);
     }
 
-    /// While typing or zoomed, the program is given the room the screen has: the size when that
-    /// began, and again whenever the area changes. After zoom ends it is given the normal area
-    /// once. A viewer that only watches, unzoomed, never asks.
+    /// The framed program is given the room its screen has (the board less the header row),
+    /// when the stream opens and whenever that area changes.
     pub(in crate::board) fn fit_window(&mut self) {
-        // Typing fits the window itself and stopping releases it, so no refit is left owed.
-        self.refit &= !self.typing;
-        if !self.typing && !self.zoomed && !self.refit {
+        if self.framed.is_none() {
             return;
         }
         let (Some(open), Some(area)) = (self.open.as_mut(), self.area.get()) else {
@@ -413,24 +452,19 @@ impl Tab {
         let Ok(size) = Size::new(area.width, area.height) else {
             return;
         };
-        if open.window == Some(size) {
-            // Until a frame draws the normal area, the zoomed one is still recorded.
-            return;
-        }
-        open.window = Some(size);
-        open.stream.resize(size);
-        if self.refit && !self.typing && !self.zoomed {
-            self.refit = false;
-            open.window = None;
-            open.stream.stop_typing();
+        if open.window != Some(size) {
+            open.window = Some(size);
+            open.stream.resize(size);
         }
     }
 
     /// What the stream thread reported; events of a stream that was since replaced are dropped.
+    /// An exit asks core again, so the frame learns the member ended (and later, relaunched).
     pub(in crate::board) fn apply(&mut self, epoch: u64, event: StreamEvent) -> bool {
         let Some(open) = self.open.as_mut().filter(|open| open.epoch == epoch) else {
             return false;
         };
+        let identity = open.identity.clone();
         match event {
             StreamEvent::Connecting { attempt } => {
                 open.view.condition = Condition::Connecting { attempt };
@@ -444,20 +478,25 @@ impl Tab {
             StreamEvent::Refused(refusal) => open.view.condition = Condition::Refused(refusal),
             StreamEvent::Lost(reason) => open.view.condition = Condition::Lost(reason),
         }
-        if open.view.condition.ended() {
-            self.ended.insert(open.identity.clone());
-            // The program is gone or the stream is over: keys are the board's again.
-            self.typing = false;
+        if matches!(open.view.condition, Condition::Exited(_)) || open.view.condition.ended() {
+            self.recheck(&identity);
         }
         true
     }
 
-    /// The terminal of `identity` as the tab shows it, when its stream is the open one.
+    /// The terminal of `identity` as the frame shows it, when its stream is the open one.
     pub(in crate::board) fn view(&self, identity: &str) -> Option<&View> {
         self.open
             .as_ref()
             .filter(|open| open.identity == identity)
             .map(|open| &open.view)
+    }
+
+    /// Drops the open stream so the next [`Tab::sync`] opens a fresh one, after it was lost.
+    pub(in crate::board) fn reattach(&mut self) {
+        if let Some(open) = self.open.take() {
+            self.recheck(&open.identity);
+        }
     }
 }
 
@@ -478,6 +517,19 @@ pub(in crate::board) mod tests {
             socket: PathBuf::from(format!("/nonexistent/tmt-terminal/{name}.sock")),
             pane: name.to_owned(),
         }
+    }
+
+    pub(in crate::board) fn stream(name: &str) -> Located {
+        Located::Stream(address(name), MemberTerm::default())
+    }
+
+    /// The workspace test board with its member on the built-in host, so `j` frames it.
+    pub(in crate::board) fn built_in(mut app: crate::board::app::App) -> crate::board::app::App {
+        let target = app.workspace.selected.clone().unwrap();
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        workspace.rows.get_mut(&target).unwrap()["pane"]["location"]["host"] =
+            crate::board::new_member::model::BUILT_IN_HOST.into();
+        app
     }
 
     /// A tab whose streams attach to nothing; `opened` lists the epochs it was asked for.
@@ -514,91 +566,62 @@ pub(in crate::board) mod tests {
         tab.located(ID, Located::NoStream, 1_000);
         assert!(!tab.needs_locating(ID, 1_000 + NO_STREAM_FOR_MS - 1));
         assert!(tab.needs_locating(ID, 1_000 + NO_STREAM_FOR_MS));
-        assert_eq!(
-            tab.locating_wait(ID, 1_000),
-            Some(Duration::from_millis(NO_STREAM_FOR_MS))
-        );
         tab.located(ID, Located::Failed("boom".into()), 5_000);
         assert!(!tab.needs_locating(ID, 5_000 + FAILED_FOR_MS - 1));
         assert!(tab.needs_locating(ID, 5_000 + FAILED_FOR_MS));
-        assert!(tab.address(ID).is_none(), "a failure shows no tab");
-        tab.located(ID, Located::Stream(address("a")), 9_000);
-        assert!(!tab.needs_locating(ID, u64::MAX / 2), "a stream stays");
+        assert!(tab.address(ID).is_none(), "a failure shows no terminal");
+        tab.located(ID, stream("a"), 9_000);
+        assert!(
+            !tab.needs_locating(ID, u64::MAX / 2),
+            "an unframed stream stays"
+        );
         assert_eq!(tab.locating_wait(ID, 9_000), None);
         assert_eq!(tab.address(ID), Some(&address("a")));
     }
 
     #[test]
-    fn a_create_types_only_into_its_own_stream_when_it_opens() {
-        let (mut tab, _) = tab();
-        let (a, b) = (address("a"), address("b"));
-        tab.show_typing(ID);
-        assert!(tab.shown());
-        assert!(!tab.sync(None), "no stream yet keeps the wish");
-        tab.selected(ID);
-        assert!(tab.sync(Some((ID, &a))));
-        assert!(tab.typing(), "its stream opens typing");
-        tab.sync(Some((OTHER, &b)));
-        assert!(!tab.typing(), "typing belongs to that one stream");
-        tab.sync(Some((ID, &a)));
-        assert!(!tab.typing(), "and the wish was used once");
-    }
-
-    #[test]
-    fn a_failed_answer_keeps_the_create_wish_for_the_retry() {
-        let (mut tab, _) = tab();
-        let a = address("a");
-        tab.show_typing(ID);
-        tab.located(ID, Located::Failed("busy".into()), 0);
-        tab.sync(None);
-        tab.located(ID, Located::Stream(a.clone()), FAILED_FOR_MS);
-        assert!(tab.sync(Some((ID, &a))));
-        assert!(tab.typing(), "the retry's stream starts typing");
-    }
-
-    #[test]
-    fn a_create_wish_is_dropped_by_anything_else_first() {
-        let a = address("a");
-        type Drop = fn(&mut Tab);
-        let dropped: [(&str, Drop); 5] = [
-            ("another stream opens", |tab| {
-                tab.sync(Some((OTHER, &address("b"))));
-            }),
-            ("another member is picked", |tab| tab.selected(OTHER)),
-            ("the tab is toggled twice", |tab| {
-                tab.toggle(ID);
-                tab.toggle(ID);
-            }),
-            ("a reattach", Tab::reattach),
-            ("core finds no stream", |tab| {
-                tab.located(ID, Located::NoStream, 0);
-            }),
-        ];
-        for (what, drop) in dropped {
-            let (mut tab, _) = tab();
-            tab.show_typing(ID);
-            drop(&mut tab);
-            tab.sync(None);
-            tab.sync(Some((ID, &a)));
-            assert!(!tab.typing(), "{what}");
-        }
-    }
-
-    #[test]
-    fn the_tab_shows_only_where_a_stream_exists() {
+    fn a_framed_member_is_read_again_every_second_and_at_once_when_opened() {
         let mut tab = Tab::default();
-        tab.toggle(ID);
-        assert!(tab.shown());
-        assert!(!tab.showing(ID), "no stream known yet");
-        tab.located(ID, Located::Stream(address("a")), 0);
-        tab.located(OTHER, Located::NoStream, 0);
-        assert!(tab.showing(ID));
-        assert!(
-            !tab.showing(OTHER),
-            "a member without a stream shows its chat"
+        tab.located(ID, stream("a"), 0);
+        tab.open_frame(ID);
+        assert!(tab.needs_locating(ID, 0), "opening asks core first");
+        tab.located(ID, stream("a"), 10);
+        assert!(!tab.needs_locating(ID, 10 + FRAMED_FOR_MS - 1));
+        assert!(tab.needs_locating(ID, 10 + FRAMED_FOR_MS));
+        assert_eq!(
+            tab.locating_wait(ID, 10),
+            Some(Duration::from_millis(FRAMED_FOR_MS))
         );
-        tab.toggle(ID);
+        tab.located(OTHER, stream("b"), 10);
+        assert_eq!(tab.locating_wait(OTHER, 10), None, "only the framed member");
+        tab.close_frame();
+        assert_eq!(tab.locating_wait(ID, 10), None);
+    }
+
+    #[test]
+    fn the_frame_shows_only_where_a_stream_exists() {
+        let mut tab = Tab::default();
+        tab.open_frame(ID);
+        assert!(!tab.showing(ID), "no stream known yet");
+        tab.located(ID, stream("a"), 0);
+        assert!(tab.showing(ID));
+        assert!(!tab.showing(OTHER));
+        tab.close_frame();
         assert!(!tab.showing(ID));
+    }
+
+    #[test]
+    fn the_member_term_is_what_core_said() {
+        let mut tab = Tab::default();
+        let term = MemberTerm {
+            paused: true,
+            ended: None,
+            shell: false,
+        };
+        tab.located(ID, Located::Stream(address("a"), term.clone()), 0);
+        assert_eq!(tab.member_term(ID), Some(term));
+        tab.located(ID, Located::NoStream, 1);
+        assert_eq!(tab.member_term(ID), None);
     }
 
     #[test]
@@ -626,10 +649,6 @@ pub(in crate::board) mod tests {
         tab.sync(Some((OTHER, &b)));
         assert!(!tab.apply(1, StreamEvent::Screen(screen("old"))));
         assert!(tab.view(ID).is_none());
-        assert_eq!(
-            tab.view(OTHER).unwrap().condition,
-            Condition::Connecting { attempt: 1 }
-        );
         assert!(tab.apply(2, StreamEvent::Screen(screen("new"))));
         assert_eq!(tab.view(OTHER).unwrap().condition, Condition::Live);
         assert!(
@@ -639,40 +658,36 @@ pub(in crate::board) mod tests {
     }
 
     #[test]
-    fn the_last_screen_is_kept_while_the_stream_reconnects_and_after_it_ends() {
+    fn an_exit_keeps_the_screen_asks_core_again_and_a_relaunch_is_live_again() {
         let (mut tab, _) = tab();
         let a = address("a");
+        tab.located(ID, stream("a"), 0);
+        tab.open_frame(ID);
+        tab.located(ID, stream("a"), 0);
         tab.sync(Some((ID, &a)));
         let drawn = screen("$ ls");
         tab.apply(1, StreamEvent::Screen(drawn.clone()));
-        tab.apply(1, StreamEvent::Connecting { attempt: 2 });
-        let view = tab.view(ID).unwrap();
-        assert_eq!(view.condition, Condition::Connecting { attempt: 2 });
-        assert_eq!(view.screen.as_ref(), Some(&drawn));
         tab.apply(1, StreamEvent::Exited(Exit::Code(0)));
         let view = tab.view(ID).unwrap();
         assert_eq!(view.condition, Condition::Exited(Exit::Code(0)));
         assert_eq!(view.screen.as_ref(), Some(&drawn));
-        assert!(view.condition.ended());
+        assert!(!view.condition.ended(), "the kept terminal stays connected");
+        assert!(tab.needs_locating(ID, 1), "core is asked how it ended");
+        tab.apply(1, StreamEvent::Screen(screen("again")));
+        assert_eq!(tab.view(ID).unwrap().condition, Condition::Live);
     }
 
     #[test]
-    fn coming_back_to_an_ended_terminal_asks_core_again_but_keeps_the_address() {
-        let (mut tab, _) = tab();
+    fn a_lost_stream_is_over_until_reattached() {
+        let (mut tab, opened) = tab();
         let a = address("a");
-        tab.located(ID, Located::Stream(a.clone()), 0);
-        tab.toggle(ID);
+        tab.located(ID, stream("a"), 0);
         tab.sync(Some((ID, &a)));
-        assert!(!tab.needs_locating(ID, 1), "a live view is not asked again");
         tab.apply(1, StreamEvent::Refused(Refusal::Full));
-        assert!(!tab.needs_locating(ID, 1), "nor does the end ask by itself");
-        tab.toggle(ID);
-        tab.sync(None);
-        tab.toggle(ID);
-        assert!(tab.needs_locating(ID, 1));
-        assert_eq!(tab.address(ID), Some(&a), "the chip does not flicker");
-        tab.located(ID, Located::Stream(address("b")), 2);
-        assert!(!tab.needs_locating(ID, 3));
-        assert_eq!(tab.address(ID), Some(&address("b")));
+        assert!(tab.view(ID).unwrap().condition.ended());
+        tab.reattach();
+        assert!(tab.view(ID).is_none());
+        tab.sync(Some((ID, &a)));
+        assert_eq!(opened.lock().unwrap().len(), 2);
     }
 }

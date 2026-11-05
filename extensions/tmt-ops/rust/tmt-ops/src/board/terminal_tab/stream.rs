@@ -1,10 +1,11 @@
-//! One Terminal tab's connection to a member's supervisor, on a thread of its own. The board never
+//! The member frame's connection to a member's supervisor, on a thread of its own. The board never
 //! reads or writes the socket: it gives the thread [`Command`]s and receives [`StreamEvent`]s through the
 //! sink it handed over, so painting and key handling do no I/O.
 //!
 //! The order is the contract's: `Hello`, `Welcome`, one `Snapshot`, then live `Output` applied on
-//! top of the snapshot. Frames before `SnapshotStart` are superseded by it. A view never sends
-//! `TakeSole`, never sends `Resize` on its own, and never sends or interprets Core's controls.
+//! top of the snapshot. Frames before `SnapshotStart` are superseded by it. The member frame sends
+//! `Resize` for the room under its header (#5989); a view never sends `TakeSole` and never sends
+//! or interprets Core's controls.
 use super::discovery::Address;
 use std::{
     io::{ErrorKind, Read, Write},
@@ -30,7 +31,8 @@ pub(in crate::board) enum StreamEvent {
     /// The screen to show now. The first follows the snapshot; later ones follow live output,
     /// at most one every [`Timing::publish`].
     Screen(Arc<Screenful>),
-    /// The program ended. The stream is over and does not come back.
+    /// The program ended. A supervisor that keeps its terminal stays connected and a relaunched
+    /// program's output follows on the same stream; an older one closes, which ends the stream.
     Exited(Exit),
     /// Another client took sole use of the terminal. It does not come back by itself.
     Evicted(Eviction),
@@ -45,8 +47,6 @@ pub(in crate::board) enum StreamEvent {
 enum Command {
     Input(Vec<u8>),
     Resize(Size),
-    /// Typing ended: the window is no longer this viewer's to keep.
-    StopTyping,
 }
 
 /// How long the thread waits, polls and backs off.
@@ -112,16 +112,10 @@ impl Stream {
         }
     }
 
-    /// The window this viewer types in. A viewer that only watches never calls it.
+    /// The window the frame gives the program: the board less its header row. A reconnect
+    /// sends it again.
     pub fn resize(&self, size: Size) {
         let _ = self.commands.send(Command::Resize(size));
-    }
-
-    /// Typing ended. The window is forgotten, so a reconnect from here on sends no `Resize`
-    /// and a viewer that only watches never takes the size back from another client; nothing
-    /// is resized back now either.
-    pub fn stop_typing(&self) {
-        let _ = self.commands.send(Command::StopTyping);
     }
 }
 
@@ -157,6 +151,8 @@ enum End {
     Stopped,
     /// Over for good: say so and finish.
     Over(StreamEvent),
+    /// Over for good with nothing more to say: an older supervisor closing after `Exited`.
+    Closed,
     /// Lost: try again. `live` says whether the screen had been shown, which restarts the count.
     Lost { reason: String, live: bool },
 }
@@ -178,7 +174,7 @@ fn run(
         attempt += 1;
         sink(StreamEvent::Connecting { attempt });
         match session(address, timing, sink, commands, stop, &mut window) {
-            End::Stopped => return,
+            End::Stopped | End::Closed => return,
             End::Over(event) => {
                 sink(event);
                 return;
@@ -248,7 +244,6 @@ fn pump(
                     send(socket, &ClientMessage::Resize(size))?;
                 }
             }
-            Ok(Command::StopTyping) => *window = None,
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
@@ -281,6 +276,8 @@ fn session(
     let mut decoder = Decoder::new();
     let mut phase = Phase::Handshake(Instant::now() + timing.handshake);
     let mut shown = false;
+    // The program ended; a close from here on is an older supervisor finishing, not a loss.
+    let mut exited = false;
     let mut dirty = false;
     let mut published = Instant::now();
     let mut buffer = [0; 16 * 1024];
@@ -297,6 +294,7 @@ fn session(
             };
         }
         match socket.read(&mut buffer) {
+            Ok(0) if exited => return End::Closed,
             Ok(0) => {
                 return End::Lost {
                     reason: "the terminal closed".into(),
@@ -344,6 +342,11 @@ fn session(
                                 publish(&phase, sink, &mut dirty, &mut published);
                             }
                         }
+                        Step::Exited(exit) => {
+                            publish(&phase, sink, &mut dirty, &mut published);
+                            sink(StreamEvent::Exited(exit));
+                            exited = true;
+                        }
                         Step::End(end) => {
                             publish(&phase, sink, &mut dirty, &mut published);
                             return match end {
@@ -390,6 +393,8 @@ enum Step {
     Changed {
         immediate: bool,
     },
+    /// The program ended; the connection stays for a relaunch on the kept terminal.
+    Exited(Exit),
     End(End),
 }
 
@@ -469,7 +474,7 @@ fn apply(
                 Step::Continue
             }
         }
-        ServerMessage::Exited(exit) => Step::End(End::Over(StreamEvent::Exited(exit))),
+        ServerMessage::Exited(exit) => Step::Exited(exit),
         ServerMessage::Evicted(Eviction::TakenOver) => {
             Step::End(End::Over(StreamEvent::Evicted(Eviction::TakenOver)))
         }

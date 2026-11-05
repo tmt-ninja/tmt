@@ -422,7 +422,7 @@ errors and the byte cap.
 ## Terminal stream
 
 `terminal.stream` answers where one built-in-host member's
-[terminal stream](terminal-stream-v1.md) is, for a view such as the Ops Terminal tab.
+[terminal stream](terminal-stream-v1.md) is, for a view such as the Ops member frame.
 Input is `{identityId}`: a required canonical identity UUID; names, other fields and
 envelope originator attribution are `API_INPUT_INVALID`. The resource is
 `{identityId, host, socket, pane, paused}`: `host` is `pty`, `socket` the absolute path of

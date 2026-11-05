@@ -575,6 +575,18 @@ impl App {
         Effect::None
     }
 
+    /// The checklist of `key`, opened straight into a new item: the member frame's `+ Add item`.
+    pub(in crate::board) fn open_notes_adding(&mut self, key: super::Key) -> Effect {
+        if self.input.is_some() || self.searching || self.modal_open() && self.menu.is_none() {
+            return self.say("Close the current input or overlay before opening the checklist.");
+        }
+        self.menu = None;
+        let mut controller = Controller::new(key);
+        let effect = controller.begin(self, Draft::add());
+        self.notes_overlay = Some(controller);
+        effect
+    }
+
     pub(in crate::board) fn notes_event(&mut self, event: &Event) -> Option<Effect> {
         let mut controller = self.notes_overlay.take()?;
         let effect = controller.event(self, event);

@@ -1889,7 +1889,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           screen.includes('○ 1 todo') &&
           /\bC[ \t]+Checklist\b/.test(screen) &&
           memberRow(screen)?.includes('· 1 todo') === true &&
-          screen.includes('Checklist · 1 todo') &&
+          /\bC[ \t]+Checklist 1[ \t]+[─━]/.test(screen) &&
           !screen.includes('1 todo · 0 done'),
         shell.pane
       );
@@ -1927,7 +1927,7 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
           row !== undefined &&
           !row.includes('todo') &&
           screen.includes('○ 0 todo') &&
-          screen.includes('Checklist · empty') &&
+          /\bC[ \t]+Checklist[ \t]+[─━]/.test(screen) &&
           !screen.includes('0 todo · 1 done')
         );
       }, shell.pane);
