@@ -123,7 +123,7 @@ export function MockupBlock({
                 </select>
               </>
             ) : (
-              <span className="tmt-block-mockup-pin">
+              <span className="tmt-block-mockup-pin" title={`${system}@${version}`}>
                 {system}@{version}
               </span>
             )}

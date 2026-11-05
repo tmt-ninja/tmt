@@ -1092,6 +1092,12 @@ for (const width of [390, 1440])
       );
     }
     const toolbar = content.locator('#hug').getByRole('toolbar', { name: 'Mockup settings' });
+    // The pin is cut to one line on screen; its full value stays in its text and title.
+    const pin = toolbar.locator('.tmt-block-mockup-pin');
+    const full = await pin.textContent();
+    expect(full).toMatch(/^tmt-gui@0\.1\.0#sha256-[0-9a-f]{64}$/);
+    await expect(pin).toHaveAttribute('title', full!);
+    expect(await pin.evaluate((node) => node.getClientRects().length)).toBe(1);
     expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     const chosen = toolbar.getByRole('button', { name: '390' });
     const other = toolbar.getByRole('button', { name: '1440' });
