@@ -601,7 +601,11 @@
 [data-slot='tabs-bar'].tmt-page-list-tabs-row {
   box-sizing: border-box;
   width: 100%;
+  align-items: flex-end;
   box-shadow: inset 0 calc(-1 * var(--tmt-ui-rule-width)) var(--tmt-ui-surface-rule);
+}
+[data-slot='tabs-bar'].tmt-page-list-tabs-row > [data-slot='tabs-bar-actions'] {
+  padding-block-end: var(--tmt-ui-space-xs);
 }
 @media (max-width: 760px) {
   .tmt-page-list-tabs:not([data-tmt-ds-scope] *) {

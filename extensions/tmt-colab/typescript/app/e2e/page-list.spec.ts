@@ -2029,8 +2029,9 @@ for (const width of [390, 1440])
         const tabs = node.querySelector('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
         const actions = node.querySelector('.page-list-actions')!.getBoundingClientRect();
         return {
-          tabTop: tabs.top,
-          actionTop: actions.top,
+          actionBottom: actions.bottom,
+          tabBottom: tabs.bottom,
+          rowBottom: node.getBoundingClientRect().bottom,
           tabRight: tabs.right,
           actionLeft: actions.left,
           left: node.getBoundingClientRect().left,
@@ -2038,8 +2039,14 @@ for (const width of [390, 1440])
           viewport: document.documentElement.clientWidth,
         };
       });
-      expect(geometry.tabTop).toBe(geometry.actionTop);
+      expect(geometry.tabBottom).toBe(geometry.rowBottom);
+      expect(geometry.rowBottom - geometry.actionBottom).toBe(4);
       expect(geometry.tabRight).toBeLessThanOrEqual(geometry.actionLeft);
+      const saveBox = await actions.getByRole('button', { name: 'Save as shortcut' }).boundingBox();
+      const createBox = await actions.getByRole('button', { name: 'New page' }).boundingBox();
+      expect(saveBox).not.toBeNull();
+      expect(createBox).not.toBeNull();
+      expect(createBox!.x - (saveBox!.x + saveBox!.width)).toBe(8);
       expect(geometry.left).toBeGreaterThanOrEqual(0);
       expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
       await insideViewport(page);
