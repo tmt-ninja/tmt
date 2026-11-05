@@ -74,6 +74,7 @@ export class Objects {
   #heads = new Map<string, Head>();
   #ownSigningKeys = new Map<string, Uint8Array>();
   #ownerWriters = new Map<string, boolean>();
+  #ownerOnlyContent = true;
   #seen = new Map<string, Uint8Array>();
   #positions = new Map<
     string,
@@ -102,6 +103,10 @@ export class Objects {
    * an owner device can resolve a thread. */
   statusWriter(writer: string): boolean {
     return this.#ownerWriters.get(writer) === true;
+  }
+  /** False permanently for this epoch once any admitted content came from a non-owner. */
+  get ownerOnlyContent(): boolean {
+    return this.#ownerOnlyContent;
   }
   /** The updates a stream holds after its checkpoints (all of them when it has none): the ones
    * only the device that wrote the stream can combine into a checkpoint. */
@@ -350,6 +355,7 @@ export class Objects {
       seq: entry.seq,
       envelopeHash: entry.envelopeHash,
     });
+    if (ns === 'content' && !ownerDevice) this.#ownerOnlyContent = false;
     if (ns === 'own') {
       this.ownData = true;
       // The writer of an own record is the covered device, so its key is the one that vouches.

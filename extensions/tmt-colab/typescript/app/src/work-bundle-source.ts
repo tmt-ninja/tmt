@@ -9,6 +9,30 @@ import type {
   PageView,
 } from './transport.js';
 
+/** Check the trusted page's current writer proof at subscription and at every data hand-off. */
+export function gateWorkBundleSource(
+  source: WorkBundleSource,
+  admitted: () => boolean,
+): WorkBundleSource {
+  return {
+    subscribe(page, signal, publish, failed) {
+      if (!admitted()) {
+        failed();
+        return () => {};
+      }
+      return source.subscribe(
+        page,
+        signal,
+        (value) => {
+          if (admitted()) publish(value);
+          else failed();
+        },
+        failed,
+      );
+    },
+  };
+}
+
 /** A block may display only data the viewer's existing page transport has admitted. */
 export function workBundleSource(
   transport: PageTransport,

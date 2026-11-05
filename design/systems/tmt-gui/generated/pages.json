@@ -588,12 +588,12 @@
    {
     "slug": "question-block",
     "title": "Question block",
-    "html": "<div class=\"tmt-design-docs\"><article class=\"docs-article\"><h1>Question block</h1><p class=\"docs-lead\">A question with choices or a short answer; Other always provides a text answer.</p><div class=\"docs-canvas docs-canvas-hero\"><div data-tmt-ui=\"\" data-tmt-theme=\"system\"><section class=\"tmt-block-question\" role=\"group\" aria-label=\"Which screen should we build first?\"><div class=\"tmt-block-question-mark\" aria-hidden=\"true\">?</div><div class=\"tmt-block-question-content\"><div class=\"tmt-block-question-eyebrow\">◆ Waiting for your answer · tmt-gui-lead</div><h3>Which screen should we build first?</h3><fieldset class=\"tmt-ui-choices\" data-layout=\"inline\"><legend class=\"tmt-ui-choices-legend\">Choices</legend><div class=\"tmt-block-question-choices\"><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Insert menu\" aria-keyshortcuts=\"1\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Insert menu</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">1</kbd></label><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Block handle\" aria-keyshortcuts=\"2\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Block handle</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">2</kbd></label><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Other…\" aria-keyshortcuts=\"3\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Other…</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">3</kbd></label></div></fieldset><button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&amp;_svg]:pointer-events-none tmt:[&amp;_svg]:shrink-0 tmt:[&amp;_svg:not([class*=&#x27;size-&#x27;])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out) tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[&gt;svg]:px-3\" type=\"button\" aria-disabled=\"true\" disabled=\"\">Send</button></div></section><div data-tmt-ui-portal=\"\"></div></div></div><h2>Usage</h2><div class=\"docs-snippet\"><button type=\"button\">Copy</button><pre><code>import { QuestionBlock } from &#x27;@tmt/browser-ui/blocks&#x27;;\nimport &#x27;@tmt/browser-ui/blocks.css&#x27;;\n\n&lt;QuestionBlock title=&quot;Which screen first?&quot; agent=&quot;gui-lead&quot; choices={[&#x27;Insert&#x27;, &#x27;Handle&#x27;]} onSend={sendAnswer} /&gt;</code></pre></div><h2>Variants and states</h2><section class=\"docs-variant\"><h3>Answered</h3><div class=\"docs-canvas\"><button class=\"tmt-block-question-answered\" type=\"button\" aria-expanded=\"false\"><span aria-hidden=\"true\">✓</span><span>Which screen first?</span><span>Insert</span></button></div></section><section class=\"docs-variant\"><h3>Short answer</h3><div class=\"docs-canvas\"><div data-tmt-ui=\"\" data-tmt-theme=\"system\"><section class=\"tmt-block-question\" role=\"group\" aria-label=\"What should change?\"><div class=\"tmt-block-question-mark\" aria-hidden=\"true\">?</div><div class=\"tmt-block-question-content\"><div class=\"tmt-block-question-eyebrow\">◆ Waiting for your answer · gui-lead</div><h3>What should change?</h3><div class=\"tmt-block-question-input\"><textarea data-slot=\"textarea\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:flex tmt:field-sizing-content tmt:min-h-16 tmt:w-full tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:placeholder:text-muted-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive\" aria-label=\"Your answer\" aria-describedby=\"_R_2jd_-count\" placeholder=\"Write your answer\" rows=\"1\"></textarea><span id=\"_R_2jd_-count\"></span></div><button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&amp;_svg]:pointer-events-none tmt:[&amp;_svg]:shrink-0 tmt:[&amp;_svg:not([class*=&#x27;size-&#x27;])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out) tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[&gt;svg]:px-3\" type=\"button\" aria-disabled=\"true\" disabled=\"\">Send</button></div></section><div data-tmt-ui-portal=\"\"></div></div></div></section></article></div>",
+    "html": "<div class=\"tmt-design-docs\"><article class=\"docs-article\"><h1>Question block</h1><p class=\"docs-lead\">A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.</p><div class=\"docs-canvas docs-canvas-hero\"><div data-tmt-ui=\"\" data-tmt-theme=\"system\"><section class=\"tmt-block-question\" role=\"group\" aria-label=\"Which screen should we build first?\"><div class=\"tmt-block-question-mark\" aria-hidden=\"true\">?</div><div class=\"tmt-block-question-content\"><div class=\"tmt-block-question-eyebrow\">◆ Waiting for your answer · tmt-gui-lead</div><h3>Which screen should we build first?</h3><fieldset class=\"tmt-ui-choices\" data-layout=\"inline\"><legend class=\"tmt-ui-choices-legend\">Choices</legend><div class=\"tmt-block-question-choices\"><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Insert menu\" aria-keyshortcuts=\"1\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Insert menu</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">1</kbd></label><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Block handle\" aria-keyshortcuts=\"2\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Block handle</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">2</kbd></label><label class=\"tmt-ui-choice\"><input type=\"radio\" class=\"tmt-ui-radio\" aria-label=\"Other…\" aria-keyshortcuts=\"3\" name=\"_R_t_\"/><span class=\"tmt-ui-choice-text\">Other…</span><kbd class=\"tmt-ui-choice-hint\" aria-hidden=\"true\">3</kbd></label></div></fieldset><button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&amp;_svg]:pointer-events-none tmt:[&amp;_svg]:shrink-0 tmt:[&amp;_svg:not([class*=&#x27;size-&#x27;])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out) tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[&gt;svg]:px-3\" type=\"button\" aria-disabled=\"true\" disabled=\"\">Send</button></div></section><div data-tmt-ui-portal=\"\"></div></div></div><h2>Usage</h2><div class=\"docs-snippet\"><button type=\"button\">Copy</button><pre><code>import { QuestionBlock } from &#x27;@tmt/browser-ui/blocks&#x27;;\nimport &#x27;@tmt/browser-ui/blocks.css&#x27;;\n\n&lt;QuestionBlock title=&quot;Which screen first?&quot; agent=&quot;gui-lead&quot; choices={[&#x27;Insert&#x27;, &#x27;Handle&#x27;]} onSend={sendAnswer} /&gt;</code></pre></div><h2>Variants and states</h2><section class=\"docs-variant\"><h3>Answered</h3><div class=\"docs-canvas\"><button class=\"tmt-block-question-answered\" type=\"button\" aria-expanded=\"false\"><span aria-hidden=\"true\">✓</span><span>Which screen first?</span><span>Insert</span></button></div></section><section class=\"docs-variant\"><h3>Short answer</h3><div class=\"docs-canvas\"><div data-tmt-ui=\"\" data-tmt-theme=\"system\"><section class=\"tmt-block-question\" role=\"group\" aria-label=\"What should change?\"><div class=\"tmt-block-question-mark\" aria-hidden=\"true\">?</div><div class=\"tmt-block-question-content\"><div class=\"tmt-block-question-eyebrow\">◆ Waiting for your answer · gui-lead</div><h3>What should change?</h3><div class=\"tmt-block-question-input\"><textarea data-slot=\"textarea\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:flex tmt:field-sizing-content tmt:min-h-16 tmt:w-full tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-input tmt:bg-background tmt:text-foreground tmt:px-3 tmt:py-2 tmt:text-(length:--tmt-foundation-command-size) tmt:placeholder:text-muted-foreground tmt:focus-visible:border-ring tmt:focus-visible:outline-none tmt:disabled:cursor-not-allowed tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive\" aria-label=\"Your answer\" aria-describedby=\"_R_2jd_-count\" placeholder=\"Write your answer\" rows=\"1\"></textarea><span id=\"_R_2jd_-count\"></span></div><button data-slot=\"button\" data-variant=\"default\" data-size=\"default\" class=\"tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border tmt:border-solid tmt:border-(length:--tmt-foundation-rule-width) tmt:border-transparent tmt:inline-flex tmt:shrink-0 tmt:items-center tmt:justify-center tmt:gap-2 tmt:text-(length:--tmt-foundation-command-size) tmt:font-(weight:--tmt-foundation-eyebrow-weight) tmt:whitespace-nowrap tmt:focus-visible:outline-none tmt:disabled:pointer-events-none tmt:disabled:opacity-50 tmt:aria-invalid:border-destructive tmt:[&amp;_svg]:pointer-events-none tmt:[&amp;_svg]:shrink-0 tmt:[&amp;_svg:not([class*=&#x27;size-&#x27;])]:size-4 tmt:transition-[color,background-color,border-color] tmt:duration-(--tmt-foundation-motion-fast) tmt:ease-(--tmt-foundation-motion-ease-out) tmt:bg-primary tmt:text-primary-foreground tmt:hover:bg-primary tmt:focus-visible:border-foreground tmt:h-9 tmt:px-4 tmt:py-2 tmt:has-[&gt;svg]:px-3\" type=\"button\" aria-disabled=\"true\" disabled=\"\">Send</button></div></section><div data-tmt-ui-portal=\"\"></div></div></div></section></article></div>",
     "files": [
      "design/browser-ui/docs/catalog.tsx",
      "design/browser-ui/docs/catalog-more.tsx"
     ],
-    "description": "A question with choices or a short answer; Other always provides a text answer.",
+    "description": "A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.",
     "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
    },
    {
@@ -645,6 +645,42 @@
  {
   "title": "Browser components",
   "pages": [
+   {
+    "slug": "page-row",
+    "title": "Page row",
+    "description": "A page title, tags, update time and optional unread or status mark.",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "work-band",
+    "title": "Work band",
+    "description": "A page stage and expandable list of sub-page progress.",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "message-row",
+    "title": "Message row",
+    "description": "A message with its author and delivery or recovery state.",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
+   {
+    "slug": "status-line",
+    "title": "Status line",
+    "description": "A row of state marks with their accessible labels.",
+    "html": "<div class=\"tmt-design-docs\"></div>",
+    "files": [
+     "design/browser-ui/docs/browser-catalog.tsx"
+    ]
+   },
    {
     "slug": "browser-avatar",
     "title": "Avatar",
@@ -940,14 +976,6 @@
     "slug": "status-line",
     "title": "Status line",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"status-line\"></tmt-ui-pattern></div>",
-    "files": [
-     "design/browser-ui/docs/patterns.tsx"
-    ]
-   },
-   {
-    "slug": "planned",
-    "title": "Planned parts",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"planned\"></tmt-ui-pattern></div>",
     "files": [
      "design/browser-ui/docs/patterns.tsx"
     ]

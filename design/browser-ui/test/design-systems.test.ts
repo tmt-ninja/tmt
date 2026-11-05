@@ -8,6 +8,7 @@ import {
   buildBundle,
   checkElements,
   validateComponent,
+  validateCapabilities,
   type Bundle,
   type ComponentDoc,
   type DesignSystemConfig,
@@ -22,8 +23,38 @@ const sha256Hex = async (text: string) => createHash('sha256').update(text).dige
 const button = template.components.find((component) => component.tag === 'button')!;
 const legacyButton = { ...button, uiParts: undefined, source: 'export default () => () => null;' };
 
+it('applies the same capability checks to authored components and stored bundle tags', () => {
+  const cases = [
+    { runtime: '3', parts: ['PageListTable'], data: ['page'] },
+    { runtime: '4', uiParts: ['Button'], requires: ['other'] },
+    { runtime: '2', parts: ['PageListTable'] },
+    { runtime: '3', data: ['page', 'page'] },
+    { runtime: '4', uiParts: ['Unknown'] },
+    { runtime: '4', requires: ['missing'] },
+  ];
+  for (const item of cases) {
+    const { runtime, ...capabilities } = item;
+    const docs = [{ tag: 'one', ...capabilities }, { tag: 'other' }];
+    const stored = docs.map((doc) => ({ ...doc, tag: `acme-${doc.tag}` }));
+    let authored = true;
+    let loaded = true;
+    try {
+      validateCapabilities({ runtime, prefix: 'acme', components: docs }, false);
+    } catch {
+      authored = false;
+    }
+    try {
+      validateCapabilities({ runtime, prefix: 'acme', components: stored });
+    } catch {
+      loaded = false;
+    }
+    expect(loaded).toBe(authored);
+    expect(authored).toBe(cases.indexOf(item) < 2);
+  }
+});
+
 it('renders every live pattern scene', () => {
-  expect(livePatternSlugs).toHaveLength(20);
+  expect(livePatternSlugs).toHaveLength(19);
   for (const slug of livePatternSlugs) {
     const markup = renderToStaticMarkup(createElement(PatternPage, { page: slug }));
     expect(markup, slug).toContain('<h1>');
@@ -166,6 +197,10 @@ describe('buildBundle', () => {
       'tmt-ui-editorial',
       'tmt-ui-visually-hidden',
       'tmt-ui-chart',
+      'tmt-ui-page-row',
+      'tmt-ui-work-band',
+      'tmt-ui-message-row',
+      'tmt-ui-status-line',
     ]);
   });
 

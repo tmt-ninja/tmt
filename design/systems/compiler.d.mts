@@ -86,6 +86,20 @@ export function propType(spec: PropSpec): string;
 export function validateSystem(config: DesignSystemConfig, where?: string): void;
 export function checkSource(source: string, where: string): void;
 export function validateComponent(doc: ComponentDoc, where?: string): void;
+export function validateCapabilities(
+  bundle: {
+    runtime: string;
+    prefix: string;
+    components: readonly {
+      tag: string;
+      parts?: readonly string[];
+      data?: readonly string[];
+      uiParts?: readonly string[];
+      requires?: readonly string[];
+    }[];
+  },
+  prefixed?: boolean
+): void;
 export function buildBundle(
   system: string,
   config: DesignSystemConfig,

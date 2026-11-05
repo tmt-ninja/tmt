@@ -869,6 +869,14 @@ export class Live implements PageBinding {
     return { merged: result.merged === true };
   }
   /** Whether this device may change the page's work: the owner device's alone. */
+  ownerOnlyContent(): boolean {
+    return (
+      !this.#closed &&
+      !this.#error &&
+      !this.#opening?.pending &&
+      this.#connection?.ownerOnlyContent === true
+    );
+  }
   canWork(): boolean {
     return (
       !this.#closed &&

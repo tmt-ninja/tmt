@@ -73,7 +73,8 @@ export const blockComponents: ComponentDoc[] = [
   {
     slug: 'question-block',
     name: 'Question block',
-    description: 'A question with choices or a short answer; Other always provides a text answer.',
+    description:
+      'A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.',
     preview: () => <QuestionDemo />,
     usage: `${entry('QuestionBlock')}<QuestionBlock title="Which screen first?" agent="gui-lead" choices={['Insert', 'Handle']} onSend={sendAnswer} />`,
     variants: [

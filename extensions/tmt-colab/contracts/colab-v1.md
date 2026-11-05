@@ -2595,6 +2595,13 @@ Scripts run on every page: the frame uses `sandbox="allow-scripts"`, without
 same-origin, top navigation, popups, forms or modals. There is no static mode.
 The renderer MUST deny app storage,
 keys, cookies/session, bridge access, network APIs, other pages and top navigation.
+Page-view data about other pages MUST remain in trusted parent chrome; the frame may report only
+bounded slot geometry and MUST NOT receive the projection. Work-bundle data about another page MUST
+enter a frame only after the trusted parent proves every content writer in its current epoch is an
+owner-member device, and MUST be limited to named pages the owner can read. The parent MUST recheck
+on every epoch or writer change and revoke the hand-off when the proof fails. An owner-signed epoch
+baseline alone does not prove earlier authorship: without proof that every prior writer was the
+owner, the parent MUST fail closed, including after a baseline carries old source forward.
 It MUST NOT claim complete exfiltration prevention: #830 observed iframe
 self-navigation leakage despite CSP. Tear down any frame navigating after its
 initial render. The tested CSP begins `default-src 'none'`, permits inline page
@@ -5489,26 +5496,7 @@ referenced page's bounded display metadata through the current viewer's admitted
 frame is not given a transport, management methods or an arbitrary page-read function.
 Runtime 4 retains runtime 3's capabilities and adds `ui`, a renderer-owned namespace of named
 browser-ui parts running on the page runtime's React. A component declares its needed names in
-`uiParts`; the version 4 allowlist contains `Button`, `FoundationPage`, `PatternPage`, `DsScope`, `BrowserAvatar`, `BusyMark`,
-`BrowserSection`, `BrowserDisclosure`, `BrandMark`, `BrowserCheckbox`, `BrowserStatusTile`,
-`BrowserAction`, `BrowserToggle`, `Badge`, `Input`, `Textarea`, `Separator`, `Surface`,
-`Skeleton`, `Switch`, `Checkbox`, `Card`, `CardHeader`, `CardTitle`, `CardDescription`,
-`CardAction`, `CardContent`, `CardFooter`, `Alert`, `AlertTitle`, `AlertDescription`, `Empty`,
-`EmptyHeader`, `EmptyMedia`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `Tabs`, `TabsBar`, `TabsList`,
-`TabsTrigger`, `Dialog`, `DialogTrigger`, `DialogContent`, `DialogTitle`, `DialogDescription`,
-`Sheet`, `SheetTrigger`, `SheetContent`, `SheetTitle`, `SheetDescription`, `Popover`,
-`PopoverTrigger`, `PopoverContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`
-`DropdownMenuItem`, `UiTheme`, `BrowserHeader`, `BrowserNotice`, `BrowserPager`, `BrowserList`,
-`BrowserChoice`, `BrowserMenu`, `BrowserIconAction`, `BrowserField`, `BrowserCountChip`,
-`BrowserTable`, `BrowserCommand`, `BrowserTabs`, `BrowserChips`, `BrowserDialog`, `BrowserDrawer`,
-`BrowserPanel`, `BrowserShell`, `BrowserNotifications`, `BrowserCardMeter`, `BrowserOverview`,
-`BrowserEditorial`, `BrowserVisuallyHidden`, `BrowserChart`, `Select`, `SelectTrigger`, `SelectValue`,
-`SelectContent`, `SelectItem`, `TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`,
-`Command`, `CommandInput`, `CommandList`, `CommandItem`, `FloatingDock`, `FloatingActions`,
-`FloatingAction`, `FloatingWindow`, `Chips`, `useLayerController`, `DataTable`, `RichInput`,
-`BlockDocument`, `Block`, `BlockHandle`, `BlockMenu`, `BlockMenuItem`, `BlockMenuFooter`,
-`BlockKbd`, `HeadingBlock`, `TextBlock`, `ListItemBlock`, `TodoBlock`, `TableBlock`, `CardBlock`,
-`Callout`, `CodeBlock`, `BlockMention` and `BlockToast`. Unknown, duplicate, undeclared,
+`uiParts`; the [runtime 4 UI vector](vectors/design-runtime-4-ui.json) owns the versioned allowlist. Unknown, duplicate, undeclared,
 or pre-runtime-4 names are refused. The component source admission rule is unchanged, and `ui`
 does not grant host data or transport capabilities. A reader without runtime 4 refuses the bundle
 as needing a newer TMT.
@@ -5522,11 +5510,11 @@ When a component element leaves the document, its React root is released after a
 has not reconnected. Moving a component within the same turn keeps its root; a later reconnection
 mounts a new root with the original slotted nodes. This releases component-owned resources such as
 chart resize observers on removal.
-When an owner page includes `tmt-ui-page-view`, its frame receives a bounded, read-only projection
-of the admitted page list: at most 200 records and 64 KiB, with page identifiers, titles, projects,
-stage, update label, author and access only. The subscription ends with the frame and follows the
-owner list's refreshes. A frame without an owner list sees an unavailable state; it receives no
-transport or management capability. Each page system remains responsible for its own filters.
+When an owner page includes a live `tmt-ui-page-view`, the trusted parent renders its bounded
+page-list projection in the reserved slot: at most 200 records and 64 KiB, with page identifiers,
+titles, projects, stage, update label, author and access only. The frame receives geometry only; it
+receives neither the list nor transport or management capability. The subscription ends with the frame and follows
+the owner list's refreshes. A view without an owner list shows an unavailable state.
 
 The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
 owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each

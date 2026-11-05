@@ -2103,9 +2103,33 @@
               referenceChips.set(node, { key, chip });
             }
           }
+          let parentPageViews = [];
+          function resolveParentPageViews() {
+            if (stopped || !parentPageViews.length) return;
+            const positions = parentPageViews.map((slot) => {
+              const target = document.querySelectorAll(slot.tag)[slot.index];
+              if (
+                !target ||
+                target.closest('[hidden]') ||
+                hiddenByClosedDetails(target) ||
+                innerScroll
+              )
+                return null;
+              const height = `${slot.height}px`;
+              if (target.style.height !== height) target.style.height = height;
+              if (target.style.display !== 'block') target.style.display = 'block';
+              if (target.style.visibility !== 'hidden') target.style.visibility = 'hidden';
+              if (target.style.overflow !== 'hidden') target.style.overflow = 'hidden';
+              const box = target.getBoundingClientRect();
+              if (!box.width || !target.getClientRects().length) return null;
+              return { top: box.top + scrollY, left: box.left, width: box.width };
+            });
+            port.postMessage({ type: 'colab.render.parent-page-views', renderId, positions });
+          }
           function resolve() {
             resolveThreadReferences();
             resolveSlots();
+            resolveParentPageViews();
             resolveQuestions();
             resolveLocks();
             if (stopped || !requestId) return;
@@ -2470,6 +2494,31 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v?.type === 'colab.render.parent-page-views' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              Array.isArray(v.slots) &&
+              v.slots.length <= 20 &&
+              v.slots.every(
+                (slot) =>
+                  slot &&
+                  Object.keys(slot).length === 3 &&
+                  typeof slot.tag === 'string' &&
+                  /^[a-z][a-z0-9-]*-[a-z0-9-]+$/.test(slot.tag) &&
+                  Number.isSafeInteger(slot.index) &&
+                  slot.index >= 0 &&
+                  slot.index < 1000 &&
+                  Number.isSafeInteger(slot.height) &&
+                  slot.height >= 1 &&
+                  slot.height <= 1000000,
+              )
+            ) {
+              parentPageViews = v.slots;
+              resolveParentPageViews();
+              scheduleHeight();
+              return;
+            }
+            if (
               v?.type === 'colab.render.work-bundle' &&
               Object.keys(v).length === 4 &&
               v.renderId === renderId &&
@@ -2480,16 +2529,6 @@
               utf8.encode(JSON.stringify(v)).length <= 16 * 1024
             ) {
               sendBlockData({ type: 'work-bundle', page: v.page, data: v.data });
-              return;
-            }
-            if (
-              v?.type === 'colab.render.page-view' &&
-              Object.keys(v).length === 3 &&
-              v.renderId === renderId &&
-              (v.rows === null || (Array.isArray(v.rows) && v.rows.length <= 200)) &&
-              utf8.encode(JSON.stringify(v)).length <= 66 * 1024
-            ) {
-              sendBlockData({ type: 'page-view', rows: v.rows });
               return;
             }
             if (

@@ -146,6 +146,10 @@ export async function renderDocs() {
       {
         title: 'Browser components',
         pages: [
+          ['page-row', 'page-row'],
+          ['work-band', 'work-band'],
+          ['message-row', 'message-row'],
+          ['status-line', 'status-line'],
           ['avatar', 'browser-avatar'],
           ['busy-mark', 'busy-mark'],
           ['section', 'section'],

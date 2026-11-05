@@ -153,7 +153,11 @@ export function DesignLibrary({
   // The built-in tmt GUI's pages (#5969): once the space has them, `/ds/gui` shows them, by docs
   // path, so what is annotated is what the route shows.
   const mirror = systems?.find((entry) => entry.builtIn);
-  const guiPath = path === `${base}/ds/gui` || path.startsWith(`${base}/ds/gui/`);
+  const guiPath =
+    path === base ||
+    path === `${base}/` ||
+    path === `${base}/ds/gui` ||
+    path.startsWith(`${base}/ds/gui/`);
   const selected =
     (guiPath ? mirror : undefined) ??
     systems?.find(
@@ -164,7 +168,7 @@ export function DesignLibrary({
     );
   const userPath = path.startsWith(`${base}/systems/`);
   const pagePart = selected
-    ? path
+    ? (path === base || path === `${base}/` ? '' : path)
         .slice(
           selected.builtIn
             ? `${base}/ds/gui`.length
@@ -199,7 +203,11 @@ export function DesignLibrary({
         await refresh();
         setNotice(undefined);
       })
-      .catch((failure: unknown) => setError(errorText(failure)));
+      .catch((failure: unknown) => {
+        mirroring.current = false;
+        setNotice(undefined);
+        setError(errorText(failure));
+      });
   }, [systems, transport, refresh]);
   // One publish at a time: a second activation before the first re-renders would upload a second
   // bundle and then fail on a stale base, leaving an orphan attachment.
@@ -378,11 +386,15 @@ export function DesignLibrary({
             {notice}
           </p>
         )}
-        {userPath || selected ? (
+        {userPath || guiPath || selected ? (
           <>
             {loading && <p role="status">Loading design systems…</p>}
             {!loading && !error && !selected && (
-              <p role="alert">This design system is not in the space’s Design trees.</p>
+              <p role={guiPath && transport.management ? 'status' : 'alert'}>
+                {guiPath && transport.management
+                  ? 'Preparing the tmt GUI pages…'
+                  : 'This design system is not in the space’s Design trees.'}
+              </p>
             )}
             {selected && (
               <div className="design-user-system">

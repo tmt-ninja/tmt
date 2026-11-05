@@ -105,6 +105,15 @@ export const SYNC_ERROR_CODES = [
 /** A connection owns one reader/Worker. Queued messages and all local Worker
  * requests share one executor; no authority or keys enter the decoder. */
 export class Connection {
+  get ownerOnlyContent(): boolean {
+    return (
+      this.#complete &&
+      !this.#stopped &&
+      !this.#baselineUnproven &&
+      this.objects.ownerOnlyContent === true
+    );
+  }
+  #baselineUnproven = false;
   readonly objects: Objects;
   readonly fold = new Fold();
   readonly attachmentObjects = new AttachmentObjectChannel((request, deadline) =>
@@ -326,6 +335,7 @@ export class Connection {
     this.publish({
       ...this.#projection,
       ownData: this.objects.ownData,
+      ownerOnlyContent: this.ownerOnlyContent,
       archived: this.admission.archived,
     });
     for (const pending of this.#ownPublications) {
@@ -420,6 +430,8 @@ export class Connection {
       try {
         const baseline = this.#catchup.baseline;
         if (baseline) {
+          // The owner signed the baseline, but it may carry source authored in an earlier epoch.
+          this.#baselineUnproven = true;
           const result = await this.fold.run({
             type: 'baseline',
             update: baseline.update,

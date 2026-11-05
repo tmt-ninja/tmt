@@ -5,7 +5,7 @@ import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
 import { watchPageView } from './page-view-source.js';
-import { workBundleSource } from './work-bundle-source.js';
+import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
 import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
 import { usePageLinks } from './page-link-bar.js';
@@ -1639,6 +1639,16 @@ function OpenPage({
   const binding = useRef(snapshot.binding);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!design) return;
+    const bar = host.current
+      ?.closest('.tmt-ui-shell')
+      ?.querySelector<HTMLElement>('.tmt-ui-shell-bar');
+    toolbar.current = bar ?? null;
+    return () => {
+      if (toolbar.current === bar) toolbar.current = null;
+    };
+  }, [design]);
   binding.current = snapshot.binding;
   const {
     selectionMode,
@@ -1935,10 +1945,12 @@ function OpenPage({
         : undefined,
     [transport, space, routing],
   );
-  const workSource = useMemo(
-    () => workBundleSource(transport, space, (id) => routing.pageHref(id)),
-    [transport, space, routing],
-  );
+  const workSource = useMemo(() => {
+    if (!transport.management || view.ownerOnlyContent !== true) return undefined;
+    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    const source = workBundleSource(transport, space, (id) => routing.pageHref(id));
+    return gateWorkBundleSource(source, admitted);
+  }, [transport, space, routing, view.ownerOnlyContent]);
   const { resolved, anchorsChecked, pageScheme, missingAnchor } = usePageRenderer({
     snapshot,
     view,

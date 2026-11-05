@@ -461,7 +461,7 @@ export function componentPageSource(
     return { title: example.title, anchor, markup };
   });
   const drawExample = ({ title, anchor, markup }: (typeof examples)[number], hero = false) =>
-    `<section class="docs-variant${hero ? ' docs-hero' : ''}"><h3>${escape(title)}</h3><div id="${anchor}" data-ds-example="${anchor}"><p class="${docs.label} ds-example-label">${anchor}</p><div class="docs-canvas${hero ? ' docs-canvas-hero' : ''}">${markup}</div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
+    `<section class="docs-variant${hero ? ' docs-hero' : ''}"><h3>${escape(title)}</h3><div id="${anchor}" data-ds-example="${anchor}"><p class="${docs.label} ds-example-label">${anchor}</p><div class="docs-canvas${hero ? ' docs-canvas-hero' : ''}"><div class="docs-scene">${markup}</div></div><div class="docs-snippet"><pre><code>${escape(markup)}</code></pre></div></div></section>`;
   const [hero, ...variants] = examples;
   // The block keeps what publish compiles; the notes and examples live only in the HTML below, so an
   // agent's patch of an example has one place to change.

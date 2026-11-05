@@ -1,0 +1,7 @@
+export default ({ React, ui }) => function WorkBand({ stage = 'In progress', done = '0', total = '0', pages = '[]' }) {
+  const parse = () => {
+    try { const value = JSON.parse(pages); return Array.isArray(value) ? value.filter((item) => item && typeof item.title === 'string' && typeof item.stage === 'string' && Number.isFinite(item.done) && Number.isFinite(item.total)).slice(0, 50) : []; } catch { return []; }
+  };
+  const [items, setItems] = React.useState(parse);
+  return React.createElement(ui.BrowserWorkBand, { stage, done: Number(done) || 0, total: Number(total) || 0, pages: items, onAdd: () => setItems((current) => [...current, {title: `New sub-page ${current.length + 1}`, stage: 'To do', done: 0, total: 0}]) });
+};

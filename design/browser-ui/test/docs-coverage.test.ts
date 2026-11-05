@@ -114,6 +114,16 @@ it('renders every React export through a Browser entry', () => {
   expect(unrendered).toEqual([]);
 });
 
+it('lists each shared pattern part as a Browser component', () => {
+  for (const name of [
+    'BrowserPageRow',
+    'BrowserWorkBand',
+    'BrowserMessageRow',
+    'BrowserStatusLine',
+  ])
+    expect(browserCatalog).toContain(`'${name}'`);
+});
+
 it('lists every stylesheet module in an entry', () => {
   const listed = new Set(
     [...browserCatalog.matchAll(/css: \[([^\]]*)\]/g)].flatMap((match) =>

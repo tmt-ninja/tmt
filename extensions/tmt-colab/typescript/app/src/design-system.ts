@@ -10,9 +10,7 @@
 import {
   checkElements,
   findingText,
-  DATA_CAPABILITIES,
-  SHARED_PARTS,
-  UI_PARTS,
+  validateCapabilities,
   BLOCK_UI_PARTS,
   type Bundle,
   type Finding,
@@ -27,7 +25,6 @@ import editorialCss from '@tmt/browser-ui/editorial.css?inline';
 /** Runtime 2's skeleton remains supported unchanged alongside runtime 3. */
 export const SKELETON_RUNTIME = '2';
 const supportsRuntime = (runtime: string) => [SKELETON_RUNTIME, '3', '4'].includes(runtime);
-const hasSharedCapabilities = (runtime: string) => runtime === '3' || runtime === '4';
 const MARKER = 'tmt-ds';
 /** The bootstrap's caps for the two strings, mirrored in renderer.html. */
 export const DS_SCRIPT_BYTES = 512 * 1024;
@@ -78,40 +75,12 @@ export interface FrameDesignSystem {
   readonly pageDataTags?: readonly string[];
 }
 function supportsCapabilities(bundle: DesignSystemBundle): boolean {
-  const tags = new Set(bundle.components.map((component) => component.tag));
-  return bundle.components.every(
-    (component) =>
-      (component.requires === undefined ||
-        (hasSharedCapabilities(bundle.runtime) &&
-          Array.isArray(component.requires) &&
-          new Set(component.requires).size === component.requires.length &&
-          component.requires.every(
-            (tag) =>
-              typeof tag === 'string' &&
-              `${bundle.prefix}-${tag}` !== component.tag &&
-              tags.has(`${bundle.prefix}-${tag}`),
-          ))) &&
-      (
-        [
-          ['parts', SHARED_PARTS],
-          ['data', DATA_CAPABILITIES],
-        ] as const
-      ).every(([field, allowed]) => {
-        const names = component[field];
-        return (
-          names === undefined ||
-          (hasSharedCapabilities(bundle.runtime) &&
-            Array.isArray(names) &&
-            new Set(names).size === names.length &&
-            names.every((name) => allowed.includes(name)))
-        );
-      }) &&
-      (component.uiParts === undefined ||
-        (bundle.runtime === '4' &&
-          Array.isArray(component.uiParts) &&
-          new Set(component.uiParts).size === component.uiParts.length &&
-          component.uiParts.every((name) => UI_PARTS.includes(name)))),
-  );
+  try {
+    validateCapabilities(bundle);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** `<system>` or `<system>@<version>#<hash>`; the system is its root page's id. */
@@ -211,25 +180,7 @@ export function frameDesignSystem(
   pin: DesignSystemPin = { system: bundle.system },
 ): FrameDesignSystem {
   if (!supportsRuntime(bundle.runtime)) throw new Error('Unsupported design system runtime');
-  for (const component of bundle.components) {
-    const parts = component.parts ?? [];
-    const data = component.data ?? [];
-    if (
-      !Array.isArray(parts) ||
-      (parts.length && !hasSharedCapabilities(bundle.runtime)) ||
-      new Set(parts).size !== parts.length ||
-      parts.some((part) => !SHARED_PARTS.includes(part))
-    )
-      throw new Error(`Invalid shared parts for ${component.tag}`);
-    if (
-      !Array.isArray(data) ||
-      (data.length && !hasSharedCapabilities(bundle.runtime)) ||
-      new Set(data).size !== data.length ||
-      data.some((name) => !DATA_CAPABILITIES.includes(name))
-    )
-      throw new Error(`Invalid data capabilities for ${component.tag}`);
-  }
-  if (!supportsCapabilities(bundle)) throw new Error('Invalid component dependency');
+  validateCapabilities(bundle);
   const meta = JSON.stringify(
     bundle.components.map(({ tag, props, slots, parts, data, uiParts }) => ({
       tag,

@@ -137,6 +137,82 @@ async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
 }
+test('tmt GUI stays on generated pages while a stale mirror updates', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { designFixtureSetup: unknown }).designFixtureSetup = {
+      staleMirror: true,
+    };
+    const state = window as unknown as { docsFallbackSeen: boolean };
+    state.docsFallbackSeen = false;
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof Element &&
+            (node.matches('.design-workspace .tmt-design-docs') ||
+              node.querySelector('.design-workspace .tmt-design-docs'))
+          )
+            state.docsFallbackSeen = true;
+        }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await open(page);
+  await page.locator('.design-page-tree a[href$="/components/page-list"]').click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { designFixture: { controls: { mirrorWaiting: boolean } } })
+            .designFixture?.controls.mirrorWaiting,
+      ),
+    )
+    .toBe(true);
+  await expect(page.getByText('Updating the tmt GUI pages…')).toBeVisible();
+  await expect(page.locator('.design-page-tree')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open in Colab' })).toBeVisible();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Page list', exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() =>
+    (window as unknown as { designFixture: { resumeMirror(): void } }).designFixture.resumeMirror(),
+  );
+  await expect(page.getByText('Updating the tmt GUI pages…')).toHaveCount(0, { timeout: 60000 });
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { docsFallbackSeen: boolean }).docsFallbackSeen,
+    ),
+  ).toBe(false);
+  expect(
+    await page.evaluate(() =>
+      [
+        ...(
+          window as unknown as { designFixture: { pages: Map<string, { source: string }> } }
+        ).designFixture.pages.values(),
+      ].some((item) => item.source.includes('stale-fixture')),
+    ),
+  ).toBe(false);
+  await expect(page.locator('.design-page-tree')).toBeVisible();
+});
+
+for (const width of [1440, 390]) {
+  test(`block document uses its canvas width in Design at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await open(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    if (width === 390) await page.locator('.design-nav-toggle').click();
+    await tree.locator('a[href$="/components/block-document"]').click();
+    const frame = designFrame(page);
+    const document = frame.locator('.docs-hero .tmt-block-doc').first();
+    await expect(document).toBeVisible();
+    await expect.poll(async () => (await document.boundingBox())?.width ?? 0).toBeGreaterThan(150);
+    const title = document.locator('h2').filter({ hasText: 'First block set' });
+    await expect(title).toBeVisible();
+    await expect
+      .poll(async () => (await title.boundingBox())?.height ?? Infinity)
+      .toBeLessThan(100);
+  });
+}
+
 test('a Browser component page opens with a live chart example', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await open(page);
@@ -470,9 +546,25 @@ test('a click on a design-system example in selection mode quotes the whole exam
   // C in the page toggles selection mode, as on any Colab page.
   await designFrame(page).locator('h1').click();
   await page.keyboard.press('c');
+  const designHeader = page.locator('.tmt-ui-shell-bar');
+  await expect
+    .poll(async () => {
+      const [bar, actions] = await Promise.all([
+        designHeader.boundingBox(),
+        page.locator('.page-floating-actions').boundingBox(),
+      ]);
+      return !!bar && !!actions && actions.y >= bar.y + bar.height;
+    })
+    .toBe(true);
   await example.getByRole('button', { name: 'Draft', exact: true }).click();
   const popover = page.locator('.annotation-popover');
   await expect(popover).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [bar, input] = await Promise.all([designHeader.boundingBox(), popover.boundingBox()]);
+      return !!bar && !!input && input.y >= bar.y + bar.height;
+    })
+    .toBe(true);
   // The anchor is the example's text: its live label and the markup that draws it.
   await expect(popover).toContainText('<acme-button variant="secondary">Draft</acme-button>');
   await page.keyboard.type('Make this the outline variant');
@@ -489,6 +581,48 @@ test('a click on a design-system example in selection mode quotes the whole exam
   expect(anchor.exact).toBe(
     'button:secondaryDraft<acme-button variant="secondary">Draft</acme-button>',
   );
+});
+
+test('Design attachment confirmation is placed below the Design header', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open(page);
+  await openGuiButton(page);
+  const id = '11111111-1111-4111-8111-111111111111';
+  await page.evaluate((attachmentId) => {
+    const fixture = (
+      window as unknown as {
+        designFixture: {
+          pages: Map<string, { title: string; source: string }>;
+          addAttachment(page: string, id: string): void;
+        };
+      }
+    ).designFixture;
+    const selected = [...fixture.pages].find(
+      ([, item]) => item.title === 'Button' && item.source.includes('tmt-ui-button'),
+    )![0];
+    fixture.addAttachment(selected, attachmentId);
+  }, id);
+  await designFrame(page)
+    .locator('body')
+    .evaluate((body, attachmentId) => {
+      const link = body.ownerDocument.createElement('a');
+      link.href = `colab-attachment:${attachmentId}`;
+      link.download = 'example.txt';
+      link.textContent = 'Download example';
+      body.prepend(link);
+    }, id);
+  await designFrame(page).getByRole('link', { name: 'Download example' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Download attachment' });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [bar, box] = await Promise.all([
+        page.locator('.tmt-ui-shell-bar').boundingBox(),
+        dialog.boundingBox(),
+      ]);
+      return !!bar && !!box && box.y >= bar.y + bar.height;
+    })
+    .toBe(true);
 });
 
 test('an agent patch of an example re-renders the open Design page live', async ({ page }) => {

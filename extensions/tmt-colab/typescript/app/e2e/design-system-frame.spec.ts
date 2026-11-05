@@ -79,6 +79,23 @@ test('Browser action examples show busy, disabled and pressed states', async ({ 
   await expect(frame.getByRole('button', { name: 'Pin' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('listed pattern parts render and interact as Browser components', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-page-row label="Release" tags="spec" updated="Today" unread></tmt-ui-page-row>
+     <tmt-ui-work-band stage="Open" done="0" total="1" pages='[{"title":"Review","stage":"Open","done":0,"total":1}]'></tmt-ui-work-band>
+     <tmt-ui-message-row author="Alex" state="failed" detail="Not sent" action="Retry">Please review</tmt-ui-message-row>
+     <tmt-ui-status-line items='[{"tone":"blocked","label":"Blocked"}]'></tmt-ui-status-line>`,
+  );
+  await expect(frame.getByRole('link', { name: /Release/ })).toBeVisible();
+  await frame.getByRole('button', { name: /Open/ }).click();
+  await expect(frame.getByText('Review', { exact: true })).toBeVisible();
+  await frame.getByRole('button', { name: 'Retry' }).click();
+  await expect(frame.getByText('Sending', { exact: true })).toBeVisible();
+  await expect(frame.getByText('Blocked', { exact: false })).toBeVisible();
+});
+
 test('Browser catalog examples render their states and interactive controls', async ({ page }) => {
   const template = JSON.parse(
     readFileSync(

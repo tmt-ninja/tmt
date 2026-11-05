@@ -3,7 +3,7 @@ import { relativeTime } from './display-time.js';
 import { rememberPages, rememberedPages, watchRememberedPages } from './quick-switcher-source.js';
 import type { PageSummary, PageTransport } from './transport.js';
 
-/** Only bounded, display-only fields cross into the untrusted page frame. */
+/** Bounded display fields for the trusted parent page-view overlay. */
 export interface PageViewRecord {
   id: string;
   name: string;
@@ -49,7 +49,7 @@ export function pageViewRecords(
       author: text(page.summary?.author, 128),
       access: page.sharing,
     }));
-  // The frame port has a strict bound; never truncate a record in the middle.
+  // Bound the parent projection without truncating a record in the middle.
   while (rows.length && new TextEncoder().encode(JSON.stringify(rows)).byteLength > 64 * 1024)
     rows.pop();
   return rows;

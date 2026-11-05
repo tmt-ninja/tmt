@@ -10,7 +10,6 @@ export const livePatternSlugs = [
   'list-row',
   'empty-state',
   'status-line',
-  'planned',
   'list-controls',
   'dense-table',
   'fab-window',

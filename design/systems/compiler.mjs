@@ -2,6 +2,8 @@
 // design/systems/compile.mjs runs it on the repo's template files, and the Colab app runs the same
 // code in the browser on a design system's pages. SHA-256 is passed in by the caller.
 
+import runtime4 from '../../extensions/tmt-colab/contracts/vectors/design-runtime-4-ui.json' with { type: 'json' };
+
 export const SCHEMA = 1;
 /** Default runtime 2 retains its original React, html and cn skeleton. Runtime 3 adds the
  * system prefix plus explicitly declared, allowlisted parts and data capabilities. */
@@ -9,132 +11,9 @@ export const RUNTIME = '2';
 /** Runtime 3 adds only these explicitly declared host-provided parts. */
 export const SHARED_PARTS = ['PageListTable'];
 export const DATA_CAPABILITIES = ['page'];
-/** Runtime 4's renderer-owned browser-ui exports. */
-export const BLOCK_UI_PARTS = [
-  'BlockDocument',
-  'Block',
-  'BlockHandle',
-  'BlockMenu',
-  'BlockMenuItem',
-  'BlockMenuFooter',
-  'BlockKbd',
-  'HeadingBlock',
-  'TextBlock',
-  'ListItemBlock',
-  'TodoBlock',
-  'TableBlock',
-  'CardBlock',
-  'Callout',
-  'CodeBlock',
-  'BlockMention',
-  'BlockToast',
-];
-export const UI_PARTS = [
-  'Button',
-  'FoundationPage',
-  'PatternPage',
-  'DsScope',
-  'BrowserAvatar',
-  'BusyMark',
-  'BrowserSection',
-  'BrowserDisclosure',
-  'BrandMark',
-  'BrowserCheckbox',
-  'BrowserStatusTile',
-  'BrowserAction',
-  'BrowserToggle',
-  'Badge',
-  'Input',
-  'Textarea',
-  'Separator',
-  'Surface',
-  'Skeleton',
-  'Switch',
-  'Checkbox',
-  'Card',
-  'CardHeader',
-  'CardTitle',
-  'CardDescription',
-  'CardAction',
-  'CardContent',
-  'CardFooter',
-  'Alert',
-  'AlertTitle',
-  'AlertDescription',
-  'Empty',
-  'EmptyHeader',
-  'EmptyMedia',
-  'EmptyTitle',
-  'EmptyDescription',
-  'EmptyContent',
-  'Tabs',
-  'TabsBar',
-  'TabsList',
-  'TabsTrigger',
-  'Dialog',
-  'DialogTrigger',
-  'DialogContent',
-  'DialogTitle',
-  'DialogDescription',
-  'Sheet',
-  'SheetTrigger',
-  'SheetContent',
-  'SheetTitle',
-  'SheetDescription',
-  'Popover',
-  'PopoverTrigger',
-  'PopoverContent',
-  'DropdownMenu',
-  'DropdownMenuTrigger',
-  'DropdownMenuContent',
-  'DropdownMenuItem',
-  'UiTheme',
-  'Select',
-  'SelectTrigger',
-  'SelectValue',
-  'SelectContent',
-  'SelectItem',
-  'TooltipProvider',
-  'Tooltip',
-  'TooltipTrigger',
-  'TooltipContent',
-  'Command',
-  'CommandInput',
-  'CommandList',
-  'CommandItem',
-  'FloatingDock',
-  'FloatingActions',
-  'FloatingAction',
-  'FloatingWindow',
-  'Chips',
-  'useLayerController',
-  'DataTable',
-  'RichInput',
-  ...BLOCK_UI_PARTS,
-  'BrowserHeader',
-  'BrowserNotice',
-  'BrowserPager',
-  'BrowserList',
-  'BrowserChoice',
-  'BrowserMenu',
-  'BrowserIconAction',
-  'BrowserField',
-  'BrowserCountChip',
-  'BrowserTable',
-  'BrowserCommand',
-  'BrowserTabs',
-  'BrowserChips',
-  'BrowserDialog',
-  'BrowserDrawer',
-  'BrowserPanel',
-  'BrowserShell',
-  'BrowserNotifications',
-  'BrowserCardMeter',
-  'BrowserOverview',
-  'BrowserEditorial',
-  'BrowserVisuallyHidden',
-  'BrowserChart',
-];
+/** Runtime 4's renderer-owned browser-ui exports and stylesheet-bearing block subset. */
+export const UI_PARTS = Object.freeze([...runtime4.parts, ...runtime4.blockParts]);
+export const BLOCK_UI_PARTS = Object.freeze(runtime4.blockParts);
 export const SKELETON = ['React', 'html', 'cn'];
 /** Attributes any component element may carry besides its props. */
 const GLOBAL_ATTRIBUTES =
@@ -221,6 +100,44 @@ export function validateComponent(doc, where = 'component') {
     fail(`${where}: css must be text without <!-- or </style`);
 }
 
+/** Validate the same capability rules for authoring documents and untrusted stored bundles. */
+export function validateCapabilities(bundle, prefixed = true) {
+  if (!bundle || !Array.isArray(bundle.components) || typeof bundle.prefix !== 'string')
+    fail('Invalid component capabilities');
+  const { runtime, prefix, components } = bundle;
+  const tags = components.map((doc) => doc?.tag);
+  if (tags.some((tag) => typeof tag !== 'string') || new Set(tags).size !== tags.length)
+    fail('two components share a tag or have an invalid tag');
+  for (const doc of components) {
+    for (const [field, allowed] of [
+      ['parts', SHARED_PARTS],
+      ['data', DATA_CAPABILITIES],
+    ]) {
+      const names = doc[field];
+      if (names === undefined) continue;
+      if (!['3', '4'].includes(runtime))
+        fail(`${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`);
+      if (!Array.isArray(names) || new Set(names).size !== names.length ||
+          names.some((name) => typeof name !== 'string' || !allowed.includes(name)))
+        fail(`${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`);
+    }
+    const ui = doc.uiParts;
+    if (ui !== undefined && (runtime !== '4' || !Array.isArray(ui) ||
+        new Set(ui).size !== ui.length ||
+        ui.some((name) => typeof name !== 'string' || !UI_PARTS.includes(name))))
+      fail(`${doc.tag}: unknown or duplicate UI part`);
+    const required = doc.requires;
+    if (required === undefined) continue;
+    if (!['3', '4'].includes(runtime) || !Array.isArray(required) ||
+        new Set(required).size !== required.length || required.some((tag) => {
+          if (typeof tag !== 'string') return true;
+          const actual = prefixed ? `${prefix}-${tag}` : tag;
+          return actual === doc.tag || !tags.includes(actual);
+        }))
+      fail(`${doc.tag}: invalid or missing component dependency`);
+  }
+}
+
 /**
  * The release bundle: the system's tokens and every component, named by its own SHA-256. It also
  * carries what an agent reads to use the release (`tmt colab design show`): the principles and
@@ -229,49 +146,7 @@ export function validateComponent(doc, where = 'component') {
 export async function buildBundle(system, config, components, sha256Hex) {
   validateSystem(config, config.name);
   components.forEach((doc, index) => validateComponent(doc, `component ${index + 1}`));
-  components.forEach((doc) => {
-    for (const [field, allowed] of [
-      ['parts', SHARED_PARTS],
-      ['data', DATA_CAPABILITIES],
-    ]) {
-      const names = doc[field];
-      if (names === undefined) continue;
-      if (!['3', '4'].includes(config.runtime))
-        fail(
-          `${doc.tag}: ${field === 'parts' ? 'shared parts' : 'data capabilities'} require runtime 3`
-        );
-      if (
-        !Array.isArray(names) ||
-        new Set(names).size !== names.length ||
-        names.some((name) => typeof name !== 'string' || !allowed.includes(name))
-      )
-        fail(
-          `${doc.tag}: unknown or duplicate ${field === 'parts' ? 'shared part' : 'data capability'}`
-        );
-    }
-  });
-  components.forEach((doc) => {
-    if (doc.uiParts === undefined) return;
-    if (
-      config.runtime !== '4' ||
-      !Array.isArray(doc.uiParts) ||
-      new Set(doc.uiParts).size !== doc.uiParts.length ||
-      doc.uiParts.some((name) => typeof name !== 'string' || !UI_PARTS.includes(name))
-    )
-      fail(`${doc.tag}: unknown or duplicate UI part`);
-  });
-  const tags = components.map((doc) => doc.tag);
-  if (new Set(tags).size !== tags.length) fail('two components share a tag');
-  for (const doc of components) {
-    if (doc.requires === undefined) continue;
-    if (
-      !['3', '4'].includes(config.runtime) ||
-      !Array.isArray(doc.requires) ||
-      new Set(doc.requires).size !== doc.requires.length ||
-      doc.requires.some((tag) => typeof tag !== 'string' || tag === doc.tag || !tags.includes(tag))
-    )
-      fail(`${doc.tag}: invalid or missing component dependency`);
-  }
+  validateCapabilities({ runtime: config.runtime, prefix: config.prefix, components }, false);
   const body = {
     schema: SCHEMA,
     system,

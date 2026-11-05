@@ -1,4 +1,10 @@
 import { lazy, type ComponentType } from 'react';
+import {
+  BrowserMessageRow,
+  BrowserPageRow,
+  BrowserStatusLine,
+  BrowserWorkBand,
+} from '../src/pattern-parts/index.js';
 import { ChartsSection } from '../gallery/charts.js';
 import {
   ActionsSection,
@@ -52,13 +58,75 @@ import {
 export interface BrowserDoc {
   slug: string;
   name: string;
-  section: SectionId;
+  section: SectionId | 'page-row' | 'work-band' | 'message-row' | 'status-line';
   description: string;
   Demo: ComponentType;
   css: string[];
+  exports?: string[];
+  entry?: string;
 }
 
 export const browserDocs: BrowserDoc[] = [
+  {
+    slug: 'page-row',
+    name: 'Page row',
+    section: 'page-row',
+    exports: ['BrowserPageRow'],
+    entry: 'pattern-parts',
+    description: 'A page title, tags, update time and optional unread or status mark.',
+    Demo: () => (
+      <BrowserPageRow title="Release plan" tags={['spec']} updated="Today" href="#page" unread />
+    ),
+    css: ['pattern-parts'],
+  },
+  {
+    slug: 'work-band',
+    name: 'Work band',
+    section: 'work-band',
+    exports: ['BrowserWorkBand'],
+    entry: 'pattern-parts',
+    description: 'A page stage and expandable list of sub-page progress.',
+    Demo: () => (
+      <BrowserWorkBand
+        stage="In progress"
+        done={1}
+        total={2}
+        pages={[{ title: 'Review', stage: 'Open', done: 0, total: 1 }]}
+      />
+    ),
+    css: ['pattern-parts'],
+  },
+  {
+    slug: 'message-row',
+    name: 'Message row',
+    section: 'message-row',
+    exports: ['BrowserMessageRow'],
+    entry: 'pattern-parts',
+    description: 'A message with its author and delivery or recovery state.',
+    Demo: () => (
+      <BrowserMessageRow author="Alex" state="failed" detail="Not sent" action="Retry">
+        Please review.
+      </BrowserMessageRow>
+    ),
+    css: ['pattern-parts'],
+  },
+  {
+    slug: 'status-line',
+    name: 'Status line',
+    section: 'status-line',
+    exports: ['BrowserStatusLine'],
+    entry: 'pattern-parts',
+    description: 'A row of state marks with their accessible labels.',
+    Demo: () => (
+      <BrowserStatusLine
+        items={[
+          { tone: 'working', label: 'Working' },
+          { tone: 'blocked', label: 'Blocked' },
+        ]}
+      />
+    ),
+    css: ['pattern-parts'],
+  },
   {
     slug: 'brand',
     name: 'Brand mark',
@@ -312,6 +380,7 @@ export const browserDocs: BrowserDoc[] = [
 
 /** The `@tmt/browser-ui/react` exports an entry covers, through the gallery's own map. */
 export const browserExports = (doc: BrowserDoc) =>
+  doc.exports ??
   Object.entries(covered)
     .filter(([, section]) => section === doc.section)
     .map(([name]) => name);

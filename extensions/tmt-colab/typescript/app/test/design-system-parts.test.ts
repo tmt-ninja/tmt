@@ -55,10 +55,10 @@ describe('design-system shared parts', () => {
       'Undeclared shared part',
     );
     expect(() => load(bundle('2', 'return () => null;', ['PageListTable']))).toThrow(
-      'Invalid shared parts',
+      'shared parts require runtime 3',
     );
     expect(() => load(bundle('3', 'return () => null;', ['Other']))).toThrow(
-      'Invalid shared parts',
+      'unknown or duplicate shared part',
     );
   });
   it('refuses undeclared page data and allows only the named runtime 3 capability', () => {
@@ -69,16 +69,16 @@ describe('design-system shared parts', () => {
     const allowed = { ...base, components: [{ ...base.components[0]!, data: ['page'] }] };
     expect(load(allowed)).toEqual(['test-page']);
     const unknown = { ...base, components: [{ ...base.components[0]!, data: ['arbitrary'] }] };
-    expect(() => load(unknown)).toThrow('Invalid data capabilities');
+    expect(() => load(unknown)).toThrow('unknown or duplicate data capability');
   });
   it('admits only declared runtime 4 UI parts', () => {
     const base = bundle('4', 'return ({ui}) => ui.Button;');
     expect(() => load(base)).toThrow('Undeclared UI part');
     const allowed = { ...base, components: [{ ...base.components[0]!, uiParts: ['Button'] }] };
     expect(load(allowed)).toEqual(['test-page']);
-    expect(() => load({ ...allowed, runtime: '3' })).toThrow('Invalid component dependency');
+    expect(() => load({ ...allowed, runtime: '3' })).toThrow('unknown or duplicate UI part');
     const unknown = { ...base, components: [{ ...base.components[0]!, uiParts: ['Other'] }] };
-    expect(() => load(unknown)).toThrow('Invalid component dependency');
+    expect(() => load(unknown)).toThrow('unknown or duplicate UI part');
   });
   it('reports a newer-runtime notice for a valid release with an unknown capability', async () => {
     const base = bundle('3', 'return () => null;');

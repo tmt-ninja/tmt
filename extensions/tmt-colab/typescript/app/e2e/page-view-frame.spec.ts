@@ -9,6 +9,90 @@ const bundle = JSON.parse(
   ),
 );
 
+test('work-bundle data is withheld, admitted, then revoked as writer proof changes', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (release) => {
+    const rendererPath = '/src/renderer.ts';
+    const gatePath = '/src/work-bundle-source.ts';
+    const { mountRenderer } = await import(rendererPath);
+    const { gateWorkBundleSource } = await import(gatePath);
+    const host = document.createElement('div');
+    document.body.prepend(host);
+    let allowed = false;
+    let current: { destroy(): void } | undefined;
+    let subscriptions = 0;
+    const source = {
+      subscribe(_id: string, _signal: AbortSignal, publish: (value: unknown) => void) {
+        subscriptions++;
+        publish({ title: 'Owner secret', href: '/pages/allowed' });
+        return () => {};
+      },
+    };
+    const state = window as unknown as {
+      setWriterProof(value: boolean): Promise<void>;
+      workSubscriptions(): number;
+    };
+    state.workSubscriptions = () => subscriptions;
+    state.setWriterProof = async (value) => {
+      allowed = value;
+      current?.destroy();
+      current = await mountRenderer(
+        host,
+        `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-work-bundle page="allowed"></tmt-ui-work-bundle><tmt-ui-page-view></tmt-ui-page-view>`,
+        {
+          signal: new AbortController().signal,
+          onState: () => {},
+          designSystem: {
+            release: async () => release,
+            draft: async () => release,
+            watch: () => () => {},
+          },
+          workBundle: gateWorkBundleSource(source, () => allowed),
+          pageView: (publish: (rows: unknown[]) => void) => {
+            publish([
+              {
+                id: 'other',
+                name: 'Other page secret',
+                href: '/pages/other',
+                projects: [],
+                stage: '',
+                updated: '',
+                author: '',
+                access: '',
+              },
+            ]);
+            return () => {};
+          },
+        },
+      );
+    };
+    await state.setWriterProof(false);
+  }, bundle);
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  await expect(frame.getByText('Owner secret')).toHaveCount(0);
+  await expect(
+    page.locator('[data-parent-page-view]').getByText('Other page secret'),
+  ).toBeVisible();
+  await expect(frame.getByText('Other page secret')).toHaveCount(0);
+  expect(await frame.locator('body').evaluate(() => '__colabBlockData' in window)).toBe(false);
+  await page.evaluate(() =>
+    (window as unknown as { setWriterProof(v: boolean): Promise<void> }).setWriterProof(true),
+  );
+  await expect(frame.getByText('Owner secret')).toBeVisible();
+  await page.evaluate(() =>
+    (window as unknown as { setWriterProof(v: boolean): Promise<void> }).setWriterProof(false),
+  );
+  await expect(frame.getByText('Owner secret')).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { workSubscriptions(): number }).workSubscriptions(),
+    ),
+  ).toBe(1);
+});
+
 test('mockup stages accept the page pin and explain mismatched systems and locks', async ({
   page,
 }) => {
@@ -117,7 +201,8 @@ test('verified custom-prefix components receive only their declared data', async
     );
   }, bundle);
   const frame = page.frameLocator('iframe[title="Page content"]');
-  await expect(frame.getByText('Custom list')).toBeVisible();
+  await expect(page.locator('[data-parent-page-view]').getByText('Custom list')).toBeVisible();
+  await expect(frame.getByText('Custom list')).toHaveCount(0);
   await expect(frame.getByText('Custom work')).toBeVisible();
   await expect(frame.locator('#draft').getByRole('button', { name: 'Draft stage' })).toBeVisible();
   await expect(frame.locator('#locked').getByRole('status')).toContainText(
@@ -160,8 +245,57 @@ test('attachment download requires parent confirmation and current admission', a
   await expect(dialog).toHaveCount(0);
 });
 
+test('trusted page-view preserves authored presentation and selection', async ({ page }) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (release) => {
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const host = document.createElement('div');
+    document.body.prepend(host);
+    await mountRenderer(
+      host,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-page-view label="Custom pages" group-by="none" columns='["title","owner"]' density="comfortable" selected="one" selectable></tmt-ui-page-view>`,
+      {
+        signal: new AbortController().signal,
+        onState: () => {},
+        designSystem: {
+          release: async () => release,
+          draft: async () => release,
+          watch: () => () => {},
+        },
+        pageView: (publish: (rows: unknown[]) => void) => {
+          publish([
+            {
+              id: 'one',
+              name: 'Admitted page',
+              projects: [],
+              stage: 'Open',
+              updated: 'Today',
+              author: 'Ben',
+              access: 'Team',
+            },
+          ]);
+          return () => {};
+        },
+      },
+    );
+  }, bundle);
+  const parent = page.locator('[data-parent-page-view]');
+  await expect(parent.getByText('Admitted page')).toBeVisible();
+  await expect(parent.getByLabel('Group by')).toHaveValue('none');
+  await expect(parent.getByText('Columns 2/5')).toBeVisible();
+  await expect(parent.locator('[data-density]')).toHaveAttribute('data-density', 'comfortable');
+  await expect(parent.getByRole('checkbox', { name: /select admitted page/i })).toBeChecked();
+  await expect(
+    page.frameLocator('iframe[title="Page content"]').getByText('Admitted page'),
+  ).toHaveCount(0);
+});
+
 for (const width of [1440, 390]) {
-  test(`page-view renders the admitted live list in the frame at ${width}`, async ({ page }) => {
+  test(`page-view renders the admitted live list in the trusted parent at ${width}`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 });
     await servePageRuntime(page);
     await page.goto('/');
@@ -215,7 +349,8 @@ for (const width of [1440, 390]) {
       if (frame) frame.style.width = '100%';
     }, bundle);
     const frame = page.frameLocator('iframe[title="Page content"]');
-    await expect(frame.getByRole('grid', { name: 'Pages' })).toContainText('Admitted page');
+    const parent = page.locator('[data-parent-page-view]');
+    await expect(parent.getByRole('grid', { name: 'Pages' })).toContainText('Admitted page');
     await frame.locator('body').evaluate(() => {
       window.dispatchEvent(
         new CustomEvent('tmt-page-view-data', { detail: [{ id: 'fake', name: 'Forged data' }] }),
@@ -223,30 +358,36 @@ for (const width of [1440, 390]) {
     });
     expect(await frame.locator('body').evaluate(() => '__colabBlockData' in window)).toBe(false);
     await expect(frame.getByText('Forged data')).toHaveCount(0);
+    await expect(frame.getByText('Admitted page')).toHaveCount(0);
     if (width === 1440)
-      await expect(frame.getByRole('meter', { name: 'Sub-page progress' })).toHaveAttribute(
+      await expect(parent.getByRole('meter', { name: 'Sub-page progress' })).toHaveAttribute(
         'aria-valuenow',
         '2',
       );
-    await expect(frame.getByText('Other project')).toHaveCount(0);
-    await frame.getByRole('button', { name: 'Remove project: spec filter' }).click();
-    await expect(frame.getByText('Other project')).toBeVisible();
-    await frame.getByText('Columns 5/5').click();
-    await frame.getByRole('menuitemcheckbox', { name: 'Updated' }).uncheck();
-    await frame.getByText('Columns 4/5').press('Escape');
-    await expect(frame.getByText('Columns 4/5')).toBeFocused();
+    await expect(parent.getByText('Other project')).toHaveCount(0);
+    await parent.getByRole('button', { name: 'Remove project: spec filter' }).click();
+    await expect(parent.getByText('Other project')).toBeVisible();
+    await parent.getByText('Columns 5/5').click();
+    if (width === 390) {
+      await parent.getByRole('checkbox', { name: 'Updated' }).uncheck();
+      await parent.getByRole('button', { name: 'Close', exact: true }).click();
+    } else {
+      await parent.getByRole('menuitemcheckbox', { name: 'Updated' }).uncheck();
+      await parent.getByText('Columns 4/5').press('Escape');
+    }
+    await expect(parent.getByText('Columns 4/5')).toBeFocused();
     expect(
-      await frame
+      await parent
         .locator('.tmt-data-table-row[data-table-row]')
         .first()
         .evaluate((row) => getComputedStyle(row).display),
     ).toBe(width === 390 ? 'flex' : 'grid');
-    await expect(frame.getByRole('button', { name: /Open/ })).toHaveAttribute(
+    await expect(parent.getByRole('button', { name: /Open/ })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
-    await frame.getByRole('button', { name: /Open/ }).click();
-    await expect(frame.getByText('Admitted page')).toHaveCount(0);
+    await parent.getByRole('button', { name: /Open/ }).click();
+    await expect(parent.getByText('Admitted page')).toHaveCount(0);
     await page.evaluate(() =>
       (window as unknown as { updatePageView(rows: unknown[]): void }).updatePageView([
         {
@@ -260,7 +401,7 @@ for (const width of [1440, 390]) {
         },
       ]),
     );
-    await expect(frame.getByText('Refreshed page')).toBeVisible();
+    await expect(parent.getByText('Refreshed page')).toBeVisible();
   });
   test(`work bundle shows only its admitted page metadata at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });

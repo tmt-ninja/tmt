@@ -9,7 +9,7 @@ export interface FoundationProps {
 
 /** <tmt-ui-pattern>: props from its schema, slots as nodes. */
 export interface PatternProps {
-  page?: "list-row" | "empty-state" | "status-line" | "planned" | "tabs-row" | "list-controls" | "dense-table" | "fab-window" | "add-dialog" | "needs-you" | "work-band" | "sending-rows" | "loading-error" | "confirm-notify" | "blocks-document" | "blocks-insert" | "blocks-menu" | "blocks-drag" | "blocks-delete" | "blocks-selection";
+  page?: "list-row" | "empty-state" | "status-line" | "tabs-row" | "list-controls" | "dense-table" | "fab-window" | "add-dialog" | "needs-you" | "work-band" | "sending-rows" | "loading-error" | "confirm-notify" | "blocks-document" | "blocks-insert" | "blocks-menu" | "blocks-drag" | "blocks-delete" | "blocks-selection";
   children?: ReactNode;
 }
 
@@ -587,5 +587,40 @@ export interface VisuallyHiddenProps {
 export interface ChartProps {
   label?: string;
   values?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-page-row>: props from its schema, slots as nodes. */
+export interface PageRowProps {
+  tags?: string;
+  updated?: string;
+  state?: "waiting" | "blocked";
+  href?: string;
+  unread?: boolean;
+  label?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-work-band>: props from its schema, slots as nodes. */
+export interface WorkBandProps {
+  stage?: string;
+  done?: string;
+  total?: string;
+  pages?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-message-row>: props from its schema, slots as nodes. */
+export interface MessageRowProps {
+  author?: string;
+  state?: "delivered" | "sending" | "failed" | "unsent";
+  detail?: string;
+  action?: string;
+  children?: ReactNode;
+}
+
+/** <tmt-ui-status-line>: props from its schema, slots as nodes. */
+export interface StatusLineProps {
+  items?: string;
   children?: ReactNode;
 }

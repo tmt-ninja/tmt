@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import {
   Button,
   Empty,
@@ -10,28 +10,6 @@ import {
 import { follow } from './router.js';
 import { colabMockBase } from './routes.js';
 import { BrowserPageRow, BrowserStatusLine } from '../src/pattern-parts/index.js';
-import { BrowserAvatar, BrowserToggle } from '../src/react.js';
-
-function SharedPartsPreview() {
-  const [pressed, setPressed] = useState(false);
-  return (
-    <div className="docs-canvas">
-      <BrowserAvatar name="tmt-ux-lead" kind="agent" />
-      <BrowserToggle
-        label="Compact view"
-        pressed={pressed}
-        onActivate={() => setPressed(!pressed)}
-      />
-      <BrowserPageRow
-        title="Release plan"
-        tags={['spec']}
-        updated="2 min ago"
-        href={`${colabMockBase}/page`}
-        onFollow={follow}
-      />
-    </div>
-  );
-}
 
 /** A list row: title, tags, time and an unread state in weight alone. */
 export function PageRow({
@@ -109,11 +87,5 @@ export const patterns: { slug: string; title: string; lead: string; render(): Re
         />
       </div>
     ),
-  },
-  {
-    slug: 'planned',
-    title: 'Planned parts',
-    lead: 'Shared parts replace the earlier mock-up stand-ins and can be composed in real pages.',
-    render: () => <SharedPartsPreview />,
   },
 ];

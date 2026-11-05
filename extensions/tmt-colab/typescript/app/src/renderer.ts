@@ -14,6 +14,11 @@ import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import type { PageLayout } from './page-layout.js';
 import type { PageViewRecord } from './page-view-source.js';
+import {
+  mountParentPageView,
+  shareParentPageViews,
+  type ParentPageViewSpec,
+} from './parent-page-view.js';
 import type { WorkBundleSource } from '@tmt/browser-ui/blocks';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -290,7 +295,25 @@ export async function mountRenderer(
   let stopped = false,
     loads = 0,
     ready = false;
-  let stopPageView: (() => void) | undefined;
+  const parentPageViews: {
+    spec: ParentPageViewSpec;
+    element: HTMLDivElement;
+    height: number;
+    stop(): void;
+  }[] = [];
+  const sharedPageView = options.pageView && shareParentPageViews(options.pageView);
+  const sendPageViewSlots = () => {
+    if (stopped || !ready) return;
+    channel.port1.postMessage({
+      type: 'colab.render.parent-page-views',
+      renderId: snapshot.renderId,
+      slots: parentPageViews.map(({ spec, height }) => ({
+        tag: spec.tag,
+        index: spec.index,
+        height,
+      })),
+    });
+  };
   const stopWorkBundles: (() => void)[] = [];
   let admittedTags:
     | { pageViewTags?: readonly string[]; pageDataTags?: readonly string[] }
@@ -462,7 +485,10 @@ export async function mountRenderer(
       });
     }
     stopped = true;
-    stopPageView?.();
+    parentPageViews.forEach(({ stop, element }) => {
+      stop();
+      element.remove();
+    });
     stopWorkBundles.forEach((stop) => stop());
     stopTheme();
     options.onSlots?.([]);
@@ -664,25 +690,76 @@ export async function mountRenderer(
     ];
     const listTags = new Set(admittedTags?.pageViewTags ?? []);
     const dataTags = new Set(admittedTags?.pageDataTags ?? []);
-    if (sourceElements.some((element) => listTags.has(element.localName))) {
-      const unavailable = () => {
-        if (!stopped)
-          channel.port1.postMessage({
-            type: 'colab.render.page-view',
-            renderId: snapshot.renderId,
-            rows: null,
-          });
+    const indices = new Map<string, number>();
+    for (const node of sourceElements) {
+      if (!listTags.has(node.localName)) continue;
+      const tag = node.localName;
+      const index = indices.get(tag) ?? 0;
+      indices.set(tag, index + 1);
+      if (node.hasAttribute('rows') || parentPageViews.length >= 20) continue;
+      let filters: ParentPageViewSpec['filters'] = [];
+      try {
+        const value: unknown = JSON.parse(node.getAttribute('filters') ?? '[]');
+        if (Array.isArray(value))
+          filters = value
+            .filter(
+              (item) =>
+                item &&
+                ['project', 'state', 'owner'].includes(item.field) &&
+                typeof item.value === 'string',
+            )
+            .slice(0, 20)
+            .map((filter) => ({ ...filter, value: filter.value.slice(0, 128) }));
+      } catch {
+        // Invalid authored filters show the unfiltered view.
+      }
+      const columnIds = ['title', 'state', 'progress', 'owner', 'updated'];
+      let columns = columnIds;
+      try {
+        const requested: unknown = JSON.parse(node.getAttribute('columns') ?? 'null');
+        if (Array.isArray(requested))
+          columns = columnIds.filter((id) => id === 'title' || requested.includes(id));
+      } catch {
+        /* Invalid columns use the default. */
+      }
+      const requestedGroup = node.getAttribute('group-by');
+      const requestedState = node.getAttribute('state');
+      const spec: ParentPageViewSpec = {
+        tag,
+        index,
+        title: (node.getAttribute('label') || 'Pages').slice(0, 128),
+        filters,
+        limit: Math.max(1, Math.min(200, Number(node.getAttribute('limit')) || 20)),
+        sort: node.getAttribute('sort') === 'title' ? 'title' : 'updated',
+        groupBy:
+          requestedGroup === 'project' || requestedGroup === 'owner' || requestedGroup === 'none'
+            ? requestedGroup
+            : 'state',
+        columns,
+        density: node.getAttribute('density') === 'comfortable' ? 'comfortable' : 'compact',
+        selectable: node.hasAttribute('selectable'),
+        selected: node.getAttribute('selected')?.slice(0, 128),
+        state:
+          requestedState === 'loading' || requestedState === 'empty' || requestedState === 'error'
+            ? requestedState
+            : 'auto',
       };
-      stopPageView = options.pageView?.((rows) => {
-        if (!stopped)
-          channel.port1.postMessage({
-            type: 'colab.render.page-view',
-            renderId: snapshot.renderId,
-            rows,
-          });
-      }, unavailable);
-      if (!options.pageView) unavailable();
+      const element = document.createElement('div');
+      element.dataset.parentPageView = '';
+      Object.assign(element.style, { position: 'absolute', visibility: 'hidden', zIndex: '1' });
+      host.style.position = 'relative';
+      host.append(element);
+      const item = { spec, element, height: 1, stop: () => {} };
+      parentPageViews.push(item);
+      item.stop = mountParentPageView(element, spec, sharedPageView, (height) => {
+        const next = Math.max(1, Math.min(1000000, height));
+        if (item.height !== next) {
+          item.height = next;
+          sendPageViewSlots();
+        }
+      });
     }
+    if (parentPageViews.length) sendPageViewSlots();
     const workPages = new Set(
       sourceElements
         .filter((element) => dataTags.has(element.localName) && element.hasAttribute('page'))
@@ -729,6 +806,38 @@ export async function mountRenderer(
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
+    if (value?.type === 'colab.render.parent-page-views' && value.renderId === snapshot.renderId) {
+      if (!Array.isArray(value.positions) || value.positions.length !== parentPageViews.length)
+        return;
+      for (const [index, position] of value.positions.entries()) {
+        const item = parentPageViews[index];
+        if (!item) return;
+        if (position === null) {
+          item.element.style.visibility = 'hidden';
+          continue;
+        }
+        if (!position || typeof position !== 'object' || Array.isArray(position)) return;
+        const { top, left, width } = position;
+        if (
+          ![top, left, width].every(
+            (number) => typeof number === 'number' && Number.isFinite(number),
+          ) ||
+          top < 0 ||
+          top > frame.clientHeight ||
+          left < 0 ||
+          width <= 0 ||
+          left + width > frame.clientWidth
+        )
+          return;
+        Object.assign(item.element.style, {
+          top: `${top}px`,
+          left: `${left}px`,
+          width: `${width}px`,
+          visibility: 'visible',
+        });
+      }
+      return;
+    }
     if (value?.type === 'colab.render.source-applied') {
       // Untrusted like every frame claim: a forged success leaves at most stale content, which the
       // next update or remount replaces.

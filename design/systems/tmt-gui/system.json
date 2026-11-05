@@ -237,6 +237,18 @@
     },
     {
       "doc": "components/chart.json"
+    },
+    {
+      "doc": "components/page-row.json"
+    },
+    {
+      "doc": "components/work-band.json"
+    },
+    {
+      "doc": "components/message-row.json"
+    },
+    {
+      "doc": "components/status-line.json"
     }
   ],
   "principles": {

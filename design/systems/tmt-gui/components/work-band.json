@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "work-band",
+  "source": "work-band.js",
+  "props": {
+    "stage": {
+      "type": "string"
+    },
+    "done": {
+      "type": "string"
+    },
+    "total": {
+      "type": "string"
+    },
+    "pages": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "../../../browser-ui/src/pattern-parts.css",
+  "uiParts": [
+    "BrowserWorkBand"
+  ],
+  "examples": [
+    {
+      "title": "Work Band",
+      "markup": "<tmt-ui-work-band stage=\"In progress\" done=\"1\" total=\"2\" pages='[{&quot;title&quot;:&quot;Review&quot;,&quot;stage&quot;:&quot;Open&quot;,&quot;done&quot;:0,&quot;total&quot;:1}]'></tmt-ui-work-band>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

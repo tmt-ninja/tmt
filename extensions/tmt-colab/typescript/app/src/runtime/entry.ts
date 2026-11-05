@@ -8,6 +8,12 @@ import { RichInput } from '@tmt/browser-ui/rich-input';
 import { FoundationPage } from '@tmt/browser-ui/docs-foundations';
 import { PatternPage } from '@tmt/browser-ui/docs-patterns';
 import {
+  BrowserMessageRow,
+  BrowserPageRow,
+  BrowserStatusLine,
+  BrowserWorkBand,
+} from '@tmt/browser-ui/pattern-parts';
+import {
   BlockDocument,
   Block,
   BlockHandle,
@@ -130,23 +136,6 @@ import {
   BusyMark,
 } from '@tmt/browser-ui/react';
 
-type ViewRows =
-  | {
-      id: string;
-      name: string;
-      href?: string;
-      projects: string[];
-      stage: string;
-      updated: string;
-      author: string;
-      access: string;
-      updatedAt?: number;
-      subpages?: { done: number; total: number };
-      needsYou?: boolean;
-    }[]
-  | null
-  | undefined;
-let pageRows: ViewRows;
 type WorkPage = {
   title: string;
   href: string;
@@ -172,20 +161,12 @@ function useWorkPage(page: string): WorkPage | null | undefined {
     () => null,
   );
 }
-const pageListeners = new Set<() => void>();
-type BlockData =
-  | { type: 'page-view'; rows: ViewRows }
-  | { type: 'work-bundle'; page: string; data: WorkPage | null };
+type BlockData = { type: 'work-bundle'; page: string; data: WorkPage | null };
 const registerBlockData = (
   window as Window & { __colabBlockData?: (sink: (value: BlockData) => void) => void }
 ).__colabBlockData;
-if (!registerBlockData) pageRows = null;
 registerBlockData?.((value) => {
-  if (value.type === 'page-view') {
-    if (value.rows !== null && (!Array.isArray(value.rows) || value.rows.length > 200)) return;
-    pageRows = value.rows;
-    pageListeners.forEach((listener) => listener());
-  } else if (
+  if (
     value.type === 'work-bundle' &&
     typeof value.page === 'string' &&
     value.page.length <= 128 &&
@@ -196,12 +177,6 @@ registerBlockData?.((value) => {
     workListeners.forEach((listener) => listener());
   }
 });
-const subscribePages = (listener: () => void) => {
-  pageListeners.add(listener);
-  return () => {
-    pageListeners.delete(listener);
-  };
-};
 function SharedPageListTable({
   livePageView,
   pageViewOptions,
@@ -210,27 +185,8 @@ function SharedPageListTable({
   livePageView?: boolean;
   pageViewOptions?: { filters: { field: string; value: string }[]; sort: string; limit: number };
 }) {
-  const incoming = React.useSyncExternalStore(
-    subscribePages,
-    () => pageRows,
-    () => undefined,
-  );
-  let rows =
-    livePageView && Array.isArray(incoming)
-      ? incoming
-          .filter(
-            (item) =>
-              item &&
-              typeof item.id === 'string' &&
-              typeof item.name === 'string' &&
-              Array.isArray(item.projects),
-          )
-          .map((item) => ({
-            ...item,
-            title: item.href ? React.createElement('a', { href: item.href }, item.name) : item.name,
-            stage: item.stage ? { id: item.stage, label: item.stage } : undefined,
-          }))
-      : props.rows;
+  // Live lists are drawn by the trusted parent; this frame renders only authored rows.
+  let rows = livePageView ? [] : props.rows;
   if (pageViewOptions) {
     rows = rows.filter((row) =>
       pageViewOptions.filters.every((filter) =>
@@ -263,17 +219,11 @@ function SharedPageListTable({
     }
     rows = [...groups.values()].flat();
   }
-  const state = !livePageView
-    ? props.state === 'ready' && rows.length === 0
+  const state = livePageView
+    ? 'loading'
+    : props.state === 'ready' && rows.length === 0
       ? 'empty'
-      : props.state
-    : incoming === undefined
-      ? 'loading'
-      : incoming === null
-        ? 'error'
-        : rows.length
-          ? 'ready'
-          : 'empty';
+      : props.state;
   return React.createElement(
     UiTheme,
     null,
@@ -299,6 +249,10 @@ const runtime = Object.freeze({
     Button,
     FoundationPage,
     PatternPage,
+    BrowserMessageRow,
+    BrowserPageRow,
+    BrowserStatusLine,
+    BrowserWorkBand,
     Badge,
     Card,
     CardHeader,

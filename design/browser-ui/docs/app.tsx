@@ -356,11 +356,16 @@ function BrowserPage({ doc }: { doc: BrowserDoc }) {
       {names.length > 0 && (
         <>
           <h2>Usage</h2>
-          <Snippet code={`import { ${names.join(', ')} } from '@tmt/browser-ui/react';`} />
+          <Snippet
+            code={`import { ${names.join(', ')} } from '@tmt/browser-ui/${doc.entry ?? 'react'}';`}
+          />
         </>
       )}
       <p className="docs-muted">
-        Styles: {doc.css.map((name) => `src/${name}.css`).join(', ')}, in the shared static.css.
+        Styles: {doc.css.map((name) => `src/${name}.css`).join(', ')}
+        {doc.entry === 'pattern-parts'
+          ? ', exposed as @tmt/browser-ui/pattern-parts.css.'
+          : ', in the shared static.css.'}
       </p>
       <h2>Variants and states</h2>
       <div className="docs-browser-demo">

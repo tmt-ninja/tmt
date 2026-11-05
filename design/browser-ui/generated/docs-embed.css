@@ -3952,6 +3952,23 @@ tmt-tui-frame,
 @scope (.tmt-design-docs) {
 
 
+.docs-hero > h3,
+.docs-hero .docs-snippet,
+.ds-example-label {
+  display: none;
+}
+
+.docs-canvas > .docs-scene {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+.docs-scene > * {
+  text-align: initial;
+}
+.docs-hero .docs-canvas {
+  gap: 0.5rem;
+}
 :scope[data-chrome='hosted'] .docs {
   --docs-viewport: calc(100dvh - var(--design-header-height, var(--tmt-ui-header-height)));
 }

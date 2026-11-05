@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "kind": "component",
+  "tag": "page-row",
+  "source": "page-row.js",
+  "props": {
+    "tags": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "waiting",
+        "blocked"
+      ]
+    },
+    "href": {
+      "type": "string"
+    },
+    "unread": {
+      "type": "boolean"
+    },
+    "label": {
+      "type": "string"
+    }
+  },
+  "slots": [
+    "default"
+  ],
+  "css": "../../../browser-ui/src/pattern-parts.css",
+  "uiParts": [
+    "BrowserPageRow"
+  ],
+  "examples": [
+    {
+      "title": "Page Row",
+      "markup": "<tmt-ui-page-row label=\"Release plan\" tags=\"spec,tmt\" updated=\"Today\" unread></tmt-ui-page-row>",
+      "widths": [
+        1440,
+        390
+      ]
+    }
+  ]
+}

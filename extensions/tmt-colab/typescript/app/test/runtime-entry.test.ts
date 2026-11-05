@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vite-plus/test';
+import runtime4 from '../../../contracts/vectors/design-runtime-4-ui.json';
 
 it('exposes the curated icons on window.tmt so a page can write them as htm templates', async () => {
   vi.stubGlobal('window', globalThis);
@@ -7,11 +8,14 @@ it('exposes the curated icons on window.tmt so a page can write them as htm temp
   const { icons } = await import('../src/runtime/icons.js');
   const tmt = (
     globalThis as unknown as {
-      tmt: { html: (...args: unknown[]) => unknown; icons: typeof icons };
+      tmt: { html: (...args: unknown[]) => unknown; icons: typeof icons; ui: object };
     }
   ).tmt;
   expect(tmt.icons).toBe(icons);
   expect(Object.isFrozen(tmt)).toBe(true);
+  const allowed = [...runtime4.parts, ...runtime4.blockParts];
+  expect(Object.keys(tmt.ui).sort()).toEqual([...allowed].sort());
+  expect(new Set(allowed).size).toBe(allowed.length);
 
   const { Check } = tmt.icons;
   const markup = renderToStaticMarkup(

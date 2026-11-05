@@ -16,6 +16,8 @@ import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 import type { MetadataAction, WorkAction } from './save.js';
 export interface PageView extends Projection {
+  /** Verified only after catch-up; false once a non-owner content writer is admitted. */
+  readonly ownerOnlyContent?: boolean;
   /** The manual state of an ordinary page; a shell has none. */
   readonly state?: 'todo' | 'in-progress' | 'done' | null;
   readonly progress?: import('./bootstrap.js').PageProgress | null;
@@ -96,6 +98,8 @@ export interface WorkOutcome {
   childPage?: string;
 }
 export interface PageBinding {
+  /** Trusted current-epoch content provenance; absent means not proven owner-only. */
+  ownerOnlyContent?(): boolean;
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
   readonly status?: ThreadStatusCoordinator;

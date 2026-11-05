@@ -989,6 +989,7 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   question, media viewer, scoped mockup, referenced work and page-list presentations. The host
   supplies admitted data and owns persistence; `PageView` reuses `PageListTable` and one grid
   for its grouped rows. A mockup stage owns its local overlay scope.
+  `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 
 The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-ui-block-menu`,
 `tmt-ui-heading-block`, `tmt-ui-text-block`, `tmt-ui-list-item`, `tmt-ui-todo`,
@@ -997,6 +998,8 @@ The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-u
 of them. The additional tags are `tmt-ui-question-block`, `tmt-ui-image-block`,
 `tmt-ui-mockup-block`, `tmt-ui-work-bundle` and `tmt-ui-page-view`. Runtime 3 admits only named,
 declared host parts and page-data capabilities; runtime 2 bundles retain their prior skeleton.
+Colab renders live page views in trusted parent chrome and only supplies work-bundle data when
+the page has proven owner-only authorship; see the [renderer contract](../../extensions/tmt-colab/contracts/colab-v1.md).
 `tmt-ui-table-block` takes its columns and rows as text lists, so the port drift check
 skips it. The gallery's `?frame=blocks&part=<part>` frames and `part=editor` demo back the
 catalog entries, the block patterns and `e2e/blocks.spec.ts`.
