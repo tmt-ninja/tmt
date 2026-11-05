@@ -62,7 +62,7 @@ access their private `<dataRoot>/remote/` and `<dataRoot>/colab/` state. Colab's
 settled package contract embeds its app in the executable, with no separate
 installer data tree; build-time embedding and publication remain separate owner
 gates. The [native installation
-contract](../ARCHITECTURE.md#managed-skills-and-native-installation) owns archive,
+contract](../.agents/skills/tmt-core-runtime/references/install-architecture.md#native-installation-ownership) owns archive,
 receipt, consent and unavailable-release behavior.
 
 ### Installation guidance through the ordinary CLI

@@ -4,7 +4,7 @@ This internal protocol joins the running managed CLI updater to the verified
 candidate CLI. It is not an extension API, a public offline installer, or a way
 to authenticate another process of the same user. The implementation owner is
 `tmt-adapters::native_install::handoff`; the typed CLI grammar admits its version.
-[Architecture](../ARCHITECTURE.md#managed-skills-and-native-installation) owns the
+[The installer reference](../.agents/skills/tmt-core-runtime/references/install-architecture.md#native-installation-ownership) owns the
 trust boundary and publication lifecycle.
 
 PR acquisition and returning from a PR channel use separately probed protocol 2,

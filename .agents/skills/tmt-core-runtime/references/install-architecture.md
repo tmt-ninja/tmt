@@ -2,10 +2,48 @@
 
 Code map and invariants for `tmt-adapters::skill_installation` and
 `tmt-adapters::native_install`. The cross-cutting summary is in
-[ARCHITECTURE.md](../../../../ARCHITECTURE.md#managed-skills-and-native-installation); the
+[ARCHITECTURE.md](../../../../ARCHITECTURE.md#domain-and-state-ownership); the
 handoff wire format is
 [native-install-handoff-v1](../../../../contracts/native-install-handoff-v1.md); build,
 publication and verification procedures are in the [tmt-release skill](../../tmt-release/SKILL.md).
+
+## Ownership overview
+
+### Managed skills ownership
+
+Managed agent guidance is a filesystem concern separate from application state.
+`tmt_core::skill_catalog` is the one list of bundled skill names and reference topics; the
+bundle is embedded and materialized by digest under `skill_installation` (references are
+embedded only, served by `tmt learn`, never installed), and the
+architecture test rejects duplicate multi-name lists in production Rust. Core install exposes
+only `tmt` and `tmt-inbox`.
+Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
+publication, removal and refresh/uninstall preservation follow the [managed skills rules](#managed-skills).
+Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
+(explicit consent) and link into the same roots; core names are reserved, and an API
+name or owner alone cannot authorize catalog replacement. Name ownership, force
+backups and post-activation skill warnings follow the same installer owner.
+
+### Native installation ownership
+
+Native executable installation is a different owner under `tmt-adapters::native_install`.
+Its cosmetic pane-option cutover performs host CAS outside SQLite, between short row checks.
+`Product` owns installable products; archive data adds none. Every product uses one acquisition,
+receipt and atomic-publication path with independent links, lock and current
+release, and the active executable is the authority for a managed update: receipts
+anchor to the installation prefix, not to configuration roots. Verification precedes
+execution, publication runs the release verifier before the receipt so a rejection
+keeps the previous release, and failure or cancellation never leaves a half-published
+current release. CLI self-upgrade delegates to the verified candidate under the
+[handoff contract](../../../../contracts/native-install-handoff-v1.md); PR channel trust,
+compiled schema export and admission are owned by the [PR channel contract](../../../../contracts/native-pr-channel.md). The candidate then lets that CLI
+run the consented extension phase; there is no rollback or second installer.
+`install_guidance` projects setup's verified inventory as public
+[`guidance.actions`](../../../../contracts/extension-api.md#installation-guidance-through-the-ordinary-cli);
+PATH only resolves commands.
+Receipt-frozen [CLI minima](../../../../contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
+The sections below own retention,
+discovery, receipts, skills, repair and handoff; [release procedures](../../tmt-release/SKILL.md) own verification and publication.
 
 ## Managed skills
 
