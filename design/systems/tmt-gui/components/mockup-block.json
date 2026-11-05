@@ -16,5 +16,6 @@
     "title": "A scoped stage",
     "markup": "<tmt-ui-mockup-block system=\"tmt-gui\" preset=\"390\"><tmt-ui-button>Save</tmt-ui-button></tmt-ui-mockup-block>",
     "widths": [1440, 390]
-  }]
+  }],
+  "uiParts": ["MockupBlock"]
 }

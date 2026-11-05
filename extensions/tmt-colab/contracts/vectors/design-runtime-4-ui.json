@@ -127,6 +127,7 @@
     "Callout",
     "CodeBlock",
     "BlockMention",
-    "BlockToast"
+    "BlockToast",
+    "MockupBlock"
   ]
 }

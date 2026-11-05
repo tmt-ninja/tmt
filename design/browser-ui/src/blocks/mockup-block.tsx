@@ -8,7 +8,8 @@ export interface MockupBlockProps {
   /** The least stage height; the stage otherwise hugs its content. */
   height?: number;
   theme?: 'light' | 'dark' | 'viewer';
-  unavailable?: boolean;
+  /** No stage: true, or the reason shown instead (a page pin that does not match). */
+  unavailable?: boolean | string;
   systems?: readonly { id: string; name: string; versions: readonly string[] }[];
   onSystemChange?(system: string): void;
   onVersionChange?(version: string): void;
@@ -53,7 +54,8 @@ export function MockupBlock({
 }: MockupBlockProps) {
   const [stageWidth, setStageWidth] = useState(() => boundedWidth(width));
   const [appearance, setAppearance] = useState(theme);
-  const [custom, setCustom] = useState(false);
+  // A width other than the two presets opens as Custom.
+  const [custom, setCustom] = useState(() => ![390, 1440].includes(boundedWidth(width)));
   const [availableWidth, setAvailableWidth] = useState(() => boundedWidth(width));
   useEffect(() => setStageWidth(boundedWidth(width)), [width]);
   useEffect(() => setAppearance(theme), [theme]);
@@ -171,7 +173,11 @@ export function MockupBlock({
             </div>
           </div>
           {unavailable ? (
-            <p role="status">This design system version is not available.</p>
+            <p role="status">
+              {typeof unavailable === 'string'
+                ? unavailable
+                : 'This design system version is not available.'}
+            </p>
           ) : (
             <div
               className="tmt-block-mockup-viewport"
