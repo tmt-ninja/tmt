@@ -87,8 +87,9 @@ component or prop shows up there. Fix every one before handing the page over. Th
 
 For `tmt-ui-menu`, a `-` between items starts a separated group, for example
 `items="Manage page,-,Archive…,About this page"`. A dangling separator remains
-plain text. `tmt-ui-command` accepts plain items and `page:<title>:<context>`
-items; the latter render a page icon, title and quiet context line. Its optional
+plain text. Set `trigger="icon"` for the ellipsis action. `tmt-ui-command` accepts plain items and `page:<title>:<context>`
+items; the latter render a page icon, title and quiet context line. A `create:<label>`
+item stays above page results. Its optional
 `query` sets the initial search text. For example:
 
 ```html

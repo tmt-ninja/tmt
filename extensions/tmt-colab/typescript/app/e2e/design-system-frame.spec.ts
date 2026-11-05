@@ -801,9 +801,11 @@ test('menu tags place separators before the next item and preserve malformed mar
   const frame = await mount(
     page,
     `<meta name="tmt-ds" content="${pin}">
-    <tmt-ui-menu label="Actions" items="Manage page,-,Archive…,About this page,-"></tmt-ui-menu>`,
+    <tmt-ui-menu label="Actions" trigger="icon" items="Manage page,-,Archive…,About this page,-"></tmt-ui-menu>`,
   );
-  await frame.getByRole('button', { name: 'Actions' }).click();
+  const trigger = frame.getByRole('button', { name: 'Actions' });
+  await expect(trigger.locator('svg')).toBeVisible();
+  await trigger.click();
   const archive = frame.getByRole('menuitem', { name: 'Archive…' });
   await expect(archive).toHaveAttribute('data-separated', 'true');
   await expect(frame.getByRole('menuitem', { name: 'About this page' })).not.toHaveAttribute(
@@ -842,4 +844,20 @@ test('command query starts populated and filters page results', async ({ page })
   await expect(frame.getByRole('combobox', { name: 'Find a page' })).toHaveValue('retro');
   await expect(frame.getByRole('option')).toHaveCount(1);
   await expect(frame.getByRole('option').first()).toContainText('Weekly retro');
+});
+
+test('page search keeps its create action first and page rows square', async ({ page }) => {
+  const frame = await mount(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+    <tmt-ui-command label="Find a page" query="retro" items="page:Retro archive:Product / Archive,create:Create a page called retro,page:Weekly retro:Product / Planning"></tmt-ui-command>`,
+  );
+  const options = frame.getByRole('option');
+  await expect(options).toHaveCount(3);
+  await expect(options.first()).toHaveText('Create a page called retro');
+  await expect(options.nth(1)).toHaveCSS('border-radius', '0px');
+  await frame.getByRole('combobox', { name: 'Find a page' }).fill('weekly');
+  await expect(options).toHaveCount(2);
+  await expect(options.first()).toHaveText('Create a page called retro');
+  await expect(options.nth(1)).toContainText('Weekly retro');
 });

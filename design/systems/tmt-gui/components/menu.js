@@ -1,4 +1,4 @@
-export default ({ React, ui }) => ({ label = 'Options', items = '' }) => {
+export default ({ React, ui }) => ({ label = 'Options', items = '', trigger = 'text' }) => {
   const tokens = items.split(',').map((item) => item.trim()).filter(Boolean);
   let separated = false;
   const rows = [];
@@ -12,5 +12,5 @@ export default ({ React, ui }) => ({ label = 'Options', items = '' }) => {
     rows.push({ key: `${i}:${item}`, label: item, ...(separated ? { separated: true } : {}) });
     separated = false;
   }
-  return React.createElement(ui.BrowserMenu, { label, triggerText: label, items: rows, onSelect: () => {} });
+  return React.createElement(ui.BrowserMenu, { label, ...(trigger === 'icon' ? {} : { triggerText: label }), items: rows, onSelect: () => {} });
 };

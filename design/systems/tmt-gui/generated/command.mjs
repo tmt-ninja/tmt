@@ -4,18 +4,29 @@ export default ({ React, ui }) => function Command({ label = 'Search', items = '
   const h = React.createElement;
   const [search, setSearch] = React.useState(query);
   const choices = items.split(',').map((item) => item.trim()).filter(Boolean);
-  const row = (item, index) => {
-    // `page:title:meta` uses the same id:text convention as BlockMenu. Invalid entries stay text.
-    const match = /^page:([^:]+):(.+)$/.exec(item);
-    const title = match?.[1]?.trim();
-    const meta = match?.[2]?.trim();
-    if (!title || !meta) return h(ui.CommandItem, { key: `${index}:${item}`, value: item }, item);
-    return h(ui.CommandItem, { key: `${index}:${item}`, value: `${title} ${meta}` },
-      h('tmt-icon', { name: 'file-text', 'aria-hidden': 'true' }),
-      h('span', { className: 'tmt-ui-list-title' },
-        h('span', { className: 'tmt-ui-list-label' }, title),
-        h('span', { className: 'tmt-ui-list-description' }, meta)));
+  const parse = (item) => {
+    // `page:title:meta` follows BlockMenu's id:text convention. Invalid entries stay text.
+    const page = /^page:([^:]+):(.+)$/.exec(item);
+    if (page?.[1]?.trim() && page?.[2]?.trim())
+      return { kind: 'page', title: page[1].trim(), meta: page[2].trim() };
+    const create = /^create:(.+)$/.exec(item);
+    if (create?.[1]?.trim()) return { kind: 'create', title: create[1].trim() };
+    return { kind: 'text', title: item };
   };
-  return h(ui.Command, { label }, h(ui.CommandInput, { placeholder: label, 'aria-label': label, value: search, onValueChange: setSearch }),
-    h(ui.CommandList, null, ...choices.map(row)));
+  const parsed = choices.map(parse);
+  const pages = parsed.some((item) => item.kind === 'page' || item.kind === 'create');
+  const visible = pages ? parsed.filter((item) =>
+    item.kind === 'create' || `${item.title} ${item.meta ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())) : parsed;
+  const ordered = pages ? [...visible.filter((item) => item.kind === 'create'), ...visible.filter((item) => item.kind !== 'create')] : visible;
+  const row = (item, index) => {
+    const props = { key: `${index}:${item.title}`, value: `${item.title} ${item.meta ?? ''}`, ...(pages ? { style: { borderRadius: 0 } } : {}) };
+    if (item.kind !== 'page') return h(ui.CommandItem, props, item.title);
+    return h(ui.CommandItem, props, h('tmt-icon', { name: 'file-text', 'aria-hidden': 'true' }),
+      h('span', { className: 'tmt-ui-list-title' },
+        h('span', { className: 'tmt-ui-list-label' }, item.title),
+        h('span', { className: 'tmt-ui-list-description' }, item.meta)));
+  };
+  return h(ui.Command, { label, ...(pages ? { shouldFilter: false } : {}) },
+    h(ui.CommandInput, { placeholder: label, 'aria-label': label, value: search, onValueChange: setSearch }),
+    h(ui.CommandList, null, ...ordered.map(row)));
 };
