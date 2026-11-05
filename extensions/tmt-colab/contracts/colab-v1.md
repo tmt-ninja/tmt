@@ -2596,7 +2596,9 @@ same-origin, top navigation, popups, forms or modals. There is no static mode.
 The renderer MUST deny app storage,
 keys, cookies/session, bridge access, network APIs, other pages and top navigation.
 Page-view data about other pages MUST remain in trusted parent chrome; the frame may report only
-bounded slot geometry and MUST NOT receive the projection. Work-bundle data about another page MUST
+bounded slot geometry and MUST NOT receive the projection. The parent MUST draw a live page view only
+for a page that passes the same owner-member proof as a work bundle, with the same recheck and
+revocation. Work-bundle data about another page MUST
 enter a frame only after the trusted parent proves every content writer in its current epoch is an
 owner-member device, and MUST be limited to named pages the owner can read. The parent MUST recheck
 on every epoch or writer change and revoke the hand-off when the proof fails. An owner-signed epoch
@@ -5486,17 +5488,21 @@ component's skeleton exposes only its declared names, and asking it for another 
 is a declaration check, not an isolation boundary: component code runs in the page frame and can
 reach the frame's runtime directly, which holds no host data or capability beyond what the parent
 has already sent to that frame.
-When an admitted component declares `PageListTable`, the host may supply it with the owner's
-bounded page-list projection. The host identifies eligible tags from the verified bundle, including
-systems with a custom prefix; markup alone cannot declare that capability.
+When an admitted component declares `PageListTable`, the host supplies no page-list records to the
+frame: a live list is painted by the trusted parent in the component's reserved slot, only on a page
+that passes the owner-only-content check below. The host identifies eligible tags from the verified
+bundle, including systems with a custom prefix; markup alone cannot declare that capability.
 Runtime 2 bundles keep their existing skeleton and cannot declare shared parts. A reader without
 runtime 3 reports that the page needs a newer TMT rather than executing that bundle.
 Runtime 3 components that nest another tag of their own system list its unprefixed name in
 `requires`; compilation refuses a missing or self-referential dependency. The runtime supplies
 the current system prefix so a copied system does not draw tags from another system.
-Runtime 3 separately permits a component to declare the `page` data capability: it reads only the
-referenced page's bounded display metadata through the current viewer's admitted transport. The
-frame is not given a transport, management methods or an arbitrary page-read function.
+Runtime 3 separately permits a component to declare the `page` data capability: the work-bundle
+hand-off of the referenced page's bounded display metadata, read through the current viewer's
+admitted transport. It enters the frame only under the owner-only-content check, which the parent
+rechecks on every epoch or writer change and revokes when it fails, and for at most 20 named pages
+per frame mount. The frame is not given a transport, management methods or an arbitrary page-read
+function.
 Runtime 4 retains runtime 3's capabilities and adds `ui`, a renderer-owned namespace of named
 browser-ui parts running on the page runtime's React. A component declares its needed names in
 `uiParts`; the [runtime 4 UI vector](vectors/design-runtime-4-ui.json) owns the versioned allowlist. Unknown, duplicate, undeclared,
