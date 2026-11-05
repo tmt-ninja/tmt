@@ -30,8 +30,18 @@ const frame = params.get('frame');
 // Radius preview sets the one knob (2, 4) or the larger reference values.
 const radius = params.get('radius');
 const radiusStyle: Record<string, Record<string, string>> = {
-  '2': { '--tmt-ui-ref-radius': '2px' },
-  '4': { '--tmt-ui-ref-radius': '4px' },
+  '2': {
+    '--tmt-ui-radius-s': '2px',
+    '--tmt-ui-radius': '2px',
+    '--tmt-ui-radius-l': '4px',
+    '--tmt-ui-radius-badge': '2px',
+  },
+  '4': {
+    '--tmt-ui-radius-s': '4px',
+    '--tmt-ui-radius': '4px',
+    '--tmt-ui-radius-l': '6px',
+    '--tmt-ui-radius-badge': '4px',
+  },
   current: {
     '--tmt-ui-radius-s': '6px',
     '--tmt-ui-radius': '8px',

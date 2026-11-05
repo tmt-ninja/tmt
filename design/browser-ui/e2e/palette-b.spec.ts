@@ -4,11 +4,9 @@ import { readFileSync } from 'node:fs';
 const tokens = JSON.parse(
   readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
 );
-const ref = (value: string) => tokens.browser.ref[value.slice(1, -1)] as string;
 const rgb = (hex: string) =>
   `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
-const b = (role: string, theme: 'dark' | 'light') =>
-  rgb(ref(tokens.browser['palette-b'].surface[role][theme]));
+const b = (role: string, theme: 'dark' | 'light') => rgb(tokens.browser.surface[role][theme]);
 
 /** Paints a probe with a role inside an element built from `markup`, and reads it back. */
 async function probe(page: import('@playwright/test').Page, markup: string, style: string) {

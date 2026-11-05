@@ -49,18 +49,11 @@ function motion(reduced = false, indent = '  ') {
     )
     .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
 }
-// Foundation roles use the selected browser palette by default, including standalone UI islands.
-const resolveRef = (value) =>
-  value.replace(/\{([\w-]+)\}/g, (_, name) => {
-    const reference = tokens.browser.ref[name];
-    if (typeof reference !== 'string') throw new Error(`Unknown browser token reference ${name}`);
-    return reference;
-  });
+// UI islands follow shared semantic roles, with standalone theme values as fallbacks.
 const themed = (theme, inherit = false) =>
   Object.entries(roles)
     .map(([name, [group, role]]) => {
-      const value = tokens.browser['palette-b'][group]?.[role] ?? tokens.browser[group][role];
-      const fallback = resolveRef(value[theme]).toLowerCase();
+      const fallback = tokens.browser[group][role][theme].toLowerCase();
       return `  --tmt-foundation-${name}: ${inherit ? `var(--tmt-ui-${group}-${role}, ${fallback})` : fallback};`;
     })
     .join('\n');
@@ -85,7 +78,7 @@ const fixed = [
     'control-size',
     'control-size-l',
   ].map((key) => {
-    const value = resolveRef(tokens.browser['palette-b'].metric[key] ?? tokens.browser.metric[key]);
+    const value = tokens.browser.metric[key];
     return `  --tmt-foundation-${key}: ${key.startsWith('radius') && key !== 'radius-pill' ? `var(--tmt-ui-${key}, ${value})` : value};`;
   }),
   ...motion(),

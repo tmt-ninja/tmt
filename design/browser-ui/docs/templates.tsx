@@ -178,7 +178,7 @@ export function ComponentTemplate({
  */
 export function DocsSurface({ theme, children }: { theme: 'light' | 'dark'; children: ReactNode }) {
   return (
-    <div className="tmt-design-docs" data-chrome="hosted" data-theme={theme} data-tmt-palette="b">
+    <div className="tmt-design-docs" data-chrome="hosted" data-theme={theme}>
       <UiTheme theme={theme}>
         <main className="docs-main">{children}</main>
       </UiTheme>

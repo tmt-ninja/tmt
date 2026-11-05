@@ -12,19 +12,17 @@ const captures = process.env.COLAB_BRAND_CAPTURE_DIR;
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
-    for (const palette of ['default', 'b'])
-      for (const path of ['/colab/', '/design/ds/gui', '/design/ds/gui/tokens/brand'])
-        test(`selected ninja: ${path} ${width} ${theme} ${palette}`, async ({ page }) => {
+    for (const path of ['/colab/', '/design/ds/gui', '/design/ds/gui/tokens/brand'])
+        test(`selected ninja: ${path} ${width} ${theme}`, async ({ page }) => {
           await page.setViewportSize({ width, height: 1000 });
           await page.emulateMedia({ colorScheme: theme });
           await page.addInitScript(
-            ({ theme, palette }) => {
+            (theme) => {
               document.addEventListener('DOMContentLoaded', () => {
                 document.documentElement.dataset.theme = theme;
-                if (palette === 'b') document.documentElement.dataset.tmtPalette = 'b';
               });
             },
-            { theme, palette },
+            theme,
           );
           // The existing private in-memory space mounts the real router and shell, with no host data.
           // Design draws the built-in tmt GUI's pages in its page frame (#6060).
@@ -84,7 +82,7 @@ for (const width of [1440, 390])
               : path.startsWith('/design')
                 ? 'design'
                 : 'colab';
-            const name = `${routeName}-${width}-${theme}-${palette}`;
+            const name = `${routeName}-${width}-${theme}`;
             await page.screenshot({ path: join(captures, `${name}.png`), fullPage: true });
             if (width === 390)
               await page.getByRole('button', { name: 'Open navigation', exact: true }).click();

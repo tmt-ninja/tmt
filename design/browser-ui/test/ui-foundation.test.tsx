@@ -67,29 +67,20 @@ it('does not invent a body portal before its own island container is mounted', (
   expect(html).toContain('data-tmt-ui-portal=""');
   expect(() => renderToStaticMarkup(<PortalConsumer />)).toThrow('originating UiTheme');
 });
-/** ui.css without its palette-B block (#5821), and that block alone: only inside
- * `[data-tmt-palette='b']` does the foundation read the leaf's semantic roles (static.css remaps them
- * there, with the one radius knob); everywhere else it stays a standalone namespace. */
-function paletteSplit(): { standalone: string; paletteB: string } {
-  const css = readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
-  const block = css.match(
-    /\[data-tmt-palette='b'\] \[data-tmt-ui\],\n\[data-tmt-ui\]\[data-tmt-palette='b'\] \{[^}]*\}\n/,
-  );
-  if (!block) throw new Error('ui.css has no palette-B block');
-  return { standalone: css.replace(block[0], ''), paletteB: block[0] };
+function uiCss(): string {
+  return readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
 }
 
-it('reads the semantic roles only inside the palette-B scope, by name and never by value', () => {
-  const { paletteB } = paletteSplit();
-  const values = [...paletteB.matchAll(/--tmt-foundation-[\w-]+: ([^;]+);/g)].map((m) => m[1]!);
-  expect(values.length).toBeGreaterThan(20);
-  expect(values.every((value) => /^var\(--tmt-ui-[\w-]+\)$/.test(value))).toBe(true);
-  expect(paletteB).toContain('--tmt-foundation-radius: var(--tmt-ui-radius);');
+it('inherits semantic roles with standalone fallbacks and no palette scope', () => {
+  const css = uiCss();
+  expect(css).not.toContain('data-tmt-palette');
+  expect(css).toContain('--tmt-foundation-primary: var(--tmt-ui-color-accent-fill,');
+  expect(css).toContain('--tmt-foundation-radius: var(--tmt-ui-radius,');
 });
 
 it('publishes only a separate scoped namespace, without preflight, global variables or global registrations', () => {
-  const css = paletteSplit().standalone;
-  expect(css).not.toMatch(/:root|@property|@import|@theme|@tailwind|@layer|--tw-|--tmt-ui-/);
+  const css = uiCss();
+  expect(css).not.toMatch(/:root|@property|@import|@theme|@tailwind|@layer|--tw-/);
   expect(() => assertUiUtilities(css)).not.toThrow();
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
@@ -122,7 +113,7 @@ it('publishes only a separate scoped namespace, without preflight, global variab
     expect(css).toContain(`--tmt-foundation-${key}: ${value};`);
 });
 
-it('leaves every existing static token projection unchanged', () => {
+it('keeps the reviewed static token projection', () => {
   const tokens = JSON.parse(
     readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
   );
@@ -171,7 +162,7 @@ it('keeps original source export targets and direct dependency pins explicit', (
 });
 
 it('projects light frame roles separately from strong focus and state indicators', () => {
-  const css = paletteSplit().standalone;
+  const css = uiCss();
   const tokens = JSON.parse(
     readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
   );
@@ -184,7 +175,7 @@ it('projects light frame roles separately from strong focus and state indicators
   };
   for (const [role, colors] of Object.entries(roles)) {
     const actual = [...css.matchAll(new RegExp(`--tmt-foundation-${role}: ([^;]+);`, 'g'))].map(
-      (match) => match[1],
+      (match) => match[1]!.replace(/^var\(--tmt-ui-[\w-]+, (.+)\)$/, '$1'),
     );
     expect(actual.sort(), role).toEqual(
       [colors.light, colors.dark, colors.light, colors.dark]

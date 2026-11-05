@@ -77,22 +77,14 @@ text fields and select triggers keep the soft rule by decision (see
 [browser style](../gui-style.md), Fields). Selected indicators and keyboard focus
 retain their stronger roles.
 
-### Palette B and the ref tier
+### Palette and the ref tier
 
-`tokens.json` holds `browser.ref`, the primitive tier, which `static.css` projects as `--tmt-ui-ref-*`.
-It also holds `browser.palette-b`, which maps each listed colour, surface and radius role onto refs
-(`{name}`). The generator emits that mapping only under `[data-tmt-palette='b']`, in three blocks:
-light; the system dark unless a light theme is set on the scope or around it; and an explicit dark
-theme. Chart series and seats keep their values.
-
-The radius roles read one knob: `radius-s`, `radius` and `radius-badge` are `ref-radius`, and
-`radius-l` is `ref-radius + ref-radius-step`. Setting `--tmt-ui-ref-radius` on the scope moves the
-whole set (2/4 or 4/6). `radius-pill` stays for avatars, radios and status dots. Inside the scope,
-`ui.css`'s foundation roles read the semantic roles by name, so the shadcn set follows B, the viewer
-theme and the knob. This is the only place `ui.css` reads `--tmt-ui-*`, and it needs `static.css`
-there. Outside the scope nothing changes. B becomes the default values, and the scope goes away,
-once Ben approves the look. The gallery's "Theme B" section (`?frame=theme-b`) shows the set with
-its theme and radius switches. The selected ninja keeps its pale ink and dark tile under palette B too.
+Palette B is the default throughout the GUI. `tokens.json` holds the selected semantic colour,
+surface and shadow roles; `browser.ref` holds the primitive values projected as `--tmt-ui-ref-*`.
+Chart series and seat colours remain data colours. UI islands inherit semantic roles, with standalone
+theme fallbacks. The radius roles use the selected 2/4 scale; local previews can override them without
+changing the host. `radius-pill` remains for avatars, radios and status dots. The gallery's Theme B
+section (`?frame=theme-b`) shows the theme and radius choices. The TUI maintains its own palette.
 
 Shadows form one elevation scale, `browser.shadow.elevation-0` to `elevation-3`; `overlay` is level 2.
 The `ui` set reads them as `shadow-elevation-1` (Card), `shadow-overlay` (Popover, menus, Select,

@@ -60,7 +60,7 @@ function PatternStage({
           className="scaled-frame-inline"
           style={{ width, height, transform: `scale(${scale})` }}
         >
-          <div data-theme={theme} data-tmt-palette="b">
+          <div data-theme={theme}>
             <UiTheme theme={theme}>
               <div className="pattern-frame">{children}</div>
             </UiTheme>

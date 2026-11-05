@@ -177,7 +177,7 @@
   font-weight: 550;
 }
 :where(.tmt-page) a.tmt-settings-link {
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
   text-decoration: none;
   font-size: var(--tmt-ui-header-action-size);
 }
