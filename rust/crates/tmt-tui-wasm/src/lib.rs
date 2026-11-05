@@ -3,7 +3,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tmt_tui_components::*;
 use unicode_segmentation::UnicodeSegmentation;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
 
 const MAX_INPUT: usize = 65_536;
 const MAX_STRING: usize = 4_096;
@@ -56,13 +56,63 @@ pub fn wasm_registry() -> String {
 
 #[wasm_bindgen(js_name = render)]
 pub fn wasm_render(
-    name: &str,
-    props: &str,
-    width: u32,
-    height: u32,
+    name: JsValue,
+    props: JsValue,
+    width: JsValue,
+    height: JsValue,
 ) -> std::result::Result<String, JsValue> {
-    render_json(name, props, width, height)
-        .map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
+    let dimension = |value: JsValue| {
+        value
+            .as_f64()
+            .filter(|number| {
+                number.is_finite() && *number >= 1.0 && *number <= 512.0 && number.fract() == 0.0
+            })
+            .map(|number| number as u32)
+            .ok_or_else(|| error("dimensions"))
+    };
+    let result = dimension(width).and_then(|width| {
+        dimension(height).and_then(|height| {
+            let name = bounded_js_string(&name, 64, "unknown_component")?;
+            let props = bounded_js_string(&props, MAX_INPUT, "input_size")?;
+            render_json(&name, &props, width, height)
+        })
+    });
+    result.map_err(|e| JsValue::from_str(&serde_json::to_string(&e).unwrap()))
+}
+
+// Inspect UTF-16 and count UTF-8 before copying a JavaScript string into wasm memory.
+fn bounded_js_string(value: &JsValue, limit: usize, code: &'static str) -> Result<String> {
+    let text = value
+        .dyn_ref::<js_sys::JsString>()
+        .ok_or_else(|| error(code))?;
+    let length = text.length();
+    if length as usize > limit {
+        return Err(error(code));
+    }
+    let (mut index, mut bytes) = (0, 0usize);
+    while index < length {
+        let unit = text.char_code_at(index) as u32;
+        index += 1;
+        bytes += if unit < 0x80 {
+            1
+        } else if unit < 0x800 {
+            2
+        } else if (0xd800..=0xdbff).contains(&unit) {
+            if index == length || !(0xdc00..=0xdfff).contains(&(text.char_code_at(index) as u32)) {
+                return Err(error(code));
+            }
+            index += 1;
+            4
+        } else if (0xdc00..=0xdfff).contains(&unit) {
+            return Err(error(code));
+        } else {
+            3
+        };
+        if bytes > limit {
+            return Err(error(code));
+        }
+    }
+    value.as_string().ok_or_else(|| error(code))
 }
 
 /// Validate all bounds before allocating the grid; input parsing is byte- and depth-bounded.

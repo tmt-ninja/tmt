@@ -185,6 +185,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-release-tool" => &["serde_json", "toml_edit"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui-wasm" => &[
+            "js-sys",
             "serde",
             "serde_json",
             "tmt-tui-components",

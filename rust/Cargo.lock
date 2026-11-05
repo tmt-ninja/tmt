@@ -2933,6 +2933,7 @@ dependencies = [
 name = "tmt-tui-wasm"
 version = "5.0.0-dev"
 dependencies = [
+ "js-sys",
  "serde",
  "serde_json",
  "tmt-tui-components",

@@ -5417,12 +5417,12 @@
   ],
   "artifacts": {
     "wasm": {
-      "raw": 427903,
-      "gzip": 133362
+      "raw": 439549,
+      "gzip": 136270
     },
     "glue": {
-      "raw": 4563,
-      "gzip": 1396
+      "raw": 6145,
+      "gzip": 1732
     },
     "combined_gzip_limit": 524288
   }
