@@ -2100,6 +2100,7 @@ function OpenPage({
         panelsRef.current.show('comments');
       },
       onAttachmentDownload: (id) => attachmentDownload.request(id),
+      onImageDownload: (image) => attachmentDownload.requestImage(image),
     },
   });
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.

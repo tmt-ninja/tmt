@@ -2646,6 +2646,23 @@ An image or file block may request a download of a `colab-attachment:` reference
 matches it uniquely against the current page's verified descriptors and presents the filename in
 trusted chrome; only a trusted confirmation reads and downloads the attachment. A frame claim or
 gesture alone never grants that read, and an unknown or ambiguous reference is ignored.
+After the reader cancels the confirmation (its Cancel, Escape or a light dismiss), the parent
+ignores that frame's download requests for 3 seconds (#6094), so page script cannot keep reopening
+it. Requests during the cool-down neither restart nor extend it; a finished download starts none,
+and a new render or page clears it. The bar asks about one request at a time: while it is open, the
+frame's further requests are ignored.
+
+The frame's sandbox cannot save files, so a trusted activation of a `download` link whose `href` is a
+`data:image/` URL of at most 2,796,268 characters posts exactly
+`{type:"colab.render.image-download", renderId, src, filename}` (#5981). The parent accepts it only
+for the current render, and only as `data:image/(png|jpeg|gif|webp);base64,` with well-formed base64
+whose decoded size, counted from its length before decoding, is at most 2 MiB and whose first bytes
+match the type (PNG signature, JPEG SOI, `GIF87a`/`GIF89a`, `RIFF`…`WEBP`). SVG and every other
+scheme or type are ignored. The filename is plain text: control, direction-override and path
+characters are removed, leading dots trimmed, it is cut to 128 characters and ends in the verified
+type's extension (added when it ends in another); an empty name becomes `image.<ext>`. The same
+trusted bar shows that name, with the same cool-down and one-request rule, and only a trusted
+Download decodes the bytes and saves them as `application/octet-stream`. Nothing is fetched.
 
 On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
@@ -2794,8 +2811,9 @@ height and width, a width within its own width and a band within its own height;
 ignored. It sets `data-tmt-ui-viewport` and `--tmt-ui-viewport-top` / `--tmt-ui-viewport-height` (px)
 on its root and dispatches `tmt-ui-viewport` on the document; a `colab.render.layout` switch to frame
 scrolling removes them. The frame's own style fits page-level design-system modals, sheets, drawers
-and their scrims to that band, and their layer geometry reads it; a nested design-system stage keeps
-its own box. The message is cosmetic and grants nothing. It does tell author script where the reader
+and their scrims to that band, and their layer geometry reads it; it also bounds the window-high
+sizes of page-level parts in flow (the block sheet menu, the shell) by the band, since against the
+frame's own viewport they grow with the page. A nested design-system stage keeps its own box. The message is cosmetic and grants nothing. It does tell author script where the reader
 has scrolled, which is acceptable because the frame has no network.
 
 Author CSS must use the explicit root `data-theme` selectors to follow Colab's choice;

@@ -100,7 +100,9 @@ These are base-layer defaults; an author's styles and utility classes can overri
 A page frame is as tall as the page, so `position: fixed` with `inset: 0` covers the whole page,
 not the screen. Design-system dialogs and sheets already open where the reader is. For your own
 modal, place it in the part on screen with `top: var(--tmt-ui-viewport-top, 0)` and
-`height: var(--tmt-ui-viewport-height, 100vh)`.
+`height: var(--tmt-ui-viewport-height, 100vh)`. For the same reason, never size content in the
+page's flow with `vh` or `dvh`: it grows with the page, and Colab falls back to scrolling inside
+the frame.
 
 On a `column` or `full` page Colab sets the width and gaps ([layout](layout.md)); do not set your own
 page width, margin or block gap. Do not add a header, product mark or sticky bar.

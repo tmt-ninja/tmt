@@ -124,6 +124,17 @@
   :root[data-tmt-ui-viewport] .tmt-ui-dialog:not([data-tmt-ds-scope] *) {
     max-height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-space-l)) !important;
   }
+  /* Window-high sizes read the band too: against the frame's own viewport they grow with the
+     page they are part of (#5981). */
+  :root[data-tmt-ui-viewport] .tmt-block-menu[data-placement='sheet']:not([data-tmt-ds-scope] *) {
+    max-height: calc(0.6 * var(--tmt-ui-viewport-height, 100vh)) !important;
+  }
+  :root[data-tmt-ui-viewport] .tmt-ui-shell:not([data-tmt-ds-scope] *) {
+    min-height: var(--tmt-ui-viewport-height, 100vh) !important;
+  }
+  :root[data-tmt-ui-viewport] .tmt-ui-rail:not([data-tmt-ds-scope] *) {
+    height: var(--tmt-ui-viewport-height, 100vh) !important;
+  }
   :root[data-tmt-ui-viewport] .tmt-ui-drawer:not([data-tmt-ds-scope] *) {
     top: calc(var(--tmt-ui-viewport-top) + var(--tmt-ui-drawer-gutter)) !important;
     bottom: auto !important;

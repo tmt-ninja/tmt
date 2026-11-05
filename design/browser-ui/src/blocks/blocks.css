@@ -159,6 +159,12 @@
   border-radius: var(--tmt-ui-radius-l) var(--tmt-ui-radius-l) 0 0;
   padding: 8px 8px 12px;
 }
+/* In a stage, the phone sheet fits the stage, not the window around it: a page frame's own
+   viewport is its page, so `vh` there grows with the page (#5981). A page frame bounds a
+   page-level sheet by the visible band (page-frame.css). */
+[data-tmt-ds-scope] .tmt-block-menu[data-placement='sheet'] {
+  max-height: 60cqh;
+}
 .tmt-block-menu[data-placement='sheet']::before {
   content: '';
   display: block;

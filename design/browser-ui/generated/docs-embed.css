@@ -1060,6 +1060,10 @@
   border-radius: var(--tmt-ui-radius-l) var(--tmt-ui-radius-l) 0 0;
   padding: 8px 8px 12px;
 }
+
+[data-tmt-ds-scope] .tmt-block-menu[data-placement='sheet'] {
+  max-height: 60cqh;
+}
 .tmt-block-menu[data-placement='sheet']::before {
   content: '';
   display: block;

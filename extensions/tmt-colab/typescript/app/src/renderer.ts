@@ -9,6 +9,7 @@ import {
   type DesignSystemSource,
 } from './design-system.js';
 import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
+import { admitImageDownload, type ImageDownload } from './image-download.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
@@ -205,6 +206,8 @@ export async function mountRenderer(
     onLink?(request: PageLinkRequest, active: boolean): void;
     /** Untrusted frame claim; the parent must confirm a current-page attachment before opening it. */
     onAttachmentDownload?(reference: string): void;
+    /** An admitted `data:` image download request; the parent still confirms before saving. */
+    onImageDownload?(image: ImageDownload): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -566,6 +569,18 @@ export async function mountRenderer(
         token.length === 8 ? item.attachmentId.startsWith(token) : item.attachmentId === token,
       );
       if (matches.length === 1) options.onAttachmentDownload?.(matches[0]!.attachmentId);
+      return;
+    }
+    // A `data:` image the frame cannot save itself (#5981): admitted only as a bounded raster image
+    // whose bytes match its type, and saved only on the reader's trusted confirmation.
+    if (
+      ready &&
+      Object.keys(value).length === 4 &&
+      value.type === 'colab.render.image-download' &&
+      value.renderId === snapshot.renderId
+    ) {
+      const image = admitImageDownload(value.src, value.filename);
+      if (image) options.onImageDownload?.(image);
       return;
     }
     if (ready && pageLinkRequest(value, snapshot.renderId)) {

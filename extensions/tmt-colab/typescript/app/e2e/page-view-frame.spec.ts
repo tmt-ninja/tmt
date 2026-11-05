@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
+import { DOWNLOAD_COOLDOWN_MS } from '../src/download-cooldown.js';
 
 const bundle = JSON.parse(
   readFileSync(
@@ -215,6 +216,8 @@ test('verified custom-prefix components receive only their declared data', async
 });
 
 test('attachment download requires parent confirmation and current admission', async ({ page }) => {
+  // Time is the page's own fake clock: the cool-down is stepped through, never waited out.
+  await page.clock.install();
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/e2e/attachment-download-fixture.tsx';
@@ -229,7 +232,24 @@ test('attachment download requires parent confirmation and current admission', a
   expect(await page.evaluate(() => (window as unknown as { reads: number }).reads)).toBe(0);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(await page.evaluate(() => (window as unknown as { reads: number }).reads)).toBe(0);
-  await page.getByRole('button', { name: 'Request', exact: true }).click();
+  // #6094: after a Cancel the page cannot reopen the bar at once; asking again does not extend
+  // the cool-down, and after it the bar opens again.
+  const request = page.getByRole('button', { name: 'Request', exact: true });
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(DOWNLOAD_COOLDOWN_MS - 500);
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(500);
+  await request.click();
+  await expect(dialog).toContainText('example.png');
+  // Escape is a Cancel too; a new render clears the cool-down.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'New render' }).click();
+  await request.click();
   await page.evaluate(() => {
     (window as unknown as { failDownload: boolean }).failDownload = true;
   });
@@ -243,6 +263,9 @@ test('attachment download requires parent confirmation and current admission', a
     .poll(() => page.evaluate(() => (window as unknown as { reads: number }).reads))
     .toBe(2);
   await expect(dialog).toHaveCount(0);
+  // A finished download is no Cancel: the next request opens the bar at once.
+  await request.click();
+  await expect(dialog).toContainText('example.png');
 });
 
 test('trusted page-view preserves authored presentation and selection', async ({ page }) => {
@@ -824,3 +847,158 @@ test('a page view on a page not written only by its owner gets no rows and a fix
   await expect(list.getByText('Page list unavailable')).toBeVisible();
   await expect.poll(frameHeight).toBe(heights[0]);
 });
+
+// #5981: a data: image the frame hands over is saved only on the reader's confirmation, under its
+// cleaned name, one request at a time, with the same cool-down after Cancel.
+test('a page image download asks once, saves the checked bytes and cools down after Cancel', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/e2e/attachment-download-fixture.tsx';
+    const { mountDownloadFixture } = await import(path);
+    mountDownloadFixture();
+  });
+  const dialog = page.getByRole('dialog', { name: 'Download image' });
+  await page.getByRole('button', { name: 'Image first' }).click();
+  await expect(dialog).toContainText('first.png');
+  // A second request while the bar asks is ignored. It arrives as a message, not a pointer press
+  // outside the bar (which would dismiss it), so the fixture's control is activated directly.
+  await page
+    .getByRole('button', { name: 'Image second' })
+    .evaluate((node) => (node as HTMLElement).click());
+  await expect(dialog).toContainText('first.png');
+  await expect(dialog).not.toContainText('second.png');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Image second' }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(DOWNLOAD_COOLDOWN_MS);
+  await page.getByRole('button', { name: 'Image second' }).click();
+  await expect(dialog).toContainText('second.png');
+  const saved = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  const download = await saved;
+  expect(download.suggestedFilename()).toBe('second.png');
+  const { readFile } = await import('node:fs/promises');
+  expect([...(await readFile((await download.path())!))]).toEqual([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1, 2, 3,
+  ]);
+  await expect(dialog).toHaveCount(0);
+});
+
+test('the frame hands over a data: image download link, and the parent admits only checked images', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANAQID';
+  const fake = 'data:image/png;base64,/9j/4AAQAQIDBAUG';
+  const svg = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}`;
+  await page.evaluate(
+    async ({ png, fake, svg }) => {
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      host.id = 'probe';
+      document.body.prepend(host);
+      const asked: unknown[] = [];
+      (window as unknown as { asked: unknown[] }).asked = asked;
+      await mountRenderer(
+        host,
+        `<p><a id="png" download="chart.png" href="${png}">PNG</a>
+         <a id="fake" download="fake.png" href="${fake}">Fake</a>
+         <a id="svg" download="logo.svg" href="${svg}">SVG</a>
+         <a id="plain" href="${png}">Not a download</a></p>`,
+        {
+          signal: new AbortController().signal,
+          onState: (state: string) => {
+            host.dataset.state = state;
+          },
+          onImageDownload: (image: { filename: string; mediaType: string; length: number }) =>
+            asked.push({
+              filename: image.filename,
+              mediaType: image.mediaType,
+              length: image.length,
+            }),
+        },
+      );
+    },
+    { png, fake, svg },
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frameLocator('#probe iframe');
+  for (const id of ['fake', 'svg', 'plain', 'png']) await frame.locator(`#${id}`).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { asked: unknown[] }).asked))
+    .toEqual([{ filename: 'chart.png', mediaType: 'image/png', length: 15 }]);
+});
+
+// A window-high size inside a page frame reads the frame's own viewport, which is the page, so it
+// grew a window-scrolled frame. A stage bounds a sheet menu by the stage; at page level the
+// visible band bounds the sheet menu and the shell (#5981).
+const sheetMenu =
+  '<tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table, To-do, Question, Code, Quote, Divider, Image, Mockup, Callout, Toggle, List, Numbers, Board, Calendar, Embed, File, Link, Columns" placement="sheet"></tmt-ui-block-menu>';
+const windowHigh = [
+  {
+    where: 'a sheet block menu in a stage',
+    html: `<tmt-ui-mockup-block preset="390" height="420">${sheetMenu}</tmt-ui-mockup-block>`,
+    part: '.tmt-block-menu[data-placement="sheet"]',
+    // The menu is longer than this bound, so its height is the bound.
+    fits: (height: number) => height <= 0.6 * 420 + 1,
+  },
+  {
+    where: 'a page-level sheet block menu',
+    html: sheetMenu,
+    part: '.tmt-block-menu[data-placement="sheet"]',
+    fits: (height: number) => height <= 0.6 * 844 + 1,
+  },
+  {
+    where: 'a page-level shell',
+    html: '<tmt-ui-shell items="Colab,Design">Content</tmt-ui-shell>',
+    part: '.tmt-ui-shell',
+    fits: (height: number) => height <= 844,
+  },
+];
+for (const { where, html, part, fits } of windowHigh) {
+  test(`${where} keeps a long page in window scroll`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await servePageRuntime(page);
+    await page.goto('/');
+    await page.evaluate(
+      async ({ release, html }) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        document.body.prepend(host);
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">${html}<div style="height:3000px">Long page</div>`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+      },
+      { release: bundle, html },
+    );
+    const frame = page.locator('iframe[title="Page content"]');
+    const shown = page.frameLocator('iframe[title="Page content"]').locator(part);
+    await expect(shown).toBeVisible();
+    // Once the frame is as tall as the page, the part fits its bound. Sized against the frame's
+    // own viewport it outgrows the bound with the frame, or the renderer gives up on window
+    // scroll and caps the frame.
+    await expect
+      .poll(async () => ({
+        mode: await frame.getAttribute('data-scroll-mode'),
+        tall: ((await frame.boundingBox())?.height ?? 0) > 3000,
+        fits: fits((await shown.boundingBox())?.height ?? Infinity),
+      }))
+      .toEqual({ mode: 'window', tall: true, fits: true });
+  });
+}
