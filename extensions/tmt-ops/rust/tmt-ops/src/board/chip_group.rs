@@ -156,3 +156,110 @@ pub(in crate::board) fn paint_with_idle(
     }
     hits
 }
+
+#[cfg(test)]
+mod design_system_parity {
+    use super::*;
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    use tmt_tui::components::{
+        design_system::{CellGrid, Chip, ChipRow, ChipRowProps, Component, Rect as GridRect, Size},
+        design_system_ratatui,
+    };
+
+    #[test]
+    fn chip_row_matches_board_cells_styles_and_hits() {
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ] {
+            let look = crate::look::Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            let app = crate::board::app::workspace::tests::capture_case("agents", look);
+            for width in [40, 60, 80, 120, 160] {
+                for (selected, cursor) in [(None, None), (Some(1), None), (None, Some(0))] {
+                    let labels = [
+                        "first option with a long label",
+                        "second selected option",
+                        "disabled option",
+                    ];
+                    let choices = labels
+                        .iter()
+                        .enumerate()
+                        .map(|(index, label)| Choice {
+                            id: format!("chip-{index}"),
+                            actionable: true,
+                            text: format!(" {label} "),
+                            gap: " ".into(),
+                            selected: selected == Some(index),
+                            disabled: index == 2,
+                            cursor: cursor == Some(index),
+                        })
+                        .collect();
+                    let groups = [ChipGroup {
+                        label: "Range ".into(),
+                        choices,
+                    }];
+                    let area = Rect::new(0, 0, width, 1);
+                    let mut original = Buffer::empty(area);
+                    let expected = paint(&mut original, area, &groups, &app, None);
+                    let mut grid = CellGrid::new(Size { width, height: 1 });
+                    let chips = labels
+                        .iter()
+                        .enumerate()
+                        .map(|(index, label)| Chip {
+                            id: index as u64,
+                            label: (*label).into(),
+                            gap: " ".into(),
+                            enabled: index != 2,
+                        })
+                        .collect();
+                    let hits = ChipRow::render(
+                        &ChipRowProps {
+                            label: "Range ".into(),
+                            chips,
+                            selected,
+                            cursor,
+                            active: true,
+                        },
+                        GridRect {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height: 1,
+                        },
+                        &mut grid,
+                    );
+                    let mut actual = Buffer::empty(area);
+                    design_system_ratatui::paint(&grid, area, &mut actual, &look.theme, look.depth);
+                    assert_eq!(
+                        actual, original,
+                        "width={width}, selected={selected:?}, look={base:?}/{depth:?}"
+                    );
+                    let expected: Vec<_> = expected
+                        .iter()
+                        .map(|hit| {
+                            (
+                                hit.area.x,
+                                hit.area.width,
+                                hit.id
+                                    .strip_prefix("chip-")
+                                    .unwrap()
+                                    .parse::<u64>()
+                                    .unwrap(),
+                            )
+                        })
+                        .collect();
+                    let hits: Vec<_> = hits
+                        .iter()
+                        .map(|(rect, id)| (rect.x, rect.width, *id))
+                        .collect();
+                    assert_eq!(hits, expected, "width={width}, selected={selected:?}");
+                }
+            }
+        }
+    }
+}

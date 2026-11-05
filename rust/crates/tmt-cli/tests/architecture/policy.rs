@@ -185,6 +185,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui" => &[
             "roxmltree",
+            // Pure design-system props serialize independently of terminal painting.
+            "serde",
             "serde_json",
             "tmt-cli-style",
             "taffy",

@@ -116,4 +116,83 @@ mod tests {
         }
         assert_eq!(plain("Timers", 20), "── Timers ──────────");
     }
+    #[test]
+    fn design_system_rule_matches_board_cells_and_styles() {
+        use tmt_cli_style::{Depth, Theme, theme::Base};
+        use tmt_tui::components::{
+            design_system::{
+                CellGrid, Component, Rect as GridRect, SectionRule, SectionRuleProps, Size, Token,
+            },
+            design_system_ratatui,
+        };
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ] {
+            let look = Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            for width in [40, 60, 80, 120, 160] {
+                for focused in [false, true] {
+                    for title in [
+                        "",
+                        "Saved · 1d",
+                        "A long title that fills much of a narrower section rule",
+                        "hello\tworld\nagain",
+                    ] {
+                        for note in [None, Some("0.9% of input")] {
+                            let area = Rect::new(0, 0, width, 1);
+                            let mut original = Buffer::empty(area);
+                            let line = note.map_or_else(Line::default, |value| {
+                                Line::from(Span::styled(value.to_owned(), look.role(Role::Muted)))
+                            });
+                            if title.is_empty() {
+                                tmt_tui::components::strip::paint_left(
+                                    &mut original,
+                                    area,
+                                    Line::styled(
+                                        plain(title, usize::from(width)),
+                                        look.role(Role::Dim),
+                                    ),
+                                );
+                            } else {
+                                paint(&mut original, area, title, line, focused, look);
+                            }
+                            let mut grid = CellGrid::new(Size { width, height: 1 });
+                            SectionRule::render(
+                                &SectionRuleProps {
+                                    title: title.into(),
+                                    note: note.map(str::to_owned),
+                                    note_role: note.map(|_| Token(Role::Muted)),
+                                    focused,
+                                },
+                                GridRect {
+                                    x: 0,
+                                    y: 0,
+                                    width,
+                                    height: 1,
+                                },
+                                &mut grid,
+                            );
+                            let mut actual = Buffer::empty(area);
+                            design_system_ratatui::paint(
+                                &grid,
+                                area,
+                                &mut actual,
+                                &look.theme,
+                                look.depth,
+                            );
+                            assert_eq!(
+                                actual, original,
+                                "width={width}, title={title:?}, note={note:?}, focused={focused}, look={base:?}/{depth:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

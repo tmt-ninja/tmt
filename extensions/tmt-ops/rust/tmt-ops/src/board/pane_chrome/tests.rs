@@ -273,3 +273,80 @@ fn real_tree_retains_selected_uuid_and_cursor_but_tints_the_row_when_content_rec
         }
     }
 }
+
+#[test]
+fn design_system_pane_rule_matches_the_unboxed_board_control_rule() {
+    use tmt_cli_style::{Theme, theme::Base};
+    use tmt_tui::components::{
+        design_system::{
+            CellGrid, Component, PaneRule, PaneRuleProps, Rect as GridRect, Size, Token,
+        },
+        design_system_ratatui,
+    };
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        for width in [40, 60, 80, 120, 160] {
+            for focused in [false, true] {
+                for ascii in [false, true] {
+                    for title in [
+                        "Agents",
+                        "A long control rule title that tests the board's truncation behavior",
+                    ] {
+                        let mut app =
+                            crate::board::app::workspace::tests::capture_case("agents", look);
+                        app.cron_glyphs = GlyphSet::from_ascii(ascii);
+                        app.focus = if focused { 0 } else { 1 };
+                        let area = Rect::new(0, 0, width, 1);
+                        let mut original = Buffer::empty(area);
+                        crate::board::section_rule::paint(
+                            &mut original,
+                            area,
+                            title,
+                            Line::from(Span::styled("Search", look.role(Role::Muted))),
+                            false,
+                            look,
+                        );
+                        mark_focused_rule(&mut original, &app, Some(area), None);
+                        let mut grid = CellGrid::new(Size { width, height: 1 });
+                        PaneRule::render(
+                            &PaneRuleProps {
+                                title: title.into(),
+                                note: Some("Search".into()),
+                                note_role: Some(Token(Role::Muted)),
+                                focused,
+                                ascii,
+                            },
+                            GridRect {
+                                x: 0,
+                                y: 0,
+                                width,
+                                height: 1,
+                            },
+                            &mut grid,
+                        );
+                        let mut actual = Buffer::empty(area);
+                        design_system_ratatui::paint(
+                            &grid,
+                            area,
+                            &mut actual,
+                            &look.theme,
+                            look.depth,
+                        );
+                        assert_eq!(
+                            actual, original,
+                            "width={width}, focused={focused}, ascii={ascii}, title={title:?}, look={base:?}/{depth:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
