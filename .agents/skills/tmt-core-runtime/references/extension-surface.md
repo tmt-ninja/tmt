@@ -2,8 +2,76 @@
 
 Code-side rules for what core exposes to extensions. Wire shapes and limits are in
 [extension-api](../../../../contracts/extension-api.md) (including "Lifecycle hooks") and
-[mcp-v1](../../../../contracts/mcp-v1.md); the ownership summary is in
+[mcp-v1](../../../../contracts/mcp-v1.md); the seam summary is in
 [ARCHITECTURE.md](../../../../ARCHITECTURE.md#public-command-boundary).
+
+## Ownership overview
+
+The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) owns
+core command registration, option placement and rejection, and the help projection;
+each owner's parser turns its grammar into typed invocations and publishes through
+`tmt-command-output`. Hidden commands parse for internal workflows but never appear
+in help or completion. [Argument parsing](../../../../AGENTS.md#commands-effects-and-contracts) stays with typed parsers.
+Human/JSON share typed result/status contracts; [list](../../../../contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
+Command dispatch, help and completion rules are in
+[Command dispatch and help](#command-dispatch-and-help).
+
+### External command contract (v1)
+
+An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH;
+core wins every collision. On Unix the adapter `exec`s, so the extension inherits
+stdio, TTY and signals and its exit status is the command's. `core_executable` hands
+companions the managed stable launcher via `TMT_EXECUTABLE`, else the invoking executable.
+Only the tail is forwarded; missing official names reuse native installation.
+
+### Local extension API (v1)
+
+`tmt api` is the public, same-user process port for machine-shaped gaps in the
+ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
+stdout. Explicit `--session` uses ordered JSON lines and a lazy resource connection;
+workspace capture retains its bounded read-only snapshot.
+Request admission stays fresh and a schema change ends it with a reopen code.
+`tmt-adapters::api` owns composition/storage; shared `framed_stdio` bounds API/MCP
+frames. The CLI owns publication, request boundaries and cleanup, with no listener
+or daemon. Protocol major 1 accepts additive operations and fields; incompatible
+changes need a new major.
+Human-shaped operations remain their
+ordinary JSON commands, not duplicate API implementations. The
+[extension API contract](../../../../contracts/extension-api.md) owns the protocol and operation contracts.
+
+### Local MCP (v1)
+
+`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface over
+the existing exchange. The [MCP contract](../../../../contracts/mcp-v1.md) owns its wire,
+schemas and bounds; `tmt-adapters::mcp` owns admission and framing and
+`tmt-cli::mcp_command` composes the existing command owners in process. It adds no
+exchange state, persistence or retry semantics and is separate from the private
+Claude channel server.
+
+### Extension hooks (v1)
+
+`tmt-adapters::extension_hooks` delivers consented, best-effort lifecycle
+observations and context lines to verified `tmt-<name>` executables
+([wire contract](../../../../contracts/extension-api.md#lifecycle-hooks)). PATH discovery alone
+never runs a hook; ownership and a stat fingerprint are re-checked before each
+delivery. Capture is per connection and transactional, delivery is bounded and
+never changes a command's result, and a nested `tmt` captures nothing. Extension
+summaries are untrusted informational data. With no consent file a command spawns
+nothing.
+
+## Core command surface
+
+The [grammar](../../../../rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
+the public help surface; core reserves its names before external dispatch.
+Core owns [workspace geometry/codecs](../../../../contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
+creation; CLI, consent/output. The built-in host's store records running members, which restore restarts one at a time through ordinary resume ([built-in snapshots](../../../../contracts/workspace-v1.md#built-in-host-snapshots)). Restore pins bytes; full restore uses ordinary
+resume/external dispatch in created panes. Layout-only grants no launch authority.
+One typed result serves human and JSON output; `identity show`
+without a name uses the shared verified-caller selector and never falls back to
+a working directory, active pane or sole identity.
+`check --capture-only` shares UUID binding selection and `identity_context`'s
+expected-name guard with pinned identity reads, before host capture; ordinary
+check keeps name/pane routing and its existing Digest opportunity.
 
 ## Command dispatch and help
 

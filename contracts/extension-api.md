@@ -11,7 +11,7 @@ No extension installation is required. Capabilities list supported operations an
 byte bounds without creating state. In the default one-request mode, close stdin
 within five seconds. Exit 0 means the operation returned a resource; exit 1 returns
 `{"error":{"code":"...","message":"..."}}`. This is a local same-user
-interface, not remote authorization. The [architecture contract](../ARCHITECTURE.md#local-extension-api-v1)
+interface, not remote authorization. The [extension surface reference](../.agents/skills/tmt-core-runtime/references/extension-surface.md#local-extension-api-v1)
 owns compatibility, transport and persistence rules.
 
 ## Persistent session
