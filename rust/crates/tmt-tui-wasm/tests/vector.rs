@@ -16,6 +16,23 @@ fn versioned_vector_matches_native_renderer() {
             Ok(json) => serde_json::json!({"ok": serde_json::from_str::<Value>(&json).unwrap()}),
             Err(error) => serde_json::json!({"error": error.code}),
         };
-        assert_eq!(actual, case["expected"], "{}", case["name"]);
+        let mut expected = case["expected"].clone();
+        if let Some(output) = expected.get_mut("ok").and_then(Value::as_object_mut)
+            && let Some(runs) = output.remove("cells_rle")
+        {
+            let mut cells = Vec::new();
+            for run in runs.as_array().unwrap() {
+                let count = run[0].as_u64().unwrap() as usize;
+                assert!(count > 0 && cells.len() + count <= 32_768);
+                cells.extend(std::iter::repeat_n(run[1].clone(), count));
+            }
+            assert_eq!(
+                cells.len(),
+                output["width"].as_u64().unwrap() as usize
+                    * output["height"].as_u64().unwrap() as usize
+            );
+            output.insert("cells".into(), Value::Array(cells));
+        }
+        assert_eq!(actual, expected, "{}", case["name"]);
     }
 }

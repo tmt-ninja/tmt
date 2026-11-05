@@ -18,7 +18,18 @@ for (const [i, c] of vector.cases.entries()) {
   let got;
   try { got = {ok: JSON.parse(wasm.render(c.input.component, c.input.props_json, c.input.width, c.input.height))}; }
   catch (e) { got = {error: JSON.parse(String(e)).code}; }
-  assert.deepEqual(outputs[i + 1], c.expected, `native ${c.name}`);
-  assert.deepEqual(got, c.expected, `wasm ${c.name}`);
+  const expected = structuredClone(c.expected);
+  if (expected.ok?.cells_rle) {
+    const cells = [];
+    for (const [count, cell] of expected.ok.cells_rle) {
+      assert.ok(Number.isSafeInteger(count) && count > 0 && cells.length + count <= 32_768);
+      for (let n = 0; n < count; n++) cells.push(cell);
+    }
+    assert.equal(cells.length, expected.ok.width * expected.ok.height);
+    delete expected.ok.cells_rle;
+    expected.ok.cells = cells;
+  }
+  assert.deepEqual(outputs[i + 1], expected, `native ${c.name}`);
+  assert.deepEqual(got, expected, `wasm ${c.name}`);
 }
 console.log(`registry v${vector.registry.version}: ${vector.cases.length} native/wasm vector cases pass`);
