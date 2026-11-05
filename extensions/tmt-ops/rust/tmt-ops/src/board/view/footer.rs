@@ -669,7 +669,7 @@ fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
                     action.verb,
                     Verb::Ui(OpsUiAction::ScrollUp | OpsUiAction::ScrollDown)
                 ) && (app.focused_pane() == Some(crate::config::Pane::Replies)
-                    || app.terminal_showing()))
+                    || app.framed()))
                 && !matches!(action.verb, Verb::Ui(ui) if !ui.footer_hint())
                 && !matches!(
                     action.verb,
