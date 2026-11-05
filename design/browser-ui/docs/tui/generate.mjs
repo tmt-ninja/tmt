@@ -74,8 +74,8 @@ export function extract(oracle = JSON.parse(read(oraclePath))) {
     }));
   const used = new Set(
     frames.flatMap((frame) =>
-      frame.styles.flatMap((row) => [...row.matchAll(/=(s\d+)/g)].map((match) => match[1]))
-    )
+      frame.styles.flatMap((row) => [...row.matchAll(/=(s\d+)/g)].map((match) => match[1])),
+    ),
   );
   const tokens = JSON.parse(read('design/tokens/tokens.json'));
   const theme = read(themePath);
@@ -83,7 +83,7 @@ export function extract(oracle = JSON.parse(read(oraclePath))) {
   if (ansi === undefined)
     throw new Error(`${themePath}: no \`const ANSI_RGB: … = [ … ];\` table found`);
   const ansiRgb = [...ansi.matchAll(/\((\d+), (\d+), (\d+)\)/g)].map(
-    (m) => `rgb(${m[1]}, ${m[2]}, ${m[3]})`
+    (m) => `rgb(${m[1]}, ${m[2]}, ${m[3]})`,
   );
   const lineDictionary = [...new Set(frames.flatMap((frame) => frame.lines))];
   const styleDictionary = [...new Set(frames.flatMap((frame) => frame.styles))];

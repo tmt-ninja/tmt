@@ -57,12 +57,12 @@ const narrow = (state: string, crop?: [number, number]): Sample => ({
 /** Coordinates come from exact text in a particular source row, never a replacement drawing. */
 export function resolveSample(
   input: Sample,
-  look: string
+  look: string,
 ): { frame: Frame; from: number; to: number } {
   const candidates = framesFor(input.state, input.look ?? look).filter(
     (frame) =>
       (input.width === undefined || frame.width === input.width) &&
-      (input.height === undefined || frame.height === input.height)
+      (input.height === undefined || frame.height === input.height),
   );
   const frame =
     candidates.find((frame) => frame.width === 100 && frame.height === 36) ?? candidates[0];
@@ -84,7 +84,7 @@ export function locatePart(frame: Frame, part: AnatomyPart) {
   const index = line?.indexOf(part.text) ?? -1;
   if (index < 0 || line!.indexOf(part.text, index + part.text.length) >= 0)
     throw new Error(
-      `Anatomy label is absent or ambiguous: ${frame.state}, row ${part.row}, ${part.text}`
+      `Anatomy label is absent or ambiguous: ${frame.state}, row ${part.row}, ${part.text}`,
     );
   const column = [...graphemes.segment(line!.slice(0, index))].length + 1;
   return { row: part.row, column, end: column + [...graphemes.segment(part.text)].length - 1 };
@@ -382,16 +382,16 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     title: 'Empty, loading and error states',
     lead: 'Distinguishes absent content, a read in progress and retained failed-read data.',
     section: 'empty-loading-and-error-states',
-    anatomy: sample('conversation-loading', [20, 27]),
+    anatomy: sample('conversation-loading', [18, 25]),
     parts: [
-      { name: 'Content heading', row: 21, text: 'Conversation' },
-      { name: 'Loading content', row: 26, text: 'Loading conversation' },
+      { name: 'Content heading', row: 19, text: 'Conversation' },
+      { name: 'Loading content', row: 25, text: 'Loading conversation' },
     ],
     states: [
       {
         kind: 'normal',
         label: 'Recorded loading conversation',
-        sample: sample('conversation-loading', [20, 27]),
+        sample: sample('conversation-loading', [18, 25]),
       },
       { kind: 'empty', label: 'Empty workspace', sample: sample('empty') },
       { kind: 'error', label: 'Retained stale data', sample: sample('stale') },
@@ -405,7 +405,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
 // A component page may reuse a source crop, but owns its anatomy, purpose and evidence limits.
 function component(
   base: string,
-  doc: Partial<RecordedComponent> & Pick<RecordedComponent, 'slug' | 'title' | 'source'>
+  doc: Partial<RecordedComponent> & Pick<RecordedComponent, 'slug' | 'title' | 'source'>,
 ): RecordedComponent {
   const example = recordedExamples.find((entry) => entry.slug === base);
   if (!example) throw new Error(`Unknown recorded example: ${base}`);
@@ -561,7 +561,7 @@ const recordedParts: RecordedComponent[] = [
       {
         kind: 'normal',
         label: 'Loading context only — busy glyph not recorded',
-        sample: sample('conversation-loading', [20, 27]),
+        sample: sample('conversation-loading', [18, 25]),
       },
     ],
     keys: [],
@@ -647,9 +647,9 @@ const recordedParts: RecordedComponent[] = [
     source: [widget('terminal'), board('terminal_tab/paint')],
     anatomy: sample('frame-live', [0, 7]),
     parts: [
-      { name: 'Header with the way back', row: 0, text: 'ctrl-g' },
-      { name: 'Captured prompt', row: 1, text: '$ cargo test' },
-      { name: 'Captured output', row: 5, text: 'test a ... ok' },
+      { name: 'Header with the way back', row: 1, text: 'ctrl-g' },
+      { name: 'Captured prompt', row: 2, text: '$ cargo test' },
+      { name: 'Captured output', row: 6, text: 'test a ... ok' },
     ],
     states: [
       {
@@ -691,7 +691,7 @@ function modulePage(
   slug: string,
   title: string,
   module: string,
-  variants: { part: string; name: string; description: string }[]
+  variants: { part: string; name: string; description: string }[],
 ): ComponentDoc {
   const records = variants.map(({ part }) => {
     const record = recordedParts.find((entry) => entry.slug === part);
@@ -709,7 +709,7 @@ function modulePage(
       ...new Set([
         module,
         ...records.flatMap((record) =>
-          record.source.filter((path) => path.startsWith('extensions/'))
+          record.source.filter((path) => path.startsWith('extensions/')),
         ),
       ]),
     ],
@@ -718,7 +718,7 @@ function modulePage(
       record.states.map((state) => ({
         ...state,
         label: `${variants[index]!.name}: ${state.label}`,
-      }))
+      })),
     ),
     keys: [...new Set(records.flatMap((record) => record.keys))],
     roles: [...new Set(records.flatMap((record) => record.roles))],
