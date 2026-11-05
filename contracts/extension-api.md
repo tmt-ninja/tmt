@@ -508,8 +508,8 @@ directory}` once the new supervisor names its owner. `terminalId` and `pane` are
   so a caller lists or closes it and never opens again to retry.
 - `terminal.list` `{identityId}` answers `{identityId, terminals: [{terminalId,
 socket, pane, busy, createdMs}]}`, oldest first, with the same identity errors. It
-  opens no stream and types nothing. Each supervisor is asked within 500 ms; one that
-  does not answer is left out. `busy` means a program other than the shell runs in
+  opens no stream and types nothing. All supervisors are asked at once within 500 ms;
+  one that does not answer is left out. `busy` means a program other than the shell runs in
   the foreground.
 - `terminal.close` `{terminalId, force?}` answers `{terminalId, closed: true}` once
   the supervisor hung up its shell and ended. A busy terminal without `force: true` is
@@ -517,9 +517,10 @@ socket, pane, busy, createdMs}]}`, oldest first, with the same identity errors. 
   `force`. An unknown or already ended terminal is `TERMINAL_NOT_FOUND`.
   `API_UNAVAILABLE` means the close was not confirmed and the terminal may still run.
 
-A terminal ends with its shell and with its member. Its supervisor checks about once a
-second that the member's supervisor still runs, by PID and start time, and closes
-itself when it is gone. `identity.stop` with `close`, `identity.remove` and `tmt rm`
+A terminal ends with its shell and with its member. Its supervisor checks every second
+that the member supervisor's PID still exists, and compares its start time when it
+opens and every 30 s, so a reused PID is gone too; it closes itself when the member is
+gone. A check that cannot observe the member keeps the terminal. `identity.stop` with `close`, `identity.remove` and `tmt rm`
 also close all of the member's terminals at once within one 5 s bound. That close is
 advisory: the member action stands, and its answer adds `terminalsLeft`, the ids still
 running, only when some are. The stream on a terminal's `socket` is

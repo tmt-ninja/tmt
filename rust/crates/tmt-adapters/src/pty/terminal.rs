@@ -106,21 +106,63 @@ pub fn environment() -> Vec<(OsString, Option<OsString>)> {
         .collect()
 }
 
-/// Whether the member supervisor `pid`, started at `start`, still runs. A reused PID with
-/// another start is gone; an observation that fails keeps the terminal.
+/// How often a terminal compares its member supervisor's start identity, off its loop.
+const START_CHECK: Duration = Duration::from_secs(30);
+
+/// Whether the member supervisor `pid`, started at `start`, still runs. It is called on the
+/// supervisor's loop, so each call only signals the PID (`kill(pid, 0)`, no fork, no wait):
+/// a PID that is gone ends the terminal. The start identity, which needs `ps`, is compared on a
+/// helper thread at the first call and then every `START_CHECK`; a reused PID with another
+/// start is gone. An observation that fails keeps the terminal: unknown never ends it.
 pub fn member_alive(pid: u64, start: String) -> Box<dyn FnMut() -> bool + Send> {
+    member_alive_every(pid, start, START_CHECK)
+}
+
+fn member_alive_every(pid: u64, start: String, every: Duration) -> Box<dyn FnMut() -> bool + Send> {
+    let mut checked: Option<Instant> = None;
+    let mut pending: Option<mpsc::Receiver<bool>> = None;
     Box::new(move || {
-        match observe_runtime_process(
-            &UnixCommandRunner,
-            pid,
-            Instant::now() + Duration::from_millis(300),
-        ) {
-            Ok(ProcessObservation::Live(process) | ProcessObservation::Stopped(process)) => {
-                process.start_identity() == start
-            }
-            Ok(_) => false,
-            Err(_) => true,
+        let Ok(raw) = i32::try_from(pid) else {
+            return false;
+        };
+        if nix::sys::signal::kill(nix::unistd::Pid::from_raw(raw), None)
+            == Err(nix::errno::Errno::ESRCH)
+        {
+            return false;
         }
+        if let Some(answer) = &pending {
+            match answer.try_recv() {
+                Ok(same) => {
+                    pending = None;
+                    if !same {
+                        return false;
+                    }
+                }
+                Err(mpsc::TryRecvError::Disconnected) => pending = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if pending.is_none() && checked.is_none_or(|at| at.elapsed() >= every) {
+            checked = Some(Instant::now());
+            let (sender, answer) = mpsc::channel();
+            let start = start.clone();
+            std::thread::spawn(move || {
+                let same = match observe_runtime_process(
+                    &UnixCommandRunner,
+                    pid,
+                    Instant::now() + Duration::from_secs(3),
+                ) {
+                    Ok(
+                        ProcessObservation::Live(process) | ProcessObservation::Stopped(process),
+                    ) => process.start_identity() == start,
+                    Ok(_) => false,
+                    Err(_) => true,
+                };
+                let _ = sender.send(same);
+            });
+            pending = Some(answer);
+        }
+        true
     })
 }
 
@@ -211,23 +253,39 @@ pub fn open(
     }
 }
 
-/// The live terminals of `identity`, oldest first. Each supervisor is asked within
-/// `PER_SOCKET`; one that does not answer, or names another owner, is left out.
+/// The live terminals of `identity`, oldest first. All supervisors are asked in parallel
+/// within one `PER_SOCKET`; one that does not answer, or names another owner, is left out.
 pub fn list(paths: &ConfigPaths, identity: &str) -> Vec<Terminal> {
     let pty = paths.pty_directory();
-    let mut terminals: Vec<_> = terminal_ids(&pty)
-        .into_iter()
-        .filter_map(|id| {
-            let (owner, created_ms, busy) =
-                ask(&pty, &id, Instant::now() + PER_SOCKET).ok().flatten()?;
-            (owner == identity).then(|| Terminal {
+    // Every supervisor is asked at once, so hung ones cost one `PER_SOCKET` in all.
+    let deadline = Instant::now() + PER_SOCKET;
+    let (sender, answers) = mpsc::channel();
+    let ids = terminal_ids(&pty);
+    for id in &ids {
+        let (sender, pty, id) = (sender.clone(), pty.clone(), id.clone());
+        std::thread::spawn(move || {
+            let answer = ask(&pty, &id, deadline).ok().flatten();
+            let _ = sender.send((id, answer));
+        });
+    }
+    drop(sender);
+    let mut terminals = Vec::new();
+    for _ in &ids {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok((id, answer)) = answers.recv_timeout(remaining + Duration::from_millis(50)) else {
+            break;
+        };
+        if let Some((owner, created_ms, busy)) = answer
+            && owner == identity
+        {
+            terminals.push(Terminal {
                 socket: socket_path(&pty, &id).to_string_lossy().into_owned(),
                 id,
                 busy,
                 created_ms,
-            })
-        })
-        .collect();
+            });
+        }
+    }
     terminals.sort_by(|a, b| a.created_ms.cmp(&b.created_ms).then(a.id.cmp(&b.id)));
     terminals
 }
@@ -361,5 +419,68 @@ fn open_lock(pty: &Path, identity: &str) -> io::Result<nix::fcntl::Flock<fs::Fil
             }
             Err(error) => return Err(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn own_start() -> String {
+        match observe_runtime_process(
+            &UnixCommandRunner,
+            u64::from(std::process::id()),
+            Instant::now() + Duration::from_secs(3),
+        )
+        .unwrap()
+        {
+            ProcessObservation::Live(process) => process.start_identity().to_owned(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Calls the check as the supervisor loop does until `until` holds; every call must
+    /// return at once, since the start comparison runs on a helper thread.
+    fn calls_until(check: &mut Box<dyn FnMut() -> bool + Send>, until: bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let started = Instant::now();
+            let alive = check();
+            assert!(
+                started.elapsed() < Duration::from_millis(50),
+                "the check blocked the loop for {:?}",
+                started.elapsed()
+            );
+            if alive == until {
+                return;
+            }
+            assert!(Instant::now() < deadline, "never {until}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn the_member_check_never_blocks_and_ends_only_on_proof() {
+        let pid = u64::from(std::process::id());
+        // The same incarnation stays alive through several start comparisons.
+        let mut same = member_alive_every(pid, own_start(), Duration::from_millis(20));
+        let until = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < until {
+            calls_until(&mut same, true);
+        }
+
+        // A live PID with another start is a reused PID: gone, found off the loop.
+        let mut reused = member_alive_every(pid, "ps-v1:another".into(), START_CHECK);
+        calls_until(&mut reused, false);
+
+        // A PID that is gone ends the terminal on the first call.
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let gone = u64::from(child.id());
+        child.wait().unwrap();
+        let mut ended = member_alive_every(gone, own_start(), START_CHECK);
+        assert!(!ended());
     }
 }

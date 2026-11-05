@@ -407,9 +407,11 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   `Control::Terminal` (`0x2e`, capability bit 3) answers owner, created time and `busy`
   (`tcgetpgrp` of the master is not the shell). In terminal mode it refuses Publish,
   PublishIf and Relaunch, ends when its shell ends, and closes itself when its member
-  supervisor's PID and start no longer match (checked every second; a failed observation
-  keeps it). Only `pty::terminal` scans the directory, and only for `term_` sockets, with a
-  500 ms answer bound per socket; the member host never scans, so a terminal is never a
+  supervisor's PID and start no longer match. The loop only signals the PID each second
+  (`kill(pid, 0)`); the start identity, which needs `ps`, is compared on a helper thread at
+  the first check and every 30 s, and a failed observation keeps the terminal. Only
+  `pty::terminal` scans the directory, and only for `term_` sockets, asking all of them in
+  parallel within one 500 ms bound; the member host never scans, so a terminal is never a
   pane, binding or Talk target. Opening counts and starts under a per-identity flock. Its
   environment strips `Host::pty_environment` names and every driver's
   `Runtime.session_env`. `verified_stop` closes a member's terminals with `close_all`
