@@ -370,6 +370,27 @@ mod board {
     }
 
     #[test]
+    fn a_terminal_row_has_no_recipient_and_its_stream_drops_when_the_selection_moves() {
+        let (mut app, member) = listed_board();
+        select(&mut app, &member, 1);
+        assert_eq!(app.workspace_message_target(), None);
+        assert_eq!(app.skill_recipient(), None);
+        assert!(
+            app.composer_projection()
+                .is_none_or(|projection| projection.key.is_none())
+        );
+        let id = terminal(1, 0, false).id;
+        assert!(app.terminal_sync());
+        assert!(
+            app.terminal.view(&id).is_some(),
+            "the selected terminal streams"
+        );
+        app.workspace.selected = Some(member.clone());
+        assert!(app.terminal_sync(), "moving off the row drops the stream");
+        assert!(app.terminal.view(&id).is_none());
+    }
+
+    #[test]
     fn a_terminal_row_shows_mock_8s_keys() {
         let (mut app, member) = listed_board();
         select(&mut app, &member, 1);
