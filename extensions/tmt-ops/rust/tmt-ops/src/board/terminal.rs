@@ -687,8 +687,7 @@ mod tests {
             println!("Board raw mode entered");
             panic!("board panic note regression");
         }
-        let root = crate::cache::directory("panic-hook-test").unwrap();
-        std::fs::create_dir_all(&root).unwrap();
+        let root = crate::test_support::Scratch::new("panic-hook-test");
         let run = |mode: &str| {
             let log = root.join(format!("{mode}.log"));
             // Only the child sees this owned PTY. The parent verifies real
@@ -728,7 +727,7 @@ finally:
                 .arg(std::env::current_exe().unwrap())
                 .arg(&log)
                 .env(CHILD, mode)
-                .env("TMPDIR", &root)
+                .env("TMPDIR", root.as_ref().as_os_str())
                 .status()
                 .unwrap();
             assert!(status.success(), "isolated panic/termios proof");
@@ -763,7 +762,6 @@ finally:
             "original panic still reports: {failed}"
         );
         assert!(!failed.contains("panicked while processing panic"));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

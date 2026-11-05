@@ -79,12 +79,9 @@ mod tests {
     use super::*;
     use std::os::unix::{fs::PermissionsExt, fs::symlink};
 
-    /// A scratch directory inside this process's own cache root, never the host's.
-    fn scratch(name: &str) -> PathBuf {
-        let directory = super::super::directory(name).unwrap();
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        directory
+    /// A scratch directory owned by the test, never the host's cache.
+    fn scratch(name: &str) -> crate::test_support::Scratch {
+        crate::test_support::Scratch::new(name)
     }
 
     #[test]

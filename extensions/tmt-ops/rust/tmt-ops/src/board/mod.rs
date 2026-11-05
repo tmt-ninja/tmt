@@ -1446,7 +1446,7 @@ fn session(
                                 app.key(key)
                             })
                         } else {
-                            app.trace_key("key_ignored", key);
+                            app.trace_key("key_ignored", key, None);
                             Effect::None
                         }
                     }

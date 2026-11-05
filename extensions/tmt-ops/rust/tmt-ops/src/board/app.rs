@@ -4076,7 +4076,7 @@ impl App {
         }
     }
 
-    pub(in crate::board) fn trace_key(&self, phase: &str, key: KeyEvent) {
+    pub(in crate::board) fn trace_key(&self, phase: &str, key: KeyEvent, effect: Option<&Effect>) {
         let Some(trace) = &self.navigation_trace else {
             return;
         };
@@ -4095,13 +4095,16 @@ impl App {
         };
         trace.navigation(json!({"event":phase, "key":format!("{:?}",key.code),
             "modifiers":format!("{:?}",key.modifiers), "kind":format!("{:?}",key.kind),
-            "owner":format!("{owner:?}"), "verb":verb, "selected":self.trace_target()}));
+            "owner":format!("{owner:?}"), "verb":verb, "selected":self.trace_target(),
+            "effect":effect.map(|effect| match effect {
+                Effect::None => "none", Effect::Refresh => "refresh", Effect::Load(_) => "load", _ => "other"
+            })}));
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
-        self.trace_key("key_before", key);
+        self.trace_key("key_before", key, None);
         let effect = self.key_effect(key);
-        self.trace_key("key_after", key);
+        self.trace_key("key_after", key, Some(&effect));
         effect
     }
 

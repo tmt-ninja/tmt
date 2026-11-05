@@ -5355,6 +5355,28 @@ describe('composer terminal input', () => {
 // board 235 ms, a tab switch repaints in 10 ms. The budgets are ten times that, so only
 // blocking work placed ahead of a frame fails, not a loaded CI machine.
 describe('large board responsiveness', () => {
+  const quitBoard = async (
+    scratch: ReturnType<typeof startPrivateTmux>,
+    pane: string,
+    pid: number
+  ) => {
+    const exited = () => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+        throw error;
+      }
+    };
+    if (exited()) return;
+    scratch.run(['send-keys', '-t', pane, 'q']);
+    await vi.waitFor(() => expect(exited()).toBe(true), {
+      timeout: 10_000,
+      interval: 25,
+    });
+  };
+
   it.each([
     { theme: 'tmt', width: 160 },
     { theme: 'tmt-light', width: 160 },
@@ -6471,6 +6493,64 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
+  it('quits the owned board when a post-launch assertion fails', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const scratch = startPrivateTmux(sandbox, 'board-failure');
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const { tmux } = scratch;
+      expect((await runCli(sandbox, ['identity', 'create', 'Ben', '--json'])).status).toBe(0);
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      tmux([
+        'new-session',
+        '-d',
+        '-s',
+        'failure',
+        '-c',
+        sandbox.root,
+        '-x',
+        '120',
+        '-y',
+        '40',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const pid = Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']));
+      const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      await expect(
+        (async () => {
+          try {
+            tmux([
+              'send-keys',
+              '-t',
+              pane,
+              '-l',
+              `exec ${quoted(sandbox.cli.executable)} ops ui --squad product`,
+            ]);
+            tmux(['send-keys', '-t', pane, 'Enter']);
+            await vi.waitFor(
+              () => expect(tmux(['capture-pane', '-p', '-t', pane])).toContain('OPS / UI'),
+              { timeout: 30_000, interval: 50 }
+            );
+            throw new Error('intentional post-launch failure');
+          } finally {
+            try {
+              await quitBoard(scratch, pane, pid);
+            } finally {
+              scratch.stop();
+              await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+                timeout: 10_000,
+                interval: 25,
+              });
+            }
+          }
+        })()
+      ).rejects.toThrow('intentional post-launch failure');
+    });
+  }, 60_000);
+
   it('paints a placeholder before configuration and switches tabs and panes off the input thread', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -6499,6 +6579,7 @@ describe('large board responsiveness', () => {
         '/bin/sh',
       ]);
       const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      let board: { pane: string; pid: number } | undefined;
       try {
         for (let index = 0; index < 71; index += 1) tmux(['new-window', '-d', '/bin/sh']);
         expect(tmux(['list-panes', '-a', '-F', '#{pane_id}']).split('\n')).toHaveLength(72);
@@ -6513,7 +6594,16 @@ describe('large board responsiveness', () => {
           sandbox.root,
           'exec /bin/sh',
         ]);
+        board = { pane, pid: Number(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}'])) };
         const trace = path.join(sandbox.root, 'large.trace.jsonl');
+        const keys = path.join(sandbox.root, 'large.keys.jsonl');
+        const keyRecords = () =>
+          existsSync(keys)
+            ? readFileSync(keys, 'utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line))
+            : [];
         const records = () =>
           existsSync(trace)
             ? readFileSync(trace, 'utf8')
@@ -6527,7 +6617,7 @@ describe('large board responsiveness', () => {
           '-t',
           pane,
           '-l',
-          `TMT_OPS_TIMING_TRACE=${quoted(trace)} ${quoted(sandbox.cli.executable)} ops ui --squad product`,
+          `exec env TMT_OPS_TIMING_TRACE=${quoted(trace)} TMT_OPS_TEST_KEY_TRACE=${quoted(keys)} ${quoted(sandbox.cli.executable)} ops ui --squad product`,
         ]);
         tmux(['send-keys', '-t', pane, 'Enter']);
         await vi.waitFor(
@@ -6558,57 +6648,60 @@ describe('large board responsiveness', () => {
           (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
         expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
         expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
-        // The Usage band's readers finish their first loads shortly after the first board;
-        // count from the moment the load stage has been quiet for a second.
-        const loadCount = () => records().filter((r) => r.stage === 'load').length;
-        const settle = async () => {
-          let loads = loadCount();
-          for (let quiet = 0; quiet < 1000;) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            const now = loadCount();
-            quiet = now === loads ? quiet + 100 : 0;
-            loads = now;
-          }
-          return loads;
-        };
-        // Every switch paints at once from the acquired snapshot. A tab switch (1 Agents, 2 Digest)
-        // may start its own async fill afterwards; the Talk/Measure pane switch (M) loads nothing.
-        const switchTo = async (key: string, loads?: number) => {
-          const before = tmux(['capture-pane', '-p', '-t', pane]);
-          const pressed = Date.now();
-          tmux(['send-keys', '-t', pane, key]);
+        // Test the effect of this key, not unrelated background loads which can
+        // finish long after the first frame under CI load.
+        const handled = async (key: string, previous: number, effect: string) => {
           await vi.waitFor(
             () => {
-              expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
-              if (loads !== undefined) expect(loadCount()).toBe(loads);
+              const after = keyRecords().filter(
+                (record: { event: string; key: string }) =>
+                  record.event === 'key_after' && record.key === key
+              );
+              expect(after.length).toBeGreaterThan(previous);
+              expect(after.at(-1).effect).toBe(effect);
             },
             { timeout: budgetMs.tabSwitch, interval: 10 }
           );
+        };
+        const switchTo = async (key: string) => {
+          const before = tmux(['capture-pane', '-p', '-t', pane]);
+          const keyName = `Char('${key}')`;
+          const prior = keyRecords().filter(
+            (record: { event: string; key: string }) =>
+              record.event === 'key_after' && record.key === keyName
+          ).length;
+          const pressed = Date.now();
+          tmux(['send-keys', '-t', pane, key]);
+          await vi.waitFor(
+            () => expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before),
+            { timeout: budgetMs.tabSwitch, interval: 10 }
+          );
+          if (key === 'M') await handled(keyName, prior, 'none');
           expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
         };
-        await settle();
         await switchTo('2');
-        await settle();
         await switchTo('1');
-        const loads = await settle();
-        await switchTo('M', loads);
-        await switchTo('M', loads);
-        // The board ends on q and its pane shell returns; only then does the server go.
-        tmux(['send-keys', '-t', pane, 'q']);
-        await vi.waitFor(
-          () =>
-            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
-              'tmt-ops'
-            ),
-          { timeout: 10_000, interval: 25 }
-        );
+        await switchTo('M');
+        await switchTo('M');
+        // Positive control: an explicit refresh must be distinguishable from M.
+        const refreshes = keyRecords().filter(
+          (record: { event: string; key: string; modifiers: string }) =>
+            record.event === 'key_after' &&
+            record.key === "Char('r')" &&
+            record.modifiers.includes('CONTROL')
+        ).length;
+        tmux(['send-keys', '-t', pane, 'C-r']);
+        await handled("Char('r')", refreshes, 'refresh');
       } finally {
-        // Stopping the server is acknowledged before its panes' HUP handlers finish: wait for the server itself.
-        scratch.stop();
-        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
-          timeout: 10_000,
-          interval: 25,
-        });
+        try {
+          if (board) await quitBoard(scratch, board.pane, board.pid);
+        } finally {
+          scratch.stop();
+          await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+            timeout: 10_000,
+            interval: 25,
+          });
+        }
       }
     });
   }, 120_000);

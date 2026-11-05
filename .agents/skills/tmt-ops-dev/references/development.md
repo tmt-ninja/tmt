@@ -134,8 +134,9 @@ CARGO_BUILD_JOBS=2 cargo +1.98.1 test --release --locked -p tmt-ops workspace_an
   and partial-read recovery. `board::home::tests` checks the retained board model
   against that aggregate. Ops test builds resolve `cache::directory` to one
   create-new directory private to the test process (never the host's `XDG_CACHE_HOME`/`~/.cache`;
-  a later run sweeps the directories of finished owners), so tests need no cache injection;
-  process tests still set their own roots.
+  a later run sweeps the directories of finished owners). Refresh and observation fixtures
+  that publish staleness use fixture-owned cache roots removed on drop; process tests set
+  their own roots.
 - Workspace checks cover zero/8/36 squads, dense identities, UUID selection, scoped
   state/count truth, low-height scroll, clipped/stale hits, modal lifecycle and
   reload. `capture_workspace_packet` writes explicit cells/styles/hits to the

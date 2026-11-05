@@ -979,3 +979,25 @@ fn replacement_preserves_observer_path_lock_age_and_existing_directory_mode() {
         fixture.squad.room_id
     );
 }
+
+#[test]
+fn fixture_cache_cleans_its_directory_even_after_unwind_and_keeps_other_fixture() {
+    let scratch = crate::test_support::Scratch::new("staleness-cleanup");
+    let first = scratch.join("first.toml");
+    let other = scratch.join("other.toml");
+    let _other_guard = FixtureCache::new(&other);
+    let other_dir = fixture_caches().lock().unwrap()[&other].clone();
+    fs::write(other_dir.join("other"), b"other").unwrap();
+    let mut own_dir = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = FixtureCache::new(&first);
+        let dir = fixture_caches().lock().unwrap()[&first].clone();
+        fs::write(dir.join("own"), b"own").unwrap();
+        own_dir = Some(dir);
+        panic!("exercise cleanup on failure");
+    }));
+    assert!(result.is_err());
+    assert!(!own_dir.unwrap().exists());
+    assert!(!fixture_caches().lock().unwrap().contains_key(&first));
+    assert_eq!(fs::read(other_dir.join("other")).unwrap(), b"other");
+}

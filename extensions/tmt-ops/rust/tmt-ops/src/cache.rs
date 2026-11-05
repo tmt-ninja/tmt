@@ -133,10 +133,11 @@ mod tests {
     fn every_resolution_in_a_test_shares_one_private_root_that_is_writable() {
         let first = directory("isolation-check").unwrap();
         assert_eq!(first.parent(), directory("limits").unwrap().parent());
-        let file = first.join("squad.json");
-        replace(&file, b"{}").unwrap();
+        let root = first.parent().unwrap().parent().unwrap();
+        let file = root.join("isolation-check.json");
+        fs::write(&file, b"{}").unwrap();
         assert_eq!(fs::read(&file).unwrap(), b"{}");
-        fs::remove_dir_all(first).unwrap();
+        fs::remove_file(file).unwrap();
     }
 }
 
