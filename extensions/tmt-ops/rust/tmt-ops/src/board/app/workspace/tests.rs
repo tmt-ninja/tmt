@@ -2625,6 +2625,7 @@ pub(in crate::board) fn install_hourly_tokens(
         },
         model_totals: None,
         window_series: None,
+        complete_hour_inputs: None,
         model_inputs: None,
         input: cells.iter().sum(),
         output: 0,

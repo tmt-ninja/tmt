@@ -62,6 +62,7 @@ fn report_for_member(app: &mut App) {
         },
         model_totals: None,
         window_series: None,
+        complete_hour_inputs: None,
         model_inputs: Some(vec![("gpt-6-sol".into(), 1_000_000)]),
         input: 1_000_000,
         output: 100,
@@ -217,4 +218,93 @@ fn the_usage_report_is_wanted_on_the_agents_tab_only_while_money_is_shown() {
         app.usage_report_want().map(|want| want.since()),
         Some(app.tok_range())
     );
+}
+
+#[test]
+fn partial_prices_use_only_complete_attributed_hours_and_keep_unknowns_unknown() {
+    let mut app = valued_board();
+    hold(&mut app, SavingsUnit::Cost);
+    report_for_member(&mut app);
+    assert_eq!(app.tok_money_text(&[MEMBER]), "≈$2.00");
+    let mut report = app
+        .usage_report
+        .retained_report(TokRange::Day)
+        .unwrap()
+        .as_ref()
+        .clone();
+    report.seats[0].complete = false;
+    report.seats[0].complete_hour_inputs = Some((vec![("gpt-6-sol".into(), 500_000)], 23));
+    let show = |app: &mut App, report: &Report| {
+        app.usage_report.apply(Delivery {
+            since: TokRange::Day,
+            result: Ok(report.clone()),
+        });
+        app.tok_money_text(&[MEMBER])
+    };
+    assert_eq!(show(&mut app, &report), "~$1.00");
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report.clone()),
+    });
+    assert_eq!(app.tok_money_text(&[MEMBER, "missing"]), "~$1.00");
+    let mut second = report.seats[0].clone();
+    second.who.id = Some("zz-second".into());
+    second.complete = true;
+    second.complete_hour_inputs = None;
+    report.seats.push(second);
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report.clone()),
+    });
+    assert_eq!(app.tok_money_text(&[MEMBER, "zz-second"]), "~$3.00");
+    report.seats.pop();
+    let mut unpriced = report.seats[0].clone();
+    unpriced.who.id = Some("zz-unpriced".into());
+    unpriced.complete_hour_inputs = None;
+    unpriced.model_inputs = Some(vec![("unpriced".into(), 100)]);
+    report.seats.push(unpriced);
+    app.usage_report.apply(Delivery {
+        since: TokRange::Day,
+        result: Ok(report.clone()),
+    });
+    assert_eq!(app.tok_money_text(&[MEMBER, "zz-unpriced"]), "—");
+    report.seats.pop();
+    report.seats[0].complete_hour_inputs = None;
+    assert_eq!(show(&mut app, &report), "—");
+    report.seats[0].complete_hour_inputs = Some((vec![("unpriced".into(), 500_000)], 23));
+    report.seats[0].model_inputs = Some(vec![("unpriced".into(), 1_000_000)]);
+    assert_eq!(show(&mut app, &report), "—");
+}
+
+#[test]
+#[ignore = "read-only visual capture for #6083"]
+fn capture_agents_cost_cells_at_160_columns() {
+    let mut app = valued_board();
+    app.workspace.filter = AgentsFilter::Agents;
+    hold(&mut app, SavingsUnit::Cost);
+    report_for_member(&mut app);
+    let original = app
+        .usage_report
+        .retained_report(TokRange::Day)
+        .unwrap()
+        .as_ref()
+        .clone();
+    for name in ["complete", "partial", "no-hour", "unpriced"] {
+        let mut report = original.clone();
+        if name != "complete" {
+            report.seats[0].complete = false;
+            report.seats[0].complete_hour_inputs = Some((vec![("gpt-6-sol".into(), 500_000)], 23));
+        }
+        if name == "no-hour" {
+            report.seats[0].complete_hour_inputs = None;
+        }
+        if name == "unpriced" {
+            report.seats[0].model_inputs = Some(vec![("unpriced".into(), 1_000_000)]);
+        }
+        app.usage_report.apply(Delivery {
+            since: TokRange::Day,
+            result: Ok(report),
+        });
+        println!("--- {name} ---\n{}", paint(&app, 160, 36).join("\n"));
+    }
 }

@@ -126,6 +126,14 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
             crate::board::savings::usd_text(price)
         ));
     }
+    if let Some((_, covered, total)) =
+        crate::board::usage_report::valuation::partial_input_price(app, report, &selected.ids)
+        && covered < total
+    {
+        text.push(format!(
+            "Price estimate coverage: {covered} of {total} member-hours"
+        ));
+    }
     if let Some(id) = selected.id {
         if let Some(member) = app
             .labels

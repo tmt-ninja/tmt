@@ -66,6 +66,8 @@ pub struct WindowSeries {
 pub struct Seat {
     /// Exact per-model input attribution, absent when the source cannot provide it.
     pub model_inputs: Option<Vec<(String, u64)>>,
+    /// Attributed inputs and number of fully covered hours in the 1d window.
+    pub complete_hour_inputs: Option<(Vec<(String, u64)>, usize)>,
     pub model_totals: Option<Vec<(String, u64)>>,
     pub window_series: Option<WindowSeries>,
     pub who: Who,

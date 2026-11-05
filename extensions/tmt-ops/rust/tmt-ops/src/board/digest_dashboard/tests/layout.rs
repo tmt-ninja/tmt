@@ -49,6 +49,7 @@ pub(super) fn fixture() -> App {
             },
             model_totals: None,
             window_series: None,
+            complete_hour_inputs: None,
             model_inputs: None,
             input: (i as u64 + 1) * 1000,
             output: 100,
