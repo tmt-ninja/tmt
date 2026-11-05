@@ -8,7 +8,7 @@
     "lock": {"type": "string", "default": "follow"},
     "preset": {"enum": ["390", "1440", "custom"], "default": "390"},
     "width": {"type": "string"},
-    "height": {"type": "string", "default": "400"}
+    "height": {"type": "string", "default": "0"}
   },
   "slots": ["default"],
   "css": "../../../browser-ui/src/blocks/blocks.css",

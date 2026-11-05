@@ -1003,6 +1003,114 @@ for (const { where, html, part, fits } of windowHigh) {
   });
 }
 
+// #5981: a mockup stage hugs its content (`height` is a minimum), sits centred when narrower than
+// the block, and shows a phone sheet whole; its toolbar is two segmented groups that wrap whole.
+const stages = `
+  <tmt-ui-mockup-block id="hug" preset="390"><div id="hug-content" style="height:150px">Short</div></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="min" preset="390" height="300"><div style="height:150px">Short</div></tmt-ui-mockup-block>
+  <tmt-ui-mockup-block id="sheet" preset="390"><tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table" placement="sheet"></tmt-ui-block-menu></tmt-ui-mockup-block>`;
+for (const width of [390, 1440])
+  test(`mockup stages hug their content, centre and keep a segmented toolbar at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await servePageRuntime(page);
+    await page.goto('/');
+    await page.addStyleTag({ content: 'iframe[title="Page content"]{width:100%!important}' });
+    await page.evaluate(
+      async ({ release, html }) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        document.body.prepend(host);
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">${html}`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+      },
+      { release: bundle, html: stages },
+    );
+    const content = page.frameLocator('iframe[title="Page content"]');
+    const stage = (id: string) => content.locator(`#${id} [data-tmt-ds-scope]`);
+    const height = async (id: string) => Math.round((await stage(id).boundingBox())?.height ?? 0);
+    await expect(stage('hug').getByText('Short')).toBeVisible();
+    // The stage is its content's height, and follows it; a minimum holds a shorter content.
+    await expect.poll(() => height('hug')).toBe(150);
+    await expect.poll(() => height('min')).toBe(300);
+    await content.locator('#hug-content').evaluate((node) => (node.style.height = '220px'));
+    await expect.poll(() => height('hug')).toBe(220);
+    // A phone sheet sizes itself from the stage; with no minimum the stage is the sheet's own
+    // height over its 60% share, so every row shows and nothing scrolls.
+    const sheet = content.locator('#sheet .tmt-block-menu[data-placement="sheet"]');
+    const fit = await sheet.evaluate((node: HTMLElement) => ({
+      client: node.clientHeight,
+      scroll: node.scrollHeight,
+      border: node.offsetHeight - node.clientHeight,
+    }));
+    expect(fit.scroll).toBeLessThanOrEqual(fit.client);
+    expect(
+      Math.abs((await height('sheet')) - Math.ceil((fit.scroll + fit.border) / 0.6)),
+    ).toBeLessThanOrEqual(1);
+    await expect(sheet.getByRole('option')).toHaveCount(3);
+    const bounds = await stage('sheet').boundingBox();
+    for (const option of await sheet.getByRole('option').all()) {
+      const row = await option.boundingBox();
+      expect(
+        row && bounds && row.y >= bounds.y && row.y + row.height <= bounds.y + bounds.height + 0.5,
+      ).toBe(true);
+    }
+    // A 390 stage sits in the middle of a wider block.
+    const box = await content.locator('#hug .tmt-block-mockup-viewport').boundingBox();
+    const inner = await stage('hug').boundingBox();
+    if (box && inner && box.width > 391)
+      expect(
+        Math.abs(inner.x - box.x - (box.x + box.width - inner.x - inner.width)),
+      ).toBeLessThanOrEqual(1);
+    else expect(inner?.x).toBe(box?.x);
+    // Each group keeps its segments on one row inside the block; the chosen one is filled.
+    const block = await content.locator('#hug').boundingBox();
+    for (const name of ['Stage width', 'Theme']) {
+      const group = content.locator('#hug').getByRole('group', { name });
+      const tops = await group
+        .getByRole('button')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => Math.round(button.getBoundingClientRect().top)),
+        );
+      expect(new Set(tops).size).toBe(1);
+      const edge = await group.boundingBox();
+      expect((edge?.x ?? 0) + (edge?.width ?? Infinity)).toBeLessThanOrEqual(
+        (block?.x ?? 0) + (block?.width ?? 0) + 0.5,
+      );
+    }
+    const toolbar = content.locator('#hug').getByRole('toolbar', { name: 'Mockup settings' });
+    expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const chosen = toolbar.getByRole('button', { name: '390' });
+    const other = toolbar.getByRole('button', { name: '1440' });
+    await expect(chosen).toHaveAttribute('aria-pressed', 'true');
+    await expect(other).toHaveAttribute('aria-pressed', 'false');
+    await expect(toolbar.getByRole('button', { name: 'Viewer' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const fill = (button: typeof chosen) =>
+      button.evaluate((node) => getComputedStyle(node).backgroundColor);
+    expect(await fill(chosen)).not.toBe(await fill(other));
+    // Hugging never reads as viewport coupling.
+    await expect(page.locator('iframe[title="Page content"]')).toHaveAttribute(
+      'data-scroll-mode',
+      'window',
+    );
+  });
+
 // #5981: the block-menu tag draws the one insert catalog, as the design-system docs' phone sheet does.
 test('the block-menu tag draws catalog rows with icon, description, shortcut and group', async ({
   page,
@@ -1086,22 +1194,20 @@ async function mountRuntimePage(page: Page, body: string, width = 390) {
   );
   return page.locator('iframe[title="Page content"]');
 }
-/** A late part: marked as a part, painted only after `paintAfter` uneven growth steps (never when
+/** A late part: counted as pending, painted only after `paintAfter` uneven growth steps (never when
  * 0), so the page grows while parts still paint. */
 const lateGrowth = (steps: number, paintAfter: number) =>
   `<script>
     // Taller than the window, so every step grows the frame.
     document.body.append(Object.assign(document.createElement('div'), { style: 'height:1000px' }));
-    const late = document.createElement('div');
-    late.__tmtPart = true;
-    document.body.append(late);
+    globalThis.__tmtPartsPending = 1;
     let step = 0;
     const timer = setInterval(() => {
       const block = document.createElement('div');
       block.style.height = 300 + ((step * 137) % 400) + 'px';
       block.dataset.step = String(++step);
       document.body.append(block);
-      if (step === ${paintAfter}) late.__tmtPainted = true;
+      if (step === ${paintAfter}) globalThis.__tmtPartsPending = 0;
       if (step >= ${steps}) clearInterval(timer);
     }, 150);
   </script>`;

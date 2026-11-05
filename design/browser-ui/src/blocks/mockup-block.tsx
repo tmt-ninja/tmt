@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, DsScope, UiTheme } from '../ui/index.js';
+import { DsScope, UiTheme } from '../ui/index.js';
 
 export interface MockupBlockProps {
   system?: string;
   version?: string;
   width?: number;
+  /** The least stage height; the stage otherwise hugs its content. */
   height?: number;
   theme?: 'light' | 'dark' | 'viewer';
   unavailable?: boolean;
@@ -15,15 +16,33 @@ export interface MockupBlockProps {
   children?: ReactNode;
 }
 
+/**
+ * The stage height: its content's, at least `min`. A phone sheet sizes itself from the stage
+ * (60cqh), so a stage holding one and no minimum takes the sheet's own height and never follows it.
+ */
+function mockupStageHeight(min: number, content: HTMLElement) {
+  const sheet = content.querySelector<HTMLElement>('.tmt-block-menu[data-placement="sheet"]');
+  const height = sheet
+    ? min || Math.ceil((sheet.scrollHeight + sheet.offsetHeight - sheet.clientHeight) / 0.6)
+    : Math.max(min, content.offsetHeight);
+  return Math.min(4096, height);
+}
+
 const boundedWidth = (width: number) =>
   Number.isFinite(width) ? Math.max(1, Math.min(4096, Math.round(width))) : 390;
+
+const themes = [
+  ['light', 'Light'],
+  ['dark', 'Dark'],
+  ['viewer', 'Viewer'],
+] as const;
 
 /** A sized, locally contained stage; the caller resolves the requested system and its version. */
 export function MockupBlock({
   system = 'tmt-gui',
   version = 'follow',
   width = 390,
-  height = 640,
+  height = 0,
   theme = 'viewer',
   unavailable = false,
   systems = [],
@@ -39,6 +58,18 @@ export function MockupBlock({
   useEffect(() => setStageWidth(boundedWidth(width)), [width]);
   useEffect(() => setAppearance(theme), [theme]);
   const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const min = Number.isFinite(height) ? Math.max(0, Math.min(2000, height)) : 0;
+  const [stageHeight, setStageHeight] = useState(min);
+  useLayoutEffect(() => {
+    const node = content.current;
+    if (!node) return;
+    const update = () => setStageHeight(mockupStageHeight(min, node));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [min, stageWidth, unavailable]);
   useLayoutEffect(() => {
     const node = viewport.current;
     if (!node) return;
@@ -90,37 +121,25 @@ export function MockupBlock({
                 </select>
               </>
             ) : (
-              <span>
+              <span className="tmt-block-mockup-pin">
                 {system}@{version}
               </span>
             )}
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={!custom && stageWidth === 390}
-              onClick={() => choose(390)}
-            >
-              390
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={!custom && stageWidth === 1440}
-              onClick={() => choose(1440)}
-            >
-              1440
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={custom}
-              onClick={() => setCustom(true)}
-            >
-              Custom
-            </Button>
+            <div className="tmt-block-mockup-segments" role="group" aria-label="Stage width">
+              {[390, 1440].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  aria-pressed={!custom && stageWidth === size}
+                  onClick={() => choose(size)}
+                >
+                  {size}
+                </button>
+              ))}
+              <button type="button" aria-pressed={custom} onClick={() => setCustom(true)}>
+                Custom
+              </button>
+            </div>
             {custom && (
               <input
                 aria-label="Stage width"
@@ -135,42 +154,21 @@ export function MockupBlock({
                 }}
               />
             )}
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={appearance === 'light'}
-              onClick={() => {
-                setAppearance('light');
-                onSettingsChange?.({ width: stageWidth, theme: 'light' });
-              }}
-            >
-              Light
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={appearance === 'dark'}
-              onClick={() => {
-                setAppearance('dark');
-                onSettingsChange?.({ width: stageWidth, theme: 'dark' });
-              }}
-            >
-              Dark
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              type="button"
-              aria-pressed={appearance === 'viewer'}
-              onClick={() => {
-                setAppearance('viewer');
-                onSettingsChange?.({ width: stageWidth, theme: 'viewer' });
-              }}
-            >
-              Viewer
-            </Button>
+            <div className="tmt-block-mockup-segments" role="group" aria-label="Theme">
+              {themes.map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={appearance === mode}
+                  onClick={() => {
+                    setAppearance(mode);
+                    onSettingsChange?.({ width: stageWidth, theme: mode });
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           {unavailable ? (
             <p role="status">This design system version is not available.</p>
@@ -178,13 +176,15 @@ export function MockupBlock({
             <div
               className="tmt-block-mockup-viewport"
               ref={viewport}
-              style={{ height: height * scale }}
+              style={{ height: stageHeight * scale }}
             >
               <DsScope
                 className="tmt-block-mockup-stage"
-                style={{ width: stageWidth, height, transform: `scale(${scale})` }}
+                style={{ width: stageWidth, height: stageHeight, transform: `scale(${scale})` }}
               >
-                <div data-theme={appearance === 'viewer' ? undefined : appearance}>{children}</div>
+                <div ref={content} data-theme={appearance === 'viewer' ? undefined : appearance}>
+                  {children}
+                </div>
               </DsScope>
             </div>
           )}

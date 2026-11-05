@@ -968,7 +968,10 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
   Cmd/Ctrl+D duplicates; Delete deletes; Cmd/Ctrl+Z undoes.
 - `BlockMenu` is the insert listbox or, with `kind="actions"`, the block menu (`blockActions`;
   it never changes a block's type). Focus stays in the editor: drive `activeId` with
-  `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows.
+  `nextBlockMenuItem`. `placement="sheet"` is the phone sheet with 44px rows. `items` names
+  catalog rows by label or as `<id>:<text>`, which keeps the row's icon, description and key but
+  shows `text` (a page in another language); `group:<id>:<heading>` renames a group heading
+  (`basic`, `structure`). Any other entry, including a malformed one, is a plain row.
 - Content: `HeadingBlock` (levels 2 and 3 only; the page title is the GUI header's),
   `TextBlock`, `ListItemBlock`, `TodoBlock` (`BrowserCheckbox`), `TableBlock` (columns marked
   `hideNarrow` leave the view below 480px of the block's own width), `CardBlock` (the only
@@ -979,7 +982,10 @@ the root graph (`./react`) and reuses its parts rather than copying markup: `Bro
 - `QuestionBlock`, `ImageBlock`, `MockupBlock`, `WorkBundle` and `PageView` supply the
   question, media viewer, scoped mockup, referenced work and page-list presentations. The host
   supplies admitted data and owns persistence; `PageView` reuses `PageListTable` and one grid
-  for its grouped rows. A mockup stage owns its local overlay scope.
+  for its grouped rows. A mockup stage owns its local overlay scope. Its toolbar is two segmented
+  groups (width, theme); the stage hugs its content with `height` as a minimum and sits centred
+  when narrower than the block. A stage holding a phone sheet and no minimum takes the sheet's
+  height, because the sheet sizes itself from the stage.
   `QuestionBlock` is presentational; Colab pages use `tmt-question` for persistent answers.
 
 The tmt GUI system ports them as `tmt-ui-block-document`, `tmt-ui-block`, `tmt-ui-block-menu`,

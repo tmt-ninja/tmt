@@ -14,12 +14,13 @@ export interface BlockMenuProps extends Omit<ComponentProps<'div'>, 'role' | 'ar
   /** The id of the active item, for aria-activedescendant: focus stays where the person types. */
   activeId?: string;
   /**
-   * Catalog rows by label, in this order, before any children: an insert menu draws the insert
-   * types with their icon, description, shortcut and group heading; a block menu draws the block
-   * actions with their keys. A label outside the catalog is a plain row.
+   * Catalog rows, in this order, before any children: an insert menu draws the insert types with
+   * their icon, description, shortcut and group heading; a block menu draws the block actions with
+   * their keys. An entry is a catalog label, `<id>:<text>` (the row of that id, showing `text`) or
+   * `group:<id>:<heading>` (a group's heading); anything else is a plain row.
    */
   items?: readonly string[];
-  /** The label of the active catalog row. */
+  /** The active row, by its entry, id or text. */
   activeItem?: string;
 }
 
@@ -59,6 +60,61 @@ export function BlockMenu({
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+type InsertItem = (typeof insertGroups)[number]['items'][number];
+type Action = (typeof blockActions)[number];
+interface Row {
+  /** The text the row shows. */
+  text: string;
+  /** What `activeItem` may name: the entry as written, its id and its text. */
+  names: string[];
+  item?: InsertItem;
+  action?: Action;
+  group?: string;
+}
+
+/**
+ * Read `items` entries. `group:<id>:<heading>` renames a catalog group; `<id>:<label>` is the
+ * catalog row of that id with its own text (a page in another language keeps the icon,
+ * description and shortcut); any other entry is the row of that label, else a plain row. A
+ * malformed entry is a plain row with its text; nothing throws.
+ */
+function readItems(kind: MenuKind, entries: readonly string[]) {
+  const headings = new Map<string, string>();
+  const rows: Row[] = [];
+  for (const raw of entries) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    const heading = /^group:([a-z][a-z-]*):(.+)$/.exec(entry);
+    if (heading && kind === 'insert' && insertGroups.some((group) => group.id === heading[1])) {
+      headings.set(heading[1]!, heading[2]!.trim());
+      continue;
+    }
+    const keyed = /^([a-z][a-z-]*):(.+)$/.exec(entry);
+    const id = keyed?.[1];
+    const text = keyed?.[2]?.trim();
+    if (kind === 'actions') {
+      const byId = id ? blockActions.find((action) => action.id === id) : undefined;
+      const action = byId ?? blockActions.find((candidate) => same(candidate.label, entry));
+      const shown = byId && text ? text : (action?.label ?? entry);
+      rows.push({ text: shown, names: [entry, shown, ...(action ? [action.id] : [])], action });
+      continue;
+    }
+    let found: { item: InsertItem; group: string } | undefined;
+    for (const group of insertGroups)
+      for (const item of group.items)
+        if (!found && (id && text ? item.id === id : same(item.label, entry)))
+          found = { item, group: group.id };
+    const shown = found && id && text ? text : (found?.item.label ?? entry);
+    rows.push({
+      text: shown,
+      names: [entry, shown, ...(found ? [found.item.id] : [])],
+      item: found?.item,
+      group: found?.group,
+    });
+  }
+  return { headings, rows };
+}
+
 /** The rows a labelled catalog menu draws: insert types in runs of one group, or block actions. */
 function CatalogRows({
   kind,
@@ -69,32 +125,24 @@ function CatalogRows({
   labels: readonly string[];
   active: string | undefined;
 }) {
-  const isActive = (label: string) => active !== undefined && same(label, active);
+  const { headings, rows } = readItems(kind, labels);
+  const isActive = (row: Row) =>
+    active !== undefined && row.names.some((name) => same(name, active));
   if (kind === 'actions')
-    return labels.map((label, index) => {
-      const action = blockActions.find((entry) => same(entry.label, label));
-      return (
-        <div key={`${index}-${label}`}>
-          {action?.id === 'delete' && index > 0 && <BlockMenuSeparator />}
-          <BlockMenuItem
-            shortcut={action?.shortcut}
-            danger={action?.danger}
-            active={isActive(label)}
-          >
-            {action?.label ?? label}
-          </BlockMenuItem>
-        </div>
-      );
-    });
-  const rows = labels.map((label) => {
-    for (const group of insertGroups) {
-      const item = group.items.find((entry) => same(entry.label, label));
-      if (item) return { label, group: group.name, item };
-    }
-    return { label, group: undefined, item: undefined };
-  });
+    return rows.map((row, index) => (
+      <div key={`${index}-${row.text}`}>
+        {row.action?.id === 'delete' && index > 0 && <BlockMenuSeparator />}
+        <BlockMenuItem
+          shortcut={row.action?.shortcut}
+          danger={row.action?.danger}
+          active={isActive(row)}
+        >
+          {row.text}
+        </BlockMenuItem>
+      </div>
+    ));
   // Consecutive rows of one group share a heading; headings show only when there are two groups.
-  const runs: (typeof rows)[] = [];
+  const runs: Row[][] = [];
   for (const row of rows) {
     const last = runs[runs.length - 1];
     if (last && last[0]!.group === row.group) last.push(row);
@@ -102,20 +150,21 @@ function CatalogRows({
   }
   const headed = new Set(rows.map((row) => row.group).filter(Boolean)).size > 1;
   return runs.map((run, index) => {
-    const name = run[0]!.group;
-    const content = run.map(({ label, item }, at) => (
+    const id = run[0]!.group;
+    const name = id && (headings.get(id) ?? insertGroups.find((group) => group.id === id)?.name);
+    const content = run.map((row, at) => (
       <BlockMenuItem
-        key={`${at}-${label}`}
-        icon={item?.icon}
-        description={item?.description}
-        shortcut={item?.shortcut}
-        active={isActive(label)}
+        key={`${at}-${row.text}`}
+        icon={row.item?.icon}
+        description={row.item?.description}
+        shortcut={row.item?.shortcut}
+        active={isActive(row)}
       >
-        {item?.label ?? label}
+        {row.text}
       </BlockMenuItem>
     ));
     return name ? (
-      <div key={`${index}-${name}`} role="group" aria-label={name}>
+      <div key={`${index}-${id}`} role="group" aria-label={name}>
         {headed && <BlockMenuGroup>{name}</BlockMenuGroup>}
         {content}
       </div>
@@ -222,6 +271,8 @@ export function nextBlockMenuItem(ids: readonly string[], active: string | undef
 /** The insert menu's block types, in their groups: the one catalog the editor and the
  * block-menu tag draw. */
 export const insertGroups: readonly {
+  /** The stable id an `items` entry names: `group:<id>:<heading>`. */
+  id: string;
   name: string;
   items: readonly {
     id: string;
@@ -232,6 +283,7 @@ export const insertGroups: readonly {
   }[];
 }[] = [
   {
+    id: 'basic',
     name: 'Basic',
     items: [
       {
@@ -265,6 +317,7 @@ export const insertGroups: readonly {
     ],
   },
   {
+    id: 'structure',
     name: 'Structure',
     items: [
       {
