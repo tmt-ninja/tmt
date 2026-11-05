@@ -1039,12 +1039,32 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             ]);
             expect(own.code).toBe(0);
             expect(own.json!.digest).toBeUndefined();
+            // A bypass delivery may hand the held checklist off itself; the boundary starts only
+            // once both bypass talks settled and no checklist is still claimed (#5459).
+            const bypasses = [bypass.json!.requestId, own.json!.requestId] as string[];
+            await f.waitFor(
+              () =>
+                (
+                  sql(f, (db) =>
+                    db
+                      .prepare(
+                        "SELECT COUNT(*) AS count FROM request_attempts WHERE request_id IN (?,?) AND status IN ('prepared','sending')"
+                      )
+                      .get(...bypasses)
+                  ) as { count: number }
+                ).count === 0 &&
+                api('digest.policy.show', { identities: [identity.id] }).policies[0]
+                  .activeChecklist === null,
+              10000,
+              'bypass talks settled with no claimed Digest checklist'
+            );
             await step('boundary');
             const continuations = events(s, 'digest-continuation');
-            expect(
-              continuations,
-              `Digest boundary: ${JSON.stringify(digestStopDiagnostics({ provider: 'codex', channel, setup, resume, legacy, step: 'boundary' }, sessionLearning(f), events(s, 'digest-handler')))}`
-            ).toHaveLength(1);
+            const diagnostics = () =>
+              `Digest boundary: ${JSON.stringify(digestStopDiagnostics({ provider: 'codex', channel, setup, resume, legacy, step: 'boundary' }, sessionLearning(f), events(s, 'digest-handler')))}`;
+            // The held items are delivered exactly once, by the turn boundary or by a bypass
+            // talk's idle handoff, never both and never neither.
+            expect(continuations.length, diagnostics()).toBeLessThanOrEqual(1);
             expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
             if (legacy && !resume)
               expect(notices()[0]).toMatchObject({
@@ -1052,12 +1072,15 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                 systemMessage:
                   'tmt: This session was started by an older tmt. Restart it to use the current hooks.',
               });
-            const reason = continuations[0].reason as string;
-            expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
-            expect(reason.indexOf(requests[0])).toBeLessThan(reason.indexOf(requests[1]));
-            expect(reason).toContain('First ordered decision');
-            expect(reason).toContain('Second ordered review');
-            expect(batch().slice(before)).toEqual([{ state: 'delivered' }]);
+            const byBoundary = continuations.length === 1;
+            if (byBoundary) {
+              const reason = continuations[0].reason as string;
+              expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
+              expect(reason.indexOf(requests[0])).toBeLessThan(reason.indexOf(requests[1]));
+              expect(reason).toContain('First ordered decision');
+              expect(reason).toContain('Second ordered review');
+            }
+            expect(batch().slice(before), diagnostics()).toEqual([{ state: 'delivered' }]);
             const history = api('digest.checklist.history', {
               identityId: identity.id,
               after: historyCheckpoint,
@@ -1068,7 +1091,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               claimedAtMs: expect.any(Number),
               settledAtMs: expect.any(Number),
               outcome: 'delivered',
-              opportunity: 'turn_boundary',
+              opportunity: byBoundary ? 'turn_boundary' : 'idle',
               sealedCount: 2,
               retainedCount: 2,
               membershipComplete: true,
@@ -1113,7 +1136,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             if (!setup) expect(JSON.parse(saved.driver_state).consumption).toBeUndefined();
             await step('empty');
             expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
-            expect(events(s, 'digest-continuation')).toHaveLength(1);
+            expect(events(s, 'digest-continuation')).toHaveLength(continuations.length);
             expect(
               api('digest.policy.clear', {
                 ...policy,

@@ -168,6 +168,7 @@ function expectNativeSchema(
     { version: 87, name: 'record leads, route grants and talk-limit holds' },
     { version: 88, name: 'index each direction of a two-party conversation' },
     { version: 89, name: 'create canonical agent jobs and legacy import receipts' },
+    { version: 90, name: 'record an empty Digest turn boundary while references are due' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

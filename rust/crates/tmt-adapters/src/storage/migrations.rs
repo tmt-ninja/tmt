@@ -440,6 +440,10 @@ const MIGRATIONS: &[Migration] = &[
         "create canonical agent jobs and legacy import receipts",
         "schema/089.sql"
     ),
+    migration!(
+        "record an empty Digest turn boundary while references are due",
+        "schema/090.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

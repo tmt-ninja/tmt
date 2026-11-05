@@ -49,7 +49,7 @@ fn canonical_jobs_migrate_after_sending_without_rewriting_existing_records() {
         .unwrap();
     old.close().unwrap();
     let mut migrated = Storage::open(&path).unwrap();
-    assert_eq!(migrated.health().unwrap().schema_version, 89);
+    assert_eq!(migrated.health().unwrap().schema_version, 90);
     migrated.close().unwrap();
     let db = Connection::open(&path).unwrap();
     assert_eq!(
