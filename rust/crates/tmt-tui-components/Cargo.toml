@@ -11,6 +11,7 @@ repository.workspace = true
 serde.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+# Workspace inheritance cannot disable the default-on table feature.
 tmt-cli-style = { path = "../tmt-cli-style", default-features = false }
 
 [dev-dependencies]
