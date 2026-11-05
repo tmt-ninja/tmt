@@ -182,6 +182,8 @@ export function createTickClient({
   cache,
   execute = runPackedCommand,
   clock = Date.now,
+  sleep = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
   trace,
 }) {
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
@@ -316,6 +318,14 @@ export function createTickClient({
   };
   const api = restClient({ cache, repo: repository, maxRequests: 80, execute: command });
   return {
+    retryLiveScan: (scan) => {
+      const delay = [3000, 9000][scan];
+      assert.ok(delay !== undefined, 'Only two live scan retries are allowed.');
+      // Reserve time for another read; never sleep through the shared deadline.
+      if (clock() + delay >= deadline) throw timeBudget();
+      sleep(delay);
+      if (clock() >= deadline) throw timeBudget();
+    },
     get: (endpoint, immutable = false, text = false) => {
       const result = api.get(endpoint, immutable, text);
       // Split hints use only already-read timestamps, never an extra discovery pass.
@@ -480,6 +490,7 @@ function pages(
           scan < 2,
           `Inconsistent live run listing: status=${liveStatus}, count=${result.total_count}, rows=${batch.length}, page=${page}.`
         );
+        api.retryLiveScan?.(scan);
         break;
       }
       if (key) {

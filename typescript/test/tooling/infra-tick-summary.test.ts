@@ -1177,6 +1177,84 @@ describe('bounded read-only tick transport', () => {
     const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-'));
     return { cache, api: createTickClient({ repository: 'pj-tmt/tmt', cache, execute, clock }) };
   }
+  it('waits 3 then 9 seconds for a live index mismatch to clear within the shared deadline', () => {
+    let now = 0;
+    const waits: number[] = [],
+      reads: number[] = [];
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'tick-backoff-'));
+    const api = createTickClient({
+      repository: options.repository,
+      cache,
+      clock: () => now,
+      sleep: (ms) => {
+        waits.push(ms);
+        now += ms;
+      },
+      execute: () => {
+        reads.push(now);
+        return JSON.stringify({
+          total_count: 1,
+          workflow_runs: now < 12000 ? [] : [run(1, { status: 'queued', conclusion: null })],
+        });
+      },
+    });
+    const f = fixture();
+    try {
+      const report = collectInfraTick(
+        {
+          ...f,
+          get: (endpoint) =>
+            endpoint.includes('status=queued&') ? api.get(endpoint) : f.get(endpoint),
+          retryLiveScan: api.retryLiveScan,
+        },
+        options
+      );
+      expect(report.complete).toBe(true);
+      expect(report.activeRunIds).toEqual([1]);
+      expect(waits).toEqual([3000, 9000]);
+      expect(reads).toEqual([0, 3000, 12000]);
+      expect(api.evidence().requests).toBe(3);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  });
+  it('refuses before a live retry wait that cannot fit the existing deadline', () => {
+    let now = 0;
+    const waits: number[] = [];
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'tick-backoff-deadline-'));
+    const api = createTickClient({
+      repository: options.repository,
+      cache,
+      clock: () => now,
+      sleep: (ms) => {
+        waits.push(ms);
+        now += ms;
+      },
+      execute: () => {
+        now = 118000;
+        return JSON.stringify({ total_count: 1, workflow_runs: [] });
+      },
+    });
+    const f = fixture();
+    try {
+      expect(() =>
+        collectInfraTick(
+          {
+            ...f,
+            get: (endpoint) =>
+              endpoint.includes('status=queued&') ? api.get(endpoint) : f.get(endpoint),
+            retryLiveScan: api.retryLiveScan,
+          },
+          options
+        )
+      ).toThrow('time budget exhausted (120 seconds; 1/80 calls');
+      expect(waits).toEqual([]);
+      expect(api.evidence().requests).toBe(1);
+      expect(now).toBe(118000);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  });
   it('bounds the log phase and request time, retains headroom and reuses full-log cache', () => {
     let now = 0;
     const timeouts: number[] = [];
@@ -1722,7 +1800,7 @@ describe('one-pass hourly PR volume through the real CLI', () => {
     const clockHook = path.join(directory, 'clock-hook.mjs');
     writeFileSync(
       clockHook,
-      `import {readFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8'));\n`
+      `import {readFileSync,writeFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8')); Atomics.wait=(_array,_index,_value,ms)=>{writeFileSync(process.env.CLOCK_FILE,String(Number(readFileSync(process.env.CLOCK_FILE,'utf8'))+ms));return 'timed-out';};\n`
     );
     // Run details are immutable in this fixture. Serialize them once instead of starting
     // Node for each of the 32 tracked-run reads; dynamic listings still use the fake API.
@@ -1865,7 +1943,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
         spawnSync(
           process.execPath,
           [
-            ...(mode === 'clock-budget' ? ['--import', clockHook] : []),
+            ...(mode === 'clock-budget' || mode.startsWith('live-') ? ['--import', clockHook] : []),
             fileURLToPath(new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)),
             '--repo',
             'pj-tmt/tmt',

@@ -9,6 +9,7 @@ export interface TickApi {
   queue(): unknown;
   reviews(ids: string[]): unknown;
   stage?(name: string, prCount?: number): void;
+  retryLiveScan?(scan: number): void;
   qualifyTerminalJobs?(paths: string[]): void;
   evidence?(): {
     requests: number;
@@ -121,6 +122,7 @@ export function createTickClient(options: {
   repository: string;
   cache: string;
   clock?: () => number;
+  sleep?: (milliseconds: number) => void;
   trace?: (entry: {
     request: number;
     method: string;
@@ -135,6 +137,7 @@ export function createTickClient(options: {
     options: { timeoutMs: number; [key: string]: unknown }
   ) => string;
 }): TickApi & {
+  retryLiveScan(scan: number): void;
   splitWindow(
     since: string,
     until: string

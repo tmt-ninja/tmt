@@ -498,8 +498,11 @@ Details enumerate created-window failure/timed-out/action-required/stale slices,
 refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progress
 searches track older reruns without a created filter. A count/row or membership race
 discards the whole live scan and restarts at page one, at most three scans in the shared
-budget, then refuses with status/count/rows; created-window
-queries stay strict and other active states stay within the window. Unobserved older reruns
+budget, waiting 3 s then 9 s between scans only if the wait fits the shared 120 s
+deadline. It then refuses with status/count/rows; created-window
+queries stay strict and other active states stay within the window. A live-listing
+`INCOMPLETE` already includes backoff; retry the lead invocation only once before
+escalating a persistent refusal. Unobserved older reruns
 starting/finishing between ticks and
 workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
 Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
