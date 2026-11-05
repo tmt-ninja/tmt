@@ -249,6 +249,8 @@ fn gauge_matches_the_two_model_rows_in_digest_spec_f21e67b7() {
         });
         Gauge::render(&props, area(80, 1), &mut grid);
         assert_eq!(lines(&grid)[0].trim_end(), expected);
+        assert_eq!(grid.get(18, 0).unwrap().fg, Some(Role::Text));
+        assert_eq!(grid.get(41, 0).unwrap().fg, Some(Role::Dim));
     }
 }
 
