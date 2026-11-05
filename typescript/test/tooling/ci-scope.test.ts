@@ -3987,12 +3987,32 @@ describe('required CI gate', () => {
         disabled.map((step) => step.name),
         file
       ).toEqual(file === 'ci.yml' ? ['Set up Buildx only for an admitted archive'] : []);
-      // #5708: a throttled Actions cache restore of the buildx binary stalled 10 minutes
-      // and timed out a shard; the binary comes from its release download instead.
-      for (const step of steps(readFileSync(new URL(file, workflows), 'utf8')).filter((step) =>
-        step.body.includes('docker/setup-buildx-action@')
-      ))
+      // #5708: keep binary cache restores disabled; #6129 fallback uses the runner plugin.
+      const allSteps = steps(readFileSync(new URL(file, workflows), 'utf8'));
+      const buildx = allSteps.filter((step) => step.body.includes('docker/setup-buildx-action@'));
+      for (const step of buildx)
         expect(step.body, `${file}: ${step.name}`).toMatch(/\n\s+cache-binary: false(\n|$)/);
+      if (['ci.yml', 'e2e-dependency-cache.yml'].includes(file)) {
+        expect(buildx, file).toHaveLength(2);
+        const [primary, fallback] = buildx;
+        expect(primary.body).toContain('version: v0.29.1');
+        expect(primary.body).toContain('continue-on-error: true');
+        expect(fallback.name).toBe('Fall back to runner-provided Buildx');
+        expect(fallback.body).not.toMatch(/\n\s+version:/);
+        const preflight = allSteps.find(
+          (step) => step.name === 'Verify runner-provided Buildx for fallback'
+        )!;
+        expect(preflight.body).toContain('run: docker buildx version');
+        expect(preflight.body).not.toContain('continue-on-error: true');
+        const condition =
+          file === 'ci.yml'
+            ? "steps.e2e-admission.outputs.usable == 'true' && steps.e2e-mirror-builder.outcome == 'failure'"
+            : "steps.existing.outputs.cache-hit != 'true' && steps.mirror-builder.outcome == 'failure'";
+        expect(preflight.body).toContain(`if: ${condition}`);
+        expect(fallback.body).toContain(`if: ${condition}`);
+        expect(allSteps.indexOf(preflight)).toBeGreaterThan(allSteps.indexOf(primary));
+        expect(allSteps.indexOf(fallback)).toBe(allSteps.indexOf(preflight) + 1);
+      }
     }
     // A throttled restore (actions/cache and rust-cache) falls back to a miss in
     // minutes instead of the toolkit's 10-minute segment timeout.
