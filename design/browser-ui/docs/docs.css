@@ -148,7 +148,7 @@ code {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-ref-size-5);
 }
-.docs-article h2 {
+.docs-article h2:not(.docs-canvas-stage *) {
   margin: 48px 0 var(--tmt-ui-ref-space-3);
   padding-bottom: var(--tmt-ui-ref-space-2);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -156,12 +156,21 @@ code {
   font-weight: 650;
   letter-spacing: -0.01em;
 }
-.docs-article h3 {
+.docs-article h3:not(.docs-canvas-stage *) {
   margin: var(--tmt-ui-ref-space-5) 0 var(--tmt-ui-ref-space-2);
   font-size: var(--tmt-ui-ref-size-4);
   font-weight: 600;
 }
-.docs-article p {
+/* The docs' own line height and code size, stated here rather than inherited from the page: a
+   host page with its own type ramp (Colab's editorial frame in Design) must not restyle them. */
+.docs-article h2:not(.docs-canvas-stage *),
+.docs-article h3:not(.docs-canvas-stage *) {
+  line-height: 1.6;
+}
+.docs-article pre code {
+  font: 0.9em var(--tmt-ui-font-mono);
+}
+.docs-article p:not(.docs-canvas-stage *) {
   margin: 0 0 var(--tmt-ui-ref-space-4);
 }
 .docs-article :not(pre) > code {
@@ -186,6 +195,11 @@ code {
 .docs-canvas-hero {
   min-height: 240px;
   box-sizing: border-box;
+}
+/* A hero whose overlays open inside it: tall enough for an open dialog or sheet. The article's
+   heading and paragraph rules stay out of it, as they stay off an overlay over the page. */
+.docs-canvas-stage {
+  height: 360px;
 }
 .docs-canvas-flush {
   display: block;
@@ -242,6 +256,7 @@ code {
   margin: 0;
   padding: var(--tmt-ui-ref-space-4);
   overflow-x: auto;
+  white-space: pre;
   font: var(--tmt-ui-ref-size-3) / 1.6 var(--tmt-ui-font-mono);
 }
 .docs-snippet button {

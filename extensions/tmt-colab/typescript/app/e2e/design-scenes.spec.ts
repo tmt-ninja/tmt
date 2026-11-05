@@ -161,3 +161,55 @@ for (const viewport of [1440, 390])
     }
     expect(failures).toEqual([]);
   });
+
+// A page frame is as tall as its content and cannot see the visible viewport, so Design opens the
+// Dialog and Sheet heroes in their canvas: dimmed, centred and in view at 390 (#6064; #6090 lets
+// them open over the viewport).
+for (const [path, trigger, surface] of [
+  ['components/dialog', 'Move to project', '[role="dialog"]'],
+  ['components/sheet', 'Page settings', '[role="dialog"]'],
+] as const)
+  test(`the ${path} hero opens in its canvas at 390`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await servePageRuntime(page);
+    await page.goto('/');
+    await page.addStyleTag({ content: '#design-scene iframe{display:block;width:100%;border:0}' });
+    await design(page, path, 358);
+    const frame = page.frameLocator('#design-scene iframe');
+    await frame.getByRole('button', { name: trigger }).first().click();
+    const stage = frame.locator('.docs-canvas-stage');
+    await expect(stage.locator(surface)).toBeVisible();
+    const boxes = await stage.evaluate((node, surface) => {
+      const rect = (element: Element | null) => {
+        const { top, left, bottom, right } = element!.getBoundingClientRect();
+        return { top, left, bottom, right };
+      };
+      // The scrim covers the stage inside its border.
+      const { top, left } = rect(node);
+      const inner = {
+        top: top + node.clientTop,
+        left: left + node.clientLeft,
+        bottom: top + node.clientTop + node.clientHeight,
+        right: left + node.clientLeft + node.clientWidth,
+      };
+      return {
+        inner,
+        stage: rect(node),
+        surface: rect(node.querySelector(surface)),
+        scrim: rect(node.querySelector('[data-tmt-ds-scrim]')),
+      };
+    }, surface);
+    expect(boxes.scrim).toEqual(boxes.inner);
+    expect(boxes.surface.top).toBeGreaterThanOrEqual(boxes.stage.top);
+    expect(boxes.surface.bottom).toBeLessThanOrEqual(boxes.stage.bottom);
+    expect(boxes.surface.right).toBeLessThanOrEqual(boxes.stage.right);
+    if (path === 'components/dialog')
+      expect(
+        Math.abs(boxes.surface.top + boxes.surface.bottom - (boxes.stage.top + boxes.stage.bottom)),
+      ).toBeLessThanOrEqual(2);
+    // In view without scrolling: the frame starts at the top of the page.
+    const frameTop = await page
+      .locator('#design-scene iframe')
+      .evaluate((node) => node.getBoundingClientRect().top);
+    expect(frameTop + boxes.stage.bottom).toBeLessThanOrEqual(844);
+  });

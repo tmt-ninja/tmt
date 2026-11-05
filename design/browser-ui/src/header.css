@@ -75,7 +75,9 @@ svg.tmt-ui-mark {
     var(--tmt-ui-header-title-size)/var(--tmt-ui-header-title-line-height)
     var(--tmt-ui-font-display);
 }
-.tmt-ui-title {
+/* The suffix's own text (in the title's type) ellipsizes on one line, as the title does. */
+.tmt-ui-title,
+.tmt-ui-heading-suffix > * {
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;

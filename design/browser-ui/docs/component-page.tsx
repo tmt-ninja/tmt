@@ -10,14 +10,17 @@ import { PageListFrame } from '../gallery/page-list-frame.js';
 import { motionNotes, Replay } from './motion.js';
 import { Article, ComponentTemplate, Snippet } from './templates.js';
 
-/** A component's docs page: hero, usage, variants and states, props, then do and don't. */
-export function ComponentPage({ doc }: { doc: ComponentDoc }) {
+/** A component's docs page: hero, usage, variants and states, props, then do and don't. `stage`
+ * opens the hero's page-modal overlays in its canvas: a page frame is as tall as its content and
+ * cannot see the visible viewport, so an overlay over the whole frame lands out of view (#6090). */
+export function ComponentPage({ doc, stage }: { doc: ComponentDoc; stage?: boolean }) {
   return (
     <ComponentTemplate
       title={doc.name}
       lead={doc.description}
       preview={motionNotes[doc.slug] ? <Replay>{doc.preview()}</Replay> : doc.preview()}
       motion={motionNotes[doc.slug]}
+      stage={stage && pageModal.has(doc.slug)}
       usage={doc.usage}
       variants={doc.variants.map(([label, render]) => ({ label, render: render() }))}
       dos={doc.dos}
@@ -54,6 +57,9 @@ export function BrowserPage({ doc }: { doc: BrowserDoc }) {
   );
 }
 
+/** Components whose hero opens over the whole page rather than beside its trigger. */
+const pageModal = new Set(['dialog', 'sheet']);
+
 // Only the scenes component pages frame; the docs' full registry (mocks, TUI) stays out of a frame.
 const scenes: Record<string, ComponentType<{ params: URLSearchParams }>> = {
   blocks: BlocksFrame,
@@ -85,7 +91,11 @@ export function DocsComponentPage({ page }: { page: string }) {
   if (!component && !browser) return null;
   return (
     <UiTheme theme={theme}>
-      {component ? <ComponentPage doc={component} /> : <BrowserPage doc={browser as BrowserDoc} />}
+      {component ? (
+        <ComponentPage doc={component} stage />
+      ) : (
+        <BrowserPage doc={browser as BrowserDoc} />
+      )}
     </UiTheme>
   );
 }

@@ -67,6 +67,11 @@
 .design-page {
   min-width: 0;
 }
+/* The page starts below the header with the docs' own top space (5100's .docs-main). */
+.design-user-system > .shell-embedded {
+  min-width: 0;
+  padding-top: var(--tmt-ui-ref-space-6);
+}
 .design-page-renderer {
   min-width: 0;
 }
