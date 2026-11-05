@@ -183,7 +183,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         "tmt-test-support" => &["tmt-invoke"],
         // Private release tooling owns only TOML edits and their JSON transport.
         "tmt-release-tool" => &["serde_json", "toml_edit"],
-        // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
+        // The wasm leaf adds only its JS boundary and grapheme bounds to the components.
         "tmt-tui-wasm" => &[
             "js-sys",
             "serde",
@@ -192,6 +192,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "unicode-segmentation",
             "wasm-bindgen",
         ],
+        // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
         "tmt-tui-components" => &[
             "serde",
             "unicode-width",
