@@ -19,6 +19,16 @@ impl Plan {
         })
     }
 
+    /// A pinned CLI's plan (#6137): the installed extensions as they are and the local
+    /// provider scopes, with no update discovery and no product to install, so no network.
+    pub(crate) fn offline(prefix: &Path) -> Self {
+        Self {
+            installed: super::offline(prefix),
+            missing: Vec::new(),
+            providers: providers::read(prefix),
+        }
+    }
+
     fn read_with(prefix: &Path, mut discover: impl FnMut(Product) -> io::Result<String>) -> Self {
         let installed = super::plan(prefix);
         let mut missing = Vec::new();

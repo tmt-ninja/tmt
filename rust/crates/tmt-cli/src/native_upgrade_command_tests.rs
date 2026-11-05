@@ -113,6 +113,20 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
         0
     );
     let failure = json!({"product":"digest","status":"failed","error":{"code":"EXTENSION_UPGRADE_FAILED","message":"refused"}});
+    // A product only offered for install, whose discovery failed, is reported but never
+    // fails the upgrade; a selected one does (#6137, the alpha.558 colab row).
+    let unselected = json!({"product":"colab","action":"install","status":"failed","selected":false,
+        "message":"Could not check for colab updates on raw.githubusercontent.com: timed out"});
+    assert_eq!(
+        publish_products(Some(&report), None, None, vec![unselected.clone()], mode).unwrap(),
+        0
+    );
+    let selected = json!({"product":"colab","action":"install","status":"failed","selected":true,
+        "message":"Could not install colab"});
+    assert_eq!(
+        publish_products(Some(&report), None, None, vec![selected], mode).unwrap(),
+        1
+    );
     assert_eq!(
         publish_products(Some(&report), None, None, vec![failure, squad], mode).unwrap(),
         1

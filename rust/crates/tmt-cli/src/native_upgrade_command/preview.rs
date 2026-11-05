@@ -180,6 +180,7 @@ fn row(name: &str, from: &str, to: Option<&str>, status: &str, migration: Migrat
             MigrationPreview::Unknown => "migration unknown",
         },
         "skippedPinned" => "pinned",
+        "notChecked" => "not checked (CLI pinned)",
         "failed" => "preview unavailable",
         _ => "up to date",
     };

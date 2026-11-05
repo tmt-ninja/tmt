@@ -18,6 +18,12 @@ impl PreparedUpgrade {
     pub fn current(&self) -> &install::ManagedInstallation {
         &self.current
     }
+    /// Whether the installation is pinned and this upgrade only reports it, with no
+    /// release request.
+    pub fn pinned(&self) -> bool {
+        matches!(self.selection, UpgradeSelection::Pinned)
+    }
+
     pub fn selected_version(&self) -> Option<&semver::Version> {
         self.selected.as_ref()
     }

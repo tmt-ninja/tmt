@@ -21,6 +21,8 @@ enum Standing {
     Updated,
     Current,
     Pinned,
+    /// A pinned CLI did not look for its update (#6137).
+    NotChecked,
     /// An update is available and waits for the reader's approval.
     Declined,
     Failed,
@@ -31,6 +33,7 @@ impl Standing {
         match status {
             "changed" => Self::Updated,
             "skippedPinned" => Self::Pinned,
+            "notChecked" => Self::NotChecked,
             "consentRequired" => Self::Declined,
             "failed" => Self::Failed,
             _ => Self::Current,
@@ -40,7 +43,7 @@ impl Standing {
     fn mark(self) -> Option<Mark> {
         match self {
             Self::Updated => Some(Mark::Done),
-            Self::Pinned | Self::Declined => Some(Mark::Warning),
+            Self::Pinned | Self::NotChecked | Self::Declined => Some(Mark::Warning),
             Self::Failed => Some(Mark::Failed),
             Self::Current => None,
         }
@@ -51,6 +54,7 @@ impl Standing {
             Self::Updated => "updated",
             Self::Current => "current",
             Self::Pinned => "pinned",
+            Self::NotChecked => "not checked",
             Self::Declined => "needs approval",
             Self::Failed => "failed",
         }
@@ -76,7 +80,7 @@ impl<'a> Component<'a> {
             Standing::Updated => (before, version),
             Standing::Declined => (version, row["availableVersion"].as_str()),
             Standing::Failed => (before, version.filter(|version| Some(*version) != before)),
-            Standing::Pinned | Standing::Current => (None, version),
+            Standing::Pinned | Standing::NotChecked | Standing::Current => (None, version),
         };
         Self {
             name: if product == "cli" { "tmt" } else { product },
@@ -334,7 +338,7 @@ fn extension_details(
                 next.required(hint);
             }
         }
-        Some("skippedPinned") => {
+        Some("skippedPinned" | "notChecked") => {
             if let Some(text) = row["message"].as_str().or_else(|| row["hint"].as_str()) {
                 next.optional(text);
             }

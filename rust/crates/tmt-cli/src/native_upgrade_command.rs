@@ -93,9 +93,17 @@ pub fn execute_with_schema_consent(
             request(),
             allow_schema_ahead,
         )?;
-        let mut extensions = crate::extension_install_command::upgrade_all::complete::Plan::read(
-            prepared.current().prefix(),
-        );
+        // The pin is known before any extension is planned: a pinned upgrade asks no
+        // server about extensions either (#6137).
+        let mut extensions = if prepared.pinned() {
+            crate::extension_install_command::upgrade_all::complete::Plan::offline(
+                prepared.current().prefix(),
+            )
+        } else {
+            crate::extension_install_command::upgrade_all::complete::Plan::read(
+                prepared.current().prefix(),
+            )
+        };
         checkpoint()?;
         let approval = preview::approve(
             &prepared,
@@ -568,11 +576,13 @@ fn publish_products_with_hints(
     }
     let mut products = product_rows(report, failure.as_ref(), extensions);
     products[0]["skills"] = document["skills"].clone();
+    // A product the user did not select, such as one whose discovery failed while it was
+    // only offered for install, is reported but never fails the upgrade (#6137).
     let extension_failed = products
         .iter()
         .skip(1)
         .chain(provider_setup)
-        .any(|p| p["status"] == "failed");
+        .any(|p| p["status"] == "failed" && p["selected"] != false);
     document["products"] = json!(products);
     let guidance = report.map(|report| {
         crate::install_guidance::read(
