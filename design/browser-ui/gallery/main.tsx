@@ -27,10 +27,7 @@ const params = new URLSearchParams(location.search);
 const theme = params.get('theme');
 if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 const frame = params.get('frame');
-// Palette B (#5821): `?palette=b` scopes the whole gallery, every section and frame, in B; `radius`
-// sets the one knob (2, 4) or restores today's values (current).
-const palette = params.get('palette') === 'b' ? 'b' : undefined;
-if (palette) document.documentElement.dataset.tmtPalette = palette;
+// Radius preview sets the one knob (2, 4) or the larger reference values.
 const radius = params.get('radius');
 const radiusStyle: Record<string, Record<string, string>> = {
   '2': { '--tmt-ui-ref-radius': '2px' },
@@ -56,13 +53,6 @@ const withParam = (name: string, value: string | undefined) => {
 function PreviewSwitches() {
   return (
     <div className="gallery-preview" role="group" aria-label="Preview">
-      <span>Palette</span>
-      <a href={withParam('palette', undefined)} aria-current={palette ? undefined : 'true'}>
-        Current
-      </a>
-      <a href={withParam('palette', 'b')} aria-current={palette ? 'true' : undefined}>
-        B
-      </a>
       <span>Radius</span>
       {(['2', '4', 'current'] as const).map((value) => (
         <a

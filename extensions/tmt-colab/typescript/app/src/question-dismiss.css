@@ -20,5 +20,5 @@
 .question-dismiss-notice .tmt-ui-action {
   --tmt-ui-host-action-padding: 2px 4px;
   --tmt-ui-host-action-min-height: 24px;
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
 }

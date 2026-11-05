@@ -29,65 +29,30 @@ async function probe(page: import('@playwright/test').Page, markup: string, styl
 }
 
 for (const scheme of ['dark', 'light'] as const)
-  test(`palette B applies only in its scope, on the system ${scheme} theme`, async ({ page }) => {
+  test(`the selected palette is global and respects explicit themes on system ${scheme}`, async ({
+    page,
+  }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto('/?frame=glyphs');
     const paper = 'background: var(--tmt-ui-surface-paper)';
-    // Outside the scope the current values stay.
     expect((await probe(page, '<div data-probe></div>', paper)).background).toBe(
-      rgb(tokens.browser.surface.paper[scheme]),
+      b('paper', scheme),
     );
-    // Inside: the system theme, an explicit theme on the scope, and a light theme around it.
     expect(
-      (await probe(page, '<div data-tmt-palette="b"><div data-probe></div></div>', paper))
-        .background,
-    ).toBe(b('paper', scheme));
-    expect(
-      (
-        await probe(
-          page,
-          '<div data-tmt-palette="b" data-theme="dark"><div data-probe></div></div>',
-          paper,
-        )
-      ).background,
+      (await probe(page, '<div data-theme="dark"><div data-probe></div></div>', paper)).background,
     ).toBe(b('paper', 'dark'));
     expect(
       (
         await probe(
           page,
-          '<div data-theme="light"><div data-tmt-palette="b"><div data-probe></div></div></div>',
+          '<div data-theme="dark"><div data-theme="light"><div data-probe></div></div></div>',
           paper,
         )
       ).background,
     ).toBe(b('paper', 'light'));
   });
 
-test('one knob sets every radius in the scope, and pills stay round only where they mean a dot', async ({
-  page,
-}) => {
-  await page.goto('/?frame=glyphs');
-  const radius = async (knob: string, role: string) =>
-    (
-      await probe(
-        page,
-        `<div data-tmt-palette="b" style="--tmt-ui-ref-radius: ${knob}"><div data-probe></div></div>`,
-        `border-radius: var(--tmt-ui-${role})`,
-      )
-    ).radius;
-  for (const [knob, control, surface] of [
-    ['2px', '2px', '4px'],
-    ['4px', '4px', '6px'],
-  ])
-    expect([
-      await radius(knob!, 'radius-s'),
-      await radius(knob!, 'radius'),
-      await radius(knob!, 'radius-l'),
-      await radius(knob!, 'radius-badge'),
-    ]).toEqual([control, control, surface, control]);
-  expect(await radius('2px', 'radius-pill')).toBe('999px');
-});
-
-test('the shadcn set follows the scope: its primary fill reads the accent-fill primitive', async ({
+test('the shared controls use the selected palette and retain the local radius preview', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });

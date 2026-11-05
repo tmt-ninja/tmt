@@ -1,5 +1,4 @@
-/* The Theme B showcase frame (#5821): layout only; every colour and radius comes from the roles that
-   [data-tmt-palette='b'] remaps. */
+/* The palette showcase frame (#5821): layout only; colour and radius come from shared roles. */
 .theme-b {
   box-sizing: border-box;
   min-height: 100vh;

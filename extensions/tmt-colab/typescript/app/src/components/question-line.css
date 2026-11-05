@@ -241,7 +241,7 @@
   overflow-wrap: anywhere;
 }
 .question-choice-chip:has(:checked) {
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
   border-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
   font-weight: 600;

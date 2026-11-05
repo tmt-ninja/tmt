@@ -96,7 +96,7 @@
 }
 .page-project-group:hover .page-project-group-add,
 .page-project-group:focus-visible .page-project-group-add {
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
 }
 /* The existing leaf trigger anchors the popup; the visible group owns admission and focus return. */
 .page-project-picker-anchor {

@@ -1453,7 +1453,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   flex: none;
 }
 .discussion-state[data-state='resolved'] {
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
 }
 .discussion-state[data-state='needs'] {
   color: var(--tmt-ui-color-waiting);
@@ -1941,7 +1941,7 @@ button.discussion-quote:focus-visible {
   width: auto;
   padding: 0 14px;
   background: var(--tmt-ui-surface-selection);
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
 }
 .selection-mode .tmt-ui-icon-action-icon {
   width: auto;
@@ -2324,7 +2324,7 @@ button.discussion-quote:focus-visible {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
 }
 .management-dialog .storage-done .tmt-ui-notice {
   margin: 0 0 16px;

@@ -228,15 +228,18 @@ export function ColabMock({ path }: { path: string }) {
       brand.prepend(ninja);
     }
   }, [logo, view]);
-  // The radius knob only moves inside a palette-B scope; the mock carries its own, so the switch
-  // works on the docs server and inside Design alike.
+  // The mock carries the radius roles locally so the switch never changes the host shell.
   const scope = {
     display: 'contents',
     '--tmt-ui-ref-radius': `${radius.radius}px`,
     '--tmt-ui-ref-radius-step': `${radius.step}px`,
+    '--tmt-ui-radius-s': `${radius.radius}px`,
+    '--tmt-ui-radius': `${radius.radius}px`,
+    '--tmt-ui-radius-l': `${radius.radius + radius.step}px`,
+    '--tmt-ui-radius-badge': `${radius.radius}px`,
   } as CSSProperties;
   return (
-    <div ref={mock} data-tmt-palette="b" data-mock-radius={radius.id} style={scope}>
+    <div ref={mock} data-mock-radius={radius.id} style={scope}>
       <UiTheme theme={theme}>
         <BrowserShell
           view={view}
