@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -46,6 +47,8 @@ export function ImageBlock({
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const opener = useRef<HTMLButtonElement>(null);
   const openerIndex = useRef(0);
+  // Set when the viewer closes: the opener takes focus once the render that reveals it commits.
+  const [restoreFocus, setRestoreFocus] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ x: number; y: number; distance?: number; zoom: number } | undefined>(
     undefined,
@@ -54,6 +57,13 @@ export function ImageBlock({
     setIndex((previous) => Math.max(0, Math.min(previous, images.length - 1)));
     if (images.length === 0) setOpen(false);
   }, [images.length]);
+  // After commit, not on a frame: a single-image layout shows the opener only once its index
+  // has rendered, and a frame can run before that render commits (#5249).
+  useLayoutEffect(() => {
+    if (!restoreFocus) return;
+    setRestoreFocus(false);
+    opener.current?.focus();
+  }, [restoreFocus, index]);
   const current = images[Math.min(index, images.length - 1)];
   const move = (delta: number) => {
     const next = Math.max(0, Math.min(images.length - 1, index + delta));
@@ -263,10 +273,7 @@ export function ImageBlock({
               onCloseAutoFocus={(event) => {
                 event.preventDefault();
                 if (layout === 'single') setIndex(openerIndex.current);
-                // The single-image layout may need a render to reveal the opener again.
-                opener.current?.ownerDocument.defaultView?.requestAnimationFrame(() =>
-                  opener.current?.focus(),
-                );
+                setRestoreFocus(true);
               }}
             >
               <DialogTitle>{current?.caption || current?.alt || 'Image viewer'}</DialogTitle>
