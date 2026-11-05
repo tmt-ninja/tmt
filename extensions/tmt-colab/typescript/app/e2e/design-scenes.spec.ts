@@ -204,6 +204,26 @@ for (const [path, trigger, kind] of [
       ).toBeLessThanOrEqual(2);
   });
 
+// The Browser overlays page draws its dialog, drawer and panel scenes in their stages, as the docs
+// do, rather than "Unknown preview" (#6090); its drawer opens and closes in the stage.
+test('the Browser overlays page draws every scene and opens its drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.addStyleTag({ content: '#design-scene iframe{display:block;width:100%;border:0}' });
+  await design(page, 'browser/dialog-drawer-panel', 760);
+  const frame = page.frameLocator('#design-scene iframe');
+  await expect(frame.getByRole('button', { name: 'Open drawer' }).first()).toBeVisible();
+  await expect(frame.getByText('Unknown preview')).toHaveCount(0);
+  await expect(frame.getByRole('button', { name: 'Open dialog' }).first()).toBeVisible();
+  await frame.getByRole('button', { name: 'Open drawer' }).first().click();
+  const drawer = frame.locator('dialog.tmt-ui-drawer[open]');
+  await expect(drawer).toHaveCount(1);
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+});
+
 // A narrow Design frame takes the compact (<=760px) tokens, as the docs do at 390: the frame's
 // tokens once stopped before that block and kept the wide header padding and type.
 test('a Design frame at 390 resolves the compact tokens as the docs do', async ({ page }) => {

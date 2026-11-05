@@ -7,6 +7,7 @@ import { UiTheme } from '../src/ui/index.js';
 import { BlocksFrame } from '../gallery/blocks-frame.js';
 import { DataTableFrame } from '../gallery/data-table-frame.js';
 import { PageListFrame } from '../gallery/page-list-frame.js';
+import { DialogFrame, DrawerFrame, PanelFrame, SourceFrame } from '../gallery/frames.js';
 import { motionNotes, Replay } from './motion.js';
 import { Article, ComponentTemplate, Snippet } from './templates.js';
 
@@ -59,6 +60,11 @@ const scenes: Record<string, ComponentType<{ params: URLSearchParams }>> = {
   blocks: BlocksFrame,
   'data-table': DataTableFrame,
   'page-list': PageListFrame,
+  // The Browser overlays (#6090): drawn in their stage, as the docs' own frames show them.
+  dialog: DialogFrame,
+  drawer: DrawerFrame,
+  panel: PanelFrame,
+  source: SourceFrame,
 };
 /** A page frame cannot load the docs site's frame pages: the host that runs DocsComponentPage
  * calls this once, before rendering, so their scenes draw inline, as in Design's hosted docs. */
