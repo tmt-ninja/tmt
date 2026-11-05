@@ -3,6 +3,7 @@ import type { attachment } from '@tmt/colab-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { useAttachmentOpener } from './attachment-opener.js';
+import { downloadCooldown } from './download-cooldown.js';
 import { text } from './strings.js';
 import './page-link-bar.css';
 
@@ -16,11 +17,25 @@ export function usePageAttachmentDownload(
   const [requested, setRequested] = useState<string>();
   const [settled, setSettled] = useState(false);
   const generation = useRef(0);
-  const reset = useCallback(() => {
+  const [cooldown] = useState(downloadCooldown);
+  // The request the bar shows, read by the close paths without waiting for a render.
+  const active = useRef<string>(undefined);
+  const close = useCallback(() => {
     generation.current += 1;
+    active.current = undefined;
     setSettled(false);
     setRequested(undefined);
   }, []);
+  // A Cancel (the button, Escape or a light dismiss) starts the cool-down (#6094).
+  const cancel = useCallback(() => {
+    if (active.current !== undefined) cooldown.cancelled();
+    close();
+  }, [close, cooldown]);
+  // A new render or page: nothing pending, and the frame may ask again at once.
+  const reset = useCallback(() => {
+    cooldown.clear();
+    close();
+  }, [close, cooldown]);
   const item = descriptors.find((descriptor) => descriptor.attachmentId === requested);
   const activeId = item?.attachmentId;
   const canShow = !!item && !!binding;
@@ -39,11 +54,13 @@ export function usePageAttachmentDownload(
     };
   }, [activeId, canShow]);
   useEffect(() => {
-    if (settled && !failure) reset();
-  }, [failure, reset, settled]);
+    if (settled && !failure) close();
+  }, [close, failure, settled]);
   return {
     request: (id: string) => {
+      if (!cooldown.admits()) return;
       generation.current += 1;
+      active.current = id;
       setSettled(false);
       setRequested(id);
     },
@@ -57,13 +74,13 @@ export function usePageAttachmentDownload(
           aria-label="Download attachment"
           className="page-link-bar"
           onToggle={(event) => {
-            if (event.newState === 'closed') reset();
+            if (event.newState === 'closed' && active.current !== undefined) cancel();
           }}
         >
           <h2>Download attachment?</h2>
           <p>{item.filename}</p>
           {failure && settled && <p role="alert">{text.attachmentReason[failure]}</p>}
-          <BrowserAction type="button" variant="ghost" label="Cancel" onActivate={reset} />
+          <BrowserAction type="button" variant="ghost" label="Cancel" onActivate={cancel} />
           <BrowserAction
             type="button"
             variant="primary"

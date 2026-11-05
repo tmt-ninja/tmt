@@ -2646,6 +2646,10 @@ An image or file block may request a download of a `colab-attachment:` reference
 matches it uniquely against the current page's verified descriptors and presents the filename in
 trusted chrome; only a trusted confirmation reads and downloads the attachment. A frame claim or
 gesture alone never grants that read, and an unknown or ambiguous reference is ignored.
+After the reader cancels the confirmation (its Cancel, Escape or a light dismiss), the parent
+ignores that frame's download requests for 3 seconds (#6094), so page script cannot keep reopening
+it. Requests during the cool-down neither restart nor extend it; a finished download starts none,
+and a new render or page clears it.
 
 On a content change, debounce about 300 ms. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state

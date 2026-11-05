@@ -27,6 +27,7 @@ export function mountDownloadFixture() {
       <>
         <button onClick={() => download.request(descriptor.attachmentId)}>Request</button>
         <button onClick={() => download.request('unknown')}>Unknown</button>
+        <button onClick={download.reset}>New render</button>
         {download.bar}
       </>
     );

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
+import { DOWNLOAD_COOLDOWN_MS } from '../src/download-cooldown.js';
 
 const bundle = JSON.parse(
   readFileSync(
@@ -215,6 +216,8 @@ test('verified custom-prefix components receive only their declared data', async
 });
 
 test('attachment download requires parent confirmation and current admission', async ({ page }) => {
+  // Time is the page's own fake clock: the cool-down is stepped through, never waited out.
+  await page.clock.install();
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/e2e/attachment-download-fixture.tsx';
@@ -229,7 +232,24 @@ test('attachment download requires parent confirmation and current admission', a
   expect(await page.evaluate(() => (window as unknown as { reads: number }).reads)).toBe(0);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(await page.evaluate(() => (window as unknown as { reads: number }).reads)).toBe(0);
-  await page.getByRole('button', { name: 'Request', exact: true }).click();
+  // #6094: after a Cancel the page cannot reopen the bar at once; asking again does not extend
+  // the cool-down, and after it the bar opens again.
+  const request = page.getByRole('button', { name: 'Request', exact: true });
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(DOWNLOAD_COOLDOWN_MS - 500);
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.clock.fastForward(500);
+  await request.click();
+  await expect(dialog).toContainText('example.png');
+  // Escape is a Cancel too; a new render clears the cool-down.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await request.click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'New render' }).click();
+  await request.click();
   await page.evaluate(() => {
     (window as unknown as { failDownload: boolean }).failDownload = true;
   });
@@ -243,6 +263,9 @@ test('attachment download requires parent confirmation and current admission', a
     .poll(() => page.evaluate(() => (window as unknown as { reads: number }).reads))
     .toBe(2);
   await expect(dialog).toHaveCount(0);
+  // A finished download is no Cancel: the next request opens the bar at once.
+  await request.click();
+  await expect(dialog).toContainText('example.png');
 });
 
 test('trusted page-view preserves authored presentation and selection', async ({ page }) => {
