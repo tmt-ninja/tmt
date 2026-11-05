@@ -28,6 +28,8 @@ pub(crate) fn command() -> Command {
             .arg(
                 Arg::new("cursor")
                     .long("cursor")
+                    // A base64url cursor may start with '-'; keep it as this option's value.
+                    .allow_hyphen_values(true)
                     .help("Continue the same bounded view"),
             )
             .arg(
