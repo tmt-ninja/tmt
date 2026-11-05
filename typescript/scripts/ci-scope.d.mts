@@ -180,6 +180,7 @@ export interface MainVerificationContext {
   readonly sha?: string;
   readonly runId?: string;
   readonly runAttempt?: string;
+  readonly needs?: unknown;
 }
 export type MainVerificationRequest = (
   route: string,
@@ -191,5 +192,6 @@ export function admitMainFull(context: MainVerificationContext, readMain: () => 
 export function mainFullGatePasses(context: MainVerificationContext, needs: unknown): boolean;
 export function notifyMainFullFailure(
   context: MainVerificationContext,
-  request: MainVerificationRequest
+  request: MainVerificationRequest,
+  options?: { sleep?: (milliseconds: number) => void }
 ): { readonly created: boolean; readonly commentId: number };
