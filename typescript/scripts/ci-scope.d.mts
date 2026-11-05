@@ -14,7 +14,12 @@ export interface ComponentMap {
     readonly initialVersion?: string;
     readonly requiresCliSha?: string;
     readonly messageProtocols?: readonly number[];
-    readonly uses?: readonly { feature: string; label: string; extension: string; requires: string }[];
+    readonly uses?: readonly {
+      feature: string;
+      label: string;
+      extension: string;
+      requires: string;
+    }[];
     readonly predecessor?: string;
     readonly releaseConsumers: readonly string[];
     readonly owns: readonly string[];
@@ -112,6 +117,7 @@ export function selectColabApp(paths: readonly string[], map?: ComponentMap): bo
 export function selectColabHosted(paths: readonly string[]): boolean;
 export function selectColabChrome(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectBrowserUi(paths: readonly string[]): boolean;
+export function selectRendererProof(paths: readonly string[]): boolean;
 export function selectRemoteFirestore(paths: readonly string[]): boolean;
 export function selectColabFirestore(paths: readonly string[]): boolean;
 export function selectNativeSyncEmulator(paths: readonly string[]): boolean;

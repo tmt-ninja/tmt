@@ -40,6 +40,7 @@ jobs:
       native: ${{ steps.mainfull.outputs.native || steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.mainfull.outputs.native_notices || steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
+      renderer_proof: ${{ steps.mainfull.outputs.renderer_proof || steps.scope.outputs.renderer_proof || steps.queue.outputs.renderer_proof || 'false' }}
       remote_runtime_proof: ${{ steps.mainfull.outputs.remote_runtime_proof || steps.scope.outputs.remote_runtime_proof || steps.queue.outputs.remote_runtime_proof || 'false' }}
       colab_runtime_proof: ${{ steps.mainfull.outputs.colab_runtime_proof || steps.scope.outputs.colab_runtime_proof || steps.queue.outputs.colab_runtime_proof || 'false' }}
       remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
@@ -103,7 +104,7 @@ jobs:
     needs: changes
     if: ${{ always() && needs.changes.outputs.verify != 'false' && (github.event_name != 'push' || needs.changes.result == 'success') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -138,7 +139,15 @@ jobs:
           cargo check -p tmt-tui-components --target wasm32-unknown-unknown
           cargo tree -p tmt-tui-components --target wasm32-unknown-unknown --edges normal --prefix none > "$RUNNER_TEMP/tmt-components-wasm-graph"
           if grep -E "^(ratatui|crossterm|comfy-table)( |$)" "$RUNNER_TEMP/tmt-components-wasm-graph"; then exit 1; fi
-          cargo install --locked --version 0.2.128 wasm-bindgen-cli
+      - name: Prove wasm renderer
+        if: needs.changes.outputs.renderer_proof == 'true'
+        working-directory: rust
+        run: |
+          archive="$RUNNER_TEMP/wasm-bindgen.tar.gz"
+          curl --fail --location --silent --show-error 'https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz' --output "$archive"
+          printf '%s  %s\n' 'b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f' "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          export PATH="$RUNNER_TEMP/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl:$PATH"
           test "$(wasm-bindgen --version)" = "wasm-bindgen 0.2.128"
           cargo test --locked -p tmt-tui-wasm
           cargo build --locked -p tmt-tui-wasm --example vector

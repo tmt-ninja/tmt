@@ -54,6 +54,7 @@ import {
   selectColabHarness,
   selectColabChrome,
   selectBrowserUi,
+  selectRendererProof,
   selectColabHosted,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -64,6 +65,26 @@ const { runPackedCommand } = await import(
 const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
+
+it('selects the wasm renderer proof for its inputs and CI wiring only', () => {
+  for (const file of [
+    'rust/crates/tmt-tui-wasm/src/lib.rs',
+    'rust/crates/tmt-tui-components/src/lib.rs',
+    'rust/crates/tmt-cli-style/src/lib.rs',
+    '.github/workflows/ci.yml',
+    'rust/Cargo.lock',
+  ])
+    expect(selectRendererProof([file]), file).toBe(true);
+  expect(selectRendererProof([])).toBe(false);
+  expect(selectRendererProof(['rust/crates/tmt-core/src/lib.rs'])).toBe(false);
+  expect(selectRendererProof(['rust/crates/tmt-tui-wasm-extra/src/lib.rs'])).toBe(false);
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/ci.yml', import.meta.url),
+    'utf8'
+  );
+  expect(workflow).toContain("if: needs.changes.outputs.renderer_proof == 'true'");
+  expect(workflow).toContain('b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f');
+});
 
 it('keeps rehearsal proofs runnable after a skipped declaration without bypassing direct dependencies', () => {
   const prepare = readFileSync(
@@ -2387,6 +2408,7 @@ describe('CI diff and command integration', () => {
         colab_chrome: 'false',
         browser_ui: 'false',
         native_scope: 'ops',
+        renderer_proof: 'false',
         native_notices: 'false',
         remote_runtime_proof: 'false',
         colab_runtime_proof: 'false',
@@ -3003,7 +3025,7 @@ esac
       git(['update-ref', 'refs/remotes/origin/main', docs]);
       const empty = select(['merge-group', docs]);
       git(['update-ref', 'refs/remotes/origin/main', base]);
-      expect(empty.outputs).toEqual({ ...full, native_notices: 'true' });
+      expect(empty.outputs).toEqual({ ...full, native_notices: 'true', renderer_proof: 'true' });
       expect(empty.evidence).toContain('diff is empty; using full verification');
       for (const args of [
         ['merge-group', '0'.repeat(40)],
@@ -3012,7 +3034,11 @@ esac
         ['merge-group'],
       ]) {
         const fallback = select(args);
-        expect(fallback.outputs).toEqual({ ...full, native_notices: 'true' });
+        expect(fallback.outputs).toEqual({
+          ...full,
+          native_notices: 'true',
+          renderer_proof: 'true',
+        });
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
       const colabRules = commit('extensions/tmt-colab/firestore/admission.rules', '// rules');
@@ -3086,14 +3112,18 @@ esac
       expect(select([workspace, siteTip]).outputs.native_scope).toBe('none');
       expect(select([workspace, siteTip]).outputs.native_notices).toBe('false');
       const pending = select(['merge-group', siteTip]);
-      expect(pending.outputs).toEqual({ ...full, native_notices: 'true' });
+      expect(pending.outputs).toEqual({ ...full, native_notices: 'true', renderer_proof: 'true' });
       expect(pending.evidence).toContain(`${base.slice(0, 12)}..${siteTip.slice(0, 12)}`);
       for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock']) {
         expect(pending.evidence).toContain(file);
       }
       git(['update-ref', '-d', 'refs/remotes/origin/main']);
       const absentTarget = select(['merge-group', siteTip]);
-      expect(absentTarget.outputs).toEqual({ ...full, native_notices: 'true' });
+      expect(absentTarget.outputs).toEqual({
+        ...full,
+        native_notices: 'true',
+        renderer_proof: 'true',
+      });
       expect(absentTarget.evidence).toContain('diff unreadable; using full verification');
       git(['update-ref', 'refs/remotes/origin/main', base]);
       // Divergent target/head histories use their common ancestor, excluding target-only work.
@@ -3114,7 +3144,7 @@ esac
         shallow,
       ]);
       const fallback = select(['merge-group', core], shallow);
-      expect(fallback.outputs).toEqual({ ...full, native_notices: 'true' });
+      expect(fallback.outputs).toEqual({ ...full, native_notices: 'true', renderer_proof: 'true' });
       expect(fallback.evidence).toContain('diff unreadable; using full verification');
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -430,7 +430,7 @@ describe('release version gate workflow boundaries', () => {
       .find((step) => step.startsWith('name: Build the Rust TOML helper'))!;
     expect(preparation).toBeDefined();
     expect(quality).toContain('name: Code quality');
-    expect(quality).toContain('timeout-minutes: 20');
+    expect(quality).toContain('timeout-minutes: 10');
     expect(preparation).toContain('RUSTUP_TOOLCHAIN: 1.97.0');
     const toolchain = preparation.indexOf('rustup toolchain install 1.97.0 --profile minimal');
     const fetch = preparation.indexOf('cargo fetch --locked --manifest-path rust/Cargo.toml');
