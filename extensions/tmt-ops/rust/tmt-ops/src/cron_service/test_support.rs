@@ -66,6 +66,7 @@ if a[0]=='api':
   out={'id':m['room'],'name':m['roomName'],'revision':m['roomRevision'],'retired':False,'memberIds':i['room']['memberIds']}
   if m.get('loseRoomWriteResponse'): save(m); print('interrupted'); sys.exit(0)
   if m.get('malformedRoomWriteResponse'): out={}
+ elif op=='orchestration.read' and i.get('view')=='overview': out=m.get('orchestrationOverview',{'members':[]})
  elif op=='rooms.roster':
   if i['room']==m['room']:
    ids=[x['id'] for x in m['members'] if x['id'] not in m['rosterWithout']]

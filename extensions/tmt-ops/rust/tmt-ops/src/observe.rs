@@ -154,7 +154,13 @@ impl Observation {
             reminder: _,
         } = self;
         provider::apply(providers, &mut members, &cached);
-        let overs = crate::idle_alert::overs(&members, shape.idle_alert, status::now_ms());
+        let now = status::now_ms();
+        let sleeping = if shape.idle_alert.enabled {
+            crate::idle_alert::sleeping(core, now)
+        } else {
+            Default::default()
+        };
+        let overs = crate::idle_alert::overs(&members, shape.idle_alert, now, &sleeping);
         let mut document = status::document(
             squad,
             shape.layout,
@@ -210,6 +216,7 @@ case "$1" in
         printf '%s\n' roster >> "$root/calls"
         if [ -p "$root/release" ]; then read -r release < "$root/release"; fi
         cat "$root/roster" ;;
+      *'"orchestration.read"'*) printf '%s\n' orchestration >> "$root/calls"; if [ -f "$root/orchestration" ]; then cat "$root/orchestration"; else exit 2; fi ;;
       *'"notes.read"'*) printf '%s\n' notes >> "$root/calls"; printf '%s\n' '{"identityId":"SOL","content":"ship it"}' ;;
       *'"requests.list"'*) printf '%s\n' room >> "$root/calls"; printf '%s\n' '{"items":[]}' ;;
       *) exit 2 ;;
@@ -390,6 +397,27 @@ esac
             None,
             "idle for 10 minutes is under the threshold"
         );
+
+        fs::write(
+            fixture.root.join("orchestration"),
+            json!({"members":[
+                {"identityId":"RIN", "effective":{"state":{"value":"sleep"}}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let asleep = fixture.read(false).document;
+        let rin = asleep["sections"][0]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == "rin")
+            .unwrap();
+        assert_eq!(
+            rin["idleAlert"],
+            json!({"state":"excepted","reason":"sleep","sinceMs":since})
+        );
+        assert_eq!(crate::idle_alert::row_label(rin, status::now_ms()), None);
     }
 
     #[test]

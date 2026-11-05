@@ -38,6 +38,8 @@ pub enum Exception {
     Pending,
     /// The row's `state` is `hold`: a resting seat.
     Hold,
+    /// Core resolved the member's effective Orchestration state to sleep.
+    Sleep,
 }
 
 /// A member idle past the threshold, from Core's idle start.
@@ -49,7 +51,12 @@ pub struct Over {
 
 /// Over means Core's `idle` phase for at least `after`. Working, ended, unknown and unseen rows
 /// never count, and idle is never guessed from silence.
-pub fn assess(member: &Member, setting: IdleAlert, now_ms: u64) -> Option<Over> {
+pub fn assess(
+    member: &Member,
+    setting: IdleAlert,
+    now_ms: u64,
+    sleeping: &HashSet<String>,
+) -> Option<Over> {
     if !setting.enabled {
         return None;
     }
@@ -66,17 +73,50 @@ pub fn assess(member: &Member, setting: IdleAlert, now_ms: u64) -> Option<Over> 
         Some(Exception::Pending)
     } else if field("state").is_some_and(|state| state.eq_ignore_ascii_case("hold")) {
         Some(Exception::Hold)
+    } else if sleeping.contains(&member.id) {
+        Some(Exception::Sleep)
     } else {
         None
     };
     Some(Over { since_ms, excepted })
 }
 
+/// A single Core overview at the assessment instant. A failed or malformed read
+/// supplies no sleep evidence, so the existing alert behavior continues.
+pub fn sleeping(core: &Core, now_ms: u64) -> HashSet<String> {
+    let Ok(overview) = core.api(
+        "orchestration.read",
+        json!({"view": "overview", "rangeDays": 1, "atMs": now_ms}),
+    ) else {
+        return HashSet::new();
+    };
+    overview["members"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|member| {
+            (member["effective"]["state"]["value"].as_str() == Some("sleep"))
+                .then(|| member["identityId"].as_str().map(str::to_owned))
+                .flatten()
+        })
+        .collect()
+}
+
 /// Every over member by identity, for the `ls` marks.
-pub fn overs(members: &[Member], setting: IdleAlert, now_ms: u64) -> HashMap<String, Over> {
+pub fn overs(
+    members: &[Member],
+    setting: IdleAlert,
+    now_ms: u64,
+    sleeping: &HashSet<String>,
+) -> HashMap<String, Over> {
     members
         .iter()
-        .filter_map(|member| Some((member.id.clone(), assess(member, setting, now_ms)?)))
+        .filter_map(|member| {
+            Some((
+                member.id.clone(),
+                assess(member, setting, now_ms, sleeping)?,
+            ))
+        })
         .collect()
 }
 
@@ -105,7 +145,7 @@ fn mark(row: &mut Value, overs: &HashMap<String, Over>) {
         None => json!({"state": "over", "sinceMs": over.since_ms}),
         Some(reason) => json!({
             "state": "excepted",
-            "reason": match reason { Exception::Pending => "pending", Exception::Hold => "hold" },
+            "reason": match reason { Exception::Pending => "pending", Exception::Hold => "hold", Exception::Sleep => "sleep" },
             "sinceMs": over.since_ms,
         }),
     };
@@ -140,6 +180,7 @@ pub fn notices(
     setting: IdleAlert,
     now_ms: u64,
     zone: &TimeZone,
+    sleeping: &HashSet<String>,
 ) -> Vec<Announcement> {
     let mut leads = members.iter().filter(|member| member.is_lead());
     let (Some(lead), None) = (leads.next(), leads.next()) else {
@@ -149,7 +190,8 @@ pub fn notices(
         .iter()
         .filter(|member| !member.is_lead())
         .filter_map(|member| {
-            let over = assess(member, setting, now_ms).filter(|over| over.excepted.is_none())?;
+            let over =
+                assess(member, setting, now_ms, sleeping).filter(|over| over.excepted.is_none())?;
             Some(Announcement {
                 operation_id: operation_id(&squad.room_id, &member.id, &lead.id, over.since_ms),
                 recipient_id: lead.id.clone(),
@@ -326,6 +368,7 @@ impl Watch {
             Err(error) => return vec![error],
         };
         let now = u64::try_from(now_ms).unwrap_or_default();
+        let sleeping = sleeping(core, now);
         let mut warnings = Vec::new();
         let mut still_over = HashSet::new();
         let mut complete = true;
@@ -351,7 +394,7 @@ impl Watch {
                     continue;
                 }
             };
-            for notice in notices(squad, &members, setting, now, zone) {
+            for notice in notices(squad, &members, setting, now, zone, &sleeping) {
                 if self.accepted.contains(&notice.operation_id) {
                     still_over.insert(notice.operation_id);
                     continue;
