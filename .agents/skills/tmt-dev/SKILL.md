@@ -14,6 +14,8 @@ their architecture. Follow those owners rather than repeating policy here.
 
 Read the relevant reference sections before running checks:
 
+- [Coding and verification patterns](references/coding-conventions.md): language
+  conventions, command/effect patterns, transaction rules and detailed test techniques.
 - [Development procedures](references/development.md): setup, disk/worktrees,
   native builds, tooling checks, Project tracking and CI-wake command usage.
 - [Focused checks](references/focused-checks.md): driver/runtime, request-ID,
