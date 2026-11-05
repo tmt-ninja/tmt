@@ -2897,6 +2897,7 @@ version = "5.0.0-dev"
 dependencies = [
  "ratatui",
  "roxmltree",
+ "serde",
  "serde_json",
  "taffy",
  "tmt-cli-style",

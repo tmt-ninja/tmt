@@ -2310,6 +2310,7 @@ fn tui_admission_is_an_internal_presentation_leaf() {
 
     for name in [
         "roxmltree",
+        "serde",
         "serde_json",
         "tmt-cli-style",
         "taffy",

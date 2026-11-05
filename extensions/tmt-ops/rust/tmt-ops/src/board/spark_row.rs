@@ -623,62 +623,49 @@ pub(in crate::board) fn stacked(
     points: &[(Option<u64>, Option<u64>)],
     look: crate::look::Look,
 ) {
-    use ratatui::text::Span;
-    use tmt_tui::components::strip;
-    if area.is_empty() {
-        return;
-    }
-    if points.is_empty() {
-        strip::paint_left(
-            buffer,
-            Rect { height: 1, ..area },
-            Line::styled(
-                "No aligned used/saved observations yet",
-                look.role(Role::Muted),
-            ),
-        );
-        return;
-    }
-    let maximum = points
-        .iter()
-        .filter_map(|(used, saved)| (*used)?.checked_add(saved.unwrap_or(0)))
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    for row in 0..area.height.min(2) {
-        let base = u128::from(1 - row) * 8;
-        let spans = (0..area.width)
-            .map(|x| {
-                let (used, saved) = points[usize::from(x) * points.len() / usize::from(area.width)];
-                let (Some(used), Some(saved)) = (used, saved) else {
-                    return Span::styled("·", look.role(Role::Dim));
-                };
-                let total = used.saturating_add(saved);
-                let pixels = (u128::from(total) * 16).div_ceil(u128::from(maximum));
-                let height = pixels.saturating_sub(base).min(8) as usize;
-                let saved_pixels = (u128::from(saved) * 16) / u128::from(maximum);
-                let saved_height = saved_pixels.saturating_sub(base).min(8) as usize;
-                let blocks = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-                if saved_height > 0 && saved_height < height {
-                    let used = look.role(Role::Text);
-                    let saved = look.role(Role::Accent);
-                    Span::styled(blocks[saved_height], saved.bg(used.fg.unwrap_or_default()))
-                } else {
-                    let role = if saved_height > 0 {
-                        Role::Accent
-                    } else {
-                        Role::Text
-                    };
-                    Span::styled(blocks[height], look.role(role))
-                }
+    use tmt_tui::components::{
+        design_system::{
+            CellGrid, Component, Rect as CellRect, Size, StackedBars, StackedBarsProps,
+            StackedPoint, Token,
+        },
+        design_system_ratatui,
+    };
+    let mut grid = CellGrid::new(Size {
+        width: if points.is_empty() {
+            area.width
+                .min("No aligned used/saved observations yet".len() as u16)
+        } else {
+            area.width
+        },
+        height: area.height.min(if points.is_empty() { 1 } else { 2 }),
+    });
+    let props = StackedBarsProps {
+        points: points
+            .iter()
+            .map(|(used, saved)| StackedPoint {
+                used: *used,
+                saved: *saved,
             })
-            .collect::<Vec<_>>();
-        strip::paint_left(
-            buffer,
-            Rect::new(area.x, area.y + row, area.width, 1),
-            Line::from(spans),
-        );
-    }
+            .collect(),
+        used_role: Token(Role::Text),
+        saved_role: Token(Role::Accent),
+        missing_role: Token(if points.is_empty() {
+            Role::Muted
+        } else {
+            Role::Dim
+        }),
+    };
+    StackedBars::render(
+        &props,
+        CellRect {
+            x: 0,
+            y: 0,
+            width: area.width,
+            height: area.height,
+        },
+        &mut grid,
+    );
+    design_system_ratatui::paint(&grid, area, buffer, |role| look.role(role));
 }
 
 #[cfg(test)]

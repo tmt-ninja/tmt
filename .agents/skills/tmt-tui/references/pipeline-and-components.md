@@ -62,6 +62,17 @@ Maintained module reference. Commands and admitted spellings are in [development
    intersect visible buffer clips, omit zero areas and resolve in reverse paint
    order.
 
+## Pure design-system components
+
+`components::design_system` measures and renders Serde props into a clipped cell
+grid carrying semantic foreground and background roles. It does no I/O or
+terminal integration. Each renderer returns its painted interaction regions;
+the caller owns state and actions. Row and column tracks compose fixed and fill
+space. `design_system_ratatui` resolves the supplied roles to the caller's look
+at the native buffer boundary. Snapshot tests pin the cells in four looks at five
+widths, including the narrow layouts. The existing board stacked chart uses this
+same component without changing its output.
+
 ## Application layer and component behavior
 
 - `app` owns base focus, one replaceable modal and top-first event routing:

@@ -2,6 +2,8 @@
 //! contract in `design/cli-style.md`. Markup is admitted by `surface::compile`.
 mod button;
 pub mod collection;
+pub mod design_system;
+pub mod design_system_ratatui;
 pub use button::{Button, ButtonRow};
 mod completion;
 pub use completion::{Candidate, Completion};
