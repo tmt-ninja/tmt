@@ -138,6 +138,7 @@ mod tests {
             for width in [40, 60, 80, 120, 160] {
                 for focused in [false, true] {
                     for title in [
+                        "",
                         "Saved · 1d",
                         "A long title that fills much of a narrower section rule",
                         "hello\tworld\nagain",
@@ -148,7 +149,18 @@ mod tests {
                             let line = note.map_or_else(Line::default, |value| {
                                 Line::from(Span::styled(value.to_owned(), look.role(Role::Muted)))
                             });
-                            paint(&mut original, area, title, line, focused, look);
+                            if title.is_empty() {
+                                tmt_tui::components::strip::paint_left(
+                                    &mut original,
+                                    area,
+                                    Line::styled(
+                                        plain(title, usize::from(width)),
+                                        look.role(Role::Dim),
+                                    ),
+                                );
+                            } else {
+                                paint(&mut original, area, title, line, focused, look);
+                            }
                             let mut grid = CellGrid::new(Size { width, height: 1 });
                             SectionRule::render(
                                 &SectionRuleProps {
