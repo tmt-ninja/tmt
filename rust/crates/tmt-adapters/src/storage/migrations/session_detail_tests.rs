@@ -413,14 +413,14 @@ fn diagnostic_stages_preserve_schema_84_rows_and_reject_unbounded_details() {
 }
 
 #[test]
-fn empty_boundary_evidence_preserves_schema_88_rows_and_stays_bounded() {
+fn empty_boundary_evidence_preserves_schema_89_rows_and_stays_bounded() {
     let directory = TestDirectory::new();
     let root = directory.path.join("store");
     crate::private_file::ensure_private_directory(&root).unwrap();
-    let path = root.join("schema88.db");
+    let path = root.join("schema89.db");
     let mut old = Connection::open(&path).unwrap();
     old.pragma_update(None, "foreign_keys", true).unwrap();
-    apply_through(&mut old, 88).unwrap();
+    apply_through(&mut old, 89).unwrap();
     old.execute_batch(BINDING).unwrap();
     let previous: Vec<&str> = include_str!("../schema/085.sql")
         .lines()
@@ -439,7 +439,7 @@ fn empty_boundary_evidence_preserves_schema_88_rows_and_stays_bounded() {
     assert!(
         old.execute(&observation(501, "'digest_empty:active_claim'"), [])
             .is_err(),
-        "schema 88 does not know the empty-boundary names"
+        "schema 89 does not know the empty-boundary names"
     );
     let cursor: i64 = old
         .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
