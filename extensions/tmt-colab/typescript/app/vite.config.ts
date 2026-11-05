@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react';
 import { designTokens } from '../../../../design/tokens/tokens-plugin.ts';
 import { tuiOracle } from '@tmt/browser-ui/docs-oracle';
 import { entryOf, isBuild } from './src/build-stamp.ts';
+import { runtimeBuildOptions, runtimeChunksPlugin } from '../../scripts/runtime-chunks.mjs';
 
 /**
  * The app build the Colab module is made beside (#4282): the hashed entry of the `dist/index.html`
@@ -33,6 +34,7 @@ function appDataChunk(name: string): string {
   return `./${matches[0]}`;
 }
 
+const runtimeChunks = runtimeBuildOptions(new URL('./', import.meta.url));
 export default defineConfig(({ mode }) => ({
   lint: lintConfig,
   fmt: {
@@ -85,18 +87,9 @@ export default defineConfig(({ mode }) => ({
       },
     },
     {
-      name: 'colab-runtime-tailwind',
+      name: 'colab-runtime-assets',
       apply: () => mode === 'runtime',
-      async generateBundle(_options, bundle) {
-        const compiler = readFileSync(
-          createRequire(import.meta.url).resolve('@tailwindcss/browser'),
-          'utf8',
-        );
-        const entry = Object.values(bundle).find(
-          (output) => output.type === 'chunk' && output.isEntry,
-        );
-        if (entry?.type !== 'chunk') throw new Error('Missing runtime entry chunk');
-        entry.code = `${entry.code}\n${compiler}`;
+      async generateBundle() {
         // The theme is Tailwind source for a `<style type="text/tailwindcss">` block, not compiled
         // CSS; scripts/generate-runtime-theme.mjs writes it from the design tokens.
         this.emitFile({
@@ -113,6 +106,17 @@ export default defineConfig(({ mode }) => ({
         this.emitFile({ type: 'asset', fileName: 'assets/colab-page-ui.js', source: pageUiScript });
       },
     },
+    // The runtime's chunks (#6085): the base carries the prebuilt Tailwind browser compiler as text.
+    ...(mode === 'runtime'
+      ? [
+          runtimeChunksPlugin({
+            compiler: readFileSync(
+              createRequire(import.meta.url).resolve('@tailwindcss/browser'),
+              'utf8',
+            ),
+          }),
+        ]
+      : []),
     {
       // Shared-part styles travel in the declaring component's bundle CSS, rather than in every
       // runtime page. The library build also emits those imported CSS files; do not ship that copy.
@@ -120,9 +124,11 @@ export default defineConfig(({ mode }) => ({
       apply: () => mode === 'runtime',
       enforce: 'post',
       generateBundle(_options, bundle) {
-        const css = bundle['colab-app.css'];
-        if (css?.type !== 'asset') throw new Error('Missing runtime shared-part CSS');
-        delete bundle['colab-app.css'];
+        const kept = ['assets/colab-runtime.css', 'assets/colab-page-ui.css'];
+        const copies = Object.keys(bundle).filter(
+          (name) => name.endsWith('.css') && !kept.includes(name),
+        );
+        for (const name of copies) delete bundle[name];
       },
     },
     {
@@ -213,10 +219,20 @@ export default defineConfig(({ mode }) => ({
               emptyOutDir: false,
               copyPublicDir: false,
               lib: {
-                entry: new URL('./src/runtime/entry.ts', import.meta.url).pathname,
-                formats: ['iife'],
-                name: 'colabRuntime',
-                fileName: () => 'assets/colab-runtime.js',
+                entry: runtimeChunks.entry,
+                formats: ['cjs'],
+                fileName: (_format, name) => `assets/entry-${name}.js`,
+              },
+              rollupOptions: {
+                preserveEntrySignatures: 'allow-extension',
+                output: {
+                  minify: true,
+                  codeSplitting: {
+                    includeDependenciesRecursively: false,
+                    groups: runtimeChunks.groups,
+                  },
+                  chunkFileNames: 'assets/[name]-[hash].js',
+                },
               },
             }
           : mode === 'reader'

@@ -5,6 +5,14 @@ import runtime4 from '../../../contracts/vectors/design-runtime-4-ui.json';
 it('exposes the curated icons on window.tmt so a page can write them as htm templates', async () => {
   vi.stubGlobal('window', globalThis);
   await import('../src/runtime/entry.js');
+  const tmtBase = (globalThis as unknown as { tmt: { ui: object } }).tmt;
+  // The base alone provides no parts; the chunks add theirs until the seal (#6085).
+  expect(Object.keys(tmtBase.ui)).toEqual([]);
+  for (const chunk of ['ui', 'browser', 'blocks', 'rich-input', 'docs'])
+    await import(`../src/runtime/chunks/${chunk}.ts`);
+  (globalThis as unknown as { __colabRuntimeSeal(): void }).__colabRuntimeSeal();
+  expect(Object.isFrozen(tmtBase.ui)).toBe(true);
+  expect('__colabRuntimeChunk' in globalThis).toBe(false);
   const { icons } = await import('../src/runtime/icons.js');
   const tmt = (
     globalThis as unknown as {

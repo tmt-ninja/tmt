@@ -220,3 +220,82 @@ fn embedded_and_disk_admission_validate_renderer_entries_and_duplicates() {
     ];
     assert!(App::from_embedded(files).is_err());
 }
+
+/// A runtime chunk (#6085) is named by its vector name and a 16-hex content hash; nothing else
+/// under the runtime prefix matches, and a reserved chunk ships no bytes.
+#[test]
+fn runtime_chunks_match_their_vector_names_and_content_hash_only() {
+    assert_eq!(
+        runtime_chunk_names(),
+        ["base", "ui", "browser", "blocks", "rich-input", "docs"]
+    );
+    for name in runtime_chunk_names() {
+        let path = format!("/assets/colab-runtime-{name}-0123456789abcdef.js");
+        assert!(is_runtime_chunk(&path), "{path}");
+        assert_eq!(anonymous_file(&path), Some(path.as_str()));
+    }
+    for path in [
+        "/assets/colab-runtime-terminal-frame-0123456789abcdef.js",
+        "/assets/colab-runtime-other-0123456789abcdef.js",
+        "/assets/colab-runtime-base-0123456789ABCDEF.js",
+        "/assets/colab-runtime-base-0123456789abcde.js",
+        "/assets/colab-runtime-base-0123456789abcdef.js.map",
+        "/assets/colab-runtime-base-0123456789abcdef.css",
+        "/assets/colab-runtime-base.js",
+        "/assets/colab-runtime.js",
+        "/colab-runtime-base-0123456789abcdef.js",
+    ] {
+        assert!(!is_runtime_chunk(path), "{path}");
+        assert_eq!(anonymous_file(path), None, "{path}");
+    }
+}
+
+/// A standalone copy inlines each chunk once, in load order, then the seal; a build missing a
+/// chunk or holding two files for one offers no runtime.
+#[test]
+fn the_runtime_script_joins_every_chunk_in_load_order_then_the_seal() {
+    let shell: [(&str, &[u8]); 5] = [
+        (
+            "/index.html",
+            br#"<script type="module" src="./assets/app.js"></script>"#,
+        ),
+        ("/renderer.html", b"<!doctype html>"),
+        ("/reader.html", b"<!doctype html>"),
+        ("/assets/app.js", b"export {};"),
+        ("/assets/app.css", b"body{}"),
+    ];
+    let chunks: Vec<(String, String)> = runtime_chunk_names()
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(index, name)| {
+            (
+                format!("/assets/colab-runtime-{name}-{index:016x}.js"),
+                format!("window.{};", name.replace('-', "_")),
+            )
+        })
+        .collect();
+    let files = |chunks: &[(String, String)]| {
+        let mut files: Vec<(&str, &[u8])> = shell.to_vec();
+        files.extend(
+            chunks
+                .iter()
+                .map(|(path, text)| (path.as_str(), text.as_bytes())),
+        );
+        App::from_embedded(&files).unwrap()
+    };
+    assert_eq!(
+        files(&chunks).runtime_script().as_deref(),
+        Some(
+            "window.base;\nwindow.ui;\nwindow.browser;\nwindow.blocks;\nwindow.rich_input;\n\
+             window.docs;\nwindow.__colabRuntimeSeal?.();"
+        )
+    );
+    assert_eq!(files(&chunks[1..]).runtime_script(), None);
+    let mut doubled = chunks.clone();
+    doubled.push((
+        "/assets/colab-runtime-ui-ffffffffffffffff.js".into(),
+        "window.ui2;".into(),
+    ));
+    assert_eq!(files(&doubled).runtime_script(), None);
+}

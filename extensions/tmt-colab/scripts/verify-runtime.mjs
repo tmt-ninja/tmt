@@ -3,10 +3,11 @@
 // Usage: node verify-runtime.mjs <app dist directory> [--update]
 //   --update  rewrites app/runtime-pin.json from the build, for a deliberate dependency change.
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const MAX_BYTES = 1.5 * 1024 * 1024;
+// A chunk's raw bytes: the bound the frame enforces on each script it is handed at bind (#6085).
+const MAX_CHUNK_BYTES = 1024 * 1024;
 const MAX_THEME_BYTES = 16 * 1024;
 const app = new URL('../typescript/app/', import.meta.url).pathname;
 const [directory, flag] = process.argv.slice(2);
@@ -18,20 +19,29 @@ const installed = (name) => JSON.parse(read(join(app, 'node_modules', name, 'pac
 const packages = Object.fromEntries(
   ['react', 'react-dom', 'htm', '@tailwindcss/browser', 'lucide-react'].map((name) => [name, installed(name)]),
 );
-const bytes = readFileSync(join(directory, 'assets/colab-runtime.js'));
+const { builtChunks, chunkVector, gzipLength } = await import('./runtime-chunks.mjs');
+const assets = readdirSync(join(directory, 'assets'));
 const themeBytes = readFileSync(join(directory, 'assets/colab-runtime.css'));
-const entry = (path, content) => ({
-  path,
-  sha256: createHash('sha256').update(content).digest('hex'),
-  length: content.length,
+const hash = (content) => createHash('sha256').update(content).digest('hex');
+// One file per built chunk, in vector order: the parent loads a page's chunks in this order.
+const chunks = builtChunks.map(({ name }) => {
+  const found = assets.filter((file) => new RegExp(`^colab-runtime-${name}-[0-9a-f]{16}\\.js$`).test(file));
+  if (found.length !== 1) throw new Error(`expected one ${name} chunk, found ${found.length}`);
+  const bytes = readFileSync(join(directory, 'assets', found[0]));
+  return {
+    name,
+    path: `assets/${found[0]}`,
+    sha256: hash(bytes),
+    length: bytes.length,
+    gzip: gzipLength(bytes),
+    bytes,
+  };
 });
 const built = {
-  version: 1,
+  version: 2,
   packages,
-  files: [
-    entry('assets/colab-runtime.js', bytes),
-    entry('assets/colab-runtime.css', themeBytes),
-  ],
+  chunks: chunks.map(({ bytes: _bytes, ...chunk }) => chunk),
+  theme: { path: 'assets/colab-runtime.css', sha256: hash(themeBytes), length: themeBytes.length },
 };
 
 const pinPath = join(app, 'runtime-pin.json');
@@ -49,16 +59,26 @@ for (const [name, version] of Object.entries(packages)) {
   expect(declared === version, `${name}: package.json says ${declared}, installed ${version}`);
   expect(pin.packages[name] === version, `${name}: pin says ${pin.packages[name]}, installed ${version}`);
 }
-expect(JSON.stringify(pin.files) === JSON.stringify(built.files), 'runtime bytes differ from runtime-pin.json');
-const text = bytes.toString('utf8');
-expect(bytes.length <= MAX_BYTES, `runtime is ${bytes.length} bytes, over ${MAX_BYTES}`);
-// The frame injects this as an inline script: it must not close its own tag, must not need
-// `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
-expect(!text.toLowerCase().includes('</script'), 'contains a script end tag');
-  expect(!text.includes('<' + '!--'), 'contains an HTML comment opener');
-expect(!text.includes('process.env'), 'reads process.env');
-expect(!text.includes('sourceMappingURL'), 'references a source map');
-expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), 'uses eval or new Function');
+expect(JSON.stringify(pin.chunks) === JSON.stringify(built.chunks), 'runtime chunks differ from runtime-pin.json');
+expect(JSON.stringify(pin.theme) === JSON.stringify(built.theme), 'runtime theme differs from runtime-pin.json');
+const stray = assets.filter((file) => /^(colab-runtime[-.].*\.js|entry-.*\.js)$/.test(file) && !chunks.some((chunk) => chunk.path === `assets/${file}`));
+expect(stray.length === 0, `unpinned runtime scripts: ${stray.join(', ')}`);
+// The budget is gzip -9 of every chunk together; each chunk also has its own vector cap.
+const total = chunks.reduce((sum, chunk) => sum + chunk.gzip, 0);
+expect(total <= chunkVector.gzipBudget, `runtime is ${total} gzip bytes, over ${chunkVector.gzipBudget}`);
+for (const chunk of chunks) {
+  const cap = chunkVector.chunks.find((entry) => entry.name === chunk.name).gzipCap;
+  expect(chunk.gzip <= cap, `${chunk.name} is ${chunk.gzip} gzip bytes, over its ${cap}`);
+  expect(chunk.length <= MAX_CHUNK_BYTES, `${chunk.name} is ${chunk.length} bytes, over ${MAX_CHUNK_BYTES}`);
+  const text = chunk.bytes.toString('utf8');
+  // The frame injects each chunk as an inline script: it must not close its own tag, must not need
+  // `process`, must not load a source map, and must not need eval (the frame has no unsafe-eval).
+  expect(!text.toLowerCase().includes('</script'), `${chunk.name}: contains a script end tag`);
+  expect(!text.includes('<' + '!--'), `${chunk.name}: contains an HTML comment opener`);
+  expect(!text.includes('process.env'), `${chunk.name}: reads process.env`);
+  expect(!text.includes('sourceMappingURL'), `${chunk.name}: references a source map`);
+  expect(!/\beval\s*\(/.test(text) && !text.includes('new Function('), `${chunk.name}: uses eval or new Function`);
+}
 // The theme goes into a `<style type="text/tailwindcss">` block: an `@import` there makes the
 // browser build skip its own default import of Tailwind, and `</style` would end the block.
 const theme = themeBytes.toString('utf8');
@@ -90,4 +110,6 @@ if (failures.length) {
   console.error(`Page runtime check failed:\n- ${failures.join('\n- ')}`);
   process.exit(1);
 }
-console.log(`page runtime ok: ${bytes.length} bytes, theme ${themeBytes.length} bytes`);
+console.log(
+  `page runtime ok: ${chunks.map((chunk) => `${chunk.name} ${chunk.length}/${chunk.gzip}`).join(', ')} (raw/gzip); total gzip ${total}; theme ${themeBytes.length} bytes`,
+);

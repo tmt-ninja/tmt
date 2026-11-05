@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { showAllPages } from '../test/home-list.js';
 import { annotationInput } from '../acceptance/harness/ask.js';
+import { servePageRuntime } from './page-runtime.js';
 import {
   binariesBuilt,
   remoteBinary,
@@ -224,16 +225,11 @@ test('a page that opts in to the runtime renders in the shell with the runtime f
   page,
 }) => {
   const fetched: string[] = [];
-  await page.route('**/assets/colab-runtime.*', (route) => {
-    const url = new URL(route.request().url());
-    fetched.push(url.pathname);
-    return url.pathname.endsWith('.css')
-      ? route.fulfill({ contentType: 'text/css', body: '@theme { --color-stub: #123456; }' })
-      : route.fulfill({
-          contentType: 'text/javascript',
-          body: 'window.tmt = Object.freeze({ stub: true });',
-        });
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.includes('/assets/colab-runtime')) fetched.push(url.pathname);
   });
+  await servePageRuntime(page);
   await page.goto('/');
   await serveRendererLikeTheDoor(page);
   await page.evaluate(
@@ -242,7 +238,7 @@ test('a page that opts in to the runtime renders in the shell with the runtime f
         url,
         undefined,
         '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p>' +
-          '<script>document.getElementById("opted").dataset.tmt = String(window.tmt && window.tmt.stub)</script>',
+          '<script>document.getElementById("opted").dataset.tmt = String(typeof window.tmt.html === "function")</script>',
       ),
     { fixture, url: `/colab/pages/${page1}` },
   );
@@ -252,8 +248,8 @@ test('a page that opts in to the runtime renders in the shell with the runtime f
   const inside = await rendererFrame(page);
   await expect(inside.locator('#opted')).toHaveAttribute('data-tmt', 'true');
   expect(fetched.sort()).toEqual([
+    expect.stringMatching(/^\/colab\/assets\/colab-runtime-base-[0-9a-f]{16}\.js$/),
     '/colab/assets/colab-runtime.css',
-    '/colab/assets/colab-runtime.js',
   ]);
 });
 

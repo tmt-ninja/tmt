@@ -145,7 +145,7 @@ test('hosted short routes load the one root renderer while native mounts keep th
   );
   expect(rendererUrl('http://127.0.0.1:4179/')).toBe('http://127.0.0.1:4179/renderer.html');
 });
-const runtime = { script: 'window.tmt = Object.freeze({});', style: '' };
+const runtime = { scripts: ['window.tmt = Object.freeze({});', 'window.ui = 1;'], style: '' };
 const bound = (frame: ReturnType<typeof bootstrap>, extra: Record<string, unknown>) =>
   frame.send({
     ...message(frame.parent),
@@ -164,30 +164,37 @@ test('a bind may carry the bundled runtime, written into the trusted head before
     bound(frame, extra);
     expect(frame.writes).toEqual([
       '<!doctype html><html><head><script>window.__colabRenderStart();delete window.__colabRenderStart;</script>' +
-        '<style type="text/tailwindcss"></style><script>window.tmt = Object.freeze({});</script></head><body><p>Captured source</p></body></html>',
+        '<style type="text/tailwindcss"></style><script>window.tmt = Object.freeze({});</script><script>window.ui = 1;</script>' +
+        '<script>window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;</script></head><body><p>Captured source</p></body></html>',
     ]);
   }
 });
-test('the runtime is exactly two bounded strings that cannot end their own element', () => {
+test('the runtime is the theme and 1 to 8 bounded chunk scripts that cannot end their own element', () => {
   const big = (bytes: number) => 'x'.repeat(bytes);
+  const MiB = 1024 * 1024;
   const refused: unknown[] = [
     null,
     [],
     'script',
     {},
-    { script: runtime.script },
+    { scripts: runtime.scripts },
     { style: '' },
     { ...runtime, extra: true },
-    { script: 1, style: '' },
-    { script: runtime.script, style: null },
-    { script: big(1.5 * 1024 * 1024 + 1), style: '' },
-    { script: runtime.script, style: big(256 * 1024 + 1) },
-    { script: 'a</script><script>b', style: '' },
-    { script: 'a</SCRIPT>', style: '' },
-    { script: `a${'<'}!--b`, style: '' },
-    { script: runtime.script, style: 'a</style><b>' },
-    { script: runtime.script, style: 'a</STYLE>' },
-    { script: runtime.script, style: `a${'<'}!--b` },
+    { script: 'window.tmt = 1;', style: '' },
+    { scripts: 'window.tmt = 1;', style: '' },
+    { scripts: [], style: '' },
+    { scripts: Array(9).fill('x'), style: '' },
+    { scripts: [1], style: '' },
+    { scripts: runtime.scripts, style: null },
+    { scripts: [big(MiB + 1)], style: '' },
+    { scripts: [big(MiB), big(MiB), big(MiB), 'x'], style: '' },
+    { scripts: runtime.scripts, style: big(256 * 1024 + 1) },
+    { scripts: ['a', 'a</script><script>b'], style: '' },
+    { scripts: ['a</SCRIPT>'], style: '' },
+    { scripts: [`a${'<'}!--b`], style: '' },
+    { scripts: runtime.scripts, style: 'a</style><b>' },
+    { scripts: runtime.scripts, style: 'a</STYLE>' },
+    { scripts: runtime.scripts, style: `a${'<'}!--b` },
   ];
   for (const value of refused) {
     const frame = bootstrap();
@@ -195,7 +202,12 @@ test('the runtime is exactly two bounded strings that cannot end their own eleme
     expect(frame.writes, JSON.stringify(value)?.slice(0, 80)).toEqual([]);
   }
   const edge = bootstrap();
-  bound(edge, { runtime: { script: big(1.5 * 1024 * 1024), style: big(256 * 1024) } });
+  bound(edge, {
+    runtime: {
+      scripts: [big(MiB), big(MiB), big(MiB - 8), ...Array(5).fill('x')],
+      style: big(256 * 1024),
+    },
+  });
   expect(edge.writes).toHaveLength(1);
 });
 test('the key count allows exactly the optional layout and runtime, nothing else', () => {

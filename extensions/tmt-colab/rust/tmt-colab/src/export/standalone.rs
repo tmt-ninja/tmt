@@ -31,8 +31,8 @@ pub const UNUSABLE: &str = "runtime-unusable";
 pub const NO_DESIGN: &str = "design-unavailable";
 pub const DESIGN_UNUSABLE: &str = "design-unusable";
 
-/// The two texts the page runtime adds. They are the bytes of `assets/colab-runtime.js` and
-/// `assets/colab-runtime.css` of the same build.
+/// The two texts the page runtime adds: every runtime chunk of one build in load order, then the
+/// renderer's seal (`App::runtime_script`, #6085), and that build's `assets/colab-runtime.css`.
 #[derive(Clone, Copy)]
 pub struct Runtime<'a> {
     pub script: &'a str,

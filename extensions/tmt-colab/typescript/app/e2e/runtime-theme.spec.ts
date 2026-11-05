@@ -1,14 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { pageRuntimeFiles, sealedRuntimeScript } from './page-runtime.js';
 
 // The bundled page runtime (#1693) with its generated theme, built the way the app builds it and
 // run under the renderer frame's CSP: the classes a page writes must resolve to the design tokens
 // in both app themes, with no default palette, no shadows, square corners and one focus outline.
-const app = fileURLToPath(new URL('..', import.meta.url));
 const tokens = JSON.parse(
   readFileSync(new URL('../../../../../design/tokens/tokens.json', import.meta.url), 'utf8'),
 );
@@ -21,20 +17,12 @@ const policy = [
   "font-src 'none'",
 ].join('; ');
 
+// Every chunk, sealed, as a standalone copy carries it (#6085).
 let runtime = '';
 let theme = '';
-let output = '';
 test.beforeAll(() => {
-  output = mkdtempSync(join(tmpdir(), 'tmt-runtime-theme-'));
-  execFileSync('./node_modules/.bin/vp', ['build', '--mode', 'runtime', '--outDir', output], {
-    cwd: app,
-    stdio: 'pipe',
-  });
-  runtime = readFileSync(join(output, 'assets/colab-runtime.js'), 'utf8');
-  theme = readFileSync(join(output, 'assets/colab-runtime.css'), 'utf8');
-});
-test.afterAll(() => {
-  if (output) rmSync(output, { recursive: true, force: true });
+  runtime = sealedRuntimeScript();
+  theme = pageRuntimeFiles().get('colab-runtime.css')!;
 });
 
 const rgb = (hex: string) => {

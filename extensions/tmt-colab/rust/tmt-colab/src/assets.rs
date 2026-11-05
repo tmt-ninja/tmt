@@ -9,6 +9,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::Path,
+    sync::LazyLock,
 };
 
 pub const DEFAULT_DIRECTORY: &str =
@@ -25,9 +26,13 @@ pub use crate::browser_policy::RENDERER_POLICY;
 /// `/read`, which keeps the entry's relative `./assets/` references under the mount), the files it
 /// loads, the opaque renderer, the guidance script and the page runtime a reader's page may opt
 /// into (#1693). Owner app files stay owner-only. The names are fixed by the `reader`, `recovery`
-/// and `runtime` build modes, so this allowlist is exact.
+/// and `runtime` build modes, so this allowlist is exact; a runtime chunk (#6085) is public by its
+/// vector name and content hash.
 pub const READER_ROUTE: &str = "/read";
-pub fn anonymous_file(path: &str) -> Option<&'static str> {
+pub fn anonymous_file(path: &str) -> Option<&str> {
+    if is_runtime_chunk(path) {
+        return Some(path);
+    }
     Some(match path {
         READER_ROUTE => "/reader.html",
         "/renderer.html" => "/renderer.html",
@@ -35,12 +40,58 @@ pub fn anonymous_file(path: &str) -> Option<&'static str> {
         "/assets/reader.css" => "/assets/reader.css",
         "/assets/reader-fold.js" => "/assets/reader-fold.js",
         "/assets/recovery.js" => "/assets/recovery.js",
-        "/assets/colab-runtime.js" => "/assets/colab-runtime.js",
         "/assets/colab-runtime.css" => "/assets/colab-runtime.css",
         "/assets/chrome.css" => "/assets/chrome.css",
         _ => return None,
     })
 }
+
+/// The page runtime's chunks (#6085) that ship bytes, in load order, from the versioned vector the
+/// app build shares.
+static RUNTIME_CHUNKS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let vector: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/page-runtime-chunks-v1.json"
+    ))
+    .expect("the page runtime chunk vector is JSON");
+    vector["chunks"]
+        .as_array()
+        .expect("the vector lists chunks")
+        .iter()
+        .filter(|chunk| chunk["reserved"] != true)
+        .map(|chunk| {
+            chunk["name"]
+                .as_str()
+                .expect("a chunk has a name")
+                .to_owned()
+        })
+        .collect()
+});
+pub fn runtime_chunk_names() -> &'static [String] {
+    &RUNTIME_CHUNKS
+}
+
+/// The vector chunk a path names: `/assets/colab-runtime-<name>-<16 lowercase hex>.js`.
+fn runtime_chunk(path: &str) -> Option<&'static str> {
+    let stem = path
+        .strip_prefix("/assets/colab-runtime-")?
+        .strip_suffix(".js")?;
+    let (name, hash) = stem.rsplit_once('-')?;
+    if hash.len() != 16 || !hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return None;
+    }
+    RUNTIME_CHUNKS
+        .iter()
+        .find(|chunk| *chunk == name)
+        .map(String::as_str)
+}
+/// Whether a path is a runtime chunk. Its name carries its content hash, so it never changes.
+#[must_use]
+pub fn is_runtime_chunk(path: &str) -> bool {
+    runtime_chunk(path).is_some()
+}
+
+/// The seal the renderer runs after the chunks; a copy that inlines them runs it the same way.
+pub const RUNTIME_SEAL: &str = "window.__colabRuntimeSeal?.();";
 
 #[derive(Debug)]
 pub struct AssetFault(String);
@@ -189,6 +240,26 @@ impl App {
         self.files
             .get(path)
             .map(|asset| (asset.content_type, asset.bytes.as_slice()))
+    }
+    /// Every runtime chunk in load order, then the seal, as one script: what a standalone copy
+    /// inlines. Absent unless the build has exactly one file for each chunk.
+    #[must_use]
+    pub fn runtime_script(&self) -> Option<String> {
+        let mut script = String::new();
+        for name in RUNTIME_CHUNKS.iter() {
+            let mut files = self
+                .files
+                .iter()
+                .filter(|(path, _)| runtime_chunk(path) == Some(name.as_str()));
+            let (_, asset) = files.next()?;
+            if files.next().is_some() {
+                return None;
+            }
+            script.push_str(std::str::from_utf8(&asset.bytes).ok()?);
+            script.push('\n');
+        }
+        script.push_str(RUNTIME_SEAL);
+        Some(script)
     }
 }
 #[cfg(test)]

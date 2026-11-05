@@ -786,9 +786,14 @@ validation. Moving a binary with embedded assets requires no app directory, chec
 or pnpm at runtime. There is no sibling app directory or data-root copy. Native release
 activation and its archive/install proofs remain owned by infra's #1418.
 
-The app also builds the bundled page runtime (#1693) as one flat asset, `assets/colab-runtime.js`: React,
-ReactDOM and htm in one script that sets `window.tmt`, followed by the unmodified Tailwind browser
-script. `window.tmt.icons` is a frozen set of curated Lucide icons: `src/runtime/icons.ts` is the one list
+The app also builds the bundled page runtime (#1693) as layered chunks (#6085), one flat asset each, named
+`assets/colab-runtime-<name>-<hash>.js` where `<hash>` is the first 16 lowercase hex digits of the file's SHA-256.
+The [chunk vector](vectors/page-runtime-chunks-v1.json) owns the versioned list: each chunk's name, the chunks it
+comes after, the runtime 4 `ui` names and shared `parts` it provides, and its gzip cap; a `reserved` chunk ships
+no bytes yet. The `base` chunk holds React, ReactDOM and htm and sets `window.tmt`, followed by the unmodified
+Tailwind browser script; `ui`, `browser`, `blocks`, `rich-input` and `docs` each add their parts to `window.tmt.ui`
+(and `blocks` the shared `PageListTable` part). A chunk may use only modules of the chunks it comes after, which the
+build enforces. `window.tmt.icons` is a frozen set of curated Lucide icons: `src/runtime/icons.ts` is the one list
 (a single line per icon; the build keeps only those). Each icon draws square caps, miter joins, `currentColor`,
 stroke 1.75 and size 16 unless the page passes its own prop, is `aria-hidden` unless the page gives it
 `aria-label` or `title` (then `role="img"`, and `title` becomes the SVG `<title>`). A second asset,
@@ -798,12 +803,13 @@ names (`bg-paper`, `text-text`, `border-rule`, ... , without the annotation and 
 theme through `[data-theme=dark]`, so a page needs no author code; no default Tailwind palette; the radius of
 `browser.metric.radius` on every `rounded-*` scale; no shadows; the system part of the token font stacks; and one
 focus outline of `browser.metric.focus-width` in the focus colour. It is source for a `<style type="text/tailwindcss">`
-block, so it never contains `@import`. Both files are ordinary inventory files, and `/assets/colab-runtime.js` and
+block, so it never contains `@import`. All are ordinary inventory files, and the chunks and
 `/assets/colab-runtime.css` are on the anonymous list above so a reader can load them. Only a page that opts in loads them (see the bind
 message below), and the renderer CSP is unchanged. The build pins it: `typescript/app/runtime-pin.json` holds the exact versions of React,
-ReactDOM, htm, `@tailwindcss/browser` and `lucide-react` and the SHA-256 and length of both assets, and `scripts/verify-runtime.mjs`
-fails the app build when the bytes or versions differ, when the script exceeds 1.5 MiB, ends a script
-tag or opens an HTML comment, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
+ReactDOM, htm, `@tailwindcss/browser` and `lucide-react`, each chunk's path, SHA-256, length and gzip length, and the theme's SHA-256 and
+length, and `scripts/verify-runtime.mjs` fails the app build when the bytes or versions differ, when a vector chunk is missing or another
+runtime script is present, when a chunk exceeds 1 MiB or its gzip cap, when the chunks together exceed the vector's 4 MiB gzip budget,
+when a chunk ends a script tag or opens an HTML comment, reads `process.env`, references a source map or uses `eval`/`new Function`, when the theme exceeds 16 KiB, contains
 `@import`, ends a style tag or opens an HTML comment, or when the notices lack
 any of those five packages. `scripts/runtime-notices.mjs` appends htm's and the Tailwind browser
 script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles neither. A changed
@@ -827,7 +833,8 @@ performs that registration. Anonymous root GET retains private-space guidance.
 Without owner context, exactly these static files are served (GET only, the same
 policy headers as owner responses): `/read` (the bytes of `reader.html`),
 `/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js`,
-`/assets/colab-runtime.js`, `/assets/colab-runtime.css` and `/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet,
+each runtime chunk `/assets/colab-runtime-<name>-<hash>.js` for a non-reserved vector name and 16 lowercase hex
+digits, `/assets/colab-runtime.css` and `/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet,
 which is also available without an app build. They are public static bytes with no secret and no API. Every
 other asset request without owner context, including `/index.html`, `/reader.html`,
 `/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing
@@ -868,7 +875,9 @@ opaque; it MUST NOT depend only on the embedding iframe attribute. A missing
 renderer makes the app inventory incomplete, following the default/explicit
 startup behavior above. Renderer bytes remain build-owned, not author content.
 App/static responses retain `Cache-Control: no-store`, `Referrer-Policy:
-no-referrer` and `X-Content-Type-Options: nosniff`. Non-app responses retain the
+no-referrer` and `X-Content-Type-Options: nosniff`. The one exception is a runtime chunk, whose name
+carries its content hash: it is served with `Cache-Control: public, max-age=31536000, immutable`. The
+shells that name the chunks, and the unhashed theme, stay `no-store`. Non-app responses retain the
 existing restrictive placeholder/API policy.
 
 ### Mounted read-only reader sessions (#1310)
@@ -2697,21 +2706,30 @@ element in document order, found by HTML parsing with scripting off (never by te
 comment, a `textarea`, a `title`, a `style`, a `template`'s content or a script string holding the
 markup does not count, while `noscript` content is ordinary markup and does). The `name` value matches exactly; the
 `content` value is split on ASCII whitespace into case-sensitive tokens, and the page opts in when
-any token is `react` or `tailwind`. The runtime is one bundle, so either loads all of it; other
+any token is `react` or `tailwind`. Either token loads the runtime (its chunks are chosen below); other
 tokens are ignored, and no marker means nothing extra loads and the bind message is exactly as above.
 This rule is stated here once: the app's parent detection and the native standalone export both
 test against the shared cases in
 [`vectors/runtime-marker-v1.json`](vectors/runtime-marker-v1.json), so the two parsers cannot drift.
 
-The parent then fetches `assets/colab-runtime.js` and the theme `assets/colab-runtime.css` once per
-path, next to the renderer on the mount or at the root of the hosted origin, and sends them as the
-optional `runtime` field: exactly `{script,style}`, two strings of at most 1.5 MiB and 256 KiB UTF-8.
-The bootstrap refuses the whole bind when `runtime` has other keys or types, exceeds a cap, or either
-string contains an HTML comment opener or the closing tag of its own element. It writes
-`<style type="text/tailwindcss">` (the theme, as Tailwind source) and then `<script>` into the trusted
-head after the acknowledgement and before the author's document, so `window.tmt` and the theme exist
-before any page script. If either asset cannot be fetched, the render ends `failed` rather than running
-a page that needs them. The same `mountRenderer` serves the owner view and the reader; no capability,
+The parent chooses the page's chunks (#6085): the `base`, plus the chunks of the
+[chunk vector](vectors/page-runtime-chunks-v1.json) that provide the `uiParts` and `parts` declared by the
+verified design-system components whose tags the page writes (and the components those `requires`), plus every
+chunk those come after, in vector order. A tag counts only when the verified bundle has that component, so page
+markup alone never adds a chunk, and a page without such components gets the `base` alone. The frame never names
+a chunk or requests one. The parent fetches each chosen chunk and the theme `assets/colab-runtime.css`, next to
+the renderer on the mount or at the root of the hosted origin, accepts a file only when its SHA-256 and length
+equal the build's `runtime-pin.json`, keeps verified text once per path for the tab (never a failure), and sends
+them as the optional `runtime` field: exactly `{scripts,style}`, where `scripts` holds one to eight strings of at
+most 1 MiB each and 3 MiB together, and `style` at most 256 KiB UTF-8. The bootstrap refuses the whole bind when
+`runtime` has other keys or types, exceeds a cap, or a string contains an HTML comment opener or the closing tag
+of its own element. It writes `<style type="text/tailwindcss">` (the theme, as Tailwind source), then one
+`<script>` per chunk in order, then a script that seals the runtime (freezing `window.tmt.ui` and the shared
+parts and removing the chunk loader's globals) into the trusted head after the acknowledgement and before the
+author's document, so `window.tmt` and the theme exist before any page script and each chunk runs once per
+frame. If the base or the theme cannot be fetched or verified, the render ends `failed` rather than running a
+page that needs them; a later chunk that cannot is left out, and only the components whose declared parts it
+provides draw a fixed "Part unavailable" status in their place. The same `mountRenderer` serves the owner view and the reader; no capability,
 message type or CSP allowance is added.
 The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
@@ -7170,8 +7188,9 @@ A page that needs only the runtime gets exactly the bytes it got before the desi
   file, like any HTML file.
 - `{themeSwitch}` is one fixed script that sets `data-theme` on the root from the system colour
   scheme and follows its changes, because the runtime theme and the design tokens read `data-theme`.
-- `{script}` and `{style}` are the bytes of `assets/colab-runtime.js` and `assets/colab-runtime.css`
-  of the same build. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
+- `{script}` is every runtime chunk of the same build in vector order, each followed by one LF, then
+  `window.__colabRuntimeSeal?.();` (a copy has no parent to choose chunks, so it carries them all, #6085);
+  `{style}` is that build's `assets/colab-runtime.css`. `{designScript}` and `{designStyle}` are the bytes of `assets/colab-page-ui.js` and
   `assets/colab-page-ui.css` of the same build: the design system's CSS and the script that defines
   `<tmt-icon>` and measures the scheme the page paints (`data-colab-scheme`), written by the runtime
   build from the same sources the renderer frame inlines, so the file draws what the frame draws. A text

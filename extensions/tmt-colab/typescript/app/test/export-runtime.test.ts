@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { fixture, input } from './export-input.js';
 
@@ -10,6 +11,31 @@ vi.mock('../src/page-runtime.js', async (original) => ({
   ...(await original<typeof import('../src/page-runtime.js')>()),
   wantsRuntime: (text: string) => text.includes('tmt-colab-runtime'),
 }));
+
+// The pin over the texts this test serves: each file's text is `text of <file name>` (#6085).
+const BASE = 'colab-runtime-base-0000000000000000.js';
+const UI = 'colab-runtime-ui-1111111111111111.js';
+vi.mock('../runtime-pin.json', () => {
+  const file = (name: string) => {
+    const text = `text of ${name}`;
+    return {
+      path: `assets/${name}`,
+      sha256: createHash('sha256').update(text).digest('hex'),
+      length: Buffer.byteLength(text),
+    };
+  };
+  return {
+    default: {
+      chunks: [
+        { name: 'base', ...file('colab-runtime-base-0000000000000000.js') },
+        { name: 'ui', ...file('colab-runtime-ui-1111111111111111.js') },
+      ],
+      theme: file('colab-runtime.css'),
+    },
+  };
+});
+/** The runtime an export carries: every chunk in load order, then the seal. */
+const runtimeScript = `<script>text of ${BASE}\ntext of ${UI}\nwindow.__colabRuntimeSeal?.();</script>`;
 
 const door = 'https://door.test';
 const mount = `${door}/r/abcdefghijklmnop/x/colab/`;
@@ -31,7 +57,8 @@ async function exportIn(
   vi.stubGlobal('fetch', async (target: string) => {
     fetched.push(target);
     const up = typeof ok === 'function' ? ok(target) : ok;
-    return new Response(up ? `text of ${target}` : 'gone', { status: up ? 200 : 404 });
+    const name = new URL(target).pathname.split('/').pop();
+    return new Response(up ? `text of ${name}` : 'gone', { status: up ? 200 : 404 });
   });
   const entry = await import('../src/entry.js');
   if (shell !== undefined) entry.hostInShell(shell);
@@ -58,18 +85,17 @@ it('exports inside the TMT app with the runtime from /colab/, the base the rende
   );
   expect(base).toBe(`${door}/colab/`);
   expect(fetched).toEqual([
-    `${door}/colab/assets/colab-runtime.js`,
     `${door}/colab/assets/colab-runtime.css`,
+    `${door}/colab/assets/${BASE}`,
+    `${door}/colab/assets/${UI}`,
   ]);
   expect(bundle.files.slice(0, 2).map(({ name }) => name)).toEqual([
     'page.html',
     'page.standalone.html',
   ]);
   expect(bundle.standalone).toEqual({ included: true });
-  expect(copy).toContain(`<script>text of ${door}/colab/assets/colab-runtime.js</script>`);
-  expect(copy).toContain(
-    `<style type="text/tailwindcss">text of ${door}/colab/assets/colab-runtime.css</style>`,
-  );
+  expect(copy).toContain(runtimeScript);
+  expect(copy).toContain('<style type="text/tailwindcss">text of colab-runtime.css</style>');
   expect(copy).toContain(`<body>${source}</body>`);
 });
 
@@ -80,17 +106,22 @@ it('exports from the paired mount when the TMT app reads through one', async () 
     new URL(mount),
   );
   expect(base).toBe(mount);
-  expect(fetched).toEqual([`${mount}assets/colab-runtime.js`, `${mount}assets/colab-runtime.css`]);
+  expect(fetched).toEqual([
+    `${mount}assets/colab-runtime.css`,
+    `${mount}assets/${BASE}`,
+    `${mount}assets/${UI}`,
+  ]);
   expect(bundle.standalone).toEqual({ included: true });
-  expect(copy).toContain(`<script>text of ${mount}assets/colab-runtime.js</script>`);
+  expect(copy).toContain(runtimeScript);
 });
 
 it('exports outside the TMT app from the document base', async () => {
   const { fetched, base, bundle } = await exportIn(`${door}/app/index.html`, `${door}/app/`);
   expect(base).toBe(`${door}/app/`);
   expect(fetched).toEqual([
-    `${door}/app/assets/colab-runtime.js`,
     `${door}/app/assets/colab-runtime.css`,
+    `${door}/app/assets/${BASE}`,
+    `${door}/app/assets/${UI}`,
   ]);
   expect(bundle.standalone).toEqual({ included: true });
 });
@@ -128,13 +159,13 @@ it('exports a design-system page with the design files from the base the rendere
   ]);
   expect(request).toEqual({
     design: {
-      script: `text of ${own}/colab/assets/colab-page-ui.js`,
-      style: `text of ${own}/colab/assets/colab-page-ui.css`,
+      script: 'text of colab-page-ui.js',
+      style: 'text of colab-page-ui.css',
     },
   });
   expect(bundle.standalone).toEqual({ included: true });
-  expect(copy).toContain(`<style>text of ${own}/colab/assets/colab-page-ui.css</style>`);
-  expect(copy).toContain(`<script>text of ${own}/colab/assets/colab-page-ui.js</script>`);
+  expect(copy).toContain('<style>text of colab-page-ui.css</style>');
+  expect(copy).toContain('<script>text of colab-page-ui.js</script>');
   expect(copy).toContain('<html data-colab-design>');
   expect(copy).not.toContain('colab-runtime');
 });
@@ -148,7 +179,8 @@ it('loads the runtime and the design files for a page that asks for both, and fo
       `${own}/colab/assets/colab-page-ui.css`,
       `${own}/colab/assets/colab-page-ui.js`,
       `${own}/colab/assets/colab-runtime.css`,
-      `${own}/colab/assets/colab-runtime.js`,
+      `${own}/colab/assets/${BASE}`,
+      `${own}/colab/assets/${UI}`,
     ].sort(),
   );
   expect(first.bundle.standalone).toEqual({ included: true });

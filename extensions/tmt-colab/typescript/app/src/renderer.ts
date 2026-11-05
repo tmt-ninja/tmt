@@ -1520,10 +1520,12 @@ export async function mountRenderer(
   const designSystem = loadDesignSystem(source, options.designSystem).catch(() =>
     noticeFrame('unknown-release'),
   );
+  // The base starts loading at once; the chunks follow from the verified design system (#6085).
   const runtime =
     wantsRuntime(source) || namesDesignSystem(source) || writesDesignSystemTags(source)
-      ? loadRuntime(base)
+      ? designSystem.then((ds) => loadRuntime(base, ds?.runtimeChunks))
       : undefined;
+  if (runtime) void loadRuntime(base).catch(() => {});
   frame.onload = async () => {
     if (stopped) return;
     if (++loads > 2) {

@@ -24,8 +24,8 @@ export const META_POLICY =
 export const THEME_SWITCH =
   "(()=>{const q=matchMedia('(prefers-color-scheme: dark)'),r=document.documentElement,s=()=>{r.dataset.theme=q.matches?'dark':'light'};s();q.addEventListener('change',s)})()";
 
-/** The two texts the page runtime adds: the bytes of `assets/colab-runtime.js` and
- * `assets/colab-runtime.css` of the build the app was loaded from. */
+/** The two texts the page runtime adds: every runtime chunk of the build the app was loaded from,
+ * in load order, then the seal (#6085), and that build's `assets/colab-runtime.css`. */
 export interface StandaloneRuntime {
   readonly script: string;
   readonly style: string;

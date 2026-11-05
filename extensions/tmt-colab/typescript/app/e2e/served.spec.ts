@@ -28,12 +28,19 @@ test.beforeEach(() => {
     'Needs the native serve executable: cargo build -p tmt-colab or set COLAB_SERVE_EXECUTABLE',
   );
 });
+/** The served build's runtime chunk files (#6085), named by content hash. */
+async function runtimeChunkFiles() {
+  return (await readdir(app + '/assets')).filter((name) =>
+    /^colab-runtime-.+-[0-9a-f]{16}\.js$/.test(name),
+  );
+}
 /** Bind one page that opted in to the bundled runtime into a renderer frame, as the app does:
- * the served script and theme travel in the bind message's `runtime` field. */
+ * the served base chunk and theme travel in the bind message's `runtime` field. */
 async function bindRuntimePage(page: Page, base: string, id: string, source: string) {
+  const chunk = (await runtimeChunkFiles()).find((name) => name.startsWith('colab-runtime-base-'));
   await page.evaluate(
-    async ({ base, id, source }) => {
-      const script = await (await fetch(base + 'assets/colab-runtime.js')).text();
+    async ({ base, id, source, chunk }) => {
+      const scripts = [await (await fetch(base + 'assets/' + chunk)).text()];
       const style = await (await fetch(base + 'assets/colab-runtime.css')).text();
       const frame = document.createElement('iframe');
       frame.id = id;
@@ -51,13 +58,13 @@ async function bindRuntimePage(page: Page, base: string, id: string, source: str
           sourceDigest: digest,
           source,
           theme: 'light',
-          runtime: { script, style },
+          runtime: { scripts, style },
         },
         '*',
         [new MessageChannel().port2],
       );
     },
-    { base, id, source },
+    { base, id, source, chunk },
   );
 }
 /** The full interactive sample in the skill's runtime reference: its last `html` block. */
@@ -325,8 +332,8 @@ for (let run = 1; run <= 2; run++) {
         'reader.css',
         'reader-fold.js',
         'recovery.js',
-        'colab-runtime.js',
         'colab-runtime.css',
+        ...(await runtimeChunkFiles()),
       ];
       const anonymous = await fetch(
         server.origin + mount + 'assets/' + files.find((name) => !publicFiles.includes(name)),
@@ -529,17 +536,23 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     expect(Buffer.from(await entry.arrayBuffer())).toEqual(await readFile(app + '/reader.html'));
     expect(entry.headers.get('content-security-policy')).toContain("script-src 'self'");
     expect(entry.headers.get('cache-control')).toBe('no-store');
+    const chunks = await runtimeChunkFiles();
+    expect(chunks.length).toBeGreaterThan(1);
     for (const name of [
       'reader.js',
       'reader.css',
       'reader-fold.js',
-      'colab-runtime.js',
       'colab-runtime.css',
+      ...chunks,
     ]) {
       const asset = await fetch(server.origin + mount + 'assets/' + name);
       expect(asset.status).toBe(200);
       expect(Buffer.from(await asset.arrayBuffer())).toEqual(
         await readFile(app + '/assets/' + name),
+      );
+      // A chunk's name carries its content hash, so it is immutable; nothing else is cached.
+      expect(asset.headers.get('cache-control')).toBe(
+        chunks.includes(name) ? 'public, max-age=31536000, immutable' : 'no-store',
       );
     }
     expect(await responseStatus(server.origin + mount + 'renderer.html')).toBe(200);
