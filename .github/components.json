@@ -175,7 +175,7 @@
       "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",
       "initialVersion": "0.1.0-alpha.1",
       "uses": [],
-      "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
+      "requiresCliSha": "5e430bc8b5598066619fe556e8dfee2db9226691"
     },
     "tmt-remote": {
       "owns": ["extensions/tmt-remote/rust"],
