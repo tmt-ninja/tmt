@@ -10,7 +10,7 @@ and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds module ownersh
 and how to build, run and verify. The [host-driver contract](../../../contracts/remote-channel-v1.md#host-driver-authentication)
 scopes pairing/grants/signed messages to the local driver; Firestore uses Firebase Auth and Rules.
 Shared Rust, native and Docker gates are in
-[DEVELOPMENT.md](../../../DEVELOPMENT.md). The `tmt-extension-state` leaf is shared
+[development procedures](../tmt-dev/references/development.md). The `tmt-extension-state` leaf is shared
 with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
 
 ## Read what you are changing

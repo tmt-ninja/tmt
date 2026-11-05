@@ -604,7 +604,7 @@ describe('native dependency notices selection', () => {
     'rust/crates/tmt-core/src/request.rs',
     'typescript/scripts/verify-native-notices.mjs.backup',
     'site/src/chapters/start.mdx',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'typescript/pnpm-lock.yaml',
   ])('does not select unrelated or prefix-similar %s', (file) => {
     expect(selectNativeNotices([file])).toBe(false);
@@ -1233,7 +1233,7 @@ describe('CI area selection', () => {
 
   it.each([
     'ARCHITECTURE.md',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'contracts/extension-api.md',
     '.agents/skills/tmt-dev/SKILL.md',
     '.github/pull_request_template.md',
@@ -1453,7 +1453,7 @@ describe('component map', () => {
     [['rust/crates/tmt-cli-style/src/lib.rs'], 'full'],
     [['rust/crates/tmt-invoke/src/lib.rs'], 'full'],
     [['extensions/tmt-office/rust/tmt-office/src/main.rs'], 'full'],
-    [['ARCHITECTURE.md', 'DEVELOPMENT.md'], 'none'],
+    [['ARCHITECTURE.md', '.agents/skills/tmt-dev/references/development.md'], 'none'],
     [['extensions/tmt-office/typescript/apps/office/src/main.tsx'], 'full'],
     [[], 'full'],
   ] as const)('selects the native scope for %j: %s', (paths, scope) => {
@@ -1729,11 +1729,12 @@ describe('component map', () => {
         'path fixtures for the selection tests; never reads prose contents',
       'typescript/test/fixtures/release-cut-history.json':
         'immutable historical path/map data; cut tests compare strings without reading the named prose',
-      'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
+      'scripts/dev-disk-check.sh':
+        'names .agents/skills/tmt-dev/references/development.md in a message',
       'typescript/scripts/host-tmux-guard.mjs':
         'names AGENTS.md in a refusal message; never reads it',
       'typescript/test/tooling/guide-budget.test.ts':
-        'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
+        'counts .agents/skills/tmt-dev/references/development.md and ARCHITECTURE.md lines; Code quality runs it on every change',
       'typescript/scripts/guide-budgets.json':
         'guide-budget limits, enforced by Code quality on every change',
       'typescript/scripts/infra-tick-summary.mjs':
@@ -2520,7 +2521,9 @@ describe('CI diff and command integration', () => {
     'typescript/pnpm-lock.yaml',
   ])('selects the advisory Colab harness for %s', (file) => {
     expect(selectColabHarness([file])).toBe(true);
-    expect(selectColabHarness(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectColabHarness(['.agents/skills/tmt-dev/references/development.md', file])).toBe(
+      true
+    );
   });
 
   it.each([
@@ -2536,7 +2539,7 @@ describe('CI diff and command integration', () => {
     'rust/Cargo.lock.backup',
     'rust/Cargo.toml.backup',
     '.github/workflows/ci.yml',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'unknown/input',
   ])('does not select advisory Colab work for %s', (file) => {
     expect(selectColabHarness([file])).toBe(false);
@@ -2554,7 +2557,7 @@ describe('CI diff and command integration', () => {
   ])('selects the advisory Colab app component suite for %s', (file) => {
     expect(selectColabApp([file])).toBe(true);
     expect(selectColabChrome([file])).toBe(true);
-    expect(selectColabApp(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectColabApp(['.agents/skills/tmt-dev/references/development.md', file])).toBe(true);
   });
 
   it.each([
@@ -2565,7 +2568,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/typescript/remote-client/src/index.ts',
     'typescript/pnpm-lock.yaml.backup',
     '.github/workflows/ci.yml',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'unknown/input',
   ])('does not select the advisory Colab app component suite for %s', (file) => {
     expect(selectColabApp([file])).toBe(false);
@@ -2608,7 +2611,9 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/app/e2e/served.spec.ts',
   ])('selects the served and hosted job for %s', (file) => {
     expect(selectColabHosted([file])).toBe(true);
-    expect(selectColabHosted(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectColabHosted(['.agents/skills/tmt-dev/references/development.md', file])).toBe(
+      true
+    );
   });
 
   // The pin manifest is the drift signal: Remote source or package edits do not select the job.
@@ -2625,7 +2630,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/app/src/index.tsx',
     'extensions/tmt-colab/typescript/app/acceptance/page-save.spec.ts',
     '.github/workflows/ci.yml',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
   ])('does not select the hosted bundle spec for %s', (file) => {
     expect(selectColabHosted([file])).toBe(false);
   });
@@ -2650,7 +2655,9 @@ describe('CI diff and command integration', () => {
     '.github/workflows/colab-browser.yml',
   ])('selects the gating Colab chrome spec for %s', (file) => {
     expect(selectColabChrome([file])).toBe(true);
-    expect(selectColabChrome(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectColabChrome(['.agents/skills/tmt-dev/references/development.md', file])).toBe(
+      true
+    );
   });
 
   it.each([
@@ -2659,7 +2666,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/rust/tmt-colab/src/deploy_declaration.rs',
     'extensions/tmt-colab/rust/tmt-colab/tests/state.rs',
     'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'unknown/input',
   ])('does not select the Colab chrome spec for %s', (file) => {
     expect(selectColabChrome([file])).toBe(false);
@@ -2688,7 +2695,9 @@ describe('CI diff and command integration', () => {
     '.github/workflows/ci.yml',
   ])('selects the Remote Firestore Rules emulator steps for %s', (file) => {
     expect(selectRemoteFirestore([file])).toBe(true);
-    expect(selectRemoteFirestore(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectRemoteFirestore(['.agents/skills/tmt-dev/references/development.md', file])).toBe(
+      true
+    );
     // The steps live in the Unit tests job, which runs only for a full native scope: a selected
     // path must never be scoped away, or the selected steps would be skipped unexpectedly.
     expect(selectNativeScope([file])).toBe('full');
@@ -2702,7 +2711,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/rust/tmt-remote/assets/settings-v1.js',
     'extensions/tmt-remote/rust/tmt-remote/tests/rules.rs',
     '.github/workflows/colab-browser.yml',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'unknown/input',
   ])('does not select the Remote Firestore Rules emulator steps for %s', (file) => {
     expect(selectRemoteFirestore([file])).toBe(false);
@@ -2765,7 +2774,9 @@ describe('CI diff and command integration', () => {
     '.github/workflows/ci.yml',
   ])('selects the Colab Firestore Rules emulator steps for %s', (file) => {
     expect(selectColabFirestore([file])).toBe(true);
-    expect(selectColabFirestore(['DEVELOPMENT.md', file])).toBe(true);
+    expect(selectColabFirestore(['.agents/skills/tmt-dev/references/development.md', file])).toBe(
+      true
+    );
     expect(selectNativeScope([file])).toBe('full');
   });
 
@@ -2777,7 +2788,7 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
     'extensions/tmt-colab/typescript/colab-client/src/index.ts',
     'extensions/tmt-remote/rust/tmt-remote/src/rules.rs',
-    'DEVELOPMENT.md',
+    '.agents/skills/tmt-dev/references/development.md',
     'unknown/input',
   ])('does not select the Colab Firestore Rules emulator steps for %s', (file) => {
     expect(selectColabFirestore([file])).toBe(false);

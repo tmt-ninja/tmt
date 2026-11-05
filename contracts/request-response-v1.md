@@ -932,7 +932,7 @@ service and storage tests. [Native response tests](../typescript/test/native/res
 cover public receipt/input contracts; [Docker response integrity](../typescript/test/e2e/response-integrity.e2e.test.ts)
 checks complete bodies against independent mock-agent events even when the
 terminal renders only a tail. Terminal echo is not a completion oracle.
-See [Development](../DEVELOPMENT.md) for commands and scenario ownership.
+See [Development](../.agents/skills/tmt-dev/references/development.md) for commands and scenario ownership.
 
 The [historical research record](https://github.com/pj-tmt/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
 retains superseded marker/JSON-state behavior and provider research. It does not

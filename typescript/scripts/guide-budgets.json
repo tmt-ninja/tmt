@@ -1,4 +1,12 @@
 {
-  "lines": { "DEVELOPMENT.md": 339, "ARCHITECTURE.md": 640 },
-  "bytes": { "DEVELOPMENT.md": 19187, "ARCHITECTURE.md": 48100 }
+  "lines": {
+    "ARCHITECTURE.md": 640,
+    ".agents/skills/tmt-dev/references/development.md": 339,
+    "AGENTS.md": 260
+  },
+  "bytes": {
+    "ARCHITECTURE.md": 48100,
+    ".agents/skills/tmt-dev/references/development.md": 19187,
+    "AGENTS.md": 10000
+  }
 }

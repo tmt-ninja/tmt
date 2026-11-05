@@ -5,97 +5,41 @@ description: Implement, review, or maintain TMT repository changes with the proj
 
 # TMT development
 
-Use this skill for repository implementation and review work. It is a development
-workflow, not end-user documentation for the `tmt` CLI.
+Developer workflow, not end-user CLI guidance. [AGENTS](../../../AGENTS.md) owns
+required reading, conventions, delivery/review, safety and evidence rules.
+[ARCHITECTURE](../../../ARCHITECTURE.md) owns cross-cutting seams; area skills own
+their architecture. Follow those owners rather than repeating policy here.
 
-Read the repository guidance before planning work:
+## Procedure routing
 
-- [`AGENTS.md`](../../../AGENTS.md) — pattern inspection, discretionary delegation, ownership, and lifecycle policy.
-- [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) — current and target boundaries, legacy debt, and architecture change triggers.
-- [`CONVENTIONS.md`](../../../CONVENTIONS.md) — code and test style.
-- [`DEVELOPMENT.md`](../../../DEVELOPMENT.md) — commands and the focused verification matrix.
-- [`tmt-layout`](../tmt-layout/SKILL.md) when adding or moving repository files.
-- [`tmt-e2e`](../tmt-e2e/SKILL.md) for Docker/tmux integration work.
-- [`tmt-release`](../tmt-release/SKILL.md) for release-line or packaged-install work.
+Read the relevant reference sections before running checks:
 
-## Required workflow
+- [Development procedures](references/development.md): setup, disk/worktrees,
+  native builds, tooling checks, Project tracking and CI-wake command usage.
+- [Focused checks](references/focused-checks.md): driver/runtime, request-ID,
+  caller lifecycle, output style and executable-fixture publication checks.
+- [tmt-layout](../tmt-layout/SKILL.md): additions, moves and the tracked-file guard.
+- [tmt-e2e](../tmt-e2e/SKILL.md): native fixtures, Docker/tmux scenarios, isolation
+  and cleanup; its evidence is separate from tooling tests.
+- [tmt-release](../tmt-release/SKILL.md): archive, installer, upgrade, publication,
+  release-line and CI selection work. A raw-binary smoke is not archive evidence.
 
-1. Follow AGENTS for issue/branch lifecycle, incidental-edit exceptions, pattern
-   inspection, delegation and context budget. Confirm the bounded outcome and
-   acceptance criteria before implementation.
-2. Define the affected inputs/outputs, state transitions, responsibility owners
-   and risks. Reuse existing ports/helpers; avoid parallel sources of truth.
-3. Implement and apply AGENTS' primary-review gate. For a feature spanning PRs,
-   review the integrated flow across those PRs, not only the latest diff:
-   ownership, transitions, retries, partial failure and cleanup must agree.
-   Consolidate confirmed duplicate responsibility; do not create a generic
-   framework merely to centralize code.
-4. Before a Docker suite, run `scripts/dev-disk-check.sh`, and use the
-   per-worktree image tag and cleanup in DEVELOPMENT's
-   [disk section](../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk).
-   Local dev builds disable incremental compilation to limit target growth; use
-   `CARGO_INCREMENTAL=1` for a long edit loop.
-   Verify the changed layers using DEVELOPMENT and CONVENTIONS. Shared markup
-   changes follow the [tmt-tui](../tmt-tui/SKILL.md) admission, geometry/paint and parity
-   gates. Record the reviewed revision, findings, dispositions and exact verification evidence.
-   When replacing implementations, map behavioral assertions, not test counts:
-   returned-error rollback is not crash recovery. Preserve resource cleanup
-   ordering through the existing child-process owner. Native CLI scenarios use
-   the shared sandbox runner's native ancestry and input connection isolation,
-   documented in DEVELOPMENT.
-   Isolated worlds must set `TMT_AGENT=1` and `BROWSER` to a no-op to suppress automatic opens (#2518); pass `--no-open` or `--json` where supported.
-   Keep direct runtime-caller positive controls fenced rather than adding
-   scenario skips or production guard overrides.
-   Rust executable-fixture changes follow the focused checks'
-   [three ETXTBSY cases](references/focused-checks.md#executable-fixtures-and-snapshots) and the narrowly owned
-   publication boundary in ARCHITECTURE. Verify its exact dev edges with the
-   native architecture test before each Rust push.
-5. Close the bounded review when relevant evidence supports the agreed behavior,
-   correctness/security blockers and confirmed duplicate responsibilities in
-   scope are resolved, and deferred risks are explicit. A broad audit is not a
-   demand to find nothing else to improve. Follow AGENTS for authorized merge,
-   tracker updates, [Project status](../../../DEVELOPMENT.md#project-tracking)
-   and safe cleanup: when the PR merges, remove its worktree
-   with `scripts/dev-worktree-remove.sh` and then that worktree's Docker images
-   in the same turn (the DEVELOPMENT disk section documents its REST check and
-   exact steps; if the script refuses, stop and ask), and start the next task in
-   a clean existing worktree rather than a new one.
+## Implementation checks
+
+Identify affected inputs/outputs, transitions, ownership and failure paths before
+choosing checks. Reuse existing ports/helpers; map observable assertions across
+replacements, not just test totals. When a workflow spans PRs, inspect its integrated
+ownership, transitions, retries and partial-failure cleanup.
+
+For Rust executable fixtures, follow the [publication controls](references/focused-checks.md#executable-fixtures-and-snapshots)
+and native architecture guard; never substitute stale binaries or lockfiles.
+For installed-agent guidance, use [installed guidance verification](../tmt-core-runtime/references/install-architecture.md#installed-guidance-verification):
+matching bytes alone do not prove invocation behavior. Process/archive producers
+must supply CLI and independently owned companions; the [fixture contract](../tmt-release/references/installation-fixtures.md#process-fixture-builds)
+defines the inputs.
 
 ## Architecture maintenance
 
-Rust is the sole CLI runtime. Node modules under scripts and test directories are
-developer tooling. Keep native process, Docker and tooling checks distinct,
-and never substitute obsolete TypeScript coverage percentages for native
-verification. A raw-binary platform smoke does not replace the release archive,
-bootstrap or upgrade gates. Independently released drivers use the
-[tmt-release](../tmt-release/SKILL.md) product-specific archive and approval proof using the current published CLI. Keep the shared
-runtime proof in one owner. Process/archive fixture producers must build both
-`tmt-cli` and `tmt-driver-herdr`; transferring only the CLI leaves the independently
-owned companion unavailable. See DEVELOPMENT's native fixture build contract.
-
-Formatter migrations preserve DEVELOPMENT's per-owner options and separate
-code/docs selections, with mechanical output isolated from configuration changes.
-Keep exact regeneration and semantic equivalence evidence in the PR.
-Lint migrations preserve per-owner file arguments, plugins, warning severities and
-exit behavior. Compare effective rules and diagnostic multisets, and record newly
-enabled defaults separately; DEVELOPMENT owns the workspace lint commands and shared
-configuration. Keep compiler checks separate until an explicit equivalence decision.
-
-For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
-source ownership: edit the single canonical skill, verify native provider links
-and local drift detection, and review semantic changes and provider invocation
-behavior. Matching installed bytes alone does not prove that instructions are
-correct. Do not reintroduce command wrappers or provider-specific copies.
-
-For every change, record a substantive architecture-impact assessment. If the
-change modifies a module boundary, dependency direction, public contract,
-legacy compatibility path, persistence model, or test/fixture ownership, update
-`ARCHITECTURE.md` in the same PR and explain the change. If none of those
-triggers apply, record why in the PR/GitHub issue; a checkbox alone is not
-evidence. Keep architecture rules in `ARCHITECTURE.md`, style rules in
-`CONVENTIONS.md`, and command guidance in `DEVELOPMENT.md` rather than copying
-them into this skill.
-
-## References
-
-- [references/focused-checks.md](references/focused-checks.md): model-free focused commands for Codex driver, reply-notice, request-ID, target, host and completion checks.
+Apply the [maintenance contract](../../../ARCHITECTURE.md#maintenance-contract)
+and report the actual boundary impact. Area skills link to contracts, which stay
+the definition owners. Do not copy global working rules into references.

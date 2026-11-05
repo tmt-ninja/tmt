@@ -1,7 +1,7 @@
 # Native checks for providers, Herdr and load
 
 Shared native selection, isolation and fixture-build rules are in
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md#native-process-and-shared-tests).
+[development procedures](../../tmt-dev/references/development.md#native-process-and-shared-tests).
 
 ## Provider contracts (opt-in, developer only)
 

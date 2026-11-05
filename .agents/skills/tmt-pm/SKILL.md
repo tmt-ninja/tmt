@@ -6,7 +6,7 @@ description: Run the project-management pass for this repository. Find blocked, 
 # TMT project management
 
 Use this skill as project manager (`tmt-core-pm`) or when auditing delivery flow.
-[Project tracking](../../../DEVELOPMENT.md#project-tracking) owns Project fields,
+[Project tracking](../tmt-dev/references/development.md#project-tracking) owns Project fields,
 Status meanings and epic approval/start rules; this skill owns procedure and cadence.
 
 ## Cadence

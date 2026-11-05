@@ -8,7 +8,7 @@ description: Build, run and verify Colab (`tmt-colab` executable, `tmt colab ...
 Behavior and wire shapes are owned by
 [`extensions/tmt-colab/contracts/colab-v1.md`](../../../extensions/tmt-colab/contracts/colab-v1.md)
 and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill covers how to build, run,
-package and verify. Shared gates are in [DEVELOPMENT.md](../../../DEVELOPMENT.md).
+package and verify. Shared gates are in [development procedures](../tmt-dev/references/development.md).
 Colab and Remote share the state leaf: see [tmt-remote](../tmt-remote/SKILL.md).
 
 Always use isolated data roots in tests; never point them at the real TMT directory.

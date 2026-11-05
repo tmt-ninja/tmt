@@ -1,6 +1,6 @@
 # Test infrastructure and evidence
 
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md#native-process-and-shared-tests)
+[development procedures](../../tmt-dev/references/development.md#native-process-and-shared-tests)
 owns basic setup; this reference owns native CLI selection, helper boundaries and
 failure behavior needed when changing native or Docker fixtures. Shared system
 invariants stay in [ARCHITECTURE.md](../../../../ARCHITECTURE.md#testing-and-evidence-boundaries).
@@ -84,7 +84,7 @@ or readiness policy. The reviewed untargeted dev consumers are Adapters, CLI,
 Ops and Colab; production/build edges are forbidden.
 The architecture guard enforces canonical dependency names and `dist=false`.
 Every additional helper needs its own two-caller justification and review.
-Follow [DEVELOPMENT's ETXTBSY rules](../../../../DEVELOPMENT.md#rust-checks)
+Follow [DEVELOPMENT's ETXTBSY rules](../../tmt-dev/references/development.md#rust-checks)
 for the three publication cases; scenario-local readiness/assertions stay local.
 
 Adapters' `provider-script-fixture` and `claude-hook-fixture` share the scripted

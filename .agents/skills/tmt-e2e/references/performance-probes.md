@@ -19,7 +19,7 @@ denied kernel statistic is a failure, not zero.
 
 **Private-tmux latency (Docker).** Run `scripts/dev-disk-check.sh` first, use a
 worktree-named tag (see the
-[disk rules](../../../../DEVELOPMENT.md#keep-local-development-from-filling-the-disk)) and
+[disk rules](../../tmt-dev/references/development.md#keep-local-development-from-filling-the-disk)) and
 never run these tmux scenarios on the host:
 
 ```sh

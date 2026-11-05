@@ -22,39 +22,44 @@ child; it listens on no network port.
 Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 [Component ownership](.github/components.json) is separate.
 
-| Home                      | Responsibility                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| Repository root           | Entry points, contributor guidance, license and required configuration               |
-| `.agents/`                | Contributor skills and their area references                                         |
-| `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
-| `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
-| `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
-| `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
-| `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
-| `extensions/<extension>/` | Product-owned runtimes, contracts, skills, docs and assets                           |
-| `drivers/<driver>/`       | Product-owned driver runtimes, contracts and assets                                  |
-| `contracts/`              | Core public contracts and normative fixtures                                         |
-| `scripts/`                | Shared shell/build/development helpers                                               |
-| `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public blog; retained Home/Colab, handbook sources and translations                  |
-| `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
+Rust owns the shipped runtime; `typescript/` owns developer tooling/tests and
+fixtures. `extensions/` and `drivers/` own their products; `contracts/` owns normative
+interfaces. Root files are entry points/configuration; `.github/` owns automation
+and maps, `scripts/` shared development helpers, `skills/` bundled guidance and
+`.agents/` contributor skills. Provider workspace metadata belongs in its declared
+root. `site/` owns publishing sources and `design/` shared visual sources, not Core
+behavior. The layout allowlist admits homes, not dependency or release authority.
+
+### Area architecture locations
+
+| Area                                 | Owning skill or guide                                        |
+| ------------------------------------ | ------------------------------------------------------------ |
+| Core, identity, storage, drivers     | [tmt-core-runtime](.agents/skills/tmt-core-runtime/SKILL.md) |
+| Native installation, release, CI     | [tmt-release](.agents/skills/tmt-release/SKILL.md)           |
+| Test boundaries and fixtures         | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md)                   |
+| Developer tooling and verification   | [tmt-dev](.agents/skills/tmt-dev/SKILL.md)                   |
+| Remote transport and object backends | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)             |
+| Colab app, content and decoder       | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)               |
+| Ops board and workers                | [tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)           |
+| Terminal presentation                | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                   |
+| Browser UI and design sources        | [tmt-design](.agents/skills/tmt-design/SKILL.md)             |
+| Blog and handbook prose              | [site/README.md](site/README.md)                             |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
 are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
 owns moves and the tracked-file guard.
 
-`tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui` splits React entries (`./ui`, `./react`, `./rich-input`, `./data-table`, `./blocks`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [shared rail contract](design/browser-ui/README.md#shared-rail) keeps native and React hosts on one DOM renderer: hosts supply navigation, command callbacks and order; the leaf emits reorder requests and owns selection, row affordances, counts and drawer geometry without changing composed-shell wire data. The [README](design/browser-ui/README.md#shared-top-bar) owns the route-owned top-bar slots, root-owned common controls, modality and header-action rules.
+`design/tokens/tokens.json` owns shared tokens; `@tmt/browser-ui` is the shared
+component library. Products consume generated output, never copied implementations.
+GUI owns the [leaf boundaries and regeneration](design/browser-ui/README.md).
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## Public blog boundary
 
-`site/src/blog/` builds independently approved `site/src/posts/` language variants into the full site build,
-then owns pruning and verification of the blog-only Pages artifact. The shared Pages workflow uploads only
-that artifact: blog routes/data and their referenced assets, a root blog redirect and a static 404.
-Home, handbook and Colab source/build output remain local; repository links derive from build configuration.
-[The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
+`site/src/blog/` builds `site/src/posts/`; the shared Pages workflow uploads only
+the verified blog artifact. [site/README.md](site/README.md#blog) owns content,
+approval and publishing procedures; Marketing maintains them.
 
 ## TypeScript workspace boundary
 
@@ -132,13 +137,13 @@ newline exchanges over one owned child, child-only environment overlays and brow
 launch. Callers own protocols, admission and presentation; the leaf has no TMT dependencies.
 
 `rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
-[Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
+[Development](.agents/skills/tmt-dev/references/development.md#architecture-guard) owns its checks. It supplements behavior review.
 `tmt-sys` is the single audited `unsafe` boundary: only `tmt-adapters` may depend
 on it and every other crate forbids unsafe code.
 
 Workspace quality checks cover the unified feature graph. Native process fixtures
 build products separately to keep ordinary CLI feature isolation;
-[Development](DEVELOPMENT.md#rust-checks) owns their selection.
+[Development](.agents/skills/tmt-dev/references/development.md#rust-checks) owns their selection.
 
 ## Public command boundary
 
@@ -146,7 +151,7 @@ The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) ow
 core command registration, option placement and rejection, and the help projection;
 each owner's parser turns its grammar into typed invocations and publishes through
 `tmt-command-output`. Hidden commands parse for internal workflows but never appear
-in help or completion. [Argument parsing](CONVENTIONS.md#commands-effects-and-contracts) stays with typed parsers.
+in help or completion. [Argument parsing](AGENTS.md#commands-effects-and-contracts) stays with typed parsers.
 Human/JSON share typed result/status contracts; [list](contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
 Command dispatch, help and completion rules are in the
 [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md).
@@ -464,7 +469,7 @@ one layer's success cannot substitute for another's evidence.
 
 Helper ownership, fixture publication and lifecycle details live in the
 [E2E references](.agents/skills/tmt-e2e/references/test-boundaries.md); shared
-commands remain in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests).
+commands remain in [DEVELOPMENT](.agents/skills/tmt-dev/references/development.md#native-process-and-shared-tests).
 
 ## Release boundary
 
@@ -490,7 +495,7 @@ pass; only the CLI converges latest to its highest publication.
 
 The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
-[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](DEVELOPMENT.md#project-tracking) owns issue lifecycle.
+[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](.agents/skills/tmt-dev/references/development.md#project-tracking) owns issue lifecycle.
 
 ## Maintenance contract
 

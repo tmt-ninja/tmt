@@ -35,10 +35,22 @@ const options: TickOptions = {
     rules: [{ prefix: '.github/', leads: ['tmt-lead'], source: '#606 shared paths, lines17-19' }],
   },
   local: {
-    guides: { 'ARCHITECTURE.md': 'line\n', 'DEVELOPMENT.md': 'line\n' },
+    guides: {
+      'AGENTS.md': 'line\n',
+      'ARCHITECTURE.md': 'line\n',
+      '.agents/skills/tmt-dev/references/development.md': 'line\n',
+    },
     budgets: {
-      lines: { 'ARCHITECTURE.md': 640, 'DEVELOPMENT.md': 339 },
-      bytes: { 'ARCHITECTURE.md': 48100, 'DEVELOPMENT.md': 19187 },
+      lines: {
+        'AGENTS.md': 260,
+        'ARCHITECTURE.md': 640,
+        '.agents/skills/tmt-dev/references/development.md': 339,
+      },
+      bytes: {
+        'AGENTS.md': 10000,
+        'ARCHITECTURE.md': 48100,
+        '.agents/skills/tmt-dev/references/development.md': 19187,
+      },
     },
     freeBytes: 100 * 1024 ** 3,
     load1: 2,
@@ -971,8 +983,9 @@ describe('bounded failed-worker diagnostics', () => {
       local: {
         ...options.local,
         guides: {
+          'AGENTS.md': 'line\n',
           'ARCHITECTURE.md': 'line\n'.repeat(630),
-          'DEVELOPMENT.md': 'line\n'.repeat(337),
+          '.agents/skills/tmt-dev/references/development.md': 'line\n'.repeat(337),
         },
       },
     });
@@ -986,7 +999,7 @@ describe('bounded failed-worker diagnostics', () => {
     expect(printed[3]).toContain('test failed across distinct PR/merge-group contexts');
     expect(printed[4]).toContain('guide near or over budget');
     expect(printed[4]).toContain('ARCHITECTURE.md');
-    expect(printed[5]).toContain('DEVELOPMENT.md');
+    expect(printed[5]).toContain('.agents/skills/tmt-dev/references/development.md');
     expect(printed[6]).toContain('merge queue entry older than 30 minutes');
     expect(printed[7]).toContain('"count":29');
     for (const pr of [2000, 2001, 2002]) expect(printed[7]).toContain(`"pr":${pr}`);

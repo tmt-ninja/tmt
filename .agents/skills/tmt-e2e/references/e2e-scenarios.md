@@ -1,7 +1,7 @@
 # Docker E2E scenarios and harness
 
 Run-count requirements and isolation are in
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md#docker-e2e).
+[development procedures](../../tmt-dev/references/development.md#docker-e2e).
 
 ## Selection and sharding
 

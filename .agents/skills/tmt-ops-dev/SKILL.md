@@ -100,7 +100,7 @@ Details of the reader thread: [refresh-and-meter.md](references/refresh-and-mete
 
 ## References
 
-- [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
+- [references/development.md](references/development.md): build, test and verification commands.
 
 [ARCHITECTURE](../../../ARCHITECTURE.md#ops-extension) owns the seam, dependency direction and
 public-contract index. The user-facing row and config reference is the embedded lead skill

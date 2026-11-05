@@ -23,7 +23,7 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 
 ## Test quality gate
 
-Apply [CONVENTIONS' test review rules](../../../CONVENTIONS.md#tests-and-review),
+Apply [CONVENTIONS' test review rules](../../../AGENTS.md#verification-quality),
 including concrete defect coverage and meaningful positive/negative controls.
 
 - Cover distinct boundaries and failure modes instead of repeating equivalent happy paths.

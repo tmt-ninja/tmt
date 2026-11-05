@@ -8,7 +8,7 @@ description: Maintain and promote TMT release lines, versions, and prerelease re
 Use this skill for release-line maintenance, version synchronization, CI selection,
 native archives, installer/upgrade proofs, prerelease readiness or release tracking.
 Follow [AGENTS.md](../../../AGENTS.md) for development and review;
-[DEVELOPMENT.md](../../../DEVELOPMENT.md) owns shared checks and the
+[development procedures](../tmt-dev/references/development.md) owns shared checks and the
 [architecture](../../../ARCHITECTURE.md#main-release-cuts) owns the release model.
 
 ## Main cut authorization
@@ -72,4 +72,4 @@ and publication work requires the complete native verification reference.
 
 Use the [tracking procedure](references/native-release.md#project-release-tracking)
 for delivery/publication evidence and its focused checks. Shared issue lifecycle
-and Project status definitions stay in [DEVELOPMENT.md](../../../DEVELOPMENT.md#project-tracking).
+and Project status definitions stay in [development procedures](../tmt-dev/references/development.md#project-tracking).

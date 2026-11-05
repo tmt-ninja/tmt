@@ -242,8 +242,6 @@
       "paths": [
         "AGENTS.md",
         "ARCHITECTURE.md",
-        "CONVENTIONS.md",
-        "DEVELOPMENT.md",
         "README.md",
         "contracts/request-response-v1.md",
         "contracts/extension-api.md",

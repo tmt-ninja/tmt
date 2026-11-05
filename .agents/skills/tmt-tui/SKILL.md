@@ -56,7 +56,7 @@ one group at a time (#5647); until then each keeps its own keys and close path.
 ## References
 
 - [references/pipeline-and-components.md](references/pipeline-and-components.md): admission, binding, geometry, paint and component rules.
-- [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
+- [references/development.md](references/development.md): build, test and verification commands.
 
 ## Admission rules
 
