@@ -9,7 +9,7 @@ description: Per-module architecture knowledge for the core Rust runtime - ident
 dependency direction, owner per concern). This skill holds the module-level rules a
 change in that code must preserve. Public shapes and limits live in
 [`contracts/`](../../../contracts/); verification gates are in
-[DEVELOPMENT.md](../../../DEVELOPMENT.md) and [tmt-dev](../tmt-dev/SKILL.md). When a rule
+[development procedures](../tmt-dev/references/development.md) and [tmt-dev](../tmt-dev/SKILL.md). When a rule
 here and the code disagree, fix the doc in the same PR.
 
 `tmt-cli-style` has no TMT dependencies; its default `table` feature enables terminal tables.
@@ -18,6 +18,8 @@ here and the code disagree, fix the doc in the same PR.
 
 Load the file for the area you change.
 
+- [references/runtime-layers.md](references/runtime-layers.md): what each layer and
+  shared crate may hold, and the Orchestration split across them.
 - [references/identity-bindings.md](references/identity-bindings.md): names, binding
   evidence and process incarnation, session/driver state, activity and consumption,
   provider hooks, setup and uninstall, foreground launch.

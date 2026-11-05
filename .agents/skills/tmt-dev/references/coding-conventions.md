@@ -1,13 +1,13 @@
-# Coding conventions
+# Coding and verification patterns
 
-These are rules for new and touched code, not a claim that all legacy code
-already follows them. [ARCHITECTURE.md](ARCHITECTURE.md) owns module boundaries
-and known exceptions; [AGENTS.md](AGENTS.md) owns review and maintenance policy.
-Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
+These patterns apply to new and touched code. Global working rules and review
+authority remain in AGENTS; this reference owns implementation and testing techniques. [ARCHITECTURE.md](../../../../ARCHITECTURE.md) owns module boundaries
+and known exceptions; [AGENTS.md](../../../../AGENTS.md) owns review and maintenance policy.
+Use the [development skill](../SKILL.md) to apply them.
 
 ## Style and readability
 
-- Follow the [repository language policy](AGENTS.md#repository-content-language).
+- Follow the [repository language policy](../../../../AGENTS.md#durable-guidance).
   Use rustfmt for Rust and the nested
   workspace-pinned Vite+ formatter and strict TypeScript configuration for developer
   tooling and extensions. Preserve each owner's explicit formatter configuration and
@@ -42,7 +42,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   and units for changed commands. Prefer one structured result/error in JSON mode
   without progress text mixed into it. Uniformity is a target with known gaps;
   preserve public behavior unless the issue explicitly changes it.
-- Human output and help follow the [CLI style](design/cli-style.md): render through
+- Human output and help follow the [CLI style](../../../../design/cli-style.md): render through
   `tmt-cli-style` and register commands with its `CommandSpec`, rather than
   printing or building help directly.
 - Use the native grammar/invocation and explicit command error mappings as
@@ -59,8 +59,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 - A requested change to shared local state is saved, or it fails with a named
   cause and the exact retry. It is never dropped, and never refused only because
   another writer holds the store. Writers of any store (SQLite, a locked file or
-  document) wait for the write lock within a bounded budget (core storage uses
-  5 seconds). Under the lock they read the current state and apply their change
+  document) wait for the write lock within a bounded budget. Under the lock they read the current state and apply their change
   to it, so concurrent changes all land and nothing is replayed. Fail-fast locks
   are only for exclusivity guards, where the second caller asks to be the one
   runner or owner rather than to change data (a tick, a server).
@@ -75,7 +74,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Dependencies and refactoring
 
-Native Rust uses edition 2024, rustfmt, snake_case module files, explicit typed
+Native Rust uses the manifest-declared edition, rustfmt, snake_case module files, explicit typed
 requests and standard `Result` boundaries. Keep Clap and output in `tmt-cli`,
 pure validity rules/use cases in `tmt-core`, and concrete effects in the
 `tmt-adapters` package. Follow the declared MSRV and committed lockfile; do not
@@ -100,8 +99,8 @@ migrations into a correctness fix; split larger prerequisites into linked issues
 
 ## Tests and review
 
-Follow [DEVELOPMENT.md](DEVELOPMENT.md) and the
-[E2E skill](.agents/skills/tmt-e2e/SKILL.md) for commands and test boundaries.
+Follow the [development procedures](development.md) and the
+[E2E skill](../../tmt-e2e/SKILL.md) for commands and test boundaries.
 Name the invariant or realistic defect each test detects. Use real temporary
 storage for repository behavior and injected ports for focused service tests;
 mocking a storage operation is not proof of persistence or atomicity.
@@ -116,7 +115,8 @@ condition in isolation: an unrelated failure must not satisfy the negative
 assertion. Where practical, disable or perturb the intended guard to confirm
 the test detects its absence; report unverified sensitivity honestly.
 
-Primary review examines test setup and assertions as code. Do not weaken an
-assertion, bypass a gate or count more tests as proof of correctness. Use fixture
-types compatible with the pinned runtime; an example from a newer framework
-version is not automatically a project convention.
+A filtered, skipped, cross-compiled or failed subprocess is not a success claim.
+Keep returned errors distinct from crash recovery, and preserve evidence about
+uncertainty, transactions, retention, acknowledgment, lifetime and cleanup when
+changing those boundaries. Compare exact file bytes rather than symlink or object
+inventories; use structured output instead of mocked logging.

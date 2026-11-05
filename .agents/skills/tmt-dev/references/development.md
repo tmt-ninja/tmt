@@ -3,34 +3,34 @@
 The Rust workspace is the shipped CLI runtime. The nested `typescript` pnpm
 workspace owns private developer tooling for Vitest, fixtures and release
 verification; it is not an npm product or a CLI fallback. Repository policy is in
-[AGENTS.md](AGENTS.md), architecture ownership in [ARCHITECTURE.md](ARCHITECTURE.md)
-and style in [CONVENTIONS.md](CONVENTIONS.md). This guide holds the commands and
+[AGENTS.md](../../../../AGENTS.md), architecture ownership in [ARCHITECTURE.md](../../../../ARCHITECTURE.md)
+and conventions in [coding patterns](coding-conventions.md). This guide holds the commands and
 gates every change shares; per-area procedures live in the skills below.
 
-| Working on                                                                                             | Load                                                                              |
-| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| Release workflows, CI selection, archives, installer, upgrade, release PRs, release tracking           | [tmt-release](.agents/skills/tmt-release/SKILL.md) (`references/ci-selection.md`) |
-| Docker E2E, native process fixtures, test helpers and cleanup, smoke matrix, provider and Herdr checks | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md) (`references/test-boundaries.md`)      |
-| Core runtime internals: identity, bindings, requests, storage, hosts, drivers, channels, installer     | [tmt-core-runtime](.agents/skills/tmt-core-runtime/SKILL.md)                      |
-| Driver, runtime, completion, request-ID and CLI-style focused checks                                   | [tmt-dev](.agents/skills/tmt-dev/SKILL.md) (`references/focused-checks.md`)       |
-| Ops extension and board                                                                                | [tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)                                |
-| Internal TUI markup (`tmt-tui`)                                                                        | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                                        |
-| Remote door and embedded browser client                                                                | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                                  |
-| Colab executable, app and browser client                                                               | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                                    |
-| Handbook site, blog and translations                                                                   | [tmt-design](.agents/skills/tmt-design/SKILL.md)                                  |
-| Browser UI leaf and design tokens                                                                      | [design/browser-ui](design/browser-ui/README.md) (tmt-gui-lead)                   |
-| Adding or moving files                                                                                 | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                                  |
+| Working on                                                                                             | Load                                                                        |
+| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Release workflows, CI selection, archives, installer, upgrade, release PRs, release tracking           | [tmt-release](../../tmt-release/SKILL.md) (`references/ci-selection.md`)    |
+| Docker E2E, native process fixtures, test helpers and cleanup, smoke matrix, provider and Herdr checks | [tmt-e2e](../../tmt-e2e/SKILL.md) (`references/test-boundaries.md`)         |
+| Core runtime internals: identity, bindings, requests, storage, hosts, drivers, channels, installer     | [tmt-core-runtime](../../tmt-core-runtime/SKILL.md)                         |
+| Driver, runtime, completion, request-ID and CLI-style focused checks                                   | [tmt-dev](../SKILL.md) (`references/focused-checks.md`)                     |
+| Ops extension and board                                                                                | [tmt-ops-dev](../../tmt-ops-dev/SKILL.md)                                   |
+| Internal TUI markup (`tmt-tui`)                                                                        | [tmt-tui](../../tmt-tui/SKILL.md)                                           |
+| Remote door and embedded browser client                                                                | [tmt-remote](../../tmt-remote/SKILL.md)                                     |
+| Colab executable, app and browser client                                                               | [tmt-colab](../../tmt-colab/SKILL.md)                                       |
+| Site shell/components                                                                                  | [tmt-design](../../tmt-design/SKILL.md)                                     |
+| Blog/handbook prose/translations                                                                       | [site/README.md](../../../../site/README.md)                                |
+| Browser UI leaf and design tokens                                                                      | [design/browser-ui](../../../../design/browser-ui/README.md) (tmt-gui-lead) |
+| Adding or moving files                                                                                 | [tmt-layout](../../tmt-layout/SKILL.md)                                     |
 
 ## Setup
 
-Requirements: Node.js 26.12.1, pinned pnpm via Corepack and the toolchain in
-`rust/rust-toolchain.toml`. Rust MSRV is 1.95; CI uses the pinned release toolchain.
+Use the Node/Corepack pins in `.github/actions/setup-tooling/action.yml`, pnpm from
+`typescript/package.json`, and Rust toolchain/MSRV from their committed manifests.
 Remote-client tests need `python3` for the independent byte-fixture
 oracle, shell completion needs Bash and Zsh, and runtime proof needs macOS
 developer tools or Linux `readelf`.
 
 ```bash
-npm install -g --ignore-scripts corepack@0.36.0
 (cd typescript && corepack pnpm install --frozen-lockfile)
 (cd rust && rustup show)
 ```
@@ -49,7 +49,7 @@ temporary root.
 
 Docker's build cache and image tags, and one Cargo `target` per worktree, are the
 largest waste. Before a Docker suite run the read-only check; it prints free
-space (warning below `TMT_DISK_WARN_GB`, default 30) and `docker system df`, and
+space against `TMT_DISK_WARN_GB` (the script owns its default) and `docker system df`, and
 deletes nothing:
 
 ```sh
@@ -79,8 +79,8 @@ and never restart Docker Desktop.
   adding one: `git status --short` empty and the branch pushed or merged, then
   `git fetch origin` and `git switch -c <new-branch> origin/main`.
 - **Remove a worktree when its PR merges**, in the same turn, following
-  [AGENTS' delivery lifecycle](AGENTS.md#delivery-lifecycle) and
-  [`scripts/dev-worktree-remove.sh`](scripts/dev-worktree-remove.sh):
+  [AGENTS' delivery lifecycle](../../../../AGENTS.md#delivery-lifecycle) and
+  [`scripts/dev-worktree-remove.sh`](../../../../scripts/dev-worktree-remove.sh):
 
   ```sh
   scripts/dev-worktree-remove.sh <worktree-path> <pr-number>
@@ -107,9 +107,9 @@ the usual application data unless you select isolated settings. Extension
 executables resolve core lookups through `TMT_EXECUTABLE` (set when TMT invokes
 them) or an executable `tmt` on `PATH`.
 
-Contracts: [local process API](contracts/extension-api.md) for extensions and the
-[MCP contract](contracts/mcp-v1.md). Credential-free native MCP commands:
-[tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#local-mcp).
+Contracts: [local process API](../../../../contracts/extension-api.md) for extensions and the
+[MCP contract](../../../../contracts/mcp-v1.md). Credential-free native MCP commands:
+[tmt-dev focused checks](focused-checks.md#local-mcp).
 
 ## Rust checks
 
@@ -122,10 +122,9 @@ cargo test --locked
 cargo build --locked
 cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
-cargo +1.95.0 build --locked
 ```
 
-Use `CARGO_BUILD_JOBS=2` on shared machines.
+Use the shared host's approved Cargo concurrency limit.
 
 **Product builds are package-scoped.** Workspace and combined builds unify
 dependency features, so their `tmt` can differ from the product's. Identity proofs
@@ -137,9 +136,9 @@ in Docker contexts must copy all workspace member directories at their
 workspace-relative paths; `docker-workspace.test.ts` checks it.
 
 Executable fixture publication and snapshot updates:
-[tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#executable-fixtures-and-snapshots).
+[tmt-dev focused checks](focused-checks.md#executable-fixtures-and-snapshots).
 
-CLI style and printed-command guard procedures: [enforcement](design/cli-style.md#enforcement).
+CLI style and printed-command guard procedures: [enforcement](../../../../design/cli-style.md#enforcement).
 
 ### Architecture guard
 
@@ -147,7 +146,6 @@ Part of `cargo test`; a focused offline run:
 
 ```bash
 cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
-cargo +1.95.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
 ```
 
 Run it on every Rust push: it enforces workspace-unique names, dependency
@@ -160,17 +158,18 @@ exactly; a stale lockfile or an unexecuted test is not evidence.
 JavaScript suites live under `typescript/test/{native,e2e,tooling,support}/`; Rust
 tests stay beside their owner in `rust/crates/*`.
 
-**Isolation** follows [testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries):
-fixtures inherit no caller, provider, recursion or color state. Native `runCli` isolates CLI ancestry through
+**Isolation** follows [testing boundaries](../../tmt-e2e/references/test-boundaries.md#evidence-boundaries):
+fixtures inherit no caller, provider, recursion or color state. Set `TMT_AGENT=1`
+and `BROWSER` to a no-op; pass `--no-open` or `--json` where supported. Native `runCli` isolates CLI ancestry through
 `rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`; build it before tooling or native tests, as CI does:
 
 ```bash
 cargo build --locked --manifest-path rust/Cargo.toml -p tmt-adapters --example runtime-caller-fixture
 ```
 
-CLI descriptors and suite prerequisites: [native CLI selection](.agents/skills/tmt-e2e/references/test-boundaries.md#native-cli-selection).
+CLI descriptors and suite prerequisites: [native CLI selection](../../tmt-e2e/references/test-boundaries.md#native-cli-selection).
 
-Process-job fixture builds: [installation fixtures](.agents/skills/tmt-release/references/installation-fixtures.md#process-fixture-builds).
+Process-job fixture builds: [installation fixtures](../../tmt-release/references/installation-fixtures.md#process-fixture-builds).
 
 **Rules.**
 
@@ -205,10 +204,10 @@ cleanup ordering or non-idempotent teardown; record why.
 
 Replace the example with the affected plain file names, space-separated.
 
-Docker selection knobs and shard balancing: [E2E scenarios](.agents/skills/tmt-e2e/references/e2e-scenarios.md#selection-and-sharding).
+Docker selection knobs and shard balancing: [E2E scenarios](../../tmt-e2e/references/e2e-scenarios.md#selection-and-sharding).
 
 The harness must not reach a host tmux server or a real agent; its image and
-[harness rules](.agents/skills/tmt-e2e/references/e2e-scenarios.md#harness-rules) are tmt-e2e's.
+[harness rules](../../tmt-e2e/references/e2e-scenarios.md#harness-rules) are tmt-e2e's.
 
 Ordinary developer checks:
 
@@ -221,17 +220,26 @@ Ordinary developer checks:
 `pnpm lint`, `pnpm format:check` run its parts); `pnpm docs:format:check` covers
 docs. Neither replaces the Rust commands, the native process suite or Docker runs.
 
+## Tooling migrations
+
+Formatter migrations preserve per-owner options and code/docs selections; separate
+mechanical output from configuration and record regeneration/equivalence evidence.
+Lint migrations preserve owner file arguments, plugins, warnings and exit behavior.
+Compare effective rules and diagnostic multisets; report newly enabled defaults.
+`format-workspace.mjs` and `lint-config.mjs` own these selections; compiler checks
+stay separate until an equivalence decision.
+
 ## Conventional PR title checks
 
 The type policy is `CONVENTIONAL_PR_TYPES` in `typescript/scripts/pr-title-check.mjs`; the
-[release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles) owns the rest.
+[release reference](../../tmt-release/references/native-release.md#conventional-pr-titles) owns the rest.
 
 ## Installed guidance source ownership
 
 `skills/tmt/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical
 installed guidance, one versioned bundle; core install exposes only these. Edit the
 single canonical file; never add provider-specific copies. Follow the mandatory
-[installed-guidance verification](.agents/skills/tmt-core-runtime/references/install-architecture.md#installed-guidance-verification)
+[installed-guidance verification](../../tmt-core-runtime/references/install-architecture.md#installed-guidance-verification)
 for byte, publication, isolation and provider-behavior checks.
 
 ## Project tracking
@@ -270,13 +278,13 @@ Tracker rules:
 - One lead per tracker, recorded in `Squad`. That lead writes its Status
   and body; each child keeps the Status and Agents of the lead doing the work.
 - The tracker body is a short `Now / Next / Blocked` summary
-  ([tracker body procedure](.agents/skills/tmt-pm/SKILL.md#tracker-body)).
+  ([tracker body procedure](../../tmt-pm/SKILL.md#tracker-body)).
 - New epics require the maintainer's approval; leads propose them through tmt-lead.
   No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
   one outcome and acceptance criteria each; one PR may close several of them
-  ([Delivery lifecycle](AGENTS.md#delivery-lifecycle)).
-- [PM procedure and cadence](.agents/skills/tmt-pm/SKILL.md#cadence) own scheduled checks,
+  ([Delivery lifecycle](../../../../AGENTS.md#delivery-lifecycle)).
+- [PM procedure and cadence](../../tmt-pm/SKILL.md#cadence) own scheduled checks,
   daily reports, event-driven lead updates and the GraphQL budget.
 
 ## Waiting on CI and the merge queue
@@ -285,10 +293,10 @@ Tracker rules:
 scripts/ci-wake.sh <pr> --identity <self> [--until checks|merged] [--interval <s>] [--cap <s>]
 ```
 
-Start it, end the turn and let its one message wake you; the script's header owns
-its final states, bounds, log and exit codes.
+The [wait rule](../../../../AGENTS.md#delivery-lifecycle) has one owner; the script's
+header documents its final states, bounds, log and exit codes.
 
-For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](scripts/hooks/codex-wait-guard.mjs) is an
+For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](../../../../scripts/hooks/codex-wait-guard.mjs) is an
 optional `PreToolUse` hook that asks a model to judge calls inside this repository that hold a
 wait primitive (`sleep`, a loop, `watch`, `tail -f`, a background job and the like), and denies
 waits and polls (in shadow mode it only logs them). Every other call, including a short
@@ -299,15 +307,5 @@ gives hooks no event for a `write_stdin` re-poll of a running session or for cod
 
 ## Review and evidence
 
-Report the reviewed revision, commands and results per
-[AGENTS' delivery lifecycle](AGENTS.md#delivery-lifecycle); required CI is the full gate.
-Never turn a filtered, skipped, cross-compiled or failed subprocess into a success
-claim. Keep returned errors distinct from crash recovery, and retain uncertainty, transaction,
-retention, acknowledgment, lifetime and cleanup evidence when changing those boundaries.
-Compare exact file bytes, not symlink-directory snapshots or enumerated binary
-objects; use structured output or a focused formatter test, not mocked
-`console.log`. A change to how a browser surface looks also needs a
-[visual review](.agents/skills/tmt-ui-ux-design/references/visual-review.md) against a named
-reference, with side-by-side captures; its findings block the merge. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
-maintenance: [ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries) and its
-[maintenance contract](ARCHITECTURE.md#maintenance-contract).
+Follow [AGENTS](../../../../AGENTS.md#ownership-and-review) for review and
+[verification quality](../../../../AGENTS.md#verification-quality) for evidence.

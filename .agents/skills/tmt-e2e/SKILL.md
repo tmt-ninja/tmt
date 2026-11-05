@@ -23,7 +23,7 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 
 ## Test quality gate
 
-Apply [CONVENTIONS' test review rules](../../../CONVENTIONS.md#tests-and-review),
+Apply [CONVENTIONS' test review rules](../../../AGENTS.md#verification-quality),
 including concrete defect coverage and meaningful positive/negative controls.
 
 - Cover distinct boundaries and failure modes instead of repeating equivalent happy paths.
@@ -57,7 +57,7 @@ Read the relevant files before changing behavior:
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. Historical TypeScript worker/pack tests are retired;
   use [scenario ownership](references/e2e-scenarios.md#scenario-ownership) and
-  [evidence boundaries](../../../ARCHITECTURE.md#testing-and-evidence-boundaries)
+  [evidence boundaries](references/test-boundaries.md#evidence-boundaries)
   to choose the maintained native coverage.
 - Keep retained native/E2E helpers under `typescript/test/support/`, independent of the old
   TypeScript product. Historical SQLite migration inputs and reference results

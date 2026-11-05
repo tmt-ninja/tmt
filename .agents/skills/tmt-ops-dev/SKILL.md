@@ -5,6 +5,33 @@ description: Build and verify the Ops extension (`tmt-ops`, the board, notebook,
 
 # Ops development
 
+## Public integration and state
+
+Ops is independently dispatched as `tmt ops`; its embedded lead skill owns the
+command inventory and JSON. Core's public host templates and verified stop/remove
+API own launch and close authority. `board/host_launch` prepares and rechecks
+frozen argv for New member and Switch tool; see [the board reference](references/board.md).
+No launch observation authorizes uncertain-request replay.
+
+The [refresh worker](references/refresh-and-meter.md#refresh-worker) owns separate
+lazy background and interaction API sessions, retained projections, stamps and
+independent clocks. Paint and input perform no Core reads. The same reference
+owns supplier-estimated savings and usage, which are not provider history.
+[Workspace and discovery](references/board.md#workspace-and-retained-identity)
+own acquired projections, explicit review and bounded scan generations;
+[notebooks](references/board-notebooks.md) owns member-reference projection without
+delivery authority.
+
+[Data and state](references/data-and-state.md) owns Core-room membership,
+`ops.db`, locked byte-preserving migration and checklist transactions. Core owns
+jobs/runs; Ops imports legacy ones once. Confirmed lead changes offer the global
+squad-lead union through Core's preview, consent and CAS, never an Ops-owned list.
+`ops.toml` remains user-owned and Ops writes use CAS. No Ops configuration or
+checklist state enters Core storage. [Board home](references/board-home.md) and
+[cron](references/board-cron.md) own view state, membership controls and the
+independent display projections; their mutable inventories do not belong in the
+root architecture map.
+
 ## Board surface ownership
 
 `board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
@@ -100,7 +127,7 @@ Details of the reader thread: [refresh-and-meter.md](references/refresh-and-mete
 
 ## References
 
-- [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
+- [references/development.md](references/development.md): build, test and verification commands.
 
 [ARCHITECTURE](../../../ARCHITECTURE.md#ops-extension) owns the seam, dependency direction and
 public-contract index. The user-facing row and config reference is the embedded lead skill

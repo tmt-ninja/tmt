@@ -4,6 +4,38 @@ Source: `extensions/tmt-colab/rust/tmt-colab/src`. Exact DTOs, codes and limits 
 [colab-v1](../../../../extensions/tmt-colab/contracts/colab-v1.md) and `limits.rs`; do not
 restate them.
 
+## App and integration ownership
+
+`ARCHITECTURE.md` owns the Core/Remote trust seams. The executable embeds its app
+and skill; `tmt colab skill` reads embedded bytes without Core or storage. App
+selection uses `serve --app-dir`, then embedded `TMT_COLAB_APP_DIR` bytes, then the
+checkout's Vite output. `Product::Colab` registers the installer product.
+
+The serve's owner-only socket is `<dataRoot>/colab/door.sock`, mounted by Remote
+at `/r/<prefix>/x/colab/`. The mount carries verified `tmt-device-context` and
+device-event callbacks; Remote never forwards the reserved `/.tmt/` subtree from
+a browser. Public short entries bootstrap through validated `tmt-mount`, page
+prefixes resolve from the verified catalog, and reader seeds remain in fragments.
+[Restart recovery](#restart-recovery) owns the one tab-scoped reopen; other assets
+remain owner-gated. The serve attaches to a running door or supervises one it
+alone stops, using Remote's public CLI and verified current releases.
+
+The [Ask agent reference](ask-agent.md) owns SDK operations and the read-only
+Agents observation boundary; the [message editing boundary](#message-editing-boundary)
+owns composer dispatch. [Discussion](discussion.md) and [page chrome](page-chrome.md)
+own parent-admitted thread activation, inline question space, slots and themes.
+[Stream sync and publication](architecture-sync-decoder.md) owns hosted links,
+log-anchor/checkpoint admission and per-action routing. The hidden
+`deploy-declaration --json` command follows the contract's Firestore declaration
+admission, rather than defining a second codec here.
+
+[Attachment grammar](../../../../extensions/tmt-colab/contracts/attachment-v1.md)
+and colab-v1 own authenticated staging and removal. The mount's object adapter
+joins generation-scoped callbacks, original uploads, committed reads and detached
+history; root-local reads need an established channel. Remote owns backend, quota
+and origin; Colab owns crypto and admission. Snapshot and retained-reference
+persistence remain proposals in the [storage design](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md).
+
 ## Layout
 
 | Path (under `extensions/tmt-colab/`) | Owns                                                                                                                 |

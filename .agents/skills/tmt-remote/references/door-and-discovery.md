@@ -327,6 +327,6 @@ missing/refusing declarations never select fixture bytes. Real-project acceptanc
 separate owner authorization. The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
 owns recorded readiness; status is not a provider probe.
 
-The [record evidence owner](architecture-internals.md#deployment-record) is shared by status,
+The [record evidence owner](architecture.md#deployment-record) is shared by status,
 Operations and opt-in signed settings. The snapshot is outside live/Store locks; management
 revalidates the current grant before disclosure. Ordinary shapes stay unchanged.

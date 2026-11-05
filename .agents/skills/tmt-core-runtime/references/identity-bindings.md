@@ -1,8 +1,50 @@
 # Identity, bindings and provider hooks
 
-Per-module rules for identity, binding, session, hook and setup code. The owner map is in
-[ARCHITECTURE.md](../../../../ARCHITECTURE.md#identity-names-and-bindings); public shapes are
-in `contracts/`.
+Per-module rules for identity, binding, session, hook and setup code. The state-ownership
+principles are in [ARCHITECTURE.md](../../../../ARCHITECTURE.md#domain-and-state-ownership);
+public shapes are in `contracts/`.
+
+## Ownership overview
+
+- `tmt-core::names` owns canonical names; hosts own pane-target syntax.
+  `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
+  own untrusted descriptions, never authority ([atomic metadata](../../../../contracts/extension-api.md#conditional-identity-metadata)).
+  `binding` owns [identity and pane coordination](#binding-evidence).
+  [Discovery](../../../../contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`, and `tmt ls --detected` embeds the same observation.
+- Unknown or conflicting endpoint evidence is never proof of death. Saved
+  identities detach and stay offline; temporary identities retire only on
+  conclusive evidence or explicit unbind, and exchanges are kept. Presence is
+  observation, not routing permission: a marker or socket cannot authorize a
+  different identity, and the pane marker proves ownership by IDs, never by name.
+- `binding::session` separates per-driver identity resume records from the one binding/runtime,
+  with transactional CAS. [Switching](../../../../contracts/driver-protocol-v1.md#built-in-driver-switch)
+  hands off once and uses the existing stop/move and caller-owned launch paths.
+  Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
+  with bounded silent refusal, storage-only prechecks and private TTL hints.
+  Only proven process loss ends an incarnation, including behind a launcher.
+- Presence reads acquire host evidence outside the writer lock; changed records
+  never authorize retirement or detachment.
+- Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
+  hook makes is SessionStart in an unbound pane for the one saved identity that remembers that
+  exact session ([rule](#binding-evidence)).
+  Binding-owned starts and launch learning are diagnostic; [projections](../../../../contracts/identity-status-v1.md#session-binding-observation) read stored facts.
+  Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
+  setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.
+- `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
+  one value for comparing local processes.
+- Concrete caller/target, row and clear, presence, readiness and storage rules:
+  [identity and bindings](#binding-evidence)
+  and [workspace recovery](workspace.md).
+
+## Saved identity notes
+
+`NotesIdentityId` (saved identity's canonical UUIDv4) bounds notebook storage;
+display names never become paths. `ConfigPaths` owns layout; only
+`tmt-adapters::notes` creates `<global_dir>/notes/<identity-uuid>/notes.md`,
+owner-only and no-follow. Bodies, concurrency and retention are user-filesystem
+concerns: no SQLite copy, lock, size policy or secure deletion. Retirement
+preserves notebooks.
+[Compaction reminders](#hooks-setup-and-uninstall) follow the provider-hook owner.
 
 ## Names and identities
 

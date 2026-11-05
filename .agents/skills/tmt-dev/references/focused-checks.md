@@ -2,7 +2,7 @@
 
 Model-free, deterministic checks for driver, runtime and request behavior. Run from
 `rust/` with `CARGO_BUILD_JOBS=2`; shared gates are in
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md#rust-checks). None of these starts a
+[development procedures](development.md#rust-checks). None of these starts a
 model or reads provider credentials.
 
 ## Codex driver

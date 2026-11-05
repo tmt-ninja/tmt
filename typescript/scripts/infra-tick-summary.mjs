@@ -492,8 +492,7 @@ function sharedPath(file) {
     [
       'AGENTS.md',
       'ARCHITECTURE.md',
-      'DEVELOPMENT.md',
-      'CONVENTIONS.md',
+      '.agents/skills/tmt-dev/references/development.md',
       'Cargo.toml',
       'package.json',
       'pnpm-workspace.yaml',
@@ -1150,8 +1149,8 @@ export function collectInfraTick(
   api.stage?.('local guides and host', cohort.length);
   assert.deepEqual(
     Object.keys(local.guides).sort(),
-    ['ARCHITECTURE.md', 'DEVELOPMENT.md'],
-    'Both guide texts are required.'
+    Object.keys(local.budgets.lines).sort(),
+    'Every budgeted guide text is required.'
   );
   const guides = Object.entries(local.guides).map(([file, text]) => {
     const lines = text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
@@ -1479,6 +1478,9 @@ function main() {
       process.stdout.write(markdown);
       return;
     }
+    const guideBudgets = JSON.parse(
+      readFileSync(new URL('./guide-budgets.json', import.meta.url), 'utf8')
+    );
     const report = collectInfraTick(api, {
       repository: values.repo,
       since,
@@ -1487,9 +1489,9 @@ function main() {
       reviewMap,
       local: {
         watcherHeartbeat,
-        budgets: JSON.parse(readFileSync(new URL('./guide-budgets.json', import.meta.url), 'utf8')),
+        budgets: guideBudgets,
         guides: Object.fromEntries(
-          ['ARCHITECTURE.md', 'DEVELOPMENT.md'].map((file) => [
+          Object.keys(guideBudgets.lines).map((file) => [
             file,
             readFileSync(path.join(ROOT, file), 'utf8'),
           ])

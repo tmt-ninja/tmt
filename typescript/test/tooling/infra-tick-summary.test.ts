@@ -35,10 +35,22 @@ const options: TickOptions = {
     rules: [{ prefix: '.github/', leads: ['tmt-lead'], source: '#606 shared paths, lines17-19' }],
   },
   local: {
-    guides: { 'ARCHITECTURE.md': 'line\n', 'DEVELOPMENT.md': 'line\n' },
+    guides: {
+      'AGENTS.md': 'line\n',
+      'ARCHITECTURE.md': 'line\n',
+      '.agents/skills/tmt-dev/references/development.md': 'line\n',
+    },
     budgets: {
-      lines: { 'ARCHITECTURE.md': 640, 'DEVELOPMENT.md': 339 },
-      bytes: { 'ARCHITECTURE.md': 48100, 'DEVELOPMENT.md': 19187 },
+      lines: {
+        'AGENTS.md': 260,
+        'ARCHITECTURE.md': 260,
+        '.agents/skills/tmt-dev/references/development.md': 339,
+      },
+      bytes: {
+        'AGENTS.md': 10000,
+        'ARCHITECTURE.md': 20000,
+        '.agents/skills/tmt-dev/references/development.md': 19187,
+      },
     },
     freeBytes: 100 * 1024 ** 3,
     load1: 2,
@@ -584,10 +596,22 @@ describe('prepared Infra tick evidence', () => {
       )
     ).toThrow('PR head changed');
   });
+  it.each([
+    { filename: 'AGENTS.md', shared: true },
+    { filename: '.agents/skills/tmt-dev/references/development.md', shared: true },
+    { filename: 'DEVELOPMENT.md', shared: false },
+    { filename: 'CONVENTIONS.md', shared: false },
+  ])('classifies the current shared guide path $filename', ({ filename, shared }) => {
+    const report = collectInfraTick(
+      fixture({ open: [{ id: 1, number: 1 }], files: [{ filename }] }),
+      options
+    );
+    expect(report.anomalies.some((item) => item.kind === 'unmapped shared path')).toBe(shared);
+  });
   it('uses the existing guide budget owner, warns at ten lines and refuses missing evidence', () => {
     const local = {
       ...options.local,
-      guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(630) },
+      guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(250) },
     };
     expect(
       collectInfraTick(fixture(), { ...options, local }).anomalies.some(
@@ -971,8 +995,9 @@ describe('bounded failed-worker diagnostics', () => {
       local: {
         ...options.local,
         guides: {
-          'ARCHITECTURE.md': 'line\n'.repeat(630),
-          'DEVELOPMENT.md': 'line\n'.repeat(337),
+          'AGENTS.md': 'line\n',
+          'ARCHITECTURE.md': 'line\n'.repeat(250),
+          '.agents/skills/tmt-dev/references/development.md': 'line\n'.repeat(337),
         },
       },
     });
@@ -986,7 +1011,7 @@ describe('bounded failed-worker diagnostics', () => {
     expect(printed[3]).toContain('test failed across distinct PR/merge-group contexts');
     expect(printed[4]).toContain('guide near or over budget');
     expect(printed[4]).toContain('ARCHITECTURE.md');
-    expect(printed[5]).toContain('DEVELOPMENT.md');
+    expect(printed[5]).toContain('.agents/skills/tmt-dev/references/development.md');
     expect(printed[6]).toContain('merge queue entry older than 30 minutes');
     expect(printed[7]).toContain('"count":29');
     for (const pr of [2000, 2001, 2002]) expect(printed[7]).toContain(`"pr":${pr}`);
@@ -1027,7 +1052,7 @@ describe('bounded failed-worker diagnostics', () => {
         ...options,
         local: {
           ...options.local,
-          guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(630) },
+          guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(250) },
         },
       });
       const firstLines = renderInfraTick(report)

@@ -11,7 +11,7 @@ No extension installation is required. Capabilities list supported operations an
 byte bounds without creating state. In the default one-request mode, close stdin
 within five seconds. Exit 0 means the operation returned a resource; exit 1 returns
 `{"error":{"code":"...","message":"..."}}`. This is a local same-user
-interface, not remote authorization. The [architecture contract](../ARCHITECTURE.md#local-extension-api-v1)
+interface, not remote authorization. The [extension surface reference](../.agents/skills/tmt-core-runtime/references/extension-surface.md#local-extension-api-v1)
 owns compatibility, transport and persistence rules.
 
 ## Persistent session
@@ -62,7 +62,7 @@ access their private `<dataRoot>/remote/` and `<dataRoot>/colab/` state. Colab's
 settled package contract embeds its app in the executable, with no separate
 installer data tree; build-time embedding and publication remain separate owner
 gates. The [native installation
-contract](../ARCHITECTURE.md#managed-skills-and-native-installation) owns archive,
+contract](../.agents/skills/tmt-core-runtime/references/install-architecture.md#native-installation-ownership) owns archive,
 receipt, consent and unavailable-release behavior.
 
 ### Installation guidance through the ordinary CLI
@@ -1795,7 +1795,7 @@ the next turn event, with no time bound.
 - It never changes `resume.model` (the starting-hook model that a resume launch replays) or
   `resume.consumption.modelId` (the model of the last accepted completed request or turn).
 
-See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
+See [the identity and bindings reference](../.agents/skills/tmt-core-runtime/references/identity-bindings.md#consumption-and-context-usage) for exact fields, provider
 normalization and bounded-source limitations. Extensions read these public
 projections, never provider transcripts or private driver state.
 

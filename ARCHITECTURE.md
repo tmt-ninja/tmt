@@ -22,449 +22,128 @@ child; it listens on no network port.
 Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 [Component ownership](.github/components.json) is separate.
 
-| Home                      | Responsibility                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| Repository root           | Entry points, contributor guidance, license and required configuration               |
-| `.agents/`                | Contributor skills and their area references                                         |
-| `.claude/`                | Claude Code project settings: the host-tmux guard hook                               |
-| `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
-| `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
-| `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
-| `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
-| `extensions/<extension>/` | Product-owned runtimes, contracts, skills, docs and assets                           |
-| `drivers/<driver>/`       | Product-owned driver runtimes, contracts and assets                                  |
-| `contracts/`              | Core public contracts and normative fixtures                                         |
-| `scripts/`                | Shared shell/build/development helpers                                               |
-| `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public blog; retained Home/Colab, handbook sources and translations                  |
-| `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
+Rust owns the shipped runtime; `typescript/` owns developer tooling/tests and
+fixtures. `extensions/` and `drivers/` own their products; `contracts/` owns normative
+interfaces. Root files are entry points/configuration; `.github/` owns automation
+and maps, `scripts/` shared development helpers, `skills/` bundled guidance and
+`.agents/` contributor skills. Provider workspace metadata belongs in its declared
+root. `site/` owns publishing sources and `design/` shared visual sources, not Core
+behavior. The layout allowlist admits homes, not dependency or release authority.
+
+### Area architecture locations
+
+| Area                                 | Owning skill or guide                                        |
+| ------------------------------------ | ------------------------------------------------------------ |
+| Core, identity, storage, drivers     | [tmt-core-runtime](.agents/skills/tmt-core-runtime/SKILL.md) |
+| Native installation, release, CI     | [tmt-release](.agents/skills/tmt-release/SKILL.md)           |
+| Test boundaries and fixtures         | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md)                   |
+| Developer tooling and verification   | [tmt-dev](.agents/skills/tmt-dev/SKILL.md)                   |
+| Remote transport and object backends | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)             |
+| Colab app, content and decoder       | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)               |
+| Ops board and workers                | [tmt-ops-dev](.agents/skills/tmt-ops-dev/SKILL.md)           |
+| Terminal presentation                | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                   |
+| Browser UI and design sources        | [tmt-design](.agents/skills/tmt-design/SKILL.md)             |
+| Blog and handbook prose              | [site/README.md](site/README.md)                             |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
 are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
 owns moves and the tracked-file guard.
 
-`tmt-gui-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
-`design/browser-ui` splits React entries (`./ui`, `./react`, `./rich-input`, `./data-table`, `./blocks`) from framework-free DOM entries (`./static`, `./shell`, `./chart`, `./menu-host`) and an import-free `./search` registry; hosts own domain state and retain commands and closure admission. The [shared rail contract](design/browser-ui/README.md#shared-rail) keeps native and React hosts on one DOM renderer: hosts supply navigation, command callbacks and order; the leaf emits reorder requests and owns selection, row affordances, counts and drawer geometry without changing composed-shell wire data. The [README](design/browser-ui/README.md#shared-top-bar) owns the route-owned top-bar slots, root-owned common controls, modality and header-action rules.
+`design/tokens/tokens.json` owns shared tokens; `@tmt/browser-ui` is the shared
+component library. Products consume generated output, never copied implementations.
+GUI owns the [leaf boundaries and regeneration](design/browser-ui/README.md).
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## Public blog boundary
 
-`site/src/blog/` builds independently approved `site/src/posts/` language variants into the full site build,
-then owns pruning and verification of the blog-only Pages artifact. The shared Pages workflow uploads only
-that artifact: blog routes/data and their referenced assets, a root blog redirect and a static 404.
-Home, handbook and Colab source/build output remain local; repository links derive from build configuration.
-[The site guide](site/README.md#blog) owns content, approval, CSP and base paths.
+`site/src/blog/` builds `site/src/posts/`; the shared Pages workflow uploads only
+the verified blog artifact. [site/README.md](site/README.md#blog) owns content,
+approval and publishing procedures; Marketing maintains them.
 
 ## TypeScript workspace boundary
 
-The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
-with parent-relative packages for the parked browser-addon shell, Remote client SDK,
-and Colab browser/client packages. Packages resolve declared dependencies, never
-root-hoisted tooling; browser specs reach the tooling SQLite oracle through
-`typescript/test/support`. Rust, root launchers, core contracts and canonical
-skills stay outside this boundary; extension contracts stay with their product.
-
-Vite+ supplies one Vitest runner, aliased Vite core and bundled Oxfmt/Oxlint.
-Packages retain their separate configs, plugins, formatter selections and warning
-policies. `typescript/scripts/format-workspace.mjs` owns root code/docs selections;
-`lint-config.mjs` owns shared lint rules. Compiler commands retain their owners;
-site and release tooling stay outside this lockfile.
+The `typescript` pnpm workspace owns private developer tooling, fixtures and
+browser packages, not a second shipped CLI. Packages resolve declared dependencies
+rather than root-hoisted tooling. Runtime contracts and canonical skills retain
+their product owners; site tooling keeps its separate lockfile.
 
 ### CI selection and worker model
 
-`.github/actions/setup-firebase-tools` owns the isolated npm lockfile and shared
-installation for hosted Firebase emulator tools, outside the pnpm workspace. The
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns its consumers.
-
-[`.github/components.json`](.github/components.json) is the one component map:
-`owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
-files, and ordered rules select CI consumers independently. `release:false`
-excludes a component from automatic cuts/publication. Only non-released components
-may declare `releaseStatus:never` (never shipped) or `releaseStatus:parked`
-(explicitly deferred); absence means awaiting activation. `releaseConsumers` names
-packaged consumers of private components. Registration alone never authorizes activation.
-
-`typescript/scripts/ci-scope.mjs` owns map validation, path ownership, conservative
-CI selection and final gate validation. Its `releasedComponentsForPath` is the
-shared release-attribution owner: released roots plus each binary's transitive
-Cargo normal/build workspace dependencies; dev edges do not count. Explicit
-private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
-Cargo metadata; version inheritance/editing has its own private release-tool owner.
-CI scope, ownership, binary consumption and version inheritance are separate contracts.
-
-Project-only never-shipped path declarations and their CI-only admission guard are defined in the
-[release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
+[The component map](.github/components.json) is the single owner of path ownership
+and consumer selection. CI selection, binary consumption, version inheritance and
+release activation are distinct contracts; registration grants no publication
+authority. The [release skill's CI reference](.agents/skills/tmt-release/references/ci-selection.md)
+owns map fields, selection, workers, caches, toolchains and advisory lanes.
 
 Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
-cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md) and PR-title gates in the
-[release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles).
-Publication reuses the native aggregate's scope-skip proof with check-suite provenance, not
-recomputed selection or bare skips.
+cannot satisfy required gates. Publication reuses the native aggregate's scope-skip
+proof with check-suite provenance, never recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite and `tick` clock; CLI/API; Digest receiving. Sending rules and talk limits refuse or hold in request preparation; jobs share its acceptance. The contract owns held markers, wake spacing and timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
-
-| Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
-| ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure domain       | `rust/crates/tmt-core/src/`     | Identity, names, bindings, profiles, settings, retention, request state and native-install version policy. No filesystem, process, SQLite, tmux, network or CLI framework.                                      |
-| Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                      |
-| Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
-
-`tmt-command-output` owns shared command output/errors and formatting.
-Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
-help, `Interaction` and `progress`. This presentation leaf has no TMT
-dependencies; its default `table` feature enables terminal tables and width
-probing. The architecture guard enforces the leaf boundary.
-
-`rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
-leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
-paint, reusable components). It has no application vocabulary, acquires no terminal, clock,
-settings or provider data, and takes its tokens from `tmt-cli-style` roles. The
-[dependency guard](rust/crates/tmt-cli/tests/architecture/policy.rs) owns its allowlist;
-core, adapters, CLI and extension behavior are excluded. Ops is its sole reviewed consumer;
-new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
-
-`rust/crates/tmt-invoke` owns executable discovery, bounded capture and ordered
-newline exchanges over one owned child, child-only environment overlays and browser
-launch. Callers own protocols, admission and presentation; the leaf has no TMT dependencies.
-
-`rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
-[Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
-`tmt-sys` is the single audited `unsafe` boundary: only `tmt-adapters` may depend
-on it and every other crate forbids unsafe code.
-
-Workspace quality checks cover the unified feature graph. Native process fixtures
-build products separately to keep ordinary CLI feature isolation;
-[Development](DEVELOPMENT.md#rust-checks) owns their selection.
+Core is three layers with one dependency direction: `tmt-core` (pure domain) →
+`tmt-adapters` (effects) → `tmt-cli` (application). Shared crates sit beside them;
+`tmt-sys` is the single audited `unsafe` boundary. Extensions reach Core only through the
+public contracts below. The [architecture guard](rust/crates/tmt-cli/tests/architecture.rs)
+enforces the dependency rules; [runtime layers](.agents/skills/tmt-core-runtime/references/runtime-layers.md)
+owns each layer's and crate's responsibilities.
 
 ## Public command boundary
 
-The grammar (`rust/crates/tmt-cli/src/grammar.rs` and its `grammar/` modules) owns
-core command registration, option placement and rejection, and the help projection;
-each owner's parser turns its grammar into typed invocations and publishes through
-`tmt-command-output`. Hidden commands parse for internal workflows but never appear
-in help or completion. [Argument parsing](CONVENTIONS.md#commands-effects-and-contracts) stays with typed parsers.
-Human/JSON share typed result/status contracts; [list](contracts/identity-status-v1.md#list-runtime-driver) owns runtime-driver proof.
-Command dispatch, help and completion rules are in the
-[extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md).
+Core's grammar owns the command names and reserves them before external dispatch.
+Extensions reach Core through four public interfaces, each owned by its contract:
+external `tmt-<name>` commands, the local [extension API](contracts/extension-api.md),
+local [MCP](contracts/mcp-v1.md) and [lifecycle hooks](contracts/extension-api.md#lifecycle-hooks).
+The [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md)
+owns their module rules and the Core command surface.
 
-### External command contract (v1)
-
-An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH;
-core wins every collision. On Unix the adapter `exec`s, so the extension inherits
-stdio, TTY and signals and its exit status is the command's. `core_executable` hands
-companions the managed stable launcher via `TMT_EXECUTABLE`, else the invoking executable.
-Only the tail is forwarded; missing official names reuse native installation.
-
-### Local extension API (v1)
-
-`tmt api` is the public, same-user process port for machine-shaped gaps in the
-ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
-stdout. Explicit `--session` uses ordered JSON lines and a lazy resource connection;
-workspace capture retains its bounded read-only snapshot.
-Request admission stays fresh and a schema change ends it with a reopen code.
-`tmt-adapters::api` owns composition/storage; shared `framed_stdio` bounds API/MCP
-frames. The CLI owns publication, request boundaries and cleanup, with no listener
-or daemon. Protocol major 1 accepts additive operations and fields; incompatible
-changes need a new major.
-Human-shaped operations remain their
-ordinary JSON commands, not duplicate API implementations. The
-[extension API contract](contracts/extension-api.md) owns the protocol and operation contracts.
-
-### Local MCP (v1)
-
-`tmt mcp --identity <saved-name-or-uuid>` is an agent-launched stdio interface over
-the existing exchange. The [MCP contract](contracts/mcp-v1.md) owns its wire,
-schemas and bounds; `tmt-adapters::mcp` owns admission and framing and
-`tmt-cli::mcp_command` composes the existing command owners in process. It adds no
-exchange state, persistence or retry semantics and is separate from the private
-Claude channel server.
-
-### Extension hooks (v1)
-
-`tmt-adapters::extension_hooks` delivers consented, best-effort lifecycle
-observations and context lines to verified `tmt-<name>` executables
-([wire contract](contracts/extension-api.md#lifecycle-hooks)). PATH discovery alone
-never runs a hook; ownership and a stat fingerprint are re-checked before each
-delivery. Capture is per connection and transactional, delivery is bounded and
-never changes a command's result, and a nested `tmt` captures nothing. Extension
-summaries are untrusted informational data. With no consent file a command spawns
-nothing.
-
-### Core command surface
-
-The [grammar](rust/crates/tmt-cli/src/grammar.rs) owns primary names, aliases and
-the public help surface; core reserves its names before external dispatch.
-Core owns [workspace geometry/codecs](contracts/workspace-v1.md#restore-authority) and generations; adapters, atomic publication/fenced
-creation; CLI, consent/output. The built-in host's store records running members, which restore restarts one at a time through ordinary resume ([built-in snapshots](contracts/workspace-v1.md#built-in-host-snapshots)). Restore pins bytes; full restore uses ordinary
-resume/external dispatch in created panes. Layout-only grants no launch authority.
-One typed result serves human and JSON output; `identity show`
-without a name uses the shared verified-caller selector and never falls back to
-a working directory, active pane or sole identity.
-`check --capture-only` shares UUID binding selection and `identity_context`'s
-expected-name guard with pinned identity reads, before host capture; ordinary
-check keeps name/pane routing and its existing Digest opportunity.
+Files under `contracts/` are Core contracts owned by tmt-lead, except the channel
+contracts #606 assigns to a squad (`remote-channel-v1.md`: tmt-remote);
+`extensions/<ext>/contracts/` belongs to the squad that owns `<ext>`.
+A contract is the single definition owner: guides and skills link to it and never
+restate it. The directory listing is the contract index.
 
 ## Domain and state ownership
 
-### Identity, names and bindings
+Core's SQLite store owns identities, bindings, requests and finals, jobs and
+orchestration; one adapter holds the connection and every write goes through a Core
+service. An extension owns only its `<dataRoot>/<extension>` area and its disposable
+caches, reaches Core state through the public interfaces above, and never writes Core
+storage. User-owned configuration is changed only by the person or by a consented,
+compare-and-swap Core command, never by an agent directly. Delivery is uncertain once
+input may have reached a terminal, and uncertainty never authorizes replay.
 
-- `tmt-core::names` owns canonical names; hosts own pane-target syntax.
-  `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
-  own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns [identity and pane coordination](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
-  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`, and `tmt ls --detected` embeds the same observation.
-- Unknown or conflicting endpoint evidence is never proof of death. Saved
-  identities detach and stay offline; temporary identities retire only on
-  conclusive evidence or explicit unbind, and exchanges are kept. Presence is
-  observation, not routing permission: a marker or socket cannot authorize a
-  different identity, and the pane marker proves ownership by IDs, never by name.
-- `binding::session` separates per-driver identity resume records from the one binding/runtime,
-  with transactional CAS. [Switching](contracts/driver-protocol-v1.md#built-in-driver-switch)
-  hands off once and uses the existing stop/move and caller-owned launch paths.
-  Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
-  with bounded silent refusal, storage-only prechecks and private TTL hints.
-  Only proven process loss ends an incarnation, including behind a launcher.
-- Presence reads acquire host evidence outside the writer lock; changed records
-  never authorize retirement or detachment.
-- Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
-  hook makes is SessionStart in an unbound pane for the one saved identity that remembers that
-  exact session ([rule](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
-  Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
-  Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
-  setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.
-- `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
-  one value for comparing local processes.
-- Concrete caller/target, row and clear, presence, readiness and storage rules:
-  [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
-  and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
+Digest owns its holds, history, price file and valuation. It reaches Core through
+`tmt tick`, Digest hooks and Core's usage rollup; Core owns delivery acceptance
+and identity state.
 
-### Saved identity notes
-
-`NotesIdentityId` (saved identity's canonical UUIDv4) bounds notebook storage;
-display names never become paths. `ConfigPaths` owns layout; only
-`tmt-adapters::notes` creates `<global_dir>/notes/<identity-uuid>/notes.md`,
-owner-only and no-follow. Bodies, concurrency and retention are user-filesystem
-concerns: no SQLite copy, lock, size policy or secure deletion. Retirement
-preserves notebooks.
-[Compaction reminders](.agents/skills/tmt-core-runtime/references/identity-bindings.md#hooks-setup-and-uninstall) follow the provider-hook owner.
-
-### Settings and configuration
-
-`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
-`config::document` preserves unknown JSON fields and validates known settings
-through `tmt-core::settings`; `init` creates the local file exclusively and never
-opens SQLite or tmux. Only `tmt-cli-style` names colors and interprets the presentation-only `theme`. Details are in the
-[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
-
-### SQLite and durable exchanges
-
-`tmt-adapters::storage` owns one private synchronous `rusqlite` connection, the
-schema migrations, WAL/foreign-key/FTS5 setup, busy and transaction boundaries and
-cleanup, and exposes narrow ports to core services. Migrations keep recorded names
-and retention, refuse customized table definitions instead of rebuilding them, and
-board-relevant core tables advance the durable change cursor through triggers that a
-test requires new tables and columns to extend. Typed not-writable storage failures
-are classified once and projected through `tmt-command-output::Failure::storage_access`.
-
-`tmt-core::request::RequestService` owns preparation, delivery-state transitions,
-exact final submission, waiter release, attention revisions and retention
-housekeeping. [Delivery/history](contracts/extension-api.md#digest-policy-and-checklist),
-[message state](contracts/request-response-v1.md#message-state) and
-[content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow)
-have one Core owner each; the [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md)
-maps their modules and Stop queue; ordinary writers only notify its finite worker after commit. A [passthrough](contracts/request-response-v1.md#passthrough) is
-a person's typed text, not a request; it settles that agent's oldest open request
-and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
-[batches](contracts/extension-api.md#ordered-captured-conversation) order inputs and finals. Distinct finals survive missed prompts; verified capture failures are event-fenced and grant no runtime or input-correlation authority.
-Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
-no transaction spans transport, and uncertainty never authorizes replay. Finals are
-immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
-acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
-the durable identity inbox, which settles `queued`. Unbound identity delivery uses
-the foreground observer and recipient pull. The [request contract](contracts/request-response-v1.md)
-owns behavior and limits.
-
-Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md) and one [price file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects; status reads.
-A `user`-marked identity is never held, nor anyone while the [global switch](extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off; an `auto` member is held like an interval one until [auto delivery](extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery).
-The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
-
-### Tmux and process effects
-
-`tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
-monotonic deadlines, group cleanup, reaping and invocation-owned SIGINT forwarding) and
-native-first process-incarnation acquisition. `process::interactive` owns direct terminal children. `tmux` pins caller or recorded
-sockets, with bounded budgets and no ambient fallback; a failed paste
-or Enter is uncertain and never retried as unsent; [pane cosmetics](.agents/skills/tmt-core-runtime/references/hosts-drivers.md) own only pane-local badge overrides.
-
-Driver-owned consumption attribution uses completed-record evidence ([consumption rules](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
-
-The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
-and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
-The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
-`tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
-`tmt whoami`), and the architecture guard rejects extension code that names the host
-port, the tmux module or core's `binding`, `endpoint` or `host` model. Each built-in or external host implements `host::driver::HostDriver`,
-and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
-evidence makes a binding present and when input is blocked. A host with agent
-names (Herdr) shows the identity's name as the agent's; the host's name is never
-evidence and never copied back. Endpoint identity is
-opaque to everything but its host: `HostKind` is pure data, evidence from another
-host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
-`tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
-fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
-`tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
-flocks, current screens, job-control pause and resume, terminals kept for relaunch until closed, bounded startup output and live attach with a streamed initial screen; CLI restores terminal modes and attaches interactive new built-in launches after confirmation.
-[Terminal stream v1](contracts/terminal-stream-v1.md) and the
-[host reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#built-in-host) own snapshots and lifecycle.
-
-### Agent drivers
-
-`drivers::Registry` uses `DriverDescriptor` and adapters for detection, setup, launch,
-caller recognition, foreground argv/process selection, allowance reads and typed refusals.
-Descriptors expose `driverSupport` as `full` (hooks/runtime) or `basic` (detection/skills).
-Detection never starts agents; launches add no plugin arguments or persistent provider settings.
-Rules: [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
-
-### Provider channels
-
-`tmt-adapters::runtime::channel` is the provider-neutral port; drivers own exact-launch
-enrollment, transport and recovery. Delivery prefers the channel and forbids paste
-on enrolled or uncertain evidence; no receipt means no replay. Module gates:
-[provider channels](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#provider-channels).
-The [Claude](contracts/claude-channel-v1.md) and [Codex](contracts/codex-channel-v1.md)
-contracts own behavior and limits.
-
-### Driver protocol
-
-`tmt-driver-protocol` owns host/runtime wire types and `tmt-host-grammar` owns host
-syntax; [driver-protocol-v1](contracts/driver-protocol-v1.md) owns the wire contract.
-`tmt-adapters::driver_protocol` owns explicit approval, automatic approval of the
-shipped driver (`registry::approve_shipped`) and bounded calls; `host::external`
-composes approved hosts. Core decides evidence; unavailable drivers
-never prove loss. External runtime launch/setup/hooks remain unwired. Details:
-[hosts and drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#driver-protocol-crates).
-
-## Managed skills and native installation
-
-Managed agent guidance is a filesystem concern separate from application state.
-`tmt_core::skill_catalog` is the one list of bundled skill names and reference topics; the
-bundle is embedded and materialized by digest under `skill_installation` (references are
-embedded only, served by `tmt learn`, never installed), and the
-architecture test rejects duplicate multi-name lists in production Rust. Core install exposes
-only `tmt` and `tmt-inbox`.
-Skill installation never opens configuration, SQLite or tmux. Retired bundles, catalog
-publication, removal and refresh/uninstall preservation follow the [installer owner](.agents/skills/tmt-core-runtime/references/install-architecture.md#managed-skills).
-Extension-owned skills arrive as bytes through `skills.install`/`skills.remove`
-(explicit consent) and link into the same roots; core names are reserved, and an API
-name or owner alone cannot authorize catalog replacement. Name ownership, force
-backups and post-activation skill warnings follow the same installer owner.
-
-Native executable installation is a different owner under `tmt-adapters::native_install`.
-Its cosmetic pane-option cutover performs host CAS outside SQLite, between short row checks.
-`Product` owns installable products; archive data adds none. Every product uses one acquisition,
-receipt and atomic-publication path with independent links, lock and current
-release, and the active executable is the authority for a managed update: receipts
-anchor to the installation prefix, not to configuration roots. Verification precedes
-execution, publication runs the release verifier before the receipt so a rejection
-keeps the previous release, and failure or cancellation never leaves a half-published
-current release. CLI self-upgrade delegates to the verified candidate under the
-[handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
-compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
-run the consented extension phase; there is no rollback or second installer.
-`install_guidance` projects setup's verified inventory as public
-[`guidance.actions`](contracts/extension-api.md#installation-guidance-through-the-ordinary-cli);
-PATH only resolves commands.
-Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-uses) gate activation; listing compares locally.
-[Installer architecture](.agents/skills/tmt-core-runtime/references/install-architecture.md) owns retention,
-discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
+The tmt-core-runtime references own each area's module rules:
+[identities, names and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md#ownership-overview),
+[storage, requests and configuration](.agents/skills/tmt-core-runtime/references/requests-storage.md#ownership-overview),
+[hosts, drivers and channels](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#ownership-overview)
+and [managed skills and native installation](.agents/skills/tmt-core-runtime/references/install-architecture.md#ownership-overview).
+Test evidence boundaries are in the [E2E reference](.agents/skills/tmt-e2e/references/test-boundaries.md#evidence-boundaries).
 
 ## Ops extension
 
-`extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, dispatched as `tmt ops`.
-`ui`, `hotkeys`, `skill` and `playbook` are Ops commands; member/state commands
-use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
-[Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
-own module/drawing boundaries and verification.
+Ops reaches Core through public JSON, the extension API, `tmt tick` and public
+host templates, never private Core, host or provider state. There are no Core/Ops
+Cargo or source dependencies. Core owns identity handoff, verified stop/remove,
+rooms and orchestration authority; Digest owns its delivery, locks and deadlines.
+Ops owns its extension data and disposable caches, not Core storage or the user's
+configuration. New public APIs need Core review.
 
-- **Seam.** Ops uses public JSON/API, `tmt tick` and
-  [`host templates`](contracts/driver-protocol-v1.md#launch-templates) via
-  `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. `board/host_launch`
-  prepares/rechecks frozen argv for New member (new UUID before join)
-  and Switch tool (same UUID, requested running driver). Core owns
-  handoff and the verified stop/remove guard (`tmt-adapters::verified_stop`, shared by
-  the CLI and `identity.stop`/`identity.remove`). Ops uses that API for confirmed
-  close/delete, never private Core/host/provider state. Digest owns
-  locks/deadlines/delivery. No Core/Ops Cargo/source edges. tmt-lead reviews new APIs.
-  Leaves: `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state`, `tmt-job-calendar`,
-  `tmt-pty-protocol` (a built-in host's terminal-stream frames); dev-only `tmt-test-support`.
-  Each UI shares separate lazy API sessions for background and interaction workers,
-  with worker-only I/O and no uncertain-request replay; the Digest tick opens one per minute.
-  The refresh owner admits bounded retained projections through successful cursors
-  and local stamps; independent clocks and action admission stay fresh.
-- **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
-  `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
-  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. Retired
-  `cache/board` files stay untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS; checklists and legacy jobs live in
-  [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
-  Core owns jobs/runs; Ops imports legacy ones once.
-  `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
-  No Ops config/checklist data enters `config.json` or Core storage.
-  Confirmed lead changes separately offer the global squad-lead union through Core's
-  orchestration preview/consent/CAS; Core owns that list and its permission checks.
-- **Workspace.** Agents/Digest share one acquired roster ([workspace](.agents/skills/tmt-ops-dev/references/board.md#workspace-and-retained-identity)); the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
-  Paint/input do no Core reads; WP1 owns conversation/editor/drafts. UUID selection, the virtual Common pool, membership pause/Resume and squad rename belong to the [surface](.agents/skills/tmt-ops-dev/references/board-home.md) and [cron](.agents/skills/tmt-ops-dev/references/board-cron.md) references.
-  Per-name view state stays in the disposable Ops cache, apart from shared Config preferences. Lifecycles and the HOME usage receipt: [refresh worker](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#refresh-worker).
-  Savings and usage figures are supplier estimates, never provider history; [Ops acquisition](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md) owns their readers, valuation and lifecycles.
-  Member references resolve through the acquired global identity inventory and grant no delivery authority or paint/input I/O ([reference ownership](.agents/skills/tmt-ops-dev/references/board-notebooks.md)).
-- **Board rendering.** The [Ops board guide](.agents/skills/tmt-ops-dev/references/board-home.md#shared-board-components) owns shared painter responsibilities and their host adapters.
-- **Discovery.** The board consumes [Core discovery
-  v1](contracts/discovery-v1.md) through finite public `discover` and guarded
-  `add` commands on its existing ordered lane. Its private controller owns
-  explicit review, bounded scan generations and retained per-item outcomes;
-  paint/input perform no discovery I/O. Core retains native/digest/identity
-  authority, acquisition limits and binding effects. Successful public refresh
-  selects the returned UUID through the workspace projection.
-- **Checklist.** `checklist_command` uses the existing caller/room admission and
-  versioned room-UUID JSON in `ops.db`, with a mutation log committed in the same transaction. Reads create no files;
-  failed prepublication preserves bytes; uncertainty remains Unknown after
-  readback. The board consumes the same typed service.
-- **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
-  owns `sq ls`, `config`, `checklist` and `cron` JSON; native `ops.test.ts` verifies
-  them. Row JSON changes update that skill and its native regression in the same
-  PR. The Ops developer references own worker fences, cache/timing fields,
-  Core-owned Digest policy and independent CLI display projections.
+Board paint and input perform no I/O; workers own acquisition and effects.
+`tmt-tui` is an application-neutral presentation leaf: it acquires no terminal,
+clock, persistence or provider data and has no reverse product dependency.
+Applications own their data, effects and terminal lifecycle.
 
-## Testing and evidence boundaries
-
-Rust tests stay owner-local. TypeScript suites share `test/support`, which imports
-no suite. Native/E2E import neither each other nor tooling. Scenarios own assertions;
-support owns fixtures and scripted loopback models, never provider launch.
-Frozen inputs and independent SQL/schema oracles cannot derive expectations from
-the implementation under test.
-
-State, provider roots, prefixes, sockets and processes remain fixture-owned.
-Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.
-`typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
-(under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
-Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
-and peers. The E2E run lifecycle owns registered fixture cleanup at suite end
-and on catchable main-process signals. Host tmux, provider installs and global environment
-mutation are not evidence.
-
-Cleanup confirms owned child/group absence before deleting fixture state;
-unknown inspection, leaks and false positives fail. Signals target only verified
-owned processes. Runtime tests prove CLI behavior, Docker proves transport and
-lifecycle, and release tooling proves actual archives and public installation;
-one layer's success cannot substitute for another's evidence.
-
-Helper ownership, fixture publication and lifecycle details live in the
-[E2E references](.agents/skills/tmt-e2e/references/test-boundaries.md); shared
-commands remain in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests).
+The [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md) owns workspace, discovery,
+checklist and worker mechanics; [tmt-tui](.agents/skills/tmt-tui/SKILL.md) owns the
+drawing pipeline and parity checks. The [embedded Ops skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
+owns user-facing commands and JSON; row-shape changes update it and its native
+regression together.
 
 ## Release boundary
 
@@ -490,7 +169,7 @@ pass; only the CLI converges latest to its highest publication.
 
 The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
-[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](DEVELOPMENT.md#project-tracking) owns issue lifecycle.
+[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [development procedures](.agents/skills/tmt-dev/references/development.md#project-tracking) define issue lifecycle.
 
 ## Maintenance contract
 
@@ -511,89 +190,39 @@ adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
 
-## Shared extension state layout
-
-`rust/crates/tmt-extension-state` is Remote's unpublished leaf.
-It owns SQLite/atomic document updates and fail-fast guards; newer state is refused,
-and admission preserves live locks.
-Remote, Colab, Ops, adapters' config/hook consent and Digest history consume it; no TMT/crypto.
-Core and Colab's model cannot consume it. Guards check reviewed
-manifest/source edges across dependency kinds, aliases and targets.
-
-[Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication mechanics.
-Schemas, identity derivation and Remote's serve-lock proof remain extension-owned;
-the leaf discovers no roots and interprets no Core state or provider configuration.
-
 ## Remote extension
 
-`extensions/tmt-remote` owns listen/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
-`<dataRoot>/remote/` ([leaf](#shared-extension-state-layout)), door/[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
-[Colab](#colab-extension) at `/r/<prefix>/x/colab/`.
+`extensions/tmt-remote` owns the Remote door, its browser SDK and `<dataRoot>/remote/`.
+Behavior: [channel contract](contracts/remote-channel-v1.md) and
+[message v1](contracts/remote-message-v1.md); structure:
+[tmt-remote architecture](.agents/skills/tmt-remote/references/architecture.md).
 
-Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no private Remote state.
-Remote: provider port; member/channel authority, People/rows, local effect fences, invites/history, join UI, shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
-Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
-
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
-with scope/allowlist/hold, UUID/name checks, same-ID Core dispatch/recovery.
-Finals: receipt-bound Core `reply`.
-
-[Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
-[internals](.agents/skills/tmt-remote/references/architecture-internals.md);
-[door](.agents/skills/tmt-remote/references/door-and-discovery.md);
-[backends](.agents/skills/tmt-remote/references/object-backends.md);
-[release](.agents/skills/tmt-release/SKILL.md);
-[extension-serve](contracts/extension-serve-v1.md).
+- **Core.** Core distrusts Remote. Remote calls only public Core JSON through the absolute
+  `TMT_EXECUTABLE`/`tmt-invoke`. `talk --remote` reaches the serving owner, which dispatches
+  to Core under the same ID; finals are receipt-bound Core `reply`s.
+- **Extensions.** Only Remote's public CLI, browser SDK and `tmt-extension-objects`; no
+  private Remote state.
+- **Colab.** Owner-installed at `/r/<prefix>/x/colab/`; see [Colab](#colab-extension).
+- **State leaf.** `rust/crates/tmt-extension-state` is a library leaf consumed by Remote,
+  Colab, Ops, adapters' config/hook consent and Digest history. It has no TMT or crypto
+  dependency; Core and Colab's model cannot consume it.
 
 ## Colab extension
 
-Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) embeds its app and skill; the opt-in archive installer uses `skills/`.
-`tmt colab skill` reads embedded bytes without core or storage.
-[colab-v1](extensions/tmt-colab/contracts/colab-v1.md) owns behavior and hosted packaging;
-the [development skill](.agents/skills/tmt-colab/SKILL.md) owns modules and checks.
-Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealing.
+Colab is an app on Remote, mounted through its owner-only socket. Remote owns the
+door, Host/Origin checks, pairing and grants; Colab owns content admission and
+sealing. Colab reaches Core and Remote only through their public interfaces, with
+no private Core or Remote crate or state dependency. The native architecture guard
+enforces these dependency and decoder boundaries.
 
-- **Layer.** Colab is an app on Remote with no door of its own. `tmt-colab serve`
-  listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
-  `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
-  verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
-  from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
-  Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
-  It stores ciphertext, never decodes Yjs ([sync rules](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#stream-sync)).
-- **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
-  crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
-  depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
-  `tmt-remote`; core is reached through `$TMT_EXECUTABLE api` and bounded public
-  `identity show`/`ls --json` reads (display, routing, advisory edit locks).
-  The architecture guard enforces this set, that only `tmt-colab` consumes the model and `html5ever`,
-  and that only `decoder/child.rs` imports `yrs`. User-template copies use parser-owned ranges and refuse changed templates before creation.
-- **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
-  and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
-  paired owner device, with no native bridge, ledger or migration, and the read-only Agents view
-  stays within the [observation boundary](.agents/skills/tmt-colab/references/ask-agent.md).
-  After a Remote restart, Colab's public recovery entry reopens the paired device's session once,
-  through the same tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
-  the executable with the installer, and the app is served from `serve --app-dir`, else
-  bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-  Colab owns the mounted browser app, including trusted recovery and archived reads ([browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253)).
-  Inline question blocks reserve measured in-flow space; thread-reference activation is admitted
-  against the parent's authenticated thread projection ([contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)).
-  `tmt colab serve` attaches to a running door, else starts a supervised one it alone stops.
-  Colab reaches Remote only through its public CLI: no state files, no crate dependency. Serves follow verified current releases ([cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md)).
-- **Message editing.** Rich input and MessageComposer follow the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary): the editor grants no dispatch authority; Send records one comment and one Ask per distinct visible mention.
-- **Design systems.** `tmt:design-system` holds config, components and releases. Design draws the shipped built-in GUI; `design/systems/compiler.mjs` checks bundles. Pages follow drafts or lock releases. Runtime 4 allows declared browser-ui parts; live page lists stay in parent chrome. Work-bundle data needs proven owner-only authorship; unproven baselines fail closed. Mockups use sized scopes; `tmt colab design` reads only.
-- **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
-  `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
-  `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
-  network. Everything the frame reports is a cosmetic claim; only parent controls admit
-  discussion or sends ([highlights](.agents/skills/tmt-colab/references/discussion.md), [slots and theme](.agents/skills/tmt-colab/references/page-chrome.md)).
-  This contains author code; page self-navigation can still leak a request.
-- **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
-  The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
-  Remote owns backend/quota/origin; Colab owns crypto/admission and [removal of unreferenced objects](extensions/tmt-colab/contracts/colab-v1.md#unreferenced-attachments-5284). Remote declares Colab Local; snapshot/retained-reference persistence remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore admission.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns admission and codecs. Hosted folds verify log anchors before checkpoint pairs. ([native opening](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission))
-- **Plaintext.** Source, shell, discussion reads and export are root-local: only the isolated decoder
-  child decodes Yjs, no browser route serves plaintext (bar owner-only local titles in `/api/pages`; [detail](.agents/skills/tmt-colab/references/architecture-state.md#native-opening-and-admission)), and the Worker is resource
-  containment, not a security sandbox. Native code stores content and `kind:"own"` actions signed by the root-local writer under the [publication](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) fences; [editor metadata requests](extensions/tmt-colab/contracts/colab-v1.md#editor-metadata-requests-5195-a-5256) pass automatic owner admission and preserve root-local content authority. Per-action [routing](.agents/skills/tmt-colab/references/architecture-sync-decoder.md#page-source-and-export) is in the sync reference.
+Trusted parent chrome admits discussion and sends. Author HTML runs in an opaque
+sandbox frame; its messages are cosmetic claims, never authority. Parent scripts
+and styles are self-hosted. The frame's policy denies network access, but author
+self-navigation can still leak a request. Only the isolated native decoder child
+parses Yjs. No browser route serves plaintext except owner-only local page titles;
+the browser Worker provides resource containment, not a security sandbox.
+
+The [Colab contract](extensions/tmt-colab/contracts/colab-v1.md) owns behavior and
+hosted packaging. The [Colab skill](.agents/skills/tmt-colab/SKILL.md) routes module,
+content, attachment, design-system and verification details. Shared visual sources
+remain owned by [tmt-design](.agents/skills/tmt-design/SKILL.md).

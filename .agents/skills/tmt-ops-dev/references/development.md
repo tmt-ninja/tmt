@@ -2,7 +2,7 @@
 
 The shipped lead skill is `extensions/tmt-ops/skills/tmt-ops/SKILL.md`; this skill
 is for developing the extension. Shared gates are in
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md). Board rendering uses the internal TUI
+[development procedures](../../tmt-dev/references/development.md). Board rendering uses the internal TUI
 markup: see [tmt-tui](../../tmt-tui/SKILL.md).
 
 ## Checks

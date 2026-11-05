@@ -2,8 +2,40 @@
 
 Per-module rules for `tmt-adapters::storage`, `tmt-core::request`, the delivery notices and
 configuration. The owner map is in
-[ARCHITECTURE.md](../../../../ARCHITECTURE.md#sqlite-and-durable-exchanges); public shapes are in
+[ARCHITECTURE.md](../../../../ARCHITECTURE.md#domain-and-state-ownership); public shapes are in
 [request-response-v1](../../../../contracts/request-response-v1.md).
+
+## Ownership overview
+
+`tmt-adapters::storage` owns one private synchronous `rusqlite` connection, the
+schema migrations, WAL/foreign-key/FTS5 setup, busy and transaction boundaries and
+cleanup, and exposes narrow ports to core services. Migrations keep recorded names
+and retention, refuse customized table definitions instead of rebuilding them, and
+board-relevant core tables advance the durable change cursor through triggers that a
+test requires new tables and columns to extend. Typed not-writable storage failures
+are classified once and projected through `tmt-command-output::Failure::storage_access`.
+
+`tmt-core::request::RequestService` owns preparation, delivery-state transitions,
+exact final submission, waiter release, attention revisions and retention
+housekeeping. [Delivery/history](../../../../contracts/extension-api.md#digest-policy-and-checklist),
+[message state](../../../../contracts/request-response-v1.md#message-state) and
+[content-free aggregates](../../../../contracts/request-response-v1.md#content-free-exchange-flow)
+have one Core owner each; the sections below
+map their modules and Stop queue; ordinary writers only notify its finite worker after commit. A [passthrough](../../../../contracts/request-response-v1.md#passthrough) is
+a person's typed text, not a request; it settles that agent's oldest open request
+and earns its turn's final. CLI and API share admission. Capture admits the full runtime registry before Digest;
+[batches](../../../../contracts/extension-api.md#ordered-captured-conversation) order inputs and finals. Distinct finals survive missed prompts; verified capture failures are event-fenced and grant no runtime or input-correlation authority.
+Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
+no transaction spans transport, and uncertainty never authorizes replay. Finals are
+immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
+acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
+the durable identity inbox, which settles `queued`. Unbound identity delivery uses
+the foreground observer and recipient pull. The [request contract](../../../../contracts/request-response-v1.md)
+owns behavior and limits.
+
+Digest owns [history, pricing and valuation](../../../../extensions/tmt-digest/contracts/digest-v1.md) and one [price file](../../../../extensions/tmt-digest/contracts/digest-v1.md#pricing-file); tick collects; status reads.
+A `user`-marked identity is never held, nor anyone while the [global switch](../../../../extensions/tmt-digest/contracts/digest-v1.md#global-switch) is off; an `auto` member is held like an interval one until [auto delivery](../../../../extensions/tmt-digest/contracts/digest-tick-v1.md#auto-delivery).
+The [usage report](../../../../extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## SQLite adapter
 
@@ -308,6 +340,11 @@ owns event cardinality, direction, window rounding, `--bucket` summing
   never re-sends.
 
 ## Configuration and theme
+
+`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
+`config::document` preserves unknown JSON fields and validates known settings
+through `tmt-core::settings`; `init` creates the local file exclusively and never
+opens SQLite or tmux. Only `tmt-cli-style` names colors and interprets the presentation-only `theme`.
 
 Test builds activate adapters' default-off `test-isolation` feature through
 consumer dev-dependencies. Ambient discovery requires `TMT_TEST_ROOT` and private

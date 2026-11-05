@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 
 // The shared guides hold only cross-cutting material. Per-area procedures belong in
-// .agents/skills/<area>/ (DEVELOPMENT.md's area table) and per-module architecture in
+// .agents/skills/<area>/ (AGENTS.md's path table) and per-module architecture in
 // .agents/skills/tmt-core-runtime and the other area skills (ARCHITECTURE.md's owner
 // maps). Raise a budget only with an issue that explains what moved into the guide.
 const { lines: BUDGETS, bytes: BYTE_BUDGETS } = JSON.parse(
@@ -22,8 +22,12 @@ export function withinByteBudget(text: string, budget: number): boolean {
 }
 
 describe('shared guide budgets', () => {
-  it('declares positive line and byte limits for exactly the two shared guides', () => {
-    const guides = ['ARCHITECTURE.md', 'DEVELOPMENT.md'];
+  it('declares positive line and byte limits for all shared guide owners', () => {
+    const guides = [
+      '.agents/skills/tmt-dev/references/development.md',
+      'AGENTS.md',
+      'ARCHITECTURE.md',
+    ];
     expect(Object.keys(BUDGETS).sort()).toEqual(guides);
     expect(Object.keys(BYTE_BUDGETS).sort()).toEqual(guides);
     expect(
@@ -44,7 +48,7 @@ describe('shared guide budgets', () => {
       const lines = lineCount(text);
       expect(
         lines,
-        `${guide}: ${lines} lines vs cap ${budget} lines; move area detail to its owning skill reference (DEVELOPMENT.md area table; ARCHITECTURE.md#maintenance-contract)`
+        `${guide}: ${lines} lines vs cap ${budget} lines; move area detail to its owning skill reference (AGENTS.md path table; ARCHITECTURE.md#maintenance-contract)`
       ).toBeLessThanOrEqual(budget);
     });
   }
@@ -55,7 +59,7 @@ describe('shared guide budgets', () => {
       const bytes = Buffer.byteLength(text, 'utf8');
       expect(
         bytes,
-        `${guide}: ${bytes} B vs cap ${budget} B; move area detail to its owning skill reference (DEVELOPMENT.md area table; ARCHITECTURE.md#maintenance-contract)`
+        `${guide}: ${bytes} B vs cap ${budget} B; move area detail to its owning skill reference (AGENTS.md path table; ARCHITECTURE.md#maintenance-contract)`
       ).toBeLessThanOrEqual(budget);
     });
   }

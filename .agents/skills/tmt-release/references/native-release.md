@@ -6,7 +6,7 @@ injection, exact-tag pipeline selection, publication gates and readback are in
 [installation-fixtures.md](installation-fixtures.md). Policy and authorization live in
 [SKILL.md](../SKILL.md): verification is never publication authorization, and ordinary
 changes use the focused checks in
-[DEVELOPMENT.md](../../../../DEVELOPMENT.md). Run from the repository root unless
+[development procedures](../../tmt-dev/references/development.md). Run from the repository root unless
 stated. Raw runtime proof is in the
 [smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md); raw executables do not
 prove archives or public installation.

@@ -28,7 +28,7 @@ case $free_kb in
       printf '%s\n' \
         "WARNING: less than $threshold GB is free. Do not start a Docker suite: stop and" \
         'tell the maintainer. Never delete what you do not own or restart Docker Desktop;' \
-        'see DEVELOPMENT.md "Keep local development from filling the disk".'
+        'see .agents/skills/tmt-dev/references/development.md "Keep local development from filling the disk".'
     fi
     ;;
 esac
