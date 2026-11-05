@@ -42,11 +42,13 @@ const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '').trim();
 const sha256Hex = async (text) => createHash('sha256').update(text).digest('hex');
 const pascal = (tag) => tag.replace(/(^|-)([a-z])/g, (_, __, letter) => letter.toUpperCase());
 
-/** The token blocks of the generated static.css: everything before the first class rule. */
+/** The token blocks of the generated static.css: everything before the first class rule,
+ * including the compact (≤760px) token overrides, so a narrow frame draws as the docs do. */
 function tokensCss() {
   const css = readFileSync(join(repo, 'design/browser-ui/generated/static.css'), 'utf8');
-  const end = css.search(/^@media \(max-width: 760px\)/m);
-  if (end < 0) throw new Error('static.css: the token blocks end marker moved');
+  const compact = /^@media \(max-width: 760px\) \{\s*:root \{[^{}]*\}\s*\}\n/m.exec(css);
+  if (!compact) throw new Error('static.css: the token blocks end marker moved');
+  const end = compact.index + compact[0].length;
   // A pinned tmt GUI page is itself the palette B island. Its copied template keeps the same
   // palette without changing Colab's surrounding application chrome.
   return stripComments(css.slice(0, end)).replaceAll(
