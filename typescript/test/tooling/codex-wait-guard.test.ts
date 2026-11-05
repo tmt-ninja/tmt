@@ -237,7 +237,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       permissionDecision: 'deny',
     });
     expect(decision.permissionDecisionReason).toContain('Polls CI from the main session.');
-    expect(decision.permissionDecisionReason).toContain('scripts/ci-wake.sh');
+    // Codex seats start the waiter only this way (#6110): a detached start there exits 3.
+    expect(decision.permissionDecisionReason).toContain(
+      'scripts/ci-wake.sh <pr> --identity <self> --foreground inside a provider-native retained background task'
+    );
     expect(decision.permissionDecisionReason).toContain('host-health.sh --gate');
     expect(c.lines()[0]).toMatchObject({ verdict: 'deny', enforced: true });
 
@@ -355,6 +358,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'sh scripts/ci-wake.sh 6028 --identity infra-1 &',
       'nohup sh scripts/ci-wake.sh 6028 --identity infra-1 > /tmp/ci-wake.log 2>&1 &',
       'sh scripts/ci-wake.sh 6028 --identity infra-1 < /dev/null >> "wake log.txt" 2>&1',
+      // The Codex form (#6110), which the retained background task runs to completion.
+      'sh scripts/ci-wake.sh 6028 --identity infra-1 --foreground',
+      'sh scripts/ci-wake.sh 6028 --identity infra-1 --until merged --foreground',
+      `sh ${waker} 6028 --identity infra-1 --foreground`,
     ];
     for (const command of starts) {
       const result = await c.guard(bash(command));

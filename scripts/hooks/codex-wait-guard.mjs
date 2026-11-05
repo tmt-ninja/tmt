@@ -1209,7 +1209,7 @@ async function main() {
   const judgeMs = Date.now() - started;
   if (result.verdict === 'deny' && ENFORCE) {
     deny(
-      `${result.reason} Start scripts/ci-wake.sh (or a background task that wakes you) and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
+      `${result.reason} Start scripts/ci-wake.sh <pr> --identity <self> --foreground inside a provider-native retained background task that wakes you, and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
     );
   }
   finish({
