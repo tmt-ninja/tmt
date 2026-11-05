@@ -184,12 +184,12 @@ const sent = (index = 0) =>
   JSON.parse((received[index].body.messages as { content: string }[])[0].content);
 
 describe('scripts/hooks/codex-wait-guard.mjs', () => {
-  it('judges a call with a forced verdict and, in shadow mode, only logs the deny', async () => {
+  it('judges a call with a forced verdict and denies it', async () => {
     const c = newCase();
     answer = verdict('deny', 'Polls CI from the main session.');
     const result = await c.guard(bash('until gh pr checks 42; do sleep 60; done'));
     expect(result.status).toBe(0);
-    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
     expect(received).toHaveLength(1);
     expect(received[0].headers['x-api-key']).toBe(KEY);
     expect(received[0].body).toMatchObject({
@@ -209,7 +209,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       tool: 'Bash',
       seat: 'seat-1',
       verdict: 'deny',
-      enforced: false,
+      enforced: true,
       reason: 'Polls CI from the main session.',
       inputTokens: 120,
       outputTokens: 18,
@@ -227,15 +227,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     );
   });
 
-  it('prints the deny once ENFORCE is flipped', async () => {
+  it('names the fix in the deny, and only logs it once rolled back to shadow mode', async () => {
     const c = newCase();
-    const source = readFileSync(script, 'utf8').replace(
-      'const ENFORCE = false;',
-      'const ENFORCE = true;'
-    );
-    const { repo, hook } = scratchRepository(c.dir, source);
     answer = verdict('deny', 'Polls CI from the main session.');
-    const result = await c.guard({ ...bash('gh pr checks 42 --watch'), cwd: repo }, {}, hook);
+    const result = await c.guard(bash('gh pr checks 42 --watch'));
     const decision = JSON.parse(result.stdout).hookSpecificOutput;
     expect(decision).toMatchObject({
       hookEventName: 'PreToolUse',
@@ -243,7 +238,18 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     });
     expect(decision.permissionDecisionReason).toContain('Polls CI from the main session.');
     expect(decision.permissionDecisionReason).toContain('scripts/ci-wake.sh');
+    expect(decision.permissionDecisionReason).toContain('host-health.sh --gate');
     expect(c.lines()[0]).toMatchObject({ verdict: 'deny', enforced: true });
+
+    const source = readFileSync(script, 'utf8').replace(
+      'const ENFORCE = true;',
+      'const ENFORCE = false;'
+    );
+    expect(source).toContain('const ENFORCE = false;');
+    const { repo, hook } = scratchRepository(c.dir, source);
+    const shadow = await c.guard({ ...bash('gh pr checks 42 --watch'), cwd: repo }, {}, hook);
+    expect(shadow.stdout).toBe('');
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
   });
 
   it('allows what the judge allows, printing nothing', async () => {
@@ -384,6 +390,21 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
     }
     expect(received).toHaveLength(judged.length);
+
+    // A double-quoted redirect target that expands runs a command: never only a ci-wake start.
+    const expanding = [
+      'sh scripts/ci-wake.sh 6089 > "$(sleep 600)"',
+      'sh scripts/ci-wake.sh 6089 > "$(sleep 600)" &',
+      'sh scripts/ci-wake.sh 6089 > "`sleep 600`"',
+      'sh scripts/ci-wake.sh 6089 > "`sleep 600`" &',
+      'sh scripts/ci-wake.sh 6089 > "${HOME}/x.log"',
+      'sh scripts/ci-wake.sh 6089 > "${HOME}/x.log" &',
+    ];
+    for (const command of expanding) {
+      await c.guard(bash(command));
+      expect(c.lines().at(-1).reason, command).not.toBe('ci-wake');
+    }
+    expect(received).toHaveLength(judged.length + expanding.length);
   });
 
   it("skips the model for another worktree's unmodified ci-wake.sh and a heredoc nothing runs (#6003)", async () => {
@@ -622,7 +643,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       )
     );
     expect(received).toHaveLength(1);
-    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: true });
     expect(received[0].body.system).toContain('Deny only when this call itself waits or polls');
 
     // The same loop written to a temporary file the seat owns, then run, still reaches the judge,
@@ -1004,7 +1025,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     answer = verdict('deny', 'Runs a CI polling loop.');
     await c.guard({ ...bash('sh scripts/wait-ci.sh'), cwd: repo }, {}, hook);
     expect(sent().scripts).toEqual([{ path: 'scripts/wait-ci.sh', content: `${loop}\n` }]);
-    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: true });
   });
 
   it('summarizes the log over a window with the denominator, timings and cost', async () => {
