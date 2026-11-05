@@ -190,7 +190,7 @@
 .remote-role.tmt-ui-chip > .tmt-ui-chip-label { padding: 0; }
 .remote-role[data-role-tone='selected'] {
   background: color-mix(in srgb, var(--tmt-ui-color-accent-strong) 13%, transparent);
-  color: var(--tmt-ui-color-accent-strong);
+  color: var(--tmt-ui-color-text-action);
 }
 .remote-stage.tmt-ui-chip {
   gap: 6px;
@@ -224,7 +224,7 @@
 .create-guide { min-width: 0; }
 .create-steps { display: flex; flex-wrap: wrap; list-style: none; padding: 0; gap: var(--tmt-ui-space-s); margin: var(--tmt-ui-space-l) 0; }
 .create-step { cursor: pointer; font: inherit; align-items: center; justify-content: center; padding-inline: var(--tmt-ui-space-s); }
-.create-step[data-step-state='current'] { color: var(--tmt-ui-color-on-accent); background: var(--tmt-ui-color-accent); }
+.create-step[data-step-state='current'] { color: var(--tmt-ui-color-on-accent); background: var(--tmt-ui-color-accent-fill); }
 .create-step[data-step-state='done'] { color: var(--tmt-ui-color-text); }
 .create-step[data-step-state='upcoming'] { color: var(--tmt-ui-color-secondary); }
 .create-step:disabled { color: var(--tmt-ui-color-disabled-text); cursor: default; }

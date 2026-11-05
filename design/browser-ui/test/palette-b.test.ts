@@ -83,6 +83,14 @@ it('keeps body text, status words and visible control marks legible in both them
           `${theme} ${role} on ${background}`,
         ).toBeGreaterThanOrEqual(3);
     expect(
+      contrast(palette.color.accent[theme], palette.surface.selection[theme]),
+      `${theme} current shell row marker`,
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      contrast(palette.color['accent-strong'][theme], palette.surface.selection[theme]),
+      `${theme} agent avatar initials`,
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
       contrast(palette.color['on-accent'][theme], palette.color['accent-fill'][theme]),
       `${theme} primary fill`,
     ).toBeGreaterThanOrEqual(4.5);

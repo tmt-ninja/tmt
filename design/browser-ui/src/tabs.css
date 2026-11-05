@@ -158,7 +158,7 @@
   border-radius: var(--tmt-ui-radius);
 }
 .tmt-ui-tabs[data-variant='flat'] .tmt-ui-tab[aria-selected='true'] {
-  color: var(--tmt-ui-color-accent-strong);
+  color: var(--tmt-ui-color-text-action);
   background: var(--tmt-ui-surface-selection);
   font-weight: inherit;
 }

@@ -14,6 +14,7 @@ import {
   type BrowserMenuItem,
 } from '../src/react.js';
 import { shellIconNodes, type ShellIcon } from '../src/shell-icons.js';
+import { Checkbox } from '../src/ui/index.js';
 import { Cell, Cells, Pair, Section, noop } from './kit.js';
 
 const needsYou: BrowserMenuItem[] = [
@@ -663,6 +664,7 @@ export function OverviewSection() {
               <table className="tmt-ui-table" data-roomy="">
                 <thead>
                   <tr>
+                    <th scope="col" aria-label="Select agent" />
                     <th scope="col">Agent</th>
                     <th scope="col">Status</th>
                     <th scope="col">Current work</th>
@@ -673,7 +675,7 @@ export function OverviewSection() {
                 </thead>
                 <tbody>
                   <tr className="tmt-ui-table-group">
-                    <th colSpan={4} scope="colgroup">
+                    <th colSpan={5} scope="colgroup">
                       <button
                         type="button"
                         className="tmt-ui-table-group-toggle"
@@ -687,6 +689,9 @@ export function OverviewSection() {
                   </tr>
                   {agentRows.map(([name, shape, tone, word, work, model], index) => (
                     <tr key={name} data-selected={index === 1 ? '' : undefined}>
+                      <td>
+                        <Checkbox aria-label={`Select ${name}`} checked={index === 1} />
+                      </td>
                       <td>
                         <button type="button" className="tmt-ui-table-select">
                           <span
