@@ -262,11 +262,12 @@ not application-state selectors; verify pin policy, old executable preservation,
 partial command-link finalization and unchanged data. The internal installer is
 not permission to replace a user or package-manager installation.
 
-`verify-native-bootstrap.mjs` keeps its 30 s upgrade-command bound. A spawn timeout names
-`release index unreachable within <timeout>` and the bootstrapped executable's
-`upgrade --json` command, retaining the original error as its cause. This is refusal
-context, not evidence of a specific outage or a successful rollback; other command
-failures retain their original diagnostics, and the proof does not retry.
+`verify-native-bootstrap.mjs` keeps its 30 s pinned-upgrade command bound. A spawn
+timeout reports `pinned upgrade did not finish within <timeout> ms; it must not need the network`,
+followed by the bootstrapped executable's `upgrade --json` command in parentheses,
+retaining the original error as its cause. The pinned path must not need network access;
+a timeout does not establish whether it attempted network access or hung for another reason.
+Other command failures retain their original diagnostics, and the proof does not retry.
 
 For the one-release Core name cutover (#2270), the owner runs two back-to-back
 unpinned `tmt upgrade` commands: the first activates rename A (the first release

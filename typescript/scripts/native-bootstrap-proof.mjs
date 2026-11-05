@@ -47,7 +47,7 @@ exec cp "$source" "$destination"
   return tools;
 }
 
-/** Context for the bootstrap proof's bounded release-index read; never retries. */
+/** Context for the bootstrap proof's bounded pinned upgrade; never retries. */
 export function runBootstrapUpgrade(executable, options, runCommand = runPackedCommand) {
   const args = ['upgrade', '--json'];
   try {
@@ -55,7 +55,7 @@ export function runBootstrapUpgrade(executable, options, runCommand = runPackedC
   } catch (error) {
     if (error.code !== 'ETIMEDOUT') throw error;
     throw new Error(
-      `release index unreachable within ${options.timeoutMs} ms: ${executable} ${args.join(' ')}`,
+      `pinned upgrade did not finish within ${options.timeoutMs} ms; it must not need the network (${executable} ${args.join(' ')})`,
       { cause: error }
     );
   }

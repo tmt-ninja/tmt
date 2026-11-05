@@ -650,7 +650,7 @@ describe('bootstrap upgrade refusal context', () => {
       { file: executable, args: ['upgrade', '--json'], options: commandOptions },
     ]);
   });
-  it('names only a timed-out release-index read and retains its original cause', async () => {
+  it('names a timed-out pinned upgrade without guessing the cause', async () => {
     const { runBootstrapUpgrade } = await load();
     const original = Object.assign(new Error('spawnSync tmt ETIMEDOUT'), { code: 'ETIMEDOUT' });
     let calls = 0;
@@ -662,14 +662,14 @@ describe('bootstrap upgrade refusal context', () => {
       throw Error('Expected timeout refusal');
     } catch (error) {
       expect((error as Error).message).toBe(
-        `release index unreachable within 30000 ms: ${executable} upgrade --json`
+        `pinned upgrade did not finish within 30000 ms; it must not need the network (${executable} upgrade --json)`
       );
       expect((error as Error).cause).toBe(original);
     }
     expect(calls).toBe(1);
   });
   it.each(['EACCES', 'ENOENT', 'other'])(
-    'preserves %s failures without relabeling them as index timeouts',
+    'preserves %s failures without relabeling them as pinned upgrade timeouts',
     async (code) => {
       const { runBootstrapUpgrade } = await load();
       const original = Object.assign(new Error('original failure'), { code });
@@ -692,7 +692,9 @@ describe('bootstrap upgrade refusal context', () => {
       writeExecutable(fake, `#!${process.execPath}\nsetTimeout(()=>{},10000);\n`, 0o700);
       expect(() =>
         runBootstrapUpgrade(fake, { cwd: root, env: { HOME: root }, timeoutMs: 30 })
-      ).toThrow(`release index unreachable within 30 ms: ${fake} upgrade --json`);
+      ).toThrow(
+        `pinned upgrade did not finish within 30 ms; it must not need the network (${fake} upgrade --json)`
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
