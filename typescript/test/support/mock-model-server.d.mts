@@ -3,6 +3,8 @@ export interface ScriptedTextTurn {
   protocol: 'messages' | 'responses';
   model: string;
   text: string;
+  /** Optional exact last-user text, ignoring only leading system-reminder blocks. */
+  inputText?: string;
   inputTokens: number;
   outputTokens: number;
   /** Messages cache reads are separate from input; Responses caches are a subset. */
