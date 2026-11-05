@@ -1795,7 +1795,7 @@ the next turn event, with no time bound.
 - It never changes `resume.model` (the starting-hook model that a resume launch replays) or
   `resume.consumption.modelId` (the model of the last accepted completed request or turn).
 
-See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
+See [the identity and bindings reference](../.agents/skills/tmt-core-runtime/references/identity-bindings.md#consumption-and-context-usage) for exact fields, provider
 normalization and bounded-source limitations. Extensions read these public
 projections, never provider transcripts or private driver state.
 

@@ -309,6 +309,11 @@ owns event cardinality, direction, window rounding, `--bucket` summing
 
 ## Configuration and theme
 
+`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
+`config::document` preserves unknown JSON fields and validates known settings
+through `tmt-core::settings`; `init` creates the local file exclusively and never
+opens SQLite or tmux. Only `tmt-cli-style` names colors and interprets the presentation-only `theme`.
+
 Test builds activate adapters' default-off `test-isolation` feature through
 consumer dev-dependencies. Ambient discovery requires `TMT_TEST_ROOT` and private
 HOME/XDG/provider/temp paths plus cwd beneath that admitted directory, including

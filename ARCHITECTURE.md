@@ -128,56 +128,6 @@ owns their module rules and the Core command surface.
 
 ## Domain and state ownership
 
-### Identity, names and bindings
-
-- `tmt-core::names` owns canonical names; hosts own pane-target syntax.
-  `identity` owns canonical UUID spelling and lifetime/create/promote; `identity_metadata`/`identity_status`
-  own untrusted descriptions, never authority ([atomic metadata](contracts/extension-api.md#conditional-identity-metadata)).
-  `binding` owns [identity and pane coordination](.agents/skills/tmt-core-runtime/references/identity-bindings.md).
-  [Discovery](contracts/discovery-v1.md) owns candidate bounds and native/UUID fences for tmux and admitted host drivers; guarded `add` uses `binding`, and `tmt ls --detected` embeds the same observation.
-- Unknown or conflicting endpoint evidence is never proof of death. Saved
-  identities detach and stay offline; temporary identities retire only on
-  conclusive evidence or explicit unbind, and exchanges are kept. Presence is
-  observation, not routing permission: a marker or socket cannot authorize a
-  different identity, and the pane marker proves ownership by IDs, never by name.
-- `binding::session` separates per-driver identity resume records from the one binding/runtime,
-  with transactional CAS. [Switching](contracts/driver-protocol-v1.md#built-in-driver-switch)
-  hands off once and uses the existing stop/move and caller-owned launch paths.
-  Drivers verify processes, map events and own state; core never parses it. CLI learns direct sessions after output via this admission/CAS,
-  with bounded silent refusal, storage-only prechecks and private TTL hints.
-  Only proven process loss ends an incarnation, including behind a launcher.
-- Presence reads acquire host evidence outside the writer lock; changed records
-  never authorize retirement or detachment.
-- Lifecycle hooks complete existing bindings, never create or move identities. The one binding a
-  hook makes is SessionStart in an unbound pane for the one saved identity that remembers that
-  exact session ([rule](.agents/skills/tmt-core-runtime/references/identity-bindings.md)).
-  Binding-owned starts and launch learning are diagnostic; [projections](contracts/identity-status-v1.md#session-binding-observation) read stored facts.
-  Bounded hooks exit zero; launch hooks keep externalized-name compatibility. Only consented
-  setup publication (including interactively approved upgrade scopes) and recorded refresh change provider settings.
-- `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
-  one value for comparing local processes.
-- Concrete caller/target, row and clear, presence, readiness and storage rules:
-  [identity and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md)
-  and [workspace recovery](.agents/skills/tmt-core-runtime/references/workspace.md).
-
-### Saved identity notes
-
-`NotesIdentityId` (saved identity's canonical UUIDv4) bounds notebook storage;
-display names never become paths. `ConfigPaths` owns layout; only
-`tmt-adapters::notes` creates `<global_dir>/notes/<identity-uuid>/notes.md`,
-owner-only and no-follow. Bodies, concurrency and retention are user-filesystem
-concerns: no SQLite copy, lock, size policy or secure deletion. Retirement
-preserves notebooks.
-[Compaction reminders](.agents/skills/tmt-core-runtime/references/identity-bindings.md#hooks-setup-and-uninstall) follow the provider-hook owner.
-
-### Settings and configuration
-
-`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
-`config::document` preserves unknown JSON fields and validates known settings
-through `tmt-core::settings`; `init` creates the local file exclusively and never
-opens SQLite or tmux. Only `tmt-cli-style` names colors and interprets the presentation-only `theme`. Details are in the
-[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
-
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection, the
