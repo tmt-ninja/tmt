@@ -239,7 +239,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(decision.permissionDecisionReason).toContain('Polls CI from the main session.');
     // Codex seats start the waiter only this way (#6110): a detached start there exits 3.
     expect(decision.permissionDecisionReason).toContain(
-      'scripts/ci-wake.sh <pr> --identity <self> --foreground inside a provider-native retained background task'
+      'sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground, the tracked waker of any worktree of this repository (never a copy), inside a provider-native retained background task'
     );
     expect(decision.permissionDecisionReason).toContain('host-health.sh --gate');
     expect(c.lines()[0]).toMatchObject({ verdict: 'deny', enforced: true });
@@ -470,11 +470,17 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     gitIn(elsewhere, 'add', 'scripts/ci-wake.sh');
     gitIn(elsewhere, 'commit', '-q', '-m', 'waker');
     writeFileSync(path.join(shared, 'scripts', 'ci-wake.sh'), `${waker}\nsleep 600\n`);
+    // A copy outside every repository, run the Codex way in the foreground (#6003, 11-05
+    // shadow hour), is judged like any other script that sleeps.
+    mkdirSync(path.join(c.dir, 'tmp'), { recursive: true });
+    const copy = path.join(c.dir, 'tmp', 'ci-wake-main.sh');
+    writeFileSync(copy, waker);
     answer = verdict('allow');
     const judged = [
       wake,
       `sh ${orphan}/scripts/ci-wake.sh 6089 --identity infra-1`,
       `sh ${elsewhere}/scripts/ci-wake.sh 6089 --identity infra-1`,
+      `sh ${copy} 6115 --identity remote-3 --until merged --cap 900 --foreground`,
       "python3 - <<'PY'\nimport time\ntime.sleep(60)\nPY",
       // A string handed to code that runs it stays code, triple-quoted or not.
       'python3 - <<\'PY\'\nimport subprocess\nsubprocess.run("sleep 60", shell=True)\nPY',

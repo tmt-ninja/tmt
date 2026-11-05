@@ -1218,7 +1218,7 @@ async function main() {
   const judgeMs = Date.now() - started;
   if (result.verdict === 'deny' && ENFORCE) {
     deny(
-      `${result.reason} Start scripts/ci-wake.sh <pr> --identity <self> --foreground inside a provider-native retained background task that wakes you, and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
+      `${result.reason} Start sh <repo-worktree>/scripts/ci-wake.sh <pr> --identity <self> --foreground, the tracked waker of any worktree of this repository (never a copy), inside a provider-native retained background task that wakes you, and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
     );
   }
   finish({
