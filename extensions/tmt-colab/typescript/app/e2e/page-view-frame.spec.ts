@@ -933,3 +933,72 @@ test('the frame hands over a data: image download link, and the parent admits on
     .poll(() => page.evaluate(() => (window as unknown as { asked: unknown[] }).asked))
     .toEqual([{ filename: 'chart.png', mediaType: 'image/png', length: 15 }]);
 });
+
+// A window-high size inside a page frame reads the frame's own viewport, which is the page, so it
+// grew a window-scrolled frame. A stage bounds a sheet menu by the stage; at page level the
+// visible band bounds the sheet menu and the shell (#5981).
+const sheetMenu =
+  '<tmt-ui-block-menu label="Insert block" items="Paragraph, Heading, Table, To-do, Question, Code, Quote, Divider, Image, Mockup, Callout, Toggle, List, Numbers, Board, Calendar, Embed, File, Link, Columns" placement="sheet"></tmt-ui-block-menu>';
+const windowHigh = [
+  {
+    where: 'a sheet block menu in a stage',
+    html: `<tmt-ui-mockup-block preset="390" height="420">${sheetMenu}</tmt-ui-mockup-block>`,
+    part: '.tmt-block-menu[data-placement="sheet"]',
+    // The menu is longer than this bound, so its height is the bound.
+    fits: (height: number) => height <= 0.6 * 420 + 1,
+  },
+  {
+    where: 'a page-level sheet block menu',
+    html: sheetMenu,
+    part: '.tmt-block-menu[data-placement="sheet"]',
+    fits: (height: number) => height <= 0.6 * 844 + 1,
+  },
+  {
+    where: 'a page-level shell',
+    html: '<tmt-ui-shell items="Colab,Design">Content</tmt-ui-shell>',
+    part: '.tmt-ui-shell',
+    fits: (height: number) => height <= 844,
+  },
+];
+for (const { where, html, part, fits } of windowHigh) {
+  test(`${where} keeps a long page in window scroll`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await servePageRuntime(page);
+    await page.goto('/');
+    await page.evaluate(
+      async ({ release, html }) => {
+        const path = '/src/renderer.ts';
+        const { mountRenderer } = await import(path);
+        const host = document.createElement('div');
+        document.body.prepend(host);
+        await mountRenderer(
+          host,
+          `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">${html}<div style="height:3000px">Long page</div>`,
+          {
+            signal: new AbortController().signal,
+            onState: () => {},
+            designSystem: {
+              release: async () => release,
+              draft: async () => release,
+              watch: () => () => {},
+            },
+          },
+        );
+      },
+      { release: bundle, html },
+    );
+    const frame = page.locator('iframe[title="Page content"]');
+    const shown = page.frameLocator('iframe[title="Page content"]').locator(part);
+    await expect(shown).toBeVisible();
+    // Once the frame is as tall as the page, the part fits its bound. Sized against the frame's
+    // own viewport it outgrows the bound with the frame, or the renderer gives up on window
+    // scroll and caps the frame.
+    await expect
+      .poll(async () => ({
+        mode: await frame.getAttribute('data-scroll-mode'),
+        tall: ((await frame.boundingBox())?.height ?? 0) > 3000,
+        fits: fits((await shown.boundingBox())?.height ?? Infinity),
+      }))
+      .toEqual({ mode: 'window', tall: true, fits: true });
+  });
+}

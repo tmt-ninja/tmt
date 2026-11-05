@@ -2811,8 +2811,9 @@ height and width, a width within its own width and a band within its own height;
 ignored. It sets `data-tmt-ui-viewport` and `--tmt-ui-viewport-top` / `--tmt-ui-viewport-height` (px)
 on its root and dispatches `tmt-ui-viewport` on the document; a `colab.render.layout` switch to frame
 scrolling removes them. The frame's own style fits page-level design-system modals, sheets, drawers
-and their scrims to that band, and their layer geometry reads it; a nested design-system stage keeps
-its own box. The message is cosmetic and grants nothing. It does tell author script where the reader
+and their scrims to that band, and their layer geometry reads it; it also bounds the window-high
+sizes of page-level parts in flow (the block sheet menu, the shell) by the band, since against the
+frame's own viewport they grow with the page. A nested design-system stage keeps its own box. The message is cosmetic and grants nothing. It does tell author script where the reader
 has scrolled, which is acceptable because the frame has no network.
 
 Author CSS must use the explicit root `data-theme` selectors to follow Colab's choice;
