@@ -57,7 +57,7 @@ Read the relevant files before changing behavior:
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. Historical TypeScript worker/pack tests are retired;
   use [scenario ownership](references/e2e-scenarios.md#scenario-ownership) and
-  [evidence boundaries](../../../ARCHITECTURE.md#testing-and-evidence-boundaries)
+  [evidence boundaries](references/test-boundaries.md#evidence-boundaries)
   to choose the maintained native coverage.
 - Keep retained native/E2E helpers under `typescript/test/support/`, independent of the old
   TypeScript product. Historical SQLite migration inputs and reference results

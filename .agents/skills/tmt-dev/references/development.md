@@ -158,7 +158,7 @@ exactly; a stale lockfile or an unexecuted test is not evidence.
 JavaScript suites live under `typescript/test/{native,e2e,tooling,support}/`; Rust
 tests stay beside their owner in `rust/crates/*`.
 
-**Isolation** follows [testing boundaries](../../../../ARCHITECTURE.md#testing-and-evidence-boundaries):
+**Isolation** follows [testing boundaries](../../tmt-e2e/references/test-boundaries.md#evidence-boundaries):
 fixtures inherit no caller, provider, recursion or color state. Set `TMT_AGENT=1`
 and `BROWSER` to a no-op; pass `--no-open` or `--json` where supported. Native `runCli` isolates CLI ancestry through
 `rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`; build it before tooling or native tests, as CI does:

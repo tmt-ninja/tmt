@@ -61,7 +61,7 @@ Hosted Docker E2E, Packed install musl and dependency-archive seed jobs use a be
   expected results.
 - Scenario imports use the `typescript/test/e2e/harness.ts` facade; fixture,
   readiness, cleanup and types live under `typescript/test/e2e/harness/`
-  ([ownership](../../../../ARCHITECTURE.md#testing-and-evidence-boundaries)).
+  ([ownership](test-boundaries.md#evidence-boundaries)).
   Synchronous fixture tmux calls fail after five seconds and kill the client;
   scenario timeouts stay required. Install a fixture's tmux trace once and reuse
   `clear()`.

@@ -185,33 +185,6 @@ own module/drawing boundaries and verification.
   PR. The Ops developer references own worker fences, cache/timing fields,
   Core-owned Digest policy and independent CLI display projections.
 
-## Testing and evidence boundaries
-
-Rust tests stay owner-local. TypeScript suites share `test/support`, which imports
-no suite. Native/E2E import neither each other nor tooling. Scenarios own assertions;
-support owns fixtures and scripted loopback models, never provider launch.
-Frozen inputs and independent SQL/schema oracles cannot derive expectations from
-the implementation under test.
-
-State, provider roots, prefixes, sockets and processes remain fixture-owned.
-Adapters' default-off `test-isolation` feature admits private discovery paths in consumer test builds.
-`typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
-(under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
-Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
-and peers. The E2E run lifecycle owns registered fixture cleanup at suite end
-and on catchable main-process signals. Host tmux, provider installs and global environment
-mutation are not evidence.
-
-Cleanup confirms owned child/group absence before deleting fixture state;
-unknown inspection, leaks and false positives fail. Signals target only verified
-owned processes. Runtime tests prove CLI behavior, Docker proves transport and
-lifecycle, and release tooling proves actual archives and public installation;
-one layer's success cannot substitute for another's evidence.
-
-Helper ownership, fixture publication and lifecycle details live in the
-[E2E references](.agents/skills/tmt-e2e/references/test-boundaries.md); shared
-commands remain in [DEVELOPMENT](.agents/skills/tmt-dev/references/development.md#native-process-and-shared-tests).
-
 ## Release boundary
 
 Release tooling shares native runtime/linkage proof across cargo-dist archives,
