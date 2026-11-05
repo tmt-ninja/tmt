@@ -1,6 +1,6 @@
 ---
 name: tmt-ui-ux-design
-description: Draw UI mockups and propose UX changes for TMT browser surfaces (Colab, Remote, the GUI shell) so they match the shipped product. Load before drawing a mockup or writing a UX proposal.
+description: Draw UI mockups, propose UX changes and review built UI against its reference for TMT browser surfaces (Colab, Remote, the GUI shell, design docs). Load before drawing a mockup, writing a UX proposal, or accepting a change to how a browser surface looks.
 ---
 
 # UI mockups and UX proposals
@@ -66,7 +66,14 @@ move-up and move-down icon actions, Edit and Delete, and a primary create action
 - Say what you verified. If you checked only markup and did not see it rendered, say so and ask
   the reader to point at what looks wrong.
 
-## 5. Write the proposal around the mockup
+## 5. Review built UI against its reference
+
+Before accepting any change to how a browser surface looks, follow
+[visual review](references/visual-review.md). Name the reference, capture the reference and the
+change side by side, check alignment and look, and post the verdict on the PR. A visual finding
+blocks the merge.
+
+## 6. Write the proposal around the mockup
 
 - Start with what already ships and what is new, with ticket numbers, so the reader can tell
   the proposal from the product.

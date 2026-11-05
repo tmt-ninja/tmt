@@ -305,6 +305,8 @@ claim. Keep returned errors distinct from crash recovery, and retain uncertainty
 retention, acknowledgment, lifetime and cleanup evidence when changing those boundaries.
 Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects; use structured output or a focused formatter test, not mocked
-`console.log`. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
+`console.log`. A change to how a browser surface looks also needs a
+[visual review](.agents/skills/tmt-ui-ux-design/references/visual-review.md) against a named
+reference, with side-by-side captures; its findings block the merge. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
 maintenance: [ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries) and its
 [maintenance contract](ARCHITECTURE.md#maintenance-contract).
