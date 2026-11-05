@@ -3213,20 +3213,27 @@
         const opener = '<' + '!--';
         const closes = (text, tag) =>
           text.includes(opener) || text.toLowerCase().includes('</' + tag);
+        // The page runtime (#6085): the theme and the base plus the chunks the parent chose, in load
+        // order. At most 8 scripts, each at most 1 MiB and 3 MiB together.
         const runtimeBundle = (value) => {
           if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
           const keys = Object.keys(value);
-          if (keys.length !== 2 || !keys.includes('script') || !keys.includes('style'))
+          if (keys.length !== 2 || !keys.includes('scripts') || !keys.includes('style'))
             return false;
-          const { script, style } = value;
+          const { scripts, style } = value;
           const size = (text) =>
             typeof text === 'string' ? new TextEncoder().encode(text).byteLength : -1;
+          if (!Array.isArray(scripts) || scripts.length < 1 || scripts.length > 8) return false;
+          let total = 0;
+          for (const script of scripts) {
+            const bytes = size(script);
+            if (bytes < 0 || bytes > 1024 * 1024 || closes(script, 'script')) return false;
+            total += bytes;
+          }
           return (
-            size(script) >= 0 &&
-            size(script) <= 1.5 * 1024 * 1024 &&
+            total <= 3 * 1024 * 1024 &&
             size(style) >= 0 &&
             size(style) <= 256 * 1024 &&
-            !closes(script, 'script') &&
             !closes(style, 'style')
           );
         };
@@ -3291,8 +3298,15 @@
             );
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
+          // Each chunk is its own script, so one that throws leaves the others; the seal then closes
+          // the runtime's registration before the design system or the author's scripts run.
+          const chunks = (value.runtime?.scripts ?? []).map(
+            (script) => `<script>${script}<\/script>`,
+          );
+          const seal =
+            '<script>window.__colabRuntimeSeal?.();delete window.__colabRuntimeSeal;<\/script>';
           const runtime = value.runtime
-            ? `<style type="text/tailwindcss">${value.runtime.style}</style><script>${value.runtime.script}<\/script>`
+            ? `<style type="text/tailwindcss">${value.runtime.style}</style>${chunks.join('')}${seal}`
             : '';
           // Even if the runtime failed to initialize, author scripts never receive the one-shot hook.
           const closeBlockRegistration =

@@ -47,13 +47,19 @@ required. The shell must use absolute `/assets/` URLs with no `<base>` so rewrit
 short routes resolve the same assets. Build a hosted distribution with Vite's `--base /`
 option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typescript/app`);
 native mounted distributions retain their relative base. Both distributions also carry the bundled
-page runtime (`assets/colab-runtime.js`, build mode `runtime`): the `build`, `build:bundles` and
-`build:hosted` scripts run it and fail when it differs from `typescript/app/runtime-pin.json`. The
+page runtime (build mode `runtime`) as content-hashed chunks, `assets/colab-runtime-<name>-<hash>.js`,
+listed by `extensions/tmt-colab/contracts/vectors/page-runtime-chunks-v1.json`: the `build`, `build:bundles` and
+`build:hosted` scripts run it, print each chunk's raw and gzip size, and fail when it differs from
+`typescript/app/runtime-pin.json` or exceeds a chunk's gzip cap or the total budget. Which chunk owns a module is
+set in `extensions/tmt-colab/scripts/runtime-chunks.mjs` (first match wins, the rest is `base`); each chunk entry
+under `typescript/app/src/runtime/chunks/` registers exactly its vector names, and the build refuses a module that
+imports from a chunk its own chunk does not come after. To add a runtime 4 part, list it in the vector chunk that
+should carry it, register it in that chunk's entry, and update the pin. The
 Colab module (`assets/colab-module.js`, build mode `module`, in `build` and `build:bundles` only)
 must be built after the app in the same `dist`: it carries that build's entry for the update row,
 and `node ../../scripts/verify-module-build.mjs dist` fails when it carries another. After a
-deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react` or the icon list in
-`typescript/app/src/runtime/icons.ts` (including a dependency bump, and a Vite or
+deliberate change of React, htm, `@tailwindcss/browser`, `lucide-react`, the icon list in
+`typescript/app/src/runtime/icons.ts` or a chunk's contents (including a dependency bump, and a Vite or
 rolldown bump, which changes the output bytes), run
 `node ../../scripts/verify-runtime.mjs dist --update` in the app directory and review the pin diff. The runtime
 also carries `assets/colab-runtime.css`, the Tailwind theme generated from `design/tokens/tokens.json`: after a

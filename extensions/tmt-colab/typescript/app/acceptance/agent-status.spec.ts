@@ -71,8 +71,8 @@ test('the served Agents view reads the admitted directory without sending or reo
         'reader.html',
         'THIRD-PARTY-NOTICES.txt',
         'assets/colab-module.js',
-        'assets/colab-runtime.js',
         'assets/colab-runtime.css',
+        expect.stringMatching(/^assets\/colab-runtime-base-[0-9a-f]{16}\.js$/),
       ]),
     );
     const mount = new URL(`${door.mounts}colab/`);

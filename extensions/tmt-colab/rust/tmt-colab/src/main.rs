@@ -626,8 +626,13 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         let (_, bytes) = app.as_ref()?.find(path)?;
         std::str::from_utf8(bytes).ok()
     };
+    // The copy inlines every runtime chunk (#6085), in load order, then the renderer's seal.
+    let runtime_script = app
+        .as_ref()
+        .and_then(tmt_colab::assets::App::runtime_script);
     let assets = tmt_colab::export::standalone::Assets {
-        runtime: text("/assets/colab-runtime.js")
+        runtime: runtime_script
+            .as_deref()
             .zip(text("/assets/colab-runtime.css"))
             .map(|(script, style)| tmt_colab::export::standalone::Runtime { script, style }),
         design: text("/assets/colab-page-ui.js")

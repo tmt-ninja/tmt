@@ -15,6 +15,10 @@ const pin = `tmt-gui@0.1.0#${bundle.hash}`;
 
 async function mount(page: Page, source: string, served: unknown = bundle, layout?: 'column') {
   await servePageRuntime(page);
+  return render(page, source, served, layout);
+}
+/** Mounts the page against whatever runtime the test already routed. */
+async function render(page: Page, source: string, served: unknown = bundle, layout?: 'column') {
   await page.goto('/');
   await page.evaluate(
     async ({ source, served, layout }) => {
@@ -527,6 +531,47 @@ test('Rich input tag edits text in the frame', async ({ page }) => {
   const input = frame.getByRole('textbox', { name: 'Message' });
   await input.fill('Hello from the page');
   await expect(input).toContainText('Hello from the page');
+});
+
+// #6085: the parent sends a page the base plus the chunks its verified components need.
+test('a one-button page loads only the base and the UI chunk, each once', async ({ page }) => {
+  const fetched = await servePageRuntime(page);
+  const frame = await render(
+    page,
+    `<meta name="tmt-ds" content="${pin}"><tmt-ui-button>Save</tmt-ui-button>`,
+  );
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css', 'ui']);
+  // The frame ran each chunk in one script of its own, then sealed the runtime.
+  const scripts = await frame
+    .locator('script')
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.textContent ?? '').filter((text) => text.includes('__colabDefine')),
+    );
+  expect(scripts).toHaveLength(2);
+  expect(new Set(scripts).size).toBe(2);
+  expect(
+    await frame
+      .locator('body')
+      .evaluate(() => [
+        typeof (window as unknown as Record<string, unknown>).__colabRuntimeChunk,
+        typeof (window as unknown as Record<string, unknown>).__colabRequire,
+      ]),
+  ).toEqual(['undefined', 'undefined']);
+});
+
+test('a chunk that fails to load marks only its own components unavailable', async ({ page }) => {
+  const fetched = await servePageRuntime(page, { fail: 'rich-input' });
+  const frame = await render(
+    page,
+    `<meta name="tmt-ds" content="${pin}">
+     <tmt-ui-button>Save</tmt-ui-button>
+     <tmt-ui-rich-input label="Message" shape="multi"></tmt-ui-rich-input>`,
+  );
+  expect(fetched).toContain('rich-input');
+  await expect(frame.getByRole('button', { name: 'Save' })).toBeVisible();
+  await expect(frame.locator('[data-tmt-part-unavailable]')).toHaveText('Part unavailable');
+  await expect(frame.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
 });
 
 test('Browser overlay and chips tags work inside a stage', async ({ page }) => {

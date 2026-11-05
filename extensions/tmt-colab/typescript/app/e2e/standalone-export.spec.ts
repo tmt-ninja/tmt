@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { standaloneDocument } from '../src/standalone.js';
+import { sealedRuntimeScript } from './page-runtime.js';
 
 // The standalone copy of an opted-in page (#1693), built from the real runtime and opened from
 // disk the way a person opens a downloaded file: no Colab, no server, no network. The page is
@@ -55,8 +56,13 @@ test.beforeAll(() => {
     stdio: 'pipe',
   });
   const textOf = (name: string) => readFileSync(join(built, 'assets', name), 'utf8');
+  const runtimeFiles = new Map(
+    readdirSync(join(built, 'assets'))
+      .filter((name) => name.startsWith('colab-runtime'))
+      .map((name) => [name, textOf(name)]),
+  );
   const document = standaloneDocument(source, {
-    runtime: { script: textOf('colab-runtime.js'), style: textOf('colab-runtime.css') },
+    runtime: { script: sealedRuntimeScript(runtimeFiles), style: textOf('colab-runtime.css') },
   });
   expect(typeof document).toBe('string');
   copy = join(directory, 'page.standalone.html');

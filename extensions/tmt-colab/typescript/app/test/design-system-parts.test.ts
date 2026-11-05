@@ -21,19 +21,21 @@ const bundle = (runtime: string, code: string, parts?: string[]): DesignSystemBu
   ],
 });
 
-function load(value: DesignSystemBundle) {
+function load(value: DesignSystemBundle, host: { ui?: object; sharedParts?: object } = {}) {
   const { script } = frameDesignSystem(value);
   const table = () => null;
   const defined: string[] = [];
   runInNewContext(script, {
     window: {
       tmt: {
-        React: {},
+        React: {
+          createElement: (type: string, props: object, text: string) => ({ type, props, text }),
+        },
         html: () => {},
         createRoot: () => {},
-        sharedParts: { PageListTable: table },
+        sharedParts: host.sharedParts ?? { PageListTable: table },
         sharedData: { page: () => undefined },
-        ui: { Button: table },
+        ui: host.ui ?? { Button: table },
       },
     },
     customElements: { get: () => undefined, define: (name: string) => defined.push(name) },
@@ -79,6 +81,46 @@ describe('design-system shared parts', () => {
     expect(() => load({ ...allowed, runtime: '3' })).toThrow('unknown or duplicate UI part');
     const unknown = { ...base, components: [{ ...base.components[0]!, uiParts: ['Other'] }] };
     expect(() => load(unknown)).toThrow('unknown or duplicate UI part');
+  });
+  it('draws a declared part whose runtime chunk did not load as unavailable, not a throw', () => {
+    const seen: unknown[] = [];
+    const base = bundle(
+      '4',
+      'return ({ui, parts}) => { seen.push(ui.Button(), parts.PageListTable()); return () => null; };',
+      ['PageListTable'],
+    );
+    const declared = { ...base, components: [{ ...base.components[0]!, uiParts: ['Button'] }] };
+    const script = frameDesignSystem(declared).script.replace(
+      '(()=>{',
+      '(()=>{const seen=globalThis.seen;',
+    );
+    runInNewContext(script, {
+      seen,
+      window: {
+        tmt: {
+          React: {
+            createElement: (type: string, props: object, text: string) => ({ type, props, text }),
+          },
+          html: () => {},
+          createRoot: () => {},
+          sharedParts: {},
+          sharedData: {},
+          ui: {},
+        },
+      },
+      customElements: { get: () => undefined, define: () => {} },
+      HTMLElement: class {},
+    });
+    const unavailable = {
+      type: 'span',
+      props: { role: 'status', 'data-tmt-part-unavailable': '' },
+      text: 'Part unavailable',
+    };
+    expect(seen).toEqual([unavailable, unavailable]);
+    // An undeclared part is still refused when its chunk is missing.
+    expect(() => load(bundle('4', 'return ({ui}) => ui.Button;'), { ui: {} })).toThrow(
+      'Undeclared UI part',
+    );
   });
   it('reports a newer-runtime notice for a valid release with an unknown capability', async () => {
     const base = bundle('3', 'return () => null;');

@@ -706,7 +706,7 @@ fn serve(
                     &bytes,
                     &media_type,
                     POLICY,
-                    "",
+                    NO_STORE,
                     limits::ATTACHMENT_RESPONSE,
                 );
             }
@@ -1171,7 +1171,11 @@ fn serve(
             } else {
                 assets::POLICY
             };
-            let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+            let _ = if assets::is_runtime_chunk(file) {
+                response_immutable(&mut socket, bytes, kind, policy)
+            } else {
+                response_with_policy(&mut socket, 200, bytes, kind, policy)
+            };
         } else {
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
         }
@@ -1197,6 +1201,8 @@ fn serve(
                 &format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\"></head>"),
             );
             let _ = response_with_policy(&mut socket, 200, html.as_bytes(), kind, policy);
+        } else if assets::is_runtime_chunk(&request.path) {
+            let _ = response_immutable(&mut socket, bytes, kind, policy);
         } else {
             let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
         }
@@ -1674,11 +1680,24 @@ fn response_with_headers(
         body,
         kind,
         policy,
-        headers,
+        &format!("{NO_STORE}{headers}"),
         limits::RESPONSE,
     )
 }
-/// One response written, and its peer's close awaited, within `wait` altogether.
+/// A runtime chunk (#6085): its name carries its content hash, so a browser may keep it for good.
+/// Every other response, including the shells that name the chunks, stays `no-store`.
+fn response_immutable(
+    socket: &mut UnixStream,
+    body: &[u8],
+    kind: &str,
+    policy: &str,
+) -> std::io::Result<()> {
+    write_response(socket, 200, body, kind, policy, IMMUTABLE, limits::RESPONSE)
+}
+const IMMUTABLE: &str = "Cache-Control: public, max-age=31536000, immutable\r\n";
+const NO_STORE: &str = "Cache-Control: no-store\r\n";
+/// One response written, and its peer's close awaited, within `wait` altogether. `headers` carries the
+/// response's `Cache-Control` line (`NO_STORE` or `IMMUTABLE`) and any others.
 fn write_response(
     socket: &mut UnixStream,
     status: u16,
@@ -1690,7 +1709,7 @@ fn write_response(
 ) -> std::io::Result<()> {
     let deadline = Instant::now() + wait;
     let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n{headers}\r\n",
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n{headers}\r\n",
         body.len()
     );
     for mut bytes in [bytes.as_bytes(), body] {

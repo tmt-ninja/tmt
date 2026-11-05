@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "description": "The page runtime's chunks (#6085). Each lazy chunk may use only the chunks in its 'after' list; the parent picks a page's chunks at bind from the verified bundle's uiParts and parts for the tags the page writes, adds every chunk they come after, and sends them in this order. Caps are gzip -9 bytes.",
+  "gzipBudget": 4194304,
+  "chunks": [
+    {
+      "name": "base",
+      "entry": "src/runtime/entry.ts",
+      "after": [],
+      "ui": [],
+      "parts": [],
+      "gzipCap": 262144
+    },
+    {
+      "name": "ui",
+      "entry": "src/runtime/chunks/ui.ts",
+      "after": [
+        "base"
+      ],
+      "ui": [
+        "Button",
+        "Badge",
+        "Card",
+        "CardHeader",
+        "CardTitle",
+        "CardDescription",
+        "CardAction",
+        "CardContent",
+        "CardFooter",
+        "Alert",
+        "AlertTitle",
+        "AlertDescription",
+        "Empty",
+        "EmptyHeader",
+        "EmptyMedia",
+        "EmptyTitle",
+        "EmptyDescription",
+        "EmptyContent",
+        "Tabs",
+        "TabsBar",
+        "TabsList",
+        "TabsTrigger",
+        "Dialog",
+        "DialogTrigger",
+        "DialogContent",
+        "DialogTitle",
+        "DialogDescription",
+        "Sheet",
+        "SheetTrigger",
+        "SheetContent",
+        "SheetTitle",
+        "SheetDescription",
+        "Popover",
+        "PopoverTrigger",
+        "PopoverContent",
+        "DropdownMenu",
+        "DropdownMenuTrigger",
+        "DropdownMenuContent",
+        "DropdownMenuItem",
+        "UiTheme",
+        "Select",
+        "SelectTrigger",
+        "SelectValue",
+        "SelectContent",
+        "SelectItem",
+        "TooltipProvider",
+        "Tooltip",
+        "TooltipTrigger",
+        "TooltipContent",
+        "Command",
+        "CommandInput",
+        "CommandList",
+        "CommandItem",
+        "FloatingDock",
+        "FloatingActions",
+        "FloatingAction",
+        "FloatingWindow",
+        "Chips",
+        "useLayerController",
+        "Checkbox",
+        "DsScope",
+        "Input",
+        "Separator",
+        "Skeleton",
+        "Surface",
+        "Switch",
+        "Textarea"
+      ],
+      "parts": [],
+      "gzipCap": 196608
+    },
+    {
+      "name": "browser",
+      "entry": "src/runtime/chunks/browser.ts",
+      "after": [
+        "ui"
+      ],
+      "ui": [
+        "BrowserMessageRow",
+        "BrowserPageRow",
+        "BrowserStatusLine",
+        "BrowserWorkBand",
+        "BrowserAvatar",
+        "BrowserAction",
+        "BrandMark",
+        "BrowserHeader",
+        "BrowserNotice",
+        "BrowserPager",
+        "BrowserList",
+        "BrowserChoice",
+        "BrowserMenu",
+        "BrowserIconAction",
+        "BrowserField",
+        "BrowserCountChip",
+        "BrowserTable",
+        "BrowserCommand",
+        "BrowserTabs",
+        "BrowserChips",
+        "BrowserDialog",
+        "BrowserDrawer",
+        "BrowserPanel",
+        "BrowserShell",
+        "BrowserNotifications",
+        "BrowserCardMeter",
+        "BrowserOverview",
+        "BrowserEditorial",
+        "BrowserVisuallyHidden",
+        "BrowserChart",
+        "BrowserCheckbox",
+        "BrowserDisclosure",
+        "BrowserSection",
+        "BrowserStatusTile",
+        "BrowserToggle",
+        "BusyMark"
+      ],
+      "parts": [],
+      "gzipCap": 131072
+    },
+    {
+      "name": "blocks",
+      "entry": "src/runtime/chunks/blocks.ts",
+      "after": [
+        "browser"
+      ],
+      "ui": [
+        "DataTable",
+        "BlockDocument",
+        "Block",
+        "BlockHandle",
+        "BlockMenu",
+        "BlockMenuItem",
+        "BlockMenuFooter",
+        "BlockKbd",
+        "HeadingBlock",
+        "TextBlock",
+        "ListItemBlock",
+        "TodoBlock",
+        "TableBlock",
+        "CardBlock",
+        "Callout",
+        "CodeBlock",
+        "BlockMention",
+        "BlockToast"
+      ],
+      "parts": [
+        "PageListTable"
+      ],
+      "gzipCap": 65536
+    },
+    {
+      "name": "rich-input",
+      "entry": "src/runtime/chunks/rich-input.ts",
+      "after": [
+        "ui"
+      ],
+      "ui": [
+        "RichInput"
+      ],
+      "parts": [],
+      "gzipCap": 131072
+    },
+    {
+      "name": "docs",
+      "entry": "src/runtime/chunks/docs.ts",
+      "after": [
+        "blocks",
+        "rich-input"
+      ],
+      "ui": [
+        "FoundationPage",
+        "PatternPage",
+        "DocsComponentPage"
+      ],
+      "parts": [],
+      "gzipCap": 196608
+    },
+    {
+      "name": "terminal-frame",
+      "reserved": true,
+      "after": [
+        "base"
+      ],
+      "ui": [],
+      "parts": [],
+      "gzipCap": 2097152
+    }
+  ]
+}

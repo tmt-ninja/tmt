@@ -3,139 +3,7 @@ import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 import { icons } from './icons.js';
 import { installScopePortals } from './ds-scope.js';
-import { DataTable, PageListTable } from '@tmt/browser-ui/data-table';
-import { RichInput } from '@tmt/browser-ui/rich-input';
-import { FoundationPage } from '@tmt/browser-ui/docs-foundations';
-import { PatternPage } from '@tmt/browser-ui/docs-patterns';
-import { DocsComponentPage, drawComponentScenesInline } from '@tmt/browser-ui/docs-components';
-import {
-  BrowserMessageRow,
-  BrowserPageRow,
-  BrowserStatusLine,
-  BrowserWorkBand,
-} from '@tmt/browser-ui/pattern-parts';
-import {
-  BlockDocument,
-  Block,
-  BlockHandle,
-  BlockMenu,
-  BlockMenuItem,
-  BlockMenuFooter,
-  BlockKbd,
-  HeadingBlock,
-  TextBlock,
-  ListItemBlock,
-  TodoBlock,
-  TableBlock,
-  CardBlock,
-  Callout,
-  CodeBlock,
-  BlockMention,
-  BlockToast,
-} from '@tmt/browser-ui/blocks';
-import {
-  Badge,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardAction,
-  CardContent,
-  CardFooter,
-  Alert,
-  AlertTitle,
-  AlertDescription,
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  EmptyDescription,
-  EmptyContent,
-  Tabs,
-  TabsBar,
-  TabsList,
-  TabsTrigger,
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-  Sheet,
-  SheetTrigger,
-  SheetContent,
-  SheetTitle,
-  SheetDescription,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  Button,
-  Checkbox,
-  DsScope,
-  Input,
-  Separator,
-  Skeleton,
-  Surface,
-  Switch,
-  Textarea,
-  UiTheme,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-  TooltipProvider,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  Command,
-  CommandInput,
-  CommandList,
-  CommandItem,
-  FloatingDock,
-  FloatingActions,
-  FloatingAction,
-  FloatingWindow,
-  Chips,
-  useLayerController,
-} from '@tmt/browser-ui/ui';
-import {
-  BrandMark,
-  BrowserHeader,
-  BrowserNotice,
-  BrowserPager,
-  BrowserList,
-  BrowserChoice,
-  BrowserMenu,
-  BrowserIconAction,
-  BrowserField,
-  BrowserCountChip,
-  BrowserTable,
-  BrowserCommand,
-  BrowserTabs,
-  BrowserChips,
-  BrowserDialog,
-  BrowserDrawer,
-  BrowserPanel,
-  BrowserShell,
-  BrowserNotifications,
-  BrowserCardMeter,
-  BrowserOverview,
-  BrowserEditorial,
-  BrowserVisuallyHidden,
-  BrowserChart,
-  BrowserAction,
-  BrowserAvatar,
-  BrowserCheckbox,
-  BrowserDisclosure,
-  BrowserSection,
-  BrowserStatusTile,
-  BrowserToggle,
-  BusyMark,
-} from '@tmt/browser-ui/react';
+import type { ChunkParts } from './register.js';
 
 type WorkPage = {
   title: string;
@@ -178,205 +46,40 @@ registerBlockData?.((value) => {
     workListeners.forEach((listener) => listener());
   }
 });
-function SharedPageListTable({
-  livePageView,
-  pageViewOptions,
-  ...props
-}: React.ComponentProps<typeof PageListTable> & {
-  livePageView?: boolean;
-  pageViewOptions?: { filters: { field: string; value: string }[]; sort: string; limit: number };
-}) {
-  // Live lists are drawn by the trusted parent; this frame renders only authored rows.
-  let rows = livePageView ? [] : props.rows;
-  if (pageViewOptions) {
-    rows = rows.filter((row) =>
-      pageViewOptions.filters.every((filter) =>
-        filter.field === 'project'
-          ? row.projects.includes(filter.value)
-          : filter.field === 'state'
-            ? row.stage?.id === filter.value || row.stage?.label === filter.value
-            : filter.field === 'owner'
-              ? row.author === filter.value
-              : false,
-      ),
-    );
-    if (pageViewOptions.sort === 'title')
-      rows = [...rows].sort((a, b) => a.name.localeCompare(b.name));
-    else if (pageViewOptions.sort === 'updated')
-      rows = [...rows].sort(
-        (a, b) =>
-          ((b as typeof b & { updatedAt?: number }).updatedAt ?? 0) -
-          ((a as typeof a & { updatedAt?: number }).updatedAt ?? 0),
-      );
-    rows = rows.slice(0, pageViewOptions.limit);
-  }
-  if (props.rowGroup) {
-    const groups = new Map<string, (typeof rows)[number][]>();
-    for (const row of rows) {
-      const id = props.rowGroup(row).id;
-      const group = groups.get(id) ?? [];
-      group.push(row);
-      groups.set(id, group);
-    }
-    rows = [...groups.values()].flat();
-  }
-  const state = livePageView
-    ? 'loading'
-    : props.state === 'ready' && rows.length === 0
-      ? 'empty'
-      : props.state;
-  return React.createElement(
-    UiTheme,
-    null,
-    React.createElement(PageListTable, { ...props, rows, state }),
-  );
-}
-
 /**
  * The bundled page runtime (#1693): what an opted-in page's own script finds on `window.tmt`, with
  * no network and no build step. `html` is htm bound to React, so a page writes components as tagged
  * templates instead of JSX. Nothing here talks to the parent; the frame stays an opaque sandbox.
  */
+// Filled by the chunks the parent chose for this page (#6085), then sealed before any author or
+// design-system script runs.
+const ui: Record<string, unknown> = {};
+const sharedParts: Record<string, unknown> = {};
 const runtime = Object.freeze({
   React,
   createRoot,
   html: htm.bind(React.createElement),
   icons,
-  sharedParts: Object.freeze({
-    PageListTable: SharedPageListTable,
-  }),
+  sharedParts,
   sharedData: Object.freeze({ page: useWorkPage }),
-  ui: Object.freeze({
-    Button,
-    FoundationPage,
-    PatternPage,
-    DocsComponentPage,
-    BrowserMessageRow,
-    BrowserPageRow,
-    BrowserStatusLine,
-    BrowserWorkBand,
-    Badge,
-    Card,
-    CardHeader,
-    CardTitle,
-    CardDescription,
-    CardAction,
-    CardContent,
-    CardFooter,
-    Alert,
-    AlertTitle,
-    AlertDescription,
-    Empty,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-    EmptyDescription,
-    EmptyContent,
-    Tabs,
-    TabsBar,
-    TabsList,
-    TabsTrigger,
-    Dialog,
-    DialogTrigger,
-    DialogContent,
-    DialogTitle,
-    DialogDescription,
-    Sheet,
-    SheetTrigger,
-    SheetContent,
-    SheetTitle,
-    SheetDescription,
-    Popover,
-    PopoverTrigger,
-    PopoverContent,
-    DropdownMenu,
-    DropdownMenuTrigger,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    UiTheme,
-    Select,
-    SelectTrigger,
-    SelectValue,
-    SelectContent,
-    SelectItem,
-    TooltipProvider,
-    Tooltip,
-    TooltipTrigger,
-    TooltipContent,
-    Command,
-    CommandInput,
-    CommandList,
-    CommandItem,
-    FloatingDock,
-    FloatingActions,
-    FloatingAction,
-    FloatingWindow,
-    Chips,
-    useLayerController,
-    DataTable,
-    RichInput,
-    BlockDocument,
-    Block,
-    BlockHandle,
-    BlockMenu,
-    BlockMenuItem,
-    BlockMenuFooter,
-    BlockKbd,
-    HeadingBlock,
-    TextBlock,
-    ListItemBlock,
-    TodoBlock,
-    TableBlock,
-    CardBlock,
-    Callout,
-    CodeBlock,
-    BlockMention,
-    BlockToast,
-    Checkbox,
-    DsScope,
-    Input,
-    Separator,
-    Skeleton,
-    Surface,
-    Switch,
-    Textarea,
-    BrowserAvatar,
-    BrowserAction,
-    BrandMark,
-    BrowserHeader,
-    BrowserNotice,
-    BrowserPager,
-    BrowserList,
-    BrowserChoice,
-    BrowserMenu,
-    BrowserIconAction,
-    BrowserField,
-    BrowserCountChip,
-    BrowserTable,
-    BrowserCommand,
-    BrowserTabs,
-    BrowserChips,
-    BrowserDialog,
-    BrowserDrawer,
-    BrowserPanel,
-    BrowserShell,
-    BrowserNotifications,
-    BrowserCardMeter,
-    BrowserOverview,
-    BrowserEditorial,
-    BrowserVisuallyHidden,
-    BrowserChart,
-    BrowserCheckbox,
-    BrowserDisclosure,
-    BrowserSection,
-    BrowserStatusTile,
-    BrowserToggle,
-    BusyMark,
-  }),
+  ui,
 });
 Object.defineProperty(window, 'tmt', { value: runtime, enumerable: true });
+const loadedChunks = new Set<string>();
+window.__colabRuntimeChunk = (name: string, parts: ChunkParts) => {
+  if (loadedChunks.has(name)) return;
+  loadedChunks.add(name);
+  Object.assign(ui, parts.ui);
+  Object.assign(sharedParts, parts.parts);
+};
+window.__colabRuntimeSeal = () => {
+  delete window.__colabRuntimeChunk;
+  delete window.__colabRuntimeSeal;
+  delete (window as { __colabDefine?: unknown }).__colabDefine;
+  delete (window as { __colabRequire?: unknown }).__colabRequire;
+  Object.freeze(ui);
+  Object.freeze(sharedParts);
+};
 
 // Component scopes can be present in the initial page or inserted by the page later.
 if (typeof document !== 'undefined') installScopePortals(document);
-// The frame cannot load the docs' frame pages: a component docs page draws their scenes inline.
-drawComponentScenesInline();

@@ -297,21 +297,57 @@ fn closed(socket: &mut UnixStream) -> bool {
 }
 
 /// The page runtime (#1693) is public library code, so a reader's page may load it; the names are
-/// exact, and nothing else under its prefix is public.
+/// exact (a chunk by its vector name and content hash, #6085), and nothing else under its prefix
+/// is public.
 #[test]
 fn the_page_runtime_assets_are_public_by_exact_name() {
-    for path in ["/assets/colab-runtime.js", "/assets/colab-runtime.css"] {
+    for path in [
+        "/assets/colab-runtime.css",
+        "/assets/colab-runtime-base-0123456789abcdef.js",
+        "/assets/colab-runtime-rich-input-0123456789abcdef.js",
+    ] {
         assert_eq!(tmt_colab::assets::anonymous_file(path), Some(path));
     }
     for path in [
-        "/assets/colab-runtime.js.map",
+        "/assets/colab-runtime.js",
+        "/assets/colab-runtime-base-0123456789abcdef.js.map",
         "/assets/colab-runtime.css.map",
         "/assets/colab-runtime.html",
         "/assets/colab-runtime",
+        "/assets/colab-runtime-unknown-0123456789abcdef.js",
     ] {
         assert_eq!(tmt_colab::assets::anonymous_file(path), None, "{path}");
     }
 }
+
+/// A runtime chunk's name carries its content hash, so anyone may cache it for good; the shells
+/// that name the chunks, and the unhashed theme, stay uncached (#6085).
+#[test]
+fn runtime_chunks_are_immutable_and_the_shells_stay_uncached() {
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(fixture_app()));
+    let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
+    let admitted = format!("{}\r\n{mount}", owner(DEVICE));
+    for headers in [mount.to_owned(), admitted] {
+        let chunk = server.request(&Running::get(RUNTIME_BASE, &headers));
+        assert!(chunk.starts_with("HTTP/1.1 200"), "{chunk}");
+        assert!(chunk.contains("Content-Type: text/javascript; charset=utf-8"));
+        assert!(chunk.contains("Cache-Control: public, max-age=31536000, immutable\r\n"));
+        assert_eq!(chunk.matches("Cache-Control").count(), 1, "{chunk}");
+        assert!(chunk.ends_with("window.__colabDefine = 1;"));
+        for path in ["/renderer.html", "/assets/colab-runtime.css"] {
+            let shell = server.request(&Running::get(path, &headers));
+            assert!(shell.starts_with("HTTP/1.1 200"), "{path}: {shell}");
+            assert!(shell.contains("Cache-Control: no-store\r\n"), "{path}");
+        }
+        let unknown = server.request(&Running::get(
+            "/assets/colab-runtime-ui-0123456789abcdef.js",
+            &headers,
+        ));
+        assert!(unknown.starts_with("HTTP/1.1 404"), "{unknown}");
+    }
+}
+
+const RUNTIME_BASE: &str = "/assets/colab-runtime-base-0123456789abcdef.js";
 
 /// The smallest valid app inventory; public-entry proofs need no SPA build.
 const APP_FIXTURE: [(&str, &str, &[u8]); 14] = [
@@ -356,9 +392,9 @@ const APP_FIXTURE: [(&str, &str, &[u8]); 14] = [
         b"export const recovery = true;",
     ),
     (
-        "assets/colab-runtime.js",
+        "assets/colab-runtime-base-0123456789abcdef.js",
         "text/javascript; charset=utf-8",
-        b"window.tmt = {};",
+        b"window.__colabDefine = 1;",
     ),
     (
         "assets/colab-runtime.css",

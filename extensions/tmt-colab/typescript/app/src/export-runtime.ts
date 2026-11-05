@@ -1,5 +1,5 @@
 import { rendererBase } from './entry.js';
-import { loadDesign, loadRuntime, wantsRuntime } from './page-runtime.js';
+import { allRuntimeChunks, loadDesign, loadRuntime, wantsRuntime } from './page-runtime.js';
 import { usesDesign, type StandaloneRequest } from './standalone.js';
 
 /** What the export needs to know about the bundled runtime (#1693) and the design system (#5057) for
@@ -16,7 +16,18 @@ export async function standaloneRequest(page: {
   if (!wantsRuntimeBundle && !wantsDesign) return undefined;
   const base = rendererBase();
   const [runtime, design] = await Promise.allSettled([
-    wantsRuntimeBundle ? loadRuntime(base) : undefined,
+    // An exported page has no parent to send it chunks: it carries all of them, in load order,
+    // sealed before its own scripts run (#6085).
+    wantsRuntimeBundle
+      ? loadRuntime(base, allRuntimeChunks()).then((loaded) => {
+          if (loaded.scripts.length !== allRuntimeChunks().length)
+            throw new Error('Page runtime unavailable');
+          return {
+            style: loaded.style,
+            script: `${loaded.scripts.join('\n')}\nwindow.__colabRuntimeSeal?.();`,
+          };
+        })
+      : undefined,
     wantsDesign ? loadDesign(base) : undefined,
   ]);
   if (runtime.status === 'rejected') return { reason: 'runtime-unavailable' };

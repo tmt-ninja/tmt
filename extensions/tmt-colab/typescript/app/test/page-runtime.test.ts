@@ -1,43 +1,97 @@
+import { createHash } from 'node:crypto';
 import { afterEach, expect, test, vi } from 'vite-plus/test';
-import { loadRuntime, runtimeUrl } from '../src/page-runtime.js';
+
+// A pin over known texts, so the test controls which bytes match (#6085).
+const texts = {
+  'assets/colab-runtime.css': '@theme { --color-paper: #fff; }',
+  'assets/colab-runtime-base-0000000000000000.js': 'window.base = 1;',
+  'assets/colab-runtime-ui-1111111111111111.js': 'window.ui = 1;',
+  'assets/colab-runtime-docs-2222222222222222.js': 'window.docs = 1;',
+};
+const pinned = (path: keyof typeof texts) => ({
+  path,
+  sha256: createHash('sha256').update(texts[path]).digest('hex'),
+  length: Buffer.byteLength(texts[path]),
+});
+vi.mock('../runtime-pin.json', () => ({
+  default: {
+    chunks: [
+      { name: 'base', ...pinned('assets/colab-runtime-base-0000000000000000.js') },
+      { name: 'ui', ...pinned('assets/colab-runtime-ui-1111111111111111.js') },
+      { name: 'docs', ...pinned('assets/colab-runtime-docs-2222222222222222.js') },
+    ],
+    theme: pinned('assets/colab-runtime.css'),
+  },
+}));
+const { loadRuntime, runtimeUrl } = await import('../src/page-runtime.js');
 
 afterEach(() => vi.unstubAllGlobals());
-test('the asset sits next to the renderer: mount-relative, or the root on the hosted origin', () => {
-  expect(runtimeUrl('http://127.0.0.1:4179/r/abcdefghijklmnop/x/colab/')).toBe(
-    'http://127.0.0.1:4179/r/abcdefghijklmnop/x/colab/assets/colab-runtime.js',
+/** Serves the pinned texts, with any overrides by path. */
+function serve(overrides: Record<string, Response | string> = {}) {
+  const fetched: string[] = [];
+  vi.stubGlobal('fetch', async (url: string) => {
+    const path = new URL(url).pathname.replace(/^.*\/(assets\/)/, '$1');
+    fetched.push(path);
+    const override = overrides[path];
+    if (override instanceof Response) return override;
+    return new Response(override ?? texts[path as keyof typeof texts] ?? 'missing');
+  });
+  return fetched;
+}
+
+test('a chunk sits next to the renderer: mount-relative, or the root on the hosted origin', () => {
+  const path = 'assets/colab-runtime-base-0000000000000000.js';
+  expect(runtimeUrl('http://127.0.0.1:4179/r/abcdefghijklmnop/x/colab/', path)).toBe(
+    `http://127.0.0.1:4179/r/abcdefghijklmnop/x/colab/${path}`,
   );
-  expect(runtimeUrl('https://tmt-colab.web.app/s/anything')).toBe(
-    'https://tmt-colab.web.app/assets/colab-runtime.js',
+  expect(runtimeUrl('https://tmt-colab.web.app/s/anything', path)).toBe(
+    `https://tmt-colab.web.app/${path}`,
   );
 });
-test('the script and the theme are fetched once per path and a failure is not remembered', async () => {
-  const fetched: string[] = [];
-  let ok = false;
-  vi.stubGlobal('fetch', async (url: string) => {
-    fetched.push(url);
-    if (!ok) return new Response('no', { status: 500 });
-    return new Response(
-      url.endsWith('.css') ? '@theme { --color-paper: #fff; }' : 'window.tmt = 1;',
-    );
-  });
+
+test('a page loads the base and only its named chunks, each verified once per tab', async () => {
+  const fetched = serve();
   const base = 'http://127.0.0.1:4179/r/aaaaaaaaaaaaaaaa/x/colab/';
-  await expect(loadRuntime(base)).rejects.toThrow('Page runtime unavailable');
-  fetched.length = 0;
-  ok = true;
-  const first = await loadRuntime(base);
-  expect(first).toEqual({ script: 'window.tmt = 1;', style: '@theme { --color-paper: #fff; }' });
-  expect(fetched.map((url) => url.slice(base.length))).toEqual([
-    'assets/colab-runtime.js',
+  expect(await loadRuntime(base)).toEqual({
+    style: texts['assets/colab-runtime.css'],
+    scripts: ['window.base = 1;'],
+  });
+  expect(fetched.sort()).toEqual([
+    'assets/colab-runtime-base-0000000000000000.js',
     'assets/colab-runtime.css',
   ]);
-  expect(await loadRuntime(base)).toBe(first);
-  expect(fetched).toHaveLength(2);
+  fetched.length = 0;
+  // Unknown names add nothing; known chunks load in vector order, and the base is not fetched again.
+  expect((await loadRuntime(base, ['docs', 'nope', 'ui'])).scripts).toEqual([
+    'window.base = 1;',
+    'window.ui = 1;',
+    'window.docs = 1;',
+  ]);
+  expect(fetched.sort()).toEqual([
+    'assets/colab-runtime-docs-2222222222222222.js',
+    'assets/colab-runtime-ui-1111111111111111.js',
+  ]);
 });
-test('a theme that cannot load fails the runtime instead of running it unstyled', async () => {
-  vi.stubGlobal('fetch', async (url: string) =>
-    url.endsWith('.css') ? new Response('no', { status: 404 }) : new Response('window.tmt = 1;'),
-  );
-  await expect(loadRuntime('http://127.0.0.1:4179/r/bbbbbbbbbbbbbbbb/x/colab/')).rejects.toThrow(
+
+test('a lazy chunk whose bytes differ from the pin is left out; the rest of the page loads', async () => {
+  serve({ 'assets/colab-runtime-ui-1111111111111111.js': 'window.ui = 2;' });
+  const runtime = await loadRuntime('http://127.0.0.1:4179/r/bbbbbbbbbbbbbbbb/x/colab/', [
+    'ui',
+    'docs',
+  ]);
+  expect(runtime.scripts).toEqual(['window.base = 1;', 'window.docs = 1;']);
+});
+
+test('a base or theme that fails to load or verify fails the runtime, and the failure is not kept', async () => {
+  const base = 'http://127.0.0.1:4179/r/cccccccccccccccc/x/colab/';
+  serve({ 'assets/colab-runtime-base-0000000000000000.js': 'window.base = 2;' });
+  await expect(loadRuntime(base)).rejects.toThrow('does not match its pin');
+  serve({ 'assets/colab-runtime.css': new Response('no', { status: 404 }) });
+  await expect(loadRuntime('http://127.0.0.1:4179/r/dddddddddddddddd/x/colab/')).rejects.toThrow(
     'Page runtime unavailable',
   );
+  // The verified theme is kept; the failed base is fetched again.
+  const fetched = serve();
+  expect((await loadRuntime(base)).scripts).toEqual(['window.base = 1;']);
+  expect(fetched).toEqual(['assets/colab-runtime-base-0000000000000000.js']);
 });

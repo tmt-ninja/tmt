@@ -7,6 +7,7 @@
  * below supports runtimes 2 and 3 and ships with the app, never in a bundle.
  */
 
+import { runtimeChunkNames } from './runtime-chunks.js';
 import {
   checkElements,
   findingText,
@@ -73,6 +74,9 @@ export interface FrameDesignSystem {
   /** Host-only admission derived from the verified bundle, never from page markup alone. */
   readonly pageViewTags?: readonly string[];
   readonly pageDataTags?: readonly string[];
+  /** The page runtime's chunks this page needs (#6085), from the verified bundle; the base alone
+   * when absent. */
+  readonly runtimeChunks?: readonly string[];
 }
 function supportsCapabilities(bundle: DesignSystemBundle): boolean {
   try {
@@ -220,8 +224,9 @@ export function frameDesignSystem(
 const factories=[${bundle.components.map(({ code }) => `(function(){${code}})()`).join(',')}];
 if(!t||!t.React||!t.html||!t.createRoot)return;
 const React=t.React,cn=(...parts)=>parts.filter(Boolean).join(' ');
+const Unavailable=()=>React.createElement('span',{role:'status','data-tmt-part-unavailable':''},'Part unavailable');
 const Nodes=({nodes})=>{const ref=React.useRef(null);React.useLayoutEffect(()=>{if(ref.current)ref.current.replaceChildren(...nodes);},[nodes]);return React.createElement('tmt-slot',{ref,style:{display:'contents'}});};
-meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name)||!t.sharedParts||!Object.hasOwn(t.sharedParts,name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts[name];}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name)||!t.ui||!Object.hasOwn(t.ui,name))throw new Error('Undeclared UI part: '+String(name));return t.ui[name];}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui,pagePin}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
+meta.forEach((spec,index)=>{if(customElements.get(spec.tag))return;const parts=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.parts.includes(name))throw new Error('Undeclared shared part: '+String(name));return t.sharedParts&&Object.hasOwn(t.sharedParts,name)?t.sharedParts[name]:Unavailable;}});const data=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.data.includes(name)||!t.sharedData||!Object.hasOwn(t.sharedData,name))throw new Error('Undeclared data capability: '+String(name));return t.sharedData[name];}});const ui=new Proxy(Object.create(null),{get(_target,name){if(typeof name!=='string'||!spec.uiParts.includes(name))throw new Error('Undeclared UI part: '+String(name));return t.ui&&Object.hasOwn(t.ui,name)?t.ui[name]:Unavailable;}});const skeleton=Object.freeze(${bundle.runtime === '4' ? '{React,html:t.html,cn,parts,data,prefix,ui,pagePin}' : bundle.runtime === '3' ? '{React,html:t.html,cn,parts,data,prefix}' : '{React,html:t.html,cn}'});const Component=factories[index](skeleton);
 customElements.define(spec.tag,class extends HTMLElement{static get observedAttributes(){return Object.keys(spec.props);}
 connectedCallback(){if(document.readyState==='loading'){if(!this.waiting){this.waiting=true;document.addEventListener('DOMContentLoaded',()=>{if(this.isConnected)this.connectedCallback();},{once:true});}return;}if(!this.root){if(!this.slots){this.slots={};for(const node of [...this.childNodes]){const name=node.nodeType===1&&node.getAttribute('slot');const slot=name&&spec.slots.includes(name)?name:'default';(this.slots[slot]??=[]).push(node);node.remove();}}this.root=t.createRoot(this);}this.paint();}
 disconnectedCallback(){const root=this.root;if(root)queueMicrotask(()=>{if(!this.isConnected&&this.root===root){root.unmount();this.root=null;}});}
@@ -330,5 +335,10 @@ export async function loadDesignSystem(
     pageDataTags: bundle.components
       .filter((component) => component.data?.includes('page'))
       .map((component) => component.tag),
+    runtimeChunks: runtimeChunkNames(
+      bundle.components,
+      bundle.prefix,
+      new Set(elements.map((element) => element.tag)),
+    ),
   };
 }

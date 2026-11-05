@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { rgb, tokens } from './tokens.js';
 import { readFrameStyle } from './frame-style.js';
+import { servePageRuntime } from './page-runtime.js';
 
 let capture: Server;
 let origin: string;
@@ -973,17 +974,7 @@ test('a page opts in to the bundled runtime exactly as the shared marker vectors
 test('only an opting-in page fetches the runtime, and its frame gets it before the page runs', async ({
   page,
 }) => {
-  let fetches = 0;
-  await page.route('**/assets/colab-runtime.css', (route) =>
-    route.fulfill({ contentType: 'text/css', body: '@theme { --color-stub: #123456; }' }),
-  );
-  await page.route('**/assets/colab-runtime.js', (route) => {
-    fetches += 1;
-    return route.fulfill({
-      contentType: 'text/javascript',
-      body: 'window.tmt = Object.freeze({ stub: true });',
-    });
-  });
+  const fetched = await servePageRuntime(page);
   await page.goto('/');
   await mount(
     page,
@@ -992,28 +983,26 @@ test('only an opting-in page fetches the runtime, and its frame gets it before t
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const plain = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
   await expect(plain.locator('#plain')).toHaveAttribute('data-tmt', 'undefined');
-  expect(fetches).toBe(0);
+  expect(fetched).toEqual([]);
   await page.evaluate(() => {
     (window as unknown as { probe: { controller: AbortController } }).probe.controller.abort();
     document.querySelector('#probe')?.remove();
   });
   await mount(
     page,
-    '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p><script>document.getElementById("opted").dataset.tmt = String(window.tmt && window.tmt.stub)</script>',
+    '<meta name="tmt-colab-runtime" content="react tailwind"><p id="opted">Marker</p><script>document.getElementById("opted").dataset.tmt = String(typeof window.tmt.html === "function")</script>',
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const opted = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
   await expect(opted.locator('#opted')).toHaveAttribute('data-tmt', 'true');
-  expect(fetches).toBe(1);
+  // A page without design-system components needs the base alone (#6085).
+  expect([...fetched].sort()).toEqual(['base', 'colab-runtime.css']);
 });
 
 test('an opting-in page whose runtime cannot load fails visibly instead of rendering half-working', async ({
   page,
 }) => {
-  await page.route('**/assets/colab-runtime.css', (route) =>
-    route.fulfill({ contentType: 'text/css', body: '' }),
-  );
-  await page.route('**/assets/colab-runtime.js', (route) => route.fulfill({ status: 500 }));
+  await servePageRuntime(page, { fail: 'base' });
   await page.goto('/');
   await mount(page, '<meta name="tmt-colab-runtime" content="react"><p>Needs React</p>');
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'failed');

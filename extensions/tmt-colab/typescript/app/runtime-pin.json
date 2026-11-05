@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "packages": {
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -7,16 +7,53 @@
     "@tailwindcss/browser": "4.3.3",
     "lucide-react": "1.52.0"
   },
-  "files": [
+  "chunks": [
     {
-      "path": "assets/colab-runtime.js",
-      "sha256": "f6d636515cb5f207956222580b5824e48e178913f5d405508f0a7275e056c4c9",
-      "length": 1397010
+      "name": "base",
+      "path": "assets/colab-runtime-base-cca9cd8cfda74d13.js",
+      "sha256": "cca9cd8cfda74d13c39c6681ddcdad7391349a805cbce58b97f320cc58b4ed1e",
+      "length": 533946,
+      "gzip": 153522
     },
     {
-      "path": "assets/colab-runtime.css",
-      "sha256": "f1328bb12414e8fc5cc18f8b0e25fd58ae732c92b085f22a2ba8300bfe133a35",
-      "length": 7422
+      "name": "ui",
+      "path": "assets/colab-runtime-ui-ac1e10bc11ad9fcb.js",
+      "sha256": "ac1e10bc11ad9fcb435a1368e0aa19823b443862dbeaf18092c5799b77402693",
+      "length": 246296,
+      "gzip": 69682
+    },
+    {
+      "name": "browser",
+      "path": "assets/colab-runtime-browser-c8a90a30450331cb.js",
+      "sha256": "c8a90a30450331cbcbda677615009b0b2bc32acf9b0a4cb6a8fd0da8cb7228d0",
+      "length": 108829,
+      "gzip": 32900
+    },
+    {
+      "name": "blocks",
+      "path": "assets/colab-runtime-blocks-839068b6dd602693.js",
+      "sha256": "839068b6dd602693ec25f644056c3ee9afdfb0a6cb2bd32cc3d0af601260c5bd",
+      "length": 44072,
+      "gzip": 12365
+    },
+    {
+      "name": "rich-input",
+      "path": "assets/colab-runtime-rich-input-5de632692d997b2f.js",
+      "sha256": "5de632692d997b2febaeee8ab63db0762976ec0bfd5aa8885cd16f9eadfe0d5d",
+      "length": 223672,
+      "gzip": 70565
+    },
+    {
+      "name": "docs",
+      "path": "assets/colab-runtime-docs-a8e2b9820bdf6838.js",
+      "sha256": "a8e2b9820bdf6838dc598e6f20af432d7fbf91056efa46be1ac73d147aaef099",
+      "length": 164876,
+      "gzip": 47884
     }
-  ]
+  ],
+  "theme": {
+    "path": "assets/colab-runtime.css",
+    "sha256": "f1328bb12414e8fc5cc18f8b0e25fd58ae732c92b085f22a2ba8300bfe133a35",
+    "length": 7422
+  }
 }
