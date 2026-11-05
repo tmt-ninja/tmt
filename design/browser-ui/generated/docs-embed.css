@@ -1670,14 +1670,18 @@ a.tmt-block-mention:focus-visible {
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
 }
+
 .tmt-block-mockup-pin {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0 var(--tmt-ui-space-s);
   border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-hover);
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--tmt-ui-font-mono);
-  overflow-wrap: anywhere;
 }
 
 .tmt-block-mockup-segments {

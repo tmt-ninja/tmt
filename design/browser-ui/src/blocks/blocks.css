@@ -771,14 +771,18 @@ a.tmt-block-mention:focus-visible {
   flex-wrap: wrap;
   gap: var(--tmt-ui-space-xs) var(--tmt-ui-space-s);
 }
+/* The pin names a whole release hash; one line, cut with an ellipsis. */
 .tmt-block-mockup-pin {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0 var(--tmt-ui-space-s);
   border-radius: var(--tmt-ui-radius-pill);
   background: var(--tmt-ui-surface-hover);
   color: var(--tmt-ui-color-secondary);
   font: var(--tmt-ui-caption-size) / var(--tmt-ui-caption-line-height) var(--tmt-ui-font-mono);
-  overflow-wrap: anywhere;
 }
 /* A segmented control: joined buttons, the chosen one filled; a group wraps only as a whole. */
 .tmt-block-mockup-segments {
