@@ -106,8 +106,14 @@ for (const theme of ['light', 'dark'] as const)
         path: capturePath(`3299-tooltip-${width}-${theme}.png`),
         fullPage: true,
       });
-      // An enabled primary action is accent-filled and draws its edge in the strong accent; every
-      // other frame, a disabled primary included, is the rule.
+      // Fields use the perceivable edge role; primary actions use the strong accent and
+      // other frames, including disabled primary actions, use the rule.
       for (const frame of frames)
-        expect(frame.color, frame.selector).toBe(frame.enabledPrimary ? accentEdge : rule);
+        expect(frame.color, frame.selector).toBe(
+          frame.selector === '.tmt-ui-field-control:not(.rich-input-field)'
+            ? edge
+            : frame.enabledPrimary
+              ? accentEdge
+              : rule,
+        );
     });
