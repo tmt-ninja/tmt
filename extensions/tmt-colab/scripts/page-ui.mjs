@@ -17,8 +17,10 @@ import { readFile } from 'node:fs/promises';
 // blocks once the palette is chosen (#5963).
 // #5866: baseline 144,011 + 11-byte theme/base layer order = 144,022, exact, no headroom.
 // Measured with Node v26.12.1: node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write
+// #5981: stage @container copies generated from shell.css and list.css @media blocks, plus the compact
+// title hide: 144,011 -> 145,773 (+1,762), exact, no headroom (GUI lead approval on #5981).
 // Stripping remains #5809.
-export const PAGE_UI_LIMIT = 144_022;
+export const PAGE_UI_LIMIT = 145_773;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

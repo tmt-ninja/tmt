@@ -56,62 +56,12 @@
   width: min(520px, calc(100cqw - 32px));
   max-width: min(calc(var(--tmt-foundation-spacing-unit) * 128), calc(100cqw - 32px));
 }
+/* The shell's own narrow-width rules reach a stage as container queries generated from shell.css
+   (scripts/stage-compact-css.mjs). Here only what the product sets on the root instead. */
 @container tmt-ds-scope (max-width: 900px) {
   .tmt-ui-shell {
-    display: block;
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
     --tmt-ui-header-padding-inline: var(--tmt-ui-header-compact-padding-inline);
-  }
-  .tmt-ui-shell-content {
-    display: block;
-  }
-  .tmt-ui-topbar-title-prefix,
-  .tmt-ui-topbar-title-chips {
-    display: none;
-  }
-  .tmt-ui-topbar-title h1 {
-    flex: 1;
-  }
-  .tmt-ui-topbar {
-    padding-inline: var(--tmt-ui-header-compact-padding-inline);
-  }
-  .tmt-ui-shell-open {
-    position: fixed;
-    top: calc((var(--tmt-ui-header-height) - var(--tmt-ui-control-size)) / 2);
-    left: var(--tmt-ui-space-s);
-    z-index: 53;
-    display: flex;
-  }
-  .tmt-ui-topbar .tmt-ui-shell-open {
-    position: static;
-  }
-  .tmt-ui-shell-tools {
-    position: fixed;
-    top: 0;
-    right: 0;
-  }
-  .tmt-ui-rail,
-  .tmt-ui-module-menu {
-    display: none;
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 52;
-    display: flex;
-    width: min(calc(var(--tmt-ui-rail-width) + var(--tmt-ui-space-2xl) * 2), 100cqw);
-    height: auto;
-    padding-top: var(--tmt-ui-header-compact-height);
-    box-shadow: var(--tmt-ui-shadow-overlay);
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-shell-brand {
-    display: none;
-  }
-  .tmt-ui-shell[data-drawer='open'] .tmt-ui-rail-label {
-    visibility: visible;
-  }
-  .tmt-ui-topbar-navigation > .tmt-ui-icon-action {
-    display: inline-flex;
   }
 }
 @container tmt-ds-scope (min-width: 901px) {

@@ -26,8 +26,9 @@ import {
   blockKeyAction,
   nextBlockMenuItem,
   type BlockAction,
+  insertGroups,
 } from '../src/blocks/index.js';
-import { insertGroups, sampleBlocks, type SampleBlock } from './blocks-sample.js';
+import { sampleBlocks, type SampleBlock } from './blocks-sample.js';
 import './block-editor.css';
 
 /** The editor demo's opening state, so each pattern's frame starts where it shows its rule. */

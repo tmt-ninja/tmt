@@ -265,6 +265,31 @@ test('a phone shell preview uses its own width and opens its drawer locally', as
   await expect(stage.getByRole('navigation', { name: 'TMT' })).toBeVisible();
 });
 
+test('the phone drawer preview opens its own drawer and no other', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${docs}/ds/gui/browser/shell`);
+  // Mount every lazy scene first: a scene that opened the page's first shell, not its own, would
+  // pass while it happened to mount first.
+  for (const pair of await page.locator('.gallery-pair').all()) {
+    await pair.scrollIntoViewIfNeeded();
+    await expect(pair.locator('[data-scene-loading]')).toHaveCount(0);
+  }
+  const drawer = page
+    .locator('.gallery-pair')
+    .filter({ has: page.getByRole('heading', { name: 'Phone navigation drawer' }) });
+  const openers = page.getByRole('button', { name: 'Open navigation' });
+  await expect(drawer.getByRole('button', { name: 'Open navigation' })).toHaveCount(2);
+  for (const stage of await drawer.locator('[data-preview-frame]').all()) {
+    await expect(stage.getByRole('button', { name: 'Open navigation' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await expect(stage.getByRole('navigation', { name: 'TMT' })).toBeVisible();
+  }
+  // Every other phone scene keeps its drawer shut.
+  await expect(openers.and(page.locator('[aria-expanded="true"]'))).toHaveCount(2);
+});
+
 test('a wide shell preview stays wide inside a phone viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(`${docs}/ds/gui/browser/shell`);

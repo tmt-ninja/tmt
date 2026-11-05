@@ -15,9 +15,10 @@ import {
   BlockToast,
   TextBlock,
   blockActions,
+  insertGroups,
 } from '../src/blocks/index.js';
 import { BlockEditor, type BlockEditorStart } from './block-editor.js';
-import { insertGroups, partStates } from './blocks-sample.js';
+import { partStates } from './blocks-sample.js';
 
 const shellStates: [string, ReactNode][] = [
   [

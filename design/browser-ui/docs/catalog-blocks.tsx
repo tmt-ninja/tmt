@@ -109,9 +109,9 @@ export const blockComponents: ComponentDoc[] = [
     slug: 'block-menu',
     name: 'Block menus',
     description:
-      'BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind="actions", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never "turn into"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows.',
+      'BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind="actions", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never "turn into"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows. insertGroups is the one catalog of insert types (icon, description, shortcut, group); items draws catalog rows by label, which is how the block-menu tag shows the same rows.',
     preview: () => <p>See the frames below: a floating menu needs its own page.</p>,
-    usage: `${importLine('BlockMenu', 'BlockMenuGroup', 'BlockMenuItem', 'BlockMenuSeparator', 'BlockMenuEmpty', 'BlockMenuFooter', 'BlockKbd', 'blockActions', 'nextBlockMenuItem')}<BlockMenu label="Insert block" activeId={\`insert-\${active}\`} placement={phone ? 'sheet' : 'below'}>
+    usage: `${importLine('BlockMenu', 'BlockMenuGroup', 'BlockMenuItem', 'BlockMenuSeparator', 'BlockMenuEmpty', 'BlockMenuFooter', 'BlockKbd', 'blockActions', 'insertGroups', 'nextBlockMenuItem')}<BlockMenu label="Insert block" activeId={\`insert-\${active}\`} placement={phone ? 'sheet' : 'below'}>
   <BlockMenuGroup>Basic</BlockMenuGroup>
   <BlockMenuItem id="insert-table" icon={<Table2 />} description="Columns and rows" shortcut="/table" active>Table</BlockMenuItem>
   {!matches.length && <BlockMenuEmpty>No block matches.</BlockMenuEmpty>}
@@ -119,7 +119,8 @@ export const blockComponents: ComponentDoc[] = [
 </BlockMenu>
 <BlockMenu kind="actions" label="Block actions">
   {blockActions.map((action) => <BlockMenuItem key={action.id} shortcut={action.shortcut} danger={action.danger}>{action.label}</BlockMenuItem>)}
-</BlockMenu>  // BlockMenuSeparator goes before Delete`,
+</BlockMenu>  // BlockMenuSeparator goes before Delete
+<BlockMenu label="Insert block" placement="sheet" items={['Paragraph', 'Heading', 'Table']} activeItem="Table" />  // rows from insertGroups`,
     variants: frames('menu', 'Block menus', 1500),
   },
   ...(

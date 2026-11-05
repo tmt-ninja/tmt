@@ -768,7 +768,6 @@
    ],
    "uiParts": [
     "BlockMenu",
-    "BlockMenuItem",
     "BlockMenuFooter",
     "BlockKbd"
    ],
@@ -783,11 +782,11 @@
     },
     {
      "title": "Phone sheet",
-     "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do\"></tmt-ui-block-menu>"
+     "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do, Question, Code\" active=\"Paragraph\"></tmt-ui-block-menu>"
     }
    ],
    "css": "",
-   "code": "return ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.BlockMenu, { label, kind, placement },\n    ...names.map((name) => h(ui.BlockMenuItem, { key: name, active: name === (active ?? names[0]) }, name)),\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ' choose'),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ' insert'), h('span', null, h(ui.BlockKbd, null, 'Esc'), ' close')));\n};\n"
+   "code": "return ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  // BlockMenu draws catalog rows by label: an insert type's icon, description, shortcut and group,\n  // or a block action's key; any other label is a plain row.\n  return h(ui.BlockMenu, { label, kind, placement, items: names, activeItem: active ?? names[0] },\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ' choose'),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ' insert'), h('span', null, h(ui.BlockKbd, null, 'Esc'), ' close')));\n};\n"
   },
   {
    "tag": "tmt-ui-heading-block",
@@ -2926,5 +2925,5 @@
    "code": "return ({ React, ui }) => function StatusLine({ items = '[]' }) {\n  let parsed;\n  try { parsed = JSON.parse(items); } catch { parsed = []; }\n  const safe = Array.isArray(parsed) ? parsed.filter((item) => item && ['working', 'waiting', 'review', 'blocked'].includes(item.tone) && typeof item.label === 'string').slice(0, 20) : [];\n  return React.createElement(ui.BrowserStatusLine, { items: safe });\n};\n"
   }
  ],
- "hash": "sha256-70f8b0936aef5940509b6645a08414001c132f555546bf6911addf02fdd66a09"
+ "hash": "sha256-4ba33a6c1eaf2ccb37701ecaec03378c6ec5b6e8f68eb1e5423331d7ec55e689"
 }

@@ -12,7 +12,15 @@ import { ChartsSection } from './charts.js';
 import { MenuHostFrame } from './menu-host-frame.js';
 import { RailFrame } from './rail-frame.js';
 import { TopBarFrame } from './topbar-frame.js';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings } from 'lucide-react';
 import {
@@ -149,7 +157,6 @@ function ShellHeader() {
 }
 
 export function ShellFrame({ params }: { params: URLSearchParams }) {
-  const scope = useDsScope();
   const [projects, setProjects] = useState(params.get('projects') === '20' ? 20 : 3);
   const [mounted, setMounted] = useState(true);
   const scrollFixture = params.has('projects');
@@ -185,15 +192,29 @@ export function ShellFrame({ params }: { params: URLSearchParams }) {
       : answer;
     return { rail: shellRail(shown, place, colab), menu };
   }, [params, projects, scrollFixture]);
-  useEffect(() => {
-    if (scope || params.get('drawer') !== 'open') return;
-    document.querySelector<HTMLButtonElement>('.tmt-ui-shell .tmt-ui-shell-open')?.click();
-  }, [params, scope]);
+  // The drawer scene opens this frame's own shell: inline in the docs, other shells share the page.
+  // The page mounts only once the shell has drawn its controls, so its ref is the moment to do it.
+  const drawer = params.get('drawer') === 'open';
+  const openDrawer = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!drawer || !node) return;
+      // Open, not toggle: a development ref runs twice.
+      const opener = node
+        .closest('.tmt-ui-shell')
+        ?.querySelector<HTMLButtonElement>('.tmt-ui-shell-open');
+      if (opener?.getAttribute('aria-expanded') !== 'true') opener?.click();
+    },
+    [drawer],
+  );
   if (!mounted) return <p>Shell disposed</p>;
   return (
     <BrowserShell view={view} select={() => true}>
       <ShellHeader />
-      <div className="tmt-ui-page" style={scrollFixture ? { minHeight: 1600 } : undefined}>
+      <div
+        ref={openDrawer}
+        className="tmt-ui-page"
+        style={scrollFixture ? { minHeight: 1600 } : undefined}
+      >
         {scrollFixture && (
           <>
             <button type="button" onClick={() => setProjects(projects === 20 ? 3 : 20)}>

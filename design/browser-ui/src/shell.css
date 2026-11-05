@@ -717,6 +717,11 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
   .tmt-ui-topbar-title h1 {
     flex: 1;
   }
+  /* The title takes the room the bar leaves; with too little for a few letters it hides rather
+     than show a clipped one. */
+  .tmt-ui-topbar-title {
+    container: tmt-ui-topbar-title / inline-size;
+  }
   .tmt-ui-topbar {
     padding-inline: var(--tmt-ui-header-compact-padding-inline);
   }
@@ -778,6 +783,11 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
   }
   .tmt-ui-module-menu {
     display: none;
+  }
+}
+@container tmt-ui-topbar-title (width < 2em) {
+  .tmt-ui-topbar-title h1 {
+    visibility: hidden;
   }
 }
 /* A phone-width bar draws no key hint. */
