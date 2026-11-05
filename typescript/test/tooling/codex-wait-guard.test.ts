@@ -390,6 +390,21 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
     }
     expect(received).toHaveLength(judged.length);
+
+    // A double-quoted redirect target that expands runs a command: never only a ci-wake start.
+    const expanding = [
+      'sh scripts/ci-wake.sh 6089 > "$(sleep 600)"',
+      'sh scripts/ci-wake.sh 6089 > "$(sleep 600)" &',
+      'sh scripts/ci-wake.sh 6089 > "`sleep 600`"',
+      'sh scripts/ci-wake.sh 6089 > "`sleep 600`" &',
+      'sh scripts/ci-wake.sh 6089 > "${HOME}/x.log"',
+      'sh scripts/ci-wake.sh 6089 > "${HOME}/x.log" &',
+    ];
+    for (const command of expanding) {
+      await c.guard(bash(command));
+      expect(c.lines().at(-1).reason, command).not.toBe('ci-wake');
+    }
+    expect(received).toHaveLength(judged.length + expanding.length);
   });
 
   it("skips the model for another worktree's unmodified ci-wake.sh and a heredoc nothing runs (#6003)", async () => {

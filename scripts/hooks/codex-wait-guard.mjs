@@ -328,9 +328,13 @@ export function runsTests(command) {
   return testSubject(rest.slice(next));
 }
 
-/** A trailing `&`, and redirections such as `> log 2>&1` or `< /dev/null`, at the end of a command. */
+/**
+ * A trailing `&`, and redirections such as `> log 2>&1` or `< /dev/null`, at the end of a command.
+ * A double-quoted target may not expand (`$`, a backtick or `\`): `> "$(sleep 600)"` runs a
+ * command, so it is never stripped as a plain redirection.
+ */
 const TRAILING_REDIRECT =
-  /\s+(?:\d*>&\d+|(?:\d*>>?|&>|<)\s*(?:'[^']*'|"[^"]*"|[^\s;&|<>()`$\\'"]+))$/;
+  /\s+(?:\d*>&\d+|(?:\d*>>?|&>|<)\s*(?:'[^']*'|"[^"$`\\]*"|[^\s;&|<>()`$\\'"]+))$/;
 
 /**
  * Whether the command only starts this repository's scripts/ci-wake.sh, the required
