@@ -129,7 +129,7 @@ docker() {
     expect(action).toContain('continue-on-error: true');
     expect(action).not.toContain("config['debug']");
   });
-  it('pins the same mirrored builder at both workflow sites with direct setup fallback', () => {
+  it('pins the same mirrored builder at both workflow sites with runner-provided Buildx fallback', () => {
     const image =
       'mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea';
     for (const [workflow, guard] of [
@@ -143,11 +143,11 @@ docker() {
       expect(source).not.toContain('debug = true');
       expect(source).not.toContain('network=host');
       const mirrored = source.indexOf(`driver-opts: image=${image}`);
-      const fallback = source.indexOf('Fall back to the original Buildx setup', mirrored);
+      const fallback = source.indexOf('Fall back to runner-provided Buildx', mirrored);
       expect(fallback).toBeGreaterThan(mirrored);
       expect(source.slice(fallback, fallback + 400)).toContain(guard);
       expect(source.slice(fallback, fallback + 400)).toContain(".outcome == 'failure'");
-      expect(source.slice(fallback, fallback + 400)).toContain('version: v0.29.1');
+      expect(source.slice(fallback, fallback + 400)).not.toMatch(/\n\s+version:/);
       expect(source.slice(fallback, fallback + 400)).not.toContain('driver-opts');
     }
   });
