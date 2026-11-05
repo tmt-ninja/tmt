@@ -49,7 +49,7 @@ named below; explicitly labelled design targets remain unshipped.
    descriptor) in human text.
 
 The product brand is the selected ninja from [#5971](https://github.com/tmt-ninja/tmt/pull/5971):
-pale ink on the blog's dark tile, retained in light, dark and palette B. The
+pale ink on the blog's dark tile, retained in light and dark. The
 [browser-ui brand contract](browser-ui/README.md) owns its source, generation and host copies.
 
 ## Tokens
@@ -59,7 +59,7 @@ values such as `ink-950`, `red-500`, the `radius` knob and the `size-1`…`size-
 as `--tmt-ui-ref-*` and read only by roles. **Semantic roles** (`--tmt-ui-color-*`,
 `--tmt-ui-surface-*`, the metrics) are what components read. **Component tokens** (`--tmt-foundation-*`
 in the ui layer) alias the semantic roles. Palette B (red, black, white and grey, #5821) maps the
-semantic roles onto refs inside `[data-tmt-palette='b']` only. Its accent red marks only
+semantic roles onto refs throughout the GUI. Its accent red marks only
 focus, the selected tab and the primary action, never a state: blocked is a darker red with its ✕.
 
 Use the leaf's [roles and generation](browser-ui/README.md#entries-and-generation)
@@ -90,16 +90,12 @@ name and a visible tooltip.
   containers space their children with a token gap, never by margins alone.
 - **Focus** is one 1px edge in the focus color (`focus-width`) on every control;
   fields and framed boxes recolour their own 1px rule instead of adding a ring.
-- **Fields** (text fields, text areas and select triggers) keep the soft `rule`
-  edge, an exception to the 3:1 non-text contrast the check-style controls meet
-  (WCAG 1.4.11; the `edge` color on an unchecked checkbox or radio, a toggle's
-  indicator). It holds on three conditions: every field has a visible label (a
-  select shows its value and a chevron instead, a search field its placeholder
-  beside a magnifier), its fill (`surface.field`)
-  differs from the surface behind it, and its focus and invalid states keep the
-  strong edge. The leaf's design audit (`controlBoundaries`) skips fields by name
-  for the border check and fails a field that fills like its surface or has no
-  visible label or value.
+- **Fields** (text fields, text areas and select triggers) use the `edge` color for a
+  full boundary of at least 3:1 against the surrounding surface (WCAG 1.4.11). Every
+  field has a visible label; a select shows its value and a chevron, and a search field
+  may use its placeholder beside a magnifier. Focus and invalid states retain their
+  distinct edges. The leaf's `controlBoundaries` audit requires a label and accepts a
+  perceivable boundary through either a fill step or a full 3:1 edge.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows

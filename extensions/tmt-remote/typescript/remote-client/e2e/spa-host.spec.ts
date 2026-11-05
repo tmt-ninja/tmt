@@ -1749,7 +1749,7 @@ test.describe('the Digest route on the owner reads', () => {
       await expect(cards.first()).toBeVisible();
       expect(await cards.count()).toBe(4);
       await expect(page.locator('#digest-activity')).toHaveCount(0);
-      await expect(cards.first()).toHaveCSS('border-radius', '8px');
+      await expect(cards.first()).toHaveCSS('border-radius', '2px');
       const provider = page.locator('.digest-provider').first();
       const details = provider.locator('details');
       await expect(provider.locator('.digest-provider-label')).toContainText('% left');
@@ -1849,7 +1849,7 @@ test.describe('Settings General website presentation', () => {
           await expect(general).toHaveCSS('padding-left', width === 390 ? '18px' : '36px');
           const cards = general.locator('.tmt-settings-card');
           await expect(cards).toHaveCount(4);
-          await expect(cards.first()).toHaveCSS('border-radius', '8px');
+          await expect(cards.first()).toHaveCSS('border-radius', '2px');
           const foot = general.locator('.tmt-settings-foot');
           const gridBox = await general.locator('.tmt-settings-grid').boundingBox();
           const footBox = await foot.boundingBox();

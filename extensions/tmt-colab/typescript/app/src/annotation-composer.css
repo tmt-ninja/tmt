@@ -1,7 +1,7 @@
 /* AnnotationInput is the single composer presentation for Chat, comment replies and the annotation
    window: one field on the sheet surface with the toolbar inside it, and one helper line under it. */
 .annotation-compose .rich-input-surface[data-accessory] {
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
 }

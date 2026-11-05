@@ -477,7 +477,7 @@ test('measured spacing matches the mock table at 1440 and 390', async ({ page })
     expect(values.top.gap).toBe('8px');
     expect(values.top.paddingLeft).toBe('8px');
     expect(values.top.paddingRight).toBe('8px');
-    expect(values.top.borderRadius).toBe('8px');
+    expect(values.top.borderRadius).toBe('2px');
     expect(values.topName.gap).toBe('8px');
     expect(px(values.nestedName.paddingLeft) - px(values.topName.paddingLeft)).toBe(24);
     expect(values.add.marginTop).toBe('8px');

@@ -106,7 +106,7 @@ for (const width of [1440, 390])
         });
         expect(geometry).toMatchObject({
           border: '1px',
-          radius: '6px',
+          radius: '2px',
           shadow: 'none',
           atCorner: true,
           inside: true,

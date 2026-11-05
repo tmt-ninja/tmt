@@ -62,7 +62,7 @@ for (const [width, scheme] of [
         rgb(tokens.browser.surface.rule[scheme]),
       );
     }
-    await expect(block).toHaveCSS('border-top-left-radius', '8px');
+    await expect(block).toHaveCSS('border-top-left-radius', '2px');
     await expect(block).toHaveCSS('box-shadow', 'none');
     const legend = card.locator('.tmt-ui-choices-legend');
     await expect(legend).toHaveText('Choose one answer, or write your own.');
@@ -89,7 +89,10 @@ for (const [width, scheme] of [
     const send = card.getByRole('button', { name: /^Send answer/ });
     await expect(send).toBeEnabled();
     await expect(send).toHaveAttribute('data-variant', 'primary');
-    await expect(send).toHaveCSS('background-color', rgb(tokens.browser.color.accent[scheme]));
+    await expect(send).toHaveCSS(
+      'background-color',
+      rgb(tokens.browser.color['accent-fill'][scheme]),
+    );
     await expect(send).toHaveCSS('text-decoration-line', 'none');
     await expect(card.locator('.tmt-ui-action[data-variant="primary"]')).toHaveCount(1);
     await expectOnePrimaryPerGroup(page, 'question card');

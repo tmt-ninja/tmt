@@ -74,12 +74,14 @@ test('audit control: border-only control contrast', async ({ page }) => {
   expect(repaired.misses).toEqual([]);
 });
 
-test('audit control: soft field needs distinct fill and visible label', async ({ page }) => {
+test('audit control: a field needs a fill step or full 3:1 edge, and a visible label', async ({
+  page,
+}) => {
   await page.setContent(
-    '<main style="background:white"><input id="field" class="tmt-ui-field-control" style="background:white"></main>',
+    '<main style="background:white"><input id="field" class="tmt-ui-field-control" style="background:white;border:0"></main>',
   );
   const broken = (await controlBoundaries(page, 'main')).fields;
-  expect(broken.sameFill).toHaveLength(1);
+  expect(broken.missingBoundary).toHaveLength(1);
   expect(broken.unlabelled).toHaveLength(1);
   await page.locator('input').evaluate((el) => {
     el.style.backgroundColor = '#ddd';
@@ -90,8 +92,15 @@ test('audit control: soft field needs distinct fill and visible label', async ({
   });
   const repaired = (await controlBoundaries(page, 'main')).fields;
   expect(repaired.measured).toBe(1);
-  expect(repaired.sameFill).toEqual([]);
+  expect(repaired.missingBoundary).toEqual([]);
   expect(repaired.unlabelled).toEqual([]);
+  await page.locator('input').evaluate((el) => {
+    el.style.backgroundColor = 'white';
+    el.style.border = '1px solid #777';
+  });
+  const edged = (await controlBoundaries(page, 'main')).fields;
+  expect(edged.missingBoundary).toEqual([]);
+  expect(edged.unlabelled).toEqual([]);
 });
 
 test('audit control: a search field is named by its placeholder', async ({ page }) => {

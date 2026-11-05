@@ -19,8 +19,6 @@ it('keeps the selected ninja artwork exact, on its dark tile, at every product s
   );
   expect(brandMarkInner()).toContain(`fill="${tokens.brand.mark.tile.light.toLowerCase()}"`);
   expect(tokens.brand.mark.tile.light).toBe(tokens.brand.mark.tile.dark);
-  expect(tokens.browser['palette-b']['brand-mark'].tile.light).toBe(tokens.brand.mark.tile.light);
-  expect(tokens.browser['palette-b']['brand-mark'].tile.dark).toBe(tokens.brand.mark.tile.dark);
   for (const size of [16, 24, 32, 256]) {
     const svg = brandMarkSvg({ size });
     expect(svg).toContain(`width="${size}" height="${size}"`);

@@ -30,7 +30,7 @@ const roles = {
   'destructive-soft': ['surface', 'blocked-soft'],
   'layer-boundary': ['surface', 'rule'],
   border: ['surface', 'rule'],
-  input: ['surface', 'rule'],
+  input: ['color', 'edge'],
   indicator: ['color', 'edge'],
   ring: ['color', 'focus'],
   waiting: ['color', 'waiting'],
@@ -49,23 +49,14 @@ function motion(reduced = false, indent = '  ') {
     )
     .map(([key, value]) => `${indent}--tmt-foundation-motion-${key}: ${reduced ? '0ms' : value};`);
 }
-const themed = (theme) =>
+// UI islands follow shared semantic roles, with standalone theme values as fallbacks.
+const themed = (theme, inherit = false) =>
   Object.entries(roles)
-    .map(
-      ([name, [group, role]]) =>
-        `  --tmt-foundation-${name}: ${tokens.browser[group][role][theme].toLowerCase()};`,
-    )
+    .map(([name, [group, role]]) => {
+      const fallback = tokens.browser[group][role][theme].toLowerCase();
+      return `  --tmt-foundation-${name}: ${inherit ? `var(--tmt-ui-${group}-${role}, ${fallback})` : fallback};`;
+    })
     .join('\n');
-// Palette B (#5821): inside [data-tmt-palette='b'] the foundation reads the leaf's semantic roles, which
-// static.css remaps there, so the set follows B, the viewer theme and the radius knob with no values here.
-const paletteB = [
-  ...Object.entries(roles).map(
-    ([name, [group, role]]) => `  --tmt-foundation-${name}: var(--tmt-ui-${group}-${role});`,
-  ),
-  ...['radius', 'radius-s', 'radius-l'].map(
-    (key) => `  --tmt-foundation-${key}: var(--tmt-ui-${key});`,
-  ),
-].join('\n');
 const fixed = [
   ...Object.entries(tokens.browser.ui).map(
     ([key, value]) => `  --tmt-foundation-${key}: ${value};`,
@@ -86,7 +77,10 @@ const fixed = [
     'attention-dot-ring-width',
     'control-size',
     'control-size-l',
-  ].map((key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`),
+  ].map((key) => {
+    const value = tokens.browser.metric[key];
+    return `  --tmt-foundation-${key}: ${key.startsWith('radius') && key !== 'radius-pill' ? `var(--tmt-ui-${key}, ${value})` : value};`;
+  }),
   ...motion(),
   ...Object.entries(tokens.font).map(
     ([key, value]) => `  --tmt-foundation-font-${key}: ${value.stack};`,
@@ -197,4 +191,4 @@ const keyframes = [
   ...rises,
   '@keyframes tmt-foundation-pulse {\n  to {\n    opacity: 0.55;\n  }\n}',
 ].join('\n');
-export { fixed, motion, paletteB, themed, keyframes };
+export { fixed, motion, themed, keyframes };

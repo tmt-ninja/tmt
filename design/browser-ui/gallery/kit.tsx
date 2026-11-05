@@ -159,7 +159,7 @@ export function ScaledFrame({
             className="scaled-frame-inline"
             style={{ width: width ?? '100%', height, transform: `scale(${scale})` }}
           >
-            <div data-theme={theme} data-tmt-palette="b" aria-label={title}>
+            <div data-theme={theme} aria-label={title}>
               {inlineFrame(path, params)}
             </div>
           </DsScope>

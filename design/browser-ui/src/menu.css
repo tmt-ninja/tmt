@@ -43,7 +43,7 @@
   min-height: var(--tmt-ui-host-action-min-height);
   /* The native select's geometry: 36px high, 44px on a coarse pointer. */
   padding: 7px 36px 7px 8px;
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-field);
   font: 14px/20px var(--tmt-ui-font-body);

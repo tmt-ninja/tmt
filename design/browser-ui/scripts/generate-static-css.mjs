@@ -45,26 +45,6 @@ const typeParts = (indent, compact) =>
   );
 /** The primitive tier (#5821): `--tmt-ui-ref-<name>`, raw values that only roles read. */
 const refs = Object.entries(tokens.browser.ref).filter(([name]) => !name.startsWith('$'));
-/** A palette-B value: each `{name}` reads that ref; an unknown name fails generation. */
-const fromRefs = (value) =>
-  value.replace(/\{([\w-]+)\}/g, (_, name) => {
-    if (!Object.hasOwn(tokens.browser.ref, name)) throw new Error(`Palette B reads no ref ${name}`);
-    return `var(--tmt-ui-ref-${name})`;
-  });
-/** Palette B's role mapping for one theme, plus its theme-free metric roles when `metrics` is set. */
-const paletteB = (theme, indent, metrics = false) =>
-  [
-    ...['color', 'surface', 'shadow', 'brand-mark'].flatMap((group) =>
-      Object.entries(tokens.browser['palette-b'][group])
-        .filter(([role]) => !role.startsWith('$'))
-        .map(([role, value]) => `${indent}--tmt-ui-${group}-${role}: ${fromRefs(value[theme])};`),
-    ),
-    ...(metrics
-      ? Object.entries(tokens.browser['palette-b'].metric).map(
-          ([role, value]) => `${indent}--tmt-ui-${role}: ${fromRefs(value)};`,
-        )
-      : []),
-  ].join('\n');
 const fixed = [
   ...refs.map(([name, value]) => `  --tmt-ui-ref-${name}: ${value};`),
   ...Object.entries(tokens.font).map(
@@ -144,18 +124,6 @@ const tokenCss = `/* Generated: generate-static-css */
 @media (prefers-reduced-motion: reduce) {
   :root {\n${motion('--tmt-ui-motion', '    ', true)}\n  }
 }
-/* Palette B (#5821): only inside the data-tmt-palette scope, on the element or an ancestor; the
-   default values above stay as they are: light (also for a light island inside the scope), the system
-   dark unless a light theme is set on the scope or around it, then an explicit dark theme on, inside or
-   around the scope unless the scope itself sets light. */
-[data-tmt-palette='b'] {\n${paletteB('light', '  ', true)}\n}
-[data-tmt-palette='b'] [data-theme='light'] {\n${paletteB('light', '  ')}\n}
-@media (prefers-color-scheme: dark) {
-  [data-tmt-palette='b']:not([data-theme='light'], [data-theme='light'] *) {\n${paletteB('dark', '    ')}\n  }
-}
-[data-tmt-palette='b'][data-theme='dark'],
-[data-tmt-palette='b'] [data-theme='dark'],
-[data-theme='dark'] [data-tmt-palette='b']:not([data-theme='light']) {\n${paletteB('dark', '  ')}\n}
 @media (max-width: ${tokens.header['compact-max-width']}) {
   :root {
     --tmt-ui-header-height: var(--tmt-ui-header-compact-height);
@@ -172,7 +140,6 @@ const shipped = (source) =>
   );
 const beforeScopeCss = `${fragments.slice(0, 3).map(shipped).join('\n')}\n`;
 const afterScopeCss = `${fragments.slice(3).map(shipped).join('\n')}\n`;
-const componentCss = beforeScopeCss + afterScopeCss;
 const scopeCss = shipped(await readFile(new URL('src/ds-scope.css', home), 'utf8'));
 export const authoredStaticCss = `${tokenCss}${beforeScopeCss}${scopeCss}\n${afterScopeCss}`;
 /** The editorial layer (#5794), its own entry: the prose rules, then the table look applied to a bare

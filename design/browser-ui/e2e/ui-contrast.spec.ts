@@ -11,13 +11,11 @@ const ratio = (a: number[], b: number[]) => {
   return (hi! + 0.05) / (lo! + 0.05);
 };
 
-test('every Button variant and size keeps 4.5:1 text contrast in both palettes and themes', async ({
-  page,
-}) => {
+test('every Button variant and size keeps 4.5:1 text contrast in both themes', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/?frame=ui-contrast');
   const buttons = page.locator('[data-contrast]');
-  await expect(buttons).toHaveCount(2 * 2 * 6 * 8);
+  await expect(buttons).toHaveCount(2 * 6 * 8);
   // Text colour over the background the button actually paints: its own fill composited over the
   // nearest painted ancestor, so a transparent ghost reads its surface.
   const samples = await buttons.evaluateAll((nodes) => {

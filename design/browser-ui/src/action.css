@@ -32,7 +32,7 @@
    secondary or text. */
 .tmt-ui-action[data-variant='primary'] {
   border-color: var(--tmt-ui-color-accent-strong);
-  background: var(--tmt-ui-color-accent);
+  background: var(--tmt-ui-color-accent-fill);
   color: var(--tmt-ui-color-on-accent);
   font-weight: 600;
 }
@@ -40,9 +40,9 @@
 .tmt-ui-action[data-variant='primary']:not(:disabled):where(
     :not([aria-busy='true'])
   ):focus-visible {
-  background: var(--tmt-ui-color-accent-strong);
+  background: color-mix(in srgb, var(--tmt-ui-color-accent-fill) 90%, var(--tmt-ui-ref-ink-950));
 }
-/* One focus frame (#3998): the mint fill hides a mint edge, so its focus edge is the text colour. */
+/* One focus frame (#3998): the accent fill uses the contrasting text colour for its edge. */
 .tmt-ui-action[data-variant='primary']:focus-visible {
   border-color: var(--tmt-ui-color-selected-text);
 }
@@ -79,7 +79,7 @@
   color: var(--tmt-ui-color-blocked);
 }
 /* A destructive control keeps one colour family: red text, a red-tinted hover and a red focus
-   edge. Mint and red never share a control. */
+   edge. The destructive action keeps its blocked-state colour throughout. */
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-mark {
   color: var(--tmt-ui-color-blocked);
 }

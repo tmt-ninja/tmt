@@ -85,7 +85,7 @@ for (const theme of ['light', 'dark'] as const)
           await expect(soft).toHaveCSS('border-' + side + '-width', '1px');
           await expect(soft).toHaveCSS('border-' + side + '-color', measured.rule);
         }
-        await expect(soft).toHaveCSS('border-top-left-radius', '8px');
+        await expect(soft).toHaveCSS('border-top-left-radius', '2px');
         expect((await soft.boundingBox())!.height).toBe((await plain.boundingBox())!.height);
       }
       const example = pair('BrowserNotice tinted with command');

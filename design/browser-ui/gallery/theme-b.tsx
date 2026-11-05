@@ -41,8 +41,18 @@ import './theme-b.css';
 
 /** The radius switch (#5821): the one knob at 2px or 4px, or today's values for comparison. */
 const radii = {
-  '2': { '--tmt-ui-ref-radius': '2px' },
-  '4': { '--tmt-ui-ref-radius': '4px' },
+  '2': {
+    '--tmt-ui-radius-s': '2px',
+    '--tmt-ui-radius': '2px',
+    '--tmt-ui-radius-l': '4px',
+    '--tmt-ui-radius-badge': '2px',
+  },
+  '4': {
+    '--tmt-ui-radius-s': '4px',
+    '--tmt-ui-radius': '4px',
+    '--tmt-ui-radius-l': '6px',
+    '--tmt-ui-radius-badge': '4px',
+  },
   current: {
     '--tmt-ui-radius-s': '6px',
     '--tmt-ui-radius': '8px',
@@ -60,7 +70,7 @@ const states = [
 ] as const;
 
 /** Every part of the shadcn set, and the Browser* parts the Colab elements render, inside one
- * `[data-tmt-palette='b']` scope with a page-level theme and radius switch. */
+ * page with a theme and radius switch. */
 export function ThemeBFrame({ params }: { params: URLSearchParams }) {
   const [theme, setTheme] = useState<'light' | 'dark'>(
     params.get('theme') === 'light' ? 'light' : 'dark',
@@ -71,7 +81,6 @@ export function ThemeBFrame({ params }: { params: URLSearchParams }) {
   return (
     <main
       className="theme-b"
-      data-tmt-palette="b"
       data-theme={theme}
       data-radius={radius}
       style={radii[radius] as CSSProperties}
@@ -271,7 +280,7 @@ export function ThemeBSection() {
     <Section id="theme-b">
       <FramePair
         title="Theme B · the shadcn set"
-        note="Palette B and the radius knob inside [data-tmt-palette='b'] (#5821). The product outside the scope is unchanged."
+        note="Palette B and the radius knob (#5821)."
         frame="theme-b"
         height={1500}
       />

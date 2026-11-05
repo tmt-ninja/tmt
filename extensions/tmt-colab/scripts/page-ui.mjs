@@ -20,7 +20,9 @@ import { readFile } from 'node:fs/promises';
 // #5981: stage @container copies generated from shell.css and list.css @media blocks, plus the compact
 // title hide: 144,011 -> 145,773 (+1,762), exact, no headroom (GUI lead approval on #5981).
 // Stripping remains #5809.
-export const PAGE_UI_LIMIT = 145_773;
+// #5963: global palette B removes the superseded palette: 145,773 -> 133,338 (-12,435), exact.
+// Measured by buildPageUi() with Node v26.12.0; no headroom.
+export const PAGE_UI_LIMIT = 133_338;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

@@ -12,7 +12,7 @@ for (const width of [1440, 390])
       await expect(save).toHaveCSS('font-size', '11px');
       await expect(save).toHaveCSS('font-weight', '620');
       await expect(save).toHaveCSS('padding', '7px 10px');
-      await expect(save).toHaveCSS('border-radius', '8px');
+      await expect(save).toHaveCSS('border-radius', '2px');
       const idle = (await save.boundingBox())!;
       expect(idle.height).toBeCloseTo(30.84375, 2);
       await save.focus();

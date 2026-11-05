@@ -162,14 +162,20 @@ for (const surface of ['annotation', 'reply', 'chat'])
     const input = await mount(page, surface);
     await page.locator('body').click({ position: { x: 2, y: 2 } });
     const box = page.locator('.annotation-compose .rich-input-surface');
-    const resting = (await box.boundingBox())!;
-    const restingEdge = await box.evaluate((node) => getComputedStyle(node).borderTopColor);
+    const resting = await box.evaluate((node) => {
+      // Read before the editor's focus-restoration callback can reclaim focus.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      const rect = node.getBoundingClientRect();
+      return {
+        width: rect.width,
+        height: rect.height,
+        edge: getComputedStyle(node).borderTopColor,
+      };
+    });
     await input.focus();
     const focused = (await box.boundingBox())!;
     expect([focused.width, focused.height]).toEqual([resting.width, resting.height]);
-    expect(await box.evaluate((node) => getComputedStyle(node).borderTopColor)).not.toBe(
-      restingEdge,
-    );
+    await expect(box).not.toHaveCSS('border-top-color', resting.edge);
     expect(await box.evaluate((node) => getComputedStyle(node).boxShadow)).toMatch(
       /0px 0px 0px 3px/,
     );

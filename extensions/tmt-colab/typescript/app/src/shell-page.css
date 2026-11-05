@@ -148,7 +148,7 @@ button.shell-stat:focus-visible {
   background: var(--tmt-ui-surface-hover);
 }
 .shell-row[aria-current='true'] {
-  border-inline-start-color: var(--tmt-ui-color-selection-edge);
+  border-inline-start-color: var(--tmt-ui-color-accent);
   background: var(--tmt-ui-surface-selection);
 }
 .shell-row:focus-visible {

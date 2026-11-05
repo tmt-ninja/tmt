@@ -59,7 +59,7 @@
 .recipient-pill[data-asking] {
   border-color: transparent;
   background: color-mix(in srgb, var(--tmt-ui-color-accent) 13%, transparent);
-  color: var(--tmt-ui-color-accent);
+  color: var(--tmt-ui-color-text-action);
   font-weight: 600;
 }
 .recipient-pill:hover:not(:disabled) {

@@ -21,7 +21,7 @@
   }
 
   :root[data-colab-design] a:any-link {
-    color: var(--tmt-ui-color-accent);
+    color: var(--tmt-ui-color-text-action);
   }
 
   :root[data-colab-design][data-theme='light'] {

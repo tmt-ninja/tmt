@@ -86,7 +86,7 @@ test('a scoped UI dialog does not lock or dismiss on interaction outside its sco
       theme: node.closest('[data-tmt-ui]')?.getAttribute('data-tmt-theme'),
       foreground: getComputedStyle(node).getPropertyValue('--tmt-foundation-foreground').trim(),
     })),
-  ).toEqual({ theme: 'dark', foreground: '#c9d6dd' });
+  ).toEqual({ theme: 'dark', foreground: '#f2efe9' });
   expect(
     await page.evaluate(() => [
       document.body.style.overflow,

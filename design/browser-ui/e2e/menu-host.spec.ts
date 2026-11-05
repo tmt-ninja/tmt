@@ -47,9 +47,9 @@ for (const source of ['React', 'Native'] as const)
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS('padding', '4px');
           await expect(page.locator('.tmt-ui-menu-surface[open]')).toHaveCSS(
             'border-radius',
-            '8px',
+            '2px',
           );
-          await expect(delta).toHaveCSS('border-radius', '6px');
+          await expect(delta).toHaveCSS('border-radius', '2px');
           await expect(delta).toHaveCSS('height', '42px');
           expect(frames.doubled).toEqual([]);
           expect(await textAtSurfaceEdge(page, '.tmt-ui-menu-surface[open]')).toEqual([]);
@@ -190,6 +190,7 @@ test('native menu dismisses before its drawer and its backdrop never clicks thro
   const drawer = page.getByRole('dialog', { name: 'Menu fixture', exact: true });
   const trigger = drawer.getByRole('button', { name: 'Drawer native menu', exact: true });
   await trigger.click();
+  await expect(page.getByRole('menu', { name: 'Drawer native menu', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(drawer).toBeVisible();
   await expect(trigger).toBeFocused();

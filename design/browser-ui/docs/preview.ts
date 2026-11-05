@@ -35,7 +35,6 @@ function apply() {
   if (!root) return;
   // The document's own attribute stays the shell's; a hosted root mirrors the resolved theme.
   if (root !== document.documentElement) root.dataset.theme = theme;
-  root.dataset.tmtPalette = 'b';
   if (reduced) root.dataset.tmtReducedMotion = '';
   else delete root.dataset.tmtReducedMotion;
   for (const listener of listeners) listener();

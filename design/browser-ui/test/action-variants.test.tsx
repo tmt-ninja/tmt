@@ -37,7 +37,7 @@ it('has five variants and renders each one as its own data-variant', () => {
 
 it('keeps the accent fill for primary alone: secondary is the neutral bordered button', () => {
   expect(block(".tmt-ui-action[data-variant='primary']")).toContain(
-    'background: var(--tmt-ui-color-accent)',
+    'background: var(--tmt-ui-color-accent-fill)',
   );
   // `secondary` has no rule of its own: it is the base button, a command surface with a rule edge.
   expect(css).not.toContain("[data-variant='secondary']");

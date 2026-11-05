@@ -484,7 +484,7 @@ for (const width of [1440, 390, 320])
         new RegExp(tokens.browser.shadow.overlay[theme].split(' ').slice(1, 3).join(' ')),
       );
       await expect(surface).toHaveCSS('border-width', '1px');
-      expect(tokens.browser.metric['radius-l']).toBe('12px');
+      expect(tokens.browser.metric['radius-l']).toBe('4px');
       await expect(surface).toHaveCSS('border-radius', tokens.browser.metric['radius-l']);
       await page.screenshot({ path: info.outputPath(`2314-${width}-${theme}-header-menu.png`) });
       await page.keyboard.press('Escape');
