@@ -386,6 +386,61 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received).toHaveLength(judged.length);
   });
 
+  it("skips the model for another worktree's unmodified ci-wake.sh and a heredoc nothing runs (#6003)", async () => {
+    const c = newCase();
+    const { repo, hook } = scratchRepository(c.dir);
+    const gitIn = (dir: string, ...args: string[]) =>
+      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        env: { PATH: '/usr/bin:/bin', HOME: c.dir },
+      });
+    const waker = readFileSync(path.join(repository, 'scripts', 'ci-wake.sh'));
+    writeFileSync(path.join(repo, 'scripts', 'ci-wake.sh'), waker);
+    gitIn(repo, 'add', 'scripts/ci-wake.sh');
+    gitIn(repo, 'commit', '-q', '-m', 'waker');
+    const shared = path.join(c.dir, 'shared');
+    gitIn(repo, 'worktree', 'add', '-q', '--detach', shared);
+    const wake = `sh ${shared}/scripts/ci-wake.sh 6089 --identity infra-1`;
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    const skipped = [
+      wake,
+      `nohup ${wake} > /tmp/wake.log 2>&1 &`,
+      // The two shadow-hour false denies: a waiter started first, then a push, PR and message;
+      // and a handoff written from a quoted heredoc, a reply and an old waiter stopped first.
+      `${wake} & git push -q origin HEAD && gh pr create --title x --body-file body.md && tmt talk lead "PR up, wait for review" --detach`,
+      `cat > handoff.md <<'EOF'\nWaiting on CI until green.\nEOF\ntmt reply r --receipt v --message ok; pkill -f 'ci-wake.sh 6089'; ${wake}`,
+    ];
+    for (const command of skipped) {
+      const result = await c.guard({ ...bash(command), cwd: repo }, {}, hook);
+      expect(result.stdout, command).toBe('');
+    }
+    expect(received).toEqual([]);
+    expect(c.lines().map((line) => line.reason)).toEqual(['ci-wake', 'ci-wake', 'no-wait', 'no-wait']);
+
+    // A modified copy, or the waker of another repository, is judged.
+    const elsewhere = path.join(c.dir, 'elsewhere');
+    mkdirSync(path.join(elsewhere, 'scripts'), { recursive: true });
+    gitIn(c.dir, 'init', '-q', elsewhere);
+    writeFileSync(path.join(elsewhere, 'scripts', 'ci-wake.sh'), waker);
+    gitIn(elsewhere, 'add', 'scripts/ci-wake.sh');
+    gitIn(elsewhere, 'commit', '-q', '-m', 'waker');
+    writeFileSync(path.join(shared, 'scripts', 'ci-wake.sh'), `${waker}\nsleep 600\n`);
+    answer = verdict('allow');
+    for (const command of [wake, `sh ${elsewhere}/scripts/ci-wake.sh 6089 --identity infra-1`]) {
+      await c.guard({ ...bash(command), cwd: repo }, {}, hook);
+    }
+    expect(received).toHaveLength(2);
+    // The judge writes its reason before its verdict, and the policy allows the waker beside
+    // commands that do not wait.
+    const tool = (received[0].body.tools as { input_schema: Record<string, unknown> }[])[0];
+    expect(Object.keys(tool.input_schema.properties as object)).toEqual(['reason', 'verdict']);
+    expect(tool.input_schema.required).toEqual(['reason', 'verdict']);
+    expect(received[0].body.system).toContain(
+      'A call that starts it and otherwise only runs commands that do not wait'
+    );
+  });
+
   it('skips the model for one run of a known test runner, and judges any watch, sleep or loop around it', async () => {
     const c = newCase();
     answer = () => {

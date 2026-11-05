@@ -29,7 +29,8 @@
 //    or runs, and nothing after the closing line.
 //    Starting this repository's scripts/ci-wake.sh, the required CI waiter, is
 //    also a `skip` (reason `ci-wake`): one command whose program resolves
-//    (realpath) to `<worktree>/scripts/ci-wake.sh`, run directly or by
+//    (realpath) to `<worktree>/scripts/ci-wake.sh`, or to the tracked and
+//    unmodified one of another worktree of this repository, run directly or by
 //    `sh`/`bash`, with any plain arguments, an optional leading `nohup`,
 //    trailing redirections and a trailing `&`. A copy elsewhere, or anything
 //    chained or wrapped around it, goes on to the checks below; a `;`/`&&`
@@ -163,22 +164,23 @@ function judgeUrl() {
 
 const POLICY = `You review one tool call an AI coding agent is about to make in a software repository. You see the tool name, its input, and the content of any repository script the call runs; secrets in them are replaced by [REDACTED]. A shell command reaches you only because it holds a wait primitive (sleep, wait, a while or until loop, watch, following a log, a timeout or retry, nohup or a background &).
 Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
-Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background.
+Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background. A call that starts it and otherwise only runs commands that do not wait, such as pushing, opening a pull request, messaging, writing notes or stopping an old waiter, is allowed.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
 A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, judge the call as running that primitive.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
-Record your decision with the verdict tool, with a reason of one short sentence.`;
+Record your decision with the verdict tool: first a reason of one short sentence, then the verdict that follows from it.`;
 
 const VERDICT_TOOL = {
   name: 'verdict',
   description: 'Record whether the tool call is allowed.',
   input_schema: {
     type: 'object',
+    // The reason comes first, so the verdict follows from it (#6003).
     properties: {
-      verdict: { type: 'string', enum: ['allow', 'deny'] },
       reason: { type: 'string', description: 'One short sentence.' },
+      verdict: { type: 'string', enum: ['allow', 'deny'] },
     },
-    required: ['verdict', 'reason'],
+    required: ['reason', 'verdict'],
     additionalProperties: false,
   },
 };
@@ -332,8 +334,25 @@ const TRAILING_REDIRECT =
  */
 export function startsCiWake(cwd, command) {
   const started = startedScript(cwd, command);
+  return Boolean(started) && isCiWake(cwd, started.file);
+}
+
+/**
+ * Whether `file` is this repository's scripts/ci-wake.sh: the call's own worktree's, or the
+ * tracked and unmodified one of another worktree of the same repository, such as the shared
+ * waiter checkout (#6003). Any other copy is judged.
+ */
+function isCiWake(cwd, file) {
   const root = worktree(cwd);
-  return Boolean(started && root) && started.file === path.join(root, 'scripts', 'ci-wake.sh');
+  if (!root) return false;
+  if (file === path.join(root, 'scripts', 'ci-wake.sh')) return true;
+  const other = path.dirname(path.dirname(file));
+  if (path.relative(other, file) !== path.join('scripts', 'ci-wake.sh')) return false;
+  if (worktree(other) !== other || commonDir(other) !== commonDir(root)) return false;
+  return (
+    git(other, ['ls-files', '--error-unmatch', 'scripts/ci-wake.sh']) !== null &&
+    git(other, ['diff', '--quiet', 'HEAD', '--', 'scripts/ci-wake.sh']) !== null
+  );
 }
 
 /**
@@ -572,9 +591,6 @@ export function waitPrimitive(cwd, command, depth = 0) {
   const run = segments.filter(
     (segment) => !startsCiWake(cwd, segment.background ? `${segment.raw} &` : segment.raw)
   );
-  const named = new Set(
-    run.flatMap((segment) => segment.words.map((word) => path.basename(word.text)))
-  );
   // Shell code is scanned like the command; other code, or code whose language is unknown, by text.
   const inCode = (text, shell) =>
     (shell && waitPrimitive(cwd, text, depth + 1)) || WAIT_TEXT.exec(text)?.[0]?.trim() || null;
@@ -606,10 +622,15 @@ export function waitPrimitive(cwd, command, depth = 0) {
       }
     }
     if (segment.background) return '&';
+    // A written file is code only when another segment of the call names it.
     const runsBody =
       INTERPRETERS.has(program) ||
-      segment.targets.some(
-        (file) => named.has(path.basename(file)) && run.some((other) => other !== segment)
+      segment.targets.some((file) =>
+        run.some(
+          (other) =>
+            other !== segment &&
+            other.words.some((word) => path.basename(word.text) === path.basename(file))
+        )
       );
     for (const heredoc of segment.heredocs) {
       const expands = !heredoc.quoted && /\$\(|`/.test(heredoc.body);
@@ -691,16 +712,34 @@ const INTERPRETERS = new Set([
   'deno',
 ]);
 
+/** A git command's trimmed output in `cwd`, or null when it fails. */
+function git(cwd, args) {
+  try {
+    return execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 1_000,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 /** The git worktree holding `cwd`, resolved, or null. */
 function worktree(cwd) {
+  const top = git(cwd, ['rev-parse', '--show-toplevel']);
   try {
-    return realpathSync(
-      execFileSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 1_000,
-      }).trim()
-    );
+    return top ? realpathSync(top) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The repository's shared git directory for any path inside it, resolved, or null. */
+function commonDir(cwd) {
+  const dir = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  try {
+    return dir ? realpathSync(dir) : null;
   } catch {
     return null;
   }
@@ -994,22 +1033,8 @@ async function judge(content) {
 
 /** Whether `cwd` is in the repository that holds this script (any of its worktrees). */
 function inRepository(cwd) {
-  const commonDir = (dir) =>
-    realpathSync(
-      path.resolve(
-        dir,
-        execFileSync('git', ['-C', dir, 'rev-parse', '--git-common-dir'], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 1_000,
-        }).trim()
-      )
-    );
-  try {
-    return commonDir(cwd) === commonDir(path.dirname(SELF));
-  } catch {
-    return false;
-  }
+  const here = commonDir(cwd);
+  return here !== null && here === commonDir(path.dirname(SELF));
 }
 
 function logDir() {
