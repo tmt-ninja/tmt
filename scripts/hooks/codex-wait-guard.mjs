@@ -67,8 +67,9 @@
 // 7. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
-//    missing key allows (fail open), logged with that reason. Until ENFORCE is
-//    true (shadow mode) a deny is only logged, as `enforced: false`.
+//    missing key allows (fail open), logged with that reason. A deny is printed and
+//    logged as `enforced: true`; with ENFORCE false (shadow mode) it is only logged, as
+//    `enforced: false`.
 //
 // What leaves the machine: for each judged call, the tool name, its input (a Bash
 // command with any heredoc, or another tool's input JSON) and the first 8 KiB of
@@ -130,8 +131,11 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
-/** The one-line flip from shadow mode to enforcing denies, reviewed against a day of shadow data. */
-const ENFORCE = false;
+/**
+ * Enforcing since two shadow hours with zero false denies (#6003). Setting it back to false is
+ * the rollback to shadow mode: denies are then only logged.
+ */
+const ENFORCE = true;
 const MODEL = 'claude-haiku-5-5';
 /** About twice the measured judge p95 (1.6 s, 11-03), under Codex's 5 s hook timeout. */
 const JUDGE_MS = 3_500;
@@ -1201,7 +1205,7 @@ async function main() {
   const judgeMs = Date.now() - started;
   if (result.verdict === 'deny' && ENFORCE) {
     deny(
-      `${result.reason} Start scripts/ci-wake.sh (or a background task that wakes you) and end the turn instead of waiting`
+      `${result.reason} Start scripts/ci-wake.sh (or a background task that wakes you) and end the turn instead of waiting; to wait for host capacity, run host-health.sh --gate once`
     );
   }
   finish({
