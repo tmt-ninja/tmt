@@ -381,8 +381,9 @@ owns current definitions, admission, run evidence and the shared clock; Ops is a
   Core read, including an explicit absence; additional dates are schedule previews.
 - **Cutover.** `cron_service::ready` holds the existing migration guard and requires the
   old Ops clock to be quiescent, including absence of its advisory JSON. It converts v1
-  names using recorded room UUIDs before taking an exact v2 source. Conflicts retain the
-  existing full export and one CLI/board notice. Core preflights a bounded immutable file
+  names using recorded room UUIDs before taking an exact v2 source. Conflicts keep their
+  source bytes in a private export before commit and one CLI and one board notice; the
+  board worker forwards the latter. Core preflights a bounded immutable file
   before Ops freezes the source by digest CAS. The freeze marker and literal source BLOB
   commit together in `ops.db`; old readers/writers refuse this newer document.
   One public file import is followed by exact-source receipt readback, validating counters

@@ -105,7 +105,7 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite; CLI/API; Digest receiving. Restricted holds keep one pending marker per identity; the shared wake clock and tagged checklists admit and settle summaries. Sending rules and talk limits refuse or hold in request preparation. Jobs share request acceptance; adapter `tick` owns their clock, CLI timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
+[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite and `tick` clock; CLI/API; Digest receiving. Sending rules and talk limits refuse or hold in request preparation; jobs share its acceptance. The contract owns held markers, wake spacing and timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -412,8 +412,6 @@ own module/drawing boundaries and verification.
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
   Core owns jobs/runs; Ops imports legacy ones once.
   `migration` owns locked byte-preserving cutover; CLI warns once, UI paints notices through App.
-  Cron's v1 conversion exports conflicting source bytes privately before commit;
-  its store tracks one CLI and one board warning; the board worker forwards the latter.
   No Ops config/checklist data enters `config.json` or Core storage.
   Confirmed lead changes separately offer the global squad-lead union through Core's
   orchestration preview/consent/CAS; Core owns that list and its permission checks.
