@@ -168,11 +168,12 @@ function offlineWrappers(env) {
     const profile = '(version 1)(allow default)(deny network*)';
     return [[(file, argv) => ['/usr/bin/sandbox-exec', ['-p', profile, file, ...argv]], 'EPERM']];
   }
-  // Ubuntu 24.04 may refuse unprivileged user namespaces; the runner's sudo then makes the
-  // network namespace and setpriv drops back to the same user before the command runs.
+  // Ubuntu 24.04 may refuse unprivileged user namespaces; on a GitHub Actions runner only, its
+  // passwordless sudo then makes the network namespace and setpriv drops back to the same user.
+  // A developer machine never escalates: without the unprivileged wrapper the proof fails.
   const pairs = Object.entries(env).map(([key, value]) => `${key}=${value}`);
   const user = [`--reuid=${process.getuid()}`, `--regid=${process.getgid()}`, '--clear-groups'];
-  return [
+  const unprivileged = [
     [
       (file, argv) => [
         '/usr/bin/unshare',
@@ -180,6 +181,10 @@ function offlineWrappers(env) {
       ],
       'ENETUNREACH',
     ],
+  ];
+  if (process.env.GITHUB_ACTIONS !== 'true') return unprivileged;
+  return [
+    ...unprivileged,
     [
       (file, argv) => [
         '/usr/bin/sudo',
