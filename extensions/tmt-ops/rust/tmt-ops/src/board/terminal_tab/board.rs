@@ -161,7 +161,9 @@ impl App {
                     .collect::<Vec<_>>();
                 let flagged = |word: &str| {
                     member.state.as_deref() == Some(word)
-                        || squad.iter().any(|state| state.state.as_deref() == Some(word))
+                        || squad
+                            .iter()
+                            .any(|state| state.state.as_deref() == Some(word))
                 };
                 let state = if member.waiting || squad.iter().any(|state| state.waiting) {
                     "waiting".to_owned()
@@ -203,7 +205,8 @@ impl App {
             .skip(at)
             .take(roster.len())
             .find(|entry| {
-                Some(&entry.id) != framed.as_ref() && matches!(entry.state.as_str(), "waiting" | "blocked")
+                Some(&entry.id) != framed.as_ref()
+                    && matches!(entry.state.as_str(), "waiting" | "blocked")
             })
             .map(|entry| entry.id.clone())
     }
@@ -457,10 +460,14 @@ impl App {
                         rows.extend(
                             items
                                 .iter()
-                                .filter(|view| crate::board::conversation_checklist::open_item(view))
+                                .filter(|view| {
+                                    crate::board::conversation_checklist::open_item(view)
+                                })
                                 .map(|view| MenuRow::Choice {
                                     mark: Some(Mark::Open),
-                                    label: crate::board::notes::single_line(&view.item.content.title),
+                                    label: crate::board::notes::single_line(
+                                        &view.item.content.title,
+                                    ),
                                     key: None,
                                     hit: Some(FrameHit::Checklist),
                                 }),

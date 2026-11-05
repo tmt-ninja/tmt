@@ -385,8 +385,14 @@ fn the_session_menu_opens_with_the_mouse_and_offers_only_what_applies() {
     framed.set_term(term(false, Some("exit 0")));
     framed.app.key(key(KeyCode::Esc, KeyModifiers::NONE));
     let entries = framed.app.menu_entries(FrameMenu::Session);
-    assert_eq!(entries[0].hit(), Some(&FrameHit::Relaunch(RelaunchKind::Resume)));
-    assert_eq!(entries[1].hit(), Some(&FrameHit::Relaunch(RelaunchKind::New)));
+    assert_eq!(
+        entries[0].hit(),
+        Some(&FrameHit::Relaunch(RelaunchKind::Resume))
+    );
+    assert_eq!(
+        entries[1].hit(),
+        Some(&FrameHit::Relaunch(RelaunchKind::New))
+    );
     assert_eq!(entries[3].hit(), None, "nothing to continue");
 }
 
@@ -614,13 +620,24 @@ fn the_header_says_connecting_until_a_screen_arrives_and_reconnecting_while_it_r
 fn the_members_menu_lists_the_roster_with_dots_and_offers_the_next_member_needing_you() {
     let app = super::scenes::capture_case("frame-members-menu", Look::default());
     let lines = draw(&app, WIDTH, HEIGHT);
-    let menu: Vec<_> = lines[1..12].iter().map(|line| line.trim_end().to_owned()).collect();
+    let menu: Vec<_> = lines[1..12]
+        .iter()
+        .map(|line| line.trim_end().to_owned())
+        .collect();
     let menu = menu.join("\n");
     for row in ["› ✗ builder", "◌ planner", "◆ reviewer", "○ scribe"] {
         assert!(menu.contains(row), "{row}:\n{menu}");
     }
-    assert!(!menu.contains("worker"), "the framed member is on screen already:\n{menu}");
-    for row in ["Back to board", "Next member needing you", "n", "↑↓ select · ⏎ choose · Esc close"] {
+    assert!(
+        !menu.contains("worker"),
+        "the framed member is on screen already:\n{menu}"
+    );
+    for row in [
+        "Back to board",
+        "Next member needing you",
+        "n",
+        "↑↓ select · ⏎ choose · Esc close",
+    ] {
         assert!(menu.contains(row), "{row}:\n{menu}");
     }
     // After worker the names wrap to builder, which is blocked.
@@ -636,12 +653,26 @@ fn the_checklist_menu_shows_open_items_a_collapsed_done_count_and_add_item() {
     let rows = app.menu_entries(FrameMenu::Checklist);
     let open = rows
         .iter()
-        .filter(|row| matches!(row, super::board::MenuRow::Choice { mark: Some(super::board::Mark::Open), .. }))
+        .filter(|row| {
+            matches!(
+                row,
+                super::board::MenuRow::Choice {
+                    mark: Some(super::board::Mark::Open),
+                    ..
+                }
+            )
+        })
         .count();
     assert_eq!(open, 3);
     assert!(rows.contains(&super::board::MenuRow::Note("▸ Done 2".into())));
-    assert_eq!(rows.last().and_then(|row| row.hit()), Some(&FrameHit::AddItem));
+    assert_eq!(
+        rows.last().and_then(|row| row.hit()),
+        Some(&FrameHit::AddItem)
+    );
     let screen = text(&app);
     assert!(screen.contains("☐ Fix the startup test"), "{screen}");
-    assert!(!screen.contains("Rebase on main"), "done items stay collapsed: {screen}");
+    assert!(
+        !screen.contains("Rebase on main"),
+        "done items stay collapsed: {screen}"
+    );
 }

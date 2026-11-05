@@ -159,7 +159,11 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
     } else if term.shell {
         pieces.push(("○ shell".into(), mark, None));
     } else if let Some(attempt) = connecting {
-        let words = if attempt > 1 { "◌ reconnecting…" } else { "◌ connecting…" };
+        let words = if attempt > 1 {
+            "◌ reconnecting…"
+        } else {
+            "◌ connecting…"
+        };
         pieces.push((words.into(), mark, None));
     } else {
         pieces.push(("● connected".into(), mark, None));
@@ -430,7 +434,10 @@ fn menu_line(app: &App, entry: &MenuRow, selected: bool, width: usize) -> Line<'
                 Some(Mark::Open) => spans.push(Span::styled("☐ ", style)),
                 None => {}
             }
-            let key = key.as_deref().map(|key| format!("{key} ")).unwrap_or_default();
+            let key = key
+                .as_deref()
+                .map(|key| format!("{key} "))
+                .unwrap_or_default();
             let used: usize = spans.iter().map(|span| span.content.width()).sum();
             let room = width.saturating_sub(used + key.width() + 1);
             let label = crate::board::view::fit(label, room);

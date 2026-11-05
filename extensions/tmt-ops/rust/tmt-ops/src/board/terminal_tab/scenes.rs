@@ -86,9 +86,14 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         "frame-checklist-menu" => {
             crate::board::conversation_checklist::tests::admit_empty(&mut app);
-            let key = app.framed_checklist_key().expect("the framed member's list");
+            let key = app
+                .framed_checklist_key()
+                .expect("the framed member's list");
             let now = std::time::Instant::now();
-            let task = app.notes.offer(Some(&key), now).expect("a read of that list");
+            let task = app
+                .notes
+                .offer(Some(&key), now)
+                .expect("a read of that list");
             use crate::checklist::model::Completion::{Complete, Open};
             app.notes.finished(
                 crate::board::conversation_checklist::tests::reading_titled(

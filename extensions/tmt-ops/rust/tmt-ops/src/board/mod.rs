@@ -803,15 +803,19 @@ fn session(
         }
         // The member frame reads its member's list for the Checklist menu.
         let framed = app.framed().then(|| app.framed_checklist_key()).flatten();
-        let shown = framed.or_else(|| app.conversation_checklist_key()).or_else(|| {
-            if app.loading() || !app.workspace_selection_visible() {
-                return None;
-            }
-            match app.workspace.selected.as_ref()? {
-                workspace::OpsTarget::Squad(room) => Some(conversation_checklist::Key::room(room)),
-                _ => None,
-            }
-        });
+        let shown = framed
+            .or_else(|| app.conversation_checklist_key())
+            .or_else(|| {
+                if app.loading() || !app.workspace_selection_visible() {
+                    return None;
+                }
+                match app.workspace.selected.as_ref()? {
+                    workspace::OpsTarget::Squad(room) => {
+                        Some(conversation_checklist::Key::room(room))
+                    }
+                    _ => None,
+                }
+            });
         if let Some(task) = app
             .notes
             .offer(shown.as_ref(), now)
