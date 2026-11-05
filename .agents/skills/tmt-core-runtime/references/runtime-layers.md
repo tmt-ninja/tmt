@@ -23,10 +23,9 @@ or hold in request preparation, and canonical jobs share its acceptance.
 
 - `tmt-command-output` owns shared command output, errors and formatting.
 - `tmt-cli-style` owns human text: [CLI style](../../../../design/cli-style.md), `grid`,
-  help, `Interaction` and `progress`. It has no TMT dependencies.
-The default `table` feature of `tmt-cli-style` enables terminal tables and width
-probing; its architecture guard still enforces the presentation-leaf boundary.
-
+  help, `Interaction` and `progress`. It has no TMT dependencies. Its default
+  `table` feature enables terminal tables and width probing; the architecture
+  guard enforces the presentation-leaf boundary.
 - `tmt-tui` is an internal, unpublished, application-neutral presentation leaf for TMT
   terminal UIs, taking its tokens from `tmt-cli-style` roles. The
   [dependency guard](../../../../rust/crates/tmt-cli/tests/architecture/policy.rs) owns its

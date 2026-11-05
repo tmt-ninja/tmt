@@ -47,6 +47,10 @@ issue. With no findings, state what was inspected. Review later changes and thei
 checks on the newer head. An intended board-frame change needs the TUI lead's
 approval of the decoded oracle delta before anyone re-records it.
 
+A change to how a browser surface looks also needs a
+[visual review](.agents/skills/tmt-ui-ux-design/references/visual-review.md) against a named
+reference, with side-by-side captures; its findings block the merge.
+
 ## Delivery lifecycle
 
 - GitHub Issues is the tracker. Confirm the outcome, scope, acceptance criteria,

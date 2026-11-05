@@ -98,7 +98,8 @@ local [MCP](contracts/mcp-v1.md) and [lifecycle hooks](contracts/extension-api.m
 The [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md)
 owns their module rules and the Core command surface.
 
-Files under `contracts/` are Core contracts owned by tmt-lead;
+Files under `contracts/` are Core contracts owned by tmt-lead, except the channel
+contracts #606 assigns to a squad (`remote-channel-v1.md`: tmt-remote);
 `extensions/<ext>/contracts/` belongs to the squad that owns `<ext>`.
 A contract is the single definition owner: guides and skills link to it and never
 restate it. The directory listing is the contract index.
