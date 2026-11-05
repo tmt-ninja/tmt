@@ -1997,6 +1997,10 @@ code {
 .docs-article pre code {
   font: 0.9em var(--tmt-ui-font-mono);
 }
+
+.docs-article {
+  overflow-wrap: normal;
+}
 .docs-article p:not(.docs-canvas-stage *) {
   margin: 0 0 var(--tmt-ui-ref-space-4);
 }
