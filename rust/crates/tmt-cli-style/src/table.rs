@@ -15,17 +15,23 @@
 //! instead of prioritizing, and it lays out one table at a time. The computed
 //! widths are handed to comfy-table as absolute column constraints.
 
+#[cfg(feature = "table")]
 use crate::{
     grid::{self, Track},
     palette::{Terminal, Token},
 };
+#[cfg(feature = "table")]
 use comfy_table::{ColumnConstraint, Row, Width, presets};
+#[cfg(feature = "table")]
 use std::io::{self, Write};
+#[cfg(feature = "table")]
 use unicode_width::UnicodeWidthStr;
 
 /// Space between columns.
+#[cfg(feature = "table")]
 const GAP: usize = 2;
 /// The narrowest a truncated column becomes, including its `…`.
+#[cfg(feature = "table")]
 const MINIMUM: usize = 4;
 
 /// User data is untrusted: control and line-separator characters are shown
@@ -43,6 +49,7 @@ pub fn escape(value: &str) -> String {
 }
 
 /// How a column behaves when the terminal is too narrow.
+#[cfg(feature = "table")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
     /// Never truncated: marks, states, short codes.
@@ -53,12 +60,14 @@ pub enum Column {
     Detail,
 }
 
+#[cfg(feature = "table")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
     text: String,
     token: Option<Token>,
 }
 
+#[cfg(feature = "table")]
 impl Cell {
     pub fn styled(text: impl AsRef<str>, token: Token) -> Self {
         Self {
@@ -68,6 +77,7 @@ impl Cell {
     }
 }
 
+#[cfg(feature = "table")]
 impl<T: AsRef<str>> From<T> for Cell {
     fn from(text: T) -> Self {
         Self {
@@ -77,6 +87,7 @@ impl<T: AsRef<str>> From<T> for Cell {
     }
 }
 
+#[cfg(feature = "table")]
 #[derive(Debug, Clone)]
 pub struct Table {
     columns: Vec<Column>,
@@ -86,6 +97,7 @@ pub struct Table {
     indent: usize,
 }
 
+#[cfg(feature = "table")]
 impl Table {
     /// Rows indented two spaces, as in a list section.
     ///
@@ -217,6 +229,7 @@ impl Table {
 /// `width`: cut with `…` (whole graphemes, at a word boundary where it can)
 /// and padded by `gap`. Color is painted afterward, so it never counts toward
 /// the width and never covers the padding.
+#[cfg(feature = "table")]
 fn fitted<'a>(cells: impl Iterator<Item = &'a Cell>, width: usize, gap: usize) -> Vec<String> {
     let mut table = comfy_table::Table::new();
     table
@@ -244,6 +257,7 @@ fn fitted<'a>(cells: impl Iterator<Item = &'a Cell>, width: usize, gap: usize) -
 /// one more fixed column holds the actions. The widths come from the one
 /// [`grid`](crate::grid) solver: detail and name columns are its first and
 /// second shrink tiers, and fixed columns never shrink.
+#[cfg(feature = "table")]
 pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
     let first = tables[0];
     let natural = |index: usize| {
@@ -288,5 +302,13 @@ pub(crate) fn layout(tables: &[&Table], available: Option<u16>) -> Vec<usize> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "table"))]
 mod tests;
+
+#[cfg(all(test, not(feature = "table")))]
+mod no_table_tests {
+    #[test]
+    fn escaping_remains_available_without_terminal_tables() {
+        assert_eq!(super::escape("a\nb"), "a\\nb");
+    }
+}

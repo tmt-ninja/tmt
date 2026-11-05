@@ -4,15 +4,19 @@
 //!
 //! It depends on no TMT crate, so core and every extension CLI render through
 //! the same code. Rendering never decides policy: callers pass a [`Terminal`]
-//! that was decided once per stream.
+//! that was decided once per stream. The default `table` feature enables
+//! terminal tables and terminal-width detection; without it the terminal
+//! width defaults to 80 columns unless a caller supplies one.
 
 pub mod audit;
 pub mod breakpoint;
+#[cfg(feature = "table")]
 pub mod detail;
 pub mod foreign;
 pub mod grid;
 pub mod help;
 pub mod interaction;
+#[cfg(feature = "table")]
 pub mod list;
 pub mod mark;
 pub mod message;

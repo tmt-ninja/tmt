@@ -136,7 +136,7 @@ impl Terminal {
         let color = AutoStream::choice(&io::stdout()) != ColorChoice::Never;
         Self {
             color,
-            width: known_width(comfy_table::Table::new().width()),
+            width: terminal_width(),
             theme: themed(color),
         }
     }
@@ -181,6 +181,19 @@ fn themed(color: bool) -> Option<(Theme, Depth)> {
         .map(|theme| (theme, Depth::from_env(true)))
 }
 
+/// Without table support use 80 columns; callers may supply another width.
+fn terminal_width() -> Option<u16> {
+    #[cfg(feature = "table")]
+    {
+        known_width(comfy_table::Table::new().width())
+    }
+    #[cfg(not(feature = "table"))]
+    {
+        Some(80)
+    }
+}
+
+#[cfg(any(feature = "table", test))]
 fn known_width(reported: Option<u16>) -> Option<u16> {
     reported.filter(|columns| *columns > 0)
 }
@@ -307,5 +320,21 @@ mod tests {
         assert_eq!(known_width(Some(0)), None);
         assert_eq!(known_width(None), None);
         assert_eq!(known_width(Some(80)), Some(80));
+    }
+}
+
+#[cfg(all(test, not(feature = "table")))]
+mod no_table_tests {
+    use super::*;
+
+    #[test]
+    fn stdout_never_probes_width_without_tables_and_callers_can_supply_one() {
+        let terminal = Terminal::stdout(false);
+        assert_eq!(terminal.width, Some(80));
+        let explicit = Terminal {
+            width: Some(120),
+            ..terminal
+        };
+        assert_eq!(explicit.width, Some(120));
     }
 }

@@ -116,7 +116,8 @@ recomputed selection or bare skips.
 `tmt-command-output` owns shared command output/errors and formatting.
 Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
 help, `Interaction` and `progress`. This presentation leaf has no TMT
-dependencies; the architecture guard enforces it.
+dependencies; its default `table` feature enables terminal tables and width
+probing. The architecture guard enforces the leaf boundary.
 
 `rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
 leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
