@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 roxmltree.workspace = true
+tmt-tui-components.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tmt-cli-style = { workspace = true, features = ["ratatui"] }

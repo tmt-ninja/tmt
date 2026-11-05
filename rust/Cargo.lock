@@ -2912,9 +2912,21 @@ dependencies = [
  "serde_json",
  "taffy",
  "tmt-cli-style",
+ "tmt-tui-components",
  "unicode-segmentation",
  "unicode-width",
  "vt100",
+]
+
+[[package]]
+name = "tmt-tui-components"
+version = "5.0.0-dev"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tmt-cli-style",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]

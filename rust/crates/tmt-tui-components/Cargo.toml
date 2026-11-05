@@ -1,0 +1,20 @@
+[package]
+name = "tmt-tui-components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+tmt-cli-style = { path = "../tmt-cli-style", default-features = false }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

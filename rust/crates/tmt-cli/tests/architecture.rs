@@ -77,6 +77,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     ),
     ("tmt-tui", "rust/crates/tmt-tui/Cargo.toml"),
     (
+        "tmt-tui-components",
+        "rust/crates/tmt-tui-components/Cargo.toml",
+    ),
+    (
         "tmt-command-output",
         "rust/crates/tmt-command-output/Cargo.toml",
     ),

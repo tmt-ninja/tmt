@@ -64,7 +64,7 @@ Maintained module reference. Commands and admitted spellings are in [development
 
 ## Pure design-system components
 
-`components::design_system` measures and renders Serde props into a clipped cell
+The portable `tmt-tui-components` leaf, re-exported as `components::design_system`, measures and renders Serde props into a clipped cell
 grid carrying semantic foreground and background roles. It does no I/O or
 terminal integration. Each renderer returns its painted interaction regions;
 the caller owns state and actions. Row and column tracks compose fixed and fill
