@@ -2024,6 +2024,13 @@ for (const width of [390, 1440])
         actions.getByRole('button', { name: 'Save as shortcut', exact: true }),
       ).toBeVisible();
       await expect(actions.getByRole('button', { name: 'New page', exact: true })).toBeVisible();
+      const saveEdge = await actions
+        .getByRole('button', { name: 'Save as shortcut', exact: true })
+        .evaluate((node) => getComputedStyle(node).borderTopColor);
+      await expect(app(page).getByRole('button', { name: 'Filter', exact: true })).toHaveCSS(
+        'border-top-color',
+        saveEdge,
+      );
       await expect(tabs.getByRole('tab').first()).toContainText('99+');
       const geometry = await header.evaluate((node) => {
         const tabs = node.querySelector('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
