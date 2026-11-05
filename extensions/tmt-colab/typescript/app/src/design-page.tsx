@@ -1,15 +1,17 @@
-import { useCallback, useContext, useRef } from 'react';
+import { useCallback, useContext, useMemo, useRef } from 'react';
 import type { DesignSystemEntry, DesignTreeNode } from './design-system-pages.js';
+import { ensureBuiltInDiscussion, findBuiltInDiscussion } from './design-built-in.js';
 import type { PageRouting } from './page-routing.js';
-import { EmbeddedPageContext } from './embedded-page.js';
+import type { PageTransport } from './transport.js';
+import { EmbeddedPageContext, type ShippedPage } from './embedded-page.js';
 
 const treeNodes = (node: DesignTreeNode): DesignTreeNode[] => [
   node,
   ...node.children.flatMap(treeNodes),
 ];
 
-/** A Design page's address: the built-in tmt GUI's pages by their docs path under `/ds/gui`
- * (#5969), a space's own system's pages by id. */
+/** A Design page's address: the built-in tmt GUI's pages by their docs path under `/ds/gui`, as the
+ * docs site routes them, a space's own system's pages by id. */
 export function designPageHref(
   system: Pick<DesignSystemEntry, 'id' | 'builtIn'>,
   base: string,
@@ -32,10 +34,16 @@ export function designPageRouting(
 ): PageRouting {
   const nodes = treeNodes(system.tree);
   // A page route names the whole id; a `/p/<prefix>` link in the page names its start.
+  // A built-in page's id is its docs path, which a link names whole and encoded.
   const design = (route: string) => {
-    const [, kind, key] = /^\/(pages|short)\/([^/?#]+)$/.exec(route) ?? [];
+    const [, kind, raw] = /^\/(pages|short)\/([^/?#]+)$/.exec(route) ?? [];
+    const key = raw && decodeURIComponent(raw);
     const node =
-      key && nodes.find(({ id }) => (kind === 'pages' ? id === key : id.startsWith(key)));
+      key &&
+      (nodes.find(({ id, kind: type }) => type !== 'section' && id === key) ??
+        (kind === 'short'
+          ? nodes.find(({ id, kind: type }) => type !== 'section' && id.startsWith(key))
+          : undefined));
     return node ? designPageHref(system, base, node) : undefined;
   };
   const atRoot = base === '/design';
@@ -61,17 +69,24 @@ export function designPageRouting(
   };
 }
 
-/** A Design page is a Colab page (#5866) shown as only its reader frame, annotations, discussion and
- * Chat with @agent (#6060), hosted in the Design workspace under the Design header. Links to pages of the selected tree stay in Design;
- * any other link opens as it would in Colab. */
+/** A Design page (#6060): only the renderer, annotations, discussion and Chat with @agent, hosted
+ * in the Design workspace under the Design header. A space's own system's page is its Colab page; a
+ * built-in tmt GUI page is the source this build ships, discussed on a Colab page made on its first
+ * Comment or Chat. Links to pages of the selected tree stay in Design; any other link opens as it
+ * would in Colab. */
 export function DesignPage({
+  transport,
   pageId,
+  shipped,
   system,
   base,
   anchor,
   navigate,
 }: {
+  transport: PageTransport;
   pageId: string;
+  /** A built-in page's shipped title and source. */
+  shipped?: { title: string; source: string };
   system: DesignSystemEntry;
   base: string;
   anchor?: string;
@@ -87,9 +102,34 @@ export function DesignPage({
       }),
     [system, base],
   );
+  const title = shipped?.title;
+  const source = shipped?.source;
+  const page = useMemo<ShippedPage | undefined>(
+    () =>
+      title === undefined || source === undefined
+        ? undefined
+        : {
+            title,
+            source,
+            find: () => findBuiltInDiscussion(transport, pageId, title),
+            ...(transport.management && {
+              create: () => ensureBuiltInDiscussion(transport, pageId, { title, source }),
+            }),
+          },
+    [transport, pageId, title, source],
+  );
   const EmbeddedPage = useContext(EmbeddedPageContext);
   if (!EmbeddedPage) throw new Error('Design pages need the Colab page view.');
   // The context carries one module-level component, so nothing is created during render.
-  // eslint-disable-next-line react/static-components
-  return <EmbeddedPage key={pageId} pageId={pageId} anchor={anchor} routing={routing} design />;
+  return (
+    // eslint-disable-next-line react/static-components
+    <EmbeddedPage
+      key={pageId}
+      pageId={pageId}
+      shipped={page}
+      anchor={anchor}
+      routing={routing}
+      design
+    />
+  );
 }

@@ -95,8 +95,7 @@ async function docsMenu(page: Page) {
 }
 /** The reader frame of the open Design page. */
 const designFrame = (page: Page) => page.locator('.design-workspace iframe').first().contentFrame();
-/** The built-in tmt GUI as pages (#5969): the owner's first Design visit makes them, and `/ds/gui`
- * shows them. Open Button from the page tree. */
+/** The built-in tmt GUI, drawn from what the build ships (#6060). Open Button from the page tree. */
 async function openGuiButton(page: Page) {
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
   const toggle = page.locator('.design-nav-toggle');
@@ -109,10 +108,9 @@ async function openGuiButton(page: Page) {
   await expect(page).toHaveURL(/\/ds\/gui\/components\/button$/);
   const frame = designFrame(page);
   await expect(frame.getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
-  // One quiet line: the files stay in the origin block (#6060).
-  await expect(frame.locator('[data-tmt-ds-generated]')).toHaveText(
-    'Generated from design/browser-ui; change it through a PR, since edits here are replaced.',
-  );
+  // The docs' own scenes: the hero groups Send, New timer and Cancel as on the docs site.
+  for (const name of ['Send', 'New timer', 'Cancel'])
+    await expect(frame.getByRole('button', { name, exact: true }).first()).toBeVisible();
   // A Design page is only the renderer, annotations and Chat: no page header, ... row or work band.
   const workspace = page.locator('.design-workspace');
   await expect(workspace.locator('.colab-embedded-bar')).toHaveCount(0);
@@ -121,7 +119,7 @@ async function openGuiButton(page: Page) {
   // The header names the system; the tree's root reads Introduction (the tree may be collapsed).
   await expect(page.locator('.design-page-tree a').first()).toHaveText('Introduction');
 }
-/** The owner's generated Brand page draws the product mark (the brand spec covers the viewer's
+/** The built-in Brand page draws the product mark (the brand spec covers the viewer's
  * code docs). */
 async function expectGuiBrand(page: Page) {
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
@@ -137,62 +135,124 @@ async function railMenu(page: Page) {
   const menu = page.locator('.tmt-ui-shell-open');
   if (await menu.isVisible()) await menu.click();
 }
-test('tmt GUI stays on generated pages while a stale mirror updates', async ({ page }) => {
-  await page.addInitScript(() => {
-    (window as unknown as { designFixtureSetup: unknown }).designFixtureSetup = {
-      staleMirror: true,
-    };
-    const state = window as unknown as { docsFallbackSeen: boolean };
-    state.docsFallbackSeen = false;
-    new MutationObserver((records) => {
-      for (const record of records)
-        for (const node of record.addedNodes) {
-          if (
-            node instanceof Element &&
-            (node.matches('.design-workspace .tmt-design-docs') ||
-              node.querySelector('.design-workspace .tmt-design-docs'))
-          )
-            state.docsFallbackSeen = true;
+/** The fixture's pages that hold a built-in page's discussion. */
+const discussionPages = (page: Page) =>
+  page.evaluate(() =>
+    [
+      ...(
+        window as unknown as {
+          designFixture: { pages: Map<string, { id: string; title: string; source: string }> };
         }
-    }).observe(document, { childList: true, subtree: true });
+      ).designFixture.pages.values(),
+    ]
+      .filter((item) => item.source.includes('data-tmt-ds="annotates"'))
+      .map((item) => ({ id: item.id, title: item.title })),
+  );
+/** Turn on selection mode once the page can select (its discussion verified). */
+async function selectionOn(page: Page) {
+  const toggle = page.getByRole('button', { name: 'Selection mode', exact: true });
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
+  }).toPass();
+}
+test('tmt GUI draws the shipped pages and makes a discussion page only on the first Comment', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.addInitScript(() => {
+    // No docs fallback and no updating state may ever show in the workspace.
+    const state = window as unknown as { designSeen: string[] };
+    state.designSeen = [];
+    new MutationObserver(() => {
+      const workspace = document.querySelector('.design-workspace');
+      if (!workspace) return;
+      if (workspace.querySelector(':scope .tmt-design-docs')) state.designSeen.push('docs');
+      if (/Updating|Making|Preparing/.test(workspace.textContent ?? ''))
+        state.designSeen.push(workspace.textContent!.slice(0, 80));
+    }).observe(document, { childList: true, subtree: true, characterData: true });
   });
   await open(page);
-  await page.locator('.design-page-tree a[href$="/components/page-list"]').click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as unknown as { designFixture: { controls: { mirrorWaiting: boolean } } })
-            .designFixture?.controls.mirrorWaiting,
-      ),
-    )
-    .toBe(true);
-  await expect(page.getByText('Updating the tmt GUI pages…')).toBeVisible();
-  await expect(page.locator('.design-page-tree')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open in Colab' })).toBeVisible();
-  await expect(
-    designFrame(page).getByRole('heading', { name: 'Page list', exact: true }),
-  ).toBeVisible();
-  await page.evaluate(() =>
-    (window as unknown as { designFixture: { resumeMirror(): void } }).designFixture.resumeMirror(),
+  const before = await page.evaluate(
+    () => (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages.size,
   );
-  await expect(page.getByText('Updating the tmt GUI pages…')).toHaveCount(0, { timeout: 60000 });
+  await openGuiButton(page);
+  expect(await discussionPages(page)).toEqual([]);
+  // The first Comment makes the page's discussion page; the page still draws the shipped source.
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await expect.poll(() => discussionPages(page)).toEqual([
+    { id: expect.any(String), title: 'Button · tmt GUI' },
+  ]);
+  const [made] = await discussionPages(page);
+  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  // Comments now work as on any page, once the discussion page has opened.
+  await selectionOn(page);
+  // An edit to the stored copy never reaches Design: it draws what the build ships.
+  await page.evaluate((id) => {
+    const fixture = (
+      window as unknown as { designFixture: { patch(id: string, find: string, replace: string): void } }
+    ).designFixture;
+    fixture.patch(
+      id,
+      '<tmt-ui-component-docs page="components/button">',
+      '<tmt-ui-component-docs page="components/badge">',
+    );
+  }, made!.id);
+  await page.waitForTimeout(300);
+  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  // Another visit finds the same page.
+  const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+  await tree.getByRole('link', { name: /^Badge/ }).click();
+  await expect(designFrame(page).getByRole('heading', { name: 'Badge', exact: true })).toBeVisible();
+  await tree.getByRole('link', { name: /^Button/ }).click();
+  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  await selectionOn(page);
+  expect(await discussionPages(page)).toEqual([made]);
   expect(
     await page.evaluate(
-      () => (window as unknown as { docsFallbackSeen: boolean }).docsFallbackSeen,
+      () => (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages.size,
     ),
-  ).toBe(false);
-  expect(
-    await page.evaluate(() =>
-      [
-        ...(
-          window as unknown as { designFixture: { pages: Map<string, { source: string }> } }
-        ).designFixture.pages.values(),
-      ].some((item) => item.source.includes('stale-fixture')),
-    ),
-  ).toBe(false);
-  await expect(page.locator('.design-page-tree')).toBeVisible();
+  ).toBe(before + 1);
+  expect(await page.evaluate(() => (window as unknown as { designSeen: string[] }).designSeen)).toEqual(
+    [],
+  );
 });
+
+for (const width of [1440, 390])
+  test(`the Design nav scrolls on its own, apart from the page, at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await open(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    if (width === 390) await page.locator('.design-nav-toggle').click();
+    await expect(tree).toBeVisible();
+    // Scroll the nav part way, then the page: the nav keeps its place, scroll and items.
+    await tree.evaluate((nav) => {
+      nav.scrollTop = 200;
+    });
+    const read = () =>
+      tree.evaluate((nav) => {
+        const box = nav.getBoundingClientRect();
+        const visible = [...nav.querySelectorAll('a')]
+          .filter((link) => {
+            const item = link.getBoundingClientRect();
+            return item.bottom > box.top && item.top < box.bottom;
+          })
+          .map((link) => link.textContent);
+        return { scroll: nav.scrollTop, visible, top: Math.round(box.top) };
+      });
+    const before = await read();
+    expect(before.scroll).toBeGreaterThan(0);
+    await page.locator('.design-workspace').evaluate((workspace) => {
+      workspace.scrollTop = 600;
+    });
+    await expect.poll(() => page.locator('.design-workspace').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    // On a phone the open nav sticks to the workspace's top; on a desktop it never moves.
+    const after = await read();
+    expect({ ...after, top: width === 390 ? 0 : after.top }).toEqual({
+      ...before,
+      top: width === 390 ? 0 : before.top,
+    });
+  });
 
 for (const width of [1440, 390]) {
   test(`block document uses its canvas width in Design at ${width}`, async ({ page }) => {
@@ -202,14 +262,13 @@ for (const width of [1440, 390]) {
     if (width === 390) await page.locator('.design-nav-toggle').click();
     await tree.locator('a[href$="/components/block-document"]').click();
     const frame = designFrame(page);
-    const document = frame.locator('.docs-hero .tmt-block-doc').first();
+    const document = frame.locator('.docs-canvas-hero .tmt-block-doc').first();
     await expect(document).toBeVisible();
     await expect.poll(async () => (await document.boundingBox())?.width ?? 0).toBeGreaterThan(150);
-    const title = document.locator('h2').filter({ hasText: 'First block set' });
+    // Its text runs across the line, not one letter per line.
+    const title = document.locator(':is(h1, h2, h3, p)').first();
     await expect(title).toBeVisible();
-    await expect
-      .poll(async () => (await title.boundingBox())?.height ?? Infinity)
-      .toBeLessThan(100);
+    await expect.poll(async () => (await title.boundingBox())?.width ?? 0).toBeGreaterThan(150);
   });
 }
 
@@ -221,7 +280,7 @@ test('a Browser component page opens with a live chart example', async ({ page }
   await tree.getByRole('link', { name: /^Chart/ }).click();
   const frame = designFrame(page);
   await expect(frame.getByRole('heading', { name: 'Chart', exact: true })).toBeVisible();
-  await expect(frame.getByRole('img', { name: /Activity/ })).toBeVisible();
+  await expect(frame.getByRole('img', { name: /Activity/ }).first()).toBeVisible();
 });
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
@@ -587,6 +646,9 @@ test('Design attachment confirmation is placed below the Design header', async (
   await page.setViewportSize({ width: 1440, height: 1000 });
   await open(page);
   await openGuiButton(page);
+  // A built-in page holds files on its discussion page, made by the first Comment.
+  await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
+  await expect.poll(async () => (await discussionPages(page)).length).toBe(1);
   const id = '11111111-1111-4111-8111-111111111111';
   await page.evaluate((attachmentId) => {
     const fixture = (
@@ -597,9 +659,7 @@ test('Design attachment confirmation is placed below the Design header', async (
         };
       }
     ).designFixture;
-    const selected = [...fixture.pages].find(
-      ([, item]) => item.title === 'Button' && item.source.includes('tmt-ui-button'),
-    )![0];
+    const selected = [...fixture.pages].find(([, item]) => item.title === 'Button · tmt GUI')![0];
     fixture.addAttachment(selected, attachmentId);
   }, id);
   await designFrame(page)

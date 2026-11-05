@@ -20,6 +20,25 @@
 .design-page-tree {
   border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   padding: var(--tmt-ui-ref-space-4);
+  /* The nav is its own scroller, as on the docs site: scrolling a page leaves it where it is. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  box-sizing: border-box;
+  max-height: calc(100dvh - var(--design-header-height, var(--tmt-ui-header-height)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* A built-in section heading groups pages, as the docs nav does. */
+.design-page-tree-section > p {
+  margin: var(--tmt-ui-ref-space-3) 0 var(--tmt-ui-ref-space-1);
+  padding: 0 var(--tmt-ui-ref-space-2);
+  font-size: var(--tmt-ui-type-caption-size);
+  font-weight: 600;
+  color: var(--tmt-ui-color-secondary);
+}
+.design-page-tree ul ul:has(> .design-page-tree-section) {
+  padding-left: 0;
 }
 .design-page-tree ul {
   list-style: none;
@@ -66,9 +85,13 @@
   .design-page-tree:not([data-open]) {
     display: none;
   }
+  /* On a phone the open nav is a menu over the page's top: it stays put and scrolls itself. */
   .design-page-tree {
+    z-index: 1;
+    max-height: 60dvh;
     border-right: 0;
     border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+    background: var(--tmt-ui-surface-paper);
   }
 }
 

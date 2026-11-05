@@ -1,23 +1,10 @@
 // Renders the tmt GUI docs (design/browser-ui/docs) to static HTML for the design-system template
 // (#5866): each component's preview and variants, the foundations pages and the patterns. The docs
 // stay the single source; the template compiler turns this into the pages a new system copies.
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../browser-ui/', import.meta.url));
-/** The repo files a docs page is generated from, repo-relative: what a change to it edits (#5969). */
-const sourceFiles = (...candidates) =>
-  candidates.filter((path) => existsSync(fileURLToPath(new URL(`../../${path}`, import.meta.url))));
-const componentFiles = (slug) =>
-  sourceFiles(
-    ...[`src/ui/${slug}`, `src/${slug}`, `src/${slug}/${slug}`].flatMap((stem) => [
-      `design/browser-ui/${stem}.tsx`,
-      `design/browser-ui/${stem}.css`,
-    ]),
-    'design/browser-ui/docs/catalog.tsx',
-    'design/browser-ui/docs/catalog-more.tsx'
-  );
 const browserUi = createRequire(`${root}package.json`);
 
 /** Start an SSR loader over the docs, render with `use`, and always close it. */
@@ -74,17 +61,14 @@ export async function renderDocs() {
     const { morePatterns } = await load('/docs/patterns-more.tsx');
     const { livePatternSlugs } = await load('/docs/pattern-page.tsx');
     const { Article } = await load('/docs/templates.tsx');
-    const page = (slug, title, node, files) => ({ slug, title, html: render(() => node), files });
-    const tokenFiles = sourceFiles(
-      'design/tokens/tokens.json',
-      'design/browser-ui/docs/tokens.tsx'
-    );
+    // `path` is the page's docs path under the system root, as the docs site routes it.
+    const page = (slug, title, node, path) => ({ slug, title, html: render(() => node), path });
     const article = (title, lead, ...children) => h(Article, { title, lead }, ...children);
     return [
       {
         title: 'Foundations',
         pages: tokenPages.map((doc) =>
-          page(doc.slug, doc.title, h('tmt-ui-foundation', { page: doc.slug }), tokenFiles)
+          page(doc.slug, doc.title, h('tmt-ui-foundation', { page: doc.slug }), `tokens/${doc.slug}`)
         ),
       },
       {
@@ -94,7 +78,7 @@ export async function renderDocs() {
             doc.slug,
             doc.name,
             h('tmt-ui-component-docs', { page: `components/${doc.slug}` }),
-            componentFiles(doc.slug)
+            `components/${doc.slug}`
           ),
           description: doc.description,
           usage: doc.usage,
@@ -146,7 +130,7 @@ export async function renderDocs() {
               tag,
               doc.name,
               h('tmt-ui-component-docs', { page: `browser/${slug}` }),
-              sourceFiles('design/browser-ui/docs/browser-catalog.tsx')
+              `browser/${slug}`
             ),
             description: doc.description,
           };
@@ -157,13 +141,12 @@ export async function renderDocs() {
         pages: [
           ...patterns.map((doc) =>
             livePatternSlugs.includes(doc.slug)
-              ? page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }),
-                  sourceFiles('design/browser-ui/docs/patterns.tsx'))
+              ? page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }), `patterns/${doc.slug}`)
               : page(
               doc.slug,
               doc.title,
               article(doc.title, doc.lead, h(doc.render)),
-              sourceFiles('design/browser-ui/docs/patterns.tsx')
+              `patterns/${doc.slug}`
             )
           ),
           ...morePatterns.map((doc) => {
@@ -172,7 +155,7 @@ export async function renderDocs() {
                 doc.slug,
                 doc.title,
                 h('tmt-ui-pattern', { page: doc.slug }),
-                sourceFiles('design/browser-ui/docs/patterns-more.tsx', 'design/browser-ui/docs/patterns-blocks.tsx')
+                `patterns/${doc.slug}`
               );
             // A state too heavy for one page (a long table, say) is named, not drawn.
             const states = doc.states.map(([state, label]) => {
@@ -208,7 +191,7 @@ export async function renderDocs() {
                   doc.rules.map((rule) => h('li', { key: rule }, rule))
                 )
               ),
-              sourceFiles('design/browser-ui/docs/patterns-more.tsx')
+              `patterns/${doc.slug}`
             );
           }),
         ],

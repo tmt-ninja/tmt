@@ -6,7 +6,6 @@ import { createAppRouter } from '../src/router.js';
 import { ShellHostSlot } from '../src/colab-shell.js';
 import { hostInShell } from '../src/entry.js';
 import { createDesignSystem } from '../src/design-system-pages.js';
-import { syncBuiltInMirror } from '../src/design-mirror.js';
 import type { PageBinding, PageTransport, PageView } from '../src/transport.js';
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
@@ -21,13 +20,7 @@ interface PageRecord {
   listeners: Set<(view: PageView) => void>;
 }
 export async function mountDesign(url = '/colab/design/', owner = true) {
-  const setup = (window as unknown as { designFixtureSetup?: { staleMirror?: boolean } })
-    .designFixtureSetup;
-  const controls = { failUpload: false, pauseMirror: false, mirrorWaiting: false };
-  let resumeMirror!: () => void;
-  const mirrorBarrier = new Promise<void>((resolve) => {
-    resumeMirror = resolve;
-  });
+  const controls = { failUpload: false };
   const pages = new Map<string, PageRecord>();
   const counts = { opened: 0, closed: 0, active: 0, edits: 0 };
   const anchors: { pageId: string; body: string; anchor: unknown }[] = [];
@@ -103,11 +96,6 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
         };
       },
       edit: async (source: string, base: string) => {
-        if (controls.pauseMirror && source.includes('data-tmt-ds="origin"')) {
-          controls.mirrorWaiting = true;
-          await mirrorBarrier;
-          controls.pauseMirror = false;
-        }
         if (base !== page.source) throw new Error('stale base');
         page.source = source;
         counts.edits++;
@@ -175,17 +163,6 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
   await import('@tmt/browser-ui/docs-embed');
   const home = make('Notes');
   const initial = await createDesignSystem(transport, { name: 'Acme', prefix: 'acme' });
-  if (setup?.staleMirror) {
-    const root = await syncBuiltInMirror(transport);
-    const rootPage = pages.get(root)!;
-    rootPage.source = rootPage.source.replace(/("revision":\s*")[^"]+/, '$1stale-fixture');
-    const pageList = [...pages.values()].find((page) =>
-      page.source.includes('components/page-list'),
-    );
-    if (!pageList) throw new Error('Fixture page list missing');
-    pageList.source += '<!-- stale-fixture -->';
-    controls.pauseMirror = true;
-  }
   if (!owner) delete (transport as { management?: unknown }).management;
   (window as unknown as { designFixture: unknown }).designFixture = {
     pages,
@@ -206,7 +183,6 @@ export async function mountDesign(url = '/colab/design/', owner = true) {
       notify(page);
     },
     controls,
-    resumeMirror,
     initial,
     home,
   };

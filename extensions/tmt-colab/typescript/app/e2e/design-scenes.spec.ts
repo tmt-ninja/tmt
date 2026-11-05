@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
 
 // #6060: a built-in Design component page shows the same scenes as the docs (5100), each as wide

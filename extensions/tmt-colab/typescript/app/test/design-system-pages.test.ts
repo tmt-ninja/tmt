@@ -9,11 +9,11 @@ import {
 import { elements as colabElements } from '../../../contracts/vectors/page-elements-v1.json';
 import type { Bundle } from '../../../../../design/systems/compiler.mjs';
 import {
-  GENERATED_NOTE,
-  shippedBundle,
-  shippedMirrorRevision,
-  syncBuiltInMirror,
-} from '../src/design-mirror.js';
+  builtInDesign,
+  builtInLink,
+  ensureBuiltInDiscussion,
+  findBuiltInDiscussion,
+} from '../src/design-built-in.js';
 import {
   adoptDesignSystem,
   createDesignSystem,
@@ -529,61 +529,60 @@ describe('live draft (#5967)', () => {
   });
 });
 
-describe('built-in tmt GUI pages (#5969)', () => {
-  it('makes the tmt GUI as pages that follow tmt-gui, name their files and list as built-in', async () => {
-    const { pages, make, transport } = space();
-    make('Notes');
-    const rootId = await syncBuiltInMirror(transport);
-    const root = pages.get(rootId)!;
-    const builtIn = { bundle: await shippedBundle(), revision: await shippedMirrorRevision() };
-    expect(readBlock(root.source, 'origin')).toEqual({ key: '', ...builtIn });
-    const { systems } = await listDesignSystems(transport);
-    const entry = systems.find((system) => system.id === rootId)!;
-    expect(entry.builtIn).toEqual(builtIn);
-    const button = entry.tree.children
-      .find((node) => node.key === 'components')!
-      .children.find((node) => node.key === 'components/button')!;
-    const source = pages.get(button.id)!.source;
-    expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
-    expect(source).toContain(GENERATED_NOTE);
-    expect(source).toContain('<h1>Button</h1>');
-    expect(source).toContain('One primary button per surface');
-    expect(source).toContain("Do and don't");
-    expect(readBlock<{ files: string[] }>(source, 'origin')!.files).toContain(
-      'design/browser-ui/src/ui/button.tsx',
-    );
-    expect(source).toContain('data-ds-example="button:primary"');
-    for (const id of [rootId, button.id]) expect(pages.get(id)!.projects).toEqual([DESIGN_PROJECT]);
-  });
-
-  it('regenerates in place: same ids, an owner edit replaced, a gone entry archived, nothing edited when current', async () => {
+describe('the built-in tmt GUI in Design (#6060)', () => {
+  it('draws from what the build ships, by docs path, and writes no pages', async () => {
     const { pages, make, transport, open } = space();
     make('Notes');
-    const rootId = await syncBuiltInMirror(transport);
-    const tree = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
-    const components = tree.children.find((node) => node.key === 'components')!;
-    const button = components.children.find((node) => node.key === 'components/button')!;
-    const generated = pages.get(button.id)!.source;
-    const edits = open.edits;
-    await syncBuiltInMirror(transport, rootId);
-    expect(open.edits).toBe(edits);
-    pages.get(button.id)!.source = `${generated}<p>Owner edit</p>`;
-    // A page whose docs entry no longer exists, with its threads.
-    const gone = make('Gone');
-    pages.get(components.id)!.order.push(gone);
-    pages.get(gone)!.source =
-      '<script type="application/json" data-tmt-ds="origin">{"key":"components/gone"}</script>';
-    await syncBuiltInMirror(transport, rootId);
-    expect(pages.get(button.id)!.source).toBe(generated);
-    expect(pages.get(gone)!.archived).toBe(true);
-    expect(pages.has(gone)).toBe(true);
-    const again = (await listDesignSystems(transport)).systems.find((s) => s.id === rootId)!.tree;
-    expect(again.children.find((node) => node.key === 'components')!.id).toBe(components.id);
+    const before = pages.size;
+    const { entry, page } = await builtInDesign();
+    expect(entry.builtIn).toBe(true);
+    expect(entry.tree.children.map((node) => [node.kind, node.title])).toEqual([
+      ['section', 'Foundations'],
+      ['section', 'Components'],
+      ['section', 'Browser components'],
+      ['section', 'Patterns'],
+    ]);
+    const button = entry.tree.children[1]!.children.find((node) => node.id === 'components/button')!;
+    expect(button).toMatchObject({ key: 'components/button', tag: 'button', title: 'Button' });
+    expect(entry.tree.children[2]!.children.map((node) => node.id)).toContain('browser/avatar');
+    const source = page('components/button')!.source;
+    expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
+    expect(source).toContain('<tmt-ui-component-docs page="components/button">');
+    expect(page('')!.source).toContain(`href="${builtInLink('components/button')}"`);
+    expect(pages.size).toBe(before);
+    expect(open.edits).toBe(0);
+    expect((await listDesignSystems(transport)).systems).toEqual([]);
   });
-  it('two syncs at once (two tabs or devices) end with one tree and one page per docs path', async () => {
+
+  it('makes one discussion page for a docs path on its first comment, and finds it after', async () => {
     const { pages, make, transport } = space();
     make('Notes');
-    // Both devices see an empty space before either creates the mirrored root.
+    const shipped = (await builtInDesign()).page('components/button')!;
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(
+      undefined,
+    );
+    const id = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    const made = pages.get(id)!;
+    expect(made.title).toBe('Button · tmt GUI');
+    expect(made.projects).toEqual([DESIGN_PROJECT]);
+    expect(readBlock(made.source, 'annotates')).toEqual({
+      system: 'tmt-gui',
+      path: 'components/button',
+    });
+    expect(made.source).toContain(shipped.source);
+    expect(await ensureBuiltInDiscussion(transport, 'components/button', shipped)).toBe(id);
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(id);
+    // Another path's page is its own, and none of them is a design system.
+    const badge = (await builtInDesign()).page('components/badge')!;
+    expect(await ensureBuiltInDiscussion(transport, 'components/badge', badge)).not.toBe(id);
+    expect((await listDesignSystems(transport)).systems).toEqual([]);
+  });
+
+  it('two first comments at once (two tabs) leave one live page for the path', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    // Both tabs find no page before either makes one.
     const home = transport.spaceHome;
     let arrivals = 0;
     let release!: () => void;
@@ -599,29 +598,14 @@ describe('built-in tmt GUI pages (#5969)', () => {
       return snapshot;
     };
     const [first, second] = await Promise.all([
-      syncBuiltInMirror(transport),
-      syncBuiltInMirror(transport),
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
     ]);
     expect(second).toBe(first);
-    const builtIn = (await listDesignSystems(transport)).systems.filter((system) => system.builtIn);
-    expect(builtIn.map((system) => system.id)).toEqual([first]);
-    // Each docs path has one live page, all in that tree; the other sync's pages are archived.
-    const live = [...pages].filter(([, page]) => !page.archived);
-    const keys = live.flatMap(([, page]) => {
-      const origin = readBlock<{ key: string }>(page.source, 'origin');
-      return origin ? [origin.key] : [];
-    });
-    expect(keys.length).toBeGreaterThan(3);
-    expect(new Set(keys).size).toBe(keys.length);
-    const inTree = new Set<string>();
-    const walk = (node: { id: string; children: readonly unknown[] }) => {
-      inTree.add(node.id);
-      for (const child of node.children) walk(child as typeof node);
-    };
-    walk(builtIn[0]!.tree);
-    for (const [id, page] of live)
-      if (readBlock(page.source, 'origin')) expect(inTree.has(id), id).toBe(true);
-    expect([...pages.values()].some((page) => page.archived)).toBe(true);
+    const live = [...pages].filter(
+      ([, page]) => !page.archived && readBlock(page.source, 'annotates'),
+    );
+    expect(live.map(([id]) => id)).toEqual([first]);
   });
 });
 

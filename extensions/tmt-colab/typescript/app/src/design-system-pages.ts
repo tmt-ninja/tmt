@@ -34,8 +34,8 @@ import { PROJECT_REQUEST_PAGES } from './projects.js';
  * `tmt colab design` all find design-system pages without reading sources.
  */
 
-/** `origin` marks a page of the built-in tmt GUI's generated tree (design-mirror.ts, #5969). */
-export type BlockKind = 'design-system' | 'component' | 'origin';
+/** `annotates` marks the page that holds a built-in tmt GUI page's discussion (design-built-in.ts). */
+export type BlockKind = 'design-system' | 'component' | 'annotates';
 /** The reserved owner-store project every design-system page holds (contract: Projects). */
 export const DESIGN_PROJECT = DESIGN_SYSTEM_PROJECT;
 export const isDesignSystemPage = (page: Pick<PageSummary, 'projects'>) =>
@@ -630,8 +630,9 @@ export async function newRoot(transport: PageTransport, name: string): Promise<s
 export interface DesignTreeNode {
   id: string;
   title: string;
-  /** The page's data-block kind; `page` for a docs page with no block. */
-  kind: BlockKind | 'page';
+  /** The page's data-block kind; `page` for a docs page with no block; `section` for a built-in
+   * heading that groups pages and is not a page itself. */
+  kind: BlockKind | 'page' | 'section';
   /** A component page's tag without the system prefix, shown beside its title. */
   tag?: string;
   /** A built-in tree page's docs path (`components/button`; the root is ''). */
@@ -650,8 +651,8 @@ export interface DesignSystemEntry {
   config: DesignSystemConfig;
   /** The root page and the pages under it, in the root's sub-page order. */
   tree: DesignTreeNode;
-  /** The built-in tmt GUI's generated tree (#5969): its bundle and documentation revision. */
-  builtIn?: { bundle: string; revision?: string };
+  /** The built-in tmt GUI, drawn from what this build ships (design-built-in.ts). */
+  builtIn?: true;
 }
 const TREE_DEPTH = 4;
 async function treeOf(
@@ -662,7 +663,6 @@ async function treeOf(
   archived: ReadonlySet<string> = new Set(),
 ): Promise<DesignTreeNode> {
   const component = readBlock<ComponentDoc>(page.source, 'component');
-  const origin = readBlock<{ key: string }>(page.source, 'origin');
   const kind: DesignTreeNode['kind'] = readBlock(page.source, 'design-system')
     ? 'design-system'
     : component
@@ -684,7 +684,6 @@ async function treeOf(
     title: titles.get(page.id) ?? page.title,
     kind,
     ...(component?.tag && { tag: component.tag }),
-    ...(origin && { key: origin.key }),
     children,
   };
 }
@@ -692,12 +691,8 @@ function entryOf(
   id: string,
   config: DesignSystemConfig,
   tree: DesignTreeNode,
-  origin?: { bundle?: string; revision?: string },
 ): DesignSystemEntry {
   return {
-    ...(origin?.bundle && {
-      builtIn: { bundle: origin.bundle, ...(origin.revision && { revision: origin.revision }) },
-    }),
     id,
     name: config.name,
     prefix: config.prefix,
@@ -740,7 +735,6 @@ export async function listDesignSystems(
             root.id,
             config,
             await treeOf(transport, root, titles, 0, archived),
-            readBlock<{ bundle?: string; revision?: string }>(root.source, 'origin'),
           )
         );
       });

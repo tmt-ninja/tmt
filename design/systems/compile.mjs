@@ -169,15 +169,12 @@ async function compile(dir) {
     return filled;
   });
   const bundle = await buildBundle(config.id, config, components, sha256Hex);
-  // Bump the layout version when componentPageSource changes. Docs and examples can change
-  // independently of the published bundle, so they also participate in this revision.
-  const mirrorRevision = await sha256Hex(JSON.stringify([3, pages.sections, config, components]));
   const from = relative(repo, dir);
   const files = new Map([
     ['generated/bundle.json', `${JSON.stringify(bundle, null, 1)}\n`],
     [
       'generated/template.json',
-      `${JSON.stringify({ system: { ...config, components: components.map(({ tag }) => ({ tag, status: 'stable' })) }, components, mirrorRevision }, null, 1)}\n`,
+      `${JSON.stringify({ system: { ...config, components: components.map(({ tag }) => ({ tag, status: 'stable' })) }, components }, null, 1)}\n`,
     ],
     [
       'generated/style.css',

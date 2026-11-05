@@ -87,6 +87,7 @@ import {
   EmbeddedPageContext,
   ShownReleaseContext,
   type EmbeddedPageProps,
+  type ShippedPage,
 } from './embedded-page.js';
 import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
@@ -1316,21 +1317,81 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
  * opens the page through the transport as the route would, and gives its live connection up when the
  * host leaves it (back to the summary, the full page, Esc), so one page never holds two. The host may
  * route the page's own links (Design keeps its tree's pages in Design). */
-function EmbeddedPage({ pageId, anchor, routing: hostRouting, design }: EmbeddedPageProps) {
+/** A shipped page as the page view draws it before it has a discussion page: its source only. */
+const shippedSnapshot = (shipped: ShippedPage): PageSnapshot => ({
+  id: `shipped:${shipped.title}`,
+  title: shipped.title,
+  source: shipped.source,
+  sharing: 'private',
+  layout: 'column',
+});
+/** A shipped page's discussion page, drawn with the shipped source: the page's stored copy (and
+ * every later version of it) is never shown, only its threads and Chat. */
+function withShippedSource(snapshot: PageSnapshot, source: string): PageSnapshot {
+  const binding = snapshot.binding;
+  return {
+    ...snapshot,
+    source,
+    ...(binding && {
+      binding: new Proxy(binding, {
+        get(target, key) {
+          if (key === 'subscribe')
+            return (publish: (view: PageView) => void, failed: (error: Error) => void) =>
+              target.subscribe((view) => publish({ ...view, source }), failed);
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }),
+    }),
+  };
+}
+
+function EmbeddedPage({
+  pageId,
+  shipped,
+  anchor,
+  routing: hostRouting,
+  design,
+}: EmbeddedPageProps) {
   const router = useRouter();
   const { transport, space } = root.useRouteContext();
   const host = usePageEnvironment();
+  // A shipped page opens its discussion page once found (or made); until then, only its source.
+  const [discussion, setDiscussion] = useState<{ for: ShippedPage; id: string | undefined }>();
+  const [starting, setStarting] = useState<string>();
+  useEffect(() => {
+    if (!shipped) return;
+    let live = true;
+    shipped.find().then(
+      (id) => {
+        if (live) setDiscussion({ for: shipped, id });
+      },
+      () => {
+        if (live) setDiscussion({ for: shipped, id: undefined });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [shipped]);
+  const looked = shipped ? discussion?.for === shipped : true;
+  const opened = shipped ? (looked ? discussion!.id : undefined) : pageId;
   const [loaded, setLoaded] = useState<PageSnapshot | 'failed'>();
   useEffect(() => {
-    const abort = new AbortController();
-    let opened: PageSnapshot | undefined;
     setLoaded(undefined);
-    transport.page(pageId, abort.signal).then(
+    if (!looked) return;
+    if (!opened) {
+      setLoaded(shipped ? shippedSnapshot(shipped) : 'failed');
+      return;
+    }
+    const abort = new AbortController();
+    let held: PageSnapshot | undefined;
+    transport.page(opened, abort.signal).then(
       (snapshot) => {
         if (abort.signal.aborted) snapshot.binding?.close();
         else {
-          opened = snapshot;
-          setLoaded(snapshot);
+          held = snapshot;
+          setLoaded(shipped ? withShippedSource(snapshot, shipped.source) : snapshot);
         }
       },
       () => {
@@ -1339,9 +1400,26 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting, design }: Embedded
     );
     return () => {
       abort.abort();
-      opened?.binding?.close();
+      held?.binding?.close();
     };
-  }, [transport, pageId]);
+  }, [transport, opened, looked, shipped]);
+  // The first Comment or Chat on a shipped page makes its discussion page, then opens it.
+  const create = shipped?.create;
+  const ensureDiscussion = useMemo(
+    () =>
+      shipped && create && looked && !opened
+        ? async () => {
+            setStarting(undefined);
+            try {
+              const id = await create();
+              setDiscussion({ for: shipped, id });
+            } catch (failure) {
+              setStarting(failure instanceof Error ? failure.message : String(failure));
+            }
+          }
+        : undefined,
+    [shipped, create, looked, opened],
+  );
   const routing = useMemo<PageRouting>(() => {
     const base: PageRouting = {
       ...routePageRouting(router),
@@ -1354,6 +1432,11 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting, design }: Embedded
   const environment = useMemo(() => embeddedPageEnvironment(host, () => wrap.current), [host]);
   return (
     <div className="shell-embedded" ref={wrap}>
+      {starting && (
+        <p className="shell-state" role="alert">
+          {starting}
+        </p>
+      )}
       {loaded === undefined ? (
         <p className="shell-state" role="status">
           <BusyMark /> {text.loading}
@@ -1365,9 +1448,10 @@ function EmbeddedPage({ pageId, anchor, routing: hostRouting, design }: Embedded
       ) : (
         <PageEnvironmentProvider value={environment}>
           <OpenPage
-            key={pageId}
+            key={loaded.id}
             embedded
             design={design}
+            ensureDiscussion={ensureDiscussion}
             transport={transport}
             space={space}
             loaded={loaded}
@@ -1390,6 +1474,7 @@ function OpenPage({
   routing,
   embedded = false,
   design = false,
+  ensureDiscussion,
 }: {
   transport: PageTransport;
   space: string | undefined;
@@ -1404,6 +1489,9 @@ function OpenPage({
   /** A Design page (#6060): only the renderer, annotations, discussion and the Chat FAB. The Design
    * header is the page's only header, so there is no page header, `...` row, link bar or work band. */
   design?: boolean;
+  /** A Design page with no discussion page yet: the first Comment or Chat makes it, and the page
+   * then opens again with it (#6060). */
+  ensureDiscussion?: () => Promise<void>;
 }) {
   const environment = usePageEnvironment();
   // The renderer's thread handler outlives a render, so it reads the environment through a ref.
@@ -1823,13 +1911,19 @@ function OpenPage({
   const discussionBlocked =
     archived || !!liveError || state === 'failed' || state === 'navigation' || discussionPending;
   const selectable =
-    view.pageType !== 'shell' && !!snapshot.binding?.discussion && state === 'ready';
+    view.pageType !== 'shell' &&
+    (!!snapshot.binding?.discussion || !!ensureDiscussion) &&
+    state === 'ready';
   const canSelect = selectable && !discussionBlocked;
   // Selecting is offered once the threads are verified; until then its button holds its place.
   const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
     if (archived || (panel !== null && panel !== 'chat') || environment.overlayOpen('chat'))
       return false;
+    if (ensureDiscussion && !snapshot.binding?.discussion) {
+      void ensureDiscussion();
+      return true;
+    }
     const insertMention = panel !== 'chat';
     if (insertMention)
       chatOpener.current =
@@ -1853,7 +1947,10 @@ function OpenPage({
     else if (canSelect) setSelectionMode(false);
   };
   toggleSelectionMode.current = () => {
-    if (canSelect) setSelectionMode((enabled) => !enabled);
+    if (!canSelect) return;
+    // A Design page with no discussion page yet makes it first; select again once it opens.
+    if (ensureDiscussion && !snapshot.binding?.discussion) void ensureDiscussion();
+    else setSelectionMode((enabled) => !enabled);
   };
   useEffect(() => {
     renderer.current?.selectionMode(canSelect && selectionMode);
@@ -2654,6 +2751,10 @@ function OpenPage({
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
           toggleChat={() => {
+            if (ensureDiscussion && !snapshot.binding?.discussion) {
+              void ensureDiscussion();
+              return;
+            }
             if (panel !== 'chat') chatOpener.current = floatingChat.current;
             toggle('chat');
           }}
