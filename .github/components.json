@@ -27,6 +27,7 @@
         "extensions/tmt-colab",
         "rust/crates/tmt-tui",
         "rust/crates/tmt-tui-components",
+        "rust/crates/tmt-tui-wasm",
         "rust/crates/tmt-extension-state",
         "rust/crates/tmt-extension-serve",
         "rust/crates/tmt-extension-objects",
@@ -117,7 +118,7 @@
       "release": false
     },
     "tmt-tui": {
-      "owns": ["rust/crates/tmt-tui", "rust/crates/tmt-tui-components"],
+      "owns": ["rust/crates/tmt-tui", "rust/crates/tmt-tui-components", "rust/crates/tmt-tui-wasm"],
       "release": false
     },
     "tmt-cli-style": {

@@ -184,6 +184,13 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Private release tooling owns only TOML edits and their JSON transport.
         "tmt-release-tool" => &["serde_json", "toml_edit"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
+        "tmt-tui-wasm" => &[
+            "serde",
+            "serde_json",
+            "tmt-tui-components",
+            "unicode-segmentation",
+            "wasm-bindgen",
+        ],
         "tmt-tui-components" => &[
             "serde",
             "unicode-width",
@@ -917,8 +924,21 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     path.join("::")
                 ));
             }
+            if source.package == "tmt-tui-wasm"
+                && (root == "ratatui"
+                    || root == "crossterm"
+                    || (root.starts_with("tmt_")
+                        && root != "tmt_tui_components"
+                        && root != "tmt_tui_wasm"))
+            {
+                violations.push(format!(
+                    "{location}: wasm components cannot reach {}",
+                    path.join("::")
+                ));
+            }
             if root == "tmt_tui_components"
-                && !["tmt-tui-components", "tmt-tui"].contains(&source.package.as_str())
+                && !["tmt-tui-components", "tmt-tui", "tmt-tui-wasm"]
+                    .contains(&source.package.as_str())
             {
                 violations.push(format!(
                     "{location}: unreviewed TUI components consumer {}",

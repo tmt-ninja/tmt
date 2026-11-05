@@ -1,0 +1,21 @@
+[package]
+name = "tmt-tui-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tmt-tui-components.workspace = true
+unicode-segmentation.workspace = true
+wasm-bindgen = "=0.2.128"
+
+[lints]
+workspace = true

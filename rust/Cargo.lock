@@ -2930,6 +2930,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-tui-wasm"
+version = "5.0.0-dev"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tmt-tui-components",
+ "unicode-segmentation",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
