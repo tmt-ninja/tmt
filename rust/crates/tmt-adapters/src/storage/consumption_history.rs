@@ -949,9 +949,16 @@ fn record_sample(
     }
     rolled.absorb(&accepted)?;
     rolled.write(connection, ROLLUP, id)?;
+    // A continuous complete pair proves every token between its reads. It covers its interval
+    // when the reads are at most two fine buckets apart, or, after a longer sampler pause,
+    // when both fall in one rollup bucket (#6082): the total is exact there, and only its
+    // placement among that bucket's fine buckets is approximate. A pair across a rollup
+    // boundary stays a gap. Both tiers take it, so a rollup bucket is still the sum of its
+    // fine buckets.
     if continuous.is_some_and(|(old, next)| old.consumption.complete && next.consumption.complete)
         && let Some(start) = old_time
-        && now.saturating_sub(start) <= 2 * BUCKET_MS
+        && (now.saturating_sub(start) <= 2 * BUCKET_MS
+            || start / ROLLUP_BUCKET_MS == now / ROLLUP_BUCKET_MS)
     {
         // Accepted reads are serialized through this transaction, so these
         // adjacent intervals do not overlap, even when Stop races the sampler.

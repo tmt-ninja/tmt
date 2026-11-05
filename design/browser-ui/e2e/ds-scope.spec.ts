@@ -1,7 +1,49 @@
 import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 const fixture = `/@fs${fileURLToPath(new URL('../test/fixtures/scope-modal.html', import.meta.url))}`;
+
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`scoped menu remains local at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+      await page.goto(fixture);
+      const scope = page.locator('[data-tmt-ds-scope]').first();
+      await scope.evaluate((node, size) => {
+        (node as HTMLElement).style.width = `${size}px`;
+      }, width - 32);
+      await scope.getByRole('button', { name: 'Scoped menu' }).click();
+      const menu = scope.locator('dialog.tmt-ui-menu-surface');
+      await expect(menu).toBeVisible();
+      expect(await menu.evaluate((node) => node.matches(':modal'))).toBe(false);
+      await page.getByRole('button', { name: 'Outside 0' }).click();
+      await expect(menu).toBeVisible();
+      const dir = process.env.SCOPE_CAPTURE_DIR;
+      if (dir) {
+        mkdirSync(dir, { recursive: true });
+        await scope.screenshot({
+          path: join(dir, `scope-menu-${width}-${theme}.png`),
+          animations: 'disabled',
+        });
+      }
+      const shellScope = page.locator('[data-tmt-ds-scope]').nth(2);
+      await shellScope.evaluate((node, size) => {
+        (node as HTMLElement).style.width = `${size}px`;
+      }, width - 32);
+      await expect(shellScope.locator('.tmt-ui-shell')).toHaveCSS(
+        'display',
+        width === 390 ? 'block' : 'grid',
+      );
+      if (dir)
+        await shellScope.screenshot({
+          path: join(dir, `scope-shell-${width}-${theme}.png`),
+          animations: 'disabled',
+        });
+    });
+  }
 
 test('a scoped native dialog leaves the host usable and restores its own state', async ({
   page,

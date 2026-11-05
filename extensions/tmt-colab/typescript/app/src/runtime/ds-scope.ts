@@ -15,7 +15,9 @@ export function installScopePortals(document: Document): () => void {
     }
   };
   mount(document);
-  // A document-wide subtree observer admits later stages; frame teardown disconnects it.
+  // Custom elements can introduce a stage at any depth after startup, so one child-list
+  // observer owns the frame lifetime. It scans only added subtrees, never attributes or text;
+  // the returned disposer supports explicit teardown and discarding the frame ends the realm.
   const observer = new MutationObserver((records) => {
     for (const record of records)
       for (const node of record.addedNodes) if (node instanceof Element) mount(node);

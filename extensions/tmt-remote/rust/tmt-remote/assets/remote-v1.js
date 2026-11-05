@@ -3291,10 +3291,25 @@ function claimBrowserPopup(document, dismiss) {
 		if (activePopups.get(document) === dismiss) activePopups.delete(document);
 	};
 }
-function placeBrowserPopup(anchor, surface, dismiss) {
+/** One scope owns its popup and outside-pointer listener for the same lifetime. */
+function claimScopedBrowserPopup(anchor, surface, dismiss) {
+	const scope = anchor.closest("[data-tmt-ds-scope]");
+	const release = claimBrowserPopup(scope ?? anchor.ownerDocument, dismiss);
+	const outside = (event) => {
+		if (event.target instanceof Node && !surface.contains(event.target) && !anchor.contains(event.target)) dismiss();
+	};
+	scope?.addEventListener("pointerdown", outside, true);
+	return {
+		scope,
+		release() {
+			scope?.removeEventListener("pointerdown", outside, true);
+			release();
+		}
+	};
+}
+function placeBrowserPopup(anchor, surface, dismiss, scope = anchor.closest?.("[data-tmt-ds-scope]") ?? null) {
 	const view = anchor.ownerDocument.defaultView;
 	const viewport = view.visualViewport;
-	const scope = anchor.closest?.("[data-tmt-ds-scope]");
 	const place = () => {
 		if (!anchor.isConnected || !anchor.getClientRects().length) return dismiss();
 		const scopeBox = scope?.getBoundingClientRect();
@@ -3440,18 +3455,12 @@ function createMenuController(options) {
 			return;
 		}
 		if (detach) return detach;
-		const scope = anchor.closest("[data-tmt-ds-scope]");
-		const release = claimBrowserPopup(scope ?? anchor.ownerDocument, () => close(false));
-		const outside = (event) => {
-			if (event.target instanceof Node && !node.contains(event.target) && !anchor.contains(event.target)) close(false);
-		};
-		scope?.addEventListener("pointerdown", outside, true);
+		const { scope, release } = claimScopedBrowserPopup(anchor, node, () => close(false));
 		let position;
 		const cleanup = () => {
 			if (detach !== cleanup) return;
 			detach = void 0;
 			position?.();
-			scope?.removeEventListener("pointerdown", outside, true);
 			release();
 			if (node.open) node.close();
 			queueMicrotask(() => {
@@ -3463,7 +3472,7 @@ function createMenuController(options) {
 		try {
 			if (scope) node.show();
 			else node.showModal();
-			position = placeBrowserPopup(anchor, node, () => close(false));
+			position = placeBrowserPopup(anchor, node, () => close(false), scope);
 			if (!snapshot.open) return cleanup;
 			report(true);
 			if (!snapshot.open) return cleanup;

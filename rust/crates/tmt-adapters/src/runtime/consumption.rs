@@ -109,7 +109,34 @@ pub struct Consumption {
     pub observed_at_ms: u64,
     pub complete: bool,
     pub gap: bool,
+    /// Why an incomplete reading is incomplete, when the reader knows (#6082); one of
+    /// [`INCOMPLETE_REASONS`]. Absent on a complete reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incomplete_reason: Option<String>,
 }
+
+/// The reasons a reading names for being incomplete (#6082):
+/// - `partial-line`: the session's own newest line is still being written;
+/// - `child-usage-unreadable`: a started session's new lines hold a usage event whose
+///   counters cannot be read, so its usage is unknown;
+/// - `child-unreadable`: a started session's new lines cannot be read or are not
+///   provider records;
+/// - `child-backlog`: a started session grew past the bounded read;
+/// - `family-budget`: this tick's time or read budget ran out before every started
+///   session was read;
+/// - `family-scan`: the session tree could not be listed whole, or a header is pending;
+/// - `family-members`: more started sessions than are followed;
+/// - `family`: an earlier tick found the started sessions incomplete and none read since.
+pub const INCOMPLETE_REASONS: &[&str] = &[
+    "partial-line",
+    "child-usage-unreadable",
+    "child-unreadable",
+    "child-backlog",
+    "family-budget",
+    "family-scan",
+    "family-members",
+    "family",
+];
 
 impl Consumption {
     fn baseline(now: u64, gap: bool) -> Self {
@@ -128,6 +155,7 @@ impl Consumption {
             observed_at_ms: now,
             complete: !gap,
             gap,
+            incomplete_reason: None,
         }
     }
 
@@ -182,6 +210,10 @@ impl Consumption {
             && self.observed_at_ms > 0
             && is_valid_js_safe_integer(self.observed_at_ms)
             && !(self.complete && self.gap)
+            && self
+                .incomplete_reason
+                .as_deref()
+                .is_none_or(|reason| !self.complete && INCOMPLETE_REASONS.contains(&reason))
     }
 
     pub fn document(&self) -> Value {
@@ -729,6 +761,91 @@ fn appended_until(
     Some(next)
 }
 
+/// What a followed rollout's growth since `previous` holds, when [`codex_with`] found no
+/// usage to read in it (#6082).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Growth {
+    /// Every new whole line is a provider record that is not a usage event: nothing
+    /// was used, and the rollout is read up to `offset` (the end of its last whole line).
+    NoUsage { offset: u64 },
+    /// A new usage event whose counters cannot be read: its usage is unknown.
+    UsageUnreadable,
+    /// The growth cannot be read, or holds a line that is not a provider record.
+    Unreadable,
+    /// The growth is larger than one bounded read.
+    Backlog,
+}
+
+impl Growth {
+    pub(super) fn reason(self) -> Option<&'static str> {
+        match self {
+            Self::NoUsage { .. } => None,
+            Self::UsageUnreadable => Some("child-usage-unreadable"),
+            Self::Unreadable => Some("child-unreadable"),
+            Self::Backlog => Some("child-backlog"),
+        }
+    }
+}
+
+/// Reads every new whole line of a followed Codex rollout since `previous`'s cursor. Only
+/// lines known not to be usage count as no usage; a `token_count` event, readable or
+/// not, never does, so a format change cannot silently read as idle.
+pub(super) fn codex_growth(root: &Path, path: &Path, previous: &State) -> Growth {
+    let Some(mut file) = transcript::open(root, path) else {
+        return Growth::Unreadable;
+    };
+    let (Ok(metadata), Some(cursor)) = (file.metadata(), previous.cursor.as_ref()) else {
+        return Growth::Unreadable;
+    };
+    let end = metadata.len();
+    if cursor.dev != metadata.dev() || cursor.ino != metadata.ino() || end < cursor.offset {
+        return Growth::Unreadable;
+    }
+    if end - cursor.offset > transcript::TAIL_LIMIT {
+        return Growth::Backlog;
+    }
+    let mut grown = Vec::new();
+    if file.seek(SeekFrom::Start(cursor.offset)).is_err()
+        || file
+            .take(end - cursor.offset)
+            .read_to_end(&mut grown)
+            .is_err()
+        || grown.len() as u64 != end - cursor.offset
+    {
+        return Growth::Unreadable;
+    }
+    // A last line still being written is left for the next read.
+    let whole = grown
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    let Ok(text) = std::str::from_utf8(&grown[..whole]) else {
+        return Growth::Unreadable;
+    };
+    let mut usage = false;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let Ok(entry) = serde_json::from_str::<Value>(line) else {
+            return Growth::Unreadable;
+        };
+        if !entry["type"].is_string() {
+            return Growth::Unreadable;
+        }
+        if entry["type"] == "event_msg" && entry["payload"]["type"] == "token_count" {
+            if codex_counts(&entry).is_none() {
+                return Growth::UsageUnreadable;
+            }
+            usage = true;
+        }
+    }
+    if usage {
+        // Readable usage that the newest-event read did not take is not idle.
+        return Growth::Unreadable;
+    }
+    Growth::NoUsage {
+        offset: cursor.offset + whole as u64,
+    }
+}
+
 fn codex_counts(entry: &Value) -> Option<Counts> {
     let usage = &entry["payload"]["info"]["total_token_usage"];
     let counts = Counts {
@@ -783,6 +900,15 @@ pub fn codex_with(
             (carry.counts(), carry.incomplete)
         }),
     };
+    // Why the reading is incomplete, for the usage report (#6082).
+    let reason = if !complete {
+        Some("partial-line")
+    } else if family_incomplete {
+        Some(family.and_then(|family| family.reason).unwrap_or("family"))
+    } else {
+        None
+    }
+    .map(str::to_owned);
     let total = counts.add(contribution)?;
     let cursor = SourceCursor {
         dev: metadata.dev(),
@@ -799,6 +925,7 @@ pub fn codex_with(
         value.rate_limits = rate_limits;
         value.credits = credits;
         value.complete = complete && !family_incomplete;
+        value.incomplete_reason = reason;
         if let Some(details) = attribution::codex(&mut file, metadata.len(), None) {
             value.cache_write_tokens = details.0;
             value.model_id = details.1;
@@ -869,6 +996,7 @@ pub fn codex_with(
     if !decreased {
         value.gap = false;
         value.complete = complete && !family_incomplete;
+        value.incomplete_reason = reason;
         value.advance(now)?;
     }
     Some(State {

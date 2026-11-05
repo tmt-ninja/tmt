@@ -1175,3 +1175,37 @@ fn a_malformed_account_entry_is_dropped_alone() {
     assert_eq!(home["usedPercent"], 70.0);
     assert_eq!(home["seats"], json!([]));
 }
+
+/// The seat's newest incomplete reading says why, so a report names which cause fires
+/// (#6082); a complete reading, or a malformed reason, adds nothing.
+#[test]
+fn a_seat_reports_why_its_newest_reading_was_incomplete() {
+    for (reason, expected) in [
+        (
+            json!("child-usage-unreadable"),
+            json!("child-usage-unreadable"),
+        ),
+        (json!(null), Value::Null),
+        (json!("Not A Reason"), Value::Null),
+    ] {
+        let (mut totals, series, ids, labels) = one_seat(None);
+        totals["identities"][0]["latest"] = json!({"driver":"codex", "consumption": {
+            "complete": false, "incompleteReason": reason}});
+        let report = Report {
+            as_of_ms: AS_OF,
+            since: "24h",
+            usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+            exchange: None,
+            warnings: vec![],
+        };
+        let document = model::document(&report).unwrap();
+        let coverage = &document["usage"]["seats"][0]["coverage"];
+        assert_eq!(
+            coverage
+                .get("incompleteReason")
+                .cloned()
+                .unwrap_or(Value::Null),
+            expected
+        );
+    }
+}

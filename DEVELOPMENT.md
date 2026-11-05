@@ -289,9 +289,10 @@ Start it, end the turn and let its one message wake you; the script's header own
 its final states, bounds, log and exit codes.
 
 For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](scripts/hooks/codex-wait-guard.mjs) is an
-optional `PreToolUse` hook that asks a model to judge every call inside this repository, except
-a short allowlist of calls that cannot wait, and denies waits and polls (in shadow mode it only
-logs them). Every judged call's redacted input leaves the machine; its header owns the checks,
+optional `PreToolUse` hook that asks a model to judge calls inside this repository that hold a
+wait primitive (`sleep`, a loop, `watch`, `tail -f`, a background job and the like), and denies
+waits and polls (in shadow mode it only logs them). Every other call, including a short
+allowlist and the known waiter and test-runner starts, skips the model. Every judged call's redacted input leaves the machine; its header owns the checks,
 what is sent and redacted, the key cache, the log, `stats` and the switch. It sees a wait only when it starts: Codex
 gives hooks no event for a `write_stdin` re-poll of a running session or for code-mode
 `functions.wait`, so this rule and the waker remain the fix.
@@ -305,6 +306,8 @@ claim. Keep returned errors distinct from crash recovery, and retain uncertainty
 retention, acknowledgment, lifetime and cleanup evidence when changing those boundaries.
 Compare exact file bytes, not symlink-directory snapshots or enumerated binary
 objects; use structured output or a focused formatter test, not mocked
-`console.log`. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
+`console.log`. A change to how a browser surface looks also needs a
+[visual review](.agents/skills/tmt-ui-ux-design/references/visual-review.md) against a named
+reference, with side-by-side captures; its findings block the merge. Test design: [CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation, evidence and
 maintenance: [ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries) and its
 [maintenance contract](ARCHITECTURE.md#maintenance-contract).

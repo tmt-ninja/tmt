@@ -386,6 +386,7 @@ pub(super) fn latest(input: u64, output: u64, sequence: u64, observed: u64) -> C
             observed_at_ms: observed,
             complete: true,
             gap: false,
+            incomplete_reason: None,
         },
     }
 }

@@ -249,7 +249,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
   it('allows what the judge allows, printing nothing', async () => {
     const c = newCase();
     answer = verdict('allow', 'Builds the package.');
-    const result = await c.guard(bash('cargo build -p tmt-digest'));
+    const result = await c.guard(bash('timeout 600 cargo build -p tmt-digest'));
     expect(result.stdout).toBe('');
     expect(c.lines()[0]).toMatchObject({
       verdict: 'allow',
@@ -303,12 +303,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     answer = verdict('allow');
     const nearMisses = [
       bash('cat x; sleep 5'),
-      bash('git log && gh pr checks 1'),
       bash('rg x &'),
       bash('tail -f log'),
-      bash('cat'),
-      bash('git push'),
-      bash('sed -i s/a/b/ file'),
       bash('ls $(sleep 9)'),
       bash('cat `sleep 9`'),
       bash('cat a\nsleep 9'),
@@ -316,9 +312,6 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       bash('gh pr checks 6041 --watch'),
       bash('gh run watch 123'),
       bash('gh pr view 6041 && sleep 60'),
-      bash('gh api repos/tmt-ninja/tmt/issues/6003/comments -f body=hi'),
-      bash('gh api -X POST repos/tmt-ninja/tmt/issues'),
-      bash('gh api'),
       bash('cat > notes.md <<EOF\n$(sleep 9)\nEOF'),
       bash("cat > notes.md <<'EOF'\nx\nEOF\nsleep 60"),
       bash("cat > run.sh <<'EOF' && sh run.sh\nsleep 9\nEOF"),
@@ -332,6 +325,14 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       tool: 'wait_agent',
       input: '{"timeout_ms":600000}',
     });
+    // Outside the allowlist, a command with no wait primitive still skips the model.
+    received = [];
+    const noWait = ['git log && gh pr checks 1', 'cat', 'git push', 'sed -i s/a/b/ file', 'gh api'];
+    for (const command of noWait) await c.guard(bash(command));
+    expect(received).toEqual([]);
+    for (const line of c.lines().slice(-noWait.length)) {
+      expect(line).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
   });
 
   it("skips the model for starting this repository's ci-wake.sh, and judges anything around it", async () => {
@@ -364,7 +365,6 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     const judged = [
       `sh ${copy} 6028 --identity infra-1`,
       'sh scripts/ci-wake.sh 6028 --identity infra-1; sleep 60',
-      'sh scripts/ci-wake.sh 6028 --identity infra-1 && gh pr checks 6028',
       'while true; do sh scripts/ci-wake.sh 6028 --identity infra-1; done',
       'sh scripts/ci-wake.sh $(sleep 9)',
       'sleep 5 & sh scripts/ci-wake.sh 6028 --identity infra-1',
@@ -375,6 +375,15 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received[0].body.system).toContain(
       'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
     );
+    // A copy outside the worktree is read for its loop, and only its path and primitive are
+    // sent. A single status read after the waker holds no wait primitive.
+    expect(sent(0)).toMatchObject({ unsent: [{ path: copy, holds: expect.any(String) }] });
+    expect(sent(0)).not.toHaveProperty('scripts');
+    for (const command of ['sh scripts/ci-wake.sh 6028 --identity infra-1 && gh pr checks 6028']) {
+      await c.guard(bash(command));
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
+    expect(received).toHaveLength(judged.length);
   });
 
   it('skips the model for one run of a known test runner, and judges any watch, sleep or loop around it', async () => {
@@ -412,19 +421,27 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       'npx playwright test --ui',
       'cargo test && sleep 60',
       'while true; do pnpm test; done',
-      'pnpm test; gh pr checks 6041',
       'pnpm test &',
-      'cargo test > log 2>&1',
       'cargo watch -x test',
-      'npm run build',
-      'node scripts/test.mjs',
-      'pnpm exec tsx sleep.ts test',
       'sleep 60 test',
       'pnpm test $(sleep 9)',
     ];
     for (const command of judged) await c.guard(bash(command));
     expect(received).toHaveLength(judged.length);
     for (const line of c.lines().slice(runs.length)) expect(line.verdict).toBe('allow');
+    received = [];
+    const noWait = [
+      'pnpm test; gh pr checks 6041',
+      'cargo test > log 2>&1',
+      'npm run build',
+      'node scripts/test.mjs',
+      'pnpm exec tsx sleep.ts test',
+    ];
+    for (const command of noWait) await c.guard(bash(command));
+    expect(received).toEqual([]);
+    for (const line of c.lines().slice(-noWait.length)) {
+      expect(line).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
   });
 
   it('judges a chain that ends by starting ci-wake.sh without that segment, and any other placement whole', async () => {
@@ -433,27 +450,26 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     const wake = 'sh scripts/ci-wake.sh 6046 --identity infra-1';
     await c.guard(
       bash(
-        `apply-edits && git commit -qam fix && git push -q && gh pr edit 6046 --body x && ${wake}`
+        `apply-edits && git commit -qam fix && timeout 60 git push -q && gh pr edit 6046 --body x && ${wake}`
       )
     );
-    await c.guard(bash(`cargo build; ${wake} > /tmp/wake.log 2>&1 &`));
+    await c.guard(bash(`timeout 600 cargo build; ${wake} > /tmp/wake.log 2>&1 &`));
     expect(sent(0)).toEqual({
       tool: 'Bash',
-      input: 'apply-edits && git commit -qam fix && git push -q && gh pr edit 6046 --body x',
+      input:
+        'apply-edits && git commit -qam fix && timeout 60 git push -q && gh pr edit 6046 --body x',
       next: 'the call then starts scripts/ci-wake.sh, which is allowed',
     });
-    expect(sent(1)).toMatchObject({ input: 'cargo build' });
+    expect(sent(1)).toMatchObject({ input: 'timeout 600 cargo build' });
     // The waiter's own polling loop is not sent with the rest.
     expect(sent(0)).not.toHaveProperty('scripts');
 
     const whole = [
       `${wake} && sleep 60`,
-      `${wake}; gh pr checks 6046`,
       `while true; do git fetch; ${wake}; done`,
-      `(git push && ${wake})`,
-      `git push || ${wake}`,
+      `(timeout 60 git push && ${wake})`,
       `git push & ${wake}`,
-      `for i in 1 2; do git push; done; ${wake}`,
+      `for i in 1 2; do sleep 1; done; ${wake}`,
     ];
     for (const command of whole) await c.guard(bash(command));
     for (const [index, command] of whole.entries()) {
@@ -465,6 +481,108 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     }
     const lines = c.lines();
     expect(lines.every((line) => line.verdict === 'allow')).toBe(true);
+    // With no wait primitive around it, the waker's chain skips the model.
+    received = [];
+    for (const command of [
+      `${wake}; gh pr checks 6046`,
+      `(git push && ${wake})`,
+      `git push || ${wake}`,
+      `for i in 1 2; do git push; done; ${wake}`,
+    ]) {
+      await c.guard(bash(command));
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
+    expect(received).toEqual([]);
+  });
+
+  it('skips the model for the shadow hour false denials and still judges a polling loop', async () => {
+    const c = newCase();
+    const { repo, hook } = scratchRepository(c.dir);
+    writeFileSync(
+      path.join(repo, 'scripts', 'publish.sh'),
+      'gh pr comment "$1" --body-file report.md\ntmt talk lead "CI is green" --detach\n'
+    );
+    const unreadable = path.join(c.dir, 'missing', 'capture.sh');
+    answer = () => {
+      throw new Error('the judge must not be called');
+    };
+    // The shapes of the 11-05 shadow hour's false denials, with stand-in text.
+    const shapes: [string, string][] = [
+      // A long publish, comment and reply chain whose quoted text and heredoc mention waiting.
+      [
+        "git commit -qam 'docs: wait until green' && git push -q && gh pr comment 6060 --body-file - <<'EOF'\nGreen; I wait until the queue lands it.\nEOF\ntmt reply req_1 --receipt v2_x --message 'Ack. Waiting until merged.'",
+        repository,
+      ],
+      // The same chain ending in a background ci-wake start.
+      [
+        'gh pr edit 6060 --body-file body.md && tmt talk lead "head green, wait for review" --detach && nohup sh scripts/ci-wake.sh 6060 --identity infra-1 > /tmp/wake.log 2>&1 &',
+        repository,
+      ],
+      // A script the hook cannot read (here, missing) is judged by its command line only.
+      [`sh ${unreadable} --out /tmp/capture.json`, repo],
+      // A status read, then a repository script that only posts messages.
+      ['gh pr checks 6060 && sh scripts/publish.sh 6060', repo],
+    ];
+    for (const [command, cwd] of shapes) {
+      const result = await c.guard({ ...bash(command), cwd }, {}, cwd === repo ? hook : script);
+      expect(result.stdout, command).toBe('');
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
+    expect(received).toEqual([]);
+
+    // The one true positive: a loop sleeping between status checks.
+    answer = verdict('deny', 'Polls CI in a loop.');
+    await c.guard(
+      bash(
+        'while ! gh api repos/tmt-ninja/tmt/commits/abc/status --jq .state | grep -q success; do sleep 30; done'
+      )
+    );
+    expect(received).toHaveLength(1);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
+    expect(received[0].body.system).toContain('Deny only when this call itself waits or polls');
+
+    // The same loop written to a temporary file the seat owns, then run, still reaches the judge,
+    // which learns the file's path and primitive but never its content.
+    const loop = path.join(c.dir, 'tmp', 'x.sh');
+    writeFileSync(loop, 'while :; do gh pr checks 6060; sleep 60; done\n');
+    await c.guard({ ...bash(`sh ${loop}`), cwd: repo }, {}, hook);
+    expect(received).toHaveLength(2);
+    expect(sent(1)).toEqual({
+      tool: 'Bash',
+      input: `sh ${loop}`,
+      unsent: [{ path: loop, holds: 'while' }],
+    });
+    expect(JSON.stringify(received[1].body)).not.toContain('gh pr checks 6060');
+  });
+
+  it('finds wait primitives in code the command runs, and none in quoted text', async () => {
+    const { waitPrimitive } = await import(script);
+    const waits: [string, string][] = [
+      ['bash -c "sleep 5"', 'sleep'],
+      ["python3 -c 'import time; time.sleep(5)'", 'sleep'],
+      ["python3 - <<'EOF'\nimport time\ntime.sleep(3)\nEOF", 'sleep'],
+      ["ssh host 'while true; do x; done'", 'while'],
+      ['eval "sleep 1"', 'sleep'],
+      ['cat "$(sleep 9)"', 'sleep'],
+      ['tail -n 5 -F log', 'tail -f'],
+      ['X=1 /bin/sleep 2', 'sleep'],
+      ['npx vitest -w', '-w'],
+      ['cargo build &', '&'],
+      ['retry 3 gh pr checks 1', 'retry'],
+    ];
+    for (const [command, primitive] of waits) {
+      expect(waitPrimitive(repository, command), command).toBe(primitive);
+    }
+    for (const command of [
+      "grep -rn 'until' src",
+      'git push 2>&1 | tail -3',
+      'echo a &> /dev/null',
+      'node scripts/hooks/missing.mjs # wait here',
+      "tmt reply req_1 --receipt v2_x --message 'I wait until merged.'",
+      "tmt reply req_1 --receipt v2_x --stdin <<'EOF'\nsleep well\nEOF",
+    ]) {
+      expect(waitPrimitive(repository, command), command).toBeNull();
+    }
   });
 
   it('skips the model for the pinned host-health gate only, and judges anything else', async () => {
@@ -506,22 +624,25 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     const changed = path.join(c.dir, 'changed', 'host-health.sh');
     mkdirSync(path.dirname(changed), { recursive: true });
     writeExecutable(changed, '#!/bin/sh\necho GO\nsleep 600\n', 0o755);
+    // Other arguments leave the gate's skip; the gate's own content holds no wait primitive.
+    for (const command of [`${gate} --gate-once`, `${gate} --gate --again`, `${gate}`]) {
+      await guard(command);
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
+    expect(received).toEqual([]);
     const judged = [
-      `${gate} --gate-once`,
-      `${gate} --gate --again`,
-      `${gate}`,
       `${gate} --gate; sleep 60`,
       `until ${gate} --gate; do sleep 60; done`,
       `sh ${changed} --gate`,
     ];
     for (const command of judged) await guard(command);
     expect(received).toHaveLength(judged.length);
+    expect(received[0].body.system).toContain('One status read');
+    expect(received[0].body.system).toContain('never deny because you cannot see it');
     // Any other content is judged, even at the pinned path.
     writeFileSync(gate, '#!/bin/sh\nsleep 600\n');
     await guard(`${gate} --gate`);
     expect(received).toHaveLength(judged.length + 1);
-    expect(received[0].body.system).toContain('One status read');
-    expect(received[0].body.system).toContain('Writing or editing a file is not a wait');
   });
 
   it('is inert outside this repository, and logs every call when switched off', async () => {
@@ -620,8 +741,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
   it('caches the key privately, and re-reads the Keychain once on a 401', async () => {
     const c = newCase();
     answer = verdict('allow');
-    await c.guard(bash('make build'));
-    await c.guard(bash('make build'));
+    await c.guard(bash('timeout 60 make build'));
+    await c.guard(bash('timeout 60 make build'));
     // One Keychain read, with `security -w`'s trailing newline trimmed, then the cache.
     expect(readFileSync(path.join(c.dir, 'security.log'), 'utf8')).toBe(
       'find-generic-password -s tmt-codex-hook-anthropic -w\n'
@@ -636,7 +757,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     received = [];
     answer = (request, response) =>
       (request.headers['x-api-key'] === KEY ? verdict('allow') : reply({}, 401))(request, response);
-    await c.guard(bash('make build'));
+    await c.guard(bash('timeout 60 make build'));
     expect(received.map((request) => request.headers['x-api-key'])).toEqual(['stale-key', KEY]);
     expect(readFileSync(c.cacheFile, 'utf8')).toBe(KEY);
     expect(c.lines().at(-1)).toMatchObject({ verdict: 'allow' });
@@ -644,7 +765,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     // A key the Keychain itself gives is not retried again.
     received = [];
     answer = reply({}, 403);
-    await c.guard(bash('make build'));
+    await c.guard(bash('timeout 60 make build'));
     expect(received).toHaveLength(2);
     expect(c.lines().at(-1)).toMatchObject({
       verdict: 'fail_open',
@@ -656,7 +777,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     chmodSync(c.cacheFile, 0o644);
     received = [];
     answer = verdict('allow');
-    await c.guard(bash('make build'));
+    await c.guard(bash('timeout 60 make build'));
     expect(received[0].headers['x-api-key']).toBe(KEY);
     expect(statSync(c.cacheFile).mode & 0o777).toBe(0o600);
     expect(c.logText()).not.toContain(KEY);
@@ -665,17 +786,21 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
   it('denies every spelling of the key cache in every mode, without asking the judge', async () => {
     const c = newCase();
     answer = verdict('allow');
-    await c.guard(bash('make build'));
+    await c.guard(bash('timeout 60 make build'));
     const cacheDir = path.dirname(c.cacheFile);
     symlinkSync(cacheDir, path.join(c.dir, 'innocent'));
     const { repo, hook } = scratchRepository(c.dir);
     writeFileSync(path.join(repo, 'scripts', 'peek.sh'), `cat "$TMPDIR/${CACHE}/key"\n`);
     received = [];
+    // The temporary directory with two of its parents' names globbed, like /var/folders/*/*/T/*.
+    const parts = path.dirname(c.cacheFile).split(path.sep).slice(0, -1);
+    const parentsGlob = [...parts.slice(0, -3), '*', '*', parts.at(-1), '*'].join(path.sep);
     const spellings: [Record<string, unknown>, string, string][] = [
       [bash(`cat $TMPDIR/${CACHE}/key`), repository, script],
       [bash('cat "${TMPDIR}"tmt-codex-wait-guard-*/key'), repository, script],
       [bash('cat $TMPDIR/tmt-codex-*/key'), repository, script],
-      [bash('ls /tmp/tmt-codex-wait-gu?rd-*'), repository, script],
+      [bash('ls $TMPDIR/*'), repository, script],
+      [bash(`cat ${parentsGlob}/key`), repository, script],
       [bash(`realpath ${path.join(c.dir, 'innocent')}/key`), repository, script],
       [{ tool_name: 'apply_patch', tool_input: { command: `cat ${CACHE}` } }, repository, script],
       [
@@ -708,7 +833,20 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     answer = verdict('allow');
     await c.guard(bash('ls $TMPDIR/*.log'));
     await c.guard(bash('node scripts/hooks/codex-wait-guard.mjs stats'));
-    expect(received).toHaveLength(2);
+    expect(c.lines().slice(-2)).toEqual([
+      expect.objectContaining({ verdict: 'skip', reason: 'no-wait' }),
+      expect.objectContaining({ verdict: 'allow' }),
+    ]);
+    // A glob under an unrelated directory cannot reach the cache: the 11-05 gui-3 shape (a brace
+    // group and a trailing `*` under a worktree in /private/tmp), and a `*` under the repository.
+    for (const command of [
+      'ls -ld /private/tmp/gui-3-blocks/wt/typescript/{colab-client,node_modules}/*',
+      `ls ${path.join(repository, 'typescript')}/*`,
+    ]) {
+      const result = await c.guard(bash(command));
+      expect(result.stdout, command).toBe('');
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip' });
+    }
   });
 
   it('sends redacted, capped input and repository scripts, never files outside the worktree', async () => {
@@ -731,6 +869,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       `GITHUB_TOKEN=${secrets[3]} gh api user`,
       `echo ${secrets[4]} ${secrets[5]} ${secrets[6]}`,
       `MY_SECRET="${secrets[7]}" tool --api-key ${secrets[8]} '{"client_secret":"${secrets[9]}"}'`,
+      'sleep 1',
     ].join('; ');
     await c.guard(bash(command));
     const input = sent().input as string;
@@ -739,7 +878,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(input).toContain('gh api user');
 
     received = [];
-    await c.guard(bash(`make; ${'x'.repeat(20_000)}`));
+    await c.guard(bash(`sleep 1; ${'x'.repeat(20_000)}`));
     expect(sent().input).toHaveLength(8_000);
 
     const { repo, hook } = scratchRepository(c.dir);

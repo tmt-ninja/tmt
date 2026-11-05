@@ -35,6 +35,12 @@ struct Rate {
     source: String,
 }
 
+/// Models the owner's plan does not bill per token (#6081). They are valued at zero
+/// unless a table prices them; any other model missing from the table stays unpriced.
+const UNBILLED: &[&str] = &["codex-auto-review"];
+/// Where the unbilled rule is recorded, as the `source` of its zero rows.
+const UNBILLED_SOURCE: &str = "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models";
+
 /// One validated price file. Equal `version`s always mean equal tables.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -80,8 +86,11 @@ impl Table {
         if observed_at > MAX || tokens > MAX {
             return None;
         }
-        let rate = self.models.iter().find(|rate| rate.model_id == model)?;
-        let per_million = rate.usd_micros_per_million_input_tokens;
+        let per_million = match self.models.iter().find(|rate| rate.model_id == model) {
+            Some(rate) => rate.usd_micros_per_million_input_tokens,
+            None if UNBILLED.contains(&model) => 0,
+            None => return None,
+        };
         let micros = (u128::from(tokens) * u128::from(per_million) + 500_000) / 1_000_000;
         let micros = u64::try_from(micros).ok().filter(|n| *n <= MAX)?;
         Some(json!({
@@ -95,7 +104,12 @@ impl Table {
         json!({"version":self.version,"asOf":self.as_of,"basis":self.basis,
             "models":self.models.iter().map(|rate| json!({"modelId":rate.model_id,
                 "usdMicrosPerMillionInputTokens":rate.usd_micros_per_million_input_tokens,
-                "source":rate.source})).collect::<Vec<_>>()})
+                "source":rate.source}))
+                .chain(UNBILLED.iter()
+                    .filter(|model| !self.models.iter().any(|rate| rate.model_id == **model))
+                    .map(|model| json!({"modelId":model,"usdMicrosPerMillionInputTokens":0,
+                        "source":UNBILLED_SOURCE})))
+                .collect::<Vec<_>>()})
     }
 }
 
