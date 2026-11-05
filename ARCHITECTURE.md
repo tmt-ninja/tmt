@@ -135,7 +135,8 @@ Ops owns its extension data and disposable caches, not Core storage or the user'
 configuration. New public APIs need Core review.
 
 Board paint and input perform no I/O; workers own acquisition and effects.
-`tmt-tui-components` owns pure role-based component grids and depends on `tmt-cli-style` without its default table feature; `tmt-tui` re-exports those components and owns their native adapter. `tmt-tui` is an application-neutral presentation leaf: it acquires no terminal,
+Design-system components are pure role grids in `tmt-tui-components`; renderers sit only at the edges.
+`tmt-tui` is an application-neutral presentation leaf: it acquires no terminal,
 clock, persistence or provider data and has no reverse product dependency.
 Applications own their data, effects and terminal lifecycle.
 
