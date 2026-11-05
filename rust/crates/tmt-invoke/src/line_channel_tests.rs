@@ -168,3 +168,82 @@ fn drop_closes_stdin_and_preserves_the_childs_eof_cleanup() {
     assert_eq!(fs::read(fixture.0.join("eof")).unwrap(), b"done");
     gone(&fixture.0.join("pid"));
 }
+
+#[test]
+fn unsolicited_frames_do_not_write_input_and_graceful_termination_reaps_the_owner() {
+    let (fixture, mut channel) = open(
+        "trap 'printf stopped > stopped; exit 0' TERM\nprintf 'first\\nsecond\\n'\nwhile IFS= read -r line; do printf '%s' \"$line\" >> input; done",
+        64,
+    );
+    assert_eq!(
+        channel
+            .receive(Instant::now() + START_BUDGET, || false)
+            .unwrap(),
+        b"first"
+    );
+    assert_eq!(
+        channel
+            .receive(Instant::now() + START_BUDGET, || false)
+            .unwrap(),
+        b"second"
+    );
+    let output = channel.terminate(Instant::now() + START_BUDGET).unwrap();
+    assert!(output.status.success());
+    assert_eq!(fs::read(fixture.0.join("stopped")).unwrap(), b"stopped");
+    assert!(
+        !fixture.0.join("input").exists(),
+        "reading a report must never submit a command"
+    );
+    gone(&fixture.0.join("pid"));
+}
+#[test]
+fn cancelled_stream_read_keeps_shutdown_with_the_supervisor_owner() {
+    let (fixture, mut channel) = open(
+        "trap 'printf stopped > stopped; exit 0' TERM\nprintf 'ready\\n'\nwhile IFS= read -r line; do :; done",
+        64,
+    );
+    assert_eq!(
+        channel
+            .receive(Instant::now() + START_BUDGET, || false)
+            .unwrap(),
+        b"ready"
+    );
+    let error = channel
+        .receive(Instant::now() + START_BUDGET, || true)
+        .unwrap_err();
+    assert_eq!(error.kind, FailureKind::Interrupted);
+    assert!(
+        channel
+            .terminate(Instant::now() + START_BUDGET)
+            .unwrap()
+            .status
+            .success()
+    );
+    assert_eq!(fs::read(fixture.0.join("stopped")).unwrap(), b"stopped");
+    gone(&fixture.0.join("pid"));
+}
+#[test]
+fn every_buffered_stream_frame_keeps_its_bound() {
+    let (fixture, mut channel) = open(
+        "trap 'exit 0' TERM\nprintf 'ok\\ntoolong\\n'\nwhile IFS= read -r line; do :; done",
+        4,
+    );
+    assert_eq!(
+        channel
+            .receive(Instant::now() + START_BUDGET, || false)
+            .unwrap(),
+        b"ok"
+    );
+    let error = channel
+        .receive(Instant::now() + START_BUDGET, || false)
+        .unwrap_err();
+    assert_eq!(error.kind, FailureKind::OutputLimit(Stream::Stdout));
+    assert!(
+        channel
+            .terminate(Instant::now() + START_BUDGET)
+            .unwrap()
+            .status
+            .success()
+    );
+    gone(&fixture.0.join("pid"));
+}

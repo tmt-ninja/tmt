@@ -299,8 +299,8 @@ impl Watch {
     }
 
     /// One duty of the clock tick. Reads the settings fresh (they change while a clock runs),
-    /// then one roster and one `ls` per enabled squad, and announces what is owed. `keep` renews
-    /// the clock's lease and says false when it was lost or a stop was requested.
+    /// then one roster and one `ls` per enabled squad, and announces what is owed. `keep`
+    /// checks the Ops worker's cancellation; this duty is independent of the Core clock lease.
     pub fn advance(
         &mut self,
         core: &Core,

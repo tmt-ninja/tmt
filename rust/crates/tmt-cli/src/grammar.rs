@@ -36,6 +36,7 @@ mod presence;
 mod requests;
 mod rooms;
 mod settings;
+mod tick;
 mod workspace;
 
 /// The root's help; root help adds the extensions discovered on `PATH`.
@@ -99,6 +100,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     )).arg(option("identity").global(false).required(true)));
     root = root.subcommand(rooms::room());
     root = root.subcommand(orchestration::orch());
+    root = root.subcommand(tick::tick());
     root = root.subcommand(workspace::workspace());
     root.subcommand(
         general(spec!(

@@ -70,6 +70,7 @@ mod stop_command;
 mod storage_command;
 mod talk_command;
 mod target;
+mod tick_command;
 mod uninstall_command;
 mod workspace_command;
 mod workspace_hook;
@@ -444,6 +445,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Room(request) => {
             return room_command::execute(request, parsed.mode);
         }
+        Invocation::Tick(operation) => return tick_command::execute(operation, parsed.mode),
         Invocation::Orch(request) => return orch_command::execute(request, parsed.mode),
         Invocation::NotesPath { identity } => {
             return notes_command::execute(identity, parsed.mode);

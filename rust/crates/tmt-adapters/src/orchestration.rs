@@ -1,5 +1,6 @@
-//! Shared read/wire boundary. No admission, delivery, timer or job effects.
+//! Shared orchestration read/write boundary. Delivery and clocks remain separate owners.
 mod calendar;
+pub(crate) mod jobs;
 mod read;
 mod receiving;
 mod talks;
@@ -7,6 +8,7 @@ pub(crate) mod wire;
 mod write;
 
 pub use calendar::OrchZone;
+pub use jobs::{JobRunDocument, JobScheduleDocument, execute_job, write::JobDefinitionDocument};
 pub use read::{OrchReadFailure, orchestration_read, orchestration_read_with_time};
 pub use receiving::{DigestReceiving, DigestReceivingMember, DigestReceivingSettings};
 pub use wire::{OrchReadQuery, OrchSubjectDocument, decode_orch_query, orch_candidate_file};
