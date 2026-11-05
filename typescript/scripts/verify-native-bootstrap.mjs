@@ -105,8 +105,13 @@ try {
   bootstrap(['--pin']);
   const receipt = readCliLayout(prefix).receipt;
   assert.equal(receipt.pinned_version, metadata.version);
-  const pinned = JSON.parse(run(['upgrade', '--json']));
+  // A pinned CLI decides before any discovery, so the whole run succeeds with no network (#6137).
+  const pinned = JSON.parse(withoutNetwork(executable, ['upgrade', '--json'], options));
   assert.equal(pinned.skippedPinned, true, 'Pinned managed executable must update without network');
+  for (const row of pinned.products.slice(1)) {
+    assert.equal(row.status, 'notChecked', `Pinned upgrade checked ${row.product}`);
+    assert.equal(row.reason, 'cliPinned', `Pinned upgrade gave ${row.product} another reason`);
+  }
   assert.equal(fs.readFileSync(path.join(old, 'tmt'), 'utf8'), oldBytes);
   // No tmt on PATH at all: a first install, with nothing to replace.
   const fresh = runPackedCommand('/bin/sh', [installer, '--no-skill'], {
@@ -130,4 +135,73 @@ try {
   );
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+/**
+ * Runs the command where every outbound connection fails, and proves that first with a probe.
+ * The denial is fail-closed: a host with no working wrapper fails the proof, never skips it.
+ */
+function withoutNetwork(executable, args, options) {
+  const probe = [
+    '-e',
+    "const s = require('node:net').connect({ host: '192.0.2.1', port: 443 });" +
+      "s.setTimeout(5000, () => process.exit(2)); s.on('connect', () => process.exit(3));" +
+      "s.on('error', (e) => { console.log(e.code); process.exit(0); });",
+  ];
+  const failures = [];
+  for (const [wrap, denial] of offlineWrappers(options.env)) {
+    try {
+      const code = runPackedCommand(...wrap(process.execPath, probe), options).trim();
+      assert.equal(code, denial, `Network probe was not denied: ${code}`);
+    } catch (error) {
+      failures.push(error.message.split('\n')[0]);
+      continue;
+    }
+    return runPackedCommand(...wrap(executable, args), options);
+  }
+  assert.fail(`No network-denying wrapper works on this host: ${failures.join('; ')}`);
+}
+
+/** Candidate wrappers as [wrap(executable, args) -> [file, argv], expected probe error code]. */
+function offlineWrappers(env) {
+  if (process.platform === 'darwin') {
+    const profile = '(version 1)(allow default)(deny network*)';
+    return [[(file, argv) => ['/usr/bin/sandbox-exec', ['-p', profile, file, ...argv]], 'EPERM']];
+  }
+  // Ubuntu 24.04 may refuse unprivileged user namespaces; on a GitHub Actions runner only, its
+  // passwordless sudo then makes the network namespace and setpriv drops back to the same user.
+  // A developer machine never escalates: without the unprivileged wrapper the proof fails.
+  const pairs = Object.entries(env).map(([key, value]) => `${key}=${value}`);
+  const user = [`--reuid=${process.getuid()}`, `--regid=${process.getgid()}`, '--clear-groups'];
+  const unprivileged = [
+    [
+      (file, argv) => [
+        '/usr/bin/unshare',
+        ['--user', '--map-current-user', '--net', file, ...argv],
+      ],
+      'ENETUNREACH',
+    ],
+  ];
+  if (process.env.GITHUB_ACTIONS !== 'true') return unprivileged;
+  return [
+    ...unprivileged,
+    [
+      (file, argv) => [
+        '/usr/bin/sudo',
+        [
+          '-n',
+          '/usr/bin/unshare',
+          '--net',
+          '/usr/bin/setpriv',
+          ...user,
+          '/usr/bin/env',
+          '-i',
+          ...pairs,
+          file,
+          ...argv,
+        ],
+      ],
+      'ENETUNREACH',
+    ],
+  ];
 }

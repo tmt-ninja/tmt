@@ -227,7 +227,7 @@ fn stale_and_equal_pointers_leave_installed_extensions_out_of_the_apply_plan() {
     let receipt_before = fs::read(release.join("receipt.json")).unwrap();
     for candidate in ["0.1.0-alpha.1", "0.1.0-alpha.2", "0.1.0-alpha.3"] {
         let calls = Cell::new(0);
-        let plan = plan_with(&prefix, |requested, channel| {
+        let plan = plan_with(&prefix, true, |requested, channel| {
             calls.set(calls.get() + 1);
             assert_eq!(requested, product);
             assert_eq!(channel, Channel::Alpha);
@@ -258,6 +258,26 @@ fn stale_and_equal_pointers_leave_installed_extensions_out_of_the_apply_plan() {
             Path::new(&format!("releases/{id}"))
         );
     }
+    // A pinned CLI's plan never discovers (its discover panics if called) and says why each
+    // extension was not checked; the row survives the child protocol (#6137).
+    let offline = offline(&prefix);
+    assert!(offline.pending.is_empty());
+    assert_eq!(
+        offline.products,
+        vec![
+            json!({"product":"ops","status":"notChecked","version":"0.1.0-alpha.2",
+            "reason":"cliPinned","hint":"tmt extension upgrade ops"})
+        ]
+    );
+    let parsed = Plan::parse(&serde_json::to_vec(&offline.document()).unwrap()).unwrap();
+    assert_eq!(parsed.products, offline.products);
+    let mut wrong = offline.products[0].clone();
+    wrong["reason"] = "offline".into();
+    assert!(
+        Plan::parse(&serde_json::to_vec(&json!({"products":[wrong],"pending":[]})).unwrap())
+            .is_none(),
+        "the pin is the only reason"
+    );
 }
 
 #[test]

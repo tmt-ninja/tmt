@@ -94,7 +94,7 @@ fn rows(value: &Value) -> Option<Vec<Value>> {
         if seen.contains(&name)
             || object.keys().any(|key| {
                 ![
-                    "product", "status", "version", "hint", "message", "error", "details",
+                    "product", "status", "version", "hint", "message", "error", "details", "reason",
                 ]
                 .contains(&key.as_str())
             })
@@ -102,6 +102,12 @@ fn rows(value: &Value) -> Option<Vec<Value>> {
             return None;
         }
         seen.push(name);
+        // Only a row that was not checked says why, and only the pin is a reason.
+        if object.contains_key("reason") != (row["status"] == "notChecked")
+            || object.contains_key("reason") && row["reason"] != "cliPinned"
+        {
+            return None;
+        }
         for key in ["hint", "message"] {
             if object.contains_key(key) && !row[key].is_string() {
                 return None;
@@ -113,7 +119,7 @@ fn rows(value: &Value) -> Option<Vec<Value>> {
                     return None;
                 }
             }
-            "changed" | "unchanged" | "skippedPinned" => {
+            "changed" | "unchanged" | "skippedPinned" | "notChecked" => {
                 version(&row["version"])?;
             }
             _ => return None,

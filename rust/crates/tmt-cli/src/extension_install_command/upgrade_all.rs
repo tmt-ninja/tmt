@@ -16,13 +16,22 @@ pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
 
 pub(crate) fn plan(prefix: &Path) -> Plan {
-    plan_with(prefix, |product, channel| {
+    plan_with(prefix, true, |product, channel| {
         native_install::latest_release_version(product, channel).map(|version| version.to_string())
+    })
+}
+
+/// The installed extensions as they are, for a pinned CLI (#6137): no update discovery and no
+/// network. Each unpinned extension says it was not checked because the CLI is pinned.
+pub(crate) fn offline(prefix: &Path) -> Plan {
+    plan_with(prefix, false, |_, _| {
+        unreachable!("an offline plan discovers nothing")
     })
 }
 
 fn plan_with(
     prefix: &Path,
+    checked: bool,
     mut discover: impl FnMut(Product, tmt_core::native_install::Channel) -> io::Result<String>,
 ) -> Plan {
     let mut outcomes = Vec::new();
@@ -38,6 +47,9 @@ fn plan_with(
             let version = current.state.version.to_string();
             if current.state.pinned_version.is_some() {
                 return Ok(Some(pinned(product, &version)));
+            }
+            if !checked {
+                return Ok(Some(not_checked(product, &version)));
             }
             let discovered = discover(product, current.state.channel)
                 .map_err(|error| failure("EXTENSION_UPGRADE_FAILED", error))?;
@@ -253,6 +265,19 @@ fn failed_ref(product: Product, error: &Failure) -> Value {
 #[cfg(test)]
 mod tests;
 
+/// Not a failure: a pinned CLI's `tmt upgrade` makes no network call, so it does not look
+/// for extension updates; `tmt extension upgrade` does.
+fn not_checked(product: Product, version: &str) -> Value {
+    let name = product.as_str();
+    json!({
+        "product": name,
+        "status": "notChecked",
+        "version": version,
+        "reason": "cliPinned",
+        "hint": format!("tmt extension upgrade {name}"),
+    })
+}
+
 fn unchanged(product: Product, version: &str) -> Value {
     json!({
         "product": product.as_str(),
@@ -277,6 +302,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
             ("{}", "ops"),
             ("{SUGGESTED_EXTENSION}", "ops"),
         ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt extension upgrade {name}",
+        &[""],
+        &[("{name}", "ops")],
     ),
     crate::cli_style_tests::HintSpec::core("tmt upgrade --yes", &[""], &[]),
 ];
