@@ -27,6 +27,7 @@ or hold in request preparation, and canonical jobs share its acceptance.
   `table` feature enables terminal tables and width probing; without it, callers supply a width or use the fixed 80-column fallback. The architecture
   guard enforces the presentation-leaf boundary.
 - `tmt-tui-components` owns portable role-based cell grids and pure components; it depends on `tmt-cli-style` without default features and does no terminal I/O. `tmt-tui` adapts and re-exports those components.
+- `tmt-tui-wasm` exposes the portable component renderer and its bounded, versioned cell-grid wire contract; the wasm leaf has no terminal or board dependencies.
 - `tmt-tui` is an internal, unpublished, application-neutral presentation leaf for TMT
   terminal UIs, taking its tokens from `tmt-cli-style` roles. The
   [dependency guard](../../../../rust/crates/tmt-cli/tests/architecture/policy.rs) owns its

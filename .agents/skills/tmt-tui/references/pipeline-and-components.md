@@ -62,6 +62,8 @@ Maintained module reference. Commands and admitted spellings are in [development
    intersect visible buffer clips, omit zero areas and resolve in reverse paint
    order.
 
+The portable WebAssembly wire contract and parity vector are in [`tmt-tui-wasm`](../../../../rust/crates/tmt-tui-wasm/README.md).
+
 ## Pure design-system components
 
 The portable `tmt-tui-components` leaf, re-exported as `components::design_system`, measures and renders Serde props into a clipped cell

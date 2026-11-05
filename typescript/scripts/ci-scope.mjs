@@ -640,6 +640,27 @@ export function selectBrowserUi(paths) {
   );
 }
 
+// Renderer proof follows its component inputs and its own CI/build selection wiring.
+export function selectRendererProof(paths) {
+  return paths.some(
+    (path) =>
+      [
+        '.github/workflows/ci.yml',
+        'typescript/scripts/ci-scope.mjs',
+        'typescript/scripts/ci-scope.d.mts',
+        'typescript/test/tooling/ci-scope.test.ts',
+        'rust/Cargo.toml',
+        'rust/Cargo.lock',
+        'rust/rust-toolchain.toml',
+      ].includes(path) ||
+      [
+        'rust/crates/tmt-tui-wasm',
+        'rust/crates/tmt-tui-components',
+        'rust/crates/tmt-cli-style',
+      ].some((root) => within(root, path))
+  );
+}
+
 // The Remote Firestore Rules emulator suite (Java 21 plus firebase-tools, no Docker) runs as
 // steps of the Unit tests job. Remote is a CLI-scope owner, so every selected path below is a
 // full native scope and that job always runs for it; selection stays a plain path match.
@@ -1284,6 +1305,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       ));
   const remoteRuntimeProof = runtimeProofProduct('remote');
   const colabRuntimeProof = runtimeProofProduct('colab');
+  const rendererProof =
+    !seed && (full || Boolean(fallback) || selectRendererProof(selection.paths));
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = mainFull || (!seed && !full && selectRemoteFirestore(selection.paths));
   const colabFirestore = mainFull || (!seed && !full && selectColabFirestore(selection.paths));
@@ -1318,6 +1341,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       `colab_chrome=${colabChrome}\n` +
       `browser_ui=${browserUi}\n` +
       `colab_hosted_emulator=${colabHostedEmulator}\n` +
+      `renderer_proof=${rendererProof}\n` +
       `native_notices=${nativeNotices}\n` +
       `remote_runtime_proof=${remoteRuntimeProof}\ncolab_runtime_proof=${colabRuntimeProof}\n` +
       `remote_firestore=${remoteFirestore}\n` +

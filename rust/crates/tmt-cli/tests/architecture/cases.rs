@@ -2440,6 +2440,34 @@ fn pure_tui_components_reject_terminal_dependencies_and_imports() {
 }
 
 #[test]
+fn wasm_component_renderer_cannot_reach_terminal_or_core_crates() {
+    for dependency_name in ["ratatui", "crossterm", "tmt-core", "tmt-tui"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                "tmt-tui-wasm",
+                vec![dependency(dependency_name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-tui-wasm",
+                "lib.rs",
+                &format!("use {}::Thing;", dependency_name.replace('-', "_"))
+            )])
+            .is_empty()
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-tui-wasm",
+            vec![dependency("tmt-tui-components", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
 fn colab_persistence_keeps_core_remote_and_office_isolated() {
     for name in ["ed25519-dalek", "getrandom", "nix", "rusqlite", "sha2"] {
         assert!(
