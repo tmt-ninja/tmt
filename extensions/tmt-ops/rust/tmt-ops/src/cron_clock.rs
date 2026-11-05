@@ -4,7 +4,7 @@ use crate::{
     core::{Core, SquadError},
     cron_service::{self as service, CronActor, JobKey},
     idle_alert,
-    runner::{self, Cancellation},
+    runner::Cancellation,
     specs,
     squad::Squad,
 };
@@ -19,7 +19,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_cli_style::{Terminal, detail, message};
-use tmt_ops::cron::{self, Clock, ClockStatus, Dispatch, Job, Lease, Tick};
+use tmt_ops::cron::{ClockStatus, Holder};
+
+mod core_clock;
 
 const EVERY: Duration = Duration::from_secs(1);
 
@@ -66,130 +68,11 @@ pub fn send_now(
     expected_revision: u64,
     operation_id: &str,
 ) -> Result<Value, SquadError> {
-    let (job, squad) = service::authorize_write(core, key, actor, expected_revision)?;
-    let receipt = dispatch(core, &job, operation_id, Some(&actor.id))?;
+    let (job, squad, receipt) =
+        service::run_manual(core, key, actor, expected_revision, operation_id)?;
     let mut document = job.document();
     document["squad"] = json!(squad);
     Ok(json!({"action":"send","job":document,"dispatch":receipt,"warnings":[]}))
-}
-
-fn dispatch(
-    core: &Core,
-    job: &Job,
-    operation_id: &str,
-    identity: Option<&str>,
-) -> Result<Value, SquadError> {
-    let owner = job.owner_id.as_deref().ok_or_else(|| {
-        failed(
-            "SQUAD_CRON_NO_OWNER",
-            "Reassign this job before sending it.",
-        )
-    })?;
-    let input = json!({"operationId":operation_id,"recipientIds":[owner],"message":job.message,"kind":"request","room":{"kind":"direct","roomId":job.room_id}});
-    core.dispatch_queued(
-        input,
-        identity,
-        ("SQUAD_CRON_DISPATCH_UNAVAILABLE", "job owner"),
-    )
-}
-
-struct Scheduled<'a> {
-    core: &'a Core,
-    lease: &'a mut Lease,
-    cancellation: &'a Cancellation,
-    lost: bool,
-}
-impl Dispatch for Scheduled<'_> {
-    fn send(&mut self, job: &Job, operation_id: &str) -> Result<(), cron::Error> {
-        let sent = (|| {
-            let admitted = service::admit_scheduled(self.core, &JobKey::of(job), job.revision)?;
-            if !self.lease.renew(now())? {
-                self.lost = true;
-                return Err(failed(
-                    "SQUAD_CRON_CLOCK_LOST",
-                    "The clock lease expired or changed.",
-                ));
-            }
-            dispatch(self.core, &admitted, operation_id, None).map(|_| ())
-        })();
-        sent.map_err(|error: SquadError| cron::Error {
-            code: error.code,
-            message: error.message,
-        })
-    }
-    fn stopped(&self) -> bool {
-        self.lost || self.cancellation.cancelled()
-    }
-}
-
-/// `preempt_older`: a clock that keeps running replaces an older Ops's live lease
-/// (#4107); a one-shot `tick` never displaces a running clock.
-fn acquire(
-    core: &Core,
-    clock: &Clock,
-    time: i64,
-    preempt_older: bool,
-) -> Result<Option<Lease>, SquadError> {
-    let _migration = crate::migration::state_guard(core)?;
-    let (pid, pane, build) = (
-        std::process::id(),
-        std::env::var("TMUX_PANE").ok(),
-        env!("CARGO_PKG_VERSION"),
-    );
-    Ok(if preempt_older {
-        clock.acquire_current(time, pid, pane, build)?
-    } else {
-        clock.acquire(time, pid, pane, build)?
-    })
-}
-/// The refusal when another clock owns the lease; it names that clock when its lease says who.
-fn occupied(clock: &Clock) -> SquadError {
-    let holder = match clock.status(now()) {
-        ClockStatus::Running(holder) => Some(format!(
-            " (process {}{})",
-            holder.pid,
-            holder
-                .pane
-                .map(|pane| format!(", pane {pane}"))
-                .unwrap_or_default()
-        )),
-        _ => None,
-    };
-    failed(
-        "SQUAD_CRON_CLOCK_RUNNING",
-        &format!(
-            "Another clock holds the lease{}; inspect tmt ops sq cron clock.",
-            holder.unwrap_or_default()
-        ),
-    )
-}
-
-fn pass(
-    core: &Core,
-    config: &Config,
-    _root: &std::path::Path,
-    lease: &mut Lease,
-    tick: Option<&mut Tick>,
-    cancellation: &Cancellation,
-) -> Result<Value, SquadError> {
-    let time = now();
-    let mut warnings = service::drain_retired(core, config, time)?;
-    let jobs = service::read_jobs(core)?;
-    let mut dispatcher = Scheduled {
-        core,
-        lease,
-        cancellation,
-        lost: false,
-    };
-    let report = match tick {
-        Some(tick) => tick.running(time, jobs.jobs(), &mut dispatcher),
-        None => Tick::standalone(time, jobs.jobs(), &mut dispatcher),
-    };
-    let complete = report.failures.is_empty() && !dispatcher.stopped();
-    warnings.extend(report.failures.into_iter().map(SquadError::from));
-    Ok(
-        json!({"action":"tick","accepted":report.sent,"complete":complete,"warnings":warnings.iter().map(SquadError::to_json).collect::<Vec<_>>()}),
-    )
 }
 
 pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, SquadError> {
@@ -218,27 +101,13 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
     if action == "run" {
         return foreground(core, config);
     }
-    let root = service::root(core)?;
-    let clock = Clock::new(&root)?;
     if action == "clock" {
-        let status = clock.status(now());
+        let status = status(core);
         return Ok(
             json!({"action":"clock","complete":status != ClockStatus::Unknown,"clock":status_document(status)}),
         );
     }
-    let mut lease = acquire(core, &clock, now(), false)?.ok_or_else(|| occupied(&clock))?;
-    let result = pass(
-        core,
-        config,
-        &root,
-        &mut lease,
-        None,
-        &Cancellation::default(),
-    );
-    let released = lease.release();
-    let value = result?;
-    released?;
-    Ok(value)
+    foreground_mode(core, config, false)
 }
 
 /// Independent of the refresh generation, selected tab, repaint and refresh-off.
@@ -250,13 +119,27 @@ pub struct ClockWorker {
 }
 impl ClockWorker {
     pub fn spawn(core: Core, config: Config, foreground: bool) -> Self {
+        Self::spawn_mode(core, config, foreground, true)
+    }
+    fn spawn_mode(core: Core, config: Config, foreground: bool, continuous: bool) -> Self {
+        Self::spawn_clock(core, config, foreground, continuous, now)
+    }
+    fn spawn_clock(
+        core: Core,
+        config: Config,
+        foreground: bool,
+        continuous: bool,
+        mut clock: impl FnMut() -> i64 + Send + 'static,
+    ) -> Self {
         let cancellation = Cancellation::default();
         let reader = core.cancellable(cancellation.clone());
         let token = cancellation.clone();
         let (stop, waiting) = mpsc::channel();
         let (completed, finished) = mpsc::channel();
         let thread = std::thread::spawn(move || {
-            let result = match serve(&reader, &config, &waiting, &token, foreground) {
+            let result = match serve(
+                &reader, &config, &waiting, &token, foreground, continuous, &mut clock,
+            ) {
                 Err(error) if token.cancelled() && error.was_cancelled() => {
                     Ok(json!({"action":"run","warnings":[],"complete":true}))
                 }
@@ -291,154 +174,82 @@ impl Drop for ClockWorker {
     }
 }
 
-/// One minute gate for independent background duties; never paint/input work.
-struct MinuteJobs {
-    minute: Option<i64>,
-    core: Core,
-    capture_supported: Option<bool>,
-    capture: Option<std::thread::JoinHandle<Option<bool>>>,
-    cancellation: Cancellation,
-    children: Vec<std::thread::JoinHandle<Option<&'static str>>>,
-    skipped: u64,
-    last_reason: Option<&'static str>,
-    foreground: bool,
-}
-
-impl MinuteJobs {
-    fn new(core: &Core, foreground: bool) -> Self {
-        let cancellation = Cancellation::default();
-        Self {
-            minute: None,
-            core: core.cancellable(cancellation.clone()),
-            capture_supported: None,
-            capture: None,
-            cancellation,
-            children: Vec::new(),
-            skipped: 0,
-            last_reason: None,
-            foreground,
-        }
-    }
-
-    fn skip(&mut self, reason: &'static str) {
-        self.skipped = self.skipped.saturating_add(1);
-        self.last_reason = Some(reason);
-        if self.foreground {
-            use std::io::Write;
-            let mut stderr = tmt_cli_style::stream::stderr();
-            let _ = writeln!(stderr, "digest tick skipped: {reason}");
-        }
-    }
-
-    fn reap(&mut self) {
-        if self
-            .capture
-            .as_ref()
-            .is_some_and(|child| child.is_finished())
-        {
-            self.capture_supported = self.capture.take().unwrap().join().unwrap_or(None);
-        }
-        let mut index = 0;
-        while index < self.children.len() {
-            if self.children[index].is_finished() {
-                let result = self.children.swap_remove(index).join();
-                match result {
-                    Ok(Some(reason)) => self.skip(reason),
-                    Err(_) => self.skip("worker failed"),
-                    Ok(None) => {}
-                }
-            } else {
-                index += 1;
-            }
-        }
-    }
-
-    fn advance(&mut self, time: i64) {
-        self.reap();
-        let minute = time.div_euclid(60_000);
-        if self.minute.is_some_and(|previous| minute <= previous) {
-            return;
-        }
-        // Record the attempt before spawning: failure is never a same-minute retry.
-        // A missed minute or clock rollback never produces catch-up invocations.
-        self.minute = Some(minute);
-        if self.capture.is_none() && self.capture_supported != Some(false) {
-            let core = self.core.clone();
-            let supported = self.capture_supported;
-            self.capture = std::thread::Builder::new()
-                .name("ops-workspace-capture".into())
-                .spawn(move || capture_workspace(&core, supported, Duration::from_secs(5)))
-                .ok();
-        }
-        let executable = self.core.executable().to_owned();
-        let cancellation = self.cancellation.clone();
-        let child = std::thread::Builder::new()
-            .name("ops-digest-tick".into())
-            .spawn(move || {
-                // A tick may wait through the minute and finish serialized deliveries.
-                // Ordinary Core command budgets remain unchanged.
-                match runner::run_cancellable(
-                    &executable,
-                    &["digest".into(), "tick".into()],
-                    b"",
-                    Duration::from_secs(90),
-                    64 * 1024,
-                    Some(&cancellation),
-                ) {
-                    Ok(output) if output.success => None,
-                    Ok(_) => Some("nonzero exit"),
-                    Err(runner::RunError::Cancelled) => None,
-                    Err(runner::RunError::Spawn) => Some("unavailable"),
-                    Err(runner::RunError::Timeout) => Some("timeout"),
-                    Err(runner::RunError::OutputLimit) => Some("output limit"),
-                    Err(runner::RunError::Io) => Some("process I/O failure"),
-                }
-            });
-        match child {
-            Ok(child) => self.children.push(child),
-            Err(_) => self.skip("worker unavailable"),
-        }
-    }
-}
-
-impl Drop for MinuteJobs {
-    fn drop(&mut self) {
-        self.cancellation.cancel();
-        if let Some(child) = self.capture.take() {
-            let _ = child.join();
-        }
-        while let Some(child) = self.children.pop() {
-            // runner cancels and reaps the owned process group before lease release.
-            match child.join() {
-                Ok(Some(reason)) => self.skip(reason),
-                Err(_) => self.skip("worker failed"),
-                Ok(None) => {}
-            }
-        }
-    }
-}
-
-/// Feature discovery and capture share one finite budget and one cancellation owner.
-/// Both streams are captured by Core's runner; optional failures are never rendered.
-fn capture_workspace(core: &Core, supported: Option<bool>, budget: Duration) -> Option<bool> {
-    let deadline = Instant::now() + budget;
-    let remaining = || deadline.saturating_duration_since(Instant::now());
-    let supported = match supported {
-        Some(supported) => supported,
-        None => {
-            // A failed discovery remains unknown so the next minute can recover.
-            let value = core
-                .api_within("capabilities", json!({}), remaining())
-                .ok()?;
-            value["operations"]
-                .as_array()
-                .is_some_and(|operations| operations.iter().any(|op| op == "workspace.capture"))
-        }
+/// Public clock evidence is projected only on the refresh/action worker.
+pub(crate) fn status(core: &Core) -> ClockStatus {
+    let value = match core.api("tick.status", json!({})) {
+        Ok(value) => value,
+        Err(_) => return ClockStatus::Unknown,
     };
-    if supported && !remaining().is_zero() {
-        let _ = core.api_within("workspace.capture", json!({}), remaining());
+    if value["schemaVersion"] != 1 {
+        return ClockStatus::Unknown;
     }
-    Some(supported)
+    if value["state"] == "stopped" && value["holder"].is_null() {
+        return ClockStatus::NoClock;
+    }
+    if value["state"] != "running" {
+        return ClockStatus::Unknown;
+    }
+    let holder = &value["holder"];
+    let decode = || {
+        Some(Holder {
+            pane: if holder["pane"].is_null() {
+                None
+            } else {
+                Some(holder["pane"].as_str()?.to_owned())
+            },
+            pid: u32::try_from(holder["pid"].as_u64()?)
+                .ok()
+                .filter(|pid| *pid > 0)?,
+            since_ms: holder["startedAtMs"].as_i64()?,
+            expires_ms: holder["expiresAtMs"].as_i64()?,
+            build: Some(holder["build"].as_str()?.to_owned()),
+        })
+    };
+    decode()
+        .filter(|holder| holder.since_ms > 0 && holder.expires_ms > holder.since_ms)
+        .map_or(ClockStatus::Unknown, ClockStatus::Running)
+}
+
+// A natural end and a requested stop share one presentation disposition after
+// joined cleanup. A UI clock refusal is a warning, never a reason to lose its
+// independent idle-alert duty or a different error solely due to stop timing.
+fn clock_result(
+    last: &mut Value,
+    result: Result<(), SquadError>,
+    foreground: bool,
+) -> Result<(), SquadError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if foreground || error.code == "SQUAD_CRON_CLOCK_CLEANUP_UNCONFIRMED" => {
+            Err(error)
+        }
+        Err(error) => {
+            last["complete"] = json!(false);
+            let warnings = last["warnings"].as_array_mut().unwrap();
+            if warnings.len() < 32 {
+                warnings.push(error.to_json());
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Continuous UIs compete again at a minute boundary after joined cleanup.
+/// Repeated failures back off to at most one attempt per five minutes.
+#[derive(Default)]
+struct Restart {
+    failures: u32,
+    after_ms: i64,
+}
+impl Restart {
+    fn ended(&mut self, now: i64) {
+        let minutes = [1, 2, 4, 5][self.failures.min(3) as usize];
+        self.failures = self.failures.saturating_add(1);
+        self.after_ms = now
+            .div_euclid(60_000)
+            .saturating_add(minutes)
+            .saturating_mul(60_000);
+    }
 }
 
 fn serve(
@@ -447,6 +258,8 @@ fn serve(
     stop: &Receiver<()>,
     cancellation: &Cancellation,
     foreground: bool,
+    continuous: bool,
+    clock: &mut impl FnMut() -> i64,
 ) -> Result<Value, SquadError> {
     let migrated_config;
     let config = if !foreground && crate::migration::paths(core, None)?.legacy {
@@ -472,69 +285,54 @@ fn serve(
     } else {
         config
     };
-    let root = service::root(core)?;
-    let clock = Clock::new(&root)?;
-    let mut minute_jobs = MinuteJobs::new(core, foreground);
-    let mut lease: Option<Lease> = None;
-    let mut tick = Tick::new(now());
+    service::ready(core)?;
+    let mut feed = None;
+    let mut restart = Restart::default();
     let mut idle = idle_alert::Watch::new();
     let zone = jiff::tz::TimeZone::system();
     let mut last = json!({"action":"tick","accepted":0,"warnings":[],"complete":true});
-    let result = (|| {
+    let result: Result<(), SquadError> = (|| {
         while !cancellation.cancelled() {
-            let time = now();
-            if let Some(owned) = lease.as_mut() {
-                match owned.renew(time) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        lease.take().expect("owned lease").release()?;
-                    }
-                    Err(error) if error.code == "SQUAD_CRON_CLOCK_BUSY" => {
-                        match stop.recv_timeout(EVERY) {
-                            Err(RecvTimeoutError::Timeout) => continue,
-                            _ => break,
+            let now = clock();
+            if feed.is_none() && now >= restart.after_ms {
+                match core_clock::Feed::spawn(core, continuous) {
+                    Ok(started) => feed = Some(started),
+                    Err(error) => {
+                        clock_result(&mut last, Err(error), foreground)?;
+                        if !continuous {
+                            break;
                         }
+                        restart.ended(now);
                     }
-                    Err(error) => return Err(error.into()),
                 }
             }
-            if lease.is_none() {
-                lease = match acquire(core, &clock, time, true) {
-                    Ok(lease) => lease,
-                    Err(error) if !foreground && error.code == "SQUAD_CRON_CLOCK_BUSY" => None,
-                    Err(error) => return Err(error),
-                };
-                if lease.is_none() && foreground {
-                    return Err(occupied(&clock));
+            if let Some(current) = &feed {
+                let (report, ended) = current.take();
+                if let Some(report) = report {
+                    last = report;
+                    restart.failures = 0;
                 }
-                tick = Tick::new(time);
-                idle = idle_alert::Watch::new();
-            }
-            if let Some(owned) = lease.as_mut() {
-                minute_jobs.advance(time);
-                last = match pass(core, config, &root, owned, Some(&mut tick), cancellation) {
-                    Ok(value) => value,
-                    Err(error)
-                        if matches!(
-                            error.code.as_str(),
-                            "SQUAD_CRON_STORE_BUSY"
-                                | "SQUAD_CRON_CLOCK_BUSY"
-                                | "SQUAD_CORE_UNAVAILABLE"
-                        ) =>
-                    {
-                        json!({"action":"tick","accepted":0,"complete":false,"warnings":[error.to_json()]})
+                if let Some(ended) = ended {
+                    let cleaned = feed.take().unwrap().stop();
+                    clock_result(&mut last, cleaned.and(ended), foreground)?;
+                    if foreground || !continuous {
+                        break;
                     }
-                    Err(error) => return Err(error),
-                };
-                // The second duty of this tick: tell a lead about a member idle too long.
-                let warnings = idle.advance(core, config.path(), time, &zone, &mut || {
-                    !cancellation.cancelled() && matches!(owned.renew(now()), Ok(true))
+                    // Slot receipts fence any uncertain work from this lifetime.
+                    // Cleanup must be confirmed before offering another owner.
+                    restart.ended(now);
+                }
+            }
+            if continuous {
+                let warnings = idle.advance(core, config.path(), now, &zone, &mut || {
+                    !cancellation.cancelled()
                 });
                 if !warnings.is_empty() {
                     last["complete"] = json!(false);
-                    if let Some(list) = last["warnings"].as_array_mut() {
-                        list.extend(warnings.iter().map(SquadError::to_json));
-                    }
+                    last["warnings"]
+                        .as_array_mut()
+                        .unwrap()
+                        .extend(warnings.iter().map(SquadError::to_json));
                 }
             }
             match stop.recv_timeout(EVERY) {
@@ -542,21 +340,20 @@ fn serve(
                 _ => break,
             }
         }
-        last["action"] = json!("run");
-        Ok(last)
+        Ok(())
     })();
-    drop(minute_jobs);
-    let released = lease.map_or(Ok(()), Lease::release);
-    if cancellation.cancelled() {
-        released?;
-        return Ok(json!({"action":"run","warnings":[],"complete":true}));
+    if let Some(mut owned) = feed {
+        clock_result(&mut last, owned.stop(), foreground)?;
     }
-    let value = result?;
-    released?;
-    Ok(value)
+    result?;
+    last["action"] = json!(if continuous { "run" } else { "tick" });
+    Ok(last)
 }
 
 fn foreground(core: &Core, config: &Config) -> Result<Value, SquadError> {
+    foreground_mode(core, config, true)
+}
+fn foreground_mode(core: &Core, config: &Config, continuous: bool) -> Result<Value, SquadError> {
     let flag = Arc::new(AtomicUsize::new(0));
     let mut registrations = Vec::new();
     for signal in [
@@ -574,7 +371,7 @@ fn foreground(core: &Core, config: &Config) -> Result<Value, SquadError> {
             }
         }
     }
-    let mut worker = ClockWorker::spawn(core.clone(), config.clone(), true);
+    let mut worker = ClockWorker::spawn_mode(core.clone(), config.clone(), true, continuous);
     while flag.load(Ordering::Relaxed) == 0 {
         match worker.finished.recv_timeout(Duration::from_millis(200)) {
             Err(RecvTimeoutError::Timeout) => {}

@@ -8,6 +8,12 @@ fn mutation(
     now: u64,
 ) -> Result<OrchMutationDocument, Failure> {
     Ok(match operation {
+        op @ (OrchWriteOperation::AddJob { .. }
+        | OrchWriteOperation::EditJob { .. }
+        | OrchWriteOperation::PauseJob { .. }
+        | OrchWriteOperation::ResumeJob { .. }
+        | OrchWriteOperation::RemoveJob { .. }
+        | OrchWriteOperation::ReassignJob { .. }) => super::jobs::mutation(op, storage)?,
         OrchWriteOperation::AddPlan { file } => OrchMutationDocument::AddPlan {
             candidate: Box::new(orchestration::orch_candidate_file(&file).map_err(policy_failure)?),
         },
@@ -108,6 +114,18 @@ fn slot_end(storage: &mut Storage, sender: &str, now: u64) -> Result<u64, Failur
 }
 fn failure(error: OrchReadFailure, paths: &ConfigPaths) -> Failure {
     match error {
+        OrchReadFailure::Job(tmt_adapters::storage::JobStoreError::Storage(error)) => {
+            Failure::storage_access(
+                error,
+                &paths.global_dir,
+                "The job write could not be confirmed. Inspect its current revision before retrying.",
+                "ORCH_STORAGE_UNAVAILABLE",
+                "Could not publish job configuration.",
+            )
+        }
+        error @ OrchReadFailure::Job(_) => {
+            Failure::new(error.code(), error.message(), error.exit()).caused_by(error)
+        }
         OrchReadFailure::Policy(e) => policy_failure(e),
         OrchReadFailure::Storage(e) => Failure::storage_access(
             e,
@@ -189,22 +207,22 @@ pub(super) fn execute(
         if !mode.json {
             let saved: Value = serde_json::from_slice(&result).expect("shared write result JSON");
             let terminal = out.terminal();
-            tmt_cli_style::detail::write(
-                &mut out,
-                terminal,
-                "Orchestration saved",
-                &match saved["released"].as_array() {
-                    Some(released) => vec![("released requests", released.len().to_string())],
-                    None => vec![(
-                        "configuration revision",
-                        text(&saved["configurationRevision"]),
-                    )],
-                },
-            )
-            .map_err(|e| {
-                Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1)
-                    .caused_by(e)
-            })?;
+            let mut fields = match saved["released"].as_array() {
+                Some(released) => vec![("released requests", released.len().to_string())],
+                None => vec![(
+                    "configuration revision",
+                    text(&saved["configurationRevision"]),
+                )],
+            };
+            if let Some(job) = saved.get("job").filter(|job| !job.is_null()) {
+                fields.push(("job", text(&job["displayId"])));
+                fields.push(("revision", text(&job["revision"])));
+            }
+            tmt_cli_style::detail::write(&mut out, terminal, "Orchestration saved", &fields)
+                .map_err(|e| {
+                    Failure::new("OUTPUT_ERROR", "Could not print orchestration result.", 1)
+                        .caused_by(e)
+                })?;
         }
         Ok(result)
     })();

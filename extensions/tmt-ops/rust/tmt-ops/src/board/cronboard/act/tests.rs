@@ -43,8 +43,10 @@ fn existing(
     }
 }
 
-fn store(f: &Fixture) -> Vec<u8> {
-    stored_jobs(&f.directory)
+// Observe both current authority and the immutable legacy redirect. A refusal
+// must leave both unchanged; the redirect alone cannot prove no Core mutation.
+fn observed_state(f: &Fixture) -> (serde_json::Value, Vec<u8>) {
+    (f.current_jobs().document(), stored_jobs(&f.directory))
 }
 
 #[test]
@@ -146,7 +148,7 @@ fn stale_unauthorized_and_unknown_owner_submissions_write_nothing() {
         NOW,
     )
     .unwrap();
-    let before = store(&f);
+    let before = observed_state(&f);
     // The board viewed revision `first`; the job has since changed.
     let stale = run(
         &f.core,
@@ -200,7 +202,7 @@ fn stale_unauthorized_and_unknown_owner_submissions_write_nothing() {
         "SQUAD_CRON_SCHEDULE_INVALID"
     );
     assert_eq!(
-        store(&f),
+        observed_state(&f),
         before,
         "refused requests leave the store byte for byte"
     );

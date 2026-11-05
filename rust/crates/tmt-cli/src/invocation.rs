@@ -21,6 +21,7 @@ pub enum ChannelMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Invocation {
+    Tick(TickOperation),
     Extension {
         name: String,
         args: Vec<std::ffi::OsString>,
@@ -574,6 +575,30 @@ pub struct DetectedScope {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchOperation {
+    ImportJobs {
+        file: std::path::PathBuf,
+        source_id: String,
+        digest: String,
+        yes: bool,
+    },
+    ImportReceipt {
+        source_id: String,
+    },
+    SendJob {
+        job: String,
+        identity: Option<String>,
+        operation_id: Option<String>,
+        yes: bool,
+    },
+    Jobs {
+        owner: Option<String>,
+        room: Option<String>,
+        limit: u16,
+        cursor: Option<String>,
+    },
+    ShowJob {
+        job: String,
+    },
     Write {
         operation: OrchWriteOperation,
         yes: bool,
@@ -619,6 +644,26 @@ pub enum LearnReference {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrchWriteOperation {
+    AddJob {
+        file: std::path::PathBuf,
+    },
+    EditJob {
+        job: String,
+        file: std::path::PathBuf,
+    },
+    PauseJob {
+        job: String,
+    },
+    ResumeJob {
+        job: String,
+    },
+    RemoveJob {
+        job: String,
+    },
+    ReassignJob {
+        job: String,
+        member: String,
+    },
     AddPlan {
         file: std::path::PathBuf,
     },
@@ -649,4 +694,20 @@ pub enum OrchWriteOperation {
         second: String,
         identity: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickTimerAction {
+    Preview,
+    Status,
+    Install,
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickOperation {
+    Timer { action: TickTimerAction, yes: bool },
+    Once,
+    Run,
+    Status,
 }
