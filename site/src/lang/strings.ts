@@ -51,6 +51,7 @@ export const english = {
       "drv-codex": "drivers / codex",
       extensions: "extensions",
       squad: "extensions / squad",
+      orchestration: "working / orchestration",
       colab: "extensions / colab",
       meet: "extensions / meet",
       remote: "extensions / remote",
