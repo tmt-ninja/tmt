@@ -1,4 +1,5 @@
 //! CLI composition. Policy, preview admission and JSON stay with shared owners.
+mod jobs;
 mod write;
 use crate::{
     invocation::{OrchOperation, OutputMode},
@@ -26,7 +27,13 @@ fn policy_failure(e: OrchError) -> Failure {
 }
 fn run(operation: OrchOperation) -> Result<Vec<u8>, Failure> {
     let (query, at) = match operation {
-        OrchOperation::Write { .. } => return Err(policy_failure(OrchError::Invalid)),
+        op @ (OrchOperation::Jobs { .. } | OrchOperation::ShowJob { .. }) => return jobs::read(op),
+        OrchOperation::Write { .. }
+        | OrchOperation::SendJob { .. }
+        | OrchOperation::ImportJobs { .. }
+        | OrchOperation::ImportReceipt { .. } => {
+            return Err(policy_failure(OrchError::Invalid));
+        }
         OrchOperation::Overview {
             range_days,
             at,
@@ -315,6 +322,14 @@ fn write_human(
     v: &Value,
 ) -> io::Result<()> {
     use tmt_cli_style::table::{Cell, Column, Table};
+    if v.get("jobs").is_some()
+        || v.get("job").is_some()
+        || v["mutation"]["kind"]
+            .as_str()
+            .is_some_and(|kind| kind.starts_with("job."))
+    {
+        return jobs::human(out, terminal, v);
+    }
     if v.get("members").is_some() {
         return write_overview(out, terminal, v);
     }
@@ -415,6 +430,10 @@ fn write_human(
 }
 pub fn execute(operation: OrchOperation, mode: OutputMode) -> io::Result<u8> {
     let operation = match operation {
+        import @ (OrchOperation::ImportJobs { .. } | OrchOperation::ImportReceipt { .. }) => {
+            return jobs::adopt(import, mode);
+        }
+        send @ OrchOperation::SendJob { .. } => return jobs::send(send, mode),
         OrchOperation::Write { operation, yes } => return write::execute(operation, yes, mode),
         read => read,
     };

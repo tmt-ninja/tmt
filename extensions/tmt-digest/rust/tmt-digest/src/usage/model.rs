@@ -191,6 +191,8 @@ pub struct Seat {
     starts_at_ms: u64,
     complete: bool,
     gap: bool,
+    /// Why the seat's newest reading was incomplete, as Core's driver named it (#6082).
+    incomplete_reason: Option<String>,
     limits: Option<Observed>,
 }
 
@@ -491,6 +493,13 @@ pub fn usage(
             starts_at_ms: available.max(span.from_ms),
             complete: bucket["complete"] == true,
             gap: bucket["gap"] == true,
+            incomplete_reason: total["latest"]["consumption"]["incompleteReason"]
+                .as_str()
+                .filter(|reason| {
+                    (1..=32).contains(&reason.len())
+                        && reason.bytes().all(|c| c.is_ascii_lowercase() || c == b'-')
+                })
+                .map(str::to_owned),
             limits,
         });
     }
@@ -720,6 +729,9 @@ fn seat_json(seat: &Seat) -> Value {
                      "startsAtMs": seat.starts_at_ms,
                      "complete": seat.complete, "gap": seat.gap},
     });
+    if let Some(reason) = &seat.incomplete_reason {
+        value["coverage"]["incompleteReason"] = json!(reason);
+    }
     // Only a seat that is partly attributed names its remainder; a seat with no
     // `byModel` is unattributed as a whole.
     if seat.by_model.is_some()

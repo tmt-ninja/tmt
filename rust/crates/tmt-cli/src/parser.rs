@@ -220,6 +220,13 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
+        ["tick"] => Invocation::Tick(TickOperation::Once),
+        ["tick", "run"] => Invocation::Tick(TickOperation::Run),
+        ["tick", "status"] => Invocation::Tick(TickOperation::Status),
+        ["tick", "timer"] | ["tick", "timer", "preview"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Preview,yes:false}),
+        ["tick", "timer", "status"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Status,yes:false}),
+        ["tick", "timer", "install"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Install,yes:flag(m,"yes")}),
+        ["tick", "timer", "remove"] => Invocation::Tick(TickOperation::Timer {action:TickTimerAction::Remove,yes:flag(m,"yes")}),
         ["api"] => if flag(m, "session") { Invocation::ApiSession } else { Invocation::Api },
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
@@ -462,6 +469,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             plan: text(m, "plan"),
             member_query: text(m, "member"),
         }),
+        ["orch","job","import"]=>Invocation::Orch(OrchOperation::ImportJobs { file:required(m,"file").into(),source_id:required(m,"source-id"),digest:required(m,"digest"),yes:flag(m,"yes") }),
+        ["orch","job","import-receipt"]=>Invocation::Orch(OrchOperation::ImportReceipt { source_id:required(m,"source-id") }),
+        ["orch","job","send"]=>Invocation::Orch(OrchOperation::SendJob {job:required(m,"job"),identity:text(m,"identity"),operation_id:text(m,"operation-id"),yes:flag(m,"yes")}),
+        ["orch","job","ls"]=>Invocation::Orch(OrchOperation::Jobs {owner:text(m,"owner"),room:text(m,"squad-room"),limit:*m.get_one::<u16>("limit").expect("default limit"),cursor:text(m,"cursor")}),
+        ["orch","job","show"]=>Invocation::Orch(OrchOperation::ShowJob {job:required(m,"job")}),
+        ["orch","job","add"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::AddJob {file:required(m,"file").into()},yes:flag(m,"yes")}),
+        ["orch","job","edit"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::EditJob {job:required(m,"job"),file:required(m,"file").into()},yes:flag(m,"yes")}),
+        ["orch","job","pause"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::PauseJob {job:required(m,"job")},yes:flag(m,"yes")}),
+        ["orch","job","resume"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::ResumeJob {job:required(m,"job")},yes:flag(m,"yes")}),
+        ["orch","job","rm"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::RemoveJob {job:required(m,"job")},yes:flag(m,"yes")}),
+        ["orch","job","reassign"]=>Invocation::Orch(OrchOperation::Write {operation:OrchWriteOperation::ReassignJob {job:required(m,"job"),member:required(m,"member-name")},yes:flag(m,"yes")}),
         ["orch", "plan", "ls"] => Invocation::Orch(OrchOperation::Plans { plan: None }),
         ["orch", "plan", "show"] => Invocation::Orch(OrchOperation::Plans {
             plan: Some(required(m, "plan-name")),

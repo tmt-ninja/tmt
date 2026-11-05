@@ -1,3 +1,6 @@
+mod cutover;
+pub use cutover::FrozenJobs;
+
 use super::{Error, Schedule};
 use crate::state::{BUSY_RETRY as STATE_RETRY, Cause, Database, Refusal, Slot, StateFailure};
 use serde_json::{Value, json};
@@ -73,7 +76,8 @@ impl Job {
     pub fn document(&self) -> Value {
         json!({"id":self.id(),"roomId":self.room_id,"ownerId":self.owner_id,"message":self.message,"schedule":self.schedule.document(),"revision":self.revision,"state":self.state(),"pause":self.pause.as_ref().map(|p| json!({"by":p.by,"atMs":p.at_ms}))})
     }
-    fn from_document(value: &Value) -> Result<Self, Error> {
+    /// Decode a legacy-shaped projection without opening or mutating a store.
+    pub fn from_document(value: &Value) -> Result<Self, Error> {
         let id = string(value, "id")?
             .strip_prefix('c')
             .and_then(|n| n.parse().ok())
@@ -261,7 +265,8 @@ impl Jobs {
     pub fn document(&self) -> Value {
         json!({"version":2,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
     }
-    fn from_document(value: &Value) -> Result<Self, Error> {
+    /// Decode a legacy-shaped projection without opening or mutating a store.
+    pub fn from_document(value: &Value) -> Result<Self, Error> {
         if value["version"] != 2 {
             if value["version"].as_u64().is_some_and(|version| version > 2) {
                 return Err(Error::new(
@@ -536,6 +541,31 @@ impl Store {
                 },
                 |_, _| Ok(()),
             )
+            .map_err(failed)
+    }
+
+    /// A pending path cutover may project old versions without publishing a
+    /// conversion, freezing the source, or entering the current Core authority.
+    pub fn read_before_cutover(&self, rooms: &[(String, String)]) -> Result<Jobs, Error> {
+        let slot = self.slot();
+        let Some(mut database) =
+            Database::open_existing(&self.root, &slot.legacy).map_err(refused)?
+        else {
+            return Ok(Jobs::default());
+        };
+        database
+            .inspect(&slot, |bytes| {
+                let Some(bytes) = bytes else {
+                    return Ok(Jobs::default());
+                };
+                let value: Value =
+                    serde_json::from_slice(bytes).map_err(|e| corrupt(e.to_string()))?;
+                if value["version"] == 1 {
+                    Jobs::from_document(&Jobs::migrate_v1(&value, rooms)?)
+                } else {
+                    decode(Some(bytes))
+                }
+            })
             .map_err(failed)
     }
 

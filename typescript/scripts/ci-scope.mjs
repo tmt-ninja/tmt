@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { isMinimumReleaseVersion } from './release-versions.mjs';
 import { e2eShardFiles } from './e2e-shards.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import {
   componentOfProduct,
   isComponentRetired,
@@ -907,7 +908,7 @@ export function mainFullGatePasses(context, needs) {
 }
 
 /** Failure-only, main-reviewed notification; the port exposes no release or PR mutation. */
-export function notifyMainFullFailure(context, request) {
+export function notifyMainFullFailure(context, request, { sleep } = {}) {
   if (!trustedMain(context)) throw new Error('Failure notification requires a trusted main push.');
   const integer = (value) => Number.isSafeInteger(value) && value > 0;
   const run = Number(context.runId);
@@ -919,37 +920,50 @@ export function notifyMainFullFailure(context, request) {
     !integer(attempt)
   )
     throw new Error('Invalid main verification run identity.');
-  const jobs = [];
-  let count;
-  for (let page = 1; page <= 5; page += 1) {
-    const response = request(
-      `actions/runs/${run}/attempts/${attempt}/jobs?per_page=100&page=${page}`
+  const noFailed = new Error('No failed main verification jobs visible in the inventory.');
+  let failed;
+  try {
+    failed = retryReleaseRead(
+      () => {
+        const jobs = [];
+        let count;
+        for (let page = 1; page <= 5; page += 1) {
+          const response = request(
+            `actions/runs/${run}/attempts/${attempt}/jobs?per_page=100&page=${page}`
+          );
+          if (
+            !record(response) ||
+            !Number.isSafeInteger(response.total_count) ||
+            response.total_count < 0 ||
+            !Array.isArray(response.jobs) ||
+            response.jobs.length > 100
+          )
+            throw new Error('Incomplete main verification job inventory.');
+          count ??= response.total_count;
+          if (count !== response.total_count || count > 500) {
+            throw new Error('Main notification guard capacity exceeded or inventory changed.');
+          }
+          jobs.push(...response.jobs);
+          if (jobs.length === count) break;
+          if (jobs.length > count || response.jobs.length !== 100 || page === 5) {
+            throw new Error('Incomplete main verification job inventory.');
+          }
+        }
+        if (jobs.some((job) => !record(job) || !integer(job.id) || typeof job.name !== 'string')) {
+          throw new Error('Invalid main verification job evidence.');
+        }
+        const failed = jobs.filter((job) =>
+          ['failure', 'timed_out', 'cancelled', 'action_required'].includes(job.conclusion)
+        );
+        if (!failed.length) throw noFailed;
+        return failed;
+      },
+      { label: 'Main verification job visibility', retryIf: (error) => error === noFailed, sleep }
     );
-    if (
-      !record(response) ||
-      !Number.isSafeInteger(response.total_count) ||
-      response.total_count < 0 ||
-      !Array.isArray(response.jobs) ||
-      response.jobs.length > 100
-    )
-      throw new Error('Incomplete main verification job inventory.');
-    count ??= response.total_count;
-    if (count !== response.total_count || count > 500) {
-      throw new Error('Main notification guard capacity exceeded or inventory changed.');
-    }
-    jobs.push(...response.jobs);
-    if (jobs.length === count) break;
-    if (jobs.length > count || response.jobs.length !== 100 || page === 5) {
-      throw new Error('Incomplete main verification job inventory.');
-    }
+  } catch (error) {
+    if (error !== noFailed) throw error;
+    failed = [];
   }
-  if (jobs.some((job) => !record(job) || !integer(job.id) || typeof job.name !== 'string')) {
-    throw new Error('Invalid main verification job evidence.');
-  }
-  const failed = jobs.filter((job) =>
-    ['failure', 'timed_out', 'cancelled', 'action_required'].includes(job.conclusion)
-  );
-  if (!failed.length) throw new Error('No failed main verification jobs to notify.');
   const marker = `<!-- main-full:${run}:${attempt} -->`;
   for (let page = 1; page <= 5; page += 1) {
     const comments = request(`issues/3054/comments?per_page=100&page=${page}`);
@@ -977,6 +991,21 @@ export function notifyMainFullFailure(context, request) {
       .slice(0, 200);
     return `- ${name}: ${job.conclusion} ([job ${job.id}](${url}/job/${job.id}))`;
   });
+  if (!failed.length) {
+    const needs = context.needs;
+    const names = ['changes', 'complete-main'];
+    const results = names.map((name) => needs?.[name]?.result);
+    if (
+      !record(needs) ||
+      results.some((result) => !['success', 'failure', 'cancelled', 'skipped'].includes(result)) ||
+      !results.includes('failure')
+    )
+      throw new Error('Fallback main failure notification requires failed gate needs evidence.');
+    lines.push(
+      'Failed job rows were not visible in the jobs API at notification time; see the run.'
+    );
+    for (const name of names) lines.push(`- Gate dependency ${name}: ${needs[name].result}`);
+  }
   const body = `${marker}\nComplete main verification failed at ${context.sha}, attempt ${attempt}. Infra: fix forward before considering scoped enablement.\n\n[Run ${run}](${url})\n\n${lines.join('\n')}${failed.length > 50 ? `\n${failed.length - 50} more failed jobs in the run.` : ''}`;
   // An uncertain POST is never repeated. A rerun reads the marker before writing.
   const created = request('issues/3054/comments', 'POST', body);
@@ -1114,6 +1143,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       sha: env.GITHUB_SHA,
       runId: env.GITHUB_RUN_ID,
       runAttempt: env.GITHUB_RUN_ATTEMPT,
+      needs: JSON.parse(env.MAIN_FULL_NEEDS ?? 'null'),
     };
     let requests = 0;
     const api =

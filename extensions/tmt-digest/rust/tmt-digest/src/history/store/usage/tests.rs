@@ -74,8 +74,8 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
         assert_eq!(case["pricesDiffer"], true, "{}", case["name"]);
     }
     let table = crate::pricing::Resolved::built_in().document();
-    assert_eq!(table["models"].as_array().unwrap().len(), 17);
-    assert_eq!(table["version"], "2026-10-28");
+    assert_eq!(table["models"].as_array().unwrap().len(), 20);
+    assert_eq!(table["version"], "2026-11-05");
     assert!(
         table["models"]
             .as_array()

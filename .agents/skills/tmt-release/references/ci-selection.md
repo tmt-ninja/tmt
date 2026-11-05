@@ -166,7 +166,11 @@ main runs code/frontend checks while PR title/Agent steps apply only to PR/MG.
 missing, extra, failed, cancelled or skipped work refuses. It grants no publication
 or cut admission. Only the main-failure job has issue-write permission: it reports
 bounded run/SHA/job evidence on #3054, checking the bot run/attempt marker before
-one POST. Uncertain writes never retry; capacity/API failures stay visible.
+one POST. A complete inventory with no failed rows is reread up to three times
+inside the shared API budget; persistent absence still posts the run/SHA and gate
+dependency results with a job-rows-not-visible diagnostic under the same marker.
+Cancelled jobs without an acquired runner remain reportable. Uncertain
+writes never retry; malformed/incomplete inventories and capacity/API failures stay visible.
 Seeds cannot supply complete-verification evidence.
 
 ## Cache ownership

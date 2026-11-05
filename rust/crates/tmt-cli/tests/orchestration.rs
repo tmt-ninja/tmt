@@ -1,6 +1,10 @@
 //! Real CLI/API parity and read preservation in an owned world, without tmux.
 #![cfg(unix)]
+#[path = "orchestration/jobs.rs"]
+mod jobs;
 mod support;
+#[path = "orchestration/tick.rs"]
+mod tick;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use std::{

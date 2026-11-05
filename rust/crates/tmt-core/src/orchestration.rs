@@ -1,5 +1,7 @@
 //! One pure policy resolver. Calendar conversion and durable state belong to ports.
 
+pub mod jobs;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const ORCH_MAX_PLANS: usize = 128;
@@ -619,3 +621,15 @@ pub mod receiving;
 pub mod sending;
 #[cfg(test)]
 mod tests;
+
+/// One admission edge for released Incoming and routine catch-up wakes.
+/// The caller reserves the returned clock in the same transaction as its effect.
+pub fn next_wake_admission(current: u64, now: u64) -> Result<Option<u64>, OrchError> {
+    if now < current {
+        return Ok(None);
+    }
+    now.checked_add(1000)
+        .filter(|n| *n <= crate::limits::MAX_JS_SAFE_INTEGER)
+        .map(Some)
+        .ok_or(OrchError::Limit)
+}

@@ -364,3 +364,13 @@ fn low_defaults_run_and_invalid_repeat_refuses_instead_of_panicking() {
         Err(OrchError::Invalid)
     );
 }
+
+#[test]
+fn released_wakes_share_a_one_second_admission_edge() {
+    assert_eq!(next_wake_admission(2000, 1999), Ok(None));
+    assert_eq!(next_wake_admission(2000, 2000), Ok(Some(3000)));
+    assert_eq!(
+        next_wake_admission(0, crate::limits::MAX_JS_SAFE_INTEGER),
+        Err(OrchError::Limit)
+    );
+}

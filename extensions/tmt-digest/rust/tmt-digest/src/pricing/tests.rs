@@ -137,8 +137,8 @@ fn edited(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
 /// A later version with one changed price.
 fn newer() -> Value {
     let mut file = base();
-    file["version"] = json!("2026-11-01");
-    file["asOf"] = json!("2026-11-01");
+    file["version"] = json!("2026-11-20");
+    file["asOf"] = json!("2026-11-20");
     file["models"][0]["usdMicrosPerMillionInputTokens"] = json!(5_000_000);
     file
 }
@@ -166,8 +166,8 @@ fn price(resolved: &Resolved, model: &str) -> u64 {
 #[test]
 fn the_embedded_file_is_the_documented_table() {
     let document = Resolved::built_in().document();
-    assert_eq!(document["version"], "2026-10-28");
-    assert_eq!(document["asOf"], "2026-10-28");
+    assert_eq!(document["version"], "2026-11-05");
+    assert_eq!(document["asOf"], "2026-11-05");
     assert_eq!(document["basis"], "standard-base-input");
     assert_eq!(document["origin"], "built-in");
     assert!(document.get("fetchedAtMs").is_none());
@@ -182,8 +182,10 @@ fn the_embedded_file_is_the_documented_table() {
         [
             "claude-opus-5-5",
             "claude-sonnet-5-5",
+            "gpt-6-astra",
             "gpt-6-sol",
             "gpt-6.1-sol",
+            "gpt-6.1-terra",
             "gemini-3-flash-preview",
             "gemini-3.1-flash-lite",
             "gemini-3.1-pro-preview",
@@ -196,7 +198,8 @@ fn the_embedded_file_is_the_documented_table() {
             "gemini-3.8-flash-high",
             "gemini-4-argon-low",
             "gemini-4-argon-medium",
-            "gemini-4-argon-high"
+            "gemini-4-argon-high",
+            "codex-auto-review"
         ]
     );
     // The file on disk is what the build embeds; the release asset is checked against it.
@@ -300,7 +303,7 @@ fn every_malformed_file_is_dropped() {
         ("not UTF-8", [text.as_bytes(), b"\xff"].concat()),
         (
             "duplicate key",
-            text.replacen("\"version\"", "\"version\": \"2026-10-28\", \"version\"", 1)
+            text.replacen("\"version\"", "\"version\": \"2026-11-05\", \"version\"", 1)
                 .into_bytes(),
         ),
         (
@@ -348,11 +351,11 @@ fn a_version_is_one_table_and_never_older_than_what_is_known() {
 fn quotes_use_the_table_in_hand() {
     let fetched = table(&newer());
     let quote = fetched.quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(quote["pricingVersion"], "2026-11-01");
+    assert_eq!(quote["pricingVersion"], "2026-11-20");
     assert_eq!(quote["usdMicrosPerMillionInputTokens"], 5_000_000);
     assert_eq!(quote["usdMicros"], 5_000);
     let old = built_in().quote("claude-opus-5-5", 7, 1_000).unwrap();
-    assert_eq!(old["pricingVersion"], "2026-10-28");
+    assert_eq!(old["pricingVersion"], "2026-11-05");
     assert_eq!(old["usdMicros"], 4_000);
     assert!(fetched.quote("unknown-model", 7, 1).is_none());
 }
@@ -406,7 +409,7 @@ fn a_valid_fetch_is_used_and_cached_privately() {
     let server = Server::answering(Answer::Body(bytes(&newer())));
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     let document = resolved.document();
-    assert_eq!(document["version"], "2026-11-01");
+    assert_eq!(document["version"], "2026-11-20");
     assert_eq!(document["origin"], "fetched");
     assert_eq!(document["fetchedAtMs"], NOW);
     assert_eq!(price(&resolved, "claude-opus-5-5"), 5_000_000);
@@ -466,7 +469,7 @@ fn an_unusable_answer_falls_back_to_the_cache_and_then_the_built_in_table() {
         let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
         let document = resolved.document();
         assert_eq!(document["origin"], "cached", "{name}");
-        assert_eq!(document["version"], "2026-11-01", "{name}");
+        assert_eq!(document["version"], "2026-11-20", "{name}");
         assert_eq!(document["fetchedAtMs"], NOW - 60_000, "{name}");
         let kept = cache::read(&temp.0).unwrap();
         assert_eq!(
@@ -511,8 +514,8 @@ fn a_fetched_file_cannot_change_the_prices_of_a_known_version() {
 fn a_fetched_file_older_than_the_cached_one_is_dropped() {
     // Newer than the built-in table, older than the cache: valid, but it would roll back.
     let mut between = newer();
-    between["version"] = json!("2026-10-29");
-    between["asOf"] = json!("2026-10-29");
+    between["version"] = json!("2026-11-10");
+    between["asOf"] = json!("2026-11-10");
     between["models"][0]["usdMicrosPerMillionInputTokens"] = json!(4_500_000);
     let server = Server::answering(Answer::Body(bytes(&between)));
 
@@ -523,14 +526,14 @@ fn a_fetched_file_older_than_the_cached_one_is_dropped() {
         "fetched",
         "alone it is usable"
     );
-    assert_eq!(resolved.document()["version"], "2026-10-29");
+    assert_eq!(resolved.document()["version"], "2026-11-10");
 
     let temp = Temp::new();
     cache::write(&temp.0, &state(&newer(), NOW - 60_000)).unwrap();
     let resolved = Lookup::begin(&temp.0, NOW, Some(server.target())).finish();
     let document = resolved.document();
     assert_eq!(document["origin"], "cached");
-    assert_eq!(document["version"], "2026-11-01");
+    assert_eq!(document["version"], "2026-11-20");
     assert_eq!(price(&resolved, "claude-opus-5-5"), 5_000_000);
     let kept = cache::read(&temp.0).unwrap();
     assert_eq!(kept.attempted_at_ms, NOW, "the attempt counts");
@@ -738,4 +741,53 @@ fn exact_gemini_rows_have_the_verified_base_rate_and_unlisted_aliases_stay_unkno
             "unknown is not zero"
         );
     }
+}
+
+#[test]
+fn unbilled_models_are_zero_and_unknown_models_stay_unpriced() {
+    // A Codex seat's day: Terra input plus auto-review input values to Terra's share alone.
+    let terra = built_in().quote("gpt-6.1-terra", 1000, 3_000_000).unwrap();
+    let review = built_in()
+        .quote("codex-auto-review", 1000, 2_000_000)
+        .unwrap();
+    assert_eq!(terra["usdMicros"], 3_000_000);
+    assert_eq!(review["usdMicros"], 0);
+    assert_eq!(review["usdMicrosPerMillionInputTokens"], 0);
+    assert_eq!(review["pricingVersion"], terra["pricingVersion"]);
+    assert_eq!(
+        built_in().quote("gpt-6-astra", 1000, 1_000_000).unwrap()["usdMicros"],
+        10_000_000
+    );
+    // The status table lists the zero row with the rule as its source.
+    let document = Resolved::built_in().document();
+    let row = document["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["modelId"] == "codex-auto-review")
+        .unwrap();
+    assert_eq!(row["usdMicrosPerMillionInputTokens"], 0);
+    assert!(
+        row["source"]
+            .as_str()
+            .unwrap()
+            .ends_with("digest-v1.md#unbilled-models")
+    );
+    // Only the named model is unbilled: any other unknown model still blocks a price.
+    for unknown in ["codex-auto-review-2", "gpt-6.2-terra", "auto-review"] {
+        assert!(built_in().quote(unknown, 1000, 0).is_none(), "{unknown}");
+    }
+    // A table that prices the model wins over the rule.
+    let mut file: Value = serde_json::from_str(BUILT_IN).unwrap();
+    file["version"] = json!("2026-11-20");
+    file["models"].as_array_mut().unwrap().push(json!({
+        "modelId": "codex-auto-review",
+        "usdMicrosPerMillionInputTokens": 1_000_000,
+        "source": "https://example.com/price"
+    }));
+    let priced = table(&file);
+    assert_eq!(
+        priced.quote("codex-auto-review", 1000, 1_000_000).unwrap()["usdMicros"],
+        1_000_000
+    );
 }

@@ -136,8 +136,9 @@ remain independent of storage access.
 | Operation                | Input                                                                                                                                               | Result                                                                                                                                                                                                                                  |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`           | `{}`                                                                                                                                                | Protocol range, operations, byte limits and ordinary commands                                                                                                                                                                           |
-| `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview`, `why`, `talks` or `routes`                                                                           | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview, retained decision page, this hour's talk pairs or route verdicts; additive at API version 1                                              |
-| `orchestration.write`    | Tagged `phase`: `preview` or `apply`, with a typed plan, focus, leads, route or talks mutation                                                      | [Orchestration v1](orchestration-v1.md#configuration-writes): shared effect preview, explicit consent and transactional stale-preview fence; additive at API version 1                                                                  |
+| `orchestration.read`     | Tagged `view`: `overview`, `plans`, `preview`, `why`, `talks`, `routes`, `jobs` or `job`                                                            | [Orchestration v1](orchestration-v1.md): effective field sources, timeline, in-memory preview, retained decisions, talk pairs, route verdicts or canonical jobs; additive at API version 1                                              |
+| `orchestration.write`    | Tagged `phase`: `preview` or `apply`, with a typed plan, focus, leads, route, talks or job mutation                                                 | [Orchestration v1](orchestration-v1.md#configuration-writes): shared effect preview, explicit consent and transactional stale-preview fence; additive at API version 1                                                                  |
+| `orchestration.job.run`  | `jobId`, `revision`, `slotMs`; optional `manualOperationId` with `consent:true`; the envelope names the originator                                  | [Job execution](orchestration-v1.md#job-execution): current-policy admission, canonical dispatch/run receipt and one-shot wake; acceptance is not completion                                                                            |
 | `digest.receiving.sync`  | `expectedRevision`, `enabled`, `defaultReceiving`, `members`                                                                                        | [Orchestration v1](orchestration-v1.md#commands-and-api): typed configured Digest input, CAS publication and current resolved projection; additive at API version 1                                                                     |
 | `storage.root`           | `{}`                                                                                                                                                | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                                                                                         |
 | `changes.cursor`         | `{}`                                                                                                                                                | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below)                                                             |
@@ -773,7 +774,12 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
   prorated estimates. Cached input is already part of input; total is input
   plus output. `coveredMs` is the union of verified contiguous successful read
   intervals in that bucket, bounded by its duration. Reads more than two sampling
-  cadences apart do not establish coverage between them. An incomplete source
+  cadences apart do not establish coverage between them, except a continuous pair:
+  two complete reads of the same driver, session and epoch whose counters only grew,
+  both inside one 5-minute rollup slot. That pair covers its interval in both tiers,
+  so a rollup bucket stays the sum of its 5-second buckets. Its token total is exact;
+  only its placement among the slot's 5-second buckets is approximate (the later read's
+  bucket holds the delta). A pair across a slot boundary stays a gap. An incomplete source
   may contribute a known lower-bound delta without establishing coverage.
   `complete` requires full duration coverage and complete evidence without a
   gap; `gap` marks missing evidence/coverage, and `discontinuous` marks an
@@ -786,6 +792,17 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
 Optional attribution extends these existing observations; it is not a separate
 ledger. Missing (or null) new fields mean unknown, never a measured zero:
 
+- `consumption.incompleteReason` says why an incomplete reading is incomplete, when
+  the driver knows; absent on a complete reading. Codex values: `partial-line` (the
+  session's newest line is still being written), `child-usage-unreadable` (a started
+  session's new lines hold a usage event whose counters cannot be read),
+  `child-unreadable` (its new lines cannot be read or are not provider records),
+  `child-backlog` (it grew past one bounded read), `family-budget` (this tick's budget
+  ended before every started session was read), `family-scan` (the session tree was
+  not listed whole, or a header is pending), `family-members` (more started sessions
+  than are followed) and `family` (an earlier tick's incomplete family, not read
+  since). A started session whose new whole lines are all provider records other
+  than usage is idle, not incomplete.
 - `consumption.cacheWriteTokens` is a cumulative cache-write counter in the
   same token units and epoch as input. Cache-write and cache-read are subsets
   of the existing input count; neither is added to input or total again.

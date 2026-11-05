@@ -399,8 +399,9 @@ basis, origin, fetchedAtMs?, models:[{modelId, usdMicrosPerMillionInputTokens,
 source}]}`, acquired with the same status call. It names the one table every quote of
 that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-input`;
 `source` is the official source URL and `asOf` is the verification date. Version
-`2026-10-28` keeps the canonical Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
-and adds these exact Gemini IDs from Google's paid Standard text-input pricing:
+`2026-11-05` keeps the canonical Claude Opus/Sonnet 5.5 and GPT-6/6.1 Sol rows,
+adds `gpt-6.1-terra` ($1/M) and `gpt-6-astra` ($10/M) from OpenAI's model pages,
+and keeps these exact Gemini IDs from Google's paid Standard text-input pricing:
 `gemini-3-flash-preview` ($0.50/M), `gemini-3.1-flash-lite` ($0.25/M),
 `gemini-3.1-pro-preview` ($2/M base tier, prompts <=200k),
 `gemini-3.5-flash-lite` ($0.30/M), `gemini-3.6-flash` and `gemini-3.8-flash`
@@ -457,6 +458,15 @@ unavailable too. Ops implements this in `sum_costs`
 (`extensions/tmt-ops/rust/tmt-ops/src/labels/digest.rs`).
 Ops owns the separate display/toggle consumer; this producer adds no UI.
 
+### Unbilled models
+
+`codex-auto-review` is not billed per token on the owner's plan (owner decision,
+2026-11-05), so it has no list price to verify. Digest values it at zero: a quote
+for it has `usdMicrosPerMillionInputTokens: 0`, and the status `pricing.models` list
+adds a zero row whose `source` is this section. A table that prices the model takes
+precedence. The rule names exactly this ID; any other model missing from the table
+still has no quote, so a seat that used it has no price.
+
 ### Pricing file
 
 The price table is one public file in the repository,
@@ -466,8 +476,8 @@ status `pricing` object plus `schema`:
 ```json
 {
   "schema": "tmt-digest-pricing-v1",
-  "version": "2026-10-28",
-  "asOf": "2026-10-28",
+  "version": "2026-11-05",
+  "asOf": "2026-11-05",
   "basis": "standard-base-input",
   "models": [
     {

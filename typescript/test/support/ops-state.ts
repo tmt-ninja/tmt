@@ -36,3 +36,48 @@ function notStoredYet(error: unknown): boolean {
     error.message === 'no such table: documents'
   );
 }
+
+/** Independently authored shipped v2 input, never a new-build redirect used as legacy data. */
+export function legacyCronSource(
+  roomId: string,
+  ownerId: string,
+  message: string,
+  anchorMs = 0
+): Buffer {
+  return Buffer.from(
+    JSON.stringify({
+      version: 2,
+      counters: { [roomId]: 1 },
+      jobs: [
+        {
+          id: 'c1',
+          roomId,
+          ownerId,
+          message,
+          revision: 1,
+          state: 'on',
+          pause: null,
+          schedule: { kind: 'every', seconds: 60, anchorMs, from: null, zone: 'UTC' },
+        },
+      ],
+    })
+  );
+}
+
+/** Frozen old bytes remain evidence; the marker is deliberately not a live jobs document. */
+export function retainedCronSource(database: string): Buffer {
+  const marker = storedDocument(database, 'cron');
+  if (!marker) throw new Error('missing cron redirect');
+  const sourceId = JSON.parse(marker.toString('utf8')).sourceId;
+  if (typeof sourceId !== 'string') throw new Error('missing frozen source id');
+  const db = new Database(database, { readonly: true });
+  try {
+    const row = db
+      .prepare("SELECT body FROM documents WHERE kind='cron-cutover-source' AND key=?")
+      .get(sourceId) as { body: Buffer } | undefined;
+    if (!row) throw new Error('missing retained cron source');
+    return row.body;
+  } finally {
+    db.close();
+  }
+}

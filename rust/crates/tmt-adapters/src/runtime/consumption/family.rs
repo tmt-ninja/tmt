@@ -9,7 +9,8 @@
 //! per-file cursors live in storage because the sampler is a fresh process each
 //! tick; the 1 KiB driver state only carries the sum.
 use super::{
-    Consumption, Counts, MAX_MODELS, ModelUsage, SourceCursor, State, codex_with, transcript,
+    Consumption, Counts, Growth, MAX_MODELS, ModelUsage, SourceCursor, State, codex_growth,
+    codex_with, transcript,
 };
 use serde::Deserialize;
 use std::{
@@ -48,6 +49,8 @@ pub struct Contribution {
     pub(super) rows: Option<Vec<ModelUsage>>,
     /// Every started session was found and followed up to now.
     pub(super) complete: bool,
+    /// When not, the first reason found (#6082), one of `INCOMPLETE_REASONS`.
+    pub(super) reason: Option<&'static str>,
 }
 
 impl Contribution {
@@ -389,10 +392,17 @@ struct Run<'a> {
     /// A fifth model was seen: the split built so far is gone for this tick.
     rows_dropped: bool,
     complete: bool,
+    reason: Option<&'static str>,
     reads: usize,
 }
 
 impl Run<'_> {
+    /// The family is not read whole this tick; the first reason is the one reported.
+    fn incomplete(&mut self, reason: &'static str) {
+        self.complete = false;
+        self.reason.get_or_insert(reason);
+    }
+
     fn expired(&self) -> bool {
         Instant::now() >= self.tick.deadline
     }
@@ -463,7 +473,7 @@ impl Run<'_> {
                 continue;
             }
             if self.expired() || self.reads >= READ_PER_TICK {
-                self.complete = false;
+                self.incomplete("family-budget");
                 kept_members.push(member);
                 continue;
             }
@@ -479,10 +489,28 @@ impl Run<'_> {
                     self.changed.insert(member.file.clone(), ());
                     kept_members.push(member);
                 }
-                None => {
-                    self.complete = false;
-                    kept_members.push(member);
-                }
+                // No usage could be read: growth of known non-usage records is idle and
+                // read up to its end, so the rollout can fold once quiet (#6082).
+                None => match codex_growth(self.tick.root, &path, &member.state) {
+                    Growth::NoUsage { offset } => {
+                        let cursor = member.state.cursor.as_mut()?;
+                        if offset > cursor.offset {
+                            cursor.offset = offset;
+                            member.touched_ms = now;
+                            self.changed.insert(member.file.clone(), ());
+                            kept_members.push(member);
+                        } else if quiet {
+                            // Only a line that never finished: as quiet as an unchanged file.
+                            self.fold(&member)?;
+                        } else {
+                            kept_members.push(member);
+                        }
+                    }
+                    growth => {
+                        self.incomplete(growth.reason().unwrap_or("child-unreadable"));
+                        kept_members.push(member);
+                    }
+                },
             }
         }
         self.members = kept_members;
@@ -511,7 +539,7 @@ impl Run<'_> {
         let mut days = Vec::new();
         let mut ceiling: Option<String> = None;
         let mut unreadable = |time: String, run: &mut Self| {
-            run.complete = false;
+            run.incomplete("family-scan");
             if ceiling.as_ref().is_none_or(|old| time < *old) {
                 ceiling = Some(time);
             }
@@ -661,7 +689,7 @@ impl Run<'_> {
                     continue;
                 }
                 if self.members.len() + accepted.iter().filter(|a| **a).count() >= MAX_MEMBERS {
-                    self.complete = false;
+                    self.incomplete("family-members");
                     continue;
                 }
                 accepted[index] = true;
@@ -720,7 +748,7 @@ impl Run<'_> {
             self.header.warm = false;
         }
         if stopped || !listing_complete || self.header.warm {
-            self.complete = false;
+            self.incomplete("family-scan");
         }
     }
 
@@ -790,6 +818,7 @@ pub fn advance(tick: &Tick<'_>, stored: Option<Stored>) -> Option<Outcome> {
         rows: None,
         rows_dropped: false,
         complete: true,
+        reason: None,
         reads: 0,
     };
     run.follow()?;
@@ -810,6 +839,7 @@ pub fn advance(tick: &Tick<'_>, stored: Option<Stored>) -> Option<Outcome> {
             counts,
             rows: run.rows.filter(|rows| !rows.is_empty()),
             complete: run.complete,
+            reason: run.reason,
         },
         write: Write {
             reset,
