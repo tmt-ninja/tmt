@@ -1232,4 +1232,5 @@ jobs:
       - name: Notify Infra of failed complete main verification
         env:
           GH_TOKEN: ${{ github.token }}
+          MAIN_FULL_NEEDS: ${{ toJSON(needs) }}
         run: node typescript/scripts/ci-scope.mjs notify-main-failure

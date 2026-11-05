@@ -365,28 +365,63 @@ describe('complete trusted-main verification', () => {
   });
 
   it.each([{ jobs: [] }, { jobs: [job(1)] }])(
-    'returns a bounded no-op with no writes when no failed jobs remain',
+    'posts one deduplicated fallback with failed needs when failed job rows stay invisible',
     ({ jobs }) => {
       let reads = 0;
-      const delays: number[] = [];
-      const result = notifyMainFullFailure(
-        context,
-        (_route, method) => {
-          expect(method).not.toBe('POST');
+      let writes = 0;
+      const comments: { id: number; user: { login: string }; body: string }[] = [];
+      const request = (route: string, method?: string, body?: string) => {
+        if (route.startsWith('actions/')) {
           reads += 1;
           return { total_count: jobs.length, jobs };
-        },
-        {
-          sleep: (delay) => {
-            delays.push(delay);
-          },
         }
+        if (method === 'POST') {
+          writes += 1;
+          comments.push({ id: 99, user: { login: 'github-actions[bot]' }, body: body! });
+          return { id: 99 };
+        }
+        return comments;
+      };
+      const failedContext = {
+        ...context,
+        needs: { changes: { result: 'success' }, 'complete-main': { result: 'failure' } },
+      };
+      const sleep = () => {};
+      expect(notifyMainFullFailure(failedContext, request, { sleep })).toEqual({
+        created: true,
+        commentId: 99,
+      });
+      expect(notifyMainFullFailure(failedContext, request, { sleep })).toEqual({
+        created: false,
+        commentId: 99,
+      });
+      expect(reads).toBe(6);
+      expect(writes).toBe(1);
+      expect(comments[0].body).toContain('<!-- main-full:42:1 -->');
+      expect(comments[0].body).toContain(context.sha);
+      expect(comments[0].body).toContain('actions/runs/42');
+      expect(comments[0].body).toContain(
+        'Failed job rows were not visible in the jobs API at notification time'
       );
-      expect(result).toEqual({ created: false, commentId: null, reason: 'no-failed-jobs' });
-      expect(reads).toBe(3);
-      expect(delays).toEqual([1000, 2000]);
+      expect(comments[0].body).toContain('Gate dependency changes: success');
+      expect(comments[0].body).toContain('Gate dependency complete-main: failure');
     }
   );
+
+  it('refuses fallback writes without failed gate needs evidence', () => {
+    let writes = 0;
+    expect(() =>
+      notifyMainFullFailure(
+        context,
+        (route, method) => {
+          if (method === 'POST') writes += 1;
+          return route.startsWith('actions/') ? { total_count: 0, jobs: [] } : [];
+        },
+        { sleep: () => {} }
+      )
+    ).toThrow('requires failed gate needs evidence');
+    expect(writes).toBe(0);
+  });
 
   it('retains a prior bot notification but does not trust an operator-controlled marker', () => {
     for (const login of ['github-actions[bot]', 'someone']) {
@@ -442,6 +477,9 @@ describe('complete trusted-main verification', () => {
     const workflow = readFileSync(
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
+    );
+    expect(workflow.split('\n  notify-main-failure:\n')[1]).toContain(
+      'MAIN_FULL_NEEDS: ${{ toJSON(needs) }}'
     );
     const job = (name: string) =>
       workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];

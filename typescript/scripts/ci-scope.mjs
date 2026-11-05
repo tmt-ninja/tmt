@@ -962,7 +962,7 @@ export function notifyMainFullFailure(context, request, { sleep } = {}) {
     );
   } catch (error) {
     if (error !== noFailed) throw error;
-    return { created: false, commentId: null, reason: 'no-failed-jobs' };
+    failed = [];
   }
   const marker = `<!-- main-full:${run}:${attempt} -->`;
   for (let page = 1; page <= 5; page += 1) {
@@ -991,6 +991,21 @@ export function notifyMainFullFailure(context, request, { sleep } = {}) {
       .slice(0, 200);
     return `- ${name}: ${job.conclusion} ([job ${job.id}](${url}/job/${job.id}))`;
   });
+  if (!failed.length) {
+    const needs = context.needs;
+    const names = ['changes', 'complete-main'];
+    const results = names.map((name) => needs?.[name]?.result);
+    if (
+      !record(needs) ||
+      results.some((result) => !['success', 'failure', 'cancelled', 'skipped'].includes(result)) ||
+      !results.includes('failure')
+    )
+      throw new Error('Fallback main failure notification requires failed gate needs evidence.');
+    lines.push(
+      'Failed job rows were not visible in the jobs API at notification time; see the run.'
+    );
+    for (const name of names) lines.push(`- Gate dependency ${name}: ${needs[name].result}`);
+  }
   const body = `${marker}\nComplete main verification failed at ${context.sha}, attempt ${attempt}. Infra: fix forward before considering scoped enablement.\n\n[Run ${run}](${url})\n\n${lines.join('\n')}${failed.length > 50 ? `\n${failed.length - 50} more failed jobs in the run.` : ''}`;
   // An uncertain POST is never repeated. A rerun reads the marker before writing.
   const created = request('issues/3054/comments', 'POST', body);
@@ -1128,6 +1143,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       sha: env.GITHUB_SHA,
       runId: env.GITHUB_RUN_ID,
       runAttempt: env.GITHUB_RUN_ATTEMPT,
+      needs: JSON.parse(env.MAIN_FULL_NEEDS ?? 'null'),
     };
     let requests = 0;
     const api =
@@ -1162,9 +1178,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
     } else {
       const notified = notifyMainFullFailure(context, api);
       stdout.write(
-        notified.commentId === null
-          ? 'No failed main verification jobs visible after three reads; no notification sent.\n'
-          : `Main verification failure notification ${notified.created ? 'created' : 'already recorded'}: ${notified.commentId}.\n`
+        `Main verification failure notification ${notified.created ? 'created' : 'already recorded'}: ${notified.commentId}.\n`
       );
     }
     return;

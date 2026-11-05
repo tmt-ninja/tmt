@@ -167,8 +167,9 @@ missing, extra, failed, cancelled or skipped work refuses. It grants no publicat
 or cut admission. Only the main-failure job has issue-write permission: it reports
 bounded run/SHA/job evidence on #3054, checking the bot run/attempt marker before
 one POST. A complete inventory with no failed rows is reread up to three times
-inside the shared API budget; persistent absence is a logged no-op, not a notifier
-failure. Cancelled jobs without an acquired runner remain reportable. Uncertain
+inside the shared API budget; persistent absence still posts the run/SHA and gate
+dependency results with a job-rows-not-visible diagnostic under the same marker.
+Cancelled jobs without an acquired runner remain reportable. Uncertain
 writes never retry; malformed/incomplete inventories and capacity/API failures stay visible.
 Seeds cannot supply complete-verification evidence.
 

@@ -180,6 +180,7 @@ export interface MainVerificationContext {
   readonly sha?: string;
   readonly runId?: string;
   readonly runAttempt?: string;
+  readonly needs?: unknown;
 }
 export type MainVerificationRequest = (
   route: string,
@@ -193,6 +194,4 @@ export function notifyMainFullFailure(
   context: MainVerificationContext,
   request: MainVerificationRequest,
   options?: { sleep?: (milliseconds: number) => void }
-):
-  | { readonly created: boolean; readonly commentId: number }
-  | { readonly created: false; readonly commentId: null; readonly reason: 'no-failed-jobs' };
+): { readonly created: boolean; readonly commentId: number };
