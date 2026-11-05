@@ -143,7 +143,7 @@ jobs:
           cargo test --locked -p tmt-tui-wasm
           cargo build --locked -p tmt-tui-wasm --example vector
           CARGO_PATH="${CARGO_HOME:-$HOME/.cargo}"
-          RUSTFLAGS="--remap-path-prefix=$CARGO_PATH=/cargo --remap-path-prefix=$PWD=/workspace" cargo rustc --locked --release -p tmt-tui-wasm --target wasm32-unknown-unknown --crate-type cdylib
+          RUSTFLAGS="--remap-path-prefix=$CARGO_PATH=/cargo --remap-path-prefix=$PWD=/workspace" cargo rustc --locked --release -p tmt-tui-wasm --target wasm32-unknown-unknown --crate-type cdylib,rlib
           cargo tree --locked -p tmt-tui-wasm --target wasm32-unknown-unknown --edges normal --prefix none > "$RUNNER_TEMP/tmt-renderer-wasm-graph"
           if grep -E "^(ratatui|crossterm|comfy-table)( |$)" "$RUNNER_TEMP/tmt-renderer-wasm-graph"; then exit 1; fi
           wasm-bindgen --target nodejs --out-dir "$RUNNER_TEMP/tmt-renderer" target/wasm32-unknown-unknown/release/tmt_tui_wasm.wasm
