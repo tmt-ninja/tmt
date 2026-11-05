@@ -2782,6 +2782,22 @@ render ID and the two theme values. Theme changes update the same document witho
 source replacement or loss of interactive state. Renderer release/teardown removes
 the parent theme subscription; author messages cannot choose the parent theme.
 
+**Visible band (#6090).** A window-scrolled frame is as tall as its page, so its own viewport is the
+whole page. While the frame is bound and not scrolling itself, the parent sends the part of it the
+reader sees over the same port as exactly `{type:"colab.render.viewport", renderId, top, height, width}`:
+whole CSS pixels in the frame's own coordinates, from under the trusted header to above the trusted
+chrome at the bottom of the window (the Chat FAB group, from its measured box), clamped to the frame.
+It is sent after binding and on scroll, resize and frame-height changes, at most once per animation
+frame, only when it changed, and only while some of the frame is visible (`height` and `width` above
+zero). The renderer accepts only the current render ID, integers from 0 to 1,000,000, a positive
+height and width, a width within its own width and a band within its own height; anything else is
+ignored. It sets `data-tmt-ui-viewport` and `--tmt-ui-viewport-top` / `--tmt-ui-viewport-height` (px)
+on its root and dispatches `tmt-ui-viewport` on the document; a `colab.render.layout` switch to frame
+scrolling removes them. The frame's own style fits page-level design-system modals, sheets, drawers
+and their scrims to that band, and their layer geometry reads it; a nested design-system stage keeps
+its own box. The message is cosmetic and grants nothing. It does tell author script where the reader
+has scrolled, which is acceptable because the frame has no network.
+
 Author CSS must use the explicit root `data-theme` selectors to follow Colab's choice;
 the bundled skill's starter includes them and matching `color-scheme` declarations.
 CSS keyed only on `prefers-color-scheme` continues to follow the OS. This cosmetic

@@ -221,6 +221,9 @@ export async function mountRenderer(
      * note). It takes room from a frame that fills the viewport, but not from where a revealed
      * element lands: that content has scrolled away by then. Absent is none. */
     frameLead?(): number;
+    /** Window space at the bottom that trusted chrome covers (the Chat FAB group), so a page's
+     * modal keeps its buttons above it (#6090). Absent is none. */
+    viewportBottom?(): number;
     /** The scheme the author's page paints (white when it paints nothing), for cards drawn over it. */
     onScheme?(scheme: PageScheme): void;
     onSlots?(slots: AnchorPosition[]): void;
@@ -385,6 +388,33 @@ export async function mountRenderer(
     lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
+  // The part of a window-scrolled frame the reader sees (#6090): from under the header to above
+  // the bottom chrome, clamped to the frame, in its own whole pixels. Cosmetic: the frame centres
+  // its page-level modals there. Sent at most once per animation frame, only when it changed.
+  let viewportSent = '',
+    viewportFrame = 0;
+  const sendViewport = () => {
+    viewportFrame = 0;
+    if (stopped || !ready || innerScroll) return;
+    const box = frame.getBoundingClientRect();
+    const clip = (y: number) => Math.round(Math.max(0, Math.min(frame.clientHeight, y - box.top)));
+    const top = clip(inset());
+    const bottom = clip(window.innerHeight - Math.max(0, options.viewportBottom?.() ?? 0));
+    const band = { top, height: Math.max(0, bottom - top), width: frame.clientWidth };
+    // Only while the reader sees part of the frame: an off-screen frame keeps its last band.
+    if (!band.height || !band.width) return;
+    const key = `${band.top}:${band.height}:${band.width}`;
+    if (key === viewportSent) return;
+    viewportSent = key;
+    channel.port1.postMessage({
+      type: 'colab.render.viewport',
+      renderId: snapshot.renderId,
+      ...band,
+    });
+  };
+  const queueViewport = () => {
+    if (!viewportFrame && !stopped) viewportFrame = requestAnimationFrame(sendViewport);
+  };
   frame.scrolling = 'no';
   frame.dataset.scrollMode = 'window';
   frame.style.height = `${lastHeight}px`;
@@ -424,6 +454,7 @@ export async function mountRenderer(
     lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
     growthReports = 0;
     frame.style.height = `${lastHeight}px`;
+    queueViewport();
   };
   const applyHeight = () => {
     heightTimer = undefined;
@@ -449,6 +480,7 @@ export async function mountRenderer(
     lastHeight = next;
     updatedAt = now;
     frame.style.height = `${next}px`;
+    queueViewport();
     if (pendingScroll) {
       const { top, until, scrollY } = pendingScroll;
       pendingScroll = undefined;
@@ -494,6 +526,8 @@ export async function mountRenderer(
     options.onSlots?.([]);
     options.onEditLocks?.([]);
     clearTimeout(heightTimer);
+    cancelAnimationFrame(viewportFrame);
+    window.removeEventListener('scroll', queueViewport, { capture: true });
     window.removeEventListener('resize', resize);
     window.removeEventListener('message', bound);
     options.signal.removeEventListener('abort', destroy);
@@ -684,6 +718,7 @@ export async function mountRenderer(
     readyWaiters.splice(0).forEach((resume) => resume());
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
+    queueViewport();
     images(imageInput);
     const sourceElements = [
       ...new DOMParser().parseFromString(source, 'text/html').querySelectorAll('*'),
@@ -1513,6 +1548,8 @@ export async function mountRenderer(
   };
   window.addEventListener('message', bound);
   window.addEventListener('resize', resize);
+  // Any scroller that moves the frame (the window or a workspace) moves the visible band.
+  window.addEventListener('scroll', queueViewport, { capture: true, passive: true });
   options.signal.addEventListener('abort', destroy, { once: true });
   // A page that opts in gets the bundled runtime; any other page is bound exactly as before.
   const base = rendererBase();

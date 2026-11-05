@@ -50,6 +50,7 @@ export function usePageRenderer({
   setState,
   toolbar,
   workBandSize = 0,
+  dockReserve = 0,
   anchor,
   layers,
   handlers,
@@ -68,6 +69,8 @@ export function usePageRenderer({
   setState(state: RenderState | 'loading'): void;
   toolbar: RefObject<HTMLElement | null>;
   workBandSize?: number;
+  /** Window space at the bottom the Chat FAB group covers; a page's modal stays above it (#6090). */
+  dockReserve?: number;
   /** The element a shell item opened the page at. */
   anchor: string | undefined;
   layers: RendererLayers;
@@ -91,9 +94,11 @@ export function usePageRenderer({
   const [rendererMounts, setRendererMounts] = useState(0);
   const bandSize = useRef(workBandSize);
   bandSize.current = workBandSize;
+  const reserve = useRef(dockReserve);
+  reserve.current = dockReserve;
   useEffect(() => {
     renderer.current?.resize();
-  }, [workBandSize, renderer]);
+  }, [workBandSize, dockReserve, renderer]);
   const current = useRef(handlers);
   current.current = handlers;
   const designSystems = useRef(designSystem);
@@ -195,6 +200,7 @@ export function usePageRenderer({
       onReadings,
       // The status band is sticky under the bar: it covers the page like the bar does.
       viewportInset: () => toolbarInset(toolbar.current) + bandSize.current,
+      viewportBottom: () => reserve.current,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);

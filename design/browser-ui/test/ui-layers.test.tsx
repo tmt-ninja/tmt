@@ -6,6 +6,7 @@ import {
   useLayerFocus,
   focusLayerTarget,
   admitLayerDismiss,
+  HOST_VIEWPORT_EVENT,
   observeLayerViewport,
   type LayerControllerOptions,
 } from '../src/ui/layer.js';
@@ -335,7 +336,7 @@ describe('mounted surface viewport lifetime', () => {
     });
     const scope = { clientWidth: 400, clientHeight: 300 };
     const node = {
-      ownerDocument: { defaultView: view },
+      ownerDocument: hostDocument(view),
       closest: () => scope,
     } as unknown as HTMLElement;
     const update = vi.fn();
@@ -366,7 +367,7 @@ describe('mounted surface viewport lifetime', () => {
       innerHeight: 900,
       getComputedStyle: () => ({ getPropertyValue: () => '4px' }),
     });
-    const node = { ownerDocument: { defaultView: view } } as unknown as HTMLElement;
+    const node = { ownerDocument: hostDocument(view) } as unknown as HTMLElement;
     const update = vi.fn();
     for (let cycle = 0; cycle < 3; cycle++) {
       const cleanup = observeLayerViewport(node, update);
@@ -389,6 +390,76 @@ describe('mounted surface viewport lifetime', () => {
       expect(update).toHaveBeenCalledTimes(after);
       viewport.height = 390;
     }
+  });
+});
+/** A document whose root may carry a host's visible band (#6090). */
+function hostDocument(view: unknown, band?: { top: string; height: string }) {
+  const properties = new Map(
+    band
+      ? [
+          ['--tmt-ui-viewport-top', band.top],
+          ['--tmt-ui-viewport-height', band.height],
+        ]
+      : [],
+  );
+  let marked = !!band;
+  const root = {
+    hasAttribute: (name: string) => name === 'data-tmt-ui-viewport' && marked,
+    removeAttribute: (_name: string) => {
+      marked = false;
+    },
+    style: {
+      getPropertyValue: (name: string) => properties.get(name) ?? '',
+      setProperty: (name: string, value: string) => properties.set(name, value),
+    },
+  };
+  return Object.assign(new EventTarget(), { defaultView: view, documentElement: root });
+}
+it('a page-level layer fits the host’s visible band and follows its changes (#6090)', () => {
+  const view = Object.assign(new EventTarget(), {
+    visualViewport: undefined,
+    innerWidth: 390,
+    innerHeight: 6000,
+    getComputedStyle: () => ({ getPropertyValue: () => '4px' }),
+  });
+  const owner = hostDocument(view, { top: '1200px', height: '700px' });
+  const update = vi.fn();
+  const cleanup = observeLayerViewport(
+    { ownerDocument: owner, closest: () => null } as unknown as HTMLElement,
+    update,
+  );
+  expect(update.mock.lastCall?.[0]).toMatchObject({
+    '--tmt-layer-top': '1200px',
+    '--tmt-layer-height': '700px',
+    '--tmt-layer-width': '390px',
+    '--tmt-layer-available-height': '684px',
+  });
+  owner.documentElement.style.setProperty('--tmt-ui-viewport-top', '2400px');
+  owner.dispatchEvent(new Event(HOST_VIEWPORT_EVENT));
+  expect(update.mock.lastCall?.[0]['--tmt-layer-top']).toBe('2400px');
+  // Without the mark the window's own viewport counts again.
+  owner.documentElement.removeAttribute('data-tmt-ui-viewport');
+  owner.dispatchEvent(new Event(HOST_VIEWPORT_EVENT));
+  expect(update.mock.lastCall?.[0]).toMatchObject({
+    '--tmt-layer-top': '0px',
+    '--tmt-layer-height': '6000px',
+  });
+  cleanup();
+  const calls = update.mock.calls.length;
+  owner.dispatchEvent(new Event(HOST_VIEWPORT_EVENT));
+  expect(update).toHaveBeenCalledTimes(calls);
+  // A nested stage keeps its own box even under a band.
+  const staged = vi.fn();
+  observeLayerViewport(
+    {
+      ownerDocument: hostDocument(view, { top: '1200px', height: '700px' }),
+      closest: () => ({ clientWidth: 400, clientHeight: 300 }),
+    } as unknown as HTMLElement,
+    staged,
+  )();
+  expect(staged.mock.lastCall?.[0]).toMatchObject({
+    '--tmt-layer-top': '0px',
+    '--tmt-layer-height': '300px',
   });
 });
 it('keeps all layer class sources under the existing prefix/token policy', () => {

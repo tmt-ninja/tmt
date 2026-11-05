@@ -97,6 +97,11 @@ here. Write each class name in full (a lookup of complete names, never `text-${s
 
 These are base-layer defaults; an author's styles and utility classes can override them.
 
+A page frame is as tall as the page, so `position: fixed` with `inset: 0` covers the whole page,
+not the screen. Design-system dialogs and sheets already open where the reader is. For your own
+modal, place it in the part on screen with `top: var(--tmt-ui-viewport-top, 0)` and
+`height: var(--tmt-ui-viewport-height, 100vh)`.
+
 On a `column` or `full` page Colab sets the width and gaps ([layout](layout.md)); do not set your own
 page width, margin or block gap. Do not add a header, product mark or sticky bar.
 

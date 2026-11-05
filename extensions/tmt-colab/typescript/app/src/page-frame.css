@@ -106,4 +106,27 @@
       }
     }
   }
+  /* The visible band (#6090). The page frame is as tall as its page, so its own viewport is the
+     whole page; the parent sends the part the reader sees and the bootstrap sets it on the root
+     as `data-tmt-ui-viewport` with `--tmt-ui-viewport-top` and `--tmt-ui-viewport-height`. A
+     page-level modal, sheet and scrim then fit that band (`100%` is the frame's viewport, so the
+     bottom inset ends the band); a nested design-system stage keeps its own box. Radix layers
+     read the same band through their layer variables. */
+  :root[data-tmt-ui-viewport]
+    :is(.tmt-ui-dialog, [data-slot='dialog-overlay'], [data-slot='sheet-overlay']):not(
+      [data-tmt-ds-scope] *
+    ),
+  :root[data-tmt-ui-viewport]
+    :is(.tmt-ui-dialog, .tmt-ui-drawer):not([data-tmt-ds-scope] *)::backdrop {
+    inset: var(--tmt-ui-viewport-top) 0
+      calc(100% - var(--tmt-ui-viewport-top) - var(--tmt-ui-viewport-height)) !important;
+  }
+  :root[data-tmt-ui-viewport] .tmt-ui-dialog:not([data-tmt-ds-scope] *) {
+    max-height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-space-l)) !important;
+  }
+  :root[data-tmt-ui-viewport] .tmt-ui-drawer:not([data-tmt-ds-scope] *) {
+    top: calc(var(--tmt-ui-viewport-top) + var(--tmt-ui-drawer-gutter)) !important;
+    bottom: auto !important;
+    height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-drawer-gutter)) !important;
+  }
 }

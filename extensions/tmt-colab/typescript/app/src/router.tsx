@@ -2058,6 +2058,8 @@ function OpenPage({
     setState,
     toolbar,
     workBandSize,
+    // The FAB group and its margin, measured from the window's bottom.
+    dockReserve: dockPlacement.bottom + dockPlacement.height,
     anchor,
     layers: {
       onEditLocks: editLockLayer.onEditLocks,

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { DsScope, UiTheme } from '../src/ui/index.js';
+import { UiTheme } from '../src/ui/index.js';
 import { follow } from './router.js';
 
 /*
@@ -94,8 +94,6 @@ export interface ComponentTemplateProps {
   preview: ReactNode;
   /** A note on the hero's motion, shown under it. */
   motion?: ReactNode;
-  /** Open the hero's overlays in the canvas, as a stage, instead of over the page. */
-  stage?: boolean;
   usage: string;
   variants: readonly ComponentVariant[];
   props?: readonly ComponentProp[];
@@ -107,7 +105,6 @@ export function ComponentTemplate({
   lead,
   preview,
   motion,
-  stage,
   usage,
   variants,
   props,
@@ -115,11 +112,7 @@ export function ComponentTemplate({
 }: ComponentTemplateProps) {
   return (
     <Article title={title} lead={lead}>
-      {stage ? (
-        <DsScope className="docs-canvas docs-canvas-hero docs-canvas-stage">{preview}</DsScope>
-      ) : (
-        <div className="docs-canvas docs-canvas-hero">{preview}</div>
-      )}
+      <div className="docs-canvas docs-canvas-hero">{preview}</div>
       {motion && (
         <p className="docs-motion-line">
           <b>Motion</b> {motion}

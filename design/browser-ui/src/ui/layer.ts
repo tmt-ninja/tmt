@@ -228,7 +228,21 @@ export function admitLayerDismiss(
 /** Radix collision padding of every floating layer: the 2-unit gutter, so none touches the viewport edge. */
 export const layerCollisionPadding = 8;
 
-/** Observe only a mounted Radix surface. Geometry uses the viewport, styling uses tokens. */
+/** The event a host dispatches on the document after it changes the visible band (#6090). */
+export const HOST_VIEWPORT_EVENT = 'tmt-ui-viewport';
+
+/** The visible band a host publishes on the root, as `data-tmt-ui-viewport` with
+ * `--tmt-ui-viewport-top` and `--tmt-ui-viewport-height` in pixels (see dialog.css), or none. */
+function hostBand(document: Document): { top: number; height: number } | undefined {
+  const root = document.documentElement;
+  if (!root.hasAttribute('data-tmt-ui-viewport')) return undefined;
+  const top = Number.parseFloat(root.style.getPropertyValue('--tmt-ui-viewport-top'));
+  const height = Number.parseFloat(root.style.getPropertyValue('--tmt-ui-viewport-height'));
+  return Number.isFinite(top) && Number.isFinite(height) ? { top, height } : undefined;
+}
+
+/** Observe only a mounted Radix surface. Geometry uses the viewport, or the host's visible band
+ * for a page-level layer, and styling uses tokens. */
 export function observeLayerViewport(
   node: HTMLElement,
   update: (style: CSSProperties) => void,
@@ -242,10 +256,11 @@ export function observeLayerViewport(
       view.getComputedStyle(node).getPropertyValue('--tmt-foundation-spacing-unit'),
     );
     const gutter = Number.isFinite(spacing) ? spacing * 2 : 0;
+    const band = scope ? undefined : hostBand(node.ownerDocument);
     const left = scope ? 0 : (viewport?.offsetLeft ?? 0);
-    const top = scope ? 0 : (viewport?.offsetTop ?? 0);
+    const top = scope ? 0 : (band?.top ?? viewport?.offsetTop ?? 0);
     const width = scope?.clientWidth ?? viewport?.width ?? view.innerWidth;
-    const height = scope?.clientHeight ?? viewport?.height ?? view.innerHeight;
+    const height = scope?.clientHeight ?? band?.height ?? viewport?.height ?? view.innerHeight;
     update({
       '--tmt-layer-left': `${left}px`,
       '--tmt-layer-top': `${top}px`,
@@ -263,8 +278,10 @@ export function observeLayerViewport(
   view.addEventListener('scroll', measure, { capture: true });
   viewport?.addEventListener('resize', measure);
   viewport?.addEventListener('scroll', measure);
+  node.ownerDocument.addEventListener(HOST_VIEWPORT_EVENT, measure);
   return () => {
     observer?.disconnect();
+    node.ownerDocument.removeEventListener(HOST_VIEWPORT_EVENT, measure);
     view.removeEventListener('resize', measure);
     view.removeEventListener('scroll', measure, { capture: true });
     viewport?.removeEventListener('resize', measure);
