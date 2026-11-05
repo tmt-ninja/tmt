@@ -144,6 +144,44 @@ impl Snapshot {
     }
 }
 
+/// A fixture-owned observer cache shared across its worker threads.
+#[cfg(test)]
+pub(crate) struct FixtureCache {
+    config: PathBuf,
+    _directory: crate::test_support::Scratch,
+}
+
+#[cfg(test)]
+fn fixture_caches() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>> {
+    static CACHES: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, PathBuf>>,
+    > = std::sync::OnceLock::new();
+    CACHES.get_or_init(Default::default)
+}
+
+#[cfg(test)]
+impl FixtureCache {
+    pub(crate) fn new(config: &Path) -> Self {
+        let directory = crate::test_support::Scratch::new("staleness-cache");
+        let old = fixture_caches()
+            .lock()
+            .unwrap()
+            .insert(config.to_owned(), directory.to_path_buf());
+        assert!(old.is_none(), "a fixture owns each config path");
+        Self {
+            config: config.to_owned(),
+            _directory: directory,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for FixtureCache {
+    fn drop(&mut self) {
+        fixture_caches().lock().unwrap().remove(&self.config);
+    }
+}
+
 /// Inputs shared by ordinary observation and a reminder claim.
 pub struct Input<'a> {
     pub members: &'a [Member],
@@ -172,7 +210,16 @@ pub struct Observer {
 
 impl Observer {
     pub fn begin(config: &Path, squad: &Squad, settings: Reminders) -> Self {
-        Self::at(config, squad, settings, cache::directory("staleness"))
+        #[cfg(test)]
+        let directory = fixture_caches().lock().unwrap().get(config).cloned();
+        #[cfg(not(test))]
+        let directory: Option<PathBuf> = None;
+        Self::at(
+            config,
+            squad,
+            settings,
+            directory.or_else(|| cache::directory("staleness")),
+        )
     }
 
     /// Isolates an observer's lock and publication in a fixture-owned cache.

@@ -15,6 +15,7 @@ pub(crate) struct Fixture {
     pub(crate) directory: PathBuf,
     pub(crate) core: Core,
     pub(crate) config: Config,
+    _staleness: crate::staleness::FixtureCache,
 }
 impl Fixture {
     pub(crate) fn new() -> Self {
@@ -246,10 +247,12 @@ else: fail('UNKNOWN_COMMAND')
         );
         let core = Core::at(executable);
         let config = Config::read(directory.join("ops.toml")).unwrap();
+        let staleness = crate::staleness::FixtureCache::new(config.path());
         Self {
             directory,
             core,
             config,
+            _staleness: staleness,
         }
     }
     pub(crate) fn model(&self) -> Value {

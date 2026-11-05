@@ -215,3 +215,20 @@ fn navigation_records_end_ownership_and_action() {
             .contains("worker")
     );
 }
+
+#[test]
+fn navigation_trace_distinguishes_pane_switch_from_refresh() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = crate::board::app::workspace::tests::board();
+    let (trace, buffer) = Trace::buffer();
+    app.navigation_trace = Some(trace);
+    app.key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+    let after: Vec<_> = records(&buffer)
+        .into_iter()
+        .filter(|r| r["event"] == "key_after")
+        .collect();
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[0]["effect"], "none");
+    assert_eq!(after[1]["effect"], "refresh");
+}

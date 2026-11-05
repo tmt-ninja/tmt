@@ -2606,6 +2606,7 @@ esac
             crate::id::new_v4().unwrap()
         ));
         fs::create_dir(&root).unwrap();
+        let _staleness = crate::staleness::FixtureCache::new(&root.join("ops.toml"));
         // A completed migration owns Ops; the cache must not supply it.
         fs::create_dir(root.join("ops")).unwrap();
         fs::write(root.join(".ops-paths-v1"), "{}").unwrap();

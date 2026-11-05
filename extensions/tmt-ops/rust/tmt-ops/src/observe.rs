@@ -193,6 +193,7 @@ mod tests {
         core: Core,
         squad: Squad,
         config: Config,
+        _staleness: crate::staleness::FixtureCache,
     }
 
     impl Fixture {
@@ -228,7 +229,9 @@ case "$1" in
 esac
 "#,
             );
+            let staleness = crate::staleness::FixtureCache::new(&root.join("ops.toml"));
             Self {
+                _staleness: staleness,
                 core: Core::at(executable),
                 squad: Squad {
                     name: "p".into(),
