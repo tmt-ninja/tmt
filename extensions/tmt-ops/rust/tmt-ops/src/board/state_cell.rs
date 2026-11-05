@@ -123,3 +123,70 @@ mod unread_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod design_system_parity {
+    use super::*;
+    use ratatui::{buffer::Buffer, layout::Rect};
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    use tmt_tui::components::{
+        design_system::{CellGrid, Component, Mark, MarkProps, MarkState, Rect as GridRect, Size},
+        design_system_ratatui,
+    };
+
+    #[test]
+    fn mark_matches_each_board_state_and_look() {
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ] {
+            let look = Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            for (name, state) in [
+                ("working", MarkState::Working),
+                ("waiting", MarkState::Waiting),
+                ("blocked", MarkState::Blocked),
+                ("review", MarkState::Review),
+                ("idle", MarkState::Idle),
+                ("offline", MarkState::Offline),
+                ("ended", MarkState::Ended),
+                ("shell", MarkState::Shell),
+            ] {
+                let expected = mark(Some(name), look);
+                let mut grid = CellGrid::new(Size {
+                    width: 8,
+                    height: 1,
+                });
+                Mark::render(
+                    &MarkProps {
+                        state,
+                        label: "state".into(),
+                        emphasis: false,
+                    },
+                    GridRect {
+                        x: 0,
+                        y: 0,
+                        width: 8,
+                        height: 1,
+                    },
+                    &mut grid,
+                );
+                let mut actual = Buffer::empty(Rect::new(0, 0, 8, 1));
+                design_system_ratatui::paint(&grid, actual.area, &mut actual, &look.theme, depth);
+                let mut reference = Buffer::empty(Rect::new(0, 0, 8, 1));
+                reference[(0, 0)]
+                    .set_symbol(expected.content.as_ref())
+                    .set_style(expected.style);
+                assert_eq!(
+                    actual[(0, 0)],
+                    reference[(0, 0)],
+                    "{name} {base:?}/{depth:?}"
+                );
+            }
+        }
+    }
+}

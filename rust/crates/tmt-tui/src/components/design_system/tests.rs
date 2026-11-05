@@ -263,16 +263,16 @@ fn empty_section_title_is_a_plain_rule() {
 }
 
 #[test]
-fn mark_state_owns_the_role_and_attention_emphasis() {
+fn mark_state_owns_attention_role_and_limits_emphasis() {
     for (state, role, bold) in [
-        (MarkState::Running, Role::Accent, false),
-        (MarkState::Offline, Role::Dim, false),
-        (MarkState::Idle, Role::Dim, false),
-        (MarkState::Resumable, Role::Accent, false),
-        (MarkState::Done, Role::Working, false),
-        (MarkState::Failed, Role::Blocked, true),
-        (MarkState::Warning, Role::Waiting, false),
-        (MarkState::Decision, Role::Accent, true),
+        (MarkState::Working, Role::Muted, false),
+        (MarkState::Waiting, Role::Waiting, true),
+        (MarkState::Blocked, Role::Blocked, true),
+        (MarkState::Review, Role::Muted, false),
+        (MarkState::Idle, Role::Muted, false),
+        (MarkState::Offline, Role::Muted, false),
+        (MarkState::Ended, Role::Muted, false),
+        (MarkState::Shell, Role::Muted, false),
     ] {
         let mut grid = CellGrid::new(Size {
             width: 20,
@@ -282,13 +282,13 @@ fn mark_state_owns_the_role_and_attention_emphasis() {
             &MarkProps {
                 state,
                 label: "state".into(),
+                emphasis: true,
             },
             area(20, 1),
             &mut grid,
         );
-        let cell = grid.get(0, 0).unwrap();
-        assert_eq!(cell.fg, Some(role));
-        assert_eq!(cell.bold, bold);
+        assert_eq!(grid.get(0, 0).unwrap().fg, Some(role));
+        assert_eq!(grid.get(0, 0).unwrap().bold, bold);
     }
 }
 

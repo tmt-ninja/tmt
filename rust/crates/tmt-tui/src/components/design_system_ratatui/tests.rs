@@ -299,20 +299,42 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 &mut out,
                 "mark",
                 &MarkProps {
-                    state: MarkState::Running,
+                    state: MarkState::Working,
                     label: "working".into(),
+                    emphasis: false,
                 },
                 width,
                 &theme,
                 depth,
             );
-            for state in [MarkState::Failed, MarkState::Decision] {
+            for state in [MarkState::Blocked, MarkState::Waiting] {
                 record::<Mark>(
                     &mut out,
                     "mark-bold",
                     &MarkProps {
                         state,
                         label: "attention".into(),
+                        emphasis: true,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
+            for (name, state) in [
+                ("mark-offline", MarkState::Offline),
+                ("mark-ended", MarkState::Ended),
+                ("mark-idle", MarkState::Idle),
+                ("mark-review", MarkState::Review),
+                ("mark-shell", MarkState::Shell),
+            ] {
+                record::<Mark>(
+                    &mut out,
+                    name,
+                    &MarkProps {
+                        state,
+                        label: "state".into(),
+                        emphasis: false,
                     },
                     width,
                     &theme,
