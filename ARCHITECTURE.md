@@ -128,6 +128,21 @@ owns their module rules and the Core command surface.
 
 ## Domain and state ownership
 
+Core's SQLite store owns identities, bindings, requests and finals, jobs and
+orchestration; one adapter holds the connection and every write goes through a Core
+service. An extension owns only its `<dataRoot>/<extension>` area and its disposable
+caches, reaches Core state through the public interfaces above, and never writes Core
+storage. User-owned configuration is changed only by the person or by a consented,
+compare-and-swap Core command, never by an agent directly. Delivery is uncertain once
+input may have reached a terminal, and uncertainty never authorizes replay.
+
+The tmt-core-runtime references own each area's module rules:
+[identities, names and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md#ownership-overview),
+[storage, requests and configuration](.agents/skills/tmt-core-runtime/references/requests-storage.md#ownership-overview),
+[hosts, drivers and channels](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#ownership-overview)
+and [managed skills and native installation](.agents/skills/tmt-core-runtime/references/install-architecture.md#ownership-overview).
+Test evidence boundaries are in the [E2E reference](.agents/skills/tmt-e2e/references/test-boundaries.md#evidence-boundaries).
+
 ## Ops extension
 
 `extensions/tmt-ops/rust/tmt-ops` builds optional `tmt-ops`, dispatched as `tmt ops`.
