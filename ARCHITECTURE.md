@@ -63,50 +63,22 @@ approval and publishing procedures; Marketing maintains them.
 
 ## TypeScript workspace boundary
 
-The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
-with parent-relative packages for the parked browser-addon shell, Remote client SDK,
-and Colab browser/client packages. Packages resolve declared dependencies, never
-root-hoisted tooling; browser specs reach the tooling SQLite oracle through
-`typescript/test/support`. Rust, root launchers, core contracts and canonical
-skills stay outside this boundary; extension contracts stay with their product.
-
-Vite+ supplies one Vitest runner, aliased Vite core and bundled Oxfmt/Oxlint.
-Packages retain their separate configs, plugins, formatter selections and warning
-policies. `typescript/scripts/format-workspace.mjs` owns root code/docs selections;
-`lint-config.mjs` owns shared lint rules. Compiler commands retain their owners;
-site and release tooling stay outside this lockfile.
+The `typescript` pnpm workspace owns private developer tooling, fixtures and
+browser packages, not a second shipped CLI. Packages resolve declared dependencies
+rather than root-hoisted tooling. Runtime contracts and canonical skills retain
+their product owners; site tooling keeps its separate lockfile.
 
 ### CI selection and worker model
 
-`.github/actions/setup-firebase-tools` owns the isolated npm lockfile and shared
-installation for hosted Firebase emulator tools, outside the pnpm workspace. The
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns its consumers.
-
-[`.github/components.json`](.github/components.json) is the one component map:
-`owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
-files, and ordered rules select CI consumers independently. `release:false`
-excludes a component from automatic cuts/publication. Only non-released components
-may declare `releaseStatus:never` (never shipped) or `releaseStatus:parked`
-(explicitly deferred); absence means awaiting activation. `releaseConsumers` names
-packaged consumers of private components. Registration alone never authorizes activation.
-
-`typescript/scripts/ci-scope.mjs` owns map validation, path ownership, conservative
-CI selection and final gate validation. Its `releasedComponentsForPath` is the
-shared release-attribution owner: released roots plus each binary's transitive
-Cargo normal/build workspace dependencies; dev edges do not count. Explicit
-private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
-Cargo metadata; version inheritance/editing has its own private release-tool owner.
-CI scope, ownership, binary consumption and version inheritance are separate contracts.
-
-Project-only never-shipped path declarations and their CI-only admission guard are defined in the
-[release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
+[The component map](.github/components.json) is the single owner of path ownership
+and consumer selection. CI selection, binary consumption, version inheritance and
+release activation are distinct contracts; registration grants no publication
+authority. The [release skill's CI reference](.agents/skills/tmt-release/references/ci-selection.md)
+owns map fields, selection, workers, caches, toolchains and advisory lanes.
 
 Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
-cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md) and PR-title gates in the
-[release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles).
-Publication reuses the native aggregate's scope-skip proof with check-suite provenance, not
-recomputed selection or bare skips.
+cannot satisfy required gates. Publication reuses the native aggregate's scope-skip
+proof with check-suite provenance, never recomputed selection or bare skips.
 
 ## Runtime layers
 

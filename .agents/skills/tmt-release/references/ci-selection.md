@@ -15,6 +15,37 @@ contexts must succeed. Held-draft recovery belongs to
 Code quality checks local relative-link targets in tracked Markdown outside `site/`,
 excluding fences, inline code and HTML comments; it does not fetch URLs or validate anchors.
 
+## Tooling workspace and component map
+
+The `typescript` pnpm workspace owns private Node tooling/tests and one lockfile,
+with parent-relative packages for the parked browser-addon shell, Remote client SDK,
+and Colab browser/client packages. Packages resolve declared dependencies, never
+root-hoisted tooling; browser specs reach the tooling SQLite oracle through
+`typescript/test/support`. Rust, root launchers, core contracts and canonical
+skills stay outside this boundary; extension contracts stay with their product.
+
+Vite+ supplies one Vitest runner, aliased Vite core and bundled Oxfmt/Oxlint.
+Packages retain their separate configs, plugins, formatter selections and warning
+policies. `typescript/scripts/format-workspace.mjs` owns root code/docs selections;
+`lint-config.mjs` owns shared lint rules. Compiler commands retain their owners;
+site and release tooling stay outside this lockfile.
+
+[`.github/components.json`](../../../../.github/components.json) is the one component map:
+`owns`/`excludes` define path roots, `selectedBy` overrides ownership for scattered
+files, and ordered rules select CI consumers independently. `release:false`
+excludes a component from automatic cuts/publication. Only non-released components
+may declare `releaseStatus:never` (never shipped) or `releaseStatus:parked`
+(explicitly deferred); absence means awaiting activation. `releaseConsumers` names
+packaged consumers of private components. Registration alone never authorizes activation.
+
+`typescript/scripts/ci-scope.mjs` owns map validation, path ownership, conservative
+CI selection and final gate validation. Its `releasedComponentsForPath` is the
+shared release-attribution owner: released roots plus each binary's transitive
+Cargo normal/build workspace dependencies; dev edges do not count. Explicit
+private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
+Cargo metadata; version inheritance/editing has its own private release-tool owner.
+CI scope, ownership, binary consumption and version inheritance are separate contracts.
+
 ## Diff and scope selection
 
 - PRs use the merge-base diff. Merge groups use the common ancestor of fetched
