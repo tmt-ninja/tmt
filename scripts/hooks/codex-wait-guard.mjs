@@ -349,10 +349,9 @@ function isCiWake(cwd, file) {
   const other = path.dirname(path.dirname(file));
   if (path.relative(other, file) !== path.join('scripts', 'ci-wake.sh')) return false;
   if (worktree(other) !== other || commonDir(other) !== commonDir(root)) return false;
-  return (
-    git(other, ['ls-files', '--error-unmatch', 'scripts/ci-wake.sh']) !== null &&
-    git(other, ['diff', '--quiet', 'HEAD', '--', 'scripts/ci-wake.sh']) !== null
-  );
+  // Proven by content: the file's blob is the one that worktree's HEAD holds.
+  const blob = git(other, ['hash-object', '--', file]);
+  return blob !== null && blob === git(other, ['rev-parse', 'HEAD:scripts/ci-wake.sh']);
 }
 
 /**
@@ -591,9 +590,14 @@ export function waitPrimitive(cwd, command, depth = 0) {
   const run = segments.filter(
     (segment) => !startsCiWake(cwd, segment.background ? `${segment.raw} &` : segment.raw)
   );
-  // Shell code is scanned like the command; other code, or code whose language is unknown, by text.
-  const inCode = (text, shell) =>
-    (shell && waitPrimitive(cwd, text, depth + 1)) || WAIT_TEXT.exec(text)?.[0]?.trim() || null;
+  // Shell code is scanned like the command; other code, or code whose language is unknown, by
+  // text. Python's comments and triple-quoted strings are prose, such as a note it writes (#6003).
+  const inCode = (text, shell, program) =>
+    (shell && waitPrimitive(cwd, text, depth + 1)) ||
+    WAIT_TEXT.exec(
+      PYTHONS.has(path.basename(program ?? '')) ? pythonCode(text) : text
+    )?.[0]?.trim() ||
+    null;
   for (const text of code) {
     const found = waitPrimitive(cwd, text, depth + 1);
     if (found) return found;
@@ -604,7 +608,11 @@ export function waitPrimitive(cwd, command, depth = 0) {
       if (word.quoted) {
         const option = segment.words[at - 1]?.text;
         if (CODE_OPTIONS.has(option) || SHELL_RUNNERS.has(program)) {
-          const found = inCode(word.text, SHELLS.has(program) || SHELL_RUNNERS.has(program));
+          const found = inCode(
+            word.text,
+            SHELLS.has(program) || SHELL_RUNNERS.has(program),
+            program
+          );
           if (found) return found;
         }
         continue;
@@ -635,7 +643,11 @@ export function waitPrimitive(cwd, command, depth = 0) {
     for (const heredoc of segment.heredocs) {
       const expands = !heredoc.quoted && /\$\(|`/.test(heredoc.body);
       if (!runsBody && !expands) continue;
-      const found = inCode(heredoc.body, !INTERPRETERS.has(program) || SHELLS.has(program));
+      const found = inCode(
+        heredoc.body,
+        !INTERPRETERS.has(program) || SHELLS.has(program),
+        program
+      );
       if (found) return found;
     }
     for (const script of readScripts(cwd, segment.raw, { anywhere: true })) {
@@ -696,6 +708,13 @@ export function redact(text) {
     (value, [pattern, replacement]) => value.replace(pattern, replacement),
     text
   );
+}
+
+const PYTHONS = new Set(['python', 'python3']);
+
+/** Python source without its comments and triple-quoted strings. */
+function pythonCode(text) {
+  return text.replace(/'''[\s\S]*?'''|"""[\s\S]*?"""|#[^\n]*/g, ' ');
 }
 
 const INTERPRETERS = new Set([

@@ -410,15 +410,31 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       // and a handoff written from a quoted heredoc, a reply and an old waiter stopped first.
       `${wake} & git push -q origin HEAD && gh pr create --title x --body-file body.md && tmt talk lead "PR up, wait for review" --detach`,
       `cat > handoff.md <<'EOF'\nWaiting on CI until green.\nEOF\ntmt reply r --receipt v --message ok; pkill -f 'ci-wake.sh 6089'; ${wake}`,
+      // The retained 03:31Z call: Python that stops an old waiter and writes notes whose
+      // triple-quoted text says to wait, then a reply and the waiter.
+      `python3 - <<'PY'\nimport os, signal\n# stop the superseded wait\nos.kill(73114, signal.SIGTERM)\nopen('notes.md', 'w').write('''CI waits only through ci-wake; do not wait in the session.''')\nPY\ntmt reply r --receipt v --message 'Intermediate wake stopped'\n${wake}`,
     ];
     for (const command of skipped) {
       const result = await c.guard({ ...bash(command), cwd: repo }, {}, hook);
       expect(result.stdout, command).toBe('');
     }
     expect(received).toEqual([]);
-    expect(c.lines().map((line) => line.reason)).toEqual(['ci-wake', 'ci-wake', 'no-wait', 'no-wait']);
+    expect(c.lines().map((line) => line.reason)).toEqual([
+      'ci-wake',
+      'ci-wake',
+      'no-wait',
+      'no-wait',
+      'no-wait',
+    ]);
 
-    // A modified copy, or the waker of another repository, is judged.
+    // A modified or untracked copy, the waker of another repository, and Python code that sleeps
+    // are judged.
+    const orphan = path.join(c.dir, 'orphan');
+    gitIn(repo, 'worktree', 'add', '-q', '--detach', orphan);
+    gitIn(orphan, 'checkout', '-q', '--orphan', 'empty');
+    gitIn(orphan, 'rm', '-rq', '--cached', '.');
+    gitIn(orphan, 'commit', '-q', '--allow-empty', '-m', 'empty');
+    writeFileSync(path.join(orphan, 'scripts', 'ci-wake.sh'), waker);
     const elsewhere = path.join(c.dir, 'elsewhere');
     mkdirSync(path.join(elsewhere, 'scripts'), { recursive: true });
     gitIn(c.dir, 'init', '-q', elsewhere);
@@ -427,10 +443,14 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     gitIn(elsewhere, 'commit', '-q', '-m', 'waker');
     writeFileSync(path.join(shared, 'scripts', 'ci-wake.sh'), `${waker}\nsleep 600\n`);
     answer = verdict('allow');
-    for (const command of [wake, `sh ${elsewhere}/scripts/ci-wake.sh 6089 --identity infra-1`]) {
-      await c.guard({ ...bash(command), cwd: repo }, {}, hook);
-    }
-    expect(received).toHaveLength(2);
+    const judged = [
+      wake,
+      `sh ${orphan}/scripts/ci-wake.sh 6089 --identity infra-1`,
+      `sh ${elsewhere}/scripts/ci-wake.sh 6089 --identity infra-1`,
+      "python3 - <<'PY'\nimport time\ntime.sleep(60)\nPY",
+    ];
+    for (const command of judged) await c.guard({ ...bash(command), cwd: repo }, {}, hook);
+    expect(received).toHaveLength(judged.length);
     // The judge writes its reason before its verdict, and the policy allows the waker beside
     // commands that do not wait.
     const tool = (received[0].body.tools as { input_schema: Record<string, unknown> }[])[0];
