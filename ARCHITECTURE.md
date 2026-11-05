@@ -110,40 +110,12 @@ recomputed selection or bare skips.
 
 ## Runtime layers
 
-[Orchestration](contracts/orchestration-v1.md): Core `effective()`; adapter calendar/SQLite and `tick` clock; CLI/API; Digest receiving. Sending rules and talk limits refuse or hold in request preparation; jobs share its acceptance. The contract owns held markers, wake spacing and timer consent. [Module rules](.agents/skills/tmt-core-runtime/SKILL.md).
-
-| Layer             | Owner                           | Responsibility                                                                                                                                                                                                  |
-| ----------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure domain       | `rust/crates/tmt-core/src/`     | Identity, names, bindings, profiles, settings, retention, request state and native-install version policy. No filesystem, process, SQLite, tmux, network or CLI framework.                                      |
-| Concrete adapters | `rust/crates/tmt-adapters/src/` | Config files, SQLite, bounded files and processes, signals, tmux evidence/transport, response input, HTTP acquisition, native release publication and managed skill files.                                      |
-| Application/CLI   | `rust/crates/tmt-cli/src/`      | Core grammar, typed invocations, preflight and use-case composition, completion and the executable entry point. It chooses adapters; it does not duplicate their storage, file, installation or process policy. |
-
-`tmt-command-output` owns shared command output/errors and formatting.
-Human text uses `tmt-cli-style` for [CLI style](design/cli-style.md), `grid`,
-help, `Interaction` and `progress`. This presentation leaf has no TMT
-dependencies; its default `table` feature enables terminal tables and width
-probing. The architecture guard enforces the leaf boundary.
-
-`rust/crates/tmt-tui` is an internal, unpublished, application-neutral presentation
-leaf for TMT terminal UIs (markup admission, one Taffy geometry computation, Ratatui
-paint, reusable components). It has no application vocabulary, acquires no terminal, clock,
-settings or provider data, and takes its tokens from `tmt-cli-style` roles. The
-[dependency guard](rust/crates/tmt-cli/tests/architecture/policy.rs) owns its allowlist;
-core, adapters, CLI and extension behavior are excluded. Ops is its sole reviewed consumer;
-new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
-
-`rust/crates/tmt-invoke` owns executable discovery, bounded capture and ordered
-newline exchanges over one owned child, child-only environment overlays and browser
-launch. Callers own protocols, admission and presentation; the leaf has no TMT dependencies.
-
-`rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
-[Development](.agents/skills/tmt-dev/references/development.md#architecture-guard) owns its checks. It supplements behavior review.
-`tmt-sys` is the single audited `unsafe` boundary: only `tmt-adapters` may depend
-on it and every other crate forbids unsafe code.
-
-Workspace quality checks cover the unified feature graph. Native process fixtures
-build products separately to keep ordinary CLI feature isolation;
-[Development](.agents/skills/tmt-dev/references/development.md#rust-checks) owns their selection.
+Core is three layers with one dependency direction: `tmt-core` (pure domain) →
+`tmt-adapters` (effects) → `tmt-cli` (application). Shared crates sit beside them;
+`tmt-sys` is the single audited `unsafe` boundary. Extensions reach Core only through the
+public contracts below. The [architecture guard](rust/crates/tmt-cli/tests/architecture.rs)
+enforces the dependency rules; [runtime layers](.agents/skills/tmt-core-runtime/references/runtime-layers.md)
+owns each layer's and crate's responsibilities.
 
 ## Public command boundary
 
