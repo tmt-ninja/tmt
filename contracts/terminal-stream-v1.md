@@ -27,6 +27,12 @@ continues it. A member whose program ended keeps its terminal: the answer adds `
 `foreground: "shell"` while a relaunched shell runs
 ([`terminal.relaunch`](extension-api.md#relaunch-on-a-kept-terminal)).
 
+A member's extra terminals are found with
+[`terminal.open` and `terminal.list`](extension-api.md#terminals-under-a-member), which
+publish each one's `socket`. They are served by this same protocol and access rules. A
+member's `paused`, `ended` and relaunch do not apply to them: an extra terminal ends when
+its shell ends, and its stream then reports `Exited`.
+
 ## Access
 
 - The socket's directory is owner-only (0700) and the socket is 0600. A peer whose

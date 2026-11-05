@@ -72,6 +72,8 @@ const HANGUP_GRACE: Duration = Duration::from_secs(2);
 /// it is hung up, which restores the member it replaced. Longer than Core's wait for
 /// the admission (`host::pty`'s 60 s), so a launch Core still awaits is never cut.
 const RELAUNCH_ADMISSION: Duration = Duration::from_secs(90);
+/// How often an extra terminal checks that its member still runs.
+const OWNER_CHECK: Duration = Duration::from_secs(1);
 
 /// Where and how to run one member.
 pub struct Launch {
@@ -86,6 +88,20 @@ pub struct Launch {
     pub program: Vec<OsString>,
     /// Child-only host locators and inherited-host removals.
     pub environment: Vec<(OsString, Option<OsString>)>,
+    /// Set for one of a member's extra terminals (#5991) instead of the member itself.
+    pub terminal: Option<TerminalOf>,
+}
+
+/// Whose extra terminal a supervisor serves. It has no binding and no kept terminal: it
+/// ends when its shell ends, when Core closes it, or when its member is gone.
+pub struct TerminalOf {
+    /// The identity UUID the terminal was opened for.
+    pub owner: String,
+    /// When it was opened, in Unix milliseconds.
+    pub created_ms: u64,
+    /// Whether the owner's member supervisor still runs (its PID and start time), asked
+    /// once per `OWNER_CHECK`.
+    pub member_alive: Box<dyn FnMut() -> bool + Send>,
 }
 
 /// The socket and lock files of a running supervisor, removed when it ends. Ids
@@ -284,6 +300,8 @@ pub struct Supervisor {
     /// The last foreground-group read and its answer; read at most once a tick,
     /// however often output wakes the loop.
     foreground: (Instant, bool),
+    /// Set for an extra terminal, with the last time its member was checked.
+    terminal: Option<(TerminalOf, Instant)>,
     // Drop order: the files go before the lock is released.
     _files: Files,
     _lock: Flock<File>,
@@ -300,6 +318,7 @@ impl Supervisor {
             size,
             program,
             environment,
+            terminal: extra,
         } = launch;
         validate(&directory, &id)?;
         let Some((name, arguments)) = program.split_first() else {
@@ -401,6 +420,7 @@ impl Supervisor {
             launcher_stopped: false,
             paused: false,
             foreground: (Instant::now(), false),
+            terminal: extra.map(|extra| (extra, Instant::now())),
             _files: files,
             _lock: lock,
         })
@@ -435,6 +455,14 @@ impl Supervisor {
             self.sweep();
             if let Some(exit) = self.reap(WaitPidFlag::WNOHANG)? {
                 self.ended_with(exit);
+                // An extra terminal keeps nothing: it ends with its shell.
+                self.closing |= self.terminal.is_some();
+            }
+            if let Some((terminal, checked)) = &mut self.terminal
+                && checked.elapsed() >= OWNER_CHECK
+            {
+                *checked = Instant::now();
+                self.closing |= !(terminal.member_alive)();
             }
             self.enforce_admission();
             if self.closing {
@@ -631,6 +659,15 @@ impl Supervisor {
             group.as_raw().unsigned_abs().into(),
             Instant::now() + FOREGROUND_READ,
         )
+    }
+
+    /// A program other than the terminal's own shell holds its foreground (#5991).
+    fn busy(&self) -> bool {
+        let Some(child) = &self.child else {
+            return false;
+        };
+        tcgetpgrp(self.master.as_fd())
+            .is_ok_and(|group| group.as_raw() > 0 && group.as_raw().unsigned_abs() != child.id())
     }
 
     /// Continues the launcher's group and, when another group holds the
@@ -1050,9 +1087,27 @@ impl Supervisor {
             }
             Control::Capabilities => ControlReply::Capabilities {
                 resume: true,
-                relaunch: true,
+                relaunch: self.terminal.is_none(),
                 close: true,
+                terminal: self.terminal.is_some(),
             },
+            Control::Terminal => match &self.terminal {
+                Some((terminal, _)) => ControlReply::Terminal {
+                    owner: terminal.owner.clone(),
+                    created_ms: terminal.created_ms,
+                    busy: self.busy(),
+                },
+                None => {
+                    ControlReply::Error("this supervisor serves a member, not a terminal".into())
+                }
+            },
+            // An extra terminal has no binding: nothing may publish one into it, and it has
+            // no kept terminal to relaunch on.
+            Control::Publish { .. } | Control::PublishIf { .. } | Control::Relaunch { .. }
+                if self.terminal.is_some() =>
+            {
+                ControlReply::Error("an extra terminal has no binding".into())
+            }
             Control::Resume => self.resume(),
             Control::Relaunch { kind, program } => self.relaunch(kind, program),
             Control::Close => {

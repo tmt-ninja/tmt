@@ -105,8 +105,16 @@ pub(super) fn document(report: &Report) -> Value {
         }
         Report::Unbound { pane, result, .. } => json!({"unbound": true, "id": result.identity.id,
             "name": result.identity.name, "pane": pane, "lifetime": result.identity.lifetime.as_str(), "retired": result.retired}),
-        Report::Removed(entry) => {
-            json!({"removed": true, "identity": identity_document(&entry.identity)})
+        Report::Removed {
+            entry,
+            terminals_left,
+        } => {
+            let mut value =
+                json!({"removed": true, "identity": identity_document(&entry.identity)});
+            if !terminals_left.is_empty() {
+                value["terminalsLeft"] = json!(terminals_left);
+            }
+            value
         }
         Report::Renamed { result, pane } => json!({
             "renamed": result.changed(),
@@ -712,14 +720,31 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
                 }
             ),
         ),
-        Report::Removed(entry) => message::success(
-            output,
-            terminal,
-            &format!(
-                "Removed identity '{}'; exchanges are retained",
-                entry.identity.name
-            ),
-        ),
+        Report::Removed {
+            entry,
+            terminals_left,
+        } => {
+            message::success(
+                output,
+                terminal,
+                &format!(
+                    "Removed identity '{}'; exchanges are retained",
+                    entry.identity.name
+                ),
+            )?;
+            if terminals_left.is_empty() {
+                return Ok(());
+            }
+            message::warning(
+                output,
+                terminal,
+                &format!(
+                    "its terminals {} were still running; each ends once its member is gone",
+                    terminals_left.join(", ")
+                ),
+                None,
+            )
+        }
         Report::Listed {
             rows,
             scope,

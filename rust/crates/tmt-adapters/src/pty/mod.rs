@@ -9,13 +9,14 @@ mod attach;
 mod client;
 mod launch;
 mod supervisor;
+pub mod terminal;
 #[cfg(test)]
 mod tests;
 
 pub use attach::{AttachEnd, AttachSignals, attach};
 pub use client::{Connection, LaunchOutcome};
 pub use launch::{LaunchError, StartedMember, relaunch_arguments, start_member};
-pub use supervisor::{Launch, Supervisor};
+pub use supervisor::{Launch, Supervisor, TerminalOf};
 pub use tmt_pty_protocol as protocol;
 
 use nix::unistd::{dup2_stderr, dup2_stdin, dup2_stdout, setsid};

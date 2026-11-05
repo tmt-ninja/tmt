@@ -134,6 +134,31 @@ pub(in crate::grammar) fn channel_server() -> Command {
 pub(in crate::grammar) fn pty_server() -> Command {
     internal("__pty-serve", "Internal built-in host member supervisor")
         .hide(true)
+        // Set together for one of a member's extra terminals (#5991).
+        .arg(Arg::new("terminal-owner").long("terminal-owner"))
+        .arg(
+            Arg::new("member-pid")
+                .long("member-pid")
+                .requires("terminal-owner")
+                .value_parser(clap::value_parser!(u64)),
+        )
+        .arg(
+            Arg::new("member-start")
+                .long("member-start")
+                .requires("terminal-owner"),
+        )
+        .arg(
+            Arg::new("created-ms")
+                .long("created-ms")
+                .requires("terminal-owner")
+                .value_parser(clap::value_parser!(u64)),
+        )
+        .arg(
+            Arg::new("terminal-directory")
+                .long("terminal-directory")
+                .requires("terminal-owner")
+                .value_parser(clap::builder::PathBufValueParser::new()),
+        )
         .arg(operand("directory", true))
         .arg(operand("id", true))
         .arg(operand("cols", true).value_parser(clap::value_parser!(u16)))

@@ -75,7 +75,7 @@ fn stored_binding_operations_do_not_discover_the_callers_host() {
                 );
                 assert!(storage.resolve_identity("Sender").unwrap().is_none());
             }
-            (Invocation::Remove { .. }, Report::Removed(entry)) => {
+            (Invocation::Remove { .. }, Report::Removed { entry, .. }) => {
                 assert_eq!(entry.identity.id, original.id);
                 assert!(storage.resolve_identity("Sender").unwrap().is_none());
             }

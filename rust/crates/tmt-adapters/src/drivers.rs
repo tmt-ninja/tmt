@@ -65,8 +65,9 @@ pub struct Runtime {
     /// when the provider has a supported one.
     pub channel: Option<fn() -> Box<dyn crate::runtime::channel::RuntimeChannel>>,
     pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, AncestryError>>,
-    /// A provider hint suppresses questions even when it cannot prove identity.
-    pub caller_marked: fn() -> bool,
+    /// The provider's session variables. Any of them set is a hint that suppresses questions
+    /// even when it cannot prove identity; a member's extra terminal starts without them.
+    pub session_env: &'static [&'static str],
 }
 
 pub struct DriverDefinition {
@@ -261,13 +262,26 @@ impl Registry {
             })
     }
 
+    /// Every runtime's session variables, for a process that must not look like one.
+    pub fn session_env(&self) -> Vec<&'static str> {
+        self.iter()
+            .filter_map(|driver| driver.runtime.as_ref())
+            .flat_map(|runtime| runtime.session_env.iter().copied())
+            .collect()
+    }
+
     /// The same bounded ancestry snapshot as caller_context's runtime lookup,
     /// with no extra pane, storage or per-process probes. Unknown is never human.
     pub fn caller_is_human(&self) -> bool {
         if self
             .iter()
             .filter_map(|driver| driver.runtime.as_ref())
-            .any(|runtime| (runtime.caller_marked)())
+            .any(|runtime| {
+                runtime
+                    .session_env
+                    .iter()
+                    .any(|name| std::env::var_os(name).is_some())
+            })
         {
             return false;
         }

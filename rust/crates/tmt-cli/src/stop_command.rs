@@ -46,6 +46,8 @@ struct Stopped {
     outcome: StopOutcome,
     /// Present only when the pane was asked to be closed.
     pane: Option<Pane>,
+    /// The member's extra terminals still running after `--close` closed them.
+    terminals_left: Vec<String>,
 }
 
 fn run(selector: &str, close: bool) -> Result<Stopped, Failure> {
@@ -99,6 +101,7 @@ fn stop(
         identity,
         outcome: stopped.outcome,
         pane,
+        terminals_left: stopped.terminals_left,
     })
 }
 
@@ -116,6 +119,9 @@ pub fn execute(selector: String, close: bool, mode: OutputMode) -> io::Result<u8
         });
         if let Some(pane) = stopped.pane {
             document["pane"] = pane.as_str().into();
+        }
+        if !stopped.terminals_left.is_empty() {
+            document["terminalsLeft"] = stopped.terminals_left.into();
         }
         writeln!(stdout, "{document}")?;
         return Ok(0);
@@ -136,5 +142,16 @@ pub fn execute(selector: String, close: bool, mode: OutputMode) -> io::Result<u8
         (StopOutcome::NotRunning, _) => format!("{name} has no running agent; nothing to stop"),
     };
     tmt_cli_style::message::success(&mut stdout, terminal, &message)?;
+    if !stopped.terminals_left.is_empty() {
+        tmt_cli_style::message::warning(
+            &mut stdout,
+            terminal,
+            &format!(
+                "its terminals {} were still running; each ends once its member is gone",
+                stopped.terminals_left.join(", ")
+            ),
+            None,
+        )?;
+    }
     Ok(0)
 }

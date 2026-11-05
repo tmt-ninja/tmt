@@ -401,11 +401,26 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   pane PID; removal compares the binding key. Errors stay Unknown; only native process
   loss/replacement proves a supervisor dead. The public identity and durable exchange
   still belong to Core storage, not the supervisor.
+- **Extra terminals** (#5991, `pty::terminal`, API `api::terminal`) are supervisors started
+  with `__pty-serve --terminal-owner <uuid>` plus the member supervisor's PID and start, at
+  `term_<32 hex>` in the pty directory. The supervisor is the only record of its owner:
+  `Control::Terminal` (`0x2e`, capability bit 3) answers owner, created time and `busy`
+  (`tcgetpgrp` of the master is not the shell). In terminal mode it refuses Publish,
+  PublishIf and Relaunch, ends when its shell ends, and closes itself when its member
+  supervisor's PID and start no longer match (checked every second; a failed observation
+  keeps it). Only `pty::terminal` scans the directory, and only for `term_` sockets, with a
+  500 ms answer bound per socket; the member host never scans, so a terminal is never a
+  pane, binding or Talk target. Opening counts and starts under a per-identity flock. Its
+  environment strips `Host::pty_environment` names and every driver's
+  `Runtime.session_env`. `verified_stop` closes a member's terminals with `close_all`
+  (parallel, one 5 s bound) before its kept terminal on `stop --close`, `identity.remove`
+  and `tmt rm`, and reports leftovers as `terminalsLeft`.
 - **Tests** run real pseudo-terminals with `sh` programs, in process
   (`tmt-adapters/src/pty/tests.rs`) and as a process (`tmt-cli/tests/pty_supervisor.rs`:
   terminal ownership, SIGKILL hang-up and restart, second supervisor, refused starts).
   `tmt-cli/tests/pty_host.rs` drives the public CLI with a `PATH` that has no tmux
-  (`pty_host/relaunch.rs`: kept terminal, relaunch kinds, refusals, `tmt rm`); its
+  (`pty_host/relaunch.rs`: kept terminal, relaunch kinds, refusals, `tmt rm`;
+  `pty_host/member_terminals.rs`: extra terminals, limit, busy close, stop --close, remove, owner loss); its
   `pty_host/e2e.rs` story runs two replying members through talk, attach and detach, then
   loses one supervisor and explicitly resumes its recorded session in a new pane: identity,
   retained exchanges and exactly-once processing survive; queued work is never silently

@@ -152,6 +152,7 @@ fn launch(directory: &Path, id: &str, program: &[&str]) -> Launch {
         id: id.to_owned(),
         size: size(80, 24),
         program: program.iter().map(OsString::from).collect(),
+        terminal: None,
         environment: Vec::new(),
     }
 }
@@ -945,6 +946,7 @@ fn host_controls_pin_the_pane_marker_and_keep_only_the_visible_screen() {
             resume: true,
             relaunch: true,
             close: true,
+            terminal: false,
         }
     );
     let deadline = Instant::now() + WAIT;
@@ -1734,4 +1736,130 @@ fn a_relaunched_launcher_that_misses_its_admission_is_hung_up_and_the_member_res
     );
     drop(client);
     member.finish().unwrap();
+}
+
+/// One of a member's extra terminals (#5991) on a thread of the test; `alive` stands in
+/// for its member supervisor.
+fn start_terminal(
+    program: &[&str],
+    alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Member {
+    let root = TestDirectory::new();
+    let directory = root.path.join("pty");
+    let mut launch = launch(&directory, "term_test", program);
+    launch.terminal = Some(super::TerminalOf {
+        owner: "11111111-1111-4111-8111-111111111111".into(),
+        created_ms: 1_762_300_000_000,
+        member_alive: Box::new(move || alive.load(std::sync::atomic::Ordering::SeqCst)),
+    });
+    let supervisor = Supervisor::start(launch).expect("start the terminal");
+    let pid = supervisor.program_pid();
+    Member {
+        _root: root,
+        directory,
+        id: "term_test".to_owned(),
+        pid,
+        thread: Some(std::thread::spawn(move || supervisor.run())),
+    }
+}
+
+fn alive() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true))
+}
+
+fn terminal_reply(terminal: &Member) -> tmt_pty_protocol::ControlReply {
+    terminal
+        .connect()
+        .control(tmt_pty_protocol::Control::Terminal, WAIT)
+        .unwrap()
+}
+
+fn busy(terminal: &Member) -> bool {
+    match terminal_reply(terminal) {
+        tmt_pty_protocol::ControlReply::Terminal { busy, .. } => busy,
+        other => panic!("not a terminal answer: {other:?}"),
+    }
+}
+
+#[test]
+fn an_extra_terminal_names_its_owner_and_says_when_a_program_holds_it() {
+    use tmt_pty_protocol::{Control, ControlReply};
+    let terminal = start_terminal(&["sh", "-i"], alive());
+    assert_eq!(
+        terminal
+            .connect()
+            .control(Control::Capabilities, WAIT)
+            .unwrap(),
+        ControlReply::Capabilities {
+            resume: true,
+            relaunch: false,
+            close: true,
+            terminal: true,
+        }
+    );
+    assert!(matches!(
+        terminal_reply(&terminal),
+        ControlReply::Terminal { ref owner, created_ms: 1_762_300_000_000, busy: false }
+            if owner == "11111111-1111-4111-8111-111111111111"
+    ));
+    let mut client = terminal.connect();
+    client
+        .control(Control::Paste(b"sleep 30".to_vec()), WAIT)
+        .unwrap();
+    client.control(Control::Enter, WAIT).unwrap();
+    let deadline = Instant::now() + WAIT;
+    while !busy(&terminal) {
+        assert!(Instant::now() < deadline, "sleep never took the terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // It has no binding and no kept terminal to relaunch on.
+    for refused in [
+        Control::Publish {
+            pane_pid: terminal.pid,
+            key: "k".into(),
+            marker: "m".into(),
+        },
+        Control::Relaunch {
+            kind: tmt_pty_protocol::RelaunchKind::Shell,
+            program: vec!["sh".into()],
+        },
+    ] {
+        assert!(matches!(
+            terminal.connect().control(refused, WAIT).unwrap(),
+            ControlReply::Error(_)
+        ));
+    }
+    close(&terminal.directory, &terminal.id);
+}
+
+#[test]
+fn a_member_supervisor_is_not_a_terminal() {
+    let member = Member::start(&["sh", "-c", "sleep 30"]);
+    assert!(matches!(
+        member
+            .connect()
+            .control(tmt_pty_protocol::Control::Terminal, WAIT)
+            .unwrap(),
+        tmt_pty_protocol::ControlReply::Error(_)
+    ));
+}
+
+#[test]
+fn an_extra_terminal_ends_with_its_shell() {
+    let mut terminal = start_terminal(&["sh", "-c", "exit 0"], alive());
+    join(terminal.thread.take().unwrap()).unwrap();
+    assert!(!socket_path(&terminal.directory, &terminal.id).exists());
+}
+
+#[test]
+fn an_extra_terminal_ends_when_its_member_is_gone() {
+    let member = alive();
+    let mut terminal = start_terminal(&["sh", "-c", "sleep 30"], member.clone());
+    member.store(false, std::sync::atomic::Ordering::SeqCst);
+    join(terminal.thread.take().unwrap()).unwrap();
+    assert!(!socket_path(&terminal.directory, &terminal.id).exists());
+    assert!(
+        kill(Pid::from_raw(terminal.pid as i32), None).is_err(),
+        "its program was hung up"
+    );
 }
