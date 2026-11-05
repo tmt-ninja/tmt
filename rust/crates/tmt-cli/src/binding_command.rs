@@ -80,7 +80,11 @@ enum Report {
         label: String,
         result: UnboundIdentity,
     },
-    Removed(BindingEntry),
+    /// `terminals_left`: the member's extra terminals still running after they were closed.
+    Removed {
+        entry: BindingEntry,
+        terminals_left: Vec<String>,
+    },
     /// `pane` is set after commit when a live pane showed the identity.
     Renamed {
         result: RenamedIdentity,
@@ -378,6 +382,7 @@ fn run_with(
         operation(
             &mut storage,
             &mut endpoint,
+            &paths,
             request,
             pane,
             host.selected_server(&environment),
@@ -402,7 +407,7 @@ fn run_with(
                 .binding
                 .as_ref()
                 .map(|binding| (binding, PaneCosmetics::Ended)),
-            Report::Removed(entry) => entry
+            Report::Removed { entry, .. } => entry
                 .binding
                 .as_ref()
                 .map(|binding| (binding, PaneCosmetics::Ended)),
@@ -490,6 +495,7 @@ fn cosmetic_cleanup(error: tmt_adapters::host::HostError) -> Failure {
 fn operation(
     storage: &mut Storage,
     endpoint: &mut BindingSession<'_, tmt_adapters::process::UnixCommandRunner>,
+    paths: &ConfigPaths,
     request: Invocation,
     pane: Option<ResolvedPane>,
     current_server: Option<ServerSelector<'_>>,
@@ -574,8 +580,11 @@ fn operation(
             })
         }
         Invocation::Remove { name, force } => {
-            tmt_adapters::verified_stop::remove_by_name(storage, endpoint, &name, force)
-                .map(Report::Removed)
+            tmt_adapters::verified_stop::remove_by_name(storage, endpoint, paths, &name, force)
+                .map(|(entry, terminals_left)| Report::Removed {
+                    entry,
+                    terminals_left,
+                })
                 .map_err(binding_failure)
         }
         Invocation::Rename { old, new } => binding::rename_identity(storage, &old, &new)
@@ -886,13 +895,13 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     let changed_binding = match &report {
         Report::Bound(result) => result.presence.binding.as_ref(),
         Report::Unbound { result, .. } => result.binding.as_ref(),
-        Report::Removed(entry) => entry.binding.as_ref(),
+        Report::Removed { entry, .. } => entry.binding.as_ref(),
         Report::Renamed { result, .. } if result.changed() => result.binding.as_ref(),
         _ => None,
     };
     // A member removed on purpose leaves the default built-in restore, bound or not.
     // Advisory: the removal already happened and keeps its result.
-    if let Report::Removed(entry) = &report
+    if let Report::Removed { entry, .. } = &report
         && let Ok(paths) = ConfigPaths::discover()
     {
         let _ = tmt_adapters::workspace::forget_builtin_member(&paths, &entry.identity.id);

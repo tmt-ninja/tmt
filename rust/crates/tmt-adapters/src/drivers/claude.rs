@@ -297,11 +297,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &["CLAUDE_CONFIG_DIR"],
     locate,
     runtime: Some(super::Runtime {
-        caller_marked: || {
-            ["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"]
-                .iter()
-                .any(|name| std::env::var_os(name).is_some())
-        },
+        session_env: &["CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"],
         driver: || Box::new(ClaudeRuntime),
         lifecycle: || Box::new(ClaudeLifecycle),
         channel: Some(|| Box::new(channel::ClaudeChannel)),

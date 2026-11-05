@@ -3,15 +3,22 @@
 //! stream itself is `contracts/terminal-stream-v1.md`. `terminal.resume` continues a member
 //! stopped by job control (Ctrl-Z), and `terminal.relaunch` starts a program on the kept
 //! terminal of a member whose program ended; they are the operations here with an effect.
+//! `terminal.open`, `terminal.list` and `terminal.close` manage a member's extra terminals
+//! (`pty::terminal`): login shells the member owns, never panes or Talk targets.
 use super::{Fault, Request, invalid};
 use crate::{
+    config::ConfigPaths,
     delivery,
     host::{Host, OperationOptions, RelaunchError, ResumeError, TerminalState},
-    pty::protocol::{Exit, RelaunchKind},
+    pty::{
+        protocol::{Exit, RelaunchKind},
+        terminal::{self, TerminalError},
+    },
     storage::Storage,
 };
 use serde::Deserialize;
 use serde_json::json;
+use std::path::Path;
 use tmt_core::{
     binding::{Binding, BindingEntry, BindingEvidence, evaluate_binding},
     endpoint::ServerEvidence,
@@ -65,6 +72,37 @@ pub(super) fn decode_relaunch(input: &[u8]) -> Result<Request, Fault> {
     Ok(Request::TerminalRelaunch {
         identity_id: input.identity_id,
         kind,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloseInput {
+    terminal_id: String,
+    #[serde(default)]
+    force: bool,
+}
+
+pub(super) fn decode_open(input: &[u8]) -> Result<Request, Fault> {
+    Ok(Request::TerminalOpen {
+        identity_id: identity_id(input)?,
+    })
+}
+
+pub(super) fn decode_list(input: &[u8]) -> Result<Request, Fault> {
+    Ok(Request::TerminalList {
+        identity_id: identity_id(input)?,
+    })
+}
+
+pub(super) fn decode_close(input: &[u8]) -> Result<Request, Fault> {
+    let input: CloseInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !terminal::is_terminal_id(&input.terminal_id) {
+        return Err(invalid());
+    }
+    Ok(Request::TerminalClose {
+        terminal_id: input.terminal_id,
+        force: input.force,
     })
 }
 
@@ -210,6 +248,110 @@ fn tail(output: &str) -> String {
         text
     } else {
         format!("\n{text}")
+    }
+}
+
+/// The member's live built-in binding, as `terminal.stream` requires it.
+fn member(storage: &mut Storage, id: &str) -> Result<Binding, Fault> {
+    let entry = entry(storage, id)?;
+    if entry
+        .binding
+        .as_ref()
+        .is_none_or(|binding| binding.server.host != HostKind::pty())
+    {
+        return Err(unavailable());
+    }
+    active(&entry).cloned()
+}
+
+fn terminal_json(terminal: &terminal::Terminal) -> serde_json::Value {
+    json!({
+        "terminalId": terminal.id,
+        "socket": terminal.socket,
+        "pane": terminal.id,
+        "busy": terminal.busy,
+        "createdMs": terminal.created_ms,
+    })
+}
+
+pub(super) fn open(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Result<Vec<u8>, Fault> {
+    let binding = member(storage, id)?;
+    let failed = |message: String| Fault::detailed("TERMINAL_OPEN_FAILED", message);
+    let executable = crate::core_executable::selected().map_err(|_| {
+        failed("Nothing was started: the Core executable could not be located.".into())
+    })?;
+    // The member's launch directory is its supervisor's; doubt falls back to home.
+    let directory = i32::try_from(binding.server.server_pid)
+        .ok()
+        .and_then(tmt_sys::process_cwd)
+        .or_else(|| std::env::var("HOME").ok())
+        .unwrap_or_else(|| "/".into());
+    let shell = relaunch_program(id, RelaunchKind::Shell)?;
+    let owner = terminal::Owner {
+        identity: id,
+        server_pid: binding.server.server_pid,
+        server_start: &binding.server.server_start_time,
+    };
+    match terminal::open(
+        executable.as_os_str(),
+        paths,
+        &owner,
+        Path::new(&directory),
+        &shell,
+    ) {
+        Ok(opened) => {
+            let mut value = terminal_json(&opened);
+            value["identityId"] = id.into();
+            value["directory"] = directory.into();
+            if let Some(fields) = value.as_object_mut() {
+                fields.remove("busy");
+                fields.remove("createdMs");
+            }
+            serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
+        }
+        Err(TerminalError::Limit) => Err(Fault::detailed(
+            "TERMINAL_LIMIT",
+            format!(
+                "The member already has {} terminals; close one first.",
+                terminal::TERMINAL_LIMIT
+            ),
+        )),
+        Err(TerminalError::Unconfirmed { id, cause }) => Err(Fault::detailed(
+            "TERMINAL_OPEN_UNCONFIRMED",
+            format!(
+                "Terminal {id} was not confirmed and may be running; list or close it, do not open again to retry: {cause}"
+            ),
+        )),
+        Err(error) => Err(failed(format!("Nothing was started: {error}."))),
+    }
+}
+
+pub(super) fn list(paths: &ConfigPaths, storage: &mut Storage, id: &str) -> Result<Vec<u8>, Fault> {
+    member(storage, id)?;
+    let terminals: Vec<_> = terminal::list(paths, id)
+        .iter()
+        .map(terminal_json)
+        .collect();
+    serde_json::to_vec(&json!({"identityId": id, "terminals": terminals}))
+        .map_err(|_| Fault::unavailable())
+}
+
+pub(super) fn close(paths: &ConfigPaths, terminal_id: &str, force: bool) -> Result<Vec<u8>, Fault> {
+    match terminal::close(paths, terminal_id, force) {
+        Ok(()) => serde_json::to_vec(&json!({"terminalId": terminal_id, "closed": true}))
+            .map_err(|_| Fault::unavailable()),
+        Err(TerminalError::NotFound) => Err(Fault::new(
+            "TERMINAL_NOT_FOUND",
+            "No running terminal has this id.",
+        )),
+        Err(TerminalError::Busy) => Err(Fault::new(
+            "TERMINAL_BUSY",
+            "A program is still running in this terminal; close with force to end it.",
+        )),
+        Err(error) => Err(Fault::detailed(
+            "API_UNAVAILABLE",
+            format!("The terminal may still be running: {error}."),
+        )),
     }
 }
 
@@ -417,6 +559,61 @@ mod tests {
             );
         }
         assert_eq!(relaunch_program(id, RelaunchKind::Shell).unwrap()[1], "-l");
+    }
+
+    #[test]
+    fn extra_terminal_operations_take_an_exact_uuid_or_terminal_id() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let input = serde_json::json!({"identityId": id}).to_string();
+        assert!(matches!(
+            decode_open(input.as_bytes()).unwrap(),
+            Request::TerminalOpen { identity_id } if identity_id == id
+        ));
+        assert!(matches!(
+            decode_list(input.as_bytes()).unwrap(),
+            Request::TerminalList { identity_id } if identity_id == id
+        ));
+        let terminal = format!("term_{}", "a1".repeat(16));
+        for (input, force) in [
+            (serde_json::json!({"terminalId": terminal}), false),
+            (
+                serde_json::json!({"terminalId": terminal, "force": true}),
+                true,
+            ),
+        ] {
+            assert!(matches!(
+                decode_close(input.to_string().as_bytes()).unwrap(),
+                Request::TerminalClose { terminal_id, force: f } if terminal_id == terminal && f == force
+            ));
+        }
+        for input in [
+            serde_json::json!({"identityId": "Worker"}),
+            serde_json::json!({"identityId": id, "shell": "/bin/sh"}),
+        ] {
+            for decode in [decode_open, decode_list] {
+                assert_eq!(
+                    decode(input.to_string().as_bytes()).err().unwrap().code(),
+                    "API_INPUT_INVALID",
+                    "{input}"
+                );
+            }
+        }
+        for input in [
+            serde_json::json!({"terminalId": id}),
+            serde_json::json!({"terminalId": format!("term_{}", "A1".repeat(16))}),
+            serde_json::json!({"terminalId": "term_../x"}),
+            serde_json::json!({"terminalId": terminal, "force": "yes"}),
+            serde_json::json!({"terminalId": terminal, "identityId": id}),
+        ] {
+            assert_eq!(
+                decode_close(input.to_string().as_bytes())
+                    .err()
+                    .unwrap()
+                    .code(),
+                "API_INPUT_INVALID",
+                "{input}"
+            );
+        }
     }
 
     #[test]

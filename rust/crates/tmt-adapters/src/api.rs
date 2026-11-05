@@ -69,6 +69,9 @@ const OPS: &[&str] = &[
     "terminal.stream",
     "terminal.resume",
     "terminal.relaunch",
+    "terminal.open",
+    "terminal.list",
+    "terminal.close",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -256,6 +259,19 @@ pub enum Request {
     TerminalRelaunch {
         identity_id: String,
         kind: crate::pty::protocol::RelaunchKind,
+    },
+    /// Opens an extra terminal under a built-in member.
+    TerminalOpen {
+        identity_id: String,
+    },
+    /// Read-only: a built-in member's extra terminals.
+    TerminalList {
+        identity_id: String,
+    },
+    /// Closes one extra terminal, ending a running program only with `force`.
+    TerminalClose {
+        terminal_id: String,
+        force: bool,
     },
     ConsumptionHistory {
         identities: Vec<String>,
@@ -469,6 +485,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "terminal.stream" => terminal::decode(input)?,
         "terminal.resume" => terminal::decode_resume(input)?,
         "terminal.relaunch" => terminal::decode_relaunch(input)?,
+        "terminal.open" => terminal::decode_open(input)?,
+        "terminal.list" => terminal::decode_list(input)?,
+        "terminal.close" => terminal::decode_close(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "orchestration.job.run" => Request::JobRun {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -595,6 +614,9 @@ impl Session {
         if matches!(request, Request::ConsumptionLimits) {
             return consumption::limits(&paths.global_dir);
         }
+        if let Request::TerminalClose { terminal_id, force } = &request {
+            return terminal::close(paths, terminal_id, *force);
+        }
         if matches!(request, Request::DriverModels) {
             return drivers::models();
         }
@@ -660,6 +682,7 @@ impl Session {
             | Request::StorageRoot
             | Request::ConsumptionLimits
             | Request::DriverModels
+            | Request::TerminalClose { .. }
             | Request::WorkspaceCapture
             | Request::ExtensionUse { .. }
             | Request::SkillsInstall { .. }
@@ -684,6 +707,8 @@ impl Session {
             Request::TerminalRelaunch { identity_id, kind } => {
                 terminal::relaunch(storage, &identity_id, kind)
             }
+            Request::TerminalOpen { identity_id } => terminal::open(paths, storage, &identity_id),
+            Request::TerminalList { identity_id } => terminal::list(paths, storage, &identity_id),
             Request::ConsumptionHistory {
                 identities,
                 windows,
@@ -728,7 +753,7 @@ impl Session {
             Request::IdentityRemove {
                 identity_id,
                 expected_name,
-            } => identities::remove(storage, &identity_id, &expected_name),
+            } => identities::remove(storage, paths, &identity_id, &expected_name),
             Request::MetadataApply {
                 identity_id,
                 changes,

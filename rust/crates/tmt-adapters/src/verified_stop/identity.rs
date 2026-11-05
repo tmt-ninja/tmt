@@ -12,7 +12,7 @@ use crate::{
 use std::time::Instant;
 use tmt_core::{
     binding::{
-        BindingEndpoint, BindingEntry, BindingError, BindingEvidence, BindingRepository,
+        Binding, BindingEndpoint, BindingEntry, BindingError, BindingEvidence, BindingRepository,
         RemoveOutcome, remove_identity, remove_identity_by_id,
     },
     host::HostKind,
@@ -74,6 +74,8 @@ pub struct Stopped {
     pub outcome: StopOutcome,
     /// Present only when the pane was asked to be closed and the member was bound.
     pub pane: Option<PaneOutcome>,
+    /// The member's extra terminals still running after `close` closed them.
+    pub terminals_left: Vec<String>,
 }
 
 fn context(
@@ -106,6 +108,7 @@ pub fn stop_identity(
         return Ok(Stopped {
             outcome: StopOutcome::NotRunning,
             pane: None,
+            terminals_left: Vec::new(),
         });
     };
     let session = captured.preferences.remembered.as_ref().ok_or_else(|| {
@@ -169,7 +172,16 @@ pub fn stop_identity(
             Err(error) => PaneOutcome::Kept(PaneKept::Failed(error.to_string())),
         })
     };
-    Ok(Stopped { outcome, pane })
+    let terminals_left = if close {
+        close_terminals(paths, old, &identity.id)
+    } else {
+        Vec::new()
+    };
+    Ok(Stopped {
+        outcome,
+        pane,
+        terminals_left,
+    })
 }
 
 fn guard(
@@ -181,33 +193,50 @@ fn guard(
 
 /// `tmt rm`: removes the identity `selector` names through `endpoint` (the
 /// caller's host session), refusing while its bound agent may still be running.
+/// Also returns the member's extra terminals still running after they were closed.
 pub fn remove_by_name<O: BindingEndpoint>(
     storage: &mut Storage,
     endpoint: &mut O,
+    paths: &ConfigPaths,
     selector: &str,
     force: bool,
-) -> Result<BindingEntry, BindingError<StorageError, O::Error>> {
+) -> Result<(BindingEntry, Vec<String>), BindingError<StorageError, O::Error>> {
     let removed = remove_identity(storage, endpoint, selector, force, guard)?;
-    close_kept_terminal(&removed);
-    Ok(removed)
+    let left = close_kept_terminal(paths, &removed);
+    Ok((removed, left))
 }
 
 /// A built-in member's supervisor keeps its terminal after the agent ends, so a removed
-/// identity's terminal is closed with it. Advisory: the removal already committed, and a
-/// supervisor that is not closed in time keeps serving a terminal nothing is bound to.
-fn close_kept_terminal(removed: &BindingEntry) {
-    if let Some(binding) = &removed.binding {
-        let _ = crate::host::close_removed_member(binding);
+/// identity's terminal is closed with it, after its extra terminals. Advisory: the removal
+/// already committed, and a supervisor that is not closed in time keeps serving a terminal
+/// nothing is bound to. Returns the extra terminals still running.
+fn close_kept_terminal(paths: &ConfigPaths, removed: &BindingEntry) -> Vec<String> {
+    let Some(binding) = &removed.binding else {
+        return Vec::new();
+    };
+    let left = close_terminals(paths, binding, &removed.identity.id);
+    let _ = crate::host::close_removed_member(binding);
+    left
+}
+
+/// Closes a built-in member's extra terminals, all at once within one bound, and returns
+/// those still running. Advisory, like closing its kept terminal; a terminal also ends by
+/// itself once its member's supervisor is gone.
+fn close_terminals(paths: &ConfigPaths, binding: &Binding, identity_id: &str) -> Vec<String> {
+    if binding.server.host != HostKind::pty() {
+        return Vec::new();
     }
+    crate::pty::terminal::close_all(paths, identity_id)
 }
 
 /// `identity.remove`: removes one exact UUID while its name is `expected_name`.
 /// Its binding's own host observes it.
 pub fn remove_by_id(
     storage: &mut Storage,
+    paths: &ConfigPaths,
     identity_id: &str,
     expected_name: &str,
-) -> Result<RemoveOutcome, BindingError<StorageError, HostError>> {
+) -> Result<(RemoveOutcome, Vec<String>), BindingError<StorageError, HostError>> {
     let server = storage
         .with_binding_transaction::<_, StorageError>(|records| records.entry_by_id(identity_id))
         .map_err(BindingError::Repository)?
@@ -234,8 +263,9 @@ pub fn remove_by_id(
             guard(entry, evidence)
         },
     )?;
-    if let RemoveOutcome::Removed(entry) = &outcome {
-        close_kept_terminal(entry);
-    }
-    Ok(outcome)
+    let left = match &outcome {
+        RemoveOutcome::Removed(entry) => close_kept_terminal(paths, entry),
+        _ => Vec::new(),
+    };
+    Ok((outcome, left))
 }

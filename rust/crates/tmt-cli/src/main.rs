@@ -344,8 +344,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             cols,
             rows,
             program,
+            terminal,
         } => {
-            return pty_serve_command::execute(&directory, &id, cols, rows, program);
+            return pty_serve_command::execute(&directory, &id, cols, rows, program, terminal);
         }
         Invocation::Channel(request) => {
             return channel_command::execute(request, parsed.mode);

@@ -190,6 +190,7 @@ fn capabilities(reply: ControlReply) -> Result<Capabilities, HostError> {
             resume,
             relaunch,
             close,
+            terminal: _,
         } => Ok(Capabilities {
             resume,
             relaunch,
@@ -1366,6 +1367,7 @@ mod tests {
                         resume: true,
                         relaunch: false,
                         close: false,
+                        terminal: false,
                     },
                     Control::Resume => ControlReply::Applied(true),
                     other => panic!("unexpected {other:?}"),
@@ -1394,6 +1396,7 @@ mod tests {
                 resume: true,
                 relaunch: false,
                 close: false,
+                terminal: false,
             },
             ControlReply::Applied(true),
         ] {
@@ -1442,6 +1445,7 @@ mod tests {
                 resume: true,
                 relaunch: true,
                 close: true,
+                terminal: false,
             },
             Control::Relaunch { .. } => relaunch,
             Control::Inspect => ControlReply::State {

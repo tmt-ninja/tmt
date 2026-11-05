@@ -8,13 +8,13 @@ use tmt_adapters::pty::protocol::{
 };
 
 /// One connection to a member's stream.
-struct View {
+pub(super) struct View {
     stream: UnixStream,
     decoder: Decoder,
 }
 
 impl View {
-    fn open(socket: &std::path::Path) -> Self {
+    pub(super) fn open(socket: &std::path::Path) -> Self {
         let stream = UnixStream::connect(socket).expect("connect to the member's stream");
         stream.set_read_timeout(Some(WAIT)).unwrap();
         let mut view = Self {
@@ -29,11 +29,11 @@ impl View {
         view
     }
 
-    fn send(&mut self, message: &ClientMessage) {
+    pub(super) fn send(&mut self, message: &ClientMessage) {
         self.stream.write_all(&message.encode()).unwrap();
     }
 
-    fn next(&mut self) -> ServerMessage {
+    pub(super) fn next(&mut self) -> ServerMessage {
         let mut buffer = [0u8; 8192];
         loop {
             if let Some(message) = self.decoder.frame::<ServerMessage>().unwrap() {
@@ -50,7 +50,7 @@ impl View {
 
     /// Output until it contains `needle`; any other frame that is not output is returned as a
     /// failure so a test cannot pass over a frame it did not expect.
-    fn output_until(&mut self, needle: &str) -> String {
+    pub(super) fn output_until(&mut self, needle: &str) -> String {
         let mut text = String::new();
         while !text.contains(needle) {
             match self.next() {

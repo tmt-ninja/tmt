@@ -249,6 +249,7 @@ pub(super) fn stop(
         "identityId": identity_id,
         "name": identity.name,
     });
+    add_terminals_left(&mut value, stopped.terminals_left);
     match stopped.pane {
         None => (),
         Some(PaneOutcome::Closed) => value["pane"] = json!("closed"),
@@ -265,31 +266,47 @@ pub(super) fn stop(
 /// confirmation; the caller's own confirmation is the consent.
 pub(super) fn remove(
     storage: &mut Storage,
+    paths: &crate::config::ConfigPaths,
     identity_id: &str,
     expected_name: &str,
 ) -> Result<Vec<u8>, Fault> {
     use tmt_core::binding::{BindingError, RemoveOutcome};
-    let result = crate::verified_stop::remove_by_id(storage, identity_id, expected_name).map_err(
-        |error| match &error {
-            BindingError::AgentRunning(..) => Fault::detailed("AGENT_RUNNING", error.to_string()),
-            BindingError::Changed => Fault::detailed("IDENTITY_CONFLICT", error.to_string()),
-            BindingError::Endpoint(host) if host.socket_permission_denied() => Fault::new(
-                "TMUX_PERMISSION_DENIED",
-                "TMT cannot access the tmux socket. Nothing was removed.",
-            ),
-            BindingError::Endpoint(_) | BindingError::Unverified | BindingError::Deadline => {
-                Fault::detailed("RECONCILIATION_FAILED", error.to_string())
-            }
-            _ => Fault::unavailable(),
-        },
-    )?;
+    let (result, left) =
+        crate::verified_stop::remove_by_id(storage, paths, identity_id, expected_name).map_err(
+            |error| match &error {
+                BindingError::AgentRunning(..) => {
+                    Fault::detailed("AGENT_RUNNING", error.to_string())
+                }
+                BindingError::Changed => Fault::detailed("IDENTITY_CONFLICT", error.to_string()),
+                BindingError::Endpoint(host) if host.socket_permission_denied() => Fault::new(
+                    "TMUX_PERMISSION_DENIED",
+                    "TMT cannot access the tmux socket. Nothing was removed.",
+                ),
+                BindingError::Endpoint(_) | BindingError::Unverified | BindingError::Deadline => {
+                    Fault::detailed("RECONCILIATION_FAILED", error.to_string())
+                }
+                _ => Fault::unavailable(),
+            },
+        )?;
     outcome(match result {
-        RemoveOutcome::Removed(entry) => json!({"outcome":"removed", "identityId":identity_id,
-            "name":entry.identity.name}),
+        RemoveOutcome::Removed(entry) => {
+            let mut value = json!({"outcome":"removed", "identityId":identity_id,
+                "name":entry.identity.name});
+            add_terminals_left(&mut value, left);
+            value
+        }
         RemoveOutcome::Conflict(identity) => json!({"outcome":"conflict", "identityId":identity_id,
             "name":identity.name}),
         RemoveOutcome::NotFound => json!({"outcome":"not-found", "identityId":identity_id}),
     })
+}
+
+/// `terminalsLeft`, present only when some of the member's extra terminals were still
+/// running after they were closed. The member action stands either way.
+fn add_terminals_left(value: &mut serde_json::Value, left: Vec<String>) {
+    if !left.is_empty() {
+        value["terminalsLeft"] = json!(left);
+    }
 }
 
 fn outcome(value: serde_json::Value) -> Result<Vec<u8>, Fault> {

@@ -23,11 +23,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &["ANTIGRAVITY_APP_DATA_DIR"],
     locate,
     runtime: Some(super::Runtime {
-        caller_marked: || {
-            ["ANTIGRAVITY_AGENT", "ANTIGRAVITY_CONVERSATION_ID"]
-                .iter()
-                .any(|name| std::env::var_os(name).is_some())
-        },
+        session_env: &["ANTIGRAVITY_AGENT", "ANTIGRAVITY_CONVERSATION_ID"],
         driver: || Box::new(AgyRuntime),
         lifecycle: || Box::new(AgyLifecycle),
         channel: None,

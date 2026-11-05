@@ -309,6 +309,16 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 .expect("required program")
                 .cloned()
                 .collect(),
+            terminal: text(m, "terminal-owner").map(|owner| crate::invocation::PtyTerminal {
+                owner,
+                member_pid: m.get_one::<u64>("member-pid").copied().unwrap_or(0),
+                member_start: text(m, "member-start").unwrap_or_default(),
+                created_ms: m.get_one::<u64>("created-ms").copied().unwrap_or(0),
+                directory: m
+                    .get_one::<std::path::PathBuf>("terminal-directory")
+                    .cloned()
+                    .unwrap_or_default(),
+            }),
         },
         ["__reply-notice-worker"] => Invocation::ReplyNoticeWorker {
             batch_id: text(m, "batch-id").expect("required batch ID"),

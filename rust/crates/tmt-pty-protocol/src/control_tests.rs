@@ -12,6 +12,7 @@ fn core_controls_round_trip_separately_from_attach_frames() {
     for request in [
         Control::Inspect,
         Control::Capabilities,
+        Control::Terminal,
         Control::AwaitLaunch,
         Control::WaitLauncher,
         Control::LaunchReady { pane_pid: 123 },
@@ -85,16 +86,35 @@ fn core_controls_round_trip_separately_from_attach_frames() {
             resume: true,
             relaunch: true,
             close: true,
+            terminal: false,
         },
         ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: false,
+            terminal: false,
         },
         ControlReply::Capabilities {
             resume: true,
             relaunch: false,
             close: true,
+            terminal: false,
+        },
+        ControlReply::Capabilities {
+            resume: false,
+            relaunch: false,
+            close: true,
+            terminal: true,
+        },
+        ControlReply::Terminal {
+            owner: "11111111-1111-4111-8111-111111111111".into(),
+            created_ms: 1_762_300_000_000,
+            busy: true,
+        },
+        ControlReply::Terminal {
+            owner: "11111111-1111-4111-8111-111111111111".into(),
+            created_ms: 0,
+            busy: false,
         },
         ControlReply::Screen(String::new()),
         ControlReply::Screen("visible".into()),
@@ -220,14 +240,16 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             resume: true,
             relaunch: true,
             close: true,
+            terminal: true,
         })
     );
     assert_eq!(
-        ServerMessage::read(0xa5, &[0xf8]).unwrap(),
+        ServerMessage::read(0xa5, &[0xf0]).unwrap(),
         ServerMessage::Control(ControlReply::Capabilities {
             resume: false,
             relaunch: false,
             close: false,
+            terminal: false,
         })
     );
     // A supervisor from #5926 grants resume only: Core sends it no Relaunch or Close.
@@ -237,6 +259,7 @@ fn capability_flags_ignore_unknown_bits_and_need_exactly_one_byte() {
             resume: true,
             relaunch: false,
             close: false,
+            terminal: false,
         })
     );
     assert!(ServerMessage::read(0xa5, &[]).is_err());
@@ -324,4 +347,30 @@ fn relaunch_and_close_frames_are_bounded_and_strict() {
             "{malformed:?}"
         );
     }
+}
+
+#[test]
+fn a_terminal_reply_needs_an_owner_a_time_and_one_flag_byte() {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&0u16.to_be_bytes());
+    payload.extend_from_slice(&7u64.to_be_bytes());
+    payload.push(0);
+    assert!(
+        ServerMessage::read(0xa6, &payload).is_err(),
+        "an empty owner"
+    );
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&1u16.to_be_bytes());
+    payload.push(b'x');
+    payload.extend_from_slice(&7u64.to_be_bytes());
+    payload.push(2);
+    assert!(
+        ServerMessage::read(0xa6, &payload).is_err(),
+        "a flag other than 0 or 1"
+    );
+    payload.pop();
+    assert!(
+        ServerMessage::read(0xa6, &payload).is_err(),
+        "a missing flag"
+    );
 }

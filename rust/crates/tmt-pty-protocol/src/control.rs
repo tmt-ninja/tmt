@@ -17,12 +17,14 @@ const CAPABILITIES: u8 = 0x2a;
 const RESUME: u8 = 0x2b;
 const RELAUNCH: u8 = 0x2c;
 const CLOSE: u8 = 0x2d;
+const TERMINAL: u8 = 0x2e;
 const STATE: u8 = 0xa0;
 const APPLIED: u8 = 0xa1;
 const SCREEN: u8 = 0xa2;
 const ERROR: u8 = 0xa3;
 const LAUNCHED: u8 = 0xa4;
 const CAPABILITY_FLAGS: u8 = 0xa5;
+const TERMINAL_OWNER: u8 = 0xa6;
 /// Bit 0 of the capability flags: the supervisor answers `Control::Resume`.
 const RESUME_FLAG: u8 = 0x01;
 /// Bit 1: the supervisor keeps its terminal after the program ends and answers
@@ -30,6 +32,11 @@ const RESUME_FLAG: u8 = 0x01;
 const RELAUNCH_FLAG: u8 = 0x02;
 /// Bit 2: the supervisor answers `Control::Close`.
 const CLOSE_FLAG: u8 = 0x04;
+/// Bit 3: the supervisor serves one of a member's extra terminals and answers
+/// `Control::Terminal`.
+const TERMINAL_FLAG: u8 = 0x08;
+/// An identity UUID and a start identity are short; this bounds a reply.
+const OWNER_LIMIT: usize = 128;
 /// At most this many program words in one relaunch.
 const PROGRAM_WORDS: usize = 256;
 const KEY_LIMIT: usize = 128;
@@ -82,6 +89,9 @@ pub enum Control {
     /// End the supervisor: hang up a running program, tell clients, remove the
     /// socket and lock. Idempotent from Core's side.
     Close,
+    /// Ask an extra terminal whose it is and whether a program other than its
+    /// shell runs there (#5991). A member supervisor closes the connection.
+    Terminal,
 }
 
 /// What a relaunch starts. Only `Shell` changes what the supervisor reports:
@@ -137,6 +147,15 @@ pub enum ControlReply {
         resume: bool,
         relaunch: bool,
         close: bool,
+        terminal: bool,
+    },
+    /// The answer to `Control::Terminal`: the identity UUID the terminal was
+    /// opened for, when it started (Unix milliseconds), and whether the
+    /// terminal's foreground job is not its shell.
+    Terminal {
+        owner: String,
+        created_ms: u64,
+        busy: bool,
     },
 }
 
@@ -197,6 +216,7 @@ impl Frame for Control {
             Self::Resume => RESUME,
             Self::Relaunch { .. } => RELAUNCH,
             Self::Close => CLOSE,
+            Self::Terminal => TERMINAL,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -242,7 +262,8 @@ impl Frame for Control {
             | Self::AwaitLaunch
             | Self::WaitLauncher
             | Self::Resume
-            | Self::Close => {}
+            | Self::Close
+            | Self::Terminal => {}
         }
     }
     fn read(kind: u8, mut bytes: &[u8]) -> Result<Self, ProtocolError> {
@@ -255,6 +276,7 @@ impl Frame for Control {
             WAIT_LAUNCHER => Self::WaitLauncher,
             RESUME => Self::Resume,
             CLOSE => Self::Close,
+            TERMINAL => Self::Terminal,
             RELAUNCH => {
                 let kind = match take(&mut bytes, 1)? {
                     [0] => RelaunchKind::Resume,
@@ -331,6 +353,7 @@ impl Frame for ControlReply {
             Self::Error(_) => ERROR,
             Self::Launched(_) => LAUNCHED,
             Self::Capabilities { .. } => CAPABILITY_FLAGS,
+            Self::Terminal { .. } => TERMINAL_OWNER,
         }
     }
     fn write_payload(&self, out: &mut Vec<u8>) {
@@ -365,16 +388,27 @@ impl Frame for ControlReply {
                 resume,
                 relaunch,
                 close,
+                terminal,
             } => out.push(
                 [
                     (resume, RESUME_FLAG),
                     (relaunch, RELAUNCH_FLAG),
                     (close, CLOSE_FLAG),
+                    (terminal, TERMINAL_FLAG),
                 ]
                 .into_iter()
                 .filter(|(granted, _)| **granted)
                 .fold(0, |flags, (_, bit)| flags | bit),
             ),
+            Self::Terminal {
+                owner,
+                created_ms,
+                busy,
+            } => {
+                put(out, owner);
+                out.extend_from_slice(&created_ms.to_be_bytes());
+                out.push(u8::from(*busy));
+            }
             Self::Screen(text) | Self::Error(text) | Self::Launched(text) => {
                 out.extend_from_slice(text.as_bytes())
             }
@@ -439,6 +473,21 @@ impl Frame for ControlReply {
                     resume: flags & RESUME_FLAG != 0,
                     relaunch: flags & RELAUNCH_FLAG != 0,
                     close: flags & CLOSE_FLAG != 0,
+                    terminal: flags & TERMINAL_FLAG != 0,
+                }
+            }
+            TERMINAL_OWNER => {
+                let owner = nonempty(string(&mut bytes, OWNER_LIMIT)?)?;
+                let created_ms = u64::from_be_bytes(take(&mut bytes, 8)?.try_into().unwrap());
+                let busy = match take(&mut bytes, 1)? {
+                    [0] => false,
+                    [1] => true,
+                    _ => return Err(malformed()),
+                };
+                Self::Terminal {
+                    owner,
+                    created_ms,
+                    busy,
                 }
             }
             LAUNCHED => {

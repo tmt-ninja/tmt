@@ -110,6 +110,7 @@ pub enum Invocation {
         cols: u16,
         rows: u16,
         program: Vec<std::ffi::OsString>,
+        terminal: Option<PtyTerminal>,
     },
     Resume {
         host: Option<String>,
@@ -710,4 +711,14 @@ pub enum TickOperation {
     Once,
     Run,
     Status,
+}
+
+/// The owner of one of a member's extra terminals, for `__pty-serve` (#5991).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyTerminal {
+    pub owner: String,
+    pub member_pid: u64,
+    pub member_start: String,
+    pub created_ms: u64,
+    pub directory: std::path::PathBuf,
 }
