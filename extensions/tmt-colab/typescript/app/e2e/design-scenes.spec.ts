@@ -57,6 +57,16 @@ async function reference(page: Page, path: string) {
     path,
   ).toBeVisible();
   await expect(page.locator('#docs-reference [data-scene-loading]')).toHaveCount(0);
+  // An image scene is as wide as its loaded image.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLImageElement>('#docs-reference img')].every(
+          (image) => image.complete,
+        ),
+      ),
+    )
+    .toBe(true);
   const measured = await page.evaluate(
     `(${scenes.toString()})(document.querySelector('#docs-reference .docs-main'))`,
   );
@@ -102,6 +112,13 @@ async function design(page: Page, path: string, width: number): Promise<Scene[]>
   const frame = page.frameLocator('#design-scene iframe');
   await expect(frame.locator('.docs-article > h1').first()).toBeVisible();
   await expect(frame.locator('[data-scene-loading]')).toHaveCount(0);
+  await expect
+    .poll(() =>
+      frame
+        .locator('body')
+        .evaluate((body) => [...body.querySelectorAll('img')].every((image) => image.complete)),
+    )
+    .toBe(true);
   // The frame keeps its own page margin: widen it until its article is the docs' width.
   const article = () =>
     frame.locator('.docs-article').evaluate((node) => node.getBoundingClientRect().width);

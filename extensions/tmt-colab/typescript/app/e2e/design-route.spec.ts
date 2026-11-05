@@ -763,7 +763,9 @@ test('a component edit shows at once on the draft, and the header can show a rel
     .locator('[data-ds-example="button:secondary"]')
     .getByRole('button', { name: 'Draft', exact: true });
   await expect(button).toBeVisible();
-  const outline = () => button.evaluate((element) => getComputedStyle(element).outlineColor);
+  // A draft edit redraws the page in a new frame; a read during that swap is not an answer yet.
+  const outline = () =>
+    button.evaluate((element) => getComputedStyle(element).outlineColor).catch(() => 'detached');
   const marked = 'rgb(1, 2, 3)';
   expect(await outline()).not.toBe(marked);
   // A Design author's edit of the component's CSS, unpublished: the draft draws it.

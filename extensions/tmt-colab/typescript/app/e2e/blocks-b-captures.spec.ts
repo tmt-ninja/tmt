@@ -96,9 +96,10 @@ for (const width of [1440, 390])
         ['image', 'tmt-ui-image-block'],
         ['mockup', 'tmt-ui-mockup-block'],
         ['work', 'tmt-ui-work-bundle'],
-        ['page-view', 'tmt-ui-page-view'],
+        ['page-view', '[data-parent-page-view]'],
       ]) {
-        const target = frame.locator(selector);
+        // The page view is drawn by the trusted parent over the frame's reserved slot.
+        const target = name === 'page-view' ? page.locator(selector) : frame.locator(selector);
         await expect(target).toBeVisible();
         if (captureDir) {
           const capture = await target.screenshot({
@@ -144,7 +145,8 @@ for (const width of [1440, 390])
           }
         }
       }
-      await expect(frame.getByText('Structured pages')).toBeVisible();
+      const pageView = page.locator('[data-parent-page-view]');
+      await expect(pageView.getByText('Structured pages')).toBeVisible();
       await expect(frame.getByText('Shared page components')).toBeVisible();
       await frame.getByLabel('Other…').check();
       await frame.getByLabel('Other: your answer').fill('Show the list first');
@@ -158,10 +160,10 @@ for (const width of [1440, 390])
       if (captureDir)
         await viewer.screenshot({ path: join(captureDir, `image-viewer-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await frame.getByText('Columns 5/5').click();
+      await pageView.getByText('Columns 5/5').click();
       if (captureDir)
-        await frame
-          .locator('tmt-ui-page-view')
-          .screenshot({ path: join(captureDir, `page-view-columns-${width}-${theme}.png`) });
+        await pageView.screenshot({
+          path: join(captureDir, `page-view-columns-${width}-${theme}.png`),
+        });
     });
   }
