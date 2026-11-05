@@ -18,13 +18,7 @@ fn main() {
     for input in inputs {
         println!("cargo:rerun-if-changed={}", input.display());
     }
-    let hosted = std::env::var_os("TMT_COLAB_HOSTING_DIR")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../typescript/app/dist-hosted");
-            dev.is_dir().then_some(dev)
-        });
+    let hosted = std::env::var_os("TMT_COLAB_HOSTING_DIR").map(std::path::PathBuf::from);
     let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tmt-remote/rust/tmt-remote/assets/remote-v1.js");
     let client = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
