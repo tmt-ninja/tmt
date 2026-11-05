@@ -123,6 +123,7 @@ describe('buildBundle', () => {
     expect(bundle.components.map((component) => component.tag)).toEqual([
       'tmt-ui-foundation',
       'tmt-ui-pattern',
+      'tmt-ui-component-docs',
       'tmt-ui-button',
       'tmt-ui-badge',
       'tmt-ui-separator',
@@ -307,14 +308,17 @@ describe('checkElements', () => {
   });
 });
 
-it('keeps generated template pages iframe-free and restores page-view tags', () => {
+it('keeps generated template pages iframe-free and draws component pages from the docs (#6060)', () => {
   const pages = JSON.parse(
     readFileSync(new URL('../../systems/tmt-gui/generated/pages.json', import.meta.url), 'utf8'),
-  ) as { pages: { slug: string; html: string }[] }[];
+  ) as { title: string; pages: { slug: string; html: string; path: string }[] }[];
   const all = pages.flatMap((section) => section.pages);
   expect(all.some((page) => /<iframe\b/i.test(page.html))).toBe(false);
-  for (const slug of ['page-list', 'data-table']) {
-    const page = all.find((entry) => entry.slug === slug);
-    expect(page?.html).toContain('<tmt-ui-page-view');
-  }
+  // A component page is the docs site's own page for its path, with the same live scenes.
+  for (const section of pages.filter(({ title }) => title.endsWith('omponents')))
+    for (const page of section.pages)
+      expect(page.html).toBe(
+        `<div class="tmt-design-docs"><tmt-ui-component-docs page="${page.path}"></tmt-ui-component-docs></div>`,
+      );
+  expect(all.find((page) => page.slug === 'browser-avatar')?.path).toBe('browser/avatar');
 });

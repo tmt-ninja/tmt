@@ -71,8 +71,9 @@ component or prop shows up there. Fix every one before handing the page over. Th
   person's ask.
 - Never edit a system's own pages to make your page work. Comments and fixes on a system go
   through its Design pages (tmt-colab skill, editing: "A design-system example"). The built-in
-  tmt GUI's pages are generated from `design/browser-ui`: a fix there is a code change through a
-  PR, never a page edit.
+  tmt GUI has no pages to edit: Design draws it from the build, and a fix is a code change to
+  `design/browser-ui` through a PR. A comment on a built-in page lands on a `<title> · tmt GUI`
+  page that holds only its discussion; editing that page changes nothing Design shows.
 
 ## Limits
 

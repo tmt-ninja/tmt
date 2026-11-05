@@ -80,6 +80,7 @@ const entries: Record<string, string> = {
   './docs-embed': 'the docs site itself, hosted by Colab Design',
   './docs-foundations': 'the live foundation pages hosted by Colab Design',
   './docs-patterns': 'the live pattern scenes hosted by Colab Design',
+  './docs-components': 'the live component pages hosted by Colab Design',
   './pattern-parts': 'the shared parts used by the pattern pages',
   './pattern-parts.css': 'styles for the shared pattern parts',
   './docs-oracle': 'the build-time plugin the docs site needs in its host',

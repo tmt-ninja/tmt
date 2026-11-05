@@ -111,9 +111,9 @@ async function design(page: Page, path: string, width: number): Promise<Scene[]>
       .locator('#design-scene')
       .evaluate((host, next) => (host.style.width = `${next}px`), width + inset);
   await expect.poll(article).toBe(width);
-  return (await frame.locator('body').evaluate(
-    `(${scenes.toString()})(document.querySelector('.docs-article'))`,
-  )) as Scene[];
+  return (await frame
+    .locator('body')
+    .evaluate(`(${scenes.toString()})(document.querySelector('.docs-article'))`)) as Scene[];
 }
 
 for (const viewport of [1440, 390])

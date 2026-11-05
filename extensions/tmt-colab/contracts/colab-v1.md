@@ -5516,20 +5516,17 @@ titles, projects, stage, update label, author and access only. The frame receive
 receives neither the list nor transport or management capability. The subscription ends with the frame and follows
 the owner list's refreshes. A view without an owner list shows an unavailable state.
 
-The built-in tmt GUI also appears as pages (#5969): a top-level tree in `tmt:design-system` that the
-owner device makes on its first Design visit from `generated/template.json` and `pages.json`. Each
-page follows `tmt-gui`, starts with a note that it is generated from `design/browser-ui`, and holds a
-`data-tmt-ds="origin"` block `{key, files}` (its docs path, such as `components/button`, and the repo
-files it is generated from); the root's block also names the shipped bundle hash and the generated
-documentation revision. When either changes, the owner device rewrites each page in place by `key`,
-keeping ids and threads, makes pages for new keys and archives (never deletes) pages whose key is
-gone. Several owner tabs or devices may sync at once; they converge on one tree: a new page holds
-its `origin` block as soon as it exists, a sync reuses a root or child it finds by `key` before
-making one, and a closing pass
-archives any second root's tree and any second page for a `key`, keeping the lowest page ID.
-Regeneration rewrites a page's whole source, so a thread anchored on text that changed keeps its
-discussion but may lose its quote anchor. `/design/ds/gui` shows this tree once it exists; there is
-no Publish for it.
+The built-in tmt GUI is not stored as pages (#6060). `/design/ds/gui` draws it from the
+`generated/pages.json` and bundle the build ships, by the docs site's paths (`components/button`),
+in the page frame with annotations and Chat. Its component pages use `tmt-ui-component-docs`, which
+renders the docs site's own page for a path with the same live scenes. Visiting Design writes
+nothing. The first Comment or Chat on a built-in page makes one top-level page for that path: titled
+`<page title> · tmt GUI`, in `tmt:design-system`, holding a `data-tmt-ds="annotates"` block
+`{system: "tmt-gui", path}` and the shipped source. Later visits find that page by title and block and
+use its threads, but Design always draws the shipped source, never the page's stored copy. When two
+first comments race, each keeps the lowest page ID for the path and archives its own page if that is
+not it. A later build may change the shipped source; a thread whose quote no longer matches keeps its
+discussion and loses its anchor. A built-in page has no Publish.
 Foundation pages render the shared live docs in the frame, so token values follow its theme and
 the motion examples respond to their controls. A copied system owns the foundation component on
 its Colour page and uses its own prefix for all seven pages.

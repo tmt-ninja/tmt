@@ -333,4 +333,3 @@ function Principles() {
     </Article>
   );
 }
-

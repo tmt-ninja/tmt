@@ -99,12 +99,12 @@ live markup and its escaped `<pre>` snippet together, as two pairs in one patch.
 reaches the examples, and every page that follows the system's draft, once the edit settles.
 Publishing a version, which pages can lock to, stays the person's step.
 
-The built-in tmt GUI's pages (the `tmt GUI` tree, `/design/ds/gui`) are different: they are generated
-from `design/browser-ui`. Their first line says so and lists the files the page comes from, and
-their `data-tmt-ds="origin"` block holds the same `files`. Never patch these pages; an edit is
-replaced at the next regeneration. Change those files in a branch, regenerate the checked-in
-design output (the usage line in `design/systems/compile.mjs` shows how), open a PR on the normal
-review path, and reply on the thread with its link. The pages regenerate once a build with the change runs.
+The built-in tmt GUI (`/design/ds/gui`) is different: Design draws it from the build, from
+`design/browser-ui`, and it has no pages to patch. A comment on one of its pages arrives on a
+`<title> · tmt GUI` page that holds only that page's discussion; patching that page changes nothing
+Design shows. Change `design/browser-ui` in a branch, regenerate the checked-in design output (the
+usage line in `design/systems/compile.mjs` shows how), open a PR on the normal review path, and reply
+on the thread with its link. Design shows the change once a build with it runs.
 
 ## When it conflicts
 

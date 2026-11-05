@@ -542,7 +542,9 @@ describe('the built-in tmt GUI in Design (#6060)', () => {
       ['section', 'Browser components'],
       ['section', 'Patterns'],
     ]);
-    const button = entry.tree.children[1]!.children.find((node) => node.id === 'components/button')!;
+    const button = entry.tree.children[1]!.children.find(
+      (node) => node.id === 'components/button',
+    )!;
     expect(button).toMatchObject({ key: 'components/button', tag: 'button', title: 'Button' });
     expect(entry.tree.children[2]!.children.map((node) => node.id)).toContain('browser/avatar');
     const source = page('components/button')!.source;

@@ -687,11 +687,7 @@ async function treeOf(
     children,
   };
 }
-function entryOf(
-  id: string,
-  config: DesignSystemConfig,
-  tree: DesignTreeNode,
-): DesignSystemEntry {
+function entryOf(id: string, config: DesignSystemConfig, tree: DesignTreeNode): DesignSystemEntry {
   return {
     id,
     name: config.name,
@@ -730,12 +726,7 @@ export async function listDesignSystems(
       const entry = await withPage(transport, page.id, async (root) => {
         const config = readBlock<DesignSystemConfig>(root.source, 'design-system');
         return (
-          config &&
-          entryOf(
-            root.id,
-            config,
-            await treeOf(transport, root, titles, 0, archived),
-          )
+          config && entryOf(root.id, config, await treeOf(transport, root, titles, 0, archived))
         );
       });
       seen.add(page.id);

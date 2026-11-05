@@ -174,23 +174,29 @@ test('tmt GUI draws the shipped pages and makes a discussion page only on the fi
   });
   await open(page);
   const before = await page.evaluate(
-    () => (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages.size,
+    () =>
+      (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages
+        .size,
   );
   await openGuiButton(page);
   expect(await discussionPages(page)).toEqual([]);
   // The first Comment makes the page's discussion page; the page still draws the shipped source.
   await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
-  await expect.poll(() => discussionPages(page)).toEqual([
-    { id: expect.any(String), title: 'Button · tmt GUI' },
-  ]);
+  await expect
+    .poll(() => discussionPages(page))
+    .toEqual([{ id: expect.any(String), title: 'Button · tmt GUI' }]);
   const [made] = await discussionPages(page);
-  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
   // Comments now work as on any page, once the discussion page has opened.
   await selectionOn(page);
   // An edit to the stored copy never reaches Design: it draws what the build ships.
   await page.evaluate((id) => {
     const fixture = (
-      window as unknown as { designFixture: { patch(id: string, find: string, replace: string): void } }
+      window as unknown as {
+        designFixture: { patch(id: string, find: string, replace: string): void };
+      }
     ).designFixture;
     fixture.patch(
       id,
@@ -199,23 +205,31 @@ test('tmt GUI draws the shipped pages and makes a discussion page only on the fi
     );
   }, made!.id);
   await page.waitForTimeout(300);
-  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
   // Another visit finds the same page.
   const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
   await tree.getByRole('link', { name: /^Badge/ }).click();
-  await expect(designFrame(page).getByRole('heading', { name: 'Badge', exact: true })).toBeVisible();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Badge', exact: true }),
+  ).toBeVisible();
   await tree.getByRole('link', { name: /^Button/ }).click();
-  await expect(designFrame(page).getByRole('heading', { name: 'Button', exact: true })).toBeVisible();
+  await expect(
+    designFrame(page).getByRole('heading', { name: 'Button', exact: true }),
+  ).toBeVisible();
   await selectionOn(page);
   expect(await discussionPages(page)).toEqual([made]);
   expect(
     await page.evaluate(
-      () => (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture.pages.size,
+      () =>
+        (window as unknown as { designFixture: { pages: Map<string, unknown> } }).designFixture
+          .pages.size,
     ),
   ).toBe(before + 1);
-  expect(await page.evaluate(() => (window as unknown as { designSeen: string[] }).designSeen)).toEqual(
-    [],
-  );
+  expect(
+    await page.evaluate(() => (window as unknown as { designSeen: string[] }).designSeen),
+  ).toEqual([]);
 });
 
 for (const width of [1440, 390])
@@ -245,7 +259,9 @@ for (const width of [1440, 390])
     await page.locator('.design-workspace').evaluate((workspace) => {
       workspace.scrollTop = 600;
     });
-    await expect.poll(() => page.locator('.design-workspace').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+    await expect
+      .poll(() => page.locator('.design-workspace').evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
     // On a phone the open nav sticks to the workspace's top; on a desktop it never moves.
     const after = await read();
     expect({ ...after, top: width === 390 ? 0 : after.top }).toEqual({
