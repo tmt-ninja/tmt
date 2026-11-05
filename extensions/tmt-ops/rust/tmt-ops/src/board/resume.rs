@@ -180,6 +180,12 @@ pub(super) fn row_json(target: &RowTarget) -> Value {
             room_id,
             identity_id,
         }) => json!({"kind":"workspace-member","roomId":room_id,"id":identity_id}),
+        // A terminal is not restored; its member is.
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Terminal {
+            room_id,
+            identity_id,
+            ..
+        }) => json!({"kind":"workspace-member","roomId":room_id,"id":identity_id}),
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(id)) => {
             json!({"kind":"workspace-squad","id":id})
         }

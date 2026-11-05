@@ -20,6 +20,8 @@ pub(in crate::board) struct Row<'a> {
     pub source: &'a OpsTreeRow,
     pub expanded: bool,
     pub last: bool,
+    /// A member that owns terminals folds them: `▾`/`▸` before its name.
+    pub folds: bool,
     pub pinned: bool,
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
@@ -96,6 +98,83 @@ pub(in crate::board) fn paint_line(
     strip::paint_left(buffer, area, Line::from(line));
 }
 
+/// One of a member's terminals, under the member's row (#5991): the tree line, `Terminal N`, and
+/// `● running` or a grey `○ ended` in STATE. It has no tokens, session, model or timers.
+pub(in crate::board) struct TerminalRow<'a> {
+    pub source: &'a OpsTreeRow,
+    pub ended: bool,
+    /// The last terminal under its member: `└` rather than `├`.
+    pub last: bool,
+    /// Its member has a sibling below: the member's line goes on (`│`).
+    pub trunk: bool,
+    pub selected: bool,
+    /// The tree's colour for a live member.
+    pub live: Style,
+}
+
+pub(in crate::board) fn paint_terminal(
+    buffer: &mut Buffer,
+    area: Rect,
+    slots: &[(AgentsField, Rect)],
+    row: &TerminalRow<'_>,
+    look: Look,
+) {
+    let base = selection(look, row.selected, look.role(Role::Text));
+    for y in area.y..area.bottom() {
+        strip::paint_left(
+            buffer,
+            Rect::new(area.x, y, area.width, 1),
+            Line::styled(" ".repeat(usize::from(area.width)), base),
+        );
+    }
+    let (dot, word, style) = if row.ended {
+        ("○", "ended", look.role(Role::Muted))
+    } else {
+        ("●", "running", row.live)
+    };
+    for (field, slot) in slots {
+        let cell = Rect::new(slot.x, area.y, slot.width, area.height.min(1)).intersection(area);
+        if cell.is_empty() {
+            continue;
+        }
+        let line = match field {
+            AgentsField::Agent => {
+                // The member's own indent, then its line and this terminal's branch.
+                let indent = "  ".repeat(usize::from(row.source.depth.saturating_sub(2)));
+                let branch = format!(
+                    "{indent}{}{}",
+                    if row.trunk { "  │ " } else { "    " },
+                    if row.last { "└ " } else { "├ " }
+                );
+                let name_width = usize::from(cell.width).saturating_sub(1 + branch.width());
+                Line::from(vec![
+                    Span::styled(" ", look.role(Role::Muted)),
+                    Span::styled(branch, look.role(Role::Text)),
+                    Span::styled(
+                        crate::board::view::fit(&row.source.title, name_width),
+                        look.role(if row.ended { Role::Muted } else { Role::Text }),
+                    ),
+                ])
+            }
+            AgentsField::State => Line::from(vec![
+                Span::styled(dot, style),
+                Span::styled(format!(" {word}"), look.role(Role::Muted)),
+            ]),
+            _ => continue,
+        };
+        let line = Line::from(
+            line.spans
+                .into_iter()
+                .map(|span| {
+                    let style = selection(look, row.selected, span.style);
+                    span.style(style)
+                })
+                .collect::<Vec<_>>(),
+        );
+        strip::paint_left(buffer, cell, line);
+    }
+}
+
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     area: Rect,
@@ -128,7 +207,14 @@ pub(in crate::board) fn paint(
                     row.source.depth.saturating_sub(u8::from(member)),
                 ));
                 let branch = if member {
-                    if row.last { "  └ " } else { "  ├ " }
+                    match (row.last, row.folds, row.expanded) {
+                        (true, false, _) => "  └ ",
+                        (false, false, _) => "  ├ ",
+                        (true, true, true) => "  └ ▾ ",
+                        (true, true, false) => "  └ ▸ ",
+                        (false, true, true) => "  ├ ▾ ",
+                        (false, true, false) => "  ├ ▸ ",
+                    }
                 } else if row.expanded {
                     "▾ "
                 } else {
@@ -271,6 +357,7 @@ mod tests {
                     source: &source,
                     expanded: false,
                     last: false,
+                    folds: false,
                     pinned,
                     state: Line::default(),
                     state_primary_width: None,
@@ -323,6 +410,7 @@ mod tests {
                     source,
                     expanded: false,
                     last: true,
+                    folds: false,
                     pinned,
                     state: crate::board::state_cell::unread(
                         crate::board::unread::Count {
@@ -392,6 +480,7 @@ mod tests {
                         source,
                         expanded: false,
                         last: true,
+                        folds: false,
                         pinned: false,
                         state: crate::board::state_cell::unread(
                             crate::board::unread::Count {

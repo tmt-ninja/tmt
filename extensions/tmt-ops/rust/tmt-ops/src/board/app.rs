@@ -324,6 +324,11 @@ pub enum Choice {
     },
     /// A visible but disabled dropdown choice, with the reason it is unavailable.
     Unavailable(String),
+    /// Close a busy terminal of a built-in member, ending its program (#5991).
+    CloseTerminal {
+        identity: String,
+        terminal: String,
+    },
     /// A link's popover: open the address, copy it, or show all of it.
     LinkOpen(String),
     LinkCopy(String),
@@ -797,6 +802,8 @@ pub struct App {
     pub(in crate::board) right_tab: super::shell::RightTab,
     /// The Talk pane's Terminal tab for built-in-host members.
     pub(in crate::board) terminal: super::terminal_tab::tab::Tab,
+    /// Built-in members' extra terminals under their rows (#5991).
+    pub(in crate::board) terminals: super::member_terminals::Terminals,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) digest_rows: RefCell<super::digest_dashboard::Cache>,
     /// The Digest tab's window, kept by the view-state layer.
@@ -3207,6 +3214,9 @@ impl App {
                 })
             }
             Choice::Unavailable(reason) => self.say(reason),
+            Choice::CloseTerminal { identity, terminal } => {
+                self.close_terminal_confirmed(&identity, &terminal)
+            }
             Choice::AddToNotes(seed) => self.add_to_notes(seed),
             Choice::LinkOpen(url) => self.link_open(url),
             Choice::LinkCopy(url) => self.link_copy(url),
@@ -3363,6 +3373,9 @@ impl App {
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
         if let Some(effect) = self.frame_paste(text) {
+            return effect;
+        }
+        if let Some(effect) = self.terminal_typing_paste(text) {
             return effect;
         }
         self.composer.paste_preview.get_mut().take();
@@ -4073,6 +4086,12 @@ impl App {
                 room_id,
                 identity_id,
             }) => json!({"kind":"member", "roomId":room_id, "identityId":identity_id}),
+            Some(OpsTarget::Terminal {
+                room_id,
+                identity_id,
+                terminal_id,
+            }) => json!({"kind":"terminal", "roomId":room_id, "identityId":identity_id,
+                "terminalId":terminal_id}),
         }
     }
 
@@ -4120,6 +4139,9 @@ impl App {
             return Effect::None;
         }
         if let Some(effect) = self.frame_key(key) {
+            return effect;
+        }
+        if let Some(effect) = self.terminal_typing_key(key) {
             return effect;
         }
         self.set_notice(None, false);

@@ -403,7 +403,7 @@ impl App {
                     selection: self.workspace.selected.clone().unwrap(),
                     id: identity_id.clone(),
                     name: agent.name.clone(),
-                    observation: agent.parameters.clone(),
+                    observation: Box::new(agent.parameters.clone()),
                     source,
                     memberships,
                 }

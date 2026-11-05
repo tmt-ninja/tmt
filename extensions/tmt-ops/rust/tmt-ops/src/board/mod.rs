@@ -41,6 +41,7 @@ mod lane;
 mod limits;
 mod local_time;
 mod member_session;
+mod member_terminals;
 mod new_member;
 mod switch_tool;
 mod tool_choices;
@@ -292,6 +293,8 @@ pub(in crate::board) enum BoardEvent {
     NotesRead(conversation_checklist::Completed),
     /// The open composer's recipient skills were read; quiet, with no progress notice.
     SkillsRead(skills::Completed),
+    /// A built-in member's terminals were listed, opened or closed.
+    TerminalsDone(member_terminals::Completed),
     /// The running versions, read once at start; they own no user action or progress notice.
     VersionsRead(Option<versions::Versions>),
     /// Inside tmux, the root `WheelUpPane` binding sends wheel-up to copy-mode (read once at start).
@@ -342,6 +345,7 @@ impl BoardEvent {
             Self::AnswersAcknowledged(_) => "AnswersAcknowledged",
             Self::NotesRead(_) => "NotesRead",
             Self::SkillsRead(_) => "SkillsRead",
+            Self::TerminalsDone(_) => "TerminalsDone",
             Self::VersionsRead(_) => "VersionsRead",
             Self::WheelUpEscapes => "WheelUpEscapes",
             Self::Input(Event::Key(_)) => "Input::Key",
@@ -826,6 +830,9 @@ fn session(
         let recipient = app.skill_recipient().map(|(id, _)| id);
         if let Some(task) = app.skills.offer(recipient.as_deref(), now) {
             io(lane::Job::Skills(task));
+        }
+        if let Some(task) = app.terminals_offer() {
+            io(lane::Job::Terminals(task));
         }
         // The footer names a waiting reload, so a new one repaints.
         dirty |= app.expire_notice(now);
@@ -1415,6 +1422,11 @@ fn session(
                     }
                     Ok(BoardEvent::NotesRead(completed)) => {
                         app.finished_notes(completed, Instant::now());
+                        dirty = true;
+                        Effect::None
+                    }
+                    Ok(BoardEvent::TerminalsDone(completed)) => {
+                        app.terminals_done(completed);
                         dirty = true;
                         Effect::None
                     }

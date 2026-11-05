@@ -40,7 +40,7 @@ pub(in crate::board) enum Target {
         selection: OpsTarget,
         id: String,
         name: String,
-        observation: Value,
+        observation: Box<Value>,
         source: Option<RoomTarget>,
         memberships: Vec<String>,
     },

@@ -115,6 +115,13 @@ pub enum OpsTarget {
         room_id: Option<String>,
         identity_id: String,
     },
+    /// One of a built-in member's extra terminals (#5991), under that member's row. It is
+    /// never a recipient, a room or a Talk target.
+    Terminal {
+        room_id: Option<String>,
+        identity_id: String,
+        terminal_id: String,
+    },
 }
 
 pub use crate::config::{OpsPreferences, OpsSort};
@@ -339,6 +346,8 @@ impl OpsRoster {
     pub(in crate::board) fn contains(&self, target: &OpsTarget) -> bool {
         match target {
             OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => true,
+            // Core's roster has no terminals: a terminal row that is gone is missing.
+            OpsTarget::Terminal { .. } => false,
             OpsTarget::Squad(id) => self.squads.iter().any(|squad| squad.room_id == *id),
             OpsTarget::Member {
                 room_id: Some(room),
@@ -468,7 +477,9 @@ impl OpsWorkspace {
                     self.expanded.insert(id.clone());
                 }
             }
-            OpsTarget::Member { .. } | OpsTarget::DigestAll => return false,
+            OpsTarget::Member { .. } | OpsTarget::Terminal { .. } | OpsTarget::DigestAll => {
+                return false;
+            }
         }
         true
     }

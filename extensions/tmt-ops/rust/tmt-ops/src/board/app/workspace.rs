@@ -444,7 +444,7 @@ impl App {
                             OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
                     }
                 }
-                rows
+                self.with_terminal_rows(rows)
             })
             .unwrap_or_default()
             .into()
@@ -515,7 +515,10 @@ impl App {
                 Some(preferences.agent_pins.contains(identity_id))
             }
             OpsTarget::Squad(room) => Some(preferences.pinned.contains(room)),
-            OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
+            OpsTarget::Pool
+            | OpsTarget::DigestAll
+            | OpsTarget::Hidden
+            | OpsTarget::Terminal { .. } => None,
         }
     }
 
@@ -567,7 +570,10 @@ impl App {
         match self.workspace_retained_search_target()? {
             member @ OpsTarget::Member { .. } => Some(member.clone()),
             OpsTarget::Squad(room) => self.workspace_squad_lead(room),
-            OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
+            OpsTarget::Pool
+            | OpsTarget::DigestAll
+            | OpsTarget::Hidden
+            | OpsTarget::Terminal { .. } => None,
         }
     }
 
@@ -632,6 +638,7 @@ impl App {
         match self.workspace.selected {
             Some(OpsTarget::Squad(_)) => OpsKeyScope::Squad,
             Some(OpsTarget::Member { .. }) => OpsKeyScope::Member,
+            Some(OpsTarget::Terminal { .. }) => OpsKeyScope::Terminal,
             _ => OpsKeyScope::Pool,
         }
     }
@@ -755,7 +762,10 @@ impl App {
                         .is_some_and(|snapshot| snapshot.hidden_count > 0)
             }
             Verb::Ui(OpsUiAction::Pin) => self.workspace_is_pinned().is_some(),
-            Verb::Ui(OpsUiAction::MemberBack) => self.framed(),
+            // Back from a full-screen terminal, or from typing into one in the right panel.
+            Verb::Ui(OpsUiAction::MemberBack) => {
+                self.framed() || self.workspace_row_scope() == OpsKeyScope::Terminal
+            }
             Verb::Ui(OpsUiAction::ClearScope) => !self.workspace.visibility.scope.is_empty(),
             _ => true,
         });
@@ -1194,6 +1204,9 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            TerminalNew | TerminalType | TerminalFullScreen | TerminalClose => {
+                return self.terminal_action(action);
+            }
             OrchestrationDay | OrchestrationWeek | OrchestrationMonth | OrchestrationPlans
             | OrchestrationNow | OrchestrationEarlier | OrchestrationLater | AllowOnce
             | FocusHour | EndFocus | ReleaseHeld | Why => {
@@ -1296,9 +1309,25 @@ impl App {
                 if target == OpsTarget::DigestAll {
                     return Effect::None;
                 }
-                if matches!(target, OpsTarget::Member { .. }) {
+                if let OpsTarget::Member { identity_id, .. } = &target {
                     if action == Inspect {
                         self.show_conversation_of(&target);
+                    } else if self.terminals.toggle_fold(identity_id, action == Expand) {
+                        self.invalidate_frame_geometry();
+                    }
+                } else if let OpsTarget::Terminal {
+                    room_id,
+                    identity_id,
+                    ..
+                } = &target
+                {
+                    // Folding from a terminal folds its member's terminals and selects the member.
+                    if action == Fold && self.terminals.toggle_fold(identity_id, false) {
+                        self.workspace.selected = Some(OpsTarget::Member {
+                            room_id: room_id.clone(),
+                            identity_id: identity_id.clone(),
+                        });
+                        self.invalidate_frame_geometry();
                     }
                 } else {
                     let expanded = match &target {
