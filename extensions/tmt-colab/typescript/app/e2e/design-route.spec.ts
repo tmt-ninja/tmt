@@ -116,7 +116,7 @@ async function openGuiButton(page: Page) {
   await expect(workspace.locator('.colab-embedded-bar')).toHaveCount(0);
   await expect(workspace.locator('.page-header-actions')).toHaveCount(0);
   await expect(workspace.locator('.work-band')).toHaveCount(0);
-  // The header names the system; the tree's root reads Introduction (the tree may be collapsed).
+  // The header names the system; the tree, the docs nav, starts at Introduction (it may be collapsed).
   await expect(page.locator('.design-page-tree a').first()).toHaveText('Introduction');
 }
 /** The built-in Brand page draws the product mark (the brand spec covers the viewer's
@@ -268,6 +268,105 @@ for (const width of [1440, 390])
       ...before,
       top: width === 390 ? 0 : before.top,
     });
+  });
+
+/** The docs site's own nav, as compile.mjs writes it from design/browser-ui/docs/app.tsx. */
+const docsNav = JSON.parse(
+  readFileSync(
+    new URL('../../../../../design/systems/tmt-gui/generated/nav.json', import.meta.url),
+    'utf8',
+  ),
+) as { sections: { title: string; pages: { title: string }[] }[] };
+
+for (const width of [1440, 390])
+  test(`the Design nav is the docs nav in its type, and the title sits where 5100's does, at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page);
+    await openGuiButton(page);
+    const tree = page.getByRole('navigation', { name: 'tmt GUI pages', exact: true });
+    const toggle = page.locator('.design-nav-toggle');
+    if (width === 390 && (await toggle.getAttribute('aria-expanded')) !== 'true')
+      await toggle.click();
+    await expect(tree).toBeVisible();
+    // The same sections, names and pages as the docs nav (Principles included), and no tag lines.
+    const drawn = await tree.evaluate((nav) =>
+      [...nav.querySelectorAll('.design-page-tree-section')].map((section) => ({
+        title: section.querySelector(':scope > p')!.textContent,
+        pages: [...section.querySelectorAll('a')].map((link) => ({ title: link.textContent })),
+      })),
+    );
+    expect(drawn).toEqual(
+      docsNav.sections.map((section) => ({
+        title: section.title,
+        pages: section.pages.map(({ title }) => ({ title })),
+      })),
+    );
+    await expect(tree.locator('.design-page-tree-tag')).toHaveCount(0);
+    // The docs nav's type (docs.css .docs-nav): 14 px headings and links, quiet links, a bold
+    // selected link on the selection surface.
+    const type = await tree.evaluate((nav) => {
+      const style = (element: Element) => getComputedStyle(element);
+      const root = style(document.documentElement);
+      const link = nav.querySelector('a:not([aria-current])')!;
+      const current = nav.querySelector('a[aria-current="page"]')!;
+      const probe = document.createElement('i');
+      nav.append(probe);
+      const paint = (value: string) => {
+        probe.style.color = value;
+        return style(probe).color;
+      };
+      const read = {
+        heading: [
+          style(nav.querySelector('.design-page-tree-section > p')!).fontSize,
+          style(nav.querySelector('.design-page-tree-section > p')!).fontWeight,
+        ],
+        link: [style(link).fontSize, style(link).fontWeight, style(link).color],
+        current: [
+          current.textContent,
+          style(current).fontWeight,
+          style(current).color,
+          style(current).backgroundColor,
+        ],
+        expected: {
+          size: root.getPropertyValue('--tmt-ui-ref-size-3').trim(),
+          secondary: paint('var(--tmt-ui-color-secondary)'),
+          text: paint('var(--tmt-ui-color-text)'),
+          selection: (() => {
+            probe.style.color = '';
+            probe.style.backgroundColor = 'var(--tmt-ui-surface-selection)';
+            return style(probe).backgroundColor;
+          })(),
+        },
+      };
+      probe.remove();
+      return read;
+    });
+    const { size, secondary, text, selection } = type.expected;
+    expect(type.heading).toEqual([size, '600']);
+    expect(type.link).toEqual([size, '400', secondary]);
+    expect(type.current).toEqual(['Button', '600', text, selection]);
+    // The title's gap below the bar above it: 5100's .docs-main top padding (32 px; 24 px at 760 px
+    // and under), measured from the Pages bar on a phone.
+    if (width === 390) await toggle.click();
+    await expect(tree)
+      .toBeHidden({ timeout: width === 390 ? 5000 : 1 })
+      .catch(() => {});
+    const bar = await page.evaluate(() => {
+      const button = document.querySelector<HTMLElement>('.design-nav-toggle')!;
+      return getComputedStyle(button).display === 'none'
+        ? document.querySelector('.design-workspace')!.getBoundingClientRect().top
+        : button.getBoundingClientRect().bottom;
+    });
+    const frameTop = await page
+      .locator('.design-workspace iframe')
+      .first()
+      .evaluate((frame) => frame.getBoundingClientRect().top);
+    const title = await designFrame(page)
+      .getByRole('heading', { name: 'Button', exact: true })
+      .evaluate((heading) => heading.getBoundingClientRect().top);
+    expect(Math.round(frameTop + title - bar)).toBe(width === 390 ? 24 : 32);
   });
 
 for (const width of [1440, 390]) {

@@ -127,7 +127,10 @@ function liftInlineStyles(sections) {
 
 async function compile(dir) {
   const { components: docs, ...rest } = readJson(join(dir, 'system.json'));
-  const pages = liftInlineStyles(await renderDocs());
+  const docsOut = await renderDocs();
+  // The nav-only pages (Principles) lift their inline styles with the rest.
+  const pages = liftInlineStyles([...docsOut.sections, { title: '', pages: docsOut.extras }]);
+  const navPages = pages.sections.pop().pages;
   const css = [tokensCss(), pageUiCss(), scopedUiThemeCss(), docsCss(), pages.css].join('\n');
   const config = { ...rest, tokens: { ...rest.tokens, css } };
   const read = docs.map(({ doc }) => {
@@ -207,6 +210,20 @@ async function compile(dir) {
             html: `<div class="tmt-design-docs">${page.html}</div>`,
           })),
         })),
+        null,
+        1,
+      )}\n`,
+    ],
+    [
+      'generated/nav.json',
+      `${JSON.stringify(
+        {
+          sections: docsOut.nav,
+          pages: navPages.map((page) => ({
+            ...page,
+            html: `<div class="tmt-design-docs">${page.html}</div>`,
+          })),
+        },
         null,
         1,
       )}\n`,

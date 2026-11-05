@@ -683,3 +683,144 @@ for (const width of [1440, 390]) {
     await expect(open.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
   });
 }
+
+// Page views and work bundles are read from the source when the frame mounts. Only a design-system
+// page has them, and the frame applies no in-place update to such a page (it owns its DOM), so an
+// edit that adds, removes or re-targets one always remounts and binds afresh.
+test('an update to a page with page views or work bundles remounts', async ({ page }) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  const results = await page.evaluate(async (release) => {
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const pin = `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}">`;
+    const mount = async (source: string) => {
+      const host = document.createElement('div');
+      document.body.prepend(host);
+      let ready = () => {};
+      const shown = new Promise<void>((resolve) => (ready = resolve));
+      const mounted = await mountRenderer(host, source, {
+        signal: new AbortController().signal,
+        onState: (state: string) => {
+          if (state === 'ready') ready();
+        },
+        designSystem: {
+          release: async () => release,
+          draft: async () => release,
+          watch: () => () => {},
+        },
+        pageView: () => () => {},
+        workBundle: { subscribe: () => () => {} },
+      });
+      await shown;
+      return mounted;
+    };
+    const bound = await mount(
+      `${pin}<tmt-ui-page-view label="First"></tmt-ui-page-view><tmt-ui-work-bundle page="one"></tmt-ui-work-bundle>`,
+    );
+    const plain = await mount('<p>Plain</p>');
+    return [
+      await bound.update(
+        `${pin}<tmt-ui-page-view label="Second"></tmt-ui-page-view><tmt-ui-work-bundle page="two"></tmt-ui-work-bundle>`,
+      ),
+      await bound.update(`${pin}<p>No bindings</p>`),
+      await plain.update('<p>Edited</p>'),
+      await plain.update(`${pin}<tmt-ui-work-bundle page="one"></tmt-ui-work-bundle>`),
+    ];
+  }, bundle);
+  expect(results).toEqual(['remount', 'remount', 'applied', 'remount']);
+});
+
+// A live page list on a page another writer touched would be a guessing oracle on the owner's pages
+// (its rows, and the height they give the frame's slot). Such a page gets no rows and a height that
+// does not depend on the owner's data; a page that stops qualifying loses its rows.
+test('a page view on a page not written only by its owner gets no rows and a fixed height', async ({
+  page,
+}) => {
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (release) => {
+    const { mountRenderer } = await import('/src/renderer.ts' as string);
+    const { gatePageViewSource } = await import('/src/page-view-source.ts' as string);
+    const row = (index: number) => ({
+      id: `p${index}`,
+      name: `Owner page ${index}`,
+      href: `/pages/p${index}`,
+      projects: ['Secret'],
+      stage: 'Open',
+      updated: '',
+      author: 'Ben',
+      access: '',
+    });
+    const state = window as unknown as {
+      mountList(rows: number, allowed: boolean): Promise<void>;
+      revoke(): void;
+    };
+    let current: { destroy(): void } | undefined;
+    let allowed = false;
+    let push: ((rows: unknown[]) => void) | undefined;
+    state.revoke = () => {
+      allowed = false;
+      push?.([row(99)]);
+    };
+    state.mountList = async (count, admitted) => {
+      current?.destroy();
+      document.querySelector('#list-host')?.remove();
+      allowed = admitted;
+      const host = document.createElement('div');
+      host.id = 'list-host';
+      document.body.prepend(host);
+      current = await mountRenderer(
+        host,
+        `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-page-view filters='[{"field":"project","value":"Secret"}]'></tmt-ui-page-view>`,
+        {
+          signal: new AbortController().signal,
+          onState: () => {},
+          designSystem: {
+            release: async () => release,
+            draft: async () => release,
+            watch: () => () => {},
+          },
+          pageView: gatePageViewSource(
+            (publish: (rows: unknown[]) => void) => {
+              push = publish;
+              publish(Array.from({ length: count }, (_, index) => row(index)));
+              return () => {};
+            },
+            () => allowed,
+          ),
+        },
+      );
+    };
+  }, bundle);
+  const list = page.locator('[data-parent-page-view]');
+  const frameHeight = () =>
+    page
+      .frameLocator('iframe[title="Page content"]')
+      .locator('tmt-ui-page-view')
+      .evaluate((node) => node.getBoundingClientRect().height);
+  const mountList = (rows: number, allowed: boolean) =>
+    page.evaluate(
+      ([count, admitted]) =>
+        (
+          window as unknown as { mountList(rows: number, allowed: boolean): Promise<void> }
+        ).mountList(count, admitted),
+      [rows, allowed] as [number, boolean],
+    );
+  const heights: number[] = [];
+  for (const rows of [0, 1, 30]) {
+    await mountList(rows, false);
+    await expect(list.getByText('Page list unavailable')).toBeVisible();
+    await expect(list.getByText(/Owner page/)).toHaveCount(0);
+    await expect.poll(frameHeight).toBeGreaterThan(1);
+    heights.push(await frameHeight());
+  }
+  expect(new Set(heights).size).toBe(1);
+  // Admitted, the owner's rows show; once revoked, the next publish leaves the fixed state.
+  await mountList(3, true);
+  await expect(list.getByText('Owner page 2')).toBeVisible();
+  await page.evaluate(() => (window as unknown as { revoke(): void }).revoke());
+  await expect(list.getByText(/Owner page/)).toHaveCount(0);
+  await expect(list.getByText('Page list unavailable')).toBeVisible();
+  await expect.poll(frameHeight).toBe(heights[0]);
+});

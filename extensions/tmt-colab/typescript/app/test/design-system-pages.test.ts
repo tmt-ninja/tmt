@@ -536,17 +536,30 @@ describe('the built-in tmt GUI in Design (#6060)', () => {
     const before = pages.size;
     const { entry, page } = await builtInDesign();
     expect(entry.builtIn).toBe(true);
+    // The tree is the docs site's own nav, Principles included, with no tag lines.
     expect(entry.tree.children.map((node) => [node.kind, node.title])).toEqual([
-      ['section', 'Foundations'],
+      ['section', 'Getting started'],
+      ['section', 'Tokens'],
       ['section', 'Components'],
       ['section', 'Browser components'],
       ['section', 'Patterns'],
     ]);
-    const button = entry.tree.children[1]!.children.find(
+    expect(entry.tree.children[0]!.children.map((node) => [node.key, node.title])).toEqual([
+      ['', 'Introduction'],
+      ['principles', 'Principles'],
+    ]);
+    expect(page('principles')!.source).toContain('Red is rare');
+    const button = entry.tree.children[2]!.children.find(
       (node) => node.id === 'components/button',
     )!;
-    expect(button).toMatchObject({ key: 'components/button', tag: 'button', title: 'Button' });
-    expect(entry.tree.children[2]!.children.map((node) => node.id)).toContain('browser/avatar');
+    expect(button).toEqual({
+      id: 'components/button',
+      key: 'components/button',
+      title: 'Button',
+      kind: 'page',
+      children: [],
+    });
+    expect(entry.tree.children[3]!.children.map((node) => node.id)).toContain('browser/avatar');
     const source = page('components/button')!.source;
     expect(source).toContain('<meta name="tmt-ds" content="tmt-gui">');
     expect(source).toContain('<tmt-ui-component-docs page="components/button">');
@@ -580,34 +593,118 @@ describe('the built-in tmt GUI in Design (#6060)', () => {
     expect((await listDesignSystems(transport)).systems).toEqual([]);
   });
 
+  /** The live discussion pages for a docs path. */
+  const liveDiscussions = (pages: ReturnType<typeof space>['pages']) =>
+    [...pages]
+      .filter(([, page]) => !page.archived && readBlock(page.source, 'annotates'))
+      .map(([id]) => id);
+  /** Another tab on the same space: its own transport object over the same pages. */
+  const otherTab = (transport: PageTransport) => ({ ...transport }) as PageTransport;
+
   it('two first comments at once (two tabs) leave one live page for the path', async () => {
     const { pages, make, transport } = space();
     make('Notes');
     const shipped = (await builtInDesign()).page('components/button')!;
     // Both tabs find no page before either makes one.
-    const home = transport.spaceHome;
+    const tab = otherTab(transport);
     let arrivals = 0;
     let release!: () => void;
     const together = new Promise<void>((resolve) => {
       release = resolve;
     });
-    transport.spaceHome = async (...args) => {
-      const snapshot = await home(...args);
-      if (++arrivals <= 2) {
-        if (arrivals === 2) release();
-        await together;
-      }
-      return snapshot;
+    for (const each of [transport, tab]) {
+      const home = each.spaceHome;
+      each.spaceHome = async (...args) => {
+        const snapshot = await home(...args);
+        if (++arrivals <= 2) {
+          if (arrivals === 2) release();
+          await together;
+        }
+        return snapshot;
+      };
+    }
+    const [first, second] = await Promise.all([
+      ensureBuiltInDiscussion(transport, 'components/button', shipped),
+      ensureBuiltInDiscussion(tab, 'components/button', shipped),
+    ]);
+    expect(second).toBe(first);
+    expect(liveDiscussions(pages)).toEqual([first]);
+  });
+
+  it('a tab that finishes before the other marks its lower page still ends with one page', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    // Tab B makes its page first (the lower id) but its edit waits until tab A is done.
+    const tab = otherTab(transport);
+    let stalled!: () => void;
+    const atEdit = new Promise<void>((resolve) => {
+      stalled = resolve;
+    });
+    let resume!: () => void;
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    tab.page = async (id) => {
+      const opened = await transport.page(id);
+      const binding = opened.binding!;
+      return {
+        ...opened,
+        binding: {
+          ...binding,
+          edit: async (...args: Parameters<typeof binding.edit>) => {
+            stalled();
+            await resumed;
+            return binding.edit(...args);
+          },
+        } as typeof binding,
+      };
     };
+    const second = ensureBuiltInDiscussion(tab, 'components/button', shipped);
+    await atEdit;
+    // Tab A sees no finished page, makes its own and keeps it.
+    const first = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    expect(liveDiscussions(pages)).toEqual([first]);
+    resume();
+    const kept = await second;
+    expect(kept < first).toBe(true);
+    // B archived A's page, not only its own; A's next look finds B's.
+    expect(liveDiscussions(pages)).toEqual([kept]);
+    expect(await findBuiltInDiscussion(transport, 'components/button', shipped.title)).toBe(kept);
+  });
+
+  it('a double press in one tab makes one page', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    const before = pages.size;
     const [first, second] = await Promise.all([
       ensureBuiltInDiscussion(transport, 'components/button', shipped),
       ensureBuiltInDiscussion(transport, 'components/button', shipped),
     ]);
     expect(second).toBe(first);
-    const live = [...pages].filter(
-      ([, page]) => !page.archived && readBlock(page.source, 'annotates'),
+    expect(pages.size).toBe(before + 1);
+    expect(liveDiscussions(pages)).toEqual([first]);
+  });
+
+  it('a page whose Design mark fails is archived, and the next press makes a working one', async () => {
+    const { pages, make, transport } = space();
+    make('Notes');
+    const shipped = (await builtInDesign()).page('components/button')!;
+    const management = transport.management!;
+    const setProjects = management.setProjects;
+    management.setProjects = async () => {
+      throw new Error('Mark failed');
+    };
+    const before = pages.size;
+    await expect(ensureBuiltInDiscussion(transport, 'components/button', shipped)).rejects.toThrow(
+      'Mark failed',
     );
-    expect(live.map(([id]) => id)).toEqual([first]);
+    expect(pages.size).toBe(before + 1);
+    expect([...pages.values()].filter((page) => !page.archived).length).toBe(before);
+    management.setProjects = setProjects;
+    const id = await ensureBuiltInDiscussion(transport, 'components/button', shipped);
+    expect(liveDiscussions(pages)).toEqual([id]);
   });
 });
 

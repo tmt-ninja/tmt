@@ -83,3 +83,20 @@ export function watchPageView(
     stop();
   };
 }
+
+/** A live page list for a page whose content only its owner wrote (#6064). The list's rows and the
+ * height they give it are an oracle on the owner's pages, so a page another writer touched gets none:
+ * it is refused at subscribe, and every later publish is withheld once the page stops qualifying
+ * (an epoch or writer change), which leaves the fixed "unavailable" state. */
+export function gatePageViewSource(
+  source: (publish: (rows: PageViewRecord[]) => void, failed: () => void) => () => void,
+  admitted: () => boolean,
+): typeof source {
+  return (publish, failed) => {
+    if (!admitted()) {
+      failed();
+      return () => {};
+    }
+    return source((rows) => (admitted() ? publish(rows) : failed()), failed);
+  };
+}

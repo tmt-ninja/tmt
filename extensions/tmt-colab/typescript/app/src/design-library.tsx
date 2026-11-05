@@ -47,6 +47,18 @@ function Tree({
   navigate(href: string): void;
 }) {
   const prefix = system.prefix;
+  // The built-in tree is the docs nav: its sections are the top level, Introduction included.
+  if (root && system.builtIn)
+    return node.children.map((child) => (
+      <Tree
+        key={child.id}
+        node={child}
+        current={current}
+        system={system}
+        base={base}
+        navigate={navigate}
+      />
+    ));
   // A built-in section groups pages, as the docs nav does; it is a heading, not a page.
   if (node.kind === 'section')
     return (

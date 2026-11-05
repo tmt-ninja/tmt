@@ -14,12 +14,14 @@
 }
 .design-user-system {
   display: grid;
-  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   min-height: 100%;
 }
 .design-page-tree {
   border-right: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding: var(--tmt-ui-ref-space-4);
+  /* The docs nav's box and type (design/browser-ui/docs/docs.css .docs-nav), so Design reads as 5100. */
+  padding: var(--tmt-ui-ref-space-6) var(--tmt-ui-ref-space-4);
+  font-size: var(--tmt-ui-ref-size-3);
   /* The nav is its own scroller, as on the docs site: scrolling a page leaves it where it is. */
   position: sticky;
   top: 0;
@@ -29,31 +31,35 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* A built-in section heading groups pages, as the docs nav does. */
-.design-page-tree-section > p {
-  margin: var(--tmt-ui-ref-space-3) 0 var(--tmt-ui-ref-space-1);
-  padding: 0 var(--tmt-ui-ref-space-2);
-  font-size: var(--tmt-ui-type-caption-size);
-  font-weight: 600;
-  color: var(--tmt-ui-color-secondary);
+/* A section groups pages, as the docs nav does: a heading over its links. */
+.design-page-tree-section {
+  margin-bottom: var(--tmt-ui-ref-space-5);
 }
-.design-page-tree ul ul:has(> .design-page-tree-section) {
-  padding-left: 0;
+.design-page-tree-section > p {
+  margin: 0 0 var(--tmt-ui-ref-space-1);
+  padding: 0 var(--tmt-ui-ref-space-2);
+  font-weight: 600;
 }
 .design-page-tree ul {
+  display: grid;
+  gap: 1px;
   list-style: none;
   padding-left: var(--tmt-ui-ref-space-3);
   margin: 0;
 }
-.design-page-tree > ul {
+.design-page-tree > ul,
+.design-page-tree-section > ul {
   padding-left: 0;
 }
 .design-page-tree a {
   display: block;
-  padding: var(--tmt-ui-ref-space-2);
-  color: inherit;
+  padding: var(--tmt-ui-ref-space-1) var(--tmt-ui-ref-space-2);
+  color: var(--tmt-ui-color-secondary);
   text-decoration: none;
   border-radius: var(--tmt-ui-radius);
+}
+.design-page-tree a:hover {
+  color: var(--tmt-ui-color-text);
 }
 .design-page-tree-tag {
   display: block;
@@ -62,14 +68,20 @@
   color: var(--tmt-ui-color-secondary);
 }
 .design-page-tree a[aria-current] {
-  background: var(--tmt-ui-surface-hover);
+  background: var(--tmt-ui-surface-selection);
+  color: var(--tmt-ui-color-text);
+  font-weight: 600;
 }
 .design-page {
   min-width: 0;
 }
-/* The page starts below the header with the docs' own top space (5100's .docs-main). */
+/* The page title sits as far below the bar above it as 5100's (.docs-main's top padding: 32 px,
+   24 px at 760 px and under); at 900 px and under the Pages button's own margin counts toward it.
+   The embedded shell is display: contents, so the page section carries the space. */
 .design-user-system > .shell-embedded {
   min-width: 0;
+}
+.design-user-system > .shell-embedded > .page {
   padding-top: var(--tmt-ui-ref-space-6);
 }
 .design-page-renderer {
@@ -86,6 +98,9 @@
   .design-nav-toggle {
     display: block;
     margin: var(--tmt-ui-ref-space-2);
+  }
+  .design-user-system > .shell-embedded > .page {
+    padding-top: calc(var(--tmt-ui-ref-space-6) - var(--tmt-ui-ref-space-2));
   }
   .design-page-tree:not([data-open]) {
     display: none;
@@ -163,4 +178,9 @@
 .design-live-frame {
   width: 100%;
   min-width: 0;
+}
+@media (max-width: 760px) {
+  .design-user-system > .shell-embedded > .page {
+    padding-top: calc(var(--tmt-ui-ref-space-5) - var(--tmt-ui-ref-space-2));
+  }
 }

@@ -22,9 +22,17 @@ import type { PageTransport } from './transport.js';
  * Design always draws the shipped source, never that page's stored copy.
  */
 
-interface DocSection {
+interface DocPage {
+  slug: string;
   title: string;
-  pages: { slug: string; title: string; html: string; path: string }[];
+  html: string;
+  path: string;
+}
+/** The docs site's own nav (design/browser-ui/docs/app.tsx), as compile.mjs writes it: Design draws
+ * this, not its own grouping, so the two cannot drift; `pages` holds the pages only the nav lists. */
+interface DocsNav {
+  sections: { title: string; pages: { title: string; path: string }[] }[];
+  pages: DocPage[];
 }
 
 /** The shipped built-in system: its Design tree and each page's source by docs path. */
@@ -45,45 +53,52 @@ export function builtInDesign(): Promise<BuiltInDesign> {
   loaded ??= Promise.all([
     import('../../../../../design/systems/tmt-gui/generated/template.json'),
     import('../../../../../design/systems/tmt-gui/generated/pages.json'),
-  ]).then(([{ default: template }, { default: pages }]) => {
+    import('../../../../../design/systems/tmt-gui/generated/nav.json'),
+  ]).then(([{ default: template }, { default: pages }, { default: navJson }]) => {
     const { system } = template as unknown as { system: DesignSystemConfig };
-    const sections = pages as unknown as DocSection[];
+    const nav = navJson as unknown as DocsNav;
+    const docs = new Map(
+      [
+        ...(pages as unknown as { pages: DocPage[] }[]).flatMap((section) => section.pages),
+        ...nav.pages,
+      ].map((doc) => [doc.path, doc] as const),
+    );
     const intro = `<div class="tmt-design-docs"><article class="docs-article"><h1>${escape(system.name)}</h1>
 <p class="docs-lead">${escape(system.principles?.summary ?? '')}</p>
-${sections
+${nav.sections
   .map(
     (section) =>
       `<h2>${escape(section.title)}</h2><ul class="docs-list">${section.pages
+        .filter((doc) => doc.path)
         .map((doc) => `<li><a href="${builtInLink(doc.path)}">${escape(doc.title)}</a></li>`)
         .join('')}</ul>`,
   )
   .join('\n')}
 </article></div>`;
     const byPath = new Map<string, { title: string; source: string }>([
-      ['', { title: system.name, source: writePin(intro, BUILT_IN_SYSTEM) }],
-      ...sections.flatMap((section) =>
-        section.pages.map(
-          (doc) =>
-            [doc.path, { title: doc.title, source: writePin(doc.html, BUILT_IN_SYSTEM) }] as const,
-        ),
-      ),
+      ['', { title: 'Introduction', source: writePin(intro, BUILT_IN_SYSTEM) }],
     ]);
-    const tags = new Set(system.components.map((component) => component.tag));
+    for (const section of nav.sections)
+      for (const { path, title } of section.pages) {
+        if (!path) continue;
+        const doc = docs.get(path);
+        if (!doc) throw new Error(`The docs nav lists ${path}, which the build does not ship.`);
+        byPath.set(path, { title, source: writePin(doc.html, BUILT_IN_SYSTEM) });
+      }
     const tree: DesignTreeNode = {
       id: '',
       key: '',
       title: system.name,
       kind: 'design-system',
-      children: sections.map((section) => ({
+      children: nav.sections.map((section) => ({
         id: `section:${section.title}`,
         title: section.title,
         kind: 'section',
-        children: section.pages.map((doc) => ({
-          id: doc.path,
-          key: doc.path,
-          title: doc.title,
+        children: section.pages.map(({ path, title }) => ({
+          id: path,
+          key: path,
+          title,
           kind: 'page',
-          ...(section.title.endsWith('omponents') && tags.has(doc.slug) && { tag: doc.slug }),
           children: [],
         })),
       })),
@@ -127,33 +142,71 @@ async function discussionPages(transport: PageTransport, path: string, title: st
   return found.sort();
 }
 
-/** The Colab page that holds a built-in docs page's comments and Chat, if one was made. */
-export async function findBuiltInDiscussion(
+/** The docs path's discussion page: the lowest id. Two tabs may each make one at once, so every
+ * find also archives the others, whoever made them; a viewer who cannot manage pages only reads. */
+async function settleDiscussion(
   transport: PageTransport,
   path: string,
   title: string,
 ): Promise<string | undefined> {
-  return (await discussionPages(transport, path, title))[0];
+  const [keep, ...extra] = await discussionPages(transport, path, title);
+  const management = transport.management;
+  if (management)
+    for (const id of extra) await runPageOperation(management, id, 'page.archive').catch(() => {});
+  return keep;
 }
 
-/** The docs path's discussion page, made now if there is none. Two tabs may make one each at once:
- * each then keeps the lowest id and archives its own page if that is not it, so one page stays. */
-export async function ensureBuiltInDiscussion(
+/** The Colab page that holds a built-in docs page's comments and Chat, if one was made. */
+export function findBuiltInDiscussion(
+  transport: PageTransport,
+  path: string,
+  title: string,
+): Promise<string | undefined> {
+  return settleDiscussion(transport, path, title);
+}
+
+/** Discussion pages being made in this tab, by transport and docs path: a second press waits for
+ * the first instead of making another page. */
+const making = new WeakMap<PageTransport, Map<string, Promise<string>>>();
+
+/** The docs path's discussion page, made now if there is none. A page this call made but could not
+ * finish (its block or Design mark failed) is archived, so no half-made page stays. */
+export function ensureBuiltInDiscussion(
   transport: PageTransport,
   path: string,
   page: { title: string; source: string },
 ): Promise<string> {
-  const found = await findBuiltInDiscussion(transport, path, page.title);
+  const own = making.get(transport) ?? new Map<string, Promise<string>>();
+  making.set(transport, own);
+  const pending = own.get(path);
+  if (pending) return pending;
+  const made = makeDiscussion(transport, path, page).finally(() => own.delete(path));
+  own.set(path, made);
+  return made;
+}
+
+async function makeDiscussion(
+  transport: PageTransport,
+  path: string,
+  page: { title: string; source: string },
+): Promise<string> {
+  const found = await settleDiscussion(transport, path, page.title);
   if (found) return found;
   const management = transport.management;
   if (!management) throw new Error('Only the owner can start a discussion here.');
   const id = await newRoot(transport, discussionTitle(page.title));
   const annotates: Annotates = { system: BUILT_IN_SYSTEM, path };
-  await withPage(transport, id, async (made) => {
-    await made.binding!.edit(`${blockHtml('annotates', annotates)}\n${page.source}`, made.source);
-  });
-  await markDesignPages(transport, [id]);
-  const [keep = id] = await discussionPages(transport, path, page.title);
-  if (keep !== id) await runPageOperation(management, id, 'page.archive');
-  return keep;
+  try {
+    await withPage(transport, id, async (opened) => {
+      await opened.binding!.edit(
+        `${blockHtml('annotates', annotates)}\n${page.source}`,
+        opened.source,
+      );
+    });
+    await markDesignPages(transport, [id]);
+  } catch (failure) {
+    await runPageOperation(management, id, 'page.archive').catch(() => {});
+    throw failure;
+  }
+  return (await settleDiscussion(transport, path, page.title)) ?? id;
 }

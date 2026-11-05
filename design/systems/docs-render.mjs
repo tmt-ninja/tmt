@@ -50,7 +50,9 @@ export async function withDocs(use) {
 export const PAGE_BYTES = 192 * 1024;
 const bytes = (text) => Buffer.byteLength(text);
 
-/** Every docs page the template carries, as static HTML in the docs' own templates, by section. */
+/** Every docs page the template carries, as static HTML in the docs' own templates, by section;
+ * and the docs site's own nav (`nav`, from `designSystems` in docs/app.tsx), which Design draws so
+ * the two cannot drift, with the pages only the nav lists (`extras`, such as Principles). */
 export async function renderDocs() {
   return withDocs(async ({ load, render, React }) => {
     const h = React.createElement;
@@ -66,7 +68,7 @@ export async function renderDocs() {
     const byName = (a, b) => a.name.localeCompare(b.name, 'en');
     const page = (slug, title, node, path) => ({ slug, title, html: render(() => node), path });
     const article = (title, lead, ...children) => h(Article, { title, lead }, ...children);
-    return [
+    const sections = [
       {
         title: 'Foundations',
         pages: tokenPages.map((doc) =>
@@ -199,5 +201,28 @@ export async function renderDocs() {
         ],
       },
     ];
+    const { designSystems } = await load('/docs/app.tsx');
+    const { guiRoot } = await load('/docs/routes.ts');
+    const gui = designSystems.find((system) => system.id === 'gui');
+    const rendered = new Set(sections.flatMap((section) => section.pages.map((doc) => doc.path)));
+    const extras = [];
+    // The docs nav, less its Mocks (full-screen routes, not pages); '' is the introduction.
+    const nav = gui.sections
+      .filter((section) => section.title !== 'Mocks')
+      .map((section) => ({
+        title: section.title,
+        pages: section.pages.map((doc) => {
+          if (doc.href !== guiRoot && !doc.href.startsWith(`${guiRoot}/`))
+            throw new Error(`docs nav: ${doc.href} is outside ${guiRoot}`);
+          const path = doc.href.slice(guiRoot.length + 1);
+          if (path && !rendered.has(path))
+            extras.push(page(path.split('/').pop(), doc.title, doc.render(), path));
+          return { title: doc.title, path };
+        }),
+      }));
+    const listed = new Set(nav.flatMap((section) => section.pages.map((doc) => doc.path)));
+    for (const path of rendered)
+      if (!listed.has(path)) throw new Error(`docs nav: ${path} is not in the docs nav`);
+    return { sections, nav, extras };
   });
 }

@@ -5482,7 +5482,10 @@ the draft for viewing.
 
 Design-system runtime 2 supplies React, html and cn. Runtime 3 also supplies its system prefix and permits a component to declare
 named shared parts in its `parts` list; the host currently permits only `PageListTable`. The
-component receives only its declared names, and an attempt to access another part is refused.
+component's skeleton exposes only its declared names, and asking it for another part throws. That
+is a declaration check, not an isolation boundary: component code runs in the page frame and can
+reach the frame's runtime directly, which holds no host data or capability beyond what the parent
+has already sent to that frame.
 When an admitted component declares `PageListTable`, the host may supply it with the owner's
 bounded page-list projection. The host identifies eligible tags from the verified bundle, including
 systems with a custom prefix; markup alone cannot declare that capability.
@@ -5510,22 +5513,34 @@ When a component element leaves the document, its React root is released after a
 has not reconnected. Moving a component within the same turn keeps its root; a later reconnection
 mounts a new root with the original slotted nodes. This releases component-owned resources such as
 chart resize observers on removal.
-When an owner page includes a live `tmt-ui-page-view`, the trusted parent renders its bounded
-page-list projection in the reserved slot: at most 200 records and 64 KiB, with page identifiers,
-titles, projects, stage, update label, author and access only. The frame receives geometry only; it
-receives neither the list nor transport or management capability. The subscription ends with the frame and follows
-the owner list's refreshes. A view without an owner list shows an unavailable state.
+When a page whose content only its owner wrote includes a live `tmt-ui-page-view`, the trusted
+parent renders its bounded page-list projection in the reserved slot: at most 200 records and
+64 KiB. The records' page identifiers, titles, projects, stage, update label, author and access are
+parent-only: none of them reaches the frame, nor does a transport or management capability. The
+frame receives the slot's height, which follows the rows drawn. The owner-only-content check is the
+work bundle's: the parent applies it when the view subscribes and withholds every later refresh once
+the page stops qualifying (an epoch or writer change). A page that does not qualify, or a view
+without an owner list, shows the fixed unavailable state, whose height depends only on the view's
+authored attributes. The subscription ends with the frame and follows the owner list's refreshes.
+A work bundle reads at most 20 distinct referenced pages per frame mount; each opens that page
+through the viewer's transport and reads the space home once.
+A page with design-system tags is never updated in place: an edit to it remounts the frame, so its
+page views and work bundles are always bound from the source the frame shows.
 
 The built-in tmt GUI is not stored as pages (#6060). `/design/ds/gui` draws it from the
-`generated/pages.json` and bundle the build ships, by the docs site's paths (`components/button`),
-in the page frame with annotations and Chat. Its component pages use `tmt-ui-component-docs`, which
+`generated/pages.json`, `generated/nav.json` and bundle the build ships, by the docs site's paths
+(`components/button`), in the page frame with annotations and Chat. Its nav is the docs site's own
+(`nav.json`, compiled from the docs app's model): the same sections, names and pages, Principles
+included. Its component pages use `tmt-ui-component-docs`, which
 renders the docs site's own page for a path with the same live scenes. Visiting Design writes
 nothing. The first Comment or Chat on a built-in page makes one top-level page for that path: titled
 `<page title> · tmt GUI`, in `tmt:design-system`, holding a `data-tmt-ds="annotates"` block
 `{system: "tmt-gui", path}` and the shipped source. Later visits find that page by title and block and
 use its threads, but Design always draws the shipped source, never the page's stored copy. When two
-first comments race, each keeps the lowest page ID for the path and archives its own page if that is
-not it. A later build may change the shipped source; a thread whose quote no longer matches keeps its
+first comments race (two tabs, or one tab's press while another's is still being made), the lowest
+page ID for the path is the discussion: every lookup by a viewer who can manage pages archives the
+path's other discussion pages, whoever made them. One tab makes at most one page per path at a time,
+and a page whose block or Design mark fails is archived. A later build may change the shipped source; a thread whose quote no longer matches keeps its
 discussion and loses its anchor. A built-in page has no Publish.
 Foundation pages render the shared live docs in the frame, so token values follow its theme and
 the motion examples respond to their controls. A copied system owns the foundation component on

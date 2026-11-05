@@ -4,7 +4,7 @@ import { useEditLockLayer } from './edit-lock-layer.js';
 import { ShellPage } from './shell-page.js';
 import { PageWorkBand } from './work-band-live.js';
 import { pageDesignSystems, withoutDesignSystems } from './design-system-pages.js';
-import { watchPageView } from './page-view-source.js';
+import { gatePageViewSource, watchPageView } from './page-view-source.js';
 import { gateWorkBundleSource, workBundleSource } from './work-bundle-source.js';
 import { usePageAttachmentDownload } from './page-attachment-download.js';
 import { usePageHierarchy } from './page-hierarchy.js';
@@ -2034,14 +2034,15 @@ function OpenPage({
     () => pageDesignSystems(transport, shownRelease),
     [transport, shownRelease],
   );
-  const pageViewSource = useMemo(
-    () =>
-      transport.management
-        ? (publish: Parameters<typeof watchPageView>[2], failed: () => void) =>
-            watchPageView(transport, space, publish, failed, (id) => routing.pageHref(id))
-        : undefined,
-    [transport, space, routing],
-  );
+  const pageViewSource = useMemo(() => {
+    if (!transport.management || view.ownerOnlyContent !== true) return undefined;
+    const admitted = () => binding.current?.ownerOnlyContent?.() === true;
+    return gatePageViewSource(
+      (publish, failed) =>
+        watchPageView(transport, space, publish, failed, (id) => routing.pageHref(id)),
+      admitted,
+    );
+  }, [transport, space, routing, view.ownerOnlyContent]);
   const workSource = useMemo(() => {
     if (!transport.management || view.ownerOnlyContent !== true) return undefined;
     const admitted = () => binding.current?.ownerOnlyContent?.() === true;
