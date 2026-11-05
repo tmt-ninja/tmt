@@ -1293,6 +1293,15 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
 }
 
 #[test]
+fn the_hotkeys_offer_fits_the_footer_whole_at_80_columns() {
+    let mut app = workspace_board();
+    app.set_notice(Some(crate::hotkeys::OFFER.into()), false);
+    let screen = draw(&app, 80, 24);
+    let footer = screen.last().unwrap();
+    assert!(footer.contains(crate::hotkeys::OFFER), "{footer}");
+}
+
+#[test]
 fn applied_search_and_footer_notices_fit_whole_effective_hints() {
     use crate::board::shell::OpsTab;
     for width in [103, 148] {

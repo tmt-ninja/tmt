@@ -17,7 +17,7 @@ agreed to it. Propose the commands, show what they will change, and wait.
   its own git worktree.
 - **The board** on a hotkey: `prefix S` opens it as a popup that closes when you
   jump, `prefix B` as a pane that stays open. `jump` works across sessions and
-  `back` returns the user's client to where the jump came from.
+  `prefix G` (`back`) returns the user's client to where the jump came from.
 
 ## Agree on the details first
 

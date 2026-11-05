@@ -1647,7 +1647,11 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       const conf = path.join(fixture.root, 'tmux.conf');
       fs.writeFileSync(conf, 'set -g mouse on\n');
       const install = ['hotkeys', 'install', '--yes', '--config', conf];
+      const options = () => fixture.tmux(['show-options', '-g']);
+      const optionsBefore = options();
 
+      // The user's own G stays: the default back key gives way to it.
+      fixture.tmux(['bind-key', 'G', 'last-window']);
       fixture.tmux(['bind-key', 'S', 'choose-tree']);
       const taken = await opsCli(fixture, install);
       expect(errorCode(taken)).toBe('SQUAD_HOTKEY_TAKEN');
@@ -1655,11 +1659,17 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(fs.readFileSync(conf, 'utf8')).toBe('set -g mouse on\n');
 
       fixture.tmux(['unbind-key', 'S']);
-      expectJsonResult(await opsCli(fixture, install));
+      const installed = expectJsonResult<{ skipped: string[] }>(
+        await opsCli<{ skipped: string[] }>(fixture, install)
+      );
+      expect(installed.skipped).toEqual(['prefix G on the running server: last-window']);
       expect(notedKeys(fixture)).toEqual(
         expect.arrayContaining(['S|tmt ops popup', 'B|tmt ops pane'])
       );
+      expect(notedKeys(fixture).some((key) => key.includes('tmt ops back'))).toBe(false);
+      expect(boundCommand(fixture, 'G')).toBe('last-window');
       expect(boundCommand(fixture, 'S')).toContain('ops ui --popup');
+      expect(options(), 'install sets no server option').toBe(optionsBefore);
       expect(fs.readFileSync(conf, 'utf8')).toMatch(
         /^set -g mouse on\nsource-file -q '.*ops\.tmux\.conf' # tmt ops hotkeys\n$/
       );
@@ -1672,6 +1682,15 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
       expect(removed.unbound).toEqual(['S']);
       expect(boundCommand(fixture, 'S')).toBeUndefined();
       expect(boundCommand(fixture, 'B')).toBe('split-window');
+      expect(boundCommand(fixture, 'G')).toBe('last-window');
+
+      // With G free, install binds the default back key.
+      fixture.tmux(['unbind-key', 'G']);
+      fixture.tmux(['unbind-key', 'B']);
+      expectJsonResult(await opsCli(fixture, install));
+      expect(notedKeys(fixture)).toEqual(expect.arrayContaining(['G|tmt ops back']));
+      expect(boundCommand(fixture, 'G')).toContain('ops squad back');
+      expect(options(), 'install sets no server option').toBe(optionsBefore);
     });
   });
 

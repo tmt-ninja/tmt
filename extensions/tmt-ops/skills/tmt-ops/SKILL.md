@@ -1726,6 +1726,26 @@ full request/identity and exact byte range.
 For terminal-native selection, use the terminal's mouse-capture bypass modifier
 (commonly Shift); the exact modifier belongs to the terminal.
 
+## tmux prefix keys
+
+On tmux, Ops can add three prefix keys: `S` opens the board in a popup, `B`
+beside your pane, and `G` goes back to the board after a jump (`tmt ops squad
+back`). `[tmux]` in `ops.toml` changes them (`popup`, `pane`, `back`, optional
+`lead`); `back = ""` leaves the back key out. The default `G` gives way to a `G`
+the user already binds, in a tmux.conf or on the running server (read with
+`list-keys`); a key the user chose instead refuses the install. Nothing is
+written until the user agrees:
+
+```sh
+tmt ops hotkeys install --print   # the exact file and line; changes nothing
+tmt ops hotkeys install           # shows the plan and asks
+tmt ops hotkeys show              # installed keys, and any left out
+tmt ops hotkeys rm                # removes Ops' line, file and bindings
+```
+
+Installing Ops inside tmux, and the first board started on tmux without the
+keys, print that preview command once; neither writes anything.
+
 ## tmux wheel
 
 If wheel-up over the board scrolls tmux's own scrollback while wheel-down still

@@ -377,17 +377,30 @@ fn complete(words: &[String]) -> Vec<String> {
     candidates
 }
 
+/// Where the user already binds the default back key, which install leaves out.
+fn skipped(document: &Value) -> impl Iterator<Item = &str> {
+    document["skipped"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+}
+
 fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
     let path = |value: &Value| value.as_str().unwrap_or_default().to_owned();
     if document["bindings"].is_string() && document["installed"].is_null() {
-        // --print: exactly what install would write.
-        return format!(
+        // --print: exactly what install would write, then any default key left out.
+        let mut text = format!(
             "# {}\n{}\n# add to {}:\n{}\n",
             path(&document["squadFile"]),
             document["bindings"].as_str().unwrap_or_default(),
             path(&document["target"]),
             path(&document["line"])
         );
+        for skipped in skipped(document) {
+            text.push_str(&format!("# back key left out, already bound: {skipped}\n"));
+        }
+        return text;
     }
     if document["installed"] == true && document.get("changed").is_some() {
         return if document["changed"] == true {
@@ -456,6 +469,12 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
             }
         )),
     ]);
+    for skipped in skipped(document) {
+        table.row([
+            Cell::styled("left out", Token::Dim),
+            Cell::from(format!("back, already bound: {skipped}")),
+        ]);
+    }
     if document["executableExists"] == false {
         table.row([
             Cell::styled("tmt", Token::Dim),
@@ -1446,13 +1465,26 @@ mod tests {
     fn the_hotkeys_report_is_a_section_with_the_next_step_only_when_stale() {
         let report = |current: bool| {
             serde_json::json!({"installed": true, "current": current,
-                "keys": {"popup": "S", "pane": "B", "back": null},
+                "keys": {"popup": "S", "pane": "B", "back": "G"},
                 "squadFile": "/nowhere/ops.tmux.conf"})
         };
         let text = hotkeys_text(&report(true), Terminal::PLAIN);
         assert!(text.starts_with("HOTKEYS\n  installed  yes\n"), "{text}");
-        assert!(text.contains("keys       popup S, pane B\n"), "{text}");
+        assert!(
+            text.contains("keys       popup S, pane B, back G\n"),
+            "{text}"
+        );
         assert!(!text.contains("hint:"), "{text}");
+        let mut left_out = report(true);
+        left_out["keys"]["back"] = serde_json::Value::Null;
+        left_out["skipped"] = serde_json::json!(["prefix G in /h/.tmux.conf: bind G last-window"]);
+        let text = hotkeys_text(&left_out, Terminal::PLAIN);
+        assert!(
+            text.contains(
+                "left out   back, already bound: prefix G in /h/.tmux.conf: bind G last-window\n"
+            ),
+            "{text}"
+        );
         let stale = hotkeys_text(&report(false), Terminal::PLAIN);
         assert!(
             stale.contains("/nowhere/ops.tmux.conf (out of date)"),

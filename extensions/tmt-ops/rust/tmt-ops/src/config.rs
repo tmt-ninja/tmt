@@ -1010,12 +1010,19 @@ fn program(item: &Item, place: &str) -> Result<Vec<String>, SquadError> {
     Ok(argv)
 }
 
+/// The `back` key when `[tmux]` does not name one: free in tmux's default
+/// prefix table and in common plugin sets, and next to the frame's `ctrl-g`.
+pub const DEFAULT_BACK: &str = "G";
+
 /// Prefix keys for the board and `back`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxKeys {
     pub popup: String,
     pub pane: String,
     pub back: Option<String>,
+    /// Whether `[tmux] back` names the key (or `""` for none). The default
+    /// key gives way to a binding the user already has; a chosen one does not.
+    pub back_chosen: bool,
     pub lead: Option<String>,
 }
 
@@ -1292,12 +1299,27 @@ impl Config {
                     }),
             }
         };
-        let keys = TmuxKeys {
+        let back_chosen = table.is_some_and(|table| table.contains_key("back"));
+        let back = if back_chosen && table.and_then(|table| table.get("back")?.as_str()) == Some("")
+        {
+            None
+        } else {
+            key("back")?
+        };
+        let mut keys = TmuxKeys {
             popup: key("popup")?.unwrap_or_else(|| "S".into()),
             pane: key("pane")?.unwrap_or_else(|| "B".into()),
-            back: key("back")?,
+            back,
+            back_chosen,
             lead: key("lead")?,
         };
+        if !back_chosen {
+            let taken = [Some(&keys.popup), Some(&keys.pane), keys.lead.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|key| key == DEFAULT_BACK);
+            keys.back = (!taken).then(|| DEFAULT_BACK.into());
+        }
         let mut chosen = vec![&keys.popup, &keys.pane];
         chosen.extend(keys.back.as_ref());
         chosen.extend(keys.lead.as_ref());
@@ -3456,7 +3478,7 @@ sort = ["state", "-name"]
     }
 
     #[test]
-    fn tmux_keys_default_to_s_and_b_and_back_and_lead_are_opt_in() {
+    fn tmux_keys_default_to_s_b_and_back_g_and_lead_is_opt_in() {
         let (_scratch, path) = temp("tmux-keys");
         fs::write(&path, "").unwrap();
         let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
@@ -3465,10 +3487,22 @@ sort = ["state", "-name"]
             TmuxKeys {
                 popup: "S".into(),
                 pane: "B".into(),
-                back: None,
+                back: Some("G".into()),
+                back_chosen: false,
                 lead: None,
             }
         );
+        fs::write(&path, "[tmux]\nback = \"\"\n").unwrap();
+        let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
+        assert_eq!(
+            (keys.back, keys.back_chosen),
+            (None, true),
+            "\"\" turns back off"
+        );
+        // The default gives way to a key the user chose for something else.
+        fs::write(&path, "[tmux]\nlead = \"G\"\n").unwrap();
+        let keys = Config::read(path.clone()).unwrap().tmux_keys().unwrap();
+        assert_eq!((keys.back, keys.lead.as_deref()), (None, Some("G")));
         fs::write(
             &path,
             "[tmux]\npopup = \"C-s\"\npane = \"F5\"\nback = \"b\"\nlead = \"J\"\n",
