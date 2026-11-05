@@ -448,6 +448,11 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       `sh ${orphan}/scripts/ci-wake.sh 6089 --identity infra-1`,
       `sh ${elsewhere}/scripts/ci-wake.sh 6089 --identity infra-1`,
       "python3 - <<'PY'\nimport time\ntime.sleep(60)\nPY",
+      // A string handed to code that runs it stays code, triple-quoted or not.
+      'python3 - <<\'PY\'\nimport subprocess\nsubprocess.run("sleep 60", shell=True)\nPY',
+      'python3 - <<\'PY\'\nimport os\nos.system("sleep 5")\nPY',
+      "python3 - <<'PY'\nimport subprocess\nsubprocess.run('''sleep 60''', shell=True)\nPY",
+      "python3 - <<'PY'\nexec('''import time\ntime.sleep(5)''')\nPY",
     ];
     for (const command of judged) await c.guard({ ...bash(command), cwd: repo }, {}, hook);
     expect(received).toHaveLength(judged.length);

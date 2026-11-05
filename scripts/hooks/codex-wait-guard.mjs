@@ -712,9 +712,18 @@ export function redact(text) {
 
 const PYTHONS = new Set(['python', 'python3']);
 
-/** Python source without its comments and triple-quoted strings. */
+/**
+ * Text before a triple-quoted string that makes it prose: a docstring-style statement of its own,
+ * or text written out or printed. Any other string, such as one handed to subprocess, os.system,
+ * exec or eval, or assigned to a name, stays code.
+ */
+const PYTHON_PROSE_BEFORE = /(?:^|\n)[ \t]*$|\b(?:write|write_text|writelines|print)\(\s*$/;
+
+/** Python source without its comments and its prose triple-quoted strings. */
 function pythonCode(text) {
-  return text.replace(/'''[\s\S]*?'''|"""[\s\S]*?"""|#[^\n]*/g, ' ');
+  return text.replace(/'''[\s\S]*?'''|"""[\s\S]*?"""|#[^\n]*/g, (match, at) =>
+    match.startsWith('#') || PYTHON_PROSE_BEFORE.test(text.slice(0, at)) ? ' ' : match
+  );
 }
 
 const INTERPRETERS = new Set([
