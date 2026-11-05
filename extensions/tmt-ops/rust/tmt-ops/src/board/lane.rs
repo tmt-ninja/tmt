@@ -51,6 +51,8 @@ pub(super) enum Job {
     Skills(super::skills::Task),
     /// Read the running versions once, at start.
     Versions,
+    /// List, open or close a built-in member's extra terminals.
+    Terminals(super::member_terminals::Task),
 }
 
 impl Job {
@@ -67,7 +69,7 @@ impl Job {
                 | Self::Notes(_)
                 | Self::Skills(_)
                 | Self::Versions
-        )
+        ) && !matches!(self, Self::Terminals(task) if task.progress().is_none())
     }
 
     /// What the board shows until the job's event arrives.
@@ -79,6 +81,7 @@ impl Job {
             Self::Notes(_) => "Reading the checklist…",
             Self::Skills(_) => "Reading skills…",
             Self::Versions => "Reading the versions…",
+            Self::Terminals(task) => task.progress().unwrap_or("Reading terminals…"),
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::MemberSession(_) => "Loading session…",
             Self::SwitchTool(_) => "Preparing or switching AI tool…",
@@ -113,6 +116,9 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         }
         Job::Skills(task) => BoardEvent::SkillsRead(super::skills::complete(core, task)),
         Job::Versions => BoardEvent::VersionsRead(super::versions::Versions::read(core)),
+        Job::Terminals(task) => {
+            BoardEvent::TerminalsDone(super::member_terminals::complete(core, task))
+        }
         Job::Jump { member } => BoardEvent::Acted {
             jump: true,
             sends: false,

@@ -22,6 +22,10 @@ pub enum OpsUiAction {
     MarkRead,
     Unread,
     MemberBack,
+    TerminalNew,
+    TerminalType,
+    TerminalFullScreen,
+    TerminalClose,
     Previous,
     Next,
     Fold,
@@ -143,6 +147,34 @@ const SPECS: &[OpsUiSpec] = &[
         "member-back",
         "back",
         "leave a built-in-host agent's full-screen terminal for the board; the key never reaches the agent",
+        6
+    ),
+    spec!(
+        TerminalNew,
+        "terminal-new",
+        "new terminal",
+        "open a login shell under the selected built-in-host agent, in its working directory",
+        6
+    ),
+    spec!(
+        TerminalType,
+        "terminal-type",
+        "type",
+        "type into the selected terminal; the back key returns to the list",
+        6
+    ),
+    spec!(
+        TerminalFullScreen,
+        "terminal-full-screen",
+        "full screen",
+        "show the selected terminal full screen; the back key returns to the list",
+        6
+    ),
+    spec!(
+        TerminalClose,
+        "terminal-close",
+        "close",
+        "close the selected terminal, asking first while a program runs in it",
         6
     ),
     spec!(

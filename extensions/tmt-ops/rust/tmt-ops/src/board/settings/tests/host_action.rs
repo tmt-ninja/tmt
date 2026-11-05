@@ -13,11 +13,10 @@ fn open(f: &mut Fixture, board_pane: Option<&str>) {
 }
 
 #[test]
-fn bindings_inventory_shows_the_measure_default_no_t_default_and_preserves_authored_t() {
-    // `t` has no default since `j` opens a built-in member's Terminal view (#5765).
+fn bindings_inventory_shows_the_measure_default_the_terminal_t_and_preserves_authored_t() {
+    // On a member row `t` opens an extra terminal (#5991); an authored binding replaces it.
     for (bindings, expected_t) in [
-        // The inventory lists the key with no default value.
-        ("", Some(serde_json::Value::Null)),
+        ("", Some(json!("terminal-new"))),
         ("[bind]\nt='talk-measure'\n", Some(json!("talk-measure"))),
     ] {
         let mut f = fixture("measure-bindings", bindings);

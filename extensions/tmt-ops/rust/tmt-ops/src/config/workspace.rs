@@ -234,6 +234,8 @@ pub enum OpsLayout {
 pub enum OpsKeyScope {
     Squad,
     Member,
+    /// One of a built-in member's extra terminals (#5991).
+    Terminal,
     Pool,
     Reader,
     /// The Orchestration tab (#4893): its own controls, with the tab and app keys.
@@ -241,9 +243,10 @@ pub enum OpsKeyScope {
 }
 
 impl OpsKeyScope {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Squad,
         Self::Member,
+        Self::Terminal,
         Self::Pool,
         Self::Reader,
         Self::Orchestration,
@@ -376,6 +379,14 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("C", "member-checklist"),
             ("m", "move-membership"),
             ("D", "digest"),
+            ("t", "terminal-new"),
+        ]),
+        OpsKeyScope::Terminal => entries.extend([
+            ("t", "terminal-new"),
+            ("enter", "terminal-type"),
+            ("double-click", "terminal-type"),
+            ("j", "terminal-full-screen"),
+            ("x", "terminal-close"),
         ]),
         OpsKeyScope::Pool => entries.extend([("m", "manage"), ("N", "create-squad")]),
     }
@@ -1240,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_measure_key_is_unique_outside_readers_and_t_is_never_a_default() {
+    fn factory_measure_key_is_unique_outside_readers_and_t_opens_only_a_member_terminal() {
         for scope in [
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
@@ -1248,8 +1259,13 @@ mod tests {
             OpsKeyScope::Reader,
         ] {
             let factory = config("").workspace_keys(scope, None, None).unwrap();
-            // `j` fills the board with a built-in member's terminal (#5989).
-            assert!(!factory.bindings.contains_key("t"), "{scope:?}");
+            // `t` opens an extra terminal under a member (#5991), and only there; `j` fills the
+            // board with a built-in member's terminal (#5989).
+            assert_eq!(
+                factory.bindings.get("t").map(|action| action.text.as_str()),
+                (scope == OpsKeyScope::Member).then_some("terminal-new"),
+                "{scope:?}"
+            );
             let measure_keys: Vec<_> = factory
                 .bindings
                 .iter()

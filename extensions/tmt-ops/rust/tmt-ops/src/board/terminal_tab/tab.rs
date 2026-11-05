@@ -443,9 +443,7 @@ impl Tab {
     /// The framed program is given the room its screen has (the board less the header row),
     /// when the stream opens and whenever that area changes.
     pub(in crate::board) fn fit_window(&mut self) {
-        if self.framed.is_none() {
-            return;
-        }
+        // The frame, or a terminal shown in the right panel, last drew `area`.
         let (Some(open), Some(area)) = (self.open.as_mut(), self.area.get()) else {
             return;
         };

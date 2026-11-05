@@ -19,6 +19,16 @@ use tmt_tui::components::{KeyHint, Modal, Placement, footer as fit_hints, strip}
 pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
+/// Whether a row at `depth` follows from `from` before the tree climbs above `depth`: the
+/// branch at that depth goes on (`├` and `│`) rather than ending (`└`).
+fn continues(rows: &[super::OpsTreeRow], from: usize, depth: u8) -> bool {
+    rows.get(from..)
+        .unwrap_or_default()
+        .iter()
+        .find(|row| row.depth <= depth)
+        .is_some_and(|row| row.depth == depth)
+}
+
 /// Fixed name-cell slot: pin state never changes table column geometry.
 pub(in crate::board) fn pin_mark(
     target: &OpsTarget,
@@ -28,7 +38,9 @@ pub(in crate::board) fn pin_mark(
     let pinned = match target {
         OpsTarget::Squad(room) => preferences.pinned.contains(room),
         OpsTarget::Member { identity_id, .. } => preferences.agent_pins.contains(identity_id),
-        OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => false,
+        OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden | OpsTarget::Terminal { .. } => {
+            false
+        }
     };
     Span::styled(if pinned { "▪ " } else { "  " }, look.role(Role::Muted))
 }
@@ -403,6 +415,36 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 });
                 continue;
             }
+            if let OpsTarget::Terminal {
+                identity_id,
+                terminal_id,
+                ..
+            } = &row.target
+            {
+                if let Some(terminal) = app.terminals.row(identity_id, terminal_id) {
+                    crate::board::tree_row::paint_terminal(
+                        frame.buffer_mut(),
+                        stripe,
+                        &slots,
+                        &crate::board::tree_row::TerminalRow {
+                            source: row,
+                            ended: terminal.ended,
+                            last: !continues(&rows, index + 1, row.depth),
+                            trunk: continues(&rows, index + 1, row.depth.saturating_sub(1)),
+                            selected,
+                            live: columns::activity_style(app, "running"),
+                        },
+                        look,
+                    );
+                }
+                app.hits.borrow_mut().push(Hit {
+                    x: stripe.x,
+                    y,
+                    width: stripe.width,
+                    target: HitTarget::Row(index),
+                });
+                continue;
+            }
             let scope = match &row.target {
                 OpsTarget::Squad(room) => Some(
                     crate::board::overview::cron_counts::CronCountScope::Room(room),
@@ -414,7 +456,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     id: identity_id,
                     room: room_id.as_deref(),
                 }),
-                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
+                OpsTarget::Pool
+                | OpsTarget::DigestAll
+                | OpsTarget::Hidden
+                | OpsTarget::Terminal { .. } => None,
             };
             let timers = scope.and_then(|scope| app.cron.counts.count(scope));
             // A plain program is not an agent: it has no tokens (#5769).
@@ -440,9 +485,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Member { identity_id, .. } => {
                         std::iter::once(identity_id.as_str()).collect()
                     }
-                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => {
-                        Default::default()
-                    }
+                    OpsTarget::Pool
+                    | OpsTarget::DigestAll
+                    | OpsTarget::Hidden
+                    | OpsTarget::Terminal { .. } => Default::default(),
                 };
                 app.tok_money_text(&members.into_iter().collect::<Vec<_>>())
             } else {
@@ -456,7 +502,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     OpsTarget::Member { identity_id, .. } => app
                         .overview_member_usage(identity_id)
                         .map(|reading| (reading.tokens, reading.partial)),
-                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => None,
+                    OpsTarget::Pool
+                    | OpsTarget::DigestAll
+                    | OpsTarget::Hidden
+                    | OpsTarget::Terminal { .. } => None,
                 }
                 .map_or_else(
                     || "—".into(),
@@ -578,7 +627,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 OpsTarget::Member { identity_id, .. } => {
                     snapshot.preferences.agent_pins.contains(identity_id)
                 }
-                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => false,
+                OpsTarget::Pool
+                | OpsTarget::DigestAll
+                | OpsTarget::Hidden
+                | OpsTarget::Terminal { .. } => false,
             };
             let model: String = match &row.target {
                 OpsTarget::Member { identity_id, .. } => {
@@ -611,7 +663,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             })
                     })
                     .unwrap_or_default(),
-                OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => String::new(),
+                OpsTarget::Pool
+                | OpsTarget::DigestAll
+                | OpsTarget::Hidden
+                | OpsTarget::Terminal { .. } => String::new(),
             };
             // Decided once per row: focus in this agent's conversation.
             let in_conversation = selected
@@ -626,9 +681,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 &crate::board::tree_row::Row {
                     source: row,
                     expanded,
-                    last: !rows
-                        .get(index + 1)
-                        .is_some_and(|next| next.depth == row.depth),
+                    last: !continues(&rows, index + 1, row.depth),
+                    folds: matches!(&row.target, OpsTarget::Member { identity_id, .. }
+                        if !app.terminals.rows(identity_id).is_empty()),
                     pinned,
                     state,
                     state_primary_width,
@@ -695,7 +750,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         room_id,
                         identity_id,
                     } => (room_id.clone(), Some(identity_id.clone())),
-                    OpsTarget::Pool | OpsTarget::DigestAll | OpsTarget::Hidden => (None, None),
+                    OpsTarget::Pool
+                    | OpsTarget::DigestAll
+                    | OpsTarget::Hidden
+                    | OpsTarget::Terminal { .. } => (None, None),
                 };
                 app.cron_scope_hits
                     .borrow_mut()

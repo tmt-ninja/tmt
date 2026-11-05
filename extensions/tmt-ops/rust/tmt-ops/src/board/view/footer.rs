@@ -323,6 +323,32 @@ fn agents_legend(app: &App) -> Option<Hints> {
     }
     let bindings = app.bindings();
     let find = |verb, preferred: &str| effective_key(app, &bindings, verb, preferred);
+    if matches!(app.workspace.selected, Some(OpsTarget::Terminal { .. })) {
+        // A terminal row: mock 8's keys, in its order.
+        let keys = [
+            (Ui::TerminalNew, "t", "New terminal"),
+            (Ui::TerminalType, "enter", "Type"),
+            (Ui::TerminalFullScreen, "j", "Full screen"),
+            (Ui::TerminalClose, "x", "Close"),
+        ]
+        .into_iter()
+        .filter_map(|(action, preferred, word)| {
+            Some((
+                key_label(&find(Verb::Ui(action), preferred)?).to_owned(),
+                word.to_owned(),
+            ))
+        })
+        .chain(std::iter::once((
+            app.member_back_label(),
+            "Back to list".to_owned(),
+        )))
+        .collect();
+        let tail = find(Verb::Ui(Ui::Help), "?")
+            .map(|key| (key_label(&key).to_owned(), "Help".to_owned()))
+            .into_iter()
+            .collect();
+        return Some(Hints { keys, tail });
+    }
     let bound = |key: &str, action: Ui| {
         bindings
             .get(key)

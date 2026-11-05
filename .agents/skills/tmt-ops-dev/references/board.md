@@ -695,6 +695,28 @@ still hidden, so an input method draws uncommitted text at the program's input. 
 the screen selects its text and copies it with the chat's Copy, unless the program asked for the
 mouse.
 
+### Member terminals
+
+`board/member_terminals/` shows a built-in member's extra terminals (#5991; Core's
+`terminal.open`, `terminal.list`, `terminal.close`). `Terminals` (on `App`) holds, per member,
+the rows Core last listed, numbered "Terminal N" in the order the board first saw them, and
+keeps a row Core no longer lists as ended (`○ ended`) for this board session only: nothing is
+saved, and a member Core reports unavailable (closed, removed, another host) loses its rows.
+Every Core call is a `lane::Job::Terminals` task: `Terminals::offer` gives, one at a time, an
+open or close the person asked for, then one list of every built-in member after start, then
+the selected member's list when it is 2 s old (a member with no terminals is asked again after
+60 s). `with_terminal_rows` puts the rows under their member in `workspace_rows` at depth + 1
+as `OpsTarget::Terminal`, which is never a recipient, room or Talk target; the member gets
+`▾`/`▸`, and ←/→ fold them. A terminal row has its own key scope (`OpsKeyScope::Terminal`):
+`t` `terminal-new` (also on member rows), `⏎` `terminal-type`, `j` `terminal-full-screen`,
+`x` `terminal-close`. `x` closes an idle terminal at once, asks first for a busy one (the
+board's confirm, Cancel first), and removes an ended row without asking Core. The right panel
+(`panel`) is the selected live terminal through `terminal_tab`'s one stream (keyed by the
+terminal id, with the address from the list; `terminal.stream` is never asked for it), under
+the rule `member · Terminal N · directory`, a status line and a footer line; `⏎` sends keys to
+it until the `member-back` key, and `j` puts it in the member frame. Core reports only `busy`,
+so the confirm and the status line do not name the program or the shell yet (#6112).
+
 ## Checklist controller
 
 `App::context_menu` owns the context action menu for configured Menu bindings and

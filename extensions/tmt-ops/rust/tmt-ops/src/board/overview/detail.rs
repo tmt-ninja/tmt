@@ -154,6 +154,7 @@ impl App {
             ));
             let scope = match self.workspace_scope() {
                 crate::config::OpsKeyScope::Member => "selected squad member",
+                crate::config::OpsKeyScope::Terminal => "selected terminal",
                 crate::config::OpsKeyScope::Squad => "selected squad",
                 crate::config::OpsKeyScope::Pool => "Common pool",
                 crate::config::OpsKeyScope::Reader => "conversation reader",

@@ -399,6 +399,18 @@ fn terminal_tab_frames(styles: &mut Styles) -> Vec<Value> {
     )
 }
 
+/// A built-in member's terminals (#5991): the tree with a live right panel, and the close
+/// confirm of a busy terminal (mocks 8 and 9).
+fn member_terminals_frames(styles: &mut Styles) -> Vec<Value> {
+    scene_group(
+        styles,
+        crate::board::member_terminals::scenes::SCENES,
+        |_| grid(&[160, 100], &[36]),
+        |scene, look, _, _| crate::board::member_terminals::scenes::capture_case(scene, look),
+        |_, _| {},
+    )
+}
+
 /// The Settings page's keys group: scrolled to the checklist key, and its editor open.
 fn settings_keys_frames(styles: &mut Styles) -> Vec<Value> {
     scene_group(
@@ -1249,6 +1261,7 @@ fn captures() -> Value {
         frames.extend(timeline_frames(&mut styles));
         frames.extend(snapshot_frames(&mut styles));
         frames.extend(terminal_tab_frames(&mut styles));
+        frames.extend(member_terminals_frames(&mut styles));
         frames.extend(settings_keys_frames(&mut styles));
         frames.extend(quota_details_frames(&mut styles));
         frames.extend(unread_overlay_frames(&mut styles));

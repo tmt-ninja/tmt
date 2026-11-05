@@ -479,7 +479,7 @@ fn selection(buffer: &mut Buffer, area: Rect, screen: &Screenful, app: &App) {
 
 /// While typing, the real cursor goes where the program's is, shown or hidden as the program has
 /// it, when that cell is inside `area`; it then stands in for the reversed cell.
-pub(super) fn caret(area: Rect, screen: &Screenful) -> Option<Caret> {
+pub(in crate::board) fn caret(area: Rect, screen: &Screenful) -> Option<Caret> {
     let (column, row) = screen.caret?;
     (column < area.width && row < area.height).then(|| Caret {
         at: ratatui::layout::Position::new(area.x + column, area.y + row),
@@ -490,7 +490,7 @@ pub(super) fn caret(area: Rect, screen: &Screenful) -> Option<Caret> {
 /// Where the program's cursor is, as one reversed cell (not the terminal's own cursor), when the
 /// program shows it and the cell is inside `area`. On a cell the program already reversed it
 /// shows as the plain cell.
-fn cursor(buffer: &mut Buffer, area: Rect, screen: &Screenful) {
+pub(in crate::board) fn cursor(buffer: &mut Buffer, area: Rect, screen: &Screenful) {
     let Some((column, row)) = screen.cursor else {
         return;
     };

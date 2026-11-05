@@ -67,7 +67,9 @@ impl App {
 
     /// The member core should be asked about next: only the framed one.
     pub(in crate::board) fn terminal_locate(&self) -> Option<String> {
-        let id = self.framed_identity()?;
+        let id = self
+            .framed_identity()
+            .filter(|key| !crate::board::member_terminals::is_terminal_key(key))?;
         self.terminal
             .needs_locating(&id, crate::status::now_ms())
             .then_some(id)
@@ -75,7 +77,9 @@ impl App {
 
     /// How long until the framed member's answer is old enough to ask again.
     pub(in crate::board) fn terminal_wait(&self) -> Option<Duration> {
-        let id = self.framed_identity()?;
+        let id = self
+            .framed_identity()
+            .filter(|key| !crate::board::member_terminals::is_terminal_key(key))?;
         self.terminal.locating_wait(&id, crate::status::now_ms())
     }
 
@@ -101,6 +105,12 @@ impl App {
 
     /// The framed member's name, for the header and the dialogs.
     pub(in crate::board) fn terminal_member_name(&self) -> String {
+        if let Some((_, row)) = self
+            .framed_identity()
+            .and_then(|key| self.terminals.find(&key))
+        {
+            return row.title();
+        }
         self.framed_identity()
             .and_then(|id| self.identity_row(&id))
             .and_then(|row| row["name"].as_str().map(str::to_owned))
@@ -269,7 +279,8 @@ impl App {
 
     /// Opens, replaces or drops the one stream so it matches the frame. True when it changed.
     pub(in crate::board) fn terminal_sync(&mut self) -> bool {
-        let wanted = self.framed_identity().and_then(|id| {
+        let wanted = self.wanted_terminal_stream().or_else(|| {
+            let id = self.framed_identity()?;
             let address = self.terminal.address(&id)?.clone();
             Some((id, address))
         });
@@ -294,7 +305,7 @@ impl App {
     }
 
     /// The key is bound to `member-back` (Ctrl-g by default). It never reaches the member.
-    fn back_key(&self, key: KeyEvent) -> bool {
+    pub(in crate::board) fn back_key(&self, key: KeyEvent) -> bool {
         event_name(key).is_some_and(|name| {
             self.workspace_bindings()
                 .get(&name)
