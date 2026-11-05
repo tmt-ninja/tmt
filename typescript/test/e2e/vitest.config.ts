@@ -8,7 +8,8 @@ export default defineConfig({
     include: ['test/e2e/**/*.e2e.test.ts'],
     exclude: ['node_modules', 'dist'],
     fileParallelism: false,
-    testTimeout: 15_000,
+    // Allow setup plus a 10 s capture wait to throw its pane diagnostic first (#5947).
+    testTimeout: 60_000,
     hookTimeout: 5_000,
     maxConcurrency: 1,
     sequence: { concurrent: false, shuffle: false },
