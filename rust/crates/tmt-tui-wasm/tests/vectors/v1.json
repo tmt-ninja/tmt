@@ -5418,7 +5418,7 @@
   "artifacts": {
     "wasm": {
       "raw": 439549,
-      "gzip": 136270
+      "gzip": 136264
     },
     "glue": {
       "raw": 6145,

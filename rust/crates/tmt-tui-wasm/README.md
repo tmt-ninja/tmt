@@ -6,7 +6,7 @@ This private leaf exposes one versioned component per call; it does not compose 
 
 The renderer admits at most 65,536 UTF-8 input bytes, nesting depth 32, 4,096 bytes per string, 64 bytes per grapheme, 256 chips and 4,096 points. Dimensions are 1–512 columns, 1–256 rows and at most 32,768 cells. It checks JavaScript string size and UTF-16 validity before copying into wasm memory, rejects invalid input before allocating the grid and limits output to 16 MiB.
 
-The Node parity runner compares the checked-in vector with both native output and actual wasm-bindgen output. Its generated wasm and glue sizes are recorded independently; their combined gzip budget is capped at 524,288 bytes. Browser asset delivery, CSP and offline export remain the caller's responsibility.
+Gzip sizes in the vector are pinned to the hosted Linux CI runner; local macOS zlib builds can differ by a few bytes. The Node parity runner compares the checked-in vector with both native output and actual wasm-bindgen output. Its generated wasm and glue sizes are recorded independently; their combined gzip budget is capped at 524,288 bytes. Browser asset delivery, CSP and offline export remain the caller's responsibility.
 
 | Name | Props |
 | --- | --- |
