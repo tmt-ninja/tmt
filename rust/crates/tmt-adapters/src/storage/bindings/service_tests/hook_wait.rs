@@ -4,10 +4,20 @@ use super::{
 };
 use crate::storage::{Storage, StorageError, StorageErrorCode};
 use std::{
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
+
+/// How long a gate waits for the hook's answer: a liveness bound only, never the thing
+/// measured (#6035). The mutation runs its host effect outside every SQLite transaction
+/// and cannot pass its gate until the hook answers, so a hook that waited on the mutation
+/// would never answer; a hook that does not wait answers in one transaction, however
+/// loaded the runner is.
+const HOOK_ANSWER: Duration = Duration::from_secs(10);
 use tmt_core::{
     binding::{self, Binding, BindingEndpoint, BindingRepository, session::*},
     endpoint::{EndpointProbe, EndpointSnapshot, ProcessIncarnation, ServerEvidence},
@@ -271,10 +281,7 @@ fn a_held_binding_publication_does_not_hold_the_sqlite_writer() {
                 // Publication remains held until the receive returns, so a
                 // writer blocked by it cannot satisfy this assertion.
                 assert!(
-                    result_rx
-                        .recv_timeout(Duration::from_secs(2))
-                        .unwrap()
-                        .unwrap(),
+                    result_rx.recv_timeout(HOOK_ANSWER).unwrap().unwrap(),
                     "unrelated hook writer did not commit while publication was held"
                 );
             }),
@@ -326,7 +333,7 @@ fn presence_keeps_the_identity_and_reservation_while_publication_is_held() {
             gate: Some(|| {
                 start_tx.send(()).unwrap();
                 let (presence, no_active_binding, still_reserved) =
-                    result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                    result_rx.recv_timeout(HOOK_ANSWER).unwrap();
                 assert_eq!(presence, binding::Presence::Offline);
                 assert!(
                     no_active_binding && still_reserved,
@@ -365,7 +372,7 @@ fn competing_bind_that_observed_an_empty_pane_refuses_without_publishing() {
             mutation: Mutation::Bind,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
-                let (refused, published) = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+                let (refused, published) = result_rx.recv_timeout(HOOK_ANSWER).unwrap();
                 assert!(refused, "the occupied row must refuse the competing bind");
                 assert_eq!(published, 0, "a refused bind must not publish");
             }),
@@ -400,6 +407,9 @@ fn mutation_admits_hook(mutation: Mutation) {
     // binding is the valid positive control for hook writer admission.
     let hook_binding = launched_hook(&mut storage, &mut endpoint, "%9");
     let target = mutation.set_up(&mut storage, &mut endpoint);
+    // Set when the gate releases the mutation: the hook must answer before it.
+    let released = AtomicBool::new(false);
+    let released = &released;
     endpoint = thread::scope(|scope| {
         let (start_tx, start_rx) = mpsc::sync_channel(1);
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -412,8 +422,10 @@ fn mutation_admits_hook(mutation: Mutation) {
             ready_tx.send(()).unwrap();
             start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let result = resumed_hook(&mut hook, hook_binding);
+            let while_held = !released.load(Ordering::SeqCst);
             hook.close().unwrap();
-            result_tx.send(result).unwrap();
+            // A gate that already failed has dropped its receiver; it reports once.
+            let _ = result_tx.send((result, while_held));
         });
         ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut held = HeldHost {
@@ -421,13 +433,16 @@ fn mutation_admits_hook(mutation: Mutation) {
             mutation,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
+                let (result, while_held) = result_rx.recv_timeout(HOOK_ANSWER).unwrap();
                 assert!(
-                    result_rx
-                        .recv_timeout(Duration::from_millis(500))
-                        .unwrap()
-                        .unwrap(),
+                    while_held,
+                    "{mutation:?}: the hook answered only after release"
+                );
+                assert!(
+                    result.unwrap(),
                     "{mutation:?}: unrelated hook could not commit during host I/O"
                 );
+                released.store(true, Ordering::SeqCst);
             }),
         };
         mutation.run(&mut storage, &mut held, target.as_ref());
@@ -481,6 +496,8 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
     let mut storage = fixture.open();
     let mut endpoint = FakeEndpoint::new(&["%9"]);
     let old = launched_hook(&mut storage, &mut endpoint, "%9");
+    let released = AtomicBool::new(false);
+    let released = &released;
     endpoint = thread::scope(|scope| {
         let (start_tx, start_rx) = mpsc::sync_channel(1);
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -493,8 +510,9 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
             ready_tx.send(()).unwrap();
             start_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             let result = resumed_hook(&mut hook, old);
+            let while_held = !released.load(Ordering::SeqCst);
             hook.close().unwrap();
-            result_tx.send(result).unwrap();
+            let _ = result_tx.send((result, while_held));
         });
         ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let mut held = HeldHost {
@@ -502,13 +520,13 @@ fn a_hook_waiting_for_unbind_cannot_restore_the_detached_binding() {
             mutation: Mutation::Unbind,
             gate: Some(|| {
                 start_tx.send(()).unwrap();
+                let (result, while_held) = result_rx.recv_timeout(HOOK_ANSWER).unwrap();
+                assert!(while_held, "the hook answered only after release");
                 assert!(
-                    !result_rx
-                        .recv_timeout(Duration::from_millis(500))
-                        .unwrap()
-                        .unwrap(),
+                    !result.unwrap(),
                     "detached binding must not be restored by the hook"
                 );
+                released.store(true, Ordering::SeqCst);
             }),
         };
         assert!(

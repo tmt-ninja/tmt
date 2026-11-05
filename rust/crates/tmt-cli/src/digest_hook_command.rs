@@ -92,7 +92,7 @@ pub fn execute(
             )
             .map_err(&mut refuse)?;
             storage
-                .ingest_pending_hook_captures_for_identity(&launch.identity_id)
+                .ingest_pending_hook_captures_for_identity_until(&launch.identity_id, deadline)
                 .map_err(|error| {
                     refuse(worker_storage_failure(WorkerStorageStage::Ingest, &error))
                 })?;

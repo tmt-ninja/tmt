@@ -3219,3 +3219,70 @@ fn housekeeping_through_a_linked_data_directory_still_prunes_old_receipts() {
         .unwrap();
     assert!(!exists, "retention reached the queue through the link");
 }
+
+#[test]
+fn the_digest_worker_waits_for_a_held_main_writer_until_its_deadline_holding_no_queue_writer() {
+    use super::capture::first_busy;
+    let mut w = World::new();
+    let event = w.event("pending while an observer's flusher holds main", false);
+    let queue = HookQueue::open(&w.path, Duration::ZERO).unwrap();
+    // A live flusher holds the drain lock, so this ingest starts none.
+    let _guard = queue.claim().unwrap();
+    queue.enqueue(&event).unwrap();
+    w.storage.close().unwrap();
+    let writer = Connection::open(&w.path).unwrap();
+    let queue_path = w.path.with_file_name("hook-writes.db");
+
+    // 1. The writer is released while the worker provably waits: the worker commits.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    w.storage = Storage::open_hook(&w.path, deadline).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (waiting_tx, waiting_rx) = std::sync::mpsc::sync_channel(1);
+    first_busy::arm(waiting_tx, deadline);
+    let storage = &mut w.storage;
+    let agent = w.agent.clone();
+    let result = std::thread::scope(|scope| {
+        let worker = scope.spawn(move || {
+            storage.ingest_pending_hook_captures_for_identity_until(&agent, deadline)
+        });
+        waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        // While it waits for main, the worker holds no queue transaction: another queue
+        // writer gets in at once, so no lock order between the two databases exists.
+        let other = Connection::open(&queue_path).unwrap();
+        other.busy_timeout(Duration::ZERO).unwrap();
+        other.execute_batch("BEGIN IMMEDIATE; COMMIT").unwrap();
+        writer.execute_batch("ROLLBACK").unwrap();
+        worker.join().unwrap()
+    });
+    first_busy::disarm();
+    result.unwrap();
+    assert_eq!(w.final_count(), 1);
+    assert!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .is_none()
+    );
+
+    // 2. A writer held past the deadline still ends in Busy, the existing refusal path.
+    let second = w.event("pending past the worker deadline", false);
+    queue.enqueue(&second).unwrap();
+    w.storage.close().unwrap();
+    let deadline = Instant::now() + Duration::from_millis(400);
+    w.storage = Storage::open_hook(&w.path, deadline).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let error = w
+        .storage
+        .ingest_pending_hook_captures_for_identity_until(&w.agent, deadline)
+        .unwrap_err();
+    assert_ingest_sqlite_busy(&error, "Begin queued capture transaction");
+    writer.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(
+        queue
+            .next_uncommitted_for_identity(&w.agent)
+            .unwrap()
+            .unwrap()
+            .id(),
+        second.id()
+    );
+}
