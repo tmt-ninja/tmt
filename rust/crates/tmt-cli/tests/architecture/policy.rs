@@ -29,6 +29,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli", "tmt-driver-protocol", None), // Herdr driver conformance harness
     ("tmt-cli", "nix", Some("cfg(unix)")), // stdin signal and observer readiness fixtures
     ("tmt-cli", "rusqlite", Some("cfg(unix)")), // request-observer SQL oracle
+    ("tmt-cli", "vt100", None),        // attach restore terminal-mode oracle
     ("tmt-cli-style", "crossterm", None), // table terminal-style assertions
     ("tmt-cli-style", "insta", None),  // rendering snapshots
     ("tmt-cli-style", "serde_json", None), // theme serialization assertions

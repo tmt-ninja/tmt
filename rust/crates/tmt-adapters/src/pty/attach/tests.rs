@@ -45,10 +45,15 @@ fn peer(
 }
 
 fn empty_snapshot(peer: &mut UnixStream, decoder: &mut Decoder) {
+    empty_snapshot_at(peer, decoder, Size::new(80, 24).unwrap());
+}
+
+/// An empty screen taken at `size`, the size the client asked for.
+fn empty_snapshot_at(peer: &mut UnixStream, decoder: &mut Decoder, size: Size) {
     assert_eq!(receive(peer, decoder), ClientMessage::Snapshot);
     peer.write_all(&ServerMessage::SnapshotStart.encode())
         .unwrap();
-    peer.write_all(&ServerMessage::SnapshotEnd(Size::new(80, 24).unwrap()).encode())
+    peer.write_all(&ServerMessage::SnapshotEnd(size).encode())
         .unwrap();
 }
 
@@ -141,7 +146,7 @@ fn sole_use_follows_this_clients_resize_and_eviction_is_reported() {
             ClientMessage::Resize(Size::new(120, 30).unwrap())
         );
         assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::TakeSole);
-        empty_snapshot(&mut peer, &mut decoder);
+        empty_snapshot_at(&mut peer, &mut decoder, Size::new(120, 30).unwrap());
         peer.write_all(&ServerMessage::Evicted(Eviction::TakenOver).encode())
             .unwrap();
     });
@@ -344,4 +349,159 @@ fn out_of_order_snapshot_frames_are_not_painted_as_live_bytes() {
         assert!(output.is_empty());
         server.join().unwrap();
     }
+}
+
+fn size(cols: u16, rows: u16) -> Size {
+    Size::new(cols, rows).unwrap()
+}
+
+fn send(peer: &mut UnixStream, messages: &[ServerMessage]) {
+    for message in messages {
+        peer.write_all(&message.encode()).unwrap();
+    }
+}
+
+/// Everything the client sends after `Exited`, which must be nothing.
+fn nothing_more(peer: &mut UnixStream, decoder: &mut Decoder) {
+    let mut bytes = [0; 64];
+    let count = peer.read(&mut bytes).unwrap();
+    decoder.push(&bytes[..count]).unwrap();
+    assert_eq!(decoder.frame::<ClientMessage>().unwrap(), None);
+}
+
+fn run(connection: &mut Connection, output: &mut Vec<u8>) -> AttachEnd {
+    let (input, _typed) = UnixStream::pair().unwrap();
+    let mut signals = AttachSignals::install().unwrap();
+    attach(connection, &input, output, &mut signals, false, || {
+        Size::new(80, 24).map_err(io::Error::other)
+    })
+    .unwrap()
+}
+
+#[test]
+fn a_snapshot_at_another_size_is_asked_for_once_more_then_repainted_when_the_size_returns() {
+    let (mut connection, server) = peer(|mut peer, mut decoder| {
+        assert_eq!(
+            receive(&mut peer, &mut decoder),
+            ClientMessage::Resize(size(80, 24))
+        );
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        // Another client resizes before the snapshot is taken.
+        send(
+            &mut peer,
+            &[
+                ServerMessage::Resized(size(100, 30)),
+                ServerMessage::SnapshotStart,
+                ServerMessage::SnapshotData(b"wide".to_vec()),
+                ServerMessage::SnapshotEnd(size(100, 30)),
+            ],
+        );
+        // One retry: this size again, then the screen again.
+        assert_eq!(
+            receive(&mut peer, &mut decoder),
+            ClientMessage::Resize(size(80, 24))
+        );
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        // The retry's own Resized is not a return; the other client wins again.
+        send(
+            &mut peer,
+            &[
+                ServerMessage::Resized(size(80, 24)),
+                ServerMessage::Resized(size(120, 40)),
+                ServerMessage::SnapshotStart,
+                ServerMessage::SnapshotData(b"wider".to_vec()),
+                ServerMessage::SnapshotEnd(size(120, 40)),
+                ServerMessage::Output(b"live".to_vec()),
+                // The user types, and the supervisor gives this terminal its size back.
+                ServerMessage::Resized(size(80, 24)),
+            ],
+        );
+        // No second retry: the next request is the repaint at this terminal's size.
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        send(
+            &mut peer,
+            &[
+                ServerMessage::SnapshotStart,
+                ServerMessage::SnapshotData(b"fits".to_vec()),
+                ServerMessage::SnapshotEnd(size(80, 24)),
+                ServerMessage::Exited(Exit::Code(0)),
+            ],
+        );
+        nothing_more(&mut peer, &mut decoder);
+    });
+    let mut output = Vec::new();
+    assert_eq!(
+        run(&mut connection, &mut output),
+        AttachEnd::Exited(Exit::Code(0))
+    );
+    assert_eq!(
+        output,
+        [
+            CLEAR_SCREEN,
+            b"wide",
+            CLEAR_SCREEN,
+            b"wider",
+            b"live",
+            CLEAR_SCREEN,
+            b"fits"
+        ]
+        .concat()
+    );
+    drop(connection);
+    server.join().unwrap();
+}
+
+#[test]
+fn a_screen_switch_never_reaches_the_outer_terminal_and_repaints_the_member_screen() {
+    let (mut connection, server) = peer(|mut peer, mut decoder| {
+        assert!(matches!(
+            receive(&mut peer, &mut decoder),
+            ClientMessage::Resize(_)
+        ));
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        send(
+            &mut peer,
+            &[
+                ServerMessage::SnapshotStart,
+                // A member already on its alternate screen.
+                ServerMessage::SnapshotData(b"\x1b[?1049hALT-MARK".to_vec()),
+                ServerMessage::SnapshotEnd(size(80, 24)),
+                // It leaves without a redraw, the sequence split across two reads.
+                ServerMessage::Output(b"bye\x1b[?10".to_vec()),
+                ServerMessage::Output(b"49l\x1b[?25h".to_vec()),
+            ],
+        );
+        assert_eq!(receive(&mut peer, &mut decoder), ClientMessage::Snapshot);
+        send(
+            &mut peer,
+            &[
+                ServerMessage::Output(b"after".to_vec()),
+                ServerMessage::SnapshotStart,
+                ServerMessage::SnapshotData(b"NORMAL-MARK".to_vec()),
+                ServerMessage::SnapshotEnd(size(80, 24)),
+                ServerMessage::Exited(Exit::Code(0)),
+            ],
+        );
+        nothing_more(&mut peer, &mut decoder);
+    });
+    let mut output = Vec::new();
+    assert_eq!(
+        run(&mut connection, &mut output),
+        AttachEnd::Exited(Exit::Code(0))
+    );
+    assert_eq!(
+        output,
+        [
+            CLEAR_SCREEN,
+            b"ALT-MARK",
+            b"bye",
+            b"\x1b[?25h",
+            b"after",
+            CLEAR_SCREEN,
+            b"NORMAL-MARK"
+        ]
+        .concat()
+    );
+    drop(connection);
+    server.join().unwrap();
 }

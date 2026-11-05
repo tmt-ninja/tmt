@@ -2650,6 +2650,7 @@ dependencies = [
  "tmt-core",
  "tmt-test-support",
  "toml_edit",
+ "vt100",
 ]
 
 [[package]]
