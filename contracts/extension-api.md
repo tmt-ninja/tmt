@@ -774,7 +774,12 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
   prorated estimates. Cached input is already part of input; total is input
   plus output. `coveredMs` is the union of verified contiguous successful read
   intervals in that bucket, bounded by its duration. Reads more than two sampling
-  cadences apart do not establish coverage between them. An incomplete source
+  cadences apart do not establish coverage between them, except a continuous pair:
+  two complete reads of the same driver, session and epoch whose counters only grew,
+  both inside one 5-minute rollup slot. That pair covers its interval in both tiers,
+  so a rollup bucket stays the sum of its 5-second buckets. Its token total is exact;
+  only its placement among the slot's 5-second buckets is approximate (the later read's
+  bucket holds the delta). A pair across a slot boundary stays a gap. An incomplete source
   may contribute a known lower-bound delta without establishing coverage.
   `complete` requires full duration coverage and complete evidence without a
   gap; `gap` marks missing evidence/coverage, and `discontinuous` marks an
@@ -787,6 +792,17 @@ coveredMs,complete,gap,discontinuous}`. Token fields are normalized **deltas**,
 Optional attribution extends these existing observations; it is not a separate
 ledger. Missing (or null) new fields mean unknown, never a measured zero:
 
+- `consumption.incompleteReason` says why an incomplete reading is incomplete, when
+  the driver knows; absent on a complete reading. Codex values: `partial-line` (the
+  session's newest line is still being written), `child-usage-unreadable` (a started
+  session's new lines hold a usage event whose counters cannot be read),
+  `child-unreadable` (its new lines cannot be read or are not provider records),
+  `child-backlog` (it grew past one bounded read), `family-budget` (this tick's budget
+  ended before every started session was read), `family-scan` (the session tree was
+  not listed whole, or a header is pending), `family-members` (more started sessions
+  than are followed) and `family` (an earlier tick's incomplete family, not read
+  since). A started session whose new whole lines are all provider records other
+  than usage is idle, not incomplete.
 - `consumption.cacheWriteTokens` is a cumulative cache-write counter in the
   same token units and epoch as input. Cache-write and cache-read are subsets
   of the existing input count; neither is added to input or total again.

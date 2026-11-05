@@ -47,7 +47,10 @@ with Core's usual 15 seconds and 1 MiB per call:
   start of its first rollup bucket with a successful read), but never before the
   window's own start. Earlier time was not recorded, and Core does not backfill it.
   Cached input is part of input; total is input plus output. An incomplete bucket is a
-  lower bound, not an error.
+  lower bound, not an error. `coverage.incompleteReason` is present when the seat's
+  newest reading in Core's closed history was incomplete and its driver named why
+  (`latest.consumption.incompleteReason`; [values](../../../contracts/extension-api.md#consumption-history)).
+  It describes that reading, not every incomplete bucket in the window.
 - `usage.unavailable[]`: `{id,name,retired,reason,cause?}` for an identity with no
   evidence: `no_evidence` (found, no successful read in the rollup), `not_found`, or
   `read_failed` (its batch failed or contradicted itself; a warning says why).
