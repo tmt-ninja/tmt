@@ -49,6 +49,9 @@ const REVEAL_MS = 3000;
  * the frame grows within this time, and never after the reader has scrolled. */
 const PENDING_SCROLL_MS = 2000;
 const GROWTH_REPORT_LIMIT = 5;
+/** A design-system page's parts paint over several frames (#5981): until the frame reports them
+ * settled, and for at most this long after bind, its growth does not count toward the limit. */
+const SETTLE_GRACE_MS = 3000;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
 /** Maximum measured height of one in-flow block, within the frame geometry budget. */
@@ -388,6 +391,9 @@ export async function mountRenderer(
     updatedAt = -Infinity,
     growingAt = 0,
     growthReports = 0,
+    // Whether growth counts toward the fallback: false while design-system parts still paint.
+    settled = true,
+    settleTimer: ReturnType<typeof setTimeout> | undefined,
     lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
@@ -459,6 +465,13 @@ export async function mountRenderer(
     frame.style.height = `${lastHeight}px`;
     queueViewport();
   };
+  // The parts have painted, or the grace ran out: growth counts from here, afresh.
+  const settle = () => {
+    settled = true;
+    clearTimeout(settleTimer);
+    settleTimer = undefined;
+    growthReports = 0;
+  };
   const applyHeight = () => {
     heightTimer = undefined;
     if (stopped || innerScroll || pendingHeight === undefined) return;
@@ -468,7 +481,8 @@ export async function mountRenderer(
     pendingHeight = undefined;
     // Repeated growth after sizing the frame is a viewport-coupled page. A bounded
     // cosmetic fallback is preferable to an indefinitely growing browser document.
-    if (next > lastHeight + 1) {
+    if (next > lastHeight + 1 && !settled) growthReports = 0;
+    else if (next > lastHeight + 1) {
       if (now - growingAt > 2000) {
         growthReports = 0;
         growingAt = now;
@@ -529,6 +543,7 @@ export async function mountRenderer(
     options.onSlots?.([]);
     options.onEditLocks?.([]);
     clearTimeout(heightTimer);
+    clearTimeout(settleTimer);
     cancelAnimationFrame(viewportFrame);
     window.removeEventListener('scroll', queueViewport, { capture: true });
     window.removeEventListener('resize', resize);
@@ -723,6 +738,16 @@ export async function mountRenderer(
       return;
     }
     if (
+      ready &&
+      !settled &&
+      Object.keys(value).length === 2 &&
+      value.type === 'colab.render.settled' &&
+      value.renderId === snapshot.renderId
+    ) {
+      settle();
+      return;
+    }
+    if (
       ready ||
       Object.keys(value).length !== 2 ||
       value.type !== 'colab.render.bound' ||
@@ -731,6 +756,7 @@ export async function mountRenderer(
       return;
     ready = true;
     readyWaiters.splice(0).forEach((resume) => resume());
+    if (!settled) settleTimer = setTimeout(settle, SETTLE_GRACE_MS);
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
     queueViewport();
@@ -1604,6 +1630,8 @@ export async function mountRenderer(
       }
       if (stopped) return;
     }
+    // Parts still to paint: their arrival is not viewport-coupled growth until they settle.
+    if (bundle && ds) settled = false;
     frame.contentWindow?.postMessage(
       {
         type: 'colab.render.bind',

@@ -6,6 +6,8 @@
  * stylesheets, so a stage rule wins over the base rule it narrows.
  */
 const WIDTH = /@media \(((?:max-width: \d+px)|(?:width < \d+px))\) \{/g;
+/** A window unit the copy does not rewrite: it would size a stage by the window. */
+const WINDOW_UNIT = /\d(?:d|s|l)?v(?:h|w|i|b|min|max)\b/;
 
 export function stageCompactCss(source) {
   const blocks = [];
@@ -22,6 +24,11 @@ export function stageCompactCss(source) {
       .slice(start, end - 1)
       .replaceAll('100vw', '100cqw')
       .replaceAll('100dvh', '100cqh');
+    const left = WINDOW_UNIT.exec(body.replace(/\/\*[\s\S]*?\*\//g, ''));
+    if (left)
+      throw new Error(
+        `@media (${match[1]}) uses the window unit "${left[0]}"; a stage copy reads only 100vw and 100dvh`,
+      );
     blocks.push(`@container tmt-ds-scope (${match[1]}) {${body}}`);
   }
   if (!blocks.length) throw new Error('No width blocks in the stage stylesheets');

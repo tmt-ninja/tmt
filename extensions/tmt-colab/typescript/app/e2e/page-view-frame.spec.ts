@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { servePageRuntime } from './page-runtime.js';
 import { DOWNLOAD_COOLDOWN_MS } from '../src/download-cooldown.js';
 
@@ -1052,4 +1052,98 @@ test('the block-menu tag draws catalog rows with icon, description, shortcut and
     '',
   );
   await expect(actions.locator('[data-slot="block-menu-separator"]')).toHaveCount(1);
+});
+
+/** A page that uses the runtime and the design system, mounted full width as in the app. */
+async function mountRuntimePage(page: Page, body: string, width = 390) {
+  await page.setViewportSize({ width, height: 844 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(
+    async ({ release, body }) => {
+      const style = document.createElement('style');
+      style.textContent = 'iframe { width: 100% !important; }';
+      document.head.append(style);
+      const path = '/src/renderer.ts';
+      const { mountRenderer } = await import(path);
+      const host = document.createElement('div');
+      document.body.prepend(host);
+      await mountRenderer(
+        host,
+        `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-button>Part</tmt-ui-button>${body}`,
+        {
+          signal: new AbortController().signal,
+          onState: () => {},
+          designSystem: {
+            release: async () => release,
+            draft: async () => release,
+            watch: () => () => {},
+          },
+        },
+      );
+    },
+    { release: bundle, body },
+  );
+  return page.locator('iframe[title="Page content"]');
+}
+/** A late part: marked as a part, painted only after `paintAfter` uneven growth steps (never when
+ * 0), so the page grows while parts still paint. */
+const lateGrowth = (steps: number, paintAfter: number) =>
+  `<script>
+    // Taller than the window, so every step grows the frame.
+    document.body.append(Object.assign(document.createElement('div'), { style: 'height:1000px' }));
+    const late = document.createElement('div');
+    late.__tmtPart = true;
+    document.body.append(late);
+    let step = 0;
+    const timer = setInterval(() => {
+      const block = document.createElement('div');
+      block.style.height = 300 + ((step * 137) % 400) + 'px';
+      block.dataset.step = String(++step);
+      document.body.append(block);
+      if (step === ${paintAfter}) late.__tmtPainted = true;
+      if (step >= ${steps}) clearInterval(timer);
+    }, 150);
+  </script>`;
+
+// #5981: parts that paint over several frames grow the page in steps; that is not viewport coupling.
+for (const width of [390, 1440])
+  test(`a runtime page whose parts grow it six times in a second stays in window scroll at ${width}`, async ({
+    page,
+  }) => {
+    const frame = await mountRuntimePage(page, lateGrowth(6, 6), width);
+    const content = page.frameLocator('iframe[title="Page content"]');
+    await expect(content.locator('[data-step="6"]')).toBeAttached();
+    // The sixth step's height reaches the parent and is applied, without a fallback.
+    await expect.poll(async () => ((await frame.boundingBox())?.height ?? 0) > 2000).toBe(true);
+    await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+    await expect
+      .poll(async () => {
+        const outer = Math.round((await frame.boundingBox())?.height ?? 0);
+        const inner = await content.locator('html').evaluate((node) => node.scrollHeight);
+        return Math.abs(outer - inner) <= 1;
+      })
+      .toBe(true);
+    await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+  });
+
+test('a runtime page that never settles is checked for growth after the grace', async ({
+  page,
+}) => {
+  const frame = await mountRuntimePage(page, lateGrowth(60, 0));
+  const content = page.frameLocator('iframe[title="Page content"]');
+  // Within the grace, its growth does not count.
+  await expect(content.locator('[data-step="8"]')).toBeAttached();
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+  // After it, the steady growth is checked as before and falls back to a bounded inner scroll.
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'frame', { timeout: 10_000 });
+  expect(await content.locator('[data-step]').count()).toBeGreaterThan(20);
+});
+
+test('a viewport-coupled runtime page still falls back once its parts settle', async ({ page }) => {
+  const frame = await mountRuntimePage(
+    page,
+    '<style>body{margin:0}.grow{height:calc(100vh + 120px)}</style><div class="grow">Coupled</div>',
+  );
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'frame', { timeout: 10_000 });
 });
