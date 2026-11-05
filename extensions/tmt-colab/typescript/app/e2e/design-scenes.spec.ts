@@ -213,3 +213,46 @@ for (const [path, trigger, surface] of [
       .evaluate((node) => node.getBoundingClientRect().top);
     expect(frameTop + boxes.stage.bottom).toBeLessThanOrEqual(844);
   });
+
+// A narrow Design frame takes the compact (<=760px) tokens, as the docs do at 390: the frame's
+// tokens once stopped before that block and kept the wide header padding and type.
+test('a Design frame at 390 resolves the compact tokens as the docs do', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.addStyleTag({ content: '#design-scene iframe{display:block;width:100%;border:0}' });
+  const compact = (header: Element) => {
+    const style = getComputedStyle(header);
+    return {
+      padding: style.paddingInlineStart,
+      height: style.height,
+      ...Object.fromEntries(
+        [
+          '--tmt-ui-header-padding-inline',
+          '--tmt-ui-header-height',
+          '--tmt-ui-type-display-size',
+          '--tmt-ui-type-body-size',
+        ].map((name) => [name, style.getPropertyValue(name).trim()]),
+      ),
+    };
+  };
+  await page.evaluate(async () => {
+    const module = '/test/design-scenes-browser.tsx';
+    (await import(module)).mountDocs('/ds/gui/browser/header');
+  });
+  const docsHeader = page.locator('#docs-reference .docs-browser-demo .tmt-ui-header').first();
+  await expect(docsHeader).toBeVisible();
+  const docs = await docsHeader.evaluate(compact);
+  await page.evaluate(async () => {
+    const module = '/test/design-scenes-browser.tsx';
+    (await import(module)).hideDocs();
+  });
+  await design(page, 'browser/header', 358);
+  const drawn = await page
+    .frameLocator('#design-scene iframe')
+    .locator('.docs-browser-demo .tmt-ui-header')
+    .first()
+    .evaluate(compact);
+  expect(docs.padding).toBe('18px');
+  expect(drawn).toEqual(docs);
+});
