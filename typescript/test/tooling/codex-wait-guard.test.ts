@@ -363,6 +363,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     writeFileSync(copy, readFileSync(waker));
     answer = verdict('deny', 'Waits in the main session.');
     const judged = [
+      `sh ${copy} 6028 --identity infra-1`,
       'sh scripts/ci-wake.sh 6028 --identity infra-1; sleep 60',
       'while true; do sh scripts/ci-wake.sh 6028 --identity infra-1; done',
       'sh scripts/ci-wake.sh $(sleep 9)',
@@ -374,12 +375,11 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received[0].body.system).toContain(
       'Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait'
     );
-    // A copy outside the worktree cannot be read, so it counts by its command line; a single
-    // status read after the waker holds no wait primitive either.
-    for (const command of [
-      `sh ${copy} 6028 --identity infra-1`,
-      'sh scripts/ci-wake.sh 6028 --identity infra-1 && gh pr checks 6028',
-    ]) {
+    // A copy outside the worktree is read for its loop, and only its path and primitive are
+    // sent. A single status read after the waker holds no wait primitive.
+    expect(sent(0)).toMatchObject({ unsent: [{ path: copy, holds: expect.any(String) }] });
+    expect(sent(0)).not.toHaveProperty('scripts');
+    for (const command of ['sh scripts/ci-wake.sh 6028 --identity infra-1 && gh pr checks 6028']) {
       await c.guard(bash(command));
       expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
     }
@@ -502,8 +502,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       path.join(repo, 'scripts', 'publish.sh'),
       'gh pr comment "$1" --body-file report.md\ntmt talk lead "CI is green" --detach\n'
     );
-    const unreadable = path.join(c.dir, 'capture.sh');
-    writeFileSync(unreadable, 'while :; do sleep 60; done\n');
+    const unreadable = path.join(c.dir, 'missing', 'capture.sh');
     answer = () => {
       throw new Error('the judge must not be called');
     };
@@ -519,7 +518,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
         'gh pr edit 6060 --body-file body.md && tmt talk lead "head green, wait for review" --detach && nohup sh scripts/ci-wake.sh 6060 --identity infra-1 > /tmp/wake.log 2>&1 &',
         repository,
       ],
-      // A script the hook cannot read is judged by its command line only.
+      // A script the hook cannot read (here, missing) is judged by its command line only.
       [`sh ${unreadable} --out /tmp/capture.json`, repo],
       // A status read, then a repository script that only posts messages.
       ['gh pr checks 6060 && sh scripts/publish.sh 6060', repo],
@@ -541,6 +540,19 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(received).toHaveLength(1);
     expect(c.lines().at(-1)).toMatchObject({ verdict: 'deny', enforced: false });
     expect(received[0].body.system).toContain('Deny only when this call itself waits or polls');
+
+    // The same loop written to a temporary file the seat owns, then run, still reaches the judge,
+    // which learns the file's path and primitive but never its content.
+    const loop = path.join(c.dir, 'tmp', 'x.sh');
+    writeFileSync(loop, 'while :; do gh pr checks 6060; sleep 60; done\n');
+    await c.guard({ ...bash(`sh ${loop}`), cwd: repo }, {}, hook);
+    expect(received).toHaveLength(2);
+    expect(sent(1)).toEqual({
+      tool: 'Bash',
+      input: `sh ${loop}`,
+      unsent: [{ path: loop, holds: 'while' }],
+    });
+    expect(JSON.stringify(received[1].body)).not.toContain('gh pr checks 6060');
   });
 
   it('finds wait primitives in code the command runs, and none in quoted text', async () => {
@@ -612,25 +624,25 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     const changed = path.join(c.dir, 'changed', 'host-health.sh');
     mkdirSync(path.dirname(changed), { recursive: true });
     writeExecutable(changed, '#!/bin/sh\necho GO\nsleep 600\n', 0o755);
-    const judged = [`${gate} --gate; sleep 60`, `until ${gate} --gate; do sleep 60; done`];
+    // Other arguments leave the gate's skip; the gate's own content holds no wait primitive.
+    for (const command of [`${gate} --gate-once`, `${gate} --gate --again`, `${gate}`]) {
+      await guard(command);
+      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
+    }
+    expect(received).toEqual([]);
+    const judged = [
+      `${gate} --gate; sleep 60`,
+      `until ${gate} --gate; do sleep 60; done`,
+      `sh ${changed} --gate`,
+    ];
     for (const command of judged) await guard(command);
     expect(received).toHaveLength(judged.length);
     expect(received[0].body.system).toContain('One status read');
     expect(received[0].body.system).toContain('never deny because you cannot see it');
-    // Any other arguments or content leave the gate's skip; outside the worktree the hook
-    // cannot read the script, so it counts by its command line, which holds no wait primitive.
+    // Any other content is judged, even at the pinned path.
     writeFileSync(gate, '#!/bin/sh\nsleep 600\n');
-    for (const command of [
-      `${gate} --gate-once`,
-      `${gate} --gate --again`,
-      `${gate}`,
-      `sh ${changed} --gate`,
-      `${gate} --gate`,
-    ]) {
-      await guard(command);
-      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip', reason: 'no-wait' });
-    }
-    expect(received).toHaveLength(judged.length);
+    await guard(`${gate} --gate`);
+    expect(received).toHaveLength(judged.length + 1);
   });
 
   it('is inert outside this repository, and logs every call when switched off', async () => {

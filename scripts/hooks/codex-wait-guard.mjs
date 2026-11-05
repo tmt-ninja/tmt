@@ -59,9 +59,10 @@
 // 6. A Bash command with no wait primitive is a `skip` (reason `no-wait`), with no model
 //    call: no `sleep`, `wait`, `while`/`until` loop, `watch` or `--watch`, `tail -f`,
 //    `timeout`, `retry`, `nohup` or background `&` (see waitPrimitive). Quoted text is data,
-//    except code handed to a shell or an interpreter; repository scripts the call runs are
-//    read for the same primitives, and a script the hook cannot read counts by its command
-//    line only. Starting ci-wake.sh anywhere in the command is never a primitive.
+//    except code handed to a shell or an interpreter. Scripts the call runs are read for
+//    the same primitives (the first 8 KiB): in the worktree, and outside it when the seat's
+//    uid owns them; only a script the hook cannot read (missing, or not permitted) counts by
+//    its command line. Starting ci-wake.sh anywhere in the command is never a primitive.
 // 7. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
 //    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
@@ -72,7 +73,8 @@
 // command with any heredoc, or another tool's input JSON) and the first 8 KiB of
 // each script file the command runs (`sh|bash|python3|node … <file>` or
 // `./file`) that resolves, after symlinks, inside the call's git worktree; never
-// a file outside it. Before sending, values that look like secrets are replaced
+// a file outside it, of which only its path and the wait primitive it holds are
+// sent. Before sending, values that look like secrets are replaced
 // by [REDACTED] (`Authorization` and `x-api-key` headers, bearer tokens, `*_KEY`,
 // `*_TOKEN`, `*_SECRET` and `*_PASSWORD` assignments, flags and JSON fields,
 // credentials in URLs, and `sk-`, `ghp_`, `github_pat_`, `xox?-` and `AKIA`
@@ -163,7 +165,7 @@ const POLICY = `You review one tool call an AI coding agent is about to make in 
 Deny only when this call itself waits or polls: it sleeps, loops over a repeated status check of CI, pull requests, merge queues, deploys or other agents, follows output, or leaves a background loop running. Never deny for anything else the call does, such as publishing, commenting, messaging, committing, editing files or notes, or text that only mentions waiting.
 Starting scripts/ci-wake.sh, or a provider background task that wakes the agent, is the allowed way to wait; allow it, in the foreground or in the background.
 One status read, such as a single gh pr view, gh pr checks without --watch or gh api request, is not a wait; only repeated or looped checks are.
-A script whose content you are not shown is judged by its command line only; never deny because you cannot see it.
+A script whose content you are not shown is judged by its command line only; never deny because you cannot see it. When \`unsent\` names a script outside the repository and the wait primitive it holds, judge the call as running that primitive.
 Allow a test or build command whose own code waits briefly (for example a test waiting a few seconds for a local server), and everything that does not wait.
 Record your decision with the verdict tool, with a reason of one short sentence.`;
 
@@ -559,9 +561,10 @@ function programOf(words) {
  * sleep, wait, a while or until loop, watch or --watch, tail -f, timeout or retry, nohup, or a
  * background `&`. Quoted text is data, except code handed to a shell or an interpreter (`-c`,
  * `-e`, `eval`, `ssh`, a heredoc it reads, or `$(…)` in double quotes); a heredoc another
- * segment of the call runs as a file is code too. Repository scripts the call runs are read for
- * the same primitives; a script the hook cannot read counts by its command line only. Starting
- * this repository's ci-wake.sh, in the foreground or background, is never a primitive.
+ * segment of the call runs as a file is code too. Scripts the call runs are read for the same
+ * primitives, outside the worktree too when the seat owns them; a script the hook cannot read
+ * counts by its command line only. Starting this repository's ci-wake.sh, in the foreground or
+ * background, is never a primitive.
  */
 export function waitPrimitive(cwd, command, depth = 0) {
   if (depth > 4) return 'nesting';
@@ -614,7 +617,7 @@ export function waitPrimitive(cwd, command, depth = 0) {
       const found = inCode(heredoc.body, !INTERPRETERS.has(program) || SHELLS.has(program));
       if (found) return found;
     }
-    for (const script of readScripts(cwd, segment.raw)) {
+    for (const script of readScripts(cwd, segment.raw, { anywhere: true })) {
       const found = WAIT_TEXT.exec(script.content)?.[0];
       if (found) return found.trim();
     }
@@ -704,7 +707,7 @@ function worktree(cwd) {
 }
 
 /** The first bytes of each script file the command runs, read only inside the call's worktree. */
-function readScripts(cwd, command) {
+function readScripts(cwd, command, { anywhere = false } = {}) {
   const { words } = shellWords(command);
   const candidates = new Set();
   words.forEach((word, at) => {
@@ -716,19 +719,24 @@ function readScripts(cwd, command) {
   });
   if (candidates.size === 0) return [];
   const root = worktree(cwd);
-  if (!root) return [];
+  if (!root && !anywhere) return [];
   const scripts = [];
   for (const candidate of [...candidates].slice(0, SCRIPTS)) {
     try {
       const file = realpathSync(path.resolve(cwd, candidate));
-      if (!file.startsWith(root + path.sep) || !statSync(file).isFile()) continue;
+      const stat = statSync(file);
+      const inside = Boolean(root) && file.startsWith(root + path.sep);
+      if (!stat.isFile()) continue;
+      // Outside the worktree only the seat's own files are read, and they never leave the machine.
+      if (!inside && (!anywhere || stat.uid !== process.getuid())) continue;
       const buffer = Buffer.alloc(SCRIPT_BYTES);
       const fd = openSync(file, 'r');
       const length = readSync(fd, buffer, 0, SCRIPT_BYTES, 0);
       closeSync(fd);
       scripts.push({
         file,
-        path: path.relative(root, file),
+        inside,
+        path: inside ? path.relative(root, file) : file,
         content: buffer.subarray(0, length).toString('utf8'),
       });
     } catch {
@@ -1097,6 +1105,15 @@ async function main() {
       content: redact(script.content),
     }));
   }
+  // A script outside the worktree never leaves the machine; the judge learns only what it holds.
+  const unsent = readScripts(payload.cwd, before ?? command, { anywhere: true })
+    .filter((script) => !script.inside)
+    .map((script) => ({
+      path: redact(script.path),
+      holds: WAIT_TEXT.exec(script.content)?.[0]?.trim(),
+    }))
+    .filter((script) => script.holds);
+  if (unsent.length > 0) content.unsent = unsent;
   const result = await judge(content);
   const judgeMs = Date.now() - started;
   if (result.verdict === 'deny' && ENFORCE) {
