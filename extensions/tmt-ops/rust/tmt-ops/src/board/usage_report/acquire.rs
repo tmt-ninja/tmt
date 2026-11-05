@@ -112,6 +112,18 @@ fn seat(
             model_totals: model_totals(bucket),
             window_series: None,
             model_inputs: model_inputs(bucket),
+            complete_hour_inputs: if range == TokRange::Day {
+                series.as_ref().ok().and_then(|document| {
+                    let (_, hourly) = window(document, id, range.milliseconds()).ok()?;
+                    if hourly["fromMs"] != total["fromMs"] || hourly["toMs"] != total["toMs"] {
+                        return None;
+                    }
+                    // Validate all clocks, coverage, and token counts before using attribution.
+                    hourly_series_inputs(document, id)
+                })
+            } else {
+                None
+            },
             who: who(id),
             input: number(&bucket["inputTokens"])?,
             output: number(&bucket["outputTokens"])?,
@@ -248,6 +260,12 @@ fn hourly(series: &Value, id: &str) -> Result<HourlySeries, String> {
         *complete = point.complete;
     }
     Ok(HourlySeries::new(series.from_ms, tokens, complete))
+}
+
+fn hourly_series_inputs(document: &Value, id: &str) -> Option<(Vec<(String, u64)>, usize)> {
+    hourly(document, id).ok()?;
+    let (_, window) = window(document, id, TokRange::Day.milliseconds()).ok()?;
+    complete_hour_inputs(window["buckets"].as_array()?)
 }
 
 fn traffic(document: &Value) -> Result<Traffic, String> {
@@ -409,3 +427,23 @@ pub(super) fn read(core: &Core, request: &Request, budget: Duration) -> Result<R
 
 #[cfg(test)]
 mod tests;
+
+fn complete_hour_inputs(buckets: &[Value]) -> Option<(Vec<(String, u64)>, usize)> {
+    let mut totals = std::collections::BTreeMap::<String, u64>::new();
+    let mut covered = 0;
+    for bucket in buckets {
+        if bucket["complete"].as_bool()? {
+            covered += 1;
+            let inputs = if number(&bucket["inputTokens"]).ok()? == 0 {
+                Vec::new()
+            } else {
+                model_inputs(bucket)?
+            };
+            for (model, amount) in inputs {
+                let total = totals.entry(model).or_default();
+                *total = total.checked_add(amount)?;
+            }
+        }
+    }
+    (covered > 0).then(|| (totals.into_iter().collect(), covered))
+}

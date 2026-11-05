@@ -483,3 +483,43 @@ print((root/('totals.json' if count==1 else 'hourly.json' if count==24 else 'dai
     );
     assert_eq!(calls[2]["input"]["maxBuckets"], 7);
 }
+
+#[test]
+fn partial_price_attribution_counts_only_complete_hours_and_refuses_unattributed_input() {
+    let bucket = |complete: bool, input: u64, model: &str| {
+        json!({
+            "complete":complete,"inputTokens":input,"outputTokens":0,"cachedInputTokens":0,
+            "byModel":[{"modelId":model,"inputTokens":input,"outputTokens":0,"cachedInputTokens":0}]
+        })
+    };
+    let values = vec![bucket(true, 10, "a"), bucket(false, 20, "a")];
+    assert_eq!(
+        complete_hour_inputs(&values),
+        Some((vec![("a".into(), 10)], 1))
+    );
+    assert_eq!(complete_hour_inputs(&[bucket(false, 20, "a")]), None);
+    let mut missing = bucket(true, 10, "a");
+    missing["byModel"] = json!([]);
+    assert_eq!(complete_hour_inputs(&[missing]), None);
+}
+
+#[test]
+fn day_seat_keeps_complete_hour_attribution_only_for_the_same_core_cut() {
+    let (totals, mut series) = histories(TokRange::Day);
+    let buckets = series["identities"][0]["windows"][0]["buckets"]
+        .as_array_mut()
+        .unwrap();
+    for bucket in buckets.iter_mut() {
+        bucket["byModel"] = json!([{"modelId":"model-a", "inputTokens":1, "outputTokens":0, "cachedInputTokens":0}]);
+    }
+    buckets[23]["complete"] = json!(false);
+    buckets[23]["coveredMs"] = json!(0);
+    let (observed, _) = seat(&totals, Ok(&series), ID, TokRange::Day).unwrap();
+    assert_eq!(
+        observed.complete_hour_inputs,
+        Some((vec![("model-a".into(), 23)], 23))
+    );
+    series["identities"][0]["windows"][0]["buckets"][0]["fromMs"] = json!(0);
+    let (observed, _) = seat(&totals, Ok(&series), ID, TokRange::Day).unwrap();
+    assert_eq!(observed.complete_hour_inputs, None);
+}

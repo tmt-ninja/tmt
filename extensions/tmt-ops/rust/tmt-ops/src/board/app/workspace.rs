@@ -330,15 +330,25 @@ impl App {
         self.workspace_save(next)
     }
     /// The list-price estimate of the input tokens of `ids` in the shared TOK range, as a
-    /// TOK cell: `—` until the usage report covers them completely, never a partial sum.
+    /// TOK cell: complete prices or explicitly partial prices over fully covered hours.
     pub(in crate::board) fn tok_money_text(&self, ids: &[&str]) -> String {
         use crate::board::usage_report::{View, valuation};
         let report = match self.usage_report.view_for(self.tok_range()) {
             View::Report(report) => Some(report),
             View::Loading | View::Failed(_) => None,
         };
-        valuation::input_price(self, report, ids)
-            .map_or_else(|| "—".into(), crate::board::savings::usd_compact)
+        if let Some(value) = valuation::input_price(self, report, ids) {
+            return crate::board::savings::usd_compact(value);
+        }
+        valuation::partial_input_price(self, report, ids).map_or_else(
+            || "—".into(),
+            |(value, _, _)| {
+                format!(
+                    "~{}",
+                    crate::board::savings::usd_compact(value).trim_start_matches('≈')
+                )
+            },
+        )
     }
     pub(in crate::board) fn digest_savings<'a>(
         &self,

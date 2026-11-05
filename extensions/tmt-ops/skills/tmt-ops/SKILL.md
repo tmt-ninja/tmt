@@ -336,8 +336,11 @@ The Agents TOK figures follow the same unit. Click the `TOK` (or `≈$`) word of
 heading, or any TOK figure, to switch every figure
 between tokens and the list price of the input tokens behind them (`≈$0.42`, `≈$12.3`,
 `≈$123`, `≈$1.2k`; the heading reads `≈$ 1d`). The click skips percent, a squad sums its
-members, and a figure is `—` until the usage report covers all of them completely, never a
-partial sum. It is an estimate at list price, not a bill; the heading still sorts by tokens.
+members. For 1d, an incomplete report can show `~$` for fully covered hours, with coverage
+in `Estimate basis…`; a member with no covered hour or an unpriced model reads `—`.
+An unpriced model also makes its squad total unavailable. For 1h, 7d and 30d,
+partial usage still reads `—`: those windows use the full aggregate. It is an estimate at
+list price, not a bill; the heading still sorts by tokens.
 The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2` as input.
