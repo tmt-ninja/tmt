@@ -468,3 +468,96 @@ it('copies the script length and accepts omitted stream as non-streaming JSON', 
   expect(await response.json()).toMatchObject({ status: 'completed' });
   expect(server.snapshot()).toMatchObject({ completedTurns: 1, plannedTurns: 1 });
 });
+
+describe('scripted prompt matching after hook reminders', () => {
+  const prompt = 'Return only the synthetic marker.';
+  const reminder = '<system-reminder>\nSynthetic SessionStart context.\n</system-reminder>';
+  async function matching(protocol: ScriptedTextTurn['protocol'] = 'messages') {
+    const server = await startMockModelServer({
+      turns: [{ ...turn(protocol), inputText: prompt }],
+    });
+    servers.push(server);
+    return server;
+  }
+  it.each([
+    { shape: 'plain text', content: prompt },
+    {
+      shape: 'separate text blocks',
+      content: [
+        { type: 'text', text: reminder },
+        { type: 'text', text: prompt },
+      ],
+    },
+    { shape: 'the same text block', content: [{ type: 'text', text: `${reminder}\n\n${prompt}` }] },
+    { shape: 'multiple leading reminders', content: `${reminder}\n${reminder}\n${prompt}` },
+  ])('matches $shape without recording hook context', async ({ content }) => {
+    const server = await matching();
+    const response = await post(server, 'messages', {
+      ...body('messages'),
+      messages: [{ role: 'user', content }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(turn('messages').text.split('\n')[0]);
+    expect(server.snapshot()).toMatchObject({ completedTurns: 1, sideRequestsSeen: 0 });
+    expect(JSON.stringify(server.snapshot())).not.toContain('Synthetic SessionStart');
+  });
+  it.each([
+    { prefix: 'ordinary text', content: `Also do X.\n${prompt}` },
+    { prefix: 'text before a reminder', content: `Also do X.\n${reminder}\n${prompt}` },
+    { prefix: 'text after a reminder', content: `${reminder}\nAlso do X.\n${prompt}` },
+    { prefix: 'an unfinished reminder', content: `<system-reminder>unfinished\n${prompt}` },
+    { prefix: 'whitespace without a reminder', content: ` ${prompt}` },
+    { prefix: 'a trailing reminder', content: `${prompt}\n${reminder}` },
+  ])('refuses $prefix before consuming the scripted turn', async ({ content }) => {
+    const server = await matching();
+    const response = await post(server, 'messages', {
+      ...body('messages'),
+      messages: [{ role: 'user', content }],
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: 'MOCK_TURN_INPUT' } });
+    expect(server.snapshot()).toMatchObject({
+      completedTurns: 0,
+      sideRequestsSeen: 0,
+      failure: { code: 'MOCK_TURN_INPUT' },
+    });
+    expect((await post(server, 'messages')).status).toBe(409);
+    expect(server.snapshot().completedTurns).toBe(0);
+  });
+  it('uses only the last user message for the comparison', async () => {
+    const server = await matching();
+    const response = await post(server, 'messages', {
+      ...body('messages'),
+      messages: [
+        { role: 'user', content: prompt },
+        { role: 'assistant', content: 'Earlier synthetic response.' },
+        { role: 'user', content: 'A different request.' },
+      ],
+    });
+    expect(response.status).toBe(409);
+    expect(server.snapshot()).toMatchObject({
+      completedTurns: 0,
+      failure: { code: 'MOCK_TURN_INPUT' },
+    });
+  });
+  it.each(['', ' \n', 'é'.repeat(4097)])(
+    'refuses an invalid scripted input expectation',
+    async (inputText) => {
+      const create = startMockModelServer({ turns: [{ ...turn('messages'), inputText }] }).then(
+        (server) => {
+          servers.push(server);
+          return server;
+        }
+      );
+      await expect(create).rejects.toThrow('MOCK_CONFIG: inputText');
+    }
+  );
+  it('matches Responses string input through the same text-only guard', async () => {
+    const server = await matching('responses');
+    expect(
+      (await post(server, 'responses', { ...body('responses'), input: `${reminder}\n${prompt}` }))
+        .status
+    ).toBe(200);
+    expect(server.snapshot()).toMatchObject({ completedTurns: 1 });
+  });
+});

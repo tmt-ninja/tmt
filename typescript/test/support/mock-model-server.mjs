@@ -18,10 +18,38 @@ function validModel(model) {
   return typeof model === 'string' && /^[a-zA-Z0-9_.:-]{1,128}$/.test(model);
 }
 
+// Hook context may prefix the prompt, but unrelated user text must still refuse.
+const LEADING_REMINDERS = /^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>\s*)+/;
+function lastUserText(input) {
+  return rawLastUserText(input)?.replace(LEADING_REMINDERS, '');
+}
+
+function rawLastUserText(input) {
+  if (typeof input === 'string') return input;
+  const content = input.findLast((item) => item?.role === 'user')?.content;
+  if (typeof content === 'string') return content;
+  if (
+    !Array.isArray(content) ||
+    !content.length ||
+    content.some(
+      (part) => !['text', 'input_text'].includes(part?.type) || typeof part.text !== 'string'
+    )
+  )
+    return undefined;
+  return content.map((part) => part.text).join('\n');
+}
+
 function compileTurn(turn, index) {
   if (!turn || !['messages', 'responses'].includes(turn.protocol))
     throw new Error('MOCK_CONFIG: unsupported turn protocol');
   if (!validModel(turn.model)) throw new Error('MOCK_CONFIG: invalid model');
+  if (
+    turn.inputText !== undefined &&
+    (typeof turn.inputText !== 'string' ||
+      !turn.inputText.trim() ||
+      Buffer.byteLength(turn.inputText) > 8192)
+  )
+    throw new Error('MOCK_CONFIG: inputText must be nonempty and at most 8192 UTF-8 bytes');
   if (typeof turn.text !== 'string' || Buffer.byteLength(turn.text) > 8192)
     throw new Error('MOCK_CONFIG: text must be at most 8192 UTF-8 bytes');
   for (const name of ['inputTokens', 'outputTokens', 'cachedInputTokens']) {
@@ -122,7 +150,7 @@ function compileTurn(turn, index) {
     .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
     .join('');
   if (Buffer.byteLength(wire) > 65536) throw new Error('MOCK_CONFIG: response exceeds 65536 bytes');
-  return { protocol, model, wire, json: JSON.stringify(result) };
+  return { protocol, model, inputText: turn.inputText, wire, json: JSON.stringify(result) };
 }
 
 function compileSideRequest(side, index) {
@@ -324,6 +352,8 @@ export async function startMockModelServer({ turns, sideRequests = [], limits = 
           'MOCK_SCRIPT_EXHAUSTED',
           'No scripted turn remains for this protocol/model'
         );
+      if (queue[0].inputText !== undefined && lastUserText(input) !== queue[0].inputText)
+        return refuse(409, 'MOCK_TURN_INPUT', 'Last user text does not match the scripted input');
       const turn = queue.shift();
       completedTurns++;
       entry.kind = 'turn';

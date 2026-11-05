@@ -74,7 +74,10 @@ Responses text streams, not provider launch or scenario assertions. It binds
 `127.0.0.1` on an allocated port. Model POSTs require the exported synthetic token;
 health and declared GET/HEAD probes return only fixed fixture data.
 Callers supply finite text-turn queues per protocol/model, with SSE and JSON replies,
-and close the handle in fixture cleanup;
+and close the handle in fixture cleanup. An optional `inputText` expectation compares
+the last user text exactly after removing only leading `<system-reminder>` blocks
+and their separator whitespace; other prefixes refuse before consuming a turn.
+Turns without an `inputText` expectation retain their transport-only behavior.
 `closed` resolves after listener shutdown. The detached census contains no headers
 or prompt bodies. Declared side routes/models have fixed replies and per-route
 bounds, are counted separately, and never consume scenario turns; unknown requests

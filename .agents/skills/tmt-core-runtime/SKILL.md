@@ -12,8 +12,6 @@ change in that code must preserve. Public shapes and limits live in
 [development procedures](../tmt-dev/references/development.md) and [tmt-dev](../tmt-dev/SKILL.md). When a rule
 here and the code disagree, fix the doc in the same PR.
 
-`tmt-cli-style` has no TMT dependencies; its default `table` feature enables terminal tables.
-
 ## References
 
 Load the file for the area you change.
