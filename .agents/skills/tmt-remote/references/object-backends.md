@@ -1,7 +1,7 @@
 # Object backends
 
 Follow [tmt-dev](../../tmt-dev/SKILL.md) and the
-[Remote architecture](../../../../ARCHITECTURE.md#remote-extension). The
+[Remote architecture](architecture.md). The
 [storage proposal](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md)
 owns the accepted behavior and bounds; this guide owns how the implemented backend
 in `extensions/tmt-remote/rust/tmt-remote/src/objects*` works and how to add an

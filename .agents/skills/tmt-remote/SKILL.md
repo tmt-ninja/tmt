@@ -6,9 +6,10 @@ description: Build, run and verify the Remote door (`tmt-remote`, `tmt remote ..
 # Remote development
 
 Behavior lives in [`contracts/remote-channel-v1.md`](../../../contracts/remote-channel-v1.md)
-and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds module ownership
-and how to build, run and verify. The [host-driver contract](../../../contracts/remote-channel-v1.md#host-driver-authentication)
-scopes pairing/grants/signed messages to the local driver; Firestore uses Firebase Auth and Rules.
+and the seams with other squads in [ARCHITECTURE.md](../../../ARCHITECTURE.md#remote-extension);
+this skill holds Remote's architecture, module ownership and how to build, run and verify. The
+[host-driver contract](../../../contracts/remote-channel-v1.md#host-driver-authentication)
+scopes pairing/grants/signed messages to the local driver.
 Shared Rust, native and Docker gates are in
 [development procedures](../tmt-dev/references/development.md). The `tmt-extension-state` leaf is shared
 with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
@@ -17,7 +18,7 @@ with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
 
 - [references/firestore-owner-runbook.md](references/firestore-owner-runbook.md): owner steps for the first Firestore deployment and recovery from a stopped run.
 - [references/firestore-collaborator-runbook.md](references/firestore-collaborator-runbook.md): install, pair once, control each direction and read agent replies.
-- [references/architecture-internals.md](references/architecture-internals.md): module
+- [references/architecture.md](references/architecture.md): boundaries, module
   owners, the rules that are easy to get wrong (one opener, authority in the
   transaction, revoke fence, serve lease, pre-auth refusals, mount trust) and the shared
   extension-state leaf checks. Read before touching any `tmt-remote` Rust module.

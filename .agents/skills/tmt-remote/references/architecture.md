@@ -1,4 +1,31 @@
-# Remote architecture internals
+# Remote architecture
+
+The seams with Core, other extensions and Colab are in
+[ARCHITECTURE](../../../../ARCHITECTURE.md#remote-extension); behavior is owned by the
+[channel contract](../../../../contracts/remote-channel-v1.md) and its
+[hard lines](../../../../contracts/remote-channel-v1.md#user-path). This reference owns
+Remote's internal structure.
+
+## Boundaries
+
+- `extensions/tmt-remote` owns listen, restart and the
+  [lifecycle](../../../../contracts/remote-channel-v1.md#local-cli-discovery), the door,
+  the [browser SDK](../../../../extensions/tmt-remote/typescript/remote-client/README.md) and
+  `<dataRoot>/remote/` on the [state leaf](#shared-extension-state).
+- Core calls use only public Core JSON. Dispatch pins the UUID and the name; a bare UUID is
+  used only for capture.
+- Remote is the provider port. It owns member and channel authority and the local effect
+  fences; no UI grants authority.
+- Firestore uses only Firebase Auth and Rules. Auto-pair is read-only; there are no
+  companions, skills or shipped emulation.
+- `talk --remote` sends [message v1](../../../../contracts/remote-message-v1.md) to the
+  serving owner, which applies scope, allowlist and hold, then the UUID and name checks,
+  before the same-ID Core dispatch and recovery.
+- Related: [door](door-and-discovery.md), [object backends](object-backends.md),
+  [release](../../tmt-release/SKILL.md),
+  [extension-serve](../../../../contracts/extension-serve-v1.md).
+
+## Module owners
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
 `cloud_hpke`, `transport`, `sealed_sync` (including `sealed_sync::codec`), `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
@@ -259,8 +286,15 @@ shapes and privacy limits.
 
 ## Shared extension state
 
-[The state leaf](../../../../ARCHITECTURE.md#shared-extension-state-layout) is
-library-only and consumed by Remote, Colab and Ops:
+`rust/crates/tmt-extension-state` is Remote's unpublished leaf; its consumers and
+dependency limits are in [ARCHITECTURE](../../../../ARCHITECTURE.md#remote-extension). It
+owns SQLite and atomic document updates and fail-fast guards: newer state is refused, and
+admission preserves live locks. Guards check reviewed manifest and source edges across
+dependency kinds, aliases and targets. The
+[crate docs](../../../../rust/crates/tmt-extension-state/src/lib.rs) own admission and
+publication mechanics. Schemas, identity derivation and Remote's serve-lock proof stay
+extension-owned; the leaf discovers no roots and interprets no Core state or provider
+configuration. Its checks:
 
 ```bash
 (cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state -p tmt-extension-serve)

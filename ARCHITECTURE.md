@@ -516,40 +516,22 @@ adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
 registry, release catalog, process runner, archive parser or memory/MCP layer.
 
-## Shared extension state layout
-
-`rust/crates/tmt-extension-state` is Remote's unpublished leaf.
-It owns SQLite/atomic document updates and fail-fast guards; newer state is refused,
-and admission preserves live locks.
-Remote, Colab, Ops, adapters' config/hook consent and Digest history consume it; no TMT/crypto.
-Core and Colab's model cannot consume it. Guards check reviewed
-manifest/source edges across dependency kinds, aliases and targets.
-
-[Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own admission and publication mechanics.
-Schemas, identity derivation and Remote's serve-lock proof remain extension-owned;
-the leaf discovers no roots and interprets no Core state or provider configuration.
-
 ## Remote extension
 
-`extensions/tmt-remote` owns listen/restart/[lifecycle](contracts/remote-channel-v1.md#local-cli-discovery),
-`<dataRoot>/remote/` ([leaf](#shared-extension-state-layout)), door/[SDK](extensions/tmt-remote/typescript/remote-client/README.md). Owner-installed
-[Colab](#colab-extension) at `/r/<prefix>/x/colab/`.
+`extensions/tmt-remote` owns the Remote door, its browser SDK and `<dataRoot>/remote/`.
+Behavior: [channel contract](contracts/remote-channel-v1.md) and
+[message v1](contracts/remote-message-v1.md); structure:
+[tmt-remote architecture](.agents/skills/tmt-remote/references/architecture.md).
 
-Only public Core JSON; absolute `TMT_EXECUTABLE`/`tmt-invoke`; dispatch pins UUID/name; UUID capture-only.
-Core distrusts Remote. Extensions: public CLI/SDK/`tmt-extension-objects`; no private Remote state.
-Remote: provider port; member/channel authority, People/rows, local effect fences, invites/history, join UI, shell extras, DM reads, summary CLI/cache/publish/send/delivery (public Ops); UI grants none.
-Firestore: only Auth/Rules; read-only auto-pair; no companions/skills/shipped emulation.
-
-`talk --remote` → [message v1](contracts/remote-message-v1.md) → serving owner,
-with scope/allowlist/hold, UUID/name checks, same-ID Core dispatch/recovery.
-Finals: receipt-bound Core `reply`.
-
-[Contract](contracts/remote-channel-v1.md); [hard lines](contracts/remote-channel-v1.md#user-path);
-[internals](.agents/skills/tmt-remote/references/architecture-internals.md);
-[door](.agents/skills/tmt-remote/references/door-and-discovery.md);
-[backends](.agents/skills/tmt-remote/references/object-backends.md);
-[release](.agents/skills/tmt-release/SKILL.md);
-[extension-serve](contracts/extension-serve-v1.md).
+- **Core.** Core distrusts Remote. Remote calls only public Core JSON through the absolute
+  `TMT_EXECUTABLE`/`tmt-invoke`. `talk --remote` reaches the serving owner, which dispatches
+  to Core under the same ID; finals are receipt-bound Core `reply`s.
+- **Extensions.** Only Remote's public CLI, browser SDK and `tmt-extension-objects`; no
+  private Remote state.
+- **Colab.** Owner-installed at `/r/<prefix>/x/colab/`; see [Colab](#colab-extension).
+- **State leaf.** `rust/crates/tmt-extension-state` is a library leaf consumed by Remote,
+  Colab, Ops, adapters' config/hook consent and Digest history. It has no TMT or crypto
+  dependency; Core and Colab's model cannot consume it.
 
 ## Colab extension
 
