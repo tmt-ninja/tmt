@@ -1976,7 +1976,7 @@ code {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-ref-size-5);
 }
-.docs-article h2:not(.docs-canvas-stage *) {
+.docs-article h2 {
   margin: 48px 0 var(--tmt-ui-ref-space-3);
   padding-bottom: var(--tmt-ui-ref-space-2);
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -1984,14 +1984,14 @@ code {
   font-weight: 650;
   letter-spacing: -0.01em;
 }
-.docs-article h3:not(.docs-canvas-stage *) {
+.docs-article h3 {
   margin: var(--tmt-ui-ref-space-5) 0 var(--tmt-ui-ref-space-2);
   font-size: var(--tmt-ui-ref-size-4);
   font-weight: 600;
 }
 
-.docs-article h2:not(.docs-canvas-stage *),
-.docs-article h3:not(.docs-canvas-stage *) {
+.docs-article h2,
+.docs-article h3 {
   line-height: 1.6;
 }
 .docs-article pre code {
@@ -2001,7 +2001,7 @@ code {
 .docs-article {
   overflow-wrap: normal;
 }
-.docs-article p:not(.docs-canvas-stage *) {
+.docs-article p {
   margin: 0 0 var(--tmt-ui-ref-space-4);
 }
 .docs-article :not(pre) > code {
@@ -2026,10 +2026,6 @@ code {
 .docs-canvas-hero {
   min-height: 240px;
   box-sizing: border-box;
-}
-
-.docs-canvas-stage {
-  height: 360px;
 }
 .docs-canvas-flush {
   display: block;

@@ -162,56 +162,46 @@ for (const viewport of [1440, 390])
     expect(failures).toEqual([]);
   });
 
-// A page frame is as tall as its content and cannot see the visible viewport, so Design opens the
-// Dialog and Sheet heroes in their canvas: dimmed, centred and in view at 390 (#6064; #6090 lets
-// them open over the viewport).
-for (const [path, trigger, surface] of [
-  ['components/dialog', 'Move to project', '[role="dialog"]'],
-  ['components/sheet', 'Page settings', '[role="dialog"]'],
+// Design opens the Dialog and Sheet heroes over the page, as the docs do (#6090): the parent
+// tells the frame which part the reader sees, so the modal and its scrim fit that part at 390.
+for (const [path, trigger, kind] of [
+  ['components/dialog', 'Move to project', 'dialog'],
+  ['components/sheet', 'Page settings', 'sheet'],
 ] as const)
-  test(`the ${path} hero opens in its canvas at 390`, async ({ page }) => {
+  test(`the ${path} hero opens over the visible page at 390`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await servePageRuntime(page);
     await page.goto('/');
     await page.addStyleTag({ content: '#design-scene iframe{display:block;width:100%;border:0}' });
     await design(page, path, 358);
     const frame = page.frameLocator('#design-scene iframe');
+    await expect(frame.locator('.docs-canvas-stage')).toHaveCount(0);
     await frame.getByRole('button', { name: trigger }).first().click();
-    const stage = frame.locator('.docs-canvas-stage');
-    await expect(stage.locator(surface)).toBeVisible();
-    const boxes = await stage.evaluate((node, surface) => {
-      const rect = (element: Element | null) => {
-        const { top, left, bottom, right } = element!.getBoundingClientRect();
-        return { top, left, bottom, right };
-      };
-      // The scrim covers the stage inside its border.
-      const { top, left } = rect(node);
-      const inner = {
-        top: top + node.clientTop,
-        left: left + node.clientLeft,
-        bottom: top + node.clientTop + node.clientHeight,
-        right: left + node.clientLeft + node.clientWidth,
-      };
-      return {
-        inner,
-        stage: rect(node),
-        surface: rect(node.querySelector(surface)),
-        scrim: rect(node.querySelector('[data-tmt-ds-scrim]')),
-      };
-    }, surface);
-    expect(boxes.scrim).toEqual(boxes.inner);
-    expect(boxes.surface.top).toBeGreaterThanOrEqual(boxes.stage.top);
-    expect(boxes.surface.bottom).toBeLessThanOrEqual(boxes.stage.bottom);
-    expect(boxes.surface.right).toBeLessThanOrEqual(boxes.stage.right);
-    if (path === 'components/dialog')
-      expect(
-        Math.abs(boxes.surface.top + boxes.surface.bottom - (boxes.stage.top + boxes.stage.bottom)),
-      ).toBeLessThanOrEqual(2);
-    // In view without scrolling: the frame starts at the top of the page.
-    const frameTop = await page
+    const surface = frame.locator(`[data-slot="${kind}-content"]`);
+    await expect(surface).toBeVisible();
+    const offset = await page
       .locator('#design-scene iframe')
       .evaluate((node) => node.getBoundingClientRect().top);
-    expect(frameTop + boxes.stage.bottom).toBeLessThanOrEqual(844);
+    const box = async (slot: string) =>
+      frame.locator(`[data-slot="${kind}-${slot}"]`).evaluate((node) => {
+        const { top, bottom, left, right } = node.getBoundingClientRect();
+        return { top, bottom, left, right };
+      });
+    // The scrim covers the part of the frame in the window; the surface sits inside it.
+    const visible = { top: Math.max(0, -offset), bottom: Math.min(844, 844 - offset) };
+    await expect
+      .poll(async () => {
+        const scrim = await box('overlay');
+        return [Math.round(scrim.top), Math.round(scrim.bottom)];
+      })
+      .toEqual([Math.round(visible.top), Math.round(visible.bottom)]);
+    const content = await box('content');
+    expect(offset + content.top).toBeGreaterThanOrEqual(0);
+    expect(offset + content.bottom).toBeLessThanOrEqual(844);
+    if (kind === 'dialog')
+      expect(
+        Math.abs(content.top + content.bottom - (visible.top + visible.bottom)),
+      ).toBeLessThanOrEqual(2);
   });
 
 // A narrow Design frame takes the compact (<=760px) tokens, as the docs do at 390: the frame's

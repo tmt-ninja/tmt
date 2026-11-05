@@ -780,6 +780,23 @@
             // What the body alone read when the height was last measured.
             content = 0,
             innerScroll = false;
+          // The parent's render-height bound: a band never lies beyond the tallest frame.
+          const MAX_VIEWPORT = 1000000;
+          /** Publishes the part of this frame the reader sees to the design system (#6090), which
+           * centres page-level modals in it; none means this frame's own viewport. */
+          function setVisibleBand(band) {
+            const root = document.documentElement;
+            if (band) {
+              root.style.setProperty('--tmt-ui-viewport-top', band.top + 'px');
+              root.style.setProperty('--tmt-ui-viewport-height', band.height + 'px');
+              root.setAttribute('data-tmt-ui-viewport', '');
+            } else {
+              root.style.removeProperty('--tmt-ui-viewport-top');
+              root.style.removeProperty('--tmt-ui-viewport-height');
+              root.removeAttribute('data-tmt-ui-viewport');
+            }
+            document.dispatchEvent(new Event('tmt-ui-viewport'));
+          }
           function measureHeight() {
             heightTimer = undefined;
             if (stopped || !document.body) return;
@@ -959,7 +976,7 @@
           // END GENERATED PAGE ICONS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-block-slot] { margin-block-start: -16px !important; } } } }';
+            '@layer colab-frame { html { --colab-lane: 28px !important; box-sizing: border-box !important; padding-inline-end: var(--colab-lane) !important; } html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline-start: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { --colab-side: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; align-self: stretch !important; width: auto !important; margin-inline-end: calc(-1 * var(--colab-lane)) !important; padding-inline: var(--colab-side) calc(var(--colab-side) + var(--colab-lane)) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-block-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-block-slot] { margin-block-start: -16px !important; } } } :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, [data-slot="dialog-overlay"], [data-slot="sheet-overlay"]):not( [data-tmt-ds-scope] * ), :root[data-tmt-ui-viewport] :is(.tmt-ui-dialog, .tmt-ui-drawer):not([data-tmt-ds-scope] *)::backdrop { inset: var(--tmt-ui-viewport-top) 0 calc(100% - var(--tmt-ui-viewport-top) - var(--tmt-ui-viewport-height)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-dialog:not([data-tmt-ds-scope] *) { max-height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-space-l)) !important; } :root[data-tmt-ui-viewport] .tmt-ui-drawer:not([data-tmt-ds-scope] *) { top: calc(var(--tmt-ui-viewport-top) + var(--tmt-ui-drawer-gutter)) !important; bottom: auto !important; height: calc(var(--tmt-ui-viewport-height) - 2 * var(--tmt-ui-drawer-gutter)) !important; } }';
           // END GENERATED PAGE FRAME
           const accent = 'var(--tmt-ui-color-annotation-rule-selected)';
           const accentTint = (percent) => `color-mix(in srgb,${accent} ${percent}%,transparent)`;
@@ -2827,6 +2844,29 @@
               document.documentElement.dataset.theme = v.theme;
               return;
             }
+            // The visible band of a window-scrolled frame (#6090): cosmetic, it grants nothing.
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 5 &&
+              v.type === 'colab.render.viewport' &&
+              v.renderId === renderId
+            ) {
+              // A band lies inside this frame: whole pixels, within the frame's own size.
+              if (
+                !innerScroll &&
+                [v.top, v.height, v.width].every(
+                  (value) => Number.isInteger(value) && value >= 0 && value <= MAX_VIEWPORT,
+                ) &&
+                v.height > 0 &&
+                v.width > 0 &&
+                v.width <= innerWidth + 1 &&
+                v.top + v.height <= innerHeight + 1
+              )
+                setVisibleBand({ top: v.top, height: v.height });
+              return;
+            }
             if (
               v &&
               typeof v === 'object' &&
@@ -2837,6 +2877,8 @@
               v.mode === 'frame'
             ) {
               innerScroll = true;
+              // The frame scrolls itself now: its own viewport is what the reader sees.
+              setVisibleBand(undefined);
               resolveSlots();
               return;
             }
