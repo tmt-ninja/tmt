@@ -496,6 +496,7 @@ export interface TooltipProps {
 export interface CommandProps {
   label?: string;
   items?: string;
+  query?: string;
   children?: ReactNode;
 }
 

@@ -9,6 +9,9 @@
     },
     "items": {
       "type": "string"
+    },
+    "query": {
+      "type": "string"
     }
   },
   "slots": [
@@ -33,6 +36,14 @@
     {
       "title": "Page commands",
       "markup": "<tmt-ui-command label=\"Find a page\" items=\"Release plan,Notes,Project\"></tmt-ui-command>",
+      "widths": [
+        1440,
+        390
+      ]
+    },
+    {
+      "title": "Page results",
+      "markup": "<tmt-ui-command label=\"Search pages\" query=\"retro\" items=\"page:Weekly retro:Product / Planning,page:Weekly retro:Operations / Planning\"></tmt-ui-command>",
       "widths": [
         1440,
         390

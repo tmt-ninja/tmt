@@ -2987,9 +2987,17 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Grouped page actions",
+     "markup": "<tmt-ui-menu label=\"Page actions\" items=\"Manage page,-,Archive…,About this page\"></tmt-ui-menu>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
-   "source": "export default ({ React, ui }) => ({ label = 'Options', items = '' }) =>\n  React.createElement(ui.BrowserMenu, { label, triggerText: label,\n    items: items.split(',').map((item) => item.trim()).filter(Boolean).map((item) => ({ key: item, label: item })),\n    onSelect: () => {} });\n",
+   "source": "export default ({ React, ui }) => ({ label = 'Options', items = '' }) => {\n  const tokens = items.split(',').map((item) => item.trim()).filter(Boolean);\n  let separated = false;\n  const rows = [];\n  for (let i = 0; i < tokens.length; i += 1) {\n    const item = tokens[i];\n    // A separator belongs to the following item; a dangling or repeated marker remains text.\n    if (item === '-' && !separated && i + 1 < tokens.length && tokens[i + 1] !== '-') {\n      separated = true;\n      continue;\n    }\n    rows.push({ key: `${i}:${item}`, label: item, ...(separated ? { separated: true } : {}) });\n    separated = false;\n  }\n  return React.createElement(ui.BrowserMenu, { label, triggerText: label, items: rows, onSelect: () => {} });\n};\n",
    "css": ""
   },
   {
@@ -3392,6 +3400,9 @@
     },
     "items": {
      "type": "string"
+    },
+    "query": {
+     "type": "string"
     }
    },
    "slots": [
@@ -3419,9 +3430,17 @@
       1440,
       390
      ]
+    },
+    {
+     "title": "Page results",
+     "markup": "<tmt-ui-command label=\"Search pages\" query=\"retro\" items=\"page:Weekly retro:Product / Planning,page:Weekly retro:Operations / Planning\"></tmt-ui-command>",
+     "widths": [
+      1440,
+      390
+     ]
     }
    ],
-   "source": "// Compose the real command palette parts on the page runtime's React.\nexport default ({ React, ui }) => function Command({ label = 'Search', items = '' }) {\n  const h = React.createElement;\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.Command, { label }, h(ui.CommandInput, { placeholder: label, 'aria-label': label }),\n    h(ui.CommandList, null, ...choices.map((item) => h(ui.CommandItem, { key: item }, item))));\n};\n",
+   "source": "// Compose the real command palette parts on the page runtime's React.\nexport default ({ React, ui }) => function Command({ label = 'Search', items = '', query = '' }) {\n  const h = React.createElement;\n  const [search, setSearch] = React.useState(query);\n  const choices = items.split(',').map((item) => item.trim()).filter(Boolean);\n  const row = (item, index) => {\n    // `page:title:meta` uses the same id:text convention as BlockMenu. Invalid entries stay text.\n    const match = /^page:([^:]+):(.+)$/.exec(item);\n    const title = match?.[1]?.trim();\n    const meta = match?.[2]?.trim();\n    if (!title || !meta) return h(ui.CommandItem, { key: `${index}:${item}`, value: item }, item);\n    return h(ui.CommandItem, { key: `${index}:${item}`, value: `${title} ${meta}` },\n      h('tmt-icon', { name: 'file-text', 'aria-hidden': 'true' }),\n      h('span', { className: 'tmt-ui-list-title' },\n        h('span', { className: 'tmt-ui-list-label' }, title),\n        h('span', { className: 'tmt-ui-list-description' }, meta)));\n  };\n  return h(ui.Command, { label }, h(ui.CommandInput, { placeholder: label, 'aria-label': label, value: search, onValueChange: setSearch }),\n    h(ui.CommandList, null, ...choices.map(row)));\n};\n",
    "css": ""
   },
   {

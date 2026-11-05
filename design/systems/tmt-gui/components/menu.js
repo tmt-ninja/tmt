@@ -1,4 +1,16 @@
-export default ({ React, ui }) => ({ label = 'Options', items = '' }) =>
-  React.createElement(ui.BrowserMenu, { label, triggerText: label,
-    items: items.split(',').map((item) => item.trim()).filter(Boolean).map((item) => ({ key: item, label: item })),
-    onSelect: () => {} });
+export default ({ React, ui }) => ({ label = 'Options', items = '' }) => {
+  const tokens = items.split(',').map((item) => item.trim()).filter(Boolean);
+  let separated = false;
+  const rows = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const item = tokens[i];
+    // A separator belongs to the following item; a dangling or repeated marker remains text.
+    if (item === '-' && !separated && i + 1 < tokens.length && tokens[i + 1] !== '-') {
+      separated = true;
+      continue;
+    }
+    rows.push({ key: `${i}:${item}`, label: item, ...(separated ? { separated: true } : {}) });
+    separated = false;
+  }
+  return React.createElement(ui.BrowserMenu, { label, triggerText: label, items: rows, onSelect: () => {} });
+};

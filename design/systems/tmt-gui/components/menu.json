@@ -42,6 +42,14 @@
         1440,
         390
       ]
+    },
+    {
+      "title": "Grouped page actions",
+      "markup": "<tmt-ui-menu label=\"Page actions\" items=\"Manage page,-,Archive…,About this page\"></tmt-ui-menu>",
+      "widths": [
+        1440,
+        390
+      ]
     }
   ]
 }

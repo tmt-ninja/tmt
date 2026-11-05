@@ -82,3 +82,19 @@ component or prop shows up there. Fix every one before handing the page over. Th
 - Components render only inside Colab; a downloaded standalone page does not carry them.
 - Interactive behaviour is what the component offers. For your own scripts use the page runtime
   (tmt-colab skill, runtime).
+
+### Built-in menu and page-search examples
+
+For `tmt-ui-menu`, a `-` between items starts a separated group, for example
+`items="Manage page,-,Archive…,About this page"`. A dangling separator remains
+plain text. `tmt-ui-command` accepts plain items and `page:<title>:<context>`
+items; the latter render a page icon, title and quiet context line. Its optional
+`query` sets the initial search text. For example:
+
+```html
+<tmt-ui-command label="Search pages" query="retro"
+  items="page:Weekly retro:Product / Planning,page:Weekly retro:Operations / Planning"></tmt-ui-command>
+```
+
+Malformed page entries remain plain text. These examples describe the visual
+components; a product host owns page eligibility, selection and changes.
