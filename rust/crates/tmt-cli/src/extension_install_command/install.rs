@@ -113,11 +113,15 @@ pub(super) fn install(
     })?;
     let notice = PostUpgradeNotice::observe(product, &report, previous_version.as_deref(), before);
     let human = if report.changed {
-        Human::done(format!(
+        let mut human = Human::done(format!(
             "Installed {name} {} at {}.",
             report.version,
             report.executable.display()
-        ))
+        ));
+        if current.is_none() {
+            offer_tmux(product, &mut human);
+        }
+        human
     } else {
         Human::plain(format!("{name} {} is already installed.", report.version))
     };
@@ -130,6 +134,16 @@ pub(super) fn install(
         changed: report.changed,
         notice,
     })
+}
+
+/// The product's tmux offer after a first install, only inside tmux.
+pub(super) fn offer_tmux(product: Product, human: &mut Human) {
+    if let Some(offer) = product
+        .tmux_offer()
+        .filter(|_| env::var_os("TMUX").is_some())
+    {
+        human.push(offer.into());
+    }
 }
 
 fn installation_failure(error: io::Error) -> Failure {

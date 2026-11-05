@@ -3213,6 +3213,10 @@ sort = ["-name"]
       expect(printed.body.bindings).toContain(
         `bind-key -N "tmt ops popup" S display-popup -E -w 90% -h 85% "exec '${launcher}' ops ui --popup"`
       );
+      expect(printed.body.bindings).toContain(
+        `bind-key -N "tmt ops back" G run-shell "'${launcher}' ops squad back"`
+      );
+      expect(printed.body.skipped).toEqual([]);
       expect(printed.body.bindings).not.toContain(sandbox.cli.executable);
       expect(existsSync(conf) || existsSync(squadFile), '--print changes nothing').toBe(false);
       const refused = await hotkeys(['install']);
@@ -3226,6 +3230,15 @@ sort = ["-name"]
       expect(taken.body.error.code).toBe('SQUAD_HOTKEY_TAKEN');
       expect(taken.body.error.message).toContain('bind S choose-tree -s');
       expect(readFileSync(conf, 'utf8')).toBe(original);
+
+      // The default back key gives way to the user's own binding of it.
+      writeFileSync(conf, '# mine\nbind G last-window\n');
+      const givenWay = await hotkeys(['install', '--print']);
+      expect(givenWay.body.skipped).toEqual([`prefix G in ${conf}: bind G last-window`]);
+      expect(givenWay.body.keys.back).toBeNull();
+      expect(givenWay.body.bindings).not.toContain('tmt ops back');
+      expect(givenWay.body.collisions).toEqual([]);
+      writeFileSync(conf, original);
 
       const squadToml = path.join(sandbox.globalDir, 'ops.toml');
       writeFileSync(squadToml, `${readOpsConfig(squadToml)}\n[tmux]\npopup = "C-s"\nback = "b"\n`);

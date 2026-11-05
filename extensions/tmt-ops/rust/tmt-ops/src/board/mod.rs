@@ -1897,7 +1897,8 @@ pub fn run(
             .notice
             .filter(|_| app.migration_notice.is_none())
             .or_else(|| config.obsolete_board_notice().map(str::to_owned))
-            .or(startup_notice),
+            .or(startup_notice)
+            .or_else(|| crate::hotkeys::offer_once(&config, invoker_tmux).map(str::to_owned)),
         false,
     );
     app.initial_look = Some(crate::look::Look::new(initial_theme));

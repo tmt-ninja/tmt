@@ -40,6 +40,17 @@ impl FormerProduct {
 }
 
 impl Product {
+    /// A print-only next step after a first install inside tmux. Nothing is
+    /// written; the product's own command asks before it changes anything.
+    pub const fn tmux_offer(self) -> Option<&'static str> {
+        match self {
+            Self::Ops => Some(
+                "On tmux, Ops can add prefix keys: S opens the board, B opens it beside your pane, G goes back to it after a jump. See what would be written: tmt ops hotkeys install --print",
+            ),
+            _ => None,
+        }
+    }
+
     pub const fn post_upgrade_check(self) -> Option<PostUpgradeCheck> {
         match self {
             Self::Remote => Some(PostUpgradeCheck::RemoteDoor),

@@ -23,6 +23,11 @@ const NOTE: &str = "tmt ops";
 const FORMER_NOTE: &str = "tmt squad";
 const FORMER_MARK: &str = "# tmt squad hotkeys";
 const MARK: &str = "# tmt ops hotkeys";
+const FILE: &str = "ops.tmux.conf";
+const FORMER_FILE: &str = "squad.tmux.conf";
+
+/// What the board says once on tmux while no hotkeys are installed.
+pub const OFFER: &str = "tmux keys: prefix S opens this board, B beside your pane, G back to it. See them: tmt ops hotkeys install --print";
 
 fn owned_note(note: &str) -> bool {
     [NOTE, FORMER_NOTE].iter().any(|prefix| {
@@ -238,28 +243,38 @@ fn chosen(keys: &TmuxKeys) -> Vec<&str> {
     all
 }
 
+/// Existing bindings of `key` that are not squad's.
+fn bound(
+    key: &str,
+    files: &[(PathBuf, String)],
+    server: &[(String, String, String)],
+) -> Vec<String> {
+    let mut found = Vec::new();
+    for (path, text) in files {
+        for (bound, line) in file_keys(text) {
+            if bound == key {
+                found.push(format!("prefix {key} in {}: {line}", path.display()));
+            }
+        }
+    }
+    for (bound, note, command) in server {
+        if bound == key && !owned_note(note) {
+            found.push(format!("prefix {key} on the running server: {command}"));
+        }
+    }
+    found
+}
+
 /// Existing bindings for the chosen keys that are not squad's.
 fn collisions(
     keys: &TmuxKeys,
     files: &[(PathBuf, String)],
     server: &[(String, String, String)],
 ) -> Vec<String> {
-    let mut found = Vec::new();
-    for key in chosen(keys) {
-        for (path, text) in files {
-            for (bound, line) in file_keys(text) {
-                if bound == key {
-                    found.push(format!("prefix {key} in {}: {line}", path.display()));
-                }
-            }
-        }
-        for (bound, note, command) in server {
-            if bound == key && !owned_note(note) {
-                found.push(format!("prefix {key} on the running server: {command}"));
-            }
-        }
-    }
-    found
+    chosen(keys)
+        .into_iter()
+        .flat_map(|key| bound(key, files, server))
+        .collect()
 }
 
 fn read(path: &Path) -> Result<Option<Vec<u8>>, SquadError> {
@@ -398,16 +413,31 @@ struct Plan {
     /// The real file behind `target`, or why it cannot be written.
     resolved: Result<PathBuf, SquadError>,
     socket: Option<String>,
+    /// Prefix bindings on the running server, read only.
+    server: Vec<(String, String, String)>,
+    /// Where the user already binds the default `back` key, which squad then
+    /// leaves out.
+    skipped: Vec<String>,
+}
+
+impl Plan {
+    /// The user's tmux files that exist, as text.
+    fn files(&self) -> Vec<(PathBuf, String)> {
+        self.candidates
+            .iter()
+            .filter_map(|(path, bytes)| Some((path.clone(), text(&Some(bytes.clone()?)))))
+            .collect()
+    }
 }
 
 fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, SquadError> {
-    let keys = config.tmux_keys()?;
+    let mut keys = config.tmux_keys()?;
     let squad_file = config
         .path()
         .parent()
         .ok_or_else(|| failed("SQUAD_CONFIG_INVALID", "ops.toml has no directory."))?
-        .join("ops.tmux.conf");
-    let former_file = squad_file.with_file_name("squad.tmux.conf");
+        .join(FILE);
+    let former_file = squad_file.with_file_name(FORMER_FILE);
     let former_line = format!("source-file -q {} {FORMER_MARK}", quoted(&former_file)?);
     let tmt = launcher(core.executable(), std::env::var_os("PATH"));
     let home = std::env::var_os("HOME")
@@ -437,18 +467,47 @@ fn plan(core: &Core, config: &Config, explicit: Option<&Path>) -> Result<Plan, S
             .find(|(_, bytes)| bytes.is_some())
             .map_or_else(|| home.join(".tmux.conf"), |(path, _)| path.clone()),
     };
-    Ok(Plan {
-        bindings: bindings(&keys, &tmt)?,
+    let socket = effects::tmux_socket();
+    let server = match &socket {
+        Some(socket) => server_keys(socket)?,
+        None => Vec::new(),
+    };
+    let mut plan = Plan {
+        bindings: String::new(),
         line: owned_line(&squad_file)?,
-        keys,
+        keys: keys.clone(),
         squad_file,
         former_file,
         former_line,
         candidates,
         resolved: real_path(&target),
         target,
-        socket: effects::tmux_socket(),
-    })
+        socket,
+        server,
+        skipped: Vec::new(),
+    };
+    plan.skipped = give_way(&mut keys, &plan.files(), &plan.server);
+    plan.bindings = bindings(&keys, &tmt)?;
+    plan.keys = keys;
+    Ok(plan)
+}
+
+/// The default back key never takes a key the user already binds: it is left
+/// out, and the bindings that hold it are returned. A chosen key stays, and
+/// install refuses it as a collision instead.
+fn give_way(
+    keys: &mut TmuxKeys,
+    files: &[(PathBuf, String)],
+    server: &[(String, String, String)],
+) -> Vec<String> {
+    let Some(back) = keys.back.as_deref().filter(|_| !keys.back_chosen) else {
+        return Vec::new();
+    };
+    let found = bound(back, files, server);
+    if !found.is_empty() {
+        keys.back = None;
+    }
+    found
 }
 
 fn text(bytes: &Option<Vec<u8>>) -> String {
@@ -477,16 +536,7 @@ pub fn install(
         .find(|(path, _)| *path == plan.target)
         .and_then(|(_, bytes)| bytes.clone());
     let current = text(&original);
-    let files: Vec<(PathBuf, String)> = plan
-        .candidates
-        .iter()
-        .filter_map(|(path, bytes)| Some((path.clone(), text(&Some(bytes.clone()?)))))
-        .collect();
-    let server = match &plan.socket {
-        Some(socket) => server_keys(socket)?,
-        None => Vec::new(),
-    };
-    let collisions = collisions(&plan.keys, &files, &server);
+    let collisions = collisions(&plan.keys, &plan.files(), &plan.server);
     let installed = contains_line(&current, &plan.line)
         && !contains_line(&current, &plan.former_line)
         && read(&plan.squad_file)?.as_deref() == Some(plan.bindings.as_bytes());
@@ -500,6 +550,7 @@ pub fn install(
         "keys": keys_json(&plan.keys),
         "loadsRunningServer": plan.socket.is_some(),
         "collisions": collisions,
+        "skipped": plan.skipped,
     });
     if print {
         return Ok(document);
@@ -550,7 +601,7 @@ pub fn install(
         } else {
             ""
         },
-    );
+    ) + &skipped_text(&plan.skipped);
     ask(consent, &summary, "Install these tmux hotkeys?")?;
     // The user's file first: if it cannot be written, nothing changed. Its
     // line is quiet (`-q`), so squad's own file may follow.
@@ -586,11 +637,8 @@ pub fn remove(core: &Core, config: &Config, consent: Consent) -> Result<Value, S
             .then(|| (path.clone(), bytes))
         })
         .collect();
-    let server = match &plan.socket {
-        Some(socket) => server_keys(socket)?,
-        None => Vec::new(),
-    };
-    let ours: Vec<String> = server
+    let ours: Vec<String> = plan
+        .server
         .iter()
         .filter(|(_, note, _)| owned_note(note))
         .map(|(key, _, _)| key.clone())
@@ -660,10 +708,6 @@ pub fn report(core: &Core, config: &Config) -> Result<Value, SquadError> {
         .or(read(&plan.former_file)?)
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
     let executable = written.as_deref().and_then(recorded);
-    let server = match &plan.socket {
-        Some(socket) => server_keys(socket)?,
-        None => Vec::new(),
-    };
     Ok(json!({
         "installed": !installed_in.is_empty(),
         "sourcedFrom": installed_in,
@@ -672,12 +716,45 @@ pub fn report(core: &Core, config: &Config) -> Result<Value, SquadError> {
         "current": written.as_deref() == Some(plan.bindings.as_str()),
         "executable": executable,
         "executableExists": executable.as_ref().map(|path| path.exists()),
-        "serverKeys": server
+        "serverKeys": plan
+            .server
             .iter()
             .filter(|(_, note, _)| owned_note(note))
             .map(|(key, _, _)| key)
             .collect::<Vec<_>>(),
+        "skipped": plan.skipped,
     }))
+}
+
+/// The plan's note on a default key left out because the user binds it.
+fn skipped_text(skipped: &[String]) -> String {
+    if skipped.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n  leave out the back key, which you already bind ({}); choose one with [tmux] back in ops.toml",
+        skipped.join("; ")
+    )
+}
+
+/// [`OFFER`] the first time the board opens on tmux without squad's hotkeys
+/// file. A marker in squad's cache keeps it to once; the user's tmux
+/// configuration is neither read nor written.
+pub fn offer_once(config: &Config, tmux: bool) -> Option<&'static str> {
+    let directory = config.path().parent()?;
+    if !tmux
+        || [FILE, FORMER_FILE]
+            .iter()
+            .any(|file| directory.join(file).exists())
+    {
+        return None;
+    }
+    let marker = crate::cache::directory("board")?.join("hotkeys-offered");
+    if fs::symlink_metadata(&marker).is_ok() {
+        return None;
+    }
+    crate::cache::replace(&marker, b"").ok()?;
+    Some(OFFER)
 }
 
 /// Keys another binding already uses, and where to choose others.
@@ -715,6 +792,7 @@ mod tests {
             popup: "S".into(),
             pane: "B".into(),
             back: None,
+            back_chosen: false,
             lead: None,
         }
     }
@@ -725,6 +803,74 @@ mod tests {
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn the_default_back_key_gives_way_to_a_user_binding_and_a_chosen_one_does_not() {
+        let default = || TmuxKeys {
+            back: Some("G".into()),
+            ..keys()
+        };
+        let mine = |note: &str| vec![("G".to_owned(), note.to_owned(), "copy-mode".to_owned())];
+        let mut free = default();
+        assert!(give_way(&mut free, &[], &[]).is_empty());
+        assert_eq!(free.back.as_deref(), Some("G"));
+        // Squad's own earlier binding is not the user's.
+        let mut ours = default();
+        assert!(give_way(&mut ours, &[], &mine("tmt ops back")).is_empty());
+        assert_eq!(ours.back.as_deref(), Some("G"));
+        let mut on_server = default();
+        assert_eq!(
+            give_way(&mut on_server, &[], &mine("")),
+            ["prefix G on the running server: copy-mode"]
+        );
+        assert_eq!(on_server.back, None);
+        let file = (
+            PathBuf::from("/h/.tmux.conf"),
+            "bind G last-window\n".to_owned(),
+        );
+        let mut in_file = default();
+        assert_eq!(
+            give_way(&mut in_file, std::slice::from_ref(&file), &[]),
+            ["prefix G in /h/.tmux.conf: bind G last-window"]
+        );
+        assert_eq!(in_file.back, None);
+        let mut chosen = TmuxKeys {
+            back_chosen: true,
+            ..default()
+        };
+        assert!(give_way(&mut chosen, std::slice::from_ref(&file), &[]).is_empty());
+        assert_eq!(chosen.back.as_deref(), Some("G"));
+        assert_eq!(
+            collisions(&chosen, &[file], &[]),
+            ["prefix G in /h/.tmux.conf: bind G last-window"],
+            "install refuses a chosen key the user binds"
+        );
+    }
+
+    #[test]
+    fn the_board_offers_the_keys_once_on_tmux_while_none_are_installed() {
+        let root = scratch("offer");
+        let path = root.join("ops.toml");
+        fs::write(&path, "").unwrap();
+        let config = Config::read(path).unwrap();
+        let marker = crate::cache::directory("board")
+            .unwrap()
+            .join("hotkeys-offered");
+        let _ = fs::remove_file(&marker);
+        assert_eq!(offer_once(&config, false), None, "only on tmux");
+        assert!(!marker.exists());
+        fs::write(root.join(FILE), "").unwrap();
+        assert_eq!(
+            offer_once(&config, true),
+            None,
+            "installed keys need no offer"
+        );
+        fs::remove_file(root.join(FILE)).unwrap();
+        assert_eq!(offer_once(&config, true), Some(OFFER));
+        assert_eq!(offer_once(&config, true), None, "once");
+        let _ = fs::remove_file(&marker);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

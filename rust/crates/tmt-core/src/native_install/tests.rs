@@ -460,6 +460,22 @@ fn digest_has_an_independent_namespace_and_ordinary_extension_inventory() {
 }
 
 #[test]
+fn only_ops_offers_tmux_keys_and_the_offer_only_prints_a_preview() {
+    use super::Product;
+    for name in ["cli", "remote", "colab", "digest"] {
+        assert!(
+            Product::parse(name).unwrap().tmux_offer().is_none(),
+            "{name}"
+        );
+    }
+    let offer = Product::parse("ops").unwrap().tmux_offer().unwrap();
+    assert!(
+        offer.ends_with("tmt ops hotkeys install --print"),
+        "{offer}"
+    );
+}
+
+#[test]
 fn pr_to_published_transition_ignores_only_numeric_precedence() {
     let pr = Channel::parse("pr234").unwrap();
     let current = installed("5.0.0-alpha.999999+candidate", pr, None);

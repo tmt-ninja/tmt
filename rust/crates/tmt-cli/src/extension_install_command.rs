@@ -371,6 +371,7 @@ pub(crate) fn install_offered_at(
             report.version,
             report.executable.display()
         ));
+        install::offer_tmux(product, &mut human);
         settle_skills(
             product,
             &report.active_executable,

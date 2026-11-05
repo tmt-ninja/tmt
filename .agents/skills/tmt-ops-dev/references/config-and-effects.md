@@ -416,7 +416,13 @@ scoped override semantics; CLI configuration remains available for explicit edit
   PATH that resolves to the running executable, not the release path. Collisions and
   ownership on the running server come from `list-keys -N -P "" -T prefix` (notes) and
   `list-keys -T prefix` (commands), since `list-keys -F` postdates tmux 3.2; Squad unbinds
-  only keys whose note is its own. `board --popup` ends the session after a successful jump.
+  only keys whose note is its own. `back` defaults to `G` (`back = ""` turns it off); the
+  plan drops that default when a user file or the running server already binds it and
+  reports it as `skipped`, while a chosen key that collides refuses the install. The board
+  prints `hotkeys::OFFER` once on tmux while no generated file exists (marker
+  `hotkeys-offered` in the `board` cache), and Core's extension install prints
+  `Product::tmux_offer` after a first install inside tmux; neither writes tmux state.
+  `board --popup` ends the session after a successful jump.
 
 ## Playbooks
 
