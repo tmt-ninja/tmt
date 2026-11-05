@@ -2760,8 +2760,9 @@ first render (two quiet animation frames), the frame posts exactly
 `{type:"colab.render.settled",renderId}` once, and growth reports count only after the parent
 receives it for the current ready render, or 3 s after `colab.render.bound`, whichever comes first.
 The frame stops asking after about 3 s too. A page without the runtime and a design system counts
-growth from the start, as before. The message is cosmetic: a forged or missing one only moves when
-the existing limit starts.
+growth from the start, as before. `colab.render.settled` is a cosmetic frame claim and grants
+nothing: the parent accepts it at most once per current render ID, a page that withholds it delays
+the fallback by at most the 3 s grace, and one that sends it early gets the previous behavior.
 
 **Page links (#4083).** The bootstrap installs ordinary link interception before author HTML
 executes. A trusted primary, keyboard, modified or middle activation of `a[href]` prevents the
