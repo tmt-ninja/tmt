@@ -124,6 +124,22 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_past_the_hold_bound_is_emitted_unchanged() {
+        // 40 bytes, ending in a switch: past the bound it is passed on whole, never dropped.
+        let long = [&b"\x1b[?"[..], &b"1;".repeat(16), b"1049h"].concat();
+        assert_eq!(long.len(), 40);
+        assert_eq!(whole(&long), (long.clone(), false));
+        for cut in 1..long.len() {
+            let mut out = Vec::new();
+            let mut switches = Switches::default();
+            switches.filter(&long[..cut], &mut out);
+            switches.filter(&long[cut..], &mut out);
+            switches.flush(&mut out);
+            assert_eq!(out, long, "split at {cut}");
+        }
+    }
+
+    #[test]
     fn a_combined_mode_change_keeps_its_other_modes() {
         assert_eq!(
             whole(b"\x1b[?1049;25h\x1b[?25;47;1h"),
