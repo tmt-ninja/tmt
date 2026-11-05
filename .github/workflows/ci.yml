@@ -129,6 +129,11 @@ jobs:
           # Offline metadata tests require every locked workspace dependency, not only the helper.
           cargo fetch --locked --manifest-path rust/Cargo.toml
           cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
+      - name: Check CLI style on WebAssembly
+        working-directory: rust
+        run: |
+          rustup target add --toolchain 1.97.0 wasm32-unknown-unknown
+          cargo check -p tmt-cli-style --no-default-features --target wasm32-unknown-unknown
       - name: Run code quality checks
         working-directory: typescript
         run: |
