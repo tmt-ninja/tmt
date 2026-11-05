@@ -66,33 +66,33 @@ fn invoke(root: &Path, envelope: &[u8], bundle: &[u8]) -> (i32, Vec<u8>, Vec<u8>
     fs::write(&declaration_path, envelope).unwrap();
     fs::write(&bundle_path, bundle).unwrap();
     // Translate only the scenario's fixture bytes to a real installed-tree manifest.
-    if let Ok(mut value) = serde_json::from_slice::<Value>(bundle) {
-        if let Some(files) = value["files"].as_array_mut() {
-            let declaration: Value = serde_json::from_slice(envelope).unwrap_or(Value::Null);
-            let portable: Value = declaration["declaration"]
-                .as_str()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or(Value::Null);
-            for (index, file) in files.iter_mut().enumerate() {
-                if let Some(raw) = file
-                    .as_object_mut()
-                    .and_then(|item| item.remove("fixtureBytes"))
-                {
-                    let raw: Vec<u8> = serde_json::from_value(raw).unwrap();
-                    let mut metadata = portable["hosting"]["files"][index].clone();
-                    let path = root.join("dist-hosted/index.html");
-                    fs::write(&path, raw).unwrap();
-                    for (key, extra) in file.as_object().unwrap() {
-                        if key != "path" {
-                            metadata[key] = extra.clone();
-                        }
+    if let Ok(mut value) = serde_json::from_slice::<Value>(bundle)
+        && let Some(files) = value["files"].as_array_mut()
+    {
+        let declaration: Value = serde_json::from_slice(envelope).unwrap_or(Value::Null);
+        let portable: Value = declaration["declaration"]
+            .as_str()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or(Value::Null);
+        for (index, file) in files.iter_mut().enumerate() {
+            if let Some(raw) = file
+                .as_object_mut()
+                .and_then(|item| item.remove("fixtureBytes"))
+            {
+                let raw: Vec<u8> = serde_json::from_value(raw).unwrap();
+                let mut metadata = portable["hosting"]["files"][index].clone();
+                let path = root.join("dist-hosted/index.html");
+                fs::write(&path, raw).unwrap();
+                for (key, extra) in file.as_object().unwrap() {
+                    if key != "path" {
+                        metadata[key] = extra.clone();
                     }
-                    metadata["path"] = json!(path);
-                    *file = metadata;
                 }
+                metadata["path"] = json!(path);
+                *file = metadata;
             }
-            fs::write(&bundle_path, serde_json::to_vec(&value).unwrap()).unwrap();
         }
+        fs::write(&bundle_path, serde_json::to_vec(&value).unwrap()).unwrap();
     }
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
