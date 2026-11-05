@@ -10,50 +10,50 @@
   "chunks": [
     {
       "name": "base",
-      "path": "assets/colab-runtime-base-cca9cd8cfda74d13.js",
-      "sha256": "cca9cd8cfda74d13c39c6681ddcdad7391349a805cbce58b97f320cc58b4ed1e",
-      "length": 533946,
-      "gzip": 153522
+      "path": "assets/colab-runtime-base-845a4879e6212329.js",
+      "sha256": "845a4879e621232933d0563d27b561843b929f119a7956000afc5493e9ebe392",
+      "length": 529755,
+      "gzip": 151973
     },
     {
       "name": "ui",
       "path": "assets/colab-runtime-ui-61ea3b09b913c1de.js",
       "sha256": "61ea3b09b913c1de0f221b83ede1a8083e945358b26cfb6501c25b2e696c2c9b",
       "length": 246759,
-      "gzip": 69802
+      "gzip": 69713
     },
     {
       "name": "browser",
       "path": "assets/colab-runtime-browser-6ff56b9bbe31d8de.js",
       "sha256": "6ff56b9bbe31d8de29f166e947d57cde2eb652048ed32429181454eb51256e88",
       "length": 108868,
-      "gzip": 32912
+      "gzip": 32816
     },
     {
       "name": "blocks",
       "path": "assets/colab-runtime-blocks-25422a1504615d9f.js",
       "sha256": "25422a1504615d9fc0ebce45e6df2bc29b561e8b5436b5d172b2502cf73ef8e2",
       "length": 45853,
-      "gzip": 12928
+      "gzip": 12942
     },
     {
       "name": "rich-input",
       "path": "assets/colab-runtime-rich-input-5de632692d997b2f.js",
       "sha256": "5de632692d997b2febaeee8ab63db0762976ec0bfd5aa8885cd16f9eadfe0d5d",
       "length": 223672,
-      "gzip": 70565
+      "gzip": 70582
     },
     {
       "name": "docs",
-      "path": "assets/colab-runtime-docs-46c41bfc86246565.js",
-      "sha256": "46c41bfc862465653906c085764eb841b968f94a2e7a19d78ff48dab4b2311a6",
-      "length": 170485,
-      "gzip": 49510
+      "path": "assets/colab-runtime-docs-912fa79b1eb39026.js",
+      "sha256": "912fa79b1eb390268cca91ca77662154fba902fca18c7470fb90aa3a11660764",
+      "length": 170558,
+      "gzip": 49450
     }
   ],
   "theme": {
     "path": "assets/colab-runtime.css",
-    "sha256": "f1328bb12414e8fc5cc18f8b0e25fd58ae732c92b085f22a2ba8300bfe133a35",
+    "sha256": "8d4a82941942649f64d11a00cde389d01df99d97be3a946fe0fd4cfbe8b0e134",
     "length": 7422
   }
 }
