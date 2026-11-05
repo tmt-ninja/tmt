@@ -2,10 +2,68 @@
 
 Per-module rules for the host port, tmux and process adapters, agent drivers, provider
 channels and the driver protocol. The owner map is in
-[ARCHITECTURE.md](../../../../ARCHITECTURE.md#tmux-and-process-effects); wire formats are in
+[ARCHITECTURE.md](../../../../ARCHITECTURE.md#domain-and-state-ownership); wire formats are in
 [driver-protocol-v1](../../../../contracts/driver-protocol-v1.md),
 [claude-channel-v1](../../../../contracts/claude-channel-v1.md) and
 [codex-channel-v1](../../../../contracts/codex-channel-v1.md).
+
+## Ownership overview
+
+### Process, tmux and host effects
+
+`tmt-adapters::process` owns bounded child execution and byte observations (stream caps,
+monotonic deadlines, group cleanup, reaping and invocation-owned SIGINT forwarding) and
+native-first process-incarnation acquisition. `process::interactive` owns direct terminal children. `tmux` pins caller or recorded
+sockets, with bounded budgets and no ambient fallback; a failed paste
+or Enter is uncertain and never retried as unsent; [pane cosmetics](#host-port) own only pane-local badge overrides.
+
+Driver-owned consumption attribution uses completed-record evidence ([consumption rules](identity-bindings.md)).
+
+The CLI acquires caller-host evidence only for caller-scoped operations; explicit senders
+and stored bindings retain their own authority. Caller-process observation failures retain typed adapter causes through the driver registry to bounded CLI context.
+The CLI and the `delivery` and `pane_badge` adapters reach a terminal only through
+`tmt-adapters::host::Host`; extensions never do (they read `tmt ls --json` and
+`tmt whoami`), and the architecture guard rejects extension code that names the host
+port, the tmux module or core's `binding`, `endpoint` or `host` model. Each built-in or external host implements `host::driver::HostDriver`,
+and one binding policy in `host::driver::{status, send, focus, swap_into}` decides which
+evidence makes a binding present and when input is blocked. A host with agent
+names (Herdr) shows the identity's name as the agent's; the host's name is never
+evidence and never copied back. Endpoint identity is
+opaque to everything but its host: `HostKind` is pure data, evidence from another
+host is `Unknown`, and only `tmt-core/src/host.rs`, `tmt-adapters/src/host.rs` and
+`tmux/` may spell a built-in host's name. Core's delivery policy rewrites ASCII `!` to
+fullwidth `！` in typed text and the ESC of a bracketed-paste marker to `␛`. The built-in host uses this seam in process.
+`tmt-adapters::pty` owns per-member supervisors, crash residue cleanup under nonblocking
+flocks, current screens, job-control pause and resume, terminals kept for relaunch until closed, bounded startup output and live attach with a streamed initial screen; CLI restores terminal modes and attaches interactive new built-in launches after confirmation.
+[Terminal stream v1](../../../../contracts/terminal-stream-v1.md) and the
+[host reference](#built-in-host) own snapshots and lifecycle.
+
+### Agent driver registry
+
+`drivers::Registry` uses `DriverDescriptor` and adapters for detection, setup, launch,
+caller recognition, foreground argv/process selection, allowance reads and typed refusals.
+Descriptors expose `driverSupport` as `full` (hooks/runtime) or `basic` (detection/skills).
+Detection never starts agents; launches add no plugin arguments or persistent provider settings.
+Rules: [agent drivers](#agent-drivers).
+
+### Provider channel port
+
+`tmt-adapters::runtime::channel` is the provider-neutral port; drivers own exact-launch
+enrollment, transport and recovery. Delivery prefers the channel and forbids paste
+on enrolled or uncertain evidence; no receipt means no replay. Module gates:
+[provider channels](#provider-channels).
+The [Claude](../../../../contracts/claude-channel-v1.md) and [Codex](../../../../contracts/codex-channel-v1.md)
+contracts own behavior and limits.
+
+### Driver protocol seam
+
+`tmt-driver-protocol` owns host/runtime wire types and `tmt-host-grammar` owns host
+syntax; [driver-protocol-v1](../../../../contracts/driver-protocol-v1.md) owns the wire contract.
+`tmt-adapters::driver_protocol` owns explicit approval, automatic approval of the
+shipped driver (`registry::approve_shipped`) and bounded calls; `host::external`
+composes approved hosts. Core decides evidence; unavailable drivers
+never prove loss. External runtime launch/setup/hooks remain unwired. Details:
+[hosts and drivers](#driver-protocol-crates).
 
 ## Process and tmux effects
 
