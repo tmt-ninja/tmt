@@ -1,4 +1,5 @@
 import { readFile, writeFile, realpath } from 'node:fs/promises';
+import { stageCompactCss } from './stage-compact-css.mjs';
 import { build } from 'vite-plus';
 import { pathToFileURL } from 'node:url';
 const home = new URL('../', import.meta.url);
@@ -83,6 +84,8 @@ const bare = (source) =>
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{2,}/g, '\n')
     .trim();
+/** The parts whose narrow-width rules a phone stage needs: the shell and the list (#5981). */
+const STAGE_PARTS = ['shell', 'list'];
 const fragments = await Promise.all(
   [
     'header',
@@ -123,7 +126,13 @@ const fragments = await Promise.all(
     'table',
     'disclosure',
     'visually-hidden',
-  ].map((name) => readFile(new URL(`src/${name}.css`, home), 'utf8')),
+  ].map(async (name) => {
+    const css = await readFile(new URL(`src/${name}.css`, home), 'utf8');
+    // A phone stage gets the part's narrow-width rules too, generated right after the part (#5981).
+    return STAGE_PARTS.includes(name)
+      ? `${css}\n${stageCompactCss(css.replaceAll('__compact-max-width__', tokens.header['compact-max-width']))}`
+      : css;
+  }),
 );
 const tokenCss = `/* Generated: generate-static-css */
 :root {\n${fixed}\n${themed('light', '  ', true)}\n}
