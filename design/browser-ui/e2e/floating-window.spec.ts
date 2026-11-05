@@ -126,7 +126,8 @@ for (const width of [390, 1440])
     // The counter stays on one line, and the header keeps its token height.
     const counter = header.getByText('1 / 2');
     expect((await counter.boundingBox())!.height).toBeLessThan(24);
-    expect(inner.bottom - inner.top).toBe(44);
+    // Sub-pixel layout can land a hair off the token (44.00006 at 390, #5249).
+    expect(inner.bottom - inner.top).toBeCloseTo(44, 2);
     // A short thread: the window ends where its content ends, well under its maximum.
     const short = (await window.boundingBox())!;
     expect(short.height).toBeLessThan(300);
