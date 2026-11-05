@@ -62,6 +62,8 @@ export async function renderDocs() {
     const { livePatternSlugs } = await load('/docs/pattern-page.tsx');
     const { Article } = await load('/docs/templates.tsx');
     // `path` is the page's docs path under the system root, as the docs site routes it.
+    // The docs nav's order: components by name, the newer patterns first.
+    const byName = (a, b) => a.name.localeCompare(b.name, 'en');
     const page = (slug, title, node, path) => ({ slug, title, html: render(() => node), path });
     const article = (title, lead, ...children) => h(Article, { title, lead }, ...children);
     return [
@@ -73,7 +75,7 @@ export async function renderDocs() {
       },
       {
         title: 'Components',
-        pages: components.map((doc) => ({
+        pages: [...components].sort(byName).map((doc) => ({
           ...page(
             doc.slug,
             doc.name,
@@ -134,21 +136,11 @@ export async function renderDocs() {
             ),
             description: doc.description,
           };
-        }),
+        }).sort((a, b) => a.title.localeCompare(b.title, 'en')),
       },
       {
         title: 'Patterns',
         pages: [
-          ...patterns.map((doc) =>
-            livePatternSlugs.includes(doc.slug)
-              ? page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }), `patterns/${doc.slug}`)
-              : page(
-              doc.slug,
-              doc.title,
-              article(doc.title, doc.lead, h(doc.render)),
-              `patterns/${doc.slug}`
-            )
-          ),
           ...morePatterns.map((doc) => {
             if (livePatternSlugs.includes(doc.slug))
               return page(
@@ -194,6 +186,16 @@ export async function renderDocs() {
               `patterns/${doc.slug}`
             );
           }),
+          ...patterns.map((doc) =>
+            livePatternSlugs.includes(doc.slug)
+              ? page(doc.slug, doc.title, h('tmt-ui-pattern', { page: doc.slug }), `patterns/${doc.slug}`)
+              : page(
+              doc.slug,
+              doc.title,
+              article(doc.title, doc.lead, h(doc.render)),
+              `patterns/${doc.slug}`
+            )
+          ),
         ],
       },
     ];

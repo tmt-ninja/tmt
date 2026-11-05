@@ -194,7 +194,7 @@ describe('template, publish and the renderer source', () => {
     // The tree follows the draft (#5967): every page names the system without a lock.
     const pin = rootId;
     expect(root.source).toContain(`<meta name="tmt-ds" content="${pin}">`);
-    const buttonId = config.components[0]!.page!;
+    const buttonId = config.components.find((entry) => entry.tag === 'button')!.page!;
     const button = pages.get(buttonId)!;
     expect(button.source).toContain(`content="${pin}">`);
     expect(button.source).toContain('<acme-button variant="outline">');
@@ -407,7 +407,7 @@ describe('template, publish and the renderer source', () => {
     const [foundations, components, browser, patterns] = systems[0]!.tree.children;
     expect(foundations!.children.map((page) => page.title)).toContain('Colour');
     // Every page shows its title; a component page also names its tag.
-    expect(components!.children.find((page) => page.kind === 'component')).toMatchObject({
+    expect(components!.children.find((page) => page.title === 'Button')).toMatchObject({
       title: 'Button',
       tag: 'button',
     });

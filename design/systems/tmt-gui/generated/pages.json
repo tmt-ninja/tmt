@@ -50,22 +50,20 @@
   "title": "Components",
   "pages": [
    {
-    "slug": "button",
-    "title": "Button",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/button\"></tmt-ui-component-docs></div>",
-    "path": "components/button",
-    "description": "Starts an action. One primary button per surface takes the accent; everything else is outline, secondary or ghost.",
-    "usage": "import { Button } from '@tmt/browser-ui/ui';\n\n<Button type=\"button\">Send</Button>\n<Button type=\"button\" variant=\"outline\">New timer</Button>",
-    "dos": [
-     [
-      "do",
-      "Use one primary button for the action the surface exists for."
-     ],
-     [
-      "dont",
-      "Fill a destructive action with red. Delete is outlined text in the blocked colour."
-     ]
-    ]
+    "slug": "block-mention",
+    "title": "@block chip",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-mention\"></tmt-ui-component-docs></div>",
+    "path": "components/block-mention",
+    "description": "A chip naming a block by its type and opening text, in a paragraph or a comment; with href it scrolls to the block and selects it.",
+    "usage": "import { BlockMention } from '@tmt/browser-ui/blocks';\n\n<BlockMention icon={<Table2 />} href=\"#b-6\">Table: Ticket status</BlockMention>"
+   },
+   {
+    "slug": "alert",
+    "title": "Alert",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/alert\"></tmt-ui-component-docs></div>",
+    "path": "components/alert",
+    "description": "A callout in the flow of the page: a method note, a caveat or a blocking problem.",
+    "usage": "import { Alert, AlertTitle, AlertDescription } from '@tmt/browser-ui/ui';\n\n<Alert>\n  <AlertTitle>Method</AlertTitle>\n  <AlertDescription>…</AlertDescription>\n</Alert>"
    },
    {
     "slug": "badge",
@@ -86,222 +84,20 @@
     ]
    },
    {
-    "slug": "tabs",
-    "title": "Tabs",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/tabs\"></tmt-ui-component-docs></div>",
-    "path": "components/tabs",
-    "description": "Switches between views of the same object. The selected tab carries the accent underline; its text stays the foreground.",
-    "usage": "import { Tabs, TabsList, TabsTrigger, TabsContent } from '@tmt/browser-ui/ui';\n\n<Tabs defaultValue=\"members\">\n  <TabsList variant=\"line\">\n    <TabsTrigger value=\"members\">Members</TabsTrigger>\n    <TabsTrigger value=\"timers\">Timers</TabsTrigger>\n  </TabsList>\n  <TabsContent value=\"members\">…</TabsContent>\n</Tabs>"
-   },
-   {
-    "slug": "input",
-    "title": "Input",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/input\"></tmt-ui-component-docs></div>",
-    "path": "components/input",
-    "description": "A single-line field. Its frame is the soft rule; focus recolours the frame in the accent.",
-    "usage": "import { Input } from '@tmt/browser-ui/ui';\n\n<Input aria-label=\"Search agents\" placeholder=\"Search agents\" />"
-   },
-   {
-    "slug": "textarea",
-    "title": "Textarea",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/textarea\"></tmt-ui-component-docs></div>",
-    "path": "components/textarea",
-    "description": "A multi-line field for messages and notes.",
-    "usage": "import { Textarea } from '@tmt/browser-ui/ui';\n\n<Textarea aria-label=\"Message\" placeholder=\"Message #sample-squad\" />"
-   },
-   {
-    "slug": "select",
-    "title": "Select",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/select\"></tmt-ui-component-docs></div>",
-    "path": "components/select",
-    "description": "Picks one value from a short list. The trigger is a field; the list opens as a popper under it.",
-    "usage": "import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@tmt/browser-ui/ui';\n\n<Select defaultValue=\"1d\">\n  <SelectTrigger aria-label=\"Range\"><SelectValue /></SelectTrigger>\n  <SelectContent>\n    <SelectItem value=\"1h\">Range 1h</SelectItem>\n    <SelectItem value=\"1d\">Range 1d</SelectItem>\n  </SelectContent>\n</Select>",
-    "dos": [
-     [
-      "dont",
-      "Use a native select; the list must take the tokens and the theme."
-     ]
-    ]
-   },
-   {
-    "slug": "checkbox",
-    "title": "Checkbox",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/checkbox\"></tmt-ui-component-docs></div>",
-    "path": "components/checkbox",
-    "description": "Turns one option on or off inside a form; checked takes the accent.",
-    "usage": "import { Checkbox } from '@tmt/browser-ui/ui';\n\n<Checkbox defaultChecked aria-label=\"Show comments\" />"
-   },
-   {
-    "slug": "switch",
-    "title": "Switch",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/switch\"></tmt-ui-component-docs></div>",
-    "path": "components/switch",
-    "description": "Turns a setting on or off at once, without a save step.",
-    "usage": "import { Switch } from '@tmt/browser-ui/ui';\n\n<Switch checked={on} onCheckedChange={setOn} aria-label=\"Notify me\" />"
-   },
-   {
-    "slug": "dialog",
-    "title": "Dialog",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/dialog\"></tmt-ui-component-docs></div>",
-    "path": "components/dialog",
-    "description": "A modal question that blocks the page until it is answered. Keep it to one decision.",
-    "usage": "import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from '@tmt/browser-ui/ui';\n\n<Dialog>\n  <DialogTrigger asChild><Button type=\"button\">Move</Button></DialogTrigger>\n  <DialogContent>\n    <DialogHeader><DialogTitle>Move to project</DialogTitle></DialogHeader>\n  </DialogContent>\n</Dialog>",
-    "dos": [
-     [
-      "do",
-      "Name the action on the confirm button: “Move”, not “OK”."
-     ]
-    ]
-   },
-   {
-    "slug": "sheet",
-    "title": "Sheet",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/sheet\"></tmt-ui-component-docs></div>",
-    "path": "components/sheet",
-    "description": "A drawer from the edge for settings and detail that keep the page in view.",
-    "usage": "import { Sheet, SheetTrigger, SheetContent } from '@tmt/browser-ui/ui';\n\n<Sheet>\n  <SheetTrigger asChild><Button type=\"button\">Open</Button></SheetTrigger>\n  <SheetContent side=\"right\">…</SheetContent>\n</Sheet>"
-   },
-   {
-    "slug": "dropdown-menu",
-    "title": "Dropdown menu",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/dropdown-menu\"></tmt-ui-component-docs></div>",
-    "path": "components/dropdown-menu",
-    "description": "A short list of commands on one object, opened from a button.",
-    "usage": "import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@tmt/browser-ui/ui';\n\n<DropdownMenu>\n  <DropdownMenuTrigger asChild><Button type=\"button\">Page actions</Button></DropdownMenuTrigger>\n  <DropdownMenuContent><DropdownMenuItem>Rename</DropdownMenuItem></DropdownMenuContent>\n</DropdownMenu>"
-   },
-   {
-    "slug": "popover",
-    "title": "Popover",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/popover\"></tmt-ui-component-docs></div>",
-    "path": "components/popover",
-    "description": "Detail or a small form anchored to its trigger; it does not block the page.",
-    "usage": "import { Popover, PopoverTrigger, PopoverContent } from '@tmt/browser-ui/ui';\n\n<Popover>\n  <PopoverTrigger asChild><Button type=\"button\">Details</Button></PopoverTrigger>\n  <PopoverContent>…</PopoverContent>\n</Popover>"
-   },
-   {
-    "slug": "tooltip",
-    "title": "Tooltip",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/tooltip\"></tmt-ui-component-docs></div>",
-    "path": "components/tooltip",
-    "description": "Names an icon-only control on hover and focus. Never the only place for content.",
-    "usage": "import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@tmt/browser-ui/ui';\n\n<Tooltip>\n  <TooltipTrigger asChild>…</TooltipTrigger>\n  <TooltipContent>Search pages</TooltipContent>\n</Tooltip>"
-   },
-   {
-    "slug": "alert",
-    "title": "Alert",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/alert\"></tmt-ui-component-docs></div>",
-    "path": "components/alert",
-    "description": "A callout in the flow of the page: a method note, a caveat or a blocking problem.",
-    "usage": "import { Alert, AlertTitle, AlertDescription } from '@tmt/browser-ui/ui';\n\n<Alert>\n  <AlertTitle>Method</AlertTitle>\n  <AlertDescription>…</AlertDescription>\n</Alert>"
-   },
-   {
-    "slug": "command",
-    "title": "Command",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/command\"></tmt-ui-component-docs></div>",
-    "path": "components/command",
-    "description": "A searchable list of commands or destinations, the base of quick switchers.",
-    "usage": "import { Command, CommandInput, CommandList, CommandItem } from '@tmt/browser-ui/ui';\n\n<Command>\n  <CommandInput placeholder=\"Search\" />\n  <CommandList><CommandItem>Release plan</CommandItem></CommandList>\n</Command>"
-   },
-   {
-    "slug": "separator",
-    "title": "Separator",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/separator\"></tmt-ui-component-docs></div>",
-    "path": "components/separator",
-    "description": "A hairline between groups of content.",
-    "usage": "import { Separator } from '@tmt/browser-ui/ui';\n\n<Separator />"
-   },
-   {
-    "slug": "card",
-    "title": "Card",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/card\"></tmt-ui-component-docs></div>",
-    "path": "components/card",
-    "description": "A resting surface for one object: the sheet fill, the rule and the surface radius, with no shadow.",
-    "usage": "import { Card, CardHeader, CardTitle, CardContent } from '@tmt/browser-ui/ui';\n\n<Card>\n  <CardHeader><CardTitle>#sample-squad</CardTitle></CardHeader>\n  <CardContent>…</CardContent>\n</Card>",
-    "dos": [
-     [
-      "dont",
-      "Add a shadow to a resting card; only floating layers cast one."
-     ]
-    ]
-   },
-   {
-    "slug": "skeleton",
-    "title": "Skeleton",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/skeleton\"></tmt-ui-component-docs></div>",
-    "path": "components/skeleton",
-    "description": "A quiet placeholder while content loads. It does not pulse; a busy action uses the busy mark.",
-    "usage": "import { Skeleton } from '@tmt/browser-ui/ui';\n\n<Skeleton className=\"h-3 w-40\" />"
-   },
-   {
-    "slug": "empty",
-    "title": "Empty",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/empty\"></tmt-ui-component-docs></div>",
-    "path": "components/empty",
-    "description": "What a list shows when it has nothing yet, with one way forward.",
-    "usage": "import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@tmt/browser-ui/ui';\n\n<Empty>\n  <EmptyHeader><EmptyTitle>No timers yet</EmptyTitle></EmptyHeader>\n</Empty>"
-   },
-   {
-    "slug": "ds-scope",
-    "title": "DsScope",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/ds-scope\"></tmt-ui-component-docs></div>",
-    "path": "components/ds-scope",
-    "description": "A sized stage that confines component layers, responsive layout and modal effects.",
-    "usage": "import { DsScope, Button } from '@tmt/browser-ui/ui';\n\n<DsScope style={{ width: '100%', height: 320 }}><Button>Action</Button></DsScope>"
-   },
-   {
-    "slug": "surface",
-    "title": "Surface",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/surface\"></tmt-ui-component-docs></div>",
-    "path": "components/surface",
-    "description": "A box at one elevation level: paper, sheet, raised, overlay or modal. Each pairs a fill with a hairline edge and one shadow level, since dark themes show shadows weakly.",
-    "usage": "import { Surface } from '@tmt/browser-ui/ui';\n\n<Surface level=\"sheet\">…</Surface>"
-   },
-   {
-    "slug": "chips",
-    "title": "Chips and combobox",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/chips\"></tmt-ui-component-docs></div>",
-    "path": "components/chips",
-    "description": "Chips holds a set of choices as small pills with a round remove, added from a combobox; Combobox picks one option from a filtered list. Backspace in an empty field removes the last chip. A chip owns its size, so no host control rule grows it.",
-    "usage": "import { Chips, Chip, Combobox, useLayerController } from '@tmt/browser-ui/ui';\n\nconst controller = useLayerController({ open, onOpenChange: setOpen });\n<Chips controller={controller} label=\"Recipients\" items={items} options={options}\n  query={query} onQueryChange={setQuery} onAdd={add} onRemove={remove} emptyLabel=\"No member matches\" />"
-   },
-   {
-    "slug": "floating",
-    "title": "Floating actions and window",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/floating\"></tmt-ui-component-docs></div>",
-    "path": "components/floating",
-    "description": "FloatingDock places a page’s floating actions at the bottom end and the one window an action opens above them. FloatingActions is the capsule; FloatingAction an action with its count and attention dot, pressed while its window is open. FloatingWindow sizes to its content up to the space above the actions.",
-    "usage": "import { FloatingDock, FloatingActions, FloatingAction, FloatingWindow, FloatingWindowAction } from '@tmt/browser-ui/ui';\n\n<FloatingDock top={headerHeight}>\n  {open && (\n    <FloatingWindow key={open} open label=\"Discussion\" onClose={close} header={<>…<FloatingWindowAction label=\"Resolve\" icon={<Check />} /></>}>\n      …\n    </FloatingWindow>\n  )}\n  <FloatingActions label=\"Page actions\">\n    <FloatingAction label=\"Comments (2)\" icon={<MessagesSquare />} count={2} expanded={open === 'comments'} onClick={toggle} />\n  </FloatingActions>\n</FloatingDock>"
-   },
-   {
-    "slug": "rich-input",
-    "title": "Rich input",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/rich-input\"></tmt-ui-component-docs></div>",
-    "path": "components/rich-input",
-    "description": "One Lexical editor in two shapes: the single-line search with filter chips and the multi-line composer with mentions, a toolbar and an attachment slot. It ships in its own entry, so pages without it never load Lexical.",
-    "usage": "import { RichInput, emptyRichInputValue } from '@tmt/browser-ui/rich-input';\n\n<RichInput shape=\"multi\" label=\"Message\" value={value} onChange={setValue} onSubmit={send}\n  suggestions={[{ kind: 'mention', trigger: '@', options: (query) => … }]} />"
-   },
-   {
-    "slug": "page-list",
-    "title": "Page list",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/page-list\"></tmt-ui-component-docs></div>",
-    "path": "components/page-list",
-    "description": "Pinned page cards and project and stage chips for the Colab page list. The host owns links, data and actions.",
-    "usage": "import { PageListPins, PageListProjectChip, PageListStageChip, PageListTabs, PageListControls, PageListBulkActions, PageListRowMenu, PageListProjectPicker, PageListLoading, PageListError, PageListTable } from '@tmt/browser-ui/data-table';\n\n<PageListPins label=\"Pinned pages\" pages={pages} />"
-   },
-   {
-    "slug": "data-table",
-    "title": "Data table",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/data-table\"></tmt-ui-component-docs></div>",
-    "path": "components/data-table",
-    "description": "The dense table for lists such as the Colab page list: declared columns with a role and widths, a reserved actions column so hover actions never cover a cell, every cell on the first line so a sub-line never moves the menu, a sticky sortable header, selection with a bulk bar, loading, empty and error rows, and two-line cards under 760px (dataTablePhoneWidth). It ships in its own entry with its stylesheet.",
-    "usage": "import { DataTable } from '@tmt/browser-ui/data-table';\n\n<DataTable label=\"Pages\" rows={pages} rowKey={(page) => page.id} rowLabel={(page) => page.title}\n  columns={[{ id: 'title', header: 'Title', role: 'primary', min: 220, text: (page) => page.title, sub: progress },\n    { id: 'updated', header: 'Updated', role: 'time', min: 88, max: 104, sortable: true, text: (page) => page.updated }]}\n  sort={sort} onSortChange={setSort} selected={selected} onSelectedChange={setSelected}\n  actions={(page) => [{ id: 'pin', label: `Pin ${page.title}`, icon: <Pin />, onSelect: pin }]} menu={rowMenu} onOpen={openPage} />"
-   },
-   {
     "slug": "block-document",
     "title": "Block document",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-document\"></tmt-ui-component-docs></div>",
     "path": "components/block-document",
     "description": "The page column the blocks sit in: it holds the gutter for the one shared handle and is the container whose width decides the phone layout (480px), so a block page in a narrow pane collapses like a phone. Its stylesheet carries every block part.",
     "usage": "import { BlockDocument, Block, TextBlock } from '@tmt/browser-ui/blocks';\n\n<BlockDocument>\n  <Block label=\"Paragraph: Blocks read as one document\"><TextBlock>…</TextBlock></Block>\n</BlockDocument>"
+   },
+   {
+    "slug": "block-menu",
+    "title": "Block menus",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-menu\"></tmt-ui-component-docs></div>",
+    "path": "components/block-menu",
+    "description": "BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind=\"actions\", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never \"turn into\"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows.",
+    "usage": "import { BlockMenu, BlockMenuGroup, BlockMenuItem, BlockMenuSeparator, BlockMenuEmpty, BlockMenuFooter, BlockKbd, blockActions, nextBlockMenuItem } from '@tmt/browser-ui/blocks';\n\n<BlockMenu label=\"Insert block\" activeId={`insert-${active}`} placement={phone ? 'sheet' : 'below'}>\n  <BlockMenuGroup>Basic</BlockMenuGroup>\n  <BlockMenuItem id=\"insert-table\" icon={<Table2 />} description=\"Columns and rows\" shortcut=\"/table\" active>Table</BlockMenuItem>\n  {!matches.length && <BlockMenuEmpty>No block matches.</BlockMenuEmpty>}\n  <BlockMenuFooter><span><BlockKbd>↑↓</BlockKbd> choose</span></BlockMenuFooter>\n</BlockMenu>\n<BlockMenu kind=\"actions\" label=\"Block actions\">\n  {blockActions.map((action) => <BlockMenuItem key={action.id} shortcut={action.shortcut} danger={action.danger}>{action.label}</BlockMenuItem>)}\n</BlockMenu>  // BlockMenuSeparator goes before Delete"
    },
    {
     "slug": "block",
@@ -322,60 +118,22 @@
     ]
    },
    {
-    "slug": "block-menu",
-    "title": "Block menus",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-menu\"></tmt-ui-component-docs></div>",
-    "path": "components/block-menu",
-    "description": "BlockMenu is the insert menu (a listbox opened by / or the handle’s +, filtered as the person types) and, with kind=\"actions\", the block menu (Move to…, Move up, Move down, Duplicate, Copy link to block, @ this block in a comment, Delete; never \"turn into\"). Focus stays in the editor: the host drives the active item with nextBlockMenuItem and names it with activeId. On a phone it is a bottom sheet with 44px rows.",
-    "usage": "import { BlockMenu, BlockMenuGroup, BlockMenuItem, BlockMenuSeparator, BlockMenuEmpty, BlockMenuFooter, BlockKbd, blockActions, nextBlockMenuItem } from '@tmt/browser-ui/blocks';\n\n<BlockMenu label=\"Insert block\" activeId={`insert-${active}`} placement={phone ? 'sheet' : 'below'}>\n  <BlockMenuGroup>Basic</BlockMenuGroup>\n  <BlockMenuItem id=\"insert-table\" icon={<Table2 />} description=\"Columns and rows\" shortcut=\"/table\" active>Table</BlockMenuItem>\n  {!matches.length && <BlockMenuEmpty>No block matches.</BlockMenuEmpty>}\n  <BlockMenuFooter><span><BlockKbd>↑↓</BlockKbd> choose</span></BlockMenuFooter>\n</BlockMenu>\n<BlockMenu kind=\"actions\" label=\"Block actions\">\n  {blockActions.map((action) => <BlockMenuItem key={action.id} shortcut={action.shortcut} danger={action.danger}>{action.label}</BlockMenuItem>)}\n</BlockMenu>  // BlockMenuSeparator goes before Delete"
-   },
-   {
-    "slug": "heading-block",
-    "title": "Heading block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/heading-block\"></tmt-ui-component-docs></div>",
-    "path": "components/heading-block",
-    "description": "## and ### only: the page title is the GUI header’s, never a block. Long headings wrap.",
-    "usage": "import { HeadingBlock } from '@tmt/browser-ui/blocks';\n\n<HeadingBlock level={2}>First block set</HeadingBlock>"
-   },
-   {
-    "slug": "text-block",
-    "title": "Paragraph block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/text-block\"></tmt-ui-component-docs></div>",
-    "path": "components/text-block",
-    "description": "Plain text with a few inline formats (bold, italic, inline code, links, @agent and @block chips), default or muted; empty, it shows its placeholder.",
-    "usage": "import { TextBlock } from '@tmt/browser-ui/blocks';\n\n<TextBlock tone=\"muted\">Secondary notes</TextBlock>"
-   },
-   {
-    "slug": "list-item",
-    "title": "List item block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/list-item\"></tmt-ui-component-docs></div>",
-    "path": "components/list-item",
-    "description": "One item is one block, so each moves and is mentioned on its own. Bullet or number, three indent levels (24px each, 16px on a phone).",
-    "usage": "import { ListItemBlock } from '@tmt/browser-ui/blocks';\n\n<ListItemBlock indent={1}>A nested item</ListItemBlock>"
-   },
-   {
-    "slug": "todo",
-    "title": "To-do block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/todo\"></tmt-ui-component-docs></div>",
-    "path": "components/todo",
-    "description": "The shared checkbox and the item text, struck through when done, with an assignee and a due date; overdue adds the blocked colour to text that already says so. On a phone the meta moves under the text.",
-    "usage": "import { TodoBlock } from '@tmt/browser-ui/blocks';\n\n<TodoBlock checked assignee={<Tag>gui-3</Tag>} due=\"11-03\">Move the question card</TodoBlock>"
-   },
-   {
-    "slug": "table-block",
-    "title": "Table block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/table-block\"></tmt-ui-component-docs></div>",
-    "path": "components/table-block",
-    "description": "The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block.",
-    "usage": "import { TableBlock } from '@tmt/browser-ui/blocks';\n\n<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />"
-   },
-   {
-    "slug": "card-block",
-    "title": "Card block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/card-block\"></tmt-ui-component-docs></div>",
-    "path": "components/card-block",
-    "description": "The only block that nests (one level) and the only one that draws a frame; resting, it has no shadow. The section variant is a label with no frame, to group cards.",
-    "usage": "import { CardBlock } from '@tmt/browser-ui/blocks';\n\n<CardBlock title=\"First block set\" meta=\"3 blocks\">{children}</CardBlock>"
+    "slug": "button",
+    "title": "Button",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/button\"></tmt-ui-component-docs></div>",
+    "path": "components/button",
+    "description": "Starts an action. One primary button per surface takes the accent; everything else is outline, secondary or ghost.",
+    "usage": "import { Button } from '@tmt/browser-ui/ui';\n\n<Button type=\"button\">Send</Button>\n<Button type=\"button\" variant=\"outline\">New timer</Button>",
+    "dos": [
+     [
+      "do",
+      "Use one primary button for the action the surface exists for."
+     ],
+     [
+      "dont",
+      "Fill a destructive action with red. Delete is outlined text in the blocked colour."
+     ]
+    ]
    },
    {
     "slug": "callout",
@@ -386,6 +144,44 @@
     "usage": "import { Callout } from '@tmt/browser-ui/blocks';\n\n<Callout tone=\"waiting\" heading=\"Look before merging\">The pull request stays a draft.</Callout>"
    },
    {
+    "slug": "card",
+    "title": "Card",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/card\"></tmt-ui-component-docs></div>",
+    "path": "components/card",
+    "description": "A resting surface for one object: the sheet fill, the rule and the surface radius, with no shadow.",
+    "usage": "import { Card, CardHeader, CardTitle, CardContent } from '@tmt/browser-ui/ui';\n\n<Card>\n  <CardHeader><CardTitle>#sample-squad</CardTitle></CardHeader>\n  <CardContent>…</CardContent>\n</Card>",
+    "dos": [
+     [
+      "dont",
+      "Add a shadow to a resting card; only floating layers cast one."
+     ]
+    ]
+   },
+   {
+    "slug": "card-block",
+    "title": "Card block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/card-block\"></tmt-ui-component-docs></div>",
+    "path": "components/card-block",
+    "description": "The only block that nests (one level) and the only one that draws a frame; resting, it has no shadow. The section variant is a label with no frame, to group cards.",
+    "usage": "import { CardBlock } from '@tmt/browser-ui/blocks';\n\n<CardBlock title=\"First block set\" meta=\"3 blocks\">{children}</CardBlock>"
+   },
+   {
+    "slug": "checkbox",
+    "title": "Checkbox",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/checkbox\"></tmt-ui-component-docs></div>",
+    "path": "components/checkbox",
+    "description": "Turns one option on or off inside a form; checked takes the accent.",
+    "usage": "import { Checkbox } from '@tmt/browser-ui/ui';\n\n<Checkbox defaultChecked aria-label=\"Show comments\" />"
+   },
+   {
+    "slug": "chips",
+    "title": "Chips and combobox",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/chips\"></tmt-ui-component-docs></div>",
+    "path": "components/chips",
+    "description": "Chips holds a set of choices as small pills with a round remove, added from a combobox; Combobox picks one option from a filtered list. Backspace in an empty field removes the last chip. A chip owns its size, so no host control rule grows it.",
+    "usage": "import { Chips, Chip, Combobox, useLayerController } from '@tmt/browser-ui/ui';\n\nconst controller = useLayerController({ open, onOpenChange: setOpen });\n<Chips controller={controller} label=\"Recipients\" items={items} options={options}\n  query={query} onQueryChange={setQuery} onAdd={add} onRemove={remove} emptyLabel=\"No member matches\" />"
+   },
+   {
     "slug": "code-block",
     "title": "Code block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/code-block\"></tmt-ui-component-docs></div>",
@@ -394,28 +190,74 @@
     "usage": "import { CodeBlock } from '@tmt/browser-ui/blocks';\n\n<CodeBlock filename=\"answered-strip.css\" language=\"CSS\" text={source} onCopy={copy} copied={copied} />"
    },
    {
-    "slug": "block-mention",
-    "title": "@block chip",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-mention\"></tmt-ui-component-docs></div>",
-    "path": "components/block-mention",
-    "description": "A chip naming a block by its type and opening text, in a paragraph or a comment; with href it scrolls to the block and selects it.",
-    "usage": "import { BlockMention } from '@tmt/browser-ui/blocks';\n\n<BlockMention icon={<Table2 />} href=\"#b-6\">Table: Ticket status</BlockMention>"
+    "slug": "command",
+    "title": "Command",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/command\"></tmt-ui-component-docs></div>",
+    "path": "components/command",
+    "description": "A searchable list of commands or destinations, the base of quick switchers.",
+    "usage": "import { Command, CommandInput, CommandList, CommandItem } from '@tmt/browser-ui/ui';\n\n<Command>\n  <CommandInput placeholder=\"Search\" />\n  <CommandList><CommandItem>Release plan</CommandItem></CommandList>\n</Command>"
    },
    {
-    "slug": "block-toast",
-    "title": "Undo toast",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-toast\"></tmt-ui-component-docs></div>",
-    "path": "components/block-toast",
-    "description": "The status line after a delete or a move, with Undo and its key. The host places it at the bottom centre, times it out and restores the blocks; Cmd/Ctrl+Z does the same.",
-    "usage": "import { BlockToast } from '@tmt/browser-ui/blocks';\n\n<BlockToast onUndo={restore}>Deleted 1 block (Table)</BlockToast>"
+    "slug": "data-table",
+    "title": "Data table",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/data-table\"></tmt-ui-component-docs></div>",
+    "path": "components/data-table",
+    "description": "The dense table for lists such as the Colab page list: declared columns with a role and widths, a reserved actions column so hover actions never cover a cell, every cell on the first line so a sub-line never moves the menu, a sticky sortable header, selection with a bulk bar, loading, empty and error rows, and two-line cards under 760px (dataTablePhoneWidth). It ships in its own entry with its stylesheet.",
+    "usage": "import { DataTable } from '@tmt/browser-ui/data-table';\n\n<DataTable label=\"Pages\" rows={pages} rowKey={(page) => page.id} rowLabel={(page) => page.title}\n  columns={[{ id: 'title', header: 'Title', role: 'primary', min: 220, text: (page) => page.title, sub: progress },\n    { id: 'updated', header: 'Updated', role: 'time', min: 88, max: 104, sortable: true, text: (page) => page.updated }]}\n  sort={sort} onSortChange={setSort} selected={selected} onSelectedChange={setSelected}\n  actions={(page) => [{ id: 'pin', label: `Pin ${page.title}`, icon: <Pin />, onSelect: pin }]} menu={rowMenu} onOpen={openPage} />"
    },
    {
-    "slug": "question-block",
-    "title": "Question block",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/question-block\"></tmt-ui-component-docs></div>",
-    "path": "components/question-block",
-    "description": "A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.",
-    "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
+    "slug": "dialog",
+    "title": "Dialog",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/dialog\"></tmt-ui-component-docs></div>",
+    "path": "components/dialog",
+    "description": "A modal question that blocks the page until it is answered. Keep it to one decision.",
+    "usage": "import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from '@tmt/browser-ui/ui';\n\n<Dialog>\n  <DialogTrigger asChild><Button type=\"button\">Move</Button></DialogTrigger>\n  <DialogContent>\n    <DialogHeader><DialogTitle>Move to project</DialogTitle></DialogHeader>\n  </DialogContent>\n</Dialog>",
+    "dos": [
+     [
+      "do",
+      "Name the action on the confirm button: “Move”, not “OK”."
+     ]
+    ]
+   },
+   {
+    "slug": "dropdown-menu",
+    "title": "Dropdown menu",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/dropdown-menu\"></tmt-ui-component-docs></div>",
+    "path": "components/dropdown-menu",
+    "description": "A short list of commands on one object, opened from a button.",
+    "usage": "import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@tmt/browser-ui/ui';\n\n<DropdownMenu>\n  <DropdownMenuTrigger asChild><Button type=\"button\">Page actions</Button></DropdownMenuTrigger>\n  <DropdownMenuContent><DropdownMenuItem>Rename</DropdownMenuItem></DropdownMenuContent>\n</DropdownMenu>"
+   },
+   {
+    "slug": "ds-scope",
+    "title": "DsScope",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/ds-scope\"></tmt-ui-component-docs></div>",
+    "path": "components/ds-scope",
+    "description": "A sized stage that confines component layers, responsive layout and modal effects.",
+    "usage": "import { DsScope, Button } from '@tmt/browser-ui/ui';\n\n<DsScope style={{ width: '100%', height: 320 }}><Button>Action</Button></DsScope>"
+   },
+   {
+    "slug": "empty",
+    "title": "Empty",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/empty\"></tmt-ui-component-docs></div>",
+    "path": "components/empty",
+    "description": "What a list shows when it has nothing yet, with one way forward.",
+    "usage": "import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@tmt/browser-ui/ui';\n\n<Empty>\n  <EmptyHeader><EmptyTitle>No timers yet</EmptyTitle></EmptyHeader>\n</Empty>"
+   },
+   {
+    "slug": "floating",
+    "title": "Floating actions and window",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/floating\"></tmt-ui-component-docs></div>",
+    "path": "components/floating",
+    "description": "FloatingDock places a page’s floating actions at the bottom end and the one window an action opens above them. FloatingActions is the capsule; FloatingAction an action with its count and attention dot, pressed while its window is open. FloatingWindow sizes to its content up to the space above the actions.",
+    "usage": "import { FloatingDock, FloatingActions, FloatingAction, FloatingWindow, FloatingWindowAction } from '@tmt/browser-ui/ui';\n\n<FloatingDock top={headerHeight}>\n  {open && (\n    <FloatingWindow key={open} open label=\"Discussion\" onClose={close} header={<>…<FloatingWindowAction label=\"Resolve\" icon={<Check />} /></>}>\n      …\n    </FloatingWindow>\n  )}\n  <FloatingActions label=\"Page actions\">\n    <FloatingAction label=\"Comments (2)\" icon={<MessagesSquare />} count={2} expanded={open === 'comments'} onClick={toggle} />\n  </FloatingActions>\n</FloatingDock>"
+   },
+   {
+    "slug": "heading-block",
+    "title": "Heading block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/heading-block\"></tmt-ui-component-docs></div>",
+    "path": "components/heading-block",
+    "description": "## and ### only: the page title is the GUI header’s, never a block. Long headings wrap.",
+    "usage": "import { HeadingBlock } from '@tmt/browser-ui/blocks';\n\n<HeadingBlock level={2}>First block set</HeadingBlock>"
    },
    {
     "slug": "image-block",
@@ -426,6 +268,22 @@
     "usage": "import { ImageBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<ImageBlock images={images} layout=\"carousel\" />"
    },
    {
+    "slug": "input",
+    "title": "Input",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/input\"></tmt-ui-component-docs></div>",
+    "path": "components/input",
+    "description": "A single-line field. Its frame is the soft rule; focus recolours the frame in the accent.",
+    "usage": "import { Input } from '@tmt/browser-ui/ui';\n\n<Input aria-label=\"Search agents\" placeholder=\"Search agents\" />"
+   },
+   {
+    "slug": "list-item",
+    "title": "List item block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/list-item\"></tmt-ui-component-docs></div>",
+    "path": "components/list-item",
+    "description": "One item is one block, so each moves and is mentioned on its own. Bullet or number, three indent levels (24px each, 16px on a phone).",
+    "usage": "import { ListItemBlock } from '@tmt/browser-ui/blocks';\n\n<ListItemBlock indent={1}>A nested item</ListItemBlock>"
+   },
+   {
     "slug": "mockup-block",
     "title": "Mockup block",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/mockup-block\"></tmt-ui-component-docs></div>",
@@ -434,12 +292,12 @@
     "usage": "import { MockupBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<MockupBlock system=\"tmt-gui\" version=\"follow\">…</MockupBlock>"
    },
    {
-    "slug": "work-bundle",
-    "title": "Work bundle",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/work-bundle\"></tmt-ui-component-docs></div>",
-    "path": "components/work-bundle",
-    "description": "A page reference with its admitted metadata and independently retained work. ConnectedWorkBundle subscribes through the host’s read-only source.",
-    "usage": "import { WorkBundle } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<WorkBundle page=\"page-id\" data={page} work=\"Start with the phone drawer.\" />"
+    "slug": "page-list",
+    "title": "Page list",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/page-list\"></tmt-ui-component-docs></div>",
+    "path": "components/page-list",
+    "description": "Pinned page cards and project and stage chips for the Colab page list. The host owns links, data and actions.",
+    "usage": "import { PageListPins, PageListProjectChip, PageListStageChip, PageListTabs, PageListControls, PageListBulkActions, PageListRowMenu, PageListProjectPicker, PageListLoading, PageListError, PageListTable } from '@tmt/browser-ui/data-table';\n\n<PageListPins label=\"Pinned pages\" pages={pages} />"
    },
    {
     "slug": "page-view",
@@ -448,6 +306,148 @@
     "path": "components/page-view",
     "description": "Filter, group and choose visible columns for a shared page list. PageViewToolbar provides the controls; the host owns the data.",
     "usage": "import { PageView } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<PageView title=\"Spec pages\" rows={pages} />"
+   },
+   {
+    "slug": "text-block",
+    "title": "Paragraph block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/text-block\"></tmt-ui-component-docs></div>",
+    "path": "components/text-block",
+    "description": "Plain text with a few inline formats (bold, italic, inline code, links, @agent and @block chips), default or muted; empty, it shows its placeholder.",
+    "usage": "import { TextBlock } from '@tmt/browser-ui/blocks';\n\n<TextBlock tone=\"muted\">Secondary notes</TextBlock>"
+   },
+   {
+    "slug": "popover",
+    "title": "Popover",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/popover\"></tmt-ui-component-docs></div>",
+    "path": "components/popover",
+    "description": "Detail or a small form anchored to its trigger; it does not block the page.",
+    "usage": "import { Popover, PopoverTrigger, PopoverContent } from '@tmt/browser-ui/ui';\n\n<Popover>\n  <PopoverTrigger asChild><Button type=\"button\">Details</Button></PopoverTrigger>\n  <PopoverContent>…</PopoverContent>\n</Popover>"
+   },
+   {
+    "slug": "question-block",
+    "title": "Question block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/question-block\"></tmt-ui-component-docs></div>",
+    "path": "components/question-block",
+    "description": "A presentational question with choices or a short answer; Other provides a text answer. In Colab, use tmt-question for persistent questions and answers.",
+    "usage": "import { QuestionBlock } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<QuestionBlock title=\"Which screen first?\" agent=\"gui-lead\" choices={['Insert', 'Handle']} onSend={sendAnswer} />"
+   },
+   {
+    "slug": "rich-input",
+    "title": "Rich input",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/rich-input\"></tmt-ui-component-docs></div>",
+    "path": "components/rich-input",
+    "description": "One Lexical editor in two shapes: the single-line search with filter chips and the multi-line composer with mentions, a toolbar and an attachment slot. It ships in its own entry, so pages without it never load Lexical.",
+    "usage": "import { RichInput, emptyRichInputValue } from '@tmt/browser-ui/rich-input';\n\n<RichInput shape=\"multi\" label=\"Message\" value={value} onChange={setValue} onSubmit={send}\n  suggestions={[{ kind: 'mention', trigger: '@', options: (query) => … }]} />"
+   },
+   {
+    "slug": "select",
+    "title": "Select",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/select\"></tmt-ui-component-docs></div>",
+    "path": "components/select",
+    "description": "Picks one value from a short list. The trigger is a field; the list opens as a popper under it.",
+    "usage": "import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@tmt/browser-ui/ui';\n\n<Select defaultValue=\"1d\">\n  <SelectTrigger aria-label=\"Range\"><SelectValue /></SelectTrigger>\n  <SelectContent>\n    <SelectItem value=\"1h\">Range 1h</SelectItem>\n    <SelectItem value=\"1d\">Range 1d</SelectItem>\n  </SelectContent>\n</Select>",
+    "dos": [
+     [
+      "dont",
+      "Use a native select; the list must take the tokens and the theme."
+     ]
+    ]
+   },
+   {
+    "slug": "separator",
+    "title": "Separator",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/separator\"></tmt-ui-component-docs></div>",
+    "path": "components/separator",
+    "description": "A hairline between groups of content.",
+    "usage": "import { Separator } from '@tmt/browser-ui/ui';\n\n<Separator />"
+   },
+   {
+    "slug": "sheet",
+    "title": "Sheet",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/sheet\"></tmt-ui-component-docs></div>",
+    "path": "components/sheet",
+    "description": "A drawer from the edge for settings and detail that keep the page in view.",
+    "usage": "import { Sheet, SheetTrigger, SheetContent } from '@tmt/browser-ui/ui';\n\n<Sheet>\n  <SheetTrigger asChild><Button type=\"button\">Open</Button></SheetTrigger>\n  <SheetContent side=\"right\">…</SheetContent>\n</Sheet>"
+   },
+   {
+    "slug": "skeleton",
+    "title": "Skeleton",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/skeleton\"></tmt-ui-component-docs></div>",
+    "path": "components/skeleton",
+    "description": "A quiet placeholder while content loads. It does not pulse; a busy action uses the busy mark.",
+    "usage": "import { Skeleton } from '@tmt/browser-ui/ui';\n\n<Skeleton className=\"h-3 w-40\" />"
+   },
+   {
+    "slug": "surface",
+    "title": "Surface",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/surface\"></tmt-ui-component-docs></div>",
+    "path": "components/surface",
+    "description": "A box at one elevation level: paper, sheet, raised, overlay or modal. Each pairs a fill with a hairline edge and one shadow level, since dark themes show shadows weakly.",
+    "usage": "import { Surface } from '@tmt/browser-ui/ui';\n\n<Surface level=\"sheet\">…</Surface>"
+   },
+   {
+    "slug": "switch",
+    "title": "Switch",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/switch\"></tmt-ui-component-docs></div>",
+    "path": "components/switch",
+    "description": "Turns a setting on or off at once, without a save step.",
+    "usage": "import { Switch } from '@tmt/browser-ui/ui';\n\n<Switch checked={on} onCheckedChange={setOn} aria-label=\"Notify me\" />"
+   },
+   {
+    "slug": "table-block",
+    "title": "Table block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/table-block\"></tmt-ui-component-docs></div>",
+    "path": "components/table-block",
+    "description": "The shared table. A column marked hideNarrow leaves the view while the block itself is narrower than 480px (a container query, not the viewport); its cells stay in the DOM. Tall tables scroll inside the block.",
+    "usage": "import { TableBlock } from '@tmt/browser-ui/blocks';\n\n<TableBlock label=\"Ticket status\" columns={[{ name: 'Ticket', nowrap: true }, { name: 'Note', hideNarrow: true }]} rows={rows} />"
+   },
+   {
+    "slug": "tabs",
+    "title": "Tabs",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/tabs\"></tmt-ui-component-docs></div>",
+    "path": "components/tabs",
+    "description": "Switches between views of the same object. The selected tab carries the accent underline; its text stays the foreground.",
+    "usage": "import { Tabs, TabsList, TabsTrigger, TabsContent } from '@tmt/browser-ui/ui';\n\n<Tabs defaultValue=\"members\">\n  <TabsList variant=\"line\">\n    <TabsTrigger value=\"members\">Members</TabsTrigger>\n    <TabsTrigger value=\"timers\">Timers</TabsTrigger>\n  </TabsList>\n  <TabsContent value=\"members\">…</TabsContent>\n</Tabs>"
+   },
+   {
+    "slug": "textarea",
+    "title": "Textarea",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/textarea\"></tmt-ui-component-docs></div>",
+    "path": "components/textarea",
+    "description": "A multi-line field for messages and notes.",
+    "usage": "import { Textarea } from '@tmt/browser-ui/ui';\n\n<Textarea aria-label=\"Message\" placeholder=\"Message #sample-squad\" />"
+   },
+   {
+    "slug": "todo",
+    "title": "To-do block",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/todo\"></tmt-ui-component-docs></div>",
+    "path": "components/todo",
+    "description": "The shared checkbox and the item text, struck through when done, with an assignee and a due date; overdue adds the blocked colour to text that already says so. On a phone the meta moves under the text.",
+    "usage": "import { TodoBlock } from '@tmt/browser-ui/blocks';\n\n<TodoBlock checked assignee={<Tag>gui-3</Tag>} due=\"11-03\">Move the question card</TodoBlock>"
+   },
+   {
+    "slug": "tooltip",
+    "title": "Tooltip",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/tooltip\"></tmt-ui-component-docs></div>",
+    "path": "components/tooltip",
+    "description": "Names an icon-only control on hover and focus. Never the only place for content.",
+    "usage": "import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@tmt/browser-ui/ui';\n\n<Tooltip>\n  <TooltipTrigger asChild>…</TooltipTrigger>\n  <TooltipContent>Search pages</TooltipContent>\n</Tooltip>"
+   },
+   {
+    "slug": "block-toast",
+    "title": "Undo toast",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/block-toast\"></tmt-ui-component-docs></div>",
+    "path": "components/block-toast",
+    "description": "The status line after a delete or a move, with Undo and its key. The host places it at the bottom centre, times it out and restores the blocks; Cmd/Ctrl+Z does the same.",
+    "usage": "import { BlockToast } from '@tmt/browser-ui/blocks';\n\n<BlockToast onUndo={restore}>Deleted 1 block (Table)</BlockToast>"
+   },
+   {
+    "slug": "work-bundle",
+    "title": "Work bundle",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"components/work-bundle\"></tmt-ui-component-docs></div>",
+    "path": "components/work-bundle",
+    "description": "A page reference with its admitted metadata and independently retained work. ConnectedWorkBundle subscribes through the host’s read-only source.",
+    "usage": "import { WorkBundle } from '@tmt/browser-ui/blocks';\nimport '@tmt/browser-ui/blocks.css';\n\n<WorkBundle page=\"page-id\" data={page} work=\"Start with the phone drawer.\" />"
    }
   ]
  },
@@ -455,32 +455,11 @@
   "title": "Browser components",
   "pages": [
    {
-    "slug": "page-row",
-    "title": "Page row",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/page-row\"></tmt-ui-component-docs></div>",
-    "path": "browser/page-row",
-    "description": "A page title, tags, update time and optional unread or status mark."
-   },
-   {
-    "slug": "work-band",
-    "title": "Work band",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-band\"></tmt-ui-component-docs></div>",
-    "path": "browser/work-band",
-    "description": "A page stage and expandable list of sub-page progress."
-   },
-   {
-    "slug": "message-row",
-    "title": "Message row",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/message-row\"></tmt-ui-component-docs></div>",
-    "path": "browser/message-row",
-    "description": "A message with its author and delivery or recovery state."
-   },
-   {
-    "slug": "status-line",
-    "title": "Status line",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/status-line\"></tmt-ui-component-docs></div>",
-    "path": "browser/status-line",
-    "description": "A row of state marks with their accessible labels."
+    "slug": "action",
+    "title": "Action",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/action\"></tmt-ui-component-docs></div>",
+    "path": "browser/action",
+    "description": "The Browser action button in its primary, secondary, text and danger variants, with busy and disabled states."
    },
    {
     "slug": "browser-avatar",
@@ -490,27 +469,6 @@
     "description": "Initials on a seat colour for a person or agent; avatarInitials derives them."
    },
    {
-    "slug": "busy-mark",
-    "title": "Busy mark",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/busy-mark\"></tmt-ui-component-docs></div>",
-    "path": "browser/busy-mark",
-    "description": "The busy dots. useBusyMark waits busyMarkDelayMs before showing and holds busyMarkHoldMs once shown, so a quick action never flickers."
-   },
-   {
-    "slug": "section",
-    "title": "Section",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/section\"></tmt-ui-component-docs></div>",
-    "path": "browser/section",
-    "description": "A titled page section with its rule and spacing."
-   },
-   {
-    "slug": "disclosure",
-    "title": "Disclosure",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/disclosure\"></tmt-ui-component-docs></div>",
-    "path": "browser/disclosure",
-    "description": "A summary that opens more detail in place."
-   },
-   {
     "slug": "brand-mark",
     "title": "Brand mark",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/brand\"></tmt-ui-component-docs></div>",
@@ -518,144 +476,11 @@
     "description": "The tmt mark and the lockup with the wordmark, drawn from the brand-mark roles."
    },
    {
-    "slug": "browser-checkbox",
-    "title": "Checkbox (Browser)",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-checkbox\"></tmt-ui-component-docs></div>",
-    "path": "browser/browser-checkbox",
-    "description": "The Browser checkbox with its label, mixed and disabled states."
-   },
-   {
-    "slug": "status-tile",
-    "title": "Status tile",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/status-tile\"></tmt-ui-component-docs></div>",
-    "path": "browser/status-tile",
-    "description": "A state with its mark, word and count, alone or as a row of tiles."
-   },
-   {
-    "slug": "action",
-    "title": "Action",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/action\"></tmt-ui-component-docs></div>",
-    "path": "browser/action",
-    "description": "The Browser action button in its primary, secondary, text and danger variants, with busy and disabled states."
-   },
-   {
-    "slug": "toggle",
-    "title": "Toggle",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/toggle\"></tmt-ui-component-docs></div>",
-    "path": "browser/toggle",
-    "description": "A pressed or unpressed action, for a view setting that stays on."
-   },
-   {
-    "slug": "header",
-    "title": "Header",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/header\"></tmt-ui-component-docs></div>",
-    "path": "browser/header",
-    "description": "The page header: title, caption and actions on the header metrics."
-   },
-   {
-    "slug": "notice",
-    "title": "Notice",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/notice\"></tmt-ui-component-docs></div>",
-    "path": "browser/notice",
-    "description": "A card-level message with a tone mark, heading, body and actions."
-   },
-   {
-    "slug": "pager",
-    "title": "Pager",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/pager\"></tmt-ui-component-docs></div>",
-    "path": "browser/pager",
-    "description": "Previous and next with the position, for a list longer than a page."
-   },
-   {
-    "slug": "list",
-    "title": "List and list table",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/list\"></tmt-ui-component-docs></div>",
-    "path": "browser/list",
-    "description": "Rows with a lead, title, meta and actions, the list table with its column rules and the page subheader."
-   },
-   {
-    "slug": "choice",
-    "title": "Choice",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/choice\"></tmt-ui-component-docs></div>",
-    "path": "browser/choice",
-    "description": "Single and multiple choice rows for a question, with an Other answer."
-   },
-   {
-    "slug": "menu",
-    "title": "Menu",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/menu\"></tmt-ui-component-docs></div>",
-    "path": "browser/menu",
-    "description": "The Browser menu and its host for non-React pages: items, radio and checkbox items, disabled rows and submenus."
-   },
-   {
-    "slug": "icon-action",
-    "title": "Icon action",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/icon-action\"></tmt-ui-component-docs></div>",
-    "path": "browser/icon-action",
-    "description": "A square action named by its tooltip label; text and filled variants."
-   },
-   {
-    "slug": "field",
-    "title": "Field",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/field\"></tmt-ui-component-docs></div>",
-    "path": "browser/field",
-    "description": "A labelled control with its help and error text and the field edge and focus."
-   },
-   {
-    "slug": "count-chip",
-    "title": "Count chip",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/count-chip\"></tmt-ui-component-docs></div>",
-    "path": "browser/count-chip",
-    "description": "A number with its tone: neutral, waiting or blocked; countText formats it."
-   },
-   {
-    "slug": "table",
-    "title": "Table",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/table\"></tmt-ui-component-docs></div>",
-    "path": "browser/table",
-    "description": "A data table with its header, numeric columns and compact scroll."
-   },
-   {
-    "slug": "browser-command",
-    "title": "Command (Browser)",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-command\"></tmt-ui-component-docs></div>",
-    "path": "browser/browser-command",
-    "description": "The command field with its results list and keyboard selection."
-   },
-   {
-    "slug": "browser-tabs",
-    "title": "Tabs (Browser)",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-tabs\"></tmt-ui-component-docs></div>",
-    "path": "browser/browser-tabs",
-    "description": "The Browser tabs with counts and wrapping. New work uses the ui Tabs and its TabsBar."
-   },
-   {
-    "slug": "browser-chips",
-    "title": "Chips (Browser)",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-chips\"></tmt-ui-component-docs></div>",
-    "path": "browser/browser-chips",
-    "description": "Chips with an add popup and remove controls, and state chips with a mark and word."
-   },
-   {
-    "slug": "dialog-drawer-panel",
-    "title": "Dialog, drawer and panel",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/dialog-drawer-panel\"></tmt-ui-component-docs></div>",
-    "path": "browser/dialog-drawer-panel",
-    "description": "The Browser dialog (modal and confirm), drawer and non-modal panel, with the drawer header, Esc and focus return."
-   },
-   {
-    "slug": "shell",
-    "title": "Shell and rail",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/shell\"></tmt-ui-component-docs></div>",
-    "path": "browser/shell",
-    "description": "The product frame: the top bar, the module rail with its menus, counts and attention dot, and the content slot. Hover and drag reveal row actions with the swap crossfade."
-   },
-   {
-    "slug": "notifications",
-    "title": "Notifications",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/notifications\"></tmt-ui-component-docs></div>",
-    "path": "browser/notifications",
-    "description": "Transient notifications stacked at the corner, with their actions and dismissal."
+    "slug": "busy-mark",
+    "title": "Busy mark",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/busy-mark\"></tmt-ui-component-docs></div>",
+    "path": "browser/busy-mark",
+    "description": "The busy dots. useBusyMark waits busyMarkDelayMs before showing and holds busyMarkHoldMs once shown, so a quick action never flickers."
    },
    {
     "slug": "card-meter",
@@ -665,11 +490,60 @@
     "description": "The static card with a meter and its glyphs and a small chart."
    },
    {
-    "slug": "overview",
-    "title": "Overview pieces",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/overview\"></tmt-ui-component-docs></div>",
-    "path": "browser/overview",
-    "description": "The page head, banner, facts, stats and state marks an overview page composes, with the shared glyphs."
+    "slug": "chart",
+    "title": "Chart",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/chart\"></tmt-ui-component-docs></div>",
+    "path": "browser/chart",
+    "description": "Bar, line and stacked charts on the chart roles, with axes, legend and tooltip."
+   },
+   {
+    "slug": "browser-checkbox",
+    "title": "Checkbox (Browser)",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-checkbox\"></tmt-ui-component-docs></div>",
+    "path": "browser/browser-checkbox",
+    "description": "The Browser checkbox with its label, mixed and disabled states."
+   },
+   {
+    "slug": "browser-chips",
+    "title": "Chips (Browser)",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-chips\"></tmt-ui-component-docs></div>",
+    "path": "browser/browser-chips",
+    "description": "Chips with an add popup and remove controls, and state chips with a mark and word."
+   },
+   {
+    "slug": "choice",
+    "title": "Choice",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/choice\"></tmt-ui-component-docs></div>",
+    "path": "browser/choice",
+    "description": "Single and multiple choice rows for a question, with an Other answer."
+   },
+   {
+    "slug": "browser-command",
+    "title": "Command (Browser)",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-command\"></tmt-ui-component-docs></div>",
+    "path": "browser/browser-command",
+    "description": "The command field with its results list and keyboard selection."
+   },
+   {
+    "slug": "count-chip",
+    "title": "Count chip",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/count-chip\"></tmt-ui-component-docs></div>",
+    "path": "browser/count-chip",
+    "description": "A number with its tone: neutral, waiting or blocked; countText formats it."
+   },
+   {
+    "slug": "dialog-drawer-panel",
+    "title": "Dialog, drawer and panel",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/dialog-drawer-panel\"></tmt-ui-component-docs></div>",
+    "path": "browser/dialog-drawer-panel",
+    "description": "The Browser dialog (modal and confirm), drawer and non-modal panel, with the drawer header, Esc and focus return."
+   },
+   {
+    "slug": "disclosure",
+    "title": "Disclosure",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/disclosure\"></tmt-ui-component-docs></div>",
+    "path": "browser/disclosure",
+    "description": "A summary that opens more detail in place."
    },
    {
     "slug": "editorial",
@@ -679,6 +553,132 @@
     "description": "Long-form prose on the type ramp: headings, lists, quotes, code and tables."
    },
    {
+    "slug": "field",
+    "title": "Field",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/field\"></tmt-ui-component-docs></div>",
+    "path": "browser/field",
+    "description": "A labelled control with its help and error text and the field edge and focus."
+   },
+   {
+    "slug": "header",
+    "title": "Header",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/header\"></tmt-ui-component-docs></div>",
+    "path": "browser/header",
+    "description": "The page header: title, caption and actions on the header metrics."
+   },
+   {
+    "slug": "icon-action",
+    "title": "Icon action",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/icon-action\"></tmt-ui-component-docs></div>",
+    "path": "browser/icon-action",
+    "description": "A square action named by its tooltip label; text and filled variants."
+   },
+   {
+    "slug": "list",
+    "title": "List and list table",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/list\"></tmt-ui-component-docs></div>",
+    "path": "browser/list",
+    "description": "Rows with a lead, title, meta and actions, the list table with its column rules and the page subheader."
+   },
+   {
+    "slug": "menu",
+    "title": "Menu",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/menu\"></tmt-ui-component-docs></div>",
+    "path": "browser/menu",
+    "description": "The Browser menu and its host for non-React pages: items, radio and checkbox items, disabled rows and submenus."
+   },
+   {
+    "slug": "message-row",
+    "title": "Message row",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/message-row\"></tmt-ui-component-docs></div>",
+    "path": "browser/message-row",
+    "description": "A message with its author and delivery or recovery state."
+   },
+   {
+    "slug": "notice",
+    "title": "Notice",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/notice\"></tmt-ui-component-docs></div>",
+    "path": "browser/notice",
+    "description": "A card-level message with a tone mark, heading, body and actions."
+   },
+   {
+    "slug": "notifications",
+    "title": "Notifications",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/notifications\"></tmt-ui-component-docs></div>",
+    "path": "browser/notifications",
+    "description": "Transient notifications stacked at the corner, with their actions and dismissal."
+   },
+   {
+    "slug": "overview",
+    "title": "Overview pieces",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/overview\"></tmt-ui-component-docs></div>",
+    "path": "browser/overview",
+    "description": "The page head, banner, facts, stats and state marks an overview page composes, with the shared glyphs."
+   },
+   {
+    "slug": "page-row",
+    "title": "Page row",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/page-row\"></tmt-ui-component-docs></div>",
+    "path": "browser/page-row",
+    "description": "A page title, tags, update time and optional unread or status mark."
+   },
+   {
+    "slug": "pager",
+    "title": "Pager",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/pager\"></tmt-ui-component-docs></div>",
+    "path": "browser/pager",
+    "description": "Previous and next with the position, for a list longer than a page."
+   },
+   {
+    "slug": "section",
+    "title": "Section",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/section\"></tmt-ui-component-docs></div>",
+    "path": "browser/section",
+    "description": "A titled page section with its rule and spacing."
+   },
+   {
+    "slug": "shell",
+    "title": "Shell and rail",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/shell\"></tmt-ui-component-docs></div>",
+    "path": "browser/shell",
+    "description": "The product frame: the top bar, the module rail with its menus, counts and attention dot, and the content slot. Hover and drag reveal row actions with the swap crossfade."
+   },
+   {
+    "slug": "status-line",
+    "title": "Status line",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/status-line\"></tmt-ui-component-docs></div>",
+    "path": "browser/status-line",
+    "description": "A row of state marks with their accessible labels."
+   },
+   {
+    "slug": "status-tile",
+    "title": "Status tile",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/status-tile\"></tmt-ui-component-docs></div>",
+    "path": "browser/status-tile",
+    "description": "A state with its mark, word and count, alone or as a row of tiles."
+   },
+   {
+    "slug": "table",
+    "title": "Table",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/table\"></tmt-ui-component-docs></div>",
+    "path": "browser/table",
+    "description": "A data table with its header, numeric columns and compact scroll."
+   },
+   {
+    "slug": "browser-tabs",
+    "title": "Tabs (Browser)",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/browser-tabs\"></tmt-ui-component-docs></div>",
+    "path": "browser/browser-tabs",
+    "description": "The Browser tabs with counts and wrapping. New work uses the ui Tabs and its TabsBar."
+   },
+   {
+    "slug": "toggle",
+    "title": "Toggle",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/toggle\"></tmt-ui-component-docs></div>",
+    "path": "browser/toggle",
+    "description": "A pressed or unpressed action, for a view setting that stays on."
+   },
+   {
     "slug": "visually-hidden",
     "title": "Visually hidden",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/visually-hidden\"></tmt-ui-component-docs></div>",
@@ -686,35 +686,17 @@
     "description": "Text for assistive technology only, such as a count’s full sentence."
    },
    {
-    "slug": "chart",
-    "title": "Chart",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/chart\"></tmt-ui-component-docs></div>",
-    "path": "browser/chart",
-    "description": "Bar, line and stacked charts on the chart roles, with axes, legend and tooltip."
+    "slug": "work-band",
+    "title": "Work band",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-component-docs page=\"browser/work-band\"></tmt-ui-component-docs></div>",
+    "path": "browser/work-band",
+    "description": "A page stage and expandable list of sub-page progress."
    }
   ]
  },
  {
   "title": "Patterns",
   "pages": [
-   {
-    "slug": "list-row",
-    "title": "List row",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"list-row\"></tmt-ui-pattern></div>",
-    "path": "patterns/list-row"
-   },
-   {
-    "slug": "empty-state",
-    "title": "Empty state",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"empty-state\"></tmt-ui-pattern></div>",
-    "path": "patterns/empty-state"
-   },
-   {
-    "slug": "status-line",
-    "title": "Status line",
-    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"status-line\"></tmt-ui-pattern></div>",
-    "path": "patterns/status-line"
-   },
    {
     "slug": "tabs-row",
     "title": "Tabs row with actions",
@@ -810,6 +792,24 @@
     "title": "Keyboard selection",
     "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"blocks-selection\"></tmt-ui-pattern></div>",
     "path": "patterns/blocks-selection"
+   },
+   {
+    "slug": "list-row",
+    "title": "List row",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"list-row\"></tmt-ui-pattern></div>",
+    "path": "patterns/list-row"
+   },
+   {
+    "slug": "empty-state",
+    "title": "Empty state",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"empty-state\"></tmt-ui-pattern></div>",
+    "path": "patterns/empty-state"
+   },
+   {
+    "slug": "status-line",
+    "title": "Status line",
+    "html": "<div class=\"tmt-design-docs\"><tmt-ui-pattern page=\"status-line\"></tmt-ui-pattern></div>",
+    "path": "patterns/status-line"
    }
   ]
  }
