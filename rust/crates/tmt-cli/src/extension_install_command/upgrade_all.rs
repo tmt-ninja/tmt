@@ -268,12 +268,13 @@ mod tests;
 /// Not a failure: a pinned CLI's `tmt upgrade` makes no network call, so it does not look
 /// for extension updates; `tmt extension upgrade` does.
 fn not_checked(product: Product, version: &str) -> Value {
+    let name = product.as_str();
     json!({
-        "product": product.as_str(),
+        "product": name,
         "status": "notChecked",
         "version": version,
         "reason": "cliPinned",
-        "hint": format!("tmt extension upgrade {}", product.as_str()),
+        "hint": format!("tmt extension upgrade {name}"),
     })
 }
 
@@ -301,6 +302,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
             ("{}", "ops"),
             ("{SUGGESTED_EXTENSION}", "ops"),
         ],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "tmt extension upgrade {name}",
+        &[""],
+        &[("{name}", "ops")],
     ),
     crate::cli_style_tests::HintSpec::core("tmt upgrade --yes", &[""], &[]),
 ];
