@@ -106,7 +106,7 @@ fn agents_use_available_height_before_reporting_overflow() {
             assert!(!rows.is_empty() && rows.len() < 28);
             let indicator = lines
                 .iter()
-                .position(|line| line.starts_with(" ↓ "))
+                .position(|line| line.contains(" more ↓"))
                 .unwrap();
             // The one footer row follows the list.
             assert_eq!(indicator, usize::from(height - 2));
