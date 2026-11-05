@@ -12,27 +12,28 @@ fn record<C: Component>(
     theme: &Theme,
     depth: Depth,
 ) {
-    let mut grid = CellGrid::new(Size { width, height: 2 });
+    let height = if name.starts_with("frame-") { 6 } else { 2 };
+    let mut grid = CellGrid::new(Size { width, height });
     let hits = C::render(
         props,
         Rect {
             x: 0,
             y: 0,
             width,
-            height: if name.starts_with("pane") { 6 } else { 2 },
+            height: if name.starts_with("pane") { 6 } else { height },
         },
         &mut grid,
     );
-    let mut buffer = Buffer::empty(NativeRect::new(0, 0, width, 2));
+    let mut buffer = Buffer::empty(NativeRect::new(0, 0, width, height));
     paint(
         &grid,
-        NativeRect::new(0, 0, width, 2),
+        NativeRect::new(0, 0, width, height),
         &mut buffer,
         theme,
         depth,
     );
     writeln!(out, "[{name}] hits={hits:?}").unwrap();
-    for y in 0..2 {
+    for y in 0..height {
         let row: String = (0..width).map(|x| buffer[(x, y)].symbol()).collect();
         write!(out, "{row} | ").unwrap();
         let mut start = 0;
@@ -79,6 +80,37 @@ fn component_cell_grids_match_all_looks_and_widths() {
         let theme = Theme::new(base);
         for width in [40, 60, 80, 120, 160] {
             writeln!(&mut out, "\n=== {name} {width} ===").unwrap();
+            for focused in [false, true] {
+                record::<PaneFrame>(
+                    &mut out,
+                    if focused {
+                        "frame-focused"
+                    } else {
+                        "frame-idle"
+                    },
+                    &PaneFrameProps {
+                        title: "Conversation".into(),
+                        focused,
+                        ascii: false,
+                        back_hint: true,
+                    },
+                    width,
+                    &theme,
+                    depth,
+                );
+            }
+            record::<Sparkline>(
+                &mut out,
+                "sparkline",
+                &SparklineProps {
+                    points: vec![Some(0), Some(1), None, Some(4), Some(8)],
+                    scale: 8,
+                    unavailable: false,
+                },
+                width,
+                &theme,
+                depth,
+            );
             record::<SectionRule>(
                 &mut out,
                 "section-note",
@@ -269,8 +301,6 @@ fn component_cell_grids_match_all_looks_and_widths() {
                 &MarkProps {
                     state: MarkState::Running,
                     label: "working".into(),
-                    role: Token(Role::Working),
-                    bold: false,
                 },
                 width,
                 &theme,
@@ -283,8 +313,6 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     &MarkProps {
                         state,
                         label: "attention".into(),
-                        role: Token(Role::Blocked),
-                        bold: true,
                     },
                     width,
                     &theme,

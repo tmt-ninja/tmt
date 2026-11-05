@@ -1,4 +1,4 @@
-use super::{CellGrid, Component, Constraints, HitId, Rect, Size, Token};
+use super::{CellGrid, Component, Constraints, HitId, Rect, Size};
 use serde::{Deserialize, Serialize};
 use tmt_cli_style::mark::Mark as Symbol;
 
@@ -35,8 +35,6 @@ impl MarkState {
 pub struct MarkProps {
     pub state: MarkState,
     pub label: String,
-    pub role: Token,
-    pub bold: bool,
 }
 
 /// A semantic mark and its word.
@@ -61,7 +59,7 @@ impl Component for Mark {
     fn render(props: &Self::Props, area: Rect, grid: &mut CellGrid) -> Vec<(Rect, HitId)> {
         grid.clear(area);
         let symbol = props.state.symbol();
-        let role = props.role.0;
+        let role = symbol.token().role().expect("mark tokens have a role");
         grid.text_bold(
             area,
             &super::section_rule::fit(
@@ -70,7 +68,7 @@ impl Component for Mark {
             ),
             role,
             None,
-            props.bold,
+            matches!(props.state, MarkState::Failed | MarkState::Decision),
         );
         vec![]
     }

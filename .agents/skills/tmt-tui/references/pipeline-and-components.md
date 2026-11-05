@@ -71,7 +71,9 @@ the caller owns state and actions. Row and column tracks compose fixed and fill
 space. `design_system_ratatui` resolves the supplied roles to the caller's look
 at the native buffer boundary. Snapshot tests pin the cells in four looks at five
 widths, including the narrow layouts. The existing board stacked chart uses this
-same component without changing its output.
+same component without changing its output. `PaneFrame` matches the boxed board
+frame; `Sparkline` renders exact buckets with a caller-supplied shared scale.
+`Mark` derives its role and emphasis from its state.
 
 ## Application layer and component behavior
 

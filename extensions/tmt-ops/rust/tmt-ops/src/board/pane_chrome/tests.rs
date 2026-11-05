@@ -350,3 +350,115 @@ fn design_system_pane_rule_matches_the_unboxed_board_control_rule() {
         }
     }
 }
+
+#[test]
+fn design_system_pane_frame_matches_the_board_frame() {
+    use tmt_cli_style::{Theme, theme::Base};
+    use tmt_tui::components::{
+        design_system::{CellGrid, Component, PaneFrame, PaneFrameProps, Rect as GridRect, Size},
+        design_system_ratatui,
+    };
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        for width in [40, 60, 80, 120, 160] {
+            for height in [3, 6, 8] {
+                for focused in [false, true] {
+                    for ascii in [false, true] {
+                        let mut app =
+                            crate::board::app::workspace::tests::capture_case("agents", look);
+                        app.cron_glyphs = GlyphSet::from_ascii(ascii);
+                        app.focus = if focused { 0 } else { 1 };
+                        let area = Rect::new(0, 0, width, height);
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| {
+                                paint(frame, &app, area, Pane::Rows, "Agents");
+                            })
+                            .unwrap();
+                        let mut grid = CellGrid::new(Size { width, height });
+                        PaneFrame::render(
+                            &PaneFrameProps {
+                                title: "Agents".into(),
+                                focused,
+                                ascii,
+                                back_hint: false,
+                            },
+                            GridRect {
+                                x: 0,
+                                y: 0,
+                                width,
+                                height,
+                            },
+                            &mut grid,
+                        );
+                        let mut actual = Buffer::empty(area);
+                        design_system_ratatui::paint(&grid, area, &mut actual, &look.theme, depth);
+                        assert_eq!(
+                            actual,
+                            *terminal.backend().buffer(),
+                            "{base:?} {depth:?} {width}x{height} focused={focused} ascii={ascii}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn design_system_pane_frame_keeps_the_reply_hint_when_the_title_is_clipped() {
+    use tmt_tui::components::{
+        design_system::{CellGrid, Component, PaneFrame, PaneFrameProps, Rect as GridRect, Size},
+        design_system_ratatui,
+    };
+    for depth in [Depth::TrueColor, Depth::None] {
+        for ascii in [false, true] {
+            let mut app = app(depth);
+            app.focus = 1;
+            app.cron_glyphs = GlyphSet::from_ascii(ascii);
+            let title = "A long title that is far too wide to fit beside the reply hint";
+            let area = Rect::new(0, 0, 40, 6);
+            let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+            terminal
+                .draw(|frame| {
+                    paint(frame, &app, area, Pane::Replies, title);
+                })
+                .unwrap();
+            let mut grid = CellGrid::new(Size {
+                width: 40,
+                height: 6,
+            });
+            PaneFrame::render(
+                &PaneFrameProps {
+                    title: title.into(),
+                    focused: true,
+                    ascii,
+                    back_hint: true,
+                },
+                GridRect {
+                    x: 0,
+                    y: 0,
+                    width: 40,
+                    height: 6,
+                },
+                &mut grid,
+            );
+            let mut actual = Buffer::empty(area);
+            let look = app.look();
+            design_system_ratatui::paint(&grid, area, &mut actual, &look.theme, depth);
+            assert_eq!(
+                actual,
+                *terminal.backend().buffer(),
+                "ascii={ascii} depth={depth:?}"
+            );
+        }
+    }
+}
