@@ -40,8 +40,9 @@ impl FormerProduct {
 }
 
 impl Product {
-    /// A print-only next step after a first install inside tmux. Nothing is
-    /// written; the product's own command asks before it changes anything.
+    /// A print-only next step, shown only after a first install (never an
+    /// upgrade or reinstall) and only when `TMUX` is set. Nothing is written;
+    /// the product's own command asks before it changes anything.
     pub const fn tmux_offer(self) -> Option<&'static str> {
         match self {
             Self::Ops => Some(
