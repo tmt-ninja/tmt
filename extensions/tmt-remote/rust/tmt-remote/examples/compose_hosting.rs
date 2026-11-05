@@ -6,7 +6,7 @@ use std::{ffi::OsString, io::Write, path::Path};
 use tmt_remote::{deploy_discovery::DiscoveryRefusal, hosting::HostingRefusal, limits};
 
 fn run(args: &[OsString]) -> Result<Vec<u8>, Refusal> {
-    if args.len() != 2 {
+    if args.len() != 3 {
         return Err(Refusal::Usage);
     }
     let declaration = hosting_vector::read_reply(
@@ -19,7 +19,7 @@ fn run(args: &[OsString]) -> Result<Vec<u8>, Refusal> {
         limits::HOSTING_REPLY_BYTES,
         DiscoveryRefusal::Hosting(HostingRefusal::Bounds),
     )?;
-    let view = hosting_vector::compose(&declaration, &bundle)?;
+    let view = hosting_vector::compose(&declaration, &bundle, Path::new(&args[2]))?;
     let mut output = serde_json::to_vec(&view).map_err(|_| Refusal::OutputUnavailable)?;
     output.push(b'\n');
     Ok(output)

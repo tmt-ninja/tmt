@@ -367,12 +367,18 @@ explicit environment allow-list, a 10 s cold-launch bound and existing waited cl
 The [Remote contract](../../../../contracts/remote-channel-v1.md) owns the strict reply
 schema, byte bounds, digest rules and no-declaration codes. Discovery captures
 and validates exact UTF-8 declaration/artifact bytes and both digests once, then uses the pure
-plan/Rules owners. No installed-root/receipt parser or artifact-path read exists in Remote.
+plan/Rules owners. Hosting file reads derive their allowed root from the resolved extension
+executable; manifest paths never choose it. No receipt parser is introduced.
 An old unsupported command means no declaration; malformed/failed replies are unavailable.
 Optional Hosting capture uses the fixed `hosting-bundle --json` command after declaration
 validation and before provider setup, with a separate bounded stream and waited child cleanup.
-Discovery pairs each admitted raw declaration with its validated bundle; pure `hosting`
-composes captured bytes, deterministic gzip and ServingConfig. The [composition contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
+The `hosting_files` owner performs canonical, component-wise no-follow capture and streaming
+length/SHA checks. Pure `hosting` composes captured identities and ServingConfig, retaining no
+asset bytes. One shared Node gzip implementation prepares transport identity and streams helper
+uploads after leaf-no-follow regular-file integrity verification; changed bytes refuse. Only
+Remote-generated declarations/instructions use command-lifetime staging; extension files stay
+in their installed/dev `dist-hosted` tree. Product file/count/total caps are absent; manifest and
+helper JSON plus provider listing parsers retain named bounds. The [composition contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
 owns the public declaration file, content identity, app/site selection, staged handles, optional
 diagnostics, user-file projection (including reserved init paths) and forward-only recovery.
 Rust `hosting` alone hashes content identity; the adapter supplies it privately to the helper,
@@ -380,7 +386,7 @@ which uses it for labels/read-back without a second hash implementation. The sam
 executes Hosting and Rules, and joint verification alone records Complete. Hosting read-back
 includes both EXPECTED and ACTIVE files; completion requires the captured file set to be
 ACTIVE and the live release/app/deployment identities to match.
-`invite_page` adds the fixed instructions resources within the same composer bounds and
+`invite_page` adds the fixed instructions resources within the same composition identity and
 content/config digest. Its link presenter requires complete matching publication evidence,
 the current fixed resource identities and their route/headers; older deployments remain
 code-only until the owner redeploys. It does not probe or redeploy, and it never derives a
@@ -405,7 +411,7 @@ home only; an absent vector reports pending, a present vector needs the complete
 Remote-private fixtures under `tests/fixtures/deploy_vectors/` qualify the entry without implying
 Colab provenance. The contract owns the parser boundary and input/output identity rules.
 
-The offline Hosting view includes the declaration file without another input. For that view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
+The offline Hosting view includes the declaration file without another input. For that view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json /absolute/resolved/tmt-colab`; refusals emit one stderr code and no stdout.
 
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding

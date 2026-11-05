@@ -73,14 +73,13 @@ export function expectedFiles(directory) {
   return files;
 }
 
-/** Every current release must carry hosted bytes and the same manifest it declares to Remote. */
+/** Every current release carries a plain hosted tree matching its portable declaration. */
 export function verifyColabHosting({ executable, cwd, env, notices }, run = runPackedCommand) {
-  // Eight MiB admitted bytes encode to less than twelve MiB, including the bounded inventory.
   const bundle = JSON.parse(
     run(executable, ['hosting-bundle', '--json'], {
       cwd,
       env,
-      maxBuffer: 12 * 1024 * 1024,
+      maxBuffer: 256 * 1024,
     })
   );
   const declaration = JSON.parse(run(executable, ['deploy-declaration', '--json'], { cwd, env }));
@@ -104,41 +103,40 @@ export function verifyColabHosting({ executable, cwd, env, notices }, run = runP
     ['files', 'version'],
     'Unexpected hosted manifest fields'
   );
-  for (const file of manifest.files)
-    assert.deepEqual(
-      Object.keys(file).sort(),
-      ['contentType', 'csp', 'length', 'path', 'sha256'],
-      'Unexpected hosted file fields'
-    );
-  const files = manifest.files.map(({ path, sha256, length, contentType, csp }) => ({
-    path,
-    sha256,
-    length,
-    contentType,
-    csp,
-  }));
-  assert.equal(
-    bundle.manifestDigest,
-    sha256(JSON.stringify({ version: 1, files })),
-    'Colab declaration and hosted manifest differ'
-  );
-  for (const [index, file] of bundle.files.entries()) {
-    const declared = files[index],
-      bytes = Buffer.from(file.bytesBase64, 'base64');
-    assert.equal(file.path, declared.path, 'Colab hosted file order/path mismatch');
-    assert.equal(bytes.toString('base64'), file.bytesBase64, 'Colab hosted bytes are not base64');
-    assert.equal(bytes.length, declared.length, 'Colab hosted file length mismatch');
-    assert.equal(sha256(bytes), declared.sha256, 'Colab hosted file digest mismatch');
-    if (
-      file.path.endsWith('THIRD-PARTY-NOTICES.txt') ||
-      file.path === '/sdk/THIRD-PARTY-NOTICES-remote.txt'
-    ) {
-      assert(
-        notices.includes(bytes.toString('utf8').trim()),
-        'Colab archive notices omit hosted attribution'
-      );
+  const files = manifest.files.map((file) => {
+    assert.deepEqual(Object.keys(file).sort(),
+      ['contentType','csp','length','path','sha256',...(file.immutable === true ? ['immutable'] : [])].sort(),
+      'Unexpected hosted file fields');
+    return {path:file.path,sha256:file.sha256,length:file.length,contentType:file.contentType,csp:file.csp,
+      ...(file.immutable === true ? {immutable:true} : {})};
+  });
+  assert.equal(bundle.manifestDigest,sha256(JSON.stringify({version:1,files})),
+    'Colab declaration and hosted manifest differ');
+  const root=fs.realpathSync(path.join(path.dirname(fs.realpathSync(executable)),'dist-hosted'));
+  for (const [index,file] of bundle.files.entries()) {
+    const declared=files[index];
+    assert(typeof declared.path === 'string' && declared.path.startsWith('/') &&
+      declared.path.slice(1).split('/').every((part)=>/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part)),
+      'Unsafe declared hosted route');
+    const expected=path.join(root,declared.path.slice(1));
+    assert.equal(file.path,expected,'Colab hosted absolute path differs from executable-derived root');
+    assert.equal(fs.realpathSync(file.path),file.path,'Colab hosted path is not canonical');
+    assert.deepEqual({...file,path:declared.path},declared,'Hosted reply metadata differs from declaration');
+    const fd=fs.openSync(file.path,fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    let bytes;
+    try {
+      const stat=fs.fstatSync(fd);
+      assert(stat.isFile() && stat.size===declared.length,'Colab hosted file type/length mismatch');
+      bytes=fs.readFileSync(fd);
+    } finally {fs.closeSync(fd);}
+    assert.equal(bytes.length,declared.length,'Colab hosted file length mismatch');
+    assert.equal(sha256(bytes),declared.sha256,'Colab hosted file digest mismatch');
+    if(declared.path.endsWith('THIRD-PARTY-NOTICES.txt') || declared.path==='/sdk/THIRD-PARTY-NOTICES-remote.txt') {
+      const text=bytes.toString('utf8').trim();
+      assert(text.length>0 && notices.includes(text),'Colab archive notices omit hosted attribution');
     }
   }
+
 }
 
 function requestAsset(socket, route, owner = true) {

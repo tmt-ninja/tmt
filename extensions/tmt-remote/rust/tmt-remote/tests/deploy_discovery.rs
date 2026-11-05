@@ -1,4 +1,6 @@
 //! Disposable fake public declaration commands, never Colab production artifacts.
+#[path = "support/hosting_fixture.rs"]
+mod hosting_fixture;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -251,7 +253,6 @@ fn unsupported_layout_version_launcher_or_missing_node_fails_closed() {
 }
 
 fn hosting_envelope() -> (Value, Value) {
-    use base64::{Engine, engine::general_purpose::STANDARD};
     let mut envelope = envelope();
     let mut declaration: Value =
         serde_json::from_str(envelope["declaration"].as_str().unwrap()).unwrap();
@@ -267,19 +268,30 @@ fn hosting_envelope() -> (Value, Value) {
     envelope["declarationDigest"] = json!(hash(bytes.as_bytes()));
     envelope["declaration"] = json!(bytes);
     let manifest = tmt_remote::hosting::HostingManifest::parse(&manifest).unwrap();
-    let bundle = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
+    let bundle = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"hello"}]});
     (envelope, bundle)
 }
 #[test]
 fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup() {
     let root = Root::new();
     let stop = AtomicBool::new(false);
-    let (envelope, bundle) = hosting_envelope();
+    let (envelope, fixture_bundle) = hosting_envelope();
+    let portable: Value = serde_json::from_str(envelope["declaration"].as_str().unwrap()).unwrap();
+    fs::create_dir_all(root.0.join("dist-hosted")).unwrap();
+    let file = root.0.join("dist-hosted/index.html");
+    fs::write(&file, b"hello").unwrap();
+    let mut entry = portable["hosting"]["files"][0].clone();
+    entry["path"] = json!(file);
+    let bundle = json!({"version":1,"manifestDigest":tmt_remote::hosting::HostingManifest::parse(&portable["hosting"]).unwrap().digest(),"files":[entry]});
+    let resolved = root.0.join("tmt-colab");
+    executable_fixture::write_executable(&resolved, "exit 99\n").unwrap();
     let program = root.0.join("tmt");
     let quote = |v: &Value| serde_json::to_string(v).unwrap().replace('\'', "'\\''");
     executable_fixture::write_executable(&program, &format!(
         "[ \"$PWD\" = / ] || exit 4\n[ \"$#\" = 3 ] || exit 5\ncase \"$1 $2 $3\" in\n'colab deploy-declaration --json') printf '%s' '{}' ;;\n'colab hosting-bundle --json') printf '%s' '{}' ;;\n*) exit 6 ;;\nesac\n", quote(&envelope), quote(&bundle))).unwrap();
-    let mut source = InstalledDeclarations::at(program, &stop).unwrap();
+    let mut source =
+        InstalledDeclarations::at_extensions(program, [("colab".into(), resolved)].into(), &stop)
+            .unwrap();
     let discovered = deploy_discovery::discover(&mut source, &["colab"]).unwrap();
     assert_eq!(discovered.hosting.unwrap().files()[0].raw_length, 5);
     assert!(!root.remote().exists());
@@ -294,9 +306,22 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
             self.calls.push(format!("declaration:{name}"));
             Ok(Some(serde_json::to_vec(&self.declaration).unwrap()))
         }
-        fn hosting_bundle(&mut self, name: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+        fn hosting_bundle(
+            &mut self,
+            name: &str,
+            manifest: &tmt_remote::hosting::HostingManifest,
+        ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
             self.calls.push(format!("bundle:{name}"));
-            Ok(serde_json::to_vec(&self.bundle).unwrap())
+            hosting_fixture::parse(manifest, &serde_json::to_vec(&self.bundle).unwrap())
+                .map_err(DiscoveryRefusal::Hosting)
+        }
+        fn generated_hosting(
+            &mut self,
+            file: &tmt_remote::hosting::HostingFile,
+            bytes: &[u8],
+        ) -> Result<tmt_remote::hosting::HostingSource, tmt_remote::hosting::HostingRefusal>
+        {
+            hosting_fixture::source(file, bytes)
         }
     }
     let args = tmt_remote::deploy_cli::FirestoreArgs {
@@ -315,10 +340,10 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
     };
     let mut source = Captured {
         declaration: envelope,
-        bundle,
+        bundle: fixture_bundle,
         calls: Vec::new(),
     };
-    source.bundle["files"][0]["bytesBase64"] = json!("SEVMTE8=");
+    source.bundle["files"][0]["fixtureBytes"] = json!(b"HELLO");
     let result = tmt_remote::deploy_cli::execute::<tmt_remote::deploy_firestore::DeployFirestore<'_>>(
         &args,
         &mut source,
@@ -363,15 +388,27 @@ fn absent_or_failed_bundle_never_becomes_an_empty_site_or_discloses_child_errors
 
 #[test]
 fn serving_config_boundary_is_checked_before_provider_setup() {
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    use tmt_remote::hosting::{self, HostingBundle, HostingManifest, HostingRefusal};
+    use tmt_remote::hosting::{self, HostingManifest, HostingRefusal};
     struct Captured(Value, Value);
     impl DeclarationSource for Captured {
         fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
             Ok(Some(serde_json::to_vec(&self.0).unwrap()))
         }
-        fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
-            Ok(serde_json::to_vec(&self.1).unwrap())
+        fn hosting_bundle(
+            &mut self,
+            _: &str,
+            manifest: &tmt_remote::hosting::HostingManifest,
+        ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
+            hosting_fixture::parse(manifest, &serde_json::to_vec(&self.1).unwrap())
+                .map_err(DiscoveryRefusal::Hosting)
+        }
+        fn generated_hosting(
+            &mut self,
+            file: &tmt_remote::hosting::HostingFile,
+            bytes: &[u8],
+        ) -> Result<tmt_remote::hosting::HostingSource, tmt_remote::hosting::HostingRefusal>
+        {
+            hosting_fixture::source(file, bytes)
         }
     }
     let hash = |bytes: &[u8]| {
@@ -392,16 +429,16 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     let make_bundle = |files: &[Value]| {
         let manifest = HostingManifest::parse(&json!({"version":1,"files":files})).unwrap();
         let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":files.iter()
-            .map(|f| json!({"path":f["path"],"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()});
+            .map(|f| json!({"path":f["path"],"fixtureBytes":b"hello"})).collect::<Vec<_>>()});
         (
             manifest.clone(),
             reply.clone(),
-            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+            hosting_fixture::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
         )
     };
     let (_, _, small) = make_bundle(&files);
     let base = serde_json::to_vec(
-        hosting::compose(&[hosting::HostingInput {
+        hosting_fixture::compose(&[hosting::HostingInput {
             extension: "colab",
             declaration: b"{}",
             bundle: &small,
@@ -421,7 +458,7 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     }
     assert_eq!(remaining, 0);
     let (manifest, bundle, captured) = make_bundle(&files);
-    let composition = hosting::compose(&[hosting::HostingInput {
+    let composition = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: b"{}",
         bundle: &captured,
@@ -450,7 +487,7 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     last["csp"] = json!(format!("{}xx", last["csp"].as_str().unwrap()));
     let (manifest, bundle, captured) = make_bundle(&files);
     assert!(matches!(
-        hosting::compose(&[hosting::HostingInput {
+        hosting_fixture::compose(&[hosting::HostingInput {
             extension: "colab",
             declaration: b"{}",
             bundle: &captured
@@ -497,8 +534,21 @@ fn hosted_declaration_is_exactly_the_native_sealed_and_plan_digest() {
         fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
             Ok(Some(serde_json::to_vec(&self.0).unwrap()))
         }
-        fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
-            Ok(serde_json::to_vec(&self.1).unwrap())
+        fn hosting_bundle(
+            &mut self,
+            _: &str,
+            manifest: &tmt_remote::hosting::HostingManifest,
+        ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
+            hosting_fixture::parse(manifest, &serde_json::to_vec(&self.1).unwrap())
+                .map_err(DiscoveryRefusal::Hosting)
+        }
+        fn generated_hosting(
+            &mut self,
+            file: &tmt_remote::hosting::HostingFile,
+            bytes: &[u8],
+        ) -> Result<tmt_remote::hosting::HostingSource, tmt_remote::hosting::HostingRefusal>
+        {
+            hosting_fixture::source(file, bytes)
         }
     }
     let hash = |bytes: &[u8]| {
@@ -523,11 +573,10 @@ fn hosted_declaration_is_exactly_the_native_sealed_and_plan_digest() {
         let declaration_digest = &discovered.extensions.view().extensions[0].declaration_digest;
         let composed = discovered.hosting.unwrap();
         let path = "/tmt/declarations/colab.json";
-        let gzip = composed
-            .gzip(path)
+        let gzip = hosting_fixture::gzip(&composed, path)
             .expect("Hosting must include the exact deployed declaration");
         let mut generated = Vec::new();
-        flate2::read::GzDecoder::new(gzip)
+        flate2::read::GzDecoder::new(gzip.as_slice())
             .read_to_end(&mut generated)
             .unwrap();
         assert_eq!(generated, sealed);

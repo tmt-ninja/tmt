@@ -109,7 +109,9 @@ global.fetch = async (url, options) => {
       h.siteId = requested;
     }
     const site = h.siteId;
-    const body = options.body && !Buffer.isBuffer(options.body) ? JSON.parse(options.body) : null;
+    let uploaded=null;
+    if(options.body?.pipe){const chunks=[];for await(const bytes of options.body)chunks.push(bytes);uploaded=Buffer.concat(chunks);}
+    const body = options.body && !Buffer.isBuffer(options.body) && uploaded===null ? JSON.parse(options.body) : null;
     let result,
       status = 200;
     if (route.endsWith('/webApps')) {
@@ -176,6 +178,7 @@ global.fetch = async (url, options) => {
         uploadUrl: `https://upload-firebasehosting.googleapis.com/upload/sites/${site}/versions/one/files`,
       };
     } else if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
+      if(!uploaded || require('node:crypto').createHash('sha256').update(uploaded).digest('hex')!==url.split('/').at(-1)) throw Error('TOKEN_CANARY_UPLOAD_IDENTITY');
       h.files.filter((f) => url.endsWith('/' + f.hash)).forEach((f) => (f.status = 'ACTIVE'));
       result = null;
     } else if (route.endsWith('/versions/one/files')) {

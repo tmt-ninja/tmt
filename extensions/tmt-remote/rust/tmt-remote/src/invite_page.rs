@@ -51,6 +51,7 @@ pub(crate) fn assets() -> Vec<(HostingFile, String)> {
                 length: raw.len() as u64,
                 content_type: content_type.into(),
                 csp,
+                immutable: false,
             },
             raw,
         )

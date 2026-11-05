@@ -1,5 +1,5 @@
 'use strict';
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -663,7 +663,12 @@ test('login is re-resolved immediately before each effect, not cached from obser
   assert.equal(mutations(f).length, 0);
 });
 
-// Remote-owned, in-memory API lifecycle fixture; no provider/account acceptance.
+// Remote-owned API and plain-file fixture; no provider/account acceptance.
+const HOSTED_RAW = Buffer.from('raw');
+const HOSTED_GZIP = require('node:zlib').gzipSync(HOSTED_RAW,{level:6});HOSTED_GZIP[9]=255;
+const HOSTED_GZIP_DIGEST=hash(HOSTED_GZIP);
+const hostedRoots=[];
+after(()=>{for(const root of hostedRoots)fs.rmSync(root,{recursive:true});});
 function reservedHostingFiles() {
   return ['/__/firebase/init.js', '/__/firebase/init.json'].map((path) => ({
     path,
@@ -672,13 +677,17 @@ function reservedHostingFiles() {
   }));
 }
 function hostedFixture(siteId = PROJECT) {
+  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'hosting-helper-')));
+  hostedRoots.push(root);
+  const rawPath=path.join(root,'index.html');fs.writeFileSync(rawPath,HOSTED_RAW);
+  const file={path:rawPath,length:HOSTED_RAW.length,sha256:hash(HOSTED_RAW)};
   const files = [
     {
       path: '/index.html',
-      gzipDigest: hash(Buffer.from('gzip-fixture')),
+      gzipDigest: HOSTED_GZIP_DIGEST,
       rawDigest: hash('raw'),
       rawLength: 3,
-      gzipLength: 12,
+      gzipLength: HOSTED_GZIP.length,
       contentType: 'text/html',
     },
   ];
@@ -694,11 +703,10 @@ function hostedFixture(siteId = PROJECT) {
     credential: async () => ({ account: ACCOUNT, token: CANARY }),
     http: async (url, options) => {
       const { method } = options;
-      const payload = Buffer.isBuffer(options.body)
-        ? options.body
-        : options.body
-          ? JSON.parse(options.body)
-          : null;
+      let payload;
+      if(options.body?.pipe) {
+        const chunks=[];for await(const bytes of options.body)chunks.push(bytes);payload=Buffer.concat(chunks);
+      } else payload=Buffer.isBuffer(options.body)?options.body:options.body?JSON.parse(options.body):null;
       calls.push({ url, method, payload });
       if (url.endsWith('/oauth2/v3/userinfo'))
         return { status: 200, body: { email: ACCOUNT, email_verified: true } };
@@ -767,12 +775,14 @@ function hostedFixture(siteId = PROJECT) {
         const status = new URL(url).searchParams.get('status') ?? 'EXPECTED';
         assert.ok(['EXPECTED', 'ACTIVE'].includes(status));
         const files = state.files.filter((file) => file.status === status);
-        if (files.length <= 200) return ok({ files });
+        const pageSize=Number(new URL(url).searchParams.get('pageSize'));
+        assert.equal(pageSize,1000);
+        if (files.length <= pageSize) return ok({ files });
         const offset = Number(new URL(url).searchParams.get('pageToken') ?? 0);
         assert.ok(Number.isInteger(offset) && offset >= 0);
         return ok({
-          files: files.slice(offset, offset + 200),
-          ...(offset + 200 < files.length ? { nextPageToken: String(offset + 200) } : {}),
+          files: files.slice(offset, offset + pageSize),
+          ...(offset + pageSize < files.length ? { nextPageToken: String(offset + pageSize) } : {}),
         });
       }
       if (route.endsWith('/versions/one:populateFiles')) {
@@ -794,7 +804,7 @@ function hostedFixture(siteId = PROJECT) {
         });
       }
       if (url.startsWith('https://upload-firebasehosting.googleapis.com/')) {
-        assert.equal(payload.toString(), 'gzip-fixture');
+        assert.deepEqual(payload,HOSTED_GZIP);
         state.files
           .filter((f) => url.endsWith('/' + f.hash))
           .forEach((f) => (f.status = 'ACTIVE'));
@@ -848,7 +858,7 @@ function hostedFixture(siteId = PROJECT) {
     steps: [],
     action: 'create',
     hash: null,
-    bytesBase64: null,
+    file: null,
     source,
   };
   async function call(operation, action, extra = {}) {
@@ -859,7 +869,7 @@ function hostedFixture(siteId = PROJECT) {
     if (r.checkpoint) input.checkpoint = r.checkpoint;
     return r;
   }
-  return { f, state, calls, input, call };
+  return { f, state, calls, input, call, file };
 }
 test('selected-site app association, publication and read-back never target the project-default site', async () => {
   const site = 'tmt-selected-site';
@@ -867,7 +877,7 @@ test('selected-site app association, publication and read-back never target the 
   for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   const file = x.input.hosting.content.files[0];
-  assert.equal((await x.call('apply-hosting', 'upload', { hash: file.gzipDigest, bytesBase64: Buffer.from('gzip-fixture').toString('base64') })).state, 'done');
+  assert.equal((await x.call('apply-hosting', 'upload', { hash: file.gzipDigest, file: x.file })).state, 'done');
   for (const action of ['finalize', 'release'])
     assert.equal((await x.call('apply-hosting', action)).state, 'done');
   await x.call('verify-hosting', 'verify');
@@ -940,7 +950,7 @@ test('Hosting reserved files plus 15 planned files complete every later file che
     (
       await x.call('apply-hosting', 'upload', {
         hash: first.gzipDigest,
-        bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+        file: x.file,
       })
     ).state,
     'done'
@@ -967,40 +977,26 @@ test('Hosting reserved files plus 15 planned files complete every later file che
   );
 });
 
-test('Hosting admits 256 user files plus two reserved rows but refuses 257 user files', async () => {
-  for (const [count, includeReserved] of [
-    [256, true],
-    [257, false],
-    [257, true],
-  ]) {
-    const x = hostedFixture();
-    const first = x.input.hosting.content.files[0];
-    x.input.hosting.content.files = Array.from({ length: Math.min(count, 256) }, (_, i) => ({
-      ...first,
-      path: `/file-${String(i).padStart(3, '0')}.html`,
-    }));
-    await x.call('apply-hosting', 'create');
-    x.state.files = [
-      ...(includeReserved ? reservedHostingFiles() : []),
-      ...Array.from({ length: count }, (_, i) => ({
-        path: `/file-${String(i).padStart(3, '0')}.html`,
-        hash: first.gzipDigest,
-        status: 'ACTIVE',
-      })),
-    ];
-    if (count === 256) assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
-    else
-      await assert.rejects(
-        () => x.call('apply-hosting', 'populate'),
-        (error) => {
-          assert.equal(error.code, 'unknown');
-          assert.equal(error.cause.code, 'inventory-incomplete');
-          return true;
-        }
-      );
-    assert.ok(x.calls.some((c) => new URL(c.url).searchParams.has('pageToken')));
-    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+test('Hosting has no 256-file inventory cap and retains the provider listing parse bound',async()=>{
+  for(const [count,includeReserved,passes] of [[257,true,true],[10000,false,true],[10001,false,false]]) {
+    const x=hostedFixture();const first=x.input.hosting.content.files[0];
+    x.input.hosting.content.files=Array.from({length:Math.min(count,10000)},(_,i)=>({...first,path:`/file-${String(i).padStart(5,'0')}.html`}));
+    await x.call('apply-hosting','create');
+    x.state.files=[...(includeReserved?reservedHostingFiles():[]),...Array.from({length:count},(_,i)=>({path:`/file-${String(i).padStart(5,'0')}.html`,hash:first.gzipDigest,status:'ACTIVE'}))];
+    if(passes)assert.equal((await x.call('apply-hosting','populate')).state,'done');
+    else await assert.rejects(()=>x.call('apply-hosting','populate'),(error)=>{assert.equal(error.code,'unknown');assert.equal(error.cause.code,'inventory-incomplete');return true;});
+    assert.equal(x.calls.filter((c)=>c.url.endsWith(':populateFiles')).length,0);
   }
+});
+
+for(const swap of ['symlink','different','truncated','grown'])test(`Hosting refuses capture-to-upload ${swap} swap with no upload`,async()=>{
+  const x=hostedFixture();for(const action of ['web-app','site','configure','create','populate'])await x.call('apply-hosting',action);
+  if(swap==='symlink'){fs.renameSync(x.file.path,x.file.path+'.original');fs.symlinkSync(x.file.path+'.original',x.file.path);}
+  else fs.writeFileSync(x.file.path,swap==='different'?'bad':swap==='truncated'?'r':'grown');
+  await failure(()=>x.call('apply-hosting','upload',{hash:HOSTED_GZIP_DIGEST,file:x.file}),'provider-rejected');
+  assert.equal(x.calls.filter((c)=>c.url.startsWith('https://upload-firebasehosting.')).length,0);
+  assert(x.state.files.some((file)=>file.status==='EXPECTED'));
+  assert.equal(x.state.live,null);
 });
 
 test('Hosting validates reserved rows before exclusion and never exempts user hash drift', async () => {
@@ -1092,8 +1088,8 @@ async function finalizedHostingFixture() {
   for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
     await x.call('apply-hosting', action);
   await x.call('apply-hosting', 'upload', {
-    hash: hash('gzip-fixture'),
-    bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+    hash: HOSTED_GZIP_DIGEST,
+    file: x.file,
   });
   await x.call('apply-hosting', 'finalize');
   return x;
@@ -1218,7 +1214,7 @@ test('Hosting requires the supplied Rust content digest before any provider read
   }
 });
 test('Hosting associates the selected app before staging and verifies that same association', async () => {
-  const { state, calls, call, input } = hostedFixture();
+  const { state, calls, call, input, file } = hostedFixture();
   assert.equal((await call('observe-hosting', 'web-app')).state, 'absent');
   assert.equal((await call('apply-hosting', 'web-app')).state, 'done');
   assert.equal((await call('observe-hosting', 'web-app')).state, 'satisfied');
@@ -1229,8 +1225,8 @@ test('Hosting associates the selected app before staging and verifies that same 
   assert.ok(Object.values(state.versions[0].labels).every((value) => value.length <= 63));
   await call('apply-hosting', 'populate');
   await call('apply-hosting', 'upload', {
-    hash: hash('gzip-fixture'),
-    bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+    hash: HOSTED_GZIP_DIGEST,
+    file,
   });
   assert.equal(state.live, null);
   await call('apply-hosting', 'finalize');
@@ -1279,16 +1275,16 @@ test('upload faults, cross-host URL, and joint read-back mismatch stay unknown w
   await failure(
     () =>
       x.call('apply-hosting', 'upload', {
-        hash: hash('gzip-fixture'),
-        bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+        hash: HOSTED_GZIP_DIGEST,
+        file: x.file,
       }),
     'unknown'
   );
   assert.equal(x.state.live, null);
   x.state.fail = null;
   await x.call('apply-hosting', 'upload', {
-    hash: hash('gzip-fixture'),
-    bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+    hash: HOSTED_GZIP_DIGEST,
+    file: x.file,
   });
   await x.call('apply-hosting', 'finalize');
   await x.call('apply-hosting', 'release');
@@ -1873,8 +1869,8 @@ test('Hosting all-ACTIVE files skip upload and complete finalize, release and ve
   assert.equal(
     (
       await x.call('apply-hosting', 'upload', {
-        hash: hash('gzip-fixture'),
-        bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+        hash: HOSTED_GZIP_DIGEST,
+        file: x.file,
       })
     ).state,
     'done'
@@ -1944,7 +1940,7 @@ test('Hosting union refuses conflicting hashes, duplicate paths, wrong statuses 
   for (const mode of ['conflict', 'duplicate', 'status', 'token']) {
     const x = hostedFixture();
     await x.call('apply-hosting', 'create');
-    x.state.files = [{ path: '/index.html', hash: hash('gzip-fixture'), status: 'EXPECTED' }];
+    x.state.files = [{ path: '/index.html', hash: HOSTED_GZIP_DIGEST, status: 'EXPECTED' }];
     const http = x.f.http;
     x.f.http = async (url, options, deadline) => {
       const response = await http(url, options, deadline);

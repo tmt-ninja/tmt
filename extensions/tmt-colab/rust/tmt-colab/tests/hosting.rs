@@ -1,5 +1,4 @@
 //! The release command survives relocation without core, state, or app-directory fallback.
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, process::Command};
@@ -12,7 +11,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
+fn relocated_manifest_uses_its_plain_tree_and_rejects_digest_or_copy_arguments() {
     let root = std::env::temp_dir().join(format!("tmt-hosting-cli-{}", std::process::id()));
     fs::create_dir(&root).unwrap();
     struct Cleanup(std::path::PathBuf);
@@ -54,6 +53,42 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
             .output()
             .unwrap()
     };
+    if tmt_colab::hosting::manifest().is_some() {
+        let source_reply = Command::new(source)
+            .env_clear()
+            .env("HOME", &root)
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "true")
+            .env("PATH", "")
+            .args(["hosting-bundle", "--json"])
+            .output()
+            .unwrap();
+        assert!(source_reply.status.success(), "{source_reply:?}");
+        let reply: Value = serde_json::from_slice(&source_reply.stdout).unwrap();
+        let manifest: Value =
+            serde_json::from_slice(tmt_colab::hosting::manifest().unwrap()).unwrap();
+        let hosted = root.join("dist-hosted");
+        fs::create_dir(&hosted).unwrap();
+        for (file, metadata) in reply["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(manifest["files"].as_array().unwrap())
+        {
+            let bytes = fs::read(file["path"].as_str().unwrap()).unwrap();
+            assert_eq!(metadata["length"], bytes.len());
+            assert_eq!(metadata["sha256"], sha256_hex(&bytes));
+            let target = hosted.join(
+                metadata["path"]
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix('/')
+                    .unwrap(),
+            );
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, bytes).unwrap();
+        }
+    }
     let output = invoke(&["hosting-bundle", "--json"]);
     match tmt_colab::hosting::manifest() {
         Some(manifest) => {
@@ -66,12 +101,8 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
                 body["files"].as_array().unwrap().len(),
                 manifest["files"].as_array().unwrap().len()
             );
-            assert_eq!(
-                output.stdout.strip_suffix(b"\n").unwrap(),
-                tmt_colab::hosting::bundle().unwrap()
-            );
             // Remote compares the bundle with the declared manifest before any provider call. Here
-            // the two commands agree exactly, from the executable's own bytes and no network: the
+            // the two commands agree on portable metadata without network or file-byte stdout: the
             // manifest is the declaration's last key, verbatim, and every file matches its entry.
             let bytes = tmt_colab::hosting::manifest().unwrap();
             let declared = invoke(&["deploy-declaration", "--json"]);
@@ -93,12 +124,18 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
             let sent = body["files"].as_array().unwrap();
             assert_eq!(entries.len(), sent.len());
             for (entry, wire) in entries.iter().zip(sent) {
-                let decoded = STANDARD
-                    .decode(wire["bytesBase64"].as_str().unwrap())
-                    .unwrap();
-                assert_eq!(wire["path"], entry["path"]);
-                assert_eq!(entry["length"], decoded.len());
-                assert_eq!(entry["sha256"], sha256_hex(&decoded));
+                let absolute = root
+                    .canonicalize()
+                    .unwrap()
+                    .join("dist-hosted")
+                    .join(entry["path"].as_str().unwrap().strip_prefix('/').unwrap());
+                assert_eq!(wire["path"], absolute.to_str().unwrap());
+                assert!(wire.get("bytesBase64").is_none());
+                let bytes = fs::read(&absolute).unwrap();
+                assert_eq!(entry["length"], bytes.len());
+                assert_eq!(entry["sha256"], sha256_hex(&bytes));
+                assert_eq!(wire["contentType"], entry["contentType"]);
+                assert_eq!(wire["csp"], entry["csp"]);
             }
         }
         None => {
@@ -114,12 +151,17 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
             assert!(declaration.get("hosting").is_none());
         }
     }
-    let invalid = invoke(&["hosting-bundle", "--json", "--digest", "unused"]);
-    assert!(!invalid.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&invalid.stdout).unwrap()["error"]["code"],
-        "COLAB_INPUT_INVALID"
-    );
+    for invalid_args in [
+        ["hosting-bundle", "--json", "--digest", "unused"],
+        ["hosting-bundle", "--json", "--out", "unused"],
+    ] {
+        let invalid = invoke(&invalid_args);
+        assert!(!invalid.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&invalid.stdout).unwrap()["error"]["code"],
+            "COLAB_INPUT_INVALID"
+        );
+    }
     for args in [["hosting-bundle", "--help"], ["help", "hosting-bundle"]] {
         let help = invoke(&args);
         assert!(help.status.success(), "{help:?}");
@@ -131,7 +173,11 @@ fn relocated_bundle_uses_only_embedded_bytes_and_rejects_digest_arguments() {
     }
     assert_eq!(
         fs::read_dir(&root).unwrap().count(),
-        2,
-        "pure bundle command initialized state"
+        if tmt_colab::hosting::manifest().is_some() {
+            3
+        } else {
+            2
+        },
+        "manifest command copies no files and initializes no state"
     );
 }

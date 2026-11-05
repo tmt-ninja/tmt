@@ -13,6 +13,7 @@ interface DeclaredFile {
   length: number;
   contentType: string;
   csp?: string;
+  immutable?: boolean;
 }
 interface Composition {
   version: number;
@@ -39,12 +40,17 @@ export function composed(world: AcceptanceWorld) {
   const bundleFile = path.join(world.root, 'hosting-bundle-reply.json');
   fs.writeFileSync(declarationFile, declaration);
   fs.writeFileSync(bundleFile, bundle);
-  const view = JSON.parse(run(world, example, [declarationFile, bundleFile])) as Composition;
+  const view = JSON.parse(run(world, example, [declarationFile, bundleFile, world.binaries.colab])) as Composition;
   const manifest = (JSON.parse(JSON.parse(declaration).declaration) as { hosting: unknown })
     .hosting as { version: number; files: DeclaredFile[] };
   const files = new Map<string, Buffer>();
-  for (const file of JSON.parse(bundle).files as Array<{ path: string; bytesBase64: string }>)
-    files.set(file.path, Buffer.from(file.bytesBase64, 'base64'));
+  const replyFiles=JSON.parse(bundle).files as Array<{path:string;length:number;sha256:string}>;
+  for (const [index,file] of replyFiles.entries()) {
+    const route=manifest.files[index].path;
+    const bytes=fs.readFileSync(file.path);
+    expect(bytes.length).toBe(file.length);expect(sha256(bytes)).toBe(file.sha256);
+    files.set(route,bytes);
+  }
   // Remote composes this exact raw declaration alongside the extension's declared files.
   const rawDeclaration = Buffer.from(JSON.parse(declaration).declaration, 'utf8');
   const declarationPath = '/tmt/declarations/colab.json';

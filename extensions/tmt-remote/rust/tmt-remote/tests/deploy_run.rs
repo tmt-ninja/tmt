@@ -2,6 +2,8 @@
 //! Rules come from `fixtures/deploy_run/reference.py`, not from the code under test. The
 //! provider is a fake that logs calls; no real account is involved. The property under
 //! test: a usable binding exists only after every step of the authorized plan finished.
+#[path = "support/hosting_fixture.rs"]
+mod hosting_fixture;
 use std::{fs, path::PathBuf};
 use tmt_remote::{
     deploy_plan::{CloudBackend, Enabled, Plan, Supplied, Target, compose},
@@ -1061,9 +1063,8 @@ fn hosted_plan_with_content(html: &[u8]) -> DeployPlan {
     hosted_plan_at_site(html, PROJECT)
 }
 fn hosted_plan_at_site(html: &[u8], site: &str) -> DeployPlan {
-    use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::json;
-    use tmt_remote::hosting::{self, HostingBundle, HostingInventory, HostingManifest};
+    use tmt_remote::hosting::{self, HostingInventory, HostingManifest};
     let mut declaration: serde_json::Value =
         serde_json::from_slice(&read("declarations", "colab-firestore.json")).unwrap();
     let manifest = HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":sha256(html),"length":html.len(),"contentType":"text/html"}]})).unwrap();
@@ -1084,9 +1085,9 @@ fn hosted_plan_at_site(html: &[u8], site: &str) -> DeployPlan {
         }],
     )
     .unwrap();
-    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(html)}]});
-    let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap();
-    let content = hosting::compose(&[hosting::HostingInput {
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":html}]});
+    let bundle = hosting_fixture::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap();
+    let content = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: &bytes,
         bundle: &bundle,
@@ -2561,7 +2562,8 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
             .iter_mut()
             .find(|s| s["id"] == "hosting:stage:create")
             .unwrap();
-        step["cause"]["files"][key] = serde_json::json!(tmt_remote::limits::HOSTING_FILES + 1);
+        step["cause"]["files"][key] =
+            serde_json::json!(tmt_remote::limits::HOSTING_LIST_PARSE_FILES + 1);
         fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
         assert_eq!(
             writer.load_or_draft().unwrap_err().code,

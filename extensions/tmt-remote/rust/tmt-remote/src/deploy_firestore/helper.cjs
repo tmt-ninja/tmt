@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const hostingFileStream = require('./hosting-file.cjs');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
@@ -19,7 +20,11 @@ const HOSTING_PHASE_MS = 30000;
 const HOSTING_APPLY_MS = 3 * HOSTING_PHASE_MS;
 const APP_OBSERVE_MS = 15000;
 const APP_POLL_MS = 250;
-const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
+// Four manifest-sized metadata sections plus ServingConfig, matching limits.rs.
+const UPLOAD_BYTES = 4 * 256 * 1024 + 64 * 1024;
+// Provider listing parse capacity, not an extension inventory limit (limits.rs).
+const HOSTING_LIST_PAGE_FILES = 1000;
+const HOSTING_LIST_PARSE_FILES = PAGES * HOSTING_LIST_PAGE_FILES;
 const FAULTS = new Set([
   'unsupported-tool',
   'login-required',
@@ -143,7 +148,7 @@ function validate(request) {
           'steps',
           'action',
           'hash',
-          'bytesBase64',
+          'file',
           'source',
         ],
       ])
@@ -236,13 +241,11 @@ function validate(request) {
         'verify',
       ].includes(i.action) ||
       (i.hash !== null && !/^[0-9a-f]{64}$/.test(i.hash)) ||
-      (i.bytesBase64 !== null &&
-        (typeof i.bytesBase64 !== 'string' || i.bytesBase64.length > UPLOAD_BYTES))
+      (i.file !== null && (typeof i.file !== 'object' || Array.isArray(i.file)))
     )
       fail('provider-rejected');
     if (
       !Array.isArray(i.hosting.content?.files) ||
-      i.hosting.content.files.length > 256 ||
       Buffer.byteLength(JSON.stringify(i.hosting.content.config)) > 65536
     )
       fail('provider-rejected');
@@ -364,6 +367,7 @@ async function fetchJson(url, options, deadline) {
   try {
     response = await fetch(url, {
       ...options,
+      ...(options.body?.pipe ? {duplex: 'half'} : {}),
       redirect: 'error',
       signal: AbortSignal.timeout(Math.min(left, 20000)),
     });
@@ -550,6 +554,7 @@ async function execute(request, deps) {
   }
   async function pages(service, route, key) {
     const pageSize =
+      service === 'hosting' && key === 'files' ? HOSTING_LIST_PAGE_FILES :
       service === 'rules' || (service === 'hosting' && key === 'versions') ? 100 : 200;
     const all = [];
     let token = '';
@@ -565,7 +570,8 @@ async function execute(request, deps) {
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key])))
         fail('unknown', undefined, { code: 'inventory-incomplete' });
-      if ((result[key] ?? []).length > 200)
+      const rowBound=service==='hosting' && key==='files' ? HOSTING_LIST_PAGE_FILES : 200;
+      if ((result[key] ?? []).length > rowBound)
         fail('unknown', undefined, { code: 'inventory-incomplete' });
       all.push(...(result[key] ?? []));
       if (Buffer.byteLength(JSON.stringify(all)) > BYTES)
@@ -658,7 +664,7 @@ async function execute(request, deps) {
     for (const status of ['EXPECTED', 'ACTIVE']) {
       const listed = await pages('hosting', `${name}/files?status=${status}`, 'files');
       if (
-        listed.length > 256 + reserved.size ||
+        listed.length > HOSTING_LIST_PARSE_FILES + reserved.size ||
         new Set(listed.map((f) => f?.path)).size !== listed.length ||
         listed.some(
           (f) =>
@@ -674,10 +680,10 @@ async function execute(request, deps) {
         union.set(path, { path, hash, status });
       }
     }
-    if (union.size > 256 + reserved.size)
+    if (union.size > HOSTING_LIST_PARSE_FILES + reserved.size)
       fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
     const files = [...union.values()].filter((file) => !reserved.has(file.path));
-    if (files.length > 256)
+    if (files.length > HOSTING_LIST_PARSE_FILES)
       fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
     return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
@@ -1013,29 +1019,36 @@ async function execute(request, deps) {
       if (matching.every((f) => f.status === 'ACTIVE'))
         return reply(applying ? 'done' : 'satisfied');
       if (!applying) return reply('absent');
-      const bytes = Buffer.from(i.bytesBase64, 'base64');
-      if (
-        bytes.length > 4 * 1024 * 1024 + 65536 ||
-        sha(bytes) !== i.hash ||
-        bytes.toString('base64') !== i.bytesBase64
-      )
-        fail('provider-rejected');
-      await beginMutation();
-      const result = await deps.http(
-        `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files/${i.hash}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${credential.token}`,
-            'Content-Type': 'application/octet-stream',
-          },
-          body: bytes,
-        },
-        callBound
-      );
-      httpStatusClass = `${Math.floor(result.status / 100)}xx`;
-      if (result.status !== 200)
-        fail(fault(result, result.body), { operation: 'hosting-upload', status: result.status });
+      const planned = h.content.files.find((f) => f.gzipDigest === i.hash);
+      if (!planned || !i.file || i.file.length !== planned.rawLength ||
+          i.file.sha256 !== planned.rawDigest) fail('provider-rejected');
+      keys(i.file, ['path', 'length', 'sha256']);
+      const expected = {sha256:i.hash, length:planned.gzipLength};
+      let transfer;
+      try {
+        // Hash the complete raw file before HTTP; capture-to-upload swaps cannot leak content.
+        const prepared = await hostingFileStream.prepare(i.file);
+        if (prepared.sha256 !== expected.sha256 || prepared.length !== expected.length)
+          fail('provider-rejected');
+        transfer = hostingFileStream.upload(i.file, expected);
+      } catch { fail('provider-rejected'); }
+      try {
+        await beginMutation();
+        const result = await deps.http(
+          `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files/${i.hash}`,
+          { method: 'POST', headers: {
+              Authorization: `Bearer ${credential.token}`,
+              'Content-Type': 'application/octet-stream',
+            }, body: transfer.body }, callBound);
+        await transfer.completion;
+        httpStatusClass = `${Math.floor(result.status / 100)}xx`;
+        if (result.status !== 200)
+          fail(fault(result, result.body), {operation:'hosting-upload',status:result.status});
+      } finally {
+        transfer.body.destroy();
+        transfer.close();
+        await transfer.completion.catch(() => {});
+      }
       return reply('done');
     }
     if (i.action === 'finalize') {
@@ -1465,9 +1478,9 @@ async function execute(request, deps) {
 }
 async function run(raw, root, deps) {
   try {
-    if (Buffer.byteLength(raw) > UPLOAD_BYTES) fail('provider-rejected');
+    if (Buffer.byteLength(raw) > Math.max(BYTES, UPLOAD_BYTES)) fail('provider-rejected');
     const request = validate(JSON.parse(raw));
-    if (request.operation !== 'apply-hosting' && Buffer.byteLength(raw) > BYTES)
+    if (Buffer.byteLength(raw) > (request.operation === 'apply-hosting' ? UPLOAD_BYTES : BYTES))
       fail('provider-rejected');
     compatibility(root);
     if (request.operation === 'compatibility') return { version: 1, result: capabilities() };
@@ -1497,7 +1510,7 @@ async function main() {
     size = 0;
   for await (const chunk of process.stdin) {
     size += chunk.length;
-    if (size > UPLOAD_BYTES) {
+    if (size > Math.max(BYTES, UPLOAD_BYTES)) {
       emit(JSON.stringify({ version: 1, error: 'provider-rejected' }));
       return;
     }

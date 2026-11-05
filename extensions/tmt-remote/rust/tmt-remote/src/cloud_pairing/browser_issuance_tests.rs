@@ -1,6 +1,7 @@
 //! Signed browser issuance over the actual coordinator, Store and injected provider.
 use super::browser_ceremony_tests::Browser;
 use super::*;
+use crate::hosting_fixture;
 use crate::{
     deploy_plan::{self, CloudBackend, Enabled, Supplied, Target},
     deploy_record::DeployRecordStore,
@@ -8,10 +9,9 @@ use crate::{
         self, DeployBinding, DeployInput, HostingCheckpoint, Run, RunState, SignInProvider,
         StepRecord, StepState,
     },
-    hosting::{self, HostingBundle, HostingInventory, HostingManifest},
+    hosting::{self, HostingInventory, HostingManifest},
     state::Layout,
 };
-use base64::Engine;
 fn now() -> u64 {
     crate::pairing::now_ms().unwrap()
 }
@@ -49,9 +49,14 @@ fn bootstrap_record(layout: &Layout) {
         }],
     )
     .unwrap();
-    let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&json!({"version":1,
-        "manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(html)}]})).unwrap()).unwrap();
-    let content = hosting::compose(&[hosting::HostingInput {
+    let bundle = hosting_fixture::parse(
+        &manifest,
+        &serde_json::to_vec(&json!({"version":1,
+        "manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":html.as_slice()}]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let content = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: &declaration,
         bundle: &bundle,

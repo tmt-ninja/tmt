@@ -5,14 +5,15 @@ mod compose_hosting;
 #[allow(dead_code)]
 #[path = "support/deploy_fixture.rs"]
 mod deploy_fixture;
+#[path = "support/hosting_fixture.rs"]
+mod hosting_fixture;
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use deploy_fixture::Root;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{ffi::OsString, fs, path::Path};
 use tmt_remote::{
-    hosting::{self, HostingBundle, HostingManifest},
+    hosting::{self, HostingManifest},
     limits,
 };
 
@@ -36,7 +37,7 @@ fn inputs() -> (Value, Value, Value) {
     }]}))
     .unwrap();
     let bundle = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{
-        "path":"/index.html","bytesBase64":STANDARD.encode(b"hello")
+        "path":"/index.html","fixtureBytes":b"hello"
     }]});
     let mut declaration: Value =
         serde_json::from_str(envelope["declaration"].as_str().unwrap()).unwrap();
@@ -44,10 +45,10 @@ fn inputs() -> (Value, Value, Value) {
     let bytes = serde_json::to_string(&declaration).unwrap();
     envelope["declarationDigest"] = json!(digest(bytes.as_bytes()));
     envelope["declaration"] = json!(bytes);
-    let composition = hosting::compose(&[hosting::HostingInput {
+    let composition = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: envelope["declaration"].as_str().unwrap().as_bytes(),
-        bundle: &HostingBundle::parse(&manifest, &serde_json::to_vec(&bundle).unwrap()).unwrap(),
+        bundle: &hosting_fixture::parse(&manifest, &serde_json::to_vec(&bundle).unwrap()).unwrap(),
     }])
     .unwrap()
     .unwrap();
@@ -58,16 +59,48 @@ fn inputs() -> (Value, Value, Value) {
 }
 
 fn invoke(root: &Path, envelope: &[u8], bundle: &[u8]) -> (i32, Vec<u8>, Vec<u8>) {
+    fs::create_dir_all(root.join("dist-hosted")).unwrap();
+    fs::write(root.join("tmt-colab"), b"fixture executable").unwrap();
     let declaration_path = root.join("declaration.json");
     let bundle_path = root.join("bundle.json");
     fs::write(&declaration_path, envelope).unwrap();
     fs::write(&bundle_path, bundle).unwrap();
+    // Translate only the scenario's fixture bytes to a real installed-tree manifest.
+    if let Ok(mut value) = serde_json::from_slice::<Value>(bundle) {
+        if let Some(files) = value["files"].as_array_mut() {
+            let declaration: Value = serde_json::from_slice(envelope).unwrap_or(Value::Null);
+            let portable: Value = declaration["declaration"]
+                .as_str()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(Value::Null);
+            for (index, file) in files.iter_mut().enumerate() {
+                if let Some(raw) = file
+                    .as_object_mut()
+                    .and_then(|item| item.remove("fixtureBytes"))
+                {
+                    let raw: Vec<u8> = serde_json::from_value(raw).unwrap();
+                    let mut metadata = portable["hosting"]["files"][index].clone();
+                    let path = root.join("dist-hosted/index.html");
+                    fs::write(&path, raw).unwrap();
+                    for (key, extra) in file.as_object().unwrap() {
+                        if key != "path" {
+                            metadata[key] = extra.clone();
+                        }
+                    }
+                    metadata["path"] = json!(path);
+                    *file = metadata;
+                }
+            }
+            fs::write(&bundle_path, serde_json::to_vec(&value).unwrap()).unwrap();
+        }
+    }
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let code = compose_hosting::execute(
         &[
             declaration_path.into_os_string(),
             bundle_path.into_os_string(),
+            root.join("tmt-colab").into_os_string(),
         ],
         &mut stdout,
         &mut stderr,
@@ -117,7 +150,7 @@ fn malformed_bundle_and_declaration_refuse_without_stdout() {
     for (change, code) in [
         ("digest", "hosting-digest"),
         ("files", "hosting-file-set"),
-        ("unknown", "hosting-file-set"),
+        ("unknown", "hosting-shape"),
         ("bytes", "hosting-digest"),
     ] {
         let mut edited = bundle.clone();
@@ -125,7 +158,7 @@ fn malformed_bundle_and_declaration_refuse_without_stdout() {
             "digest" => edited["manifestDigest"] = json!("0".repeat(64)),
             "files" => edited["files"] = json!([]),
             "unknown" => edited["files"][0]["unknown"] = json!(true),
-            "bytes" => edited["files"][0]["bytesBase64"] = json!(STANDARD.encode(b"HELLO")),
+            "bytes" => edited["files"][0]["fixtureBytes"] = json!(b"HELLO"),
             _ => unreachable!(),
         }
         refusal(
@@ -187,7 +220,7 @@ fn usage_and_unavailable_input_are_codes_not_input_echoes() {
     for (args, expected) in [
         (Vec::new(), "usage"),
         (
-            vec![OsString::from("TOKEN_CANARY_NOT_A_FILE"); 2],
+            vec![OsString::from("TOKEN_CANARY_NOT_A_FILE"); 3],
             "input-unavailable",
         ),
     ] {

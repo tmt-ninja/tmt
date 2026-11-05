@@ -154,13 +154,13 @@ fn grammar() -> Command {
     };
     const HOSTING_BUNDLE: CommandSpec = CommandSpec {
         name: "hosting-bundle",
-        summary: "Print the hosted bundle embedded in this executable",
+        summary: "Print the manifest of this release's hosted files",
         examples: &[Example {
             command: "tmt colab hosting-bundle --json",
-            note: "Read the public release bundle for Remote deployment",
+            note: "Read public file paths and integrity metadata for Remote deployment",
         }],
         outputs: OutputModes::Json,
-        details: "Returns the versioned public hosted inventory from this executable only. Uses no core discovery, local app override, storage, or network. An executable built without a hosted inventory returns COLAB_UNAVAILABLE.",
+        details: "Returns absolute paths, lengths, digests, content types and CSP for the installed plain hosted tree (dev: dist-hosted). No asset bytes, copy, core discovery, app override, storage or network. An executable built without a hosted inventory returns COLAB_UNAVAILABLE.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -486,7 +486,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "hosting-bundle" {
         let mut output = tmt_cli_style::stream::stdout(true);
-        output.write_all(tmt_colab::hosting::bundle()?)?;
+        output.write_all(&tmt_colab::hosting::bundle()?)?;
         output.write_all(b"\n")?;
         output.flush()?;
         return Ok(());

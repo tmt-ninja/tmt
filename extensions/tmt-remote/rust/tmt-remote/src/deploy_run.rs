@@ -573,10 +573,10 @@ fn file_counts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<FileCoun
             c.planned, c.expected, c.active, c.listed, c.missing, c.extra,
         ]
         .into_iter()
-        .any(|n| usize::from(n) > crate::limits::HOSTING_FILES)
+        .any(|n| usize::from(n) > crate::limits::HOSTING_LIST_PARSE_FILES)
     }) {
         return Err(serde::de::Error::custom(
-            "file counts exceed inventory bound",
+            "file counts exceed provider listing parse bound",
         ));
     }
     Ok(counts)

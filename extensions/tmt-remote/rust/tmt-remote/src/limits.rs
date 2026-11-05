@@ -240,23 +240,24 @@ pub const DEPLOY_DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_BYTES + 4096;
 /// One static declaration read allows cold installed-binary launch, never a provider effect.
 pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(10);
 
-// Release-embedded Firebase Hosting static inventory, not free-plan quota allowances.
-pub const HOSTING_FILES: usize = 256;
+// Hosting listing parser capacity: ten provider pages of at most 1,000 rows.
+// https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions.files/list
+// This bounds provider JSON parsing, not an extension's inventory admission.
+pub const HOSTING_LIST_PAGE_FILES: usize = 1_000;
+pub const HOSTING_LIST_PAGES: usize = 10;
+pub const HOSTING_LIST_PARSE_FILES: usize = HOSTING_LIST_PAGE_FILES * HOSTING_LIST_PAGES;
 pub const DEPLOY_FILE_SAMPLES: usize = 4;
 pub const DEPLOY_FILE_SAMPLE_PATH_BYTES: usize = 128;
 pub const DEPLOY_FILE_SAMPLES_BYTES: usize = 1024;
-pub const HOSTING_FILE_BYTES: usize = 4 * 1024 * 1024;
-pub const HOSTING_TOTAL_BYTES: usize = 16 * 1024 * 1024;
-pub const HOSTING_REPLY_BYTES: usize = 24 * 1024 * 1024;
+pub const HOSTING_REPLY_BYTES: usize = 256 * 1024;
 pub const HOSTING_PATH_BYTES: usize = 1024;
 pub const HOSTING_BUNDLE_CALL: Duration = Duration::from_secs(30);
 pub const HOSTING_WEB_APPS: usize = 256;
 pub const HOSTING_CONFIG_BYTES: usize = 64 * 1024;
 pub const HOSTING_CSP_BYTES: usize = 2048;
 
-/// Base64 of the maximum gzip file plus bounded frozen plan/checkpoint metadata.
-pub const HOSTING_UPLOAD_REQUEST_BYTES: usize =
-    (HOSTING_FILE_BYTES + 65536).div_ceil(3) * 4 + 256 * 1024;
+/// File references and bounded frozen plan/checkpoint metadata, never file bytes.
+pub const HOSTING_UPLOAD_REQUEST_BYTES: usize = 4 * HOSTING_REPLY_BYTES + HOSTING_CONFIG_BYTES;
 
 /// Complete public remote-link URL, including its canonical descriptor fragment.
 pub const REMOTE_LINK_BYTES: usize = 8 * 1024;

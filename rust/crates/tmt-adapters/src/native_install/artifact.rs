@@ -16,7 +16,8 @@ pub(super) use tmt_core::content_digest::sha256 as digest;
 
 pub(super) const COMPRESSED_LIMIT: usize = 64 * 1024 * 1024;
 pub(super) const MANIFEST_LIMIT: usize = 4 * 1024 * 1024;
-const EXPANDED_LIMIT: usize = 128 * 1024 * 1024;
+pub(super) const EXPANDED_LIMIT: usize = 128 * 1024 * 1024;
+pub(super) const MAX_ARCHIVE_ENTRIES: usize = 2048;
 #[cfg(test)]
 pub(super) const FILES: [&str; 4] = Product::Cli.files();
 
@@ -226,6 +227,7 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
 
 struct Inventory {
     skills: bool,
+    hosted: bool,
     companions: Vec<String>,
     /// Optional plain files the manifest declares (`Product::optional_files`).
     optional: Vec<String>,
@@ -253,6 +255,15 @@ fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inv
         return Err(invalid("Unexpected native archive asset inventory."));
     }
     let skills = declarations == 1;
+    let hosted = product
+        .hosted_tree()
+        .is_some_and(|root| inventory.iter().filter(|path| **path == root).count() == 1);
+    if product
+        .hosted_tree()
+        .is_some_and(|root| inventory.iter().filter(|path| **path == root).count() > 1)
+    {
+        return Err(invalid("Unexpected native archive asset inventory."));
+    }
     if skills && product == Product::Cli {
         return Err(invalid("The TMT CLI release carries no agent skills."));
     }
@@ -275,6 +286,7 @@ fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inv
         .into_iter()
         .filter(|path| {
             *path != skills_tree::ROOT
+                && !product.hosted_tree().is_some_and(|root| *path == root)
                 && !product.companions().contains(path)
                 && !product.optional_files().contains(path)
         })
@@ -287,6 +299,7 @@ fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inv
     }
     Ok(Inventory {
         skills,
+        hosted,
         companions,
         optional,
     })
@@ -343,10 +356,12 @@ fn decode(
     let strict = inventory.is_some();
     let Inventory {
         skills,
+        hosted,
         companions,
         optional,
     } = inventory.unwrap_or(Inventory {
         skills: false,
+        hosted: false,
         companions: Vec::new(),
         optional: Vec::new(),
     });
@@ -365,7 +380,7 @@ fn decode(
     let mut skill_files = 0;
     for entry in archive.entries()? {
         let mut entry = entry?;
-        if files.len() + directories.len() >= 2048 {
+        if files.len() + directories.len() >= MAX_ARCHIVE_ENTRIES {
             return Err(invalid("Native archive has too many entries."));
         }
         let path = entry.path_bytes().into_owned();
@@ -392,9 +407,18 @@ fn decode(
         // tree's directory, never a file.
         let in_tree =
             skills && below_tree.is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'));
+        let hosted_root = product.hosted_tree().map(|name| format!("{root}/{name}"));
+        let hosted_directory = hosted
+            && hosted_root.as_ref().is_some_and(|prefix| {
+                path == prefix
+                    || path
+                        .strip_prefix(prefix)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            });
+        let in_hosted = hosted && super::hosted_tree::is_file(product, relative);
         // Archivers record directories with or without a trailing slash.
         if entry.header().entry_type().is_dir()
-            && (path == format!("{root}/") || tree_directory || !strict)
+            && (path == format!("{root}/") || tree_directory || hosted_directory || !strict)
         {
             if entry.header().mode()? & 0o7000 != 0 || entry.size() != 0 {
                 return Err(invalid("Native archive directory metadata is invalid."));
@@ -413,6 +437,7 @@ fn decode(
                     || companions.iter().any(|companion| companion == name)
                     || optional.iter().any(|file| file == name)
                     || in_tree
+                    || in_hosted
             })
             .ok_or_else(|| invalid("Unexpected native archive path."))?;
         let mode = entry.header().mode()?;
@@ -420,11 +445,12 @@ fn decode(
         if !entry.header().entry_type().is_file()
             || mode & 0o7000 != 0
             || name.ends_with('/')
-            || entry.size() == 0
+            || (entry.size() == 0 && !in_hosted)
             || ((name == product.executable() || (strict && product.companions().contains(&name)))
                 && mode & 0o111 == 0)
             || (optional.iter().any(|file| file == name) && mode & 0o111 != 0)
             || (in_tree && !skills_tree::file_fits(entry.size()))
+            || (in_hosted && mode & 0o111 != 0)
         {
             return Err(invalid(
                 "Native archive requires nonempty regular files with safe permissions.",
@@ -498,6 +524,19 @@ fn decode(
             ));
         }
         skills_tree::validate(product, tree_files.iter().copied())?;
+    }
+    if hosted {
+        let paths: Vec<_> = files
+            .keys()
+            .map(String::as_str)
+            .filter(|name| super::hosted_tree::is_file(product, name))
+            .collect();
+        if paths.is_empty() {
+            return Err(invalid(
+                "The release declares a hosted tree but carries none.",
+            ));
+        }
+        super::hosted_tree::validate(product, paths)?;
     }
     // A recorded directory must hold a kept file: the root, or an ancestor of
     // a validated skill file.

@@ -37,15 +37,17 @@ verification derives this argument from `shipsSkills(product)`.
 
 ## Hosted bundle build
 
-`tmt colab hosting-bundle --json` reads only the executable's embedded hosted inventory,
-without core discovery, storage, or network. Ordinary builds without the build-only input embed none and return
-`COLAB_UNAVAILABLE`; `TMT_COLAB_APP_DIR` and native `--app-dir` do not supply hosted bytes.
+`tmt colab hosting-bundle --json` emits bounded metadata for the plain `dist-hosted` tree
+beside the resolved release executable, or the development checkout's `dist-hosted` output.
+The reply contains absolute paths, lengths, SHA-256, content types and CSP, never file bytes.
+It uses no core discovery, storage or network. Builds without hosted metadata return
+`COLAB_UNAVAILABLE`; `TMT_COLAB_APP_DIR` and native `--app-dir` do not supply hosted files.
 
 The build-only `TMT_COLAB_HOSTING_DIR` selects an absolute, separate hosted distribution.
 Its files are published at the site root; `index.html` and `THIRD-PARTY-NOTICES.txt` are
 required. The shell must use absolute `/assets/` URLs with no `<base>` so rewritten
 short routes resolve the same assets. Build a hosted distribution with Vite's `--base /`
-option (`vp build --base / --outDir dist-hosted` in `extensions/tmt-colab/typescript/app`);
+option (`pnpm run build:hosted` in `extensions/tmt-colab/typescript/app`);
 native mounted distributions retain their relative base. Both distributions also carry the bundled
 page runtime (build mode `runtime`) as content-hashed chunks, `assets/colab-runtime-<name>-<hash>.js`,
 listed by `extensions/tmt-colab/contracts/vectors/page-runtime-chunks-v1.json`: the `build`, `build:bundles` and
@@ -66,20 +68,20 @@ also carries `assets/colab-runtime.css`, the Tailwind theme generated from `desi
 token change run `node ../../scripts/generate-runtime-theme.mjs --write` (the build and `check` run `--check`),
 then rebuild and `--update` the pin.
 
-The generator copies Remote's output, never editing it, to three reserved routes: the committed
+The frontend's `hosting-tree.mjs` stages Remote's output, never editing it, at three reserved routes: the committed
 `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`, and Remote's
 hosted-only Firebase build to `/sdk/remote-firebase-v1.js` and `/sdk/THIRD-PARTY-NOTICES-remote.txt`.
 The latter come from `extensions/tmt-remote/typescript/remote-client/dist`, so run Remote's
 `vp build --config vite.firebase.config.ts` in `remote-client` first. Each file must match the
 SHA-256 and length in `remote-client/firebase-build-pin.json`, which must name exactly those two
-files; a missing build, a reshaped pin or a mismatch fails the build. The input tree cannot override
-any of the three routes. Files and directories must be real, with supported bare content types.
-The build rejects inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1
-caps); three of the file slots are reserved for the SDK copy. It also rejects an inventory whose
-manifest would take the declaration past `deploy-declaration`'s 64 KiB.
+files; a missing build, a reshaped pin or a mismatch fails the build. The native build verifies these staged files against their sources. Files and directories must
+be real, with supported bare content types. There are no product file-count, per-file or total
+byte caps. The manifest must fit the 256 KiB reply bound, and its portable metadata must keep
+`deploy-declaration` within 64 KiB.
 Non-renderer manifest files carry the hosted CSP with exactly the three Firebase connect hosts;
 native parent and renderer policies retain their existing boundaries. Runtime bytes and the
-canonical manifest are immutable Cargo snapshots.
+canonical manifest is a Cargo snapshot; hosted bytes remain plain release files. Explicitly
+marked `/assets/` files whose 16 lowercase hex hash suffix matches the verified SHA-256 prefix receive immutable caching; other cache policies stay unchanged.
 
 `tmt colab deploy-declaration --json` adds the canonical manifest as the declaration's last
 `hosting` key when the executable embeds one (colab-v1, "tmt colab hosting-bundle --json"), and
@@ -91,7 +93,7 @@ change. Remote's mirror reads the vector.
 The app's [hosted reader](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
 uses this inventory and Remote SDK without a local door. Native releases pin
 `TMT_COLAB_HOSTING_DIR` ([Packaging and archives](#packaging-and-archives)). The `hosted-bundle.spec.ts` acceptance runs
-real embedded bytes at a logical demo origin under Remote's unchanged composed CSP; the
+real release-tree files at a logical demo origin under Remote's unchanged composed CSP; the
 `hosted-reader.spec.ts` browser fixture checks the read-only states and responsive renderer.
 After both app builds and the Remote SDK build, run
 `node extensions/tmt-colab/scripts/hosted-reader-emulator.mjs` with Java 21 and pinned
@@ -103,8 +105,8 @@ totals. It never uses real Firebase or Docker; provider billing is not inferred 
 
 Focused checks: `cargo +1.97.0 test --offline --locked -p tmt-colab --test build_hosting --test hosting --test deploy_declaration`
 from `rust/`. Run `hosting` and `deploy_declaration` again with `TMT_COLAB_HOSTING_DIR` set to a
-hosted distribution (and Remote's Firebase build present) to exercise the embedded-success path,
-where the bundle must equal the declared manifest; the ordinary build exercises
+hosted distribution (and Remote's Firebase build present) to exercise the hosted-success path,
+where file metadata and hashes must equal the declared manifest; the ordinary build exercises
 `COLAB_UNAVAILABLE` and the absent `hosting` key.
 
 ## Package gates
@@ -481,10 +483,10 @@ build so a mismatch fails the pull request, not the release.
 
 The fixture binary comes from `rust/target/debug/examples/colab-runtime-fixture` or an
 absolute `TMT_TEST_COLAB_FIXTURE`; tests select defects by `--fixture-variant` and
-never compile during execution. The common archive proof requires a nonempty embedded
-hosted inventory, checks each file’s bytes against the declared manifest, including
-CSP in its canonical digest, and verifies hosted notices. The hosted-bundle probe
-has a bounded 12 MiB output allowance; other packed commands retain 2 MiB.
+never compile during execution. The common archive proof requires a nonempty plain hosted tree beside the executable,
+checks each file's length and hash against the manifest, includes CSP in its canonical digest,
+and verifies hosted notices. The metadata-only hosted-bundle probe has a 256 KiB stdout
+bound; other packed commands retain 2 MiB.
 Only the Colab verifier loads its app proof;
 `native-runtime-proof.test.ts` checks that an eager Colab import fails in the raw
 CLI verifier's minimal image. For an actual archive, reserve the heavy slot, build
@@ -504,8 +506,8 @@ The extracted binary is copied to a fresh directory and must serve without
 `--app-dir`, checkout output or pnpm on `PATH`; exact HTML, every asset and both
 Rust and frontend notices must match.
 
-`acceptance/hosted-bundle.spec.ts` runs the embedded bundle through Remote's offline composer
+`acceptance/hosted-bundle.spec.ts` runs the plain hosted tree through Remote's offline composer
 (`cargo build --locked -p tmt-remote --example compose_hosting`, its own invocation after the three
 executables: an example selected next to `tmt-cli` turns on its dev-dependency features and that
-`tmt` then refuses to run in a world). CI embeds the hosted inventory in the one acceptance build
+`tmt` then refuses to run in a world). CI snapshots hosted metadata in the one acceptance build and retains its plain tree
 (`TMT_COLAB_APP_DIR` and `TMT_COLAB_HOSTING_DIR`; the app's `build:hosted` runs its three Vite modes).

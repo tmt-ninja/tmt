@@ -410,12 +410,15 @@ impl Layout {
                     write(&release.join(name), bytes, 0o644)?;
                 }
             }
-            // A verified skills tree is published with its release, read-only
+            // Verified product trees are published with the release, read-only
             // content under directories only this release owns.
             let skills = artifact
                 .files
                 .iter()
-                .filter(|(name, _)| super::skills_tree::is_skill_path(name))
+                .filter(|(name, _)| {
+                    super::skills_tree::is_skill_path(name)
+                        || super::hosted_tree::is_file(self.product, name)
+                })
                 .collect::<Vec<_>>();
             if !skills.is_empty() {
                 checkpoint()?;
@@ -424,7 +427,7 @@ impl Layout {
                     fs::DirBuilder::new()
                         .recursive(true)
                         .mode(0o755)
-                        .create(path.parent().expect("skill file parent"))?;
+                        .create(path.parent().expect("verified tree file parent"))?;
                     write(&path, bytes, 0o644)?;
                 }
             }

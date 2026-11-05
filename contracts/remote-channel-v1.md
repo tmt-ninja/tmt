@@ -3505,50 +3505,61 @@ whole plan before provisioning; a target without a physical expiry (TTL) policy 
 never an extension-selected public operation URL. Extensions requiring changes submit a new
 declaration, not a second backend/sign-in/deploy owner.
 
-A Hosting declaration is `{version:1,files}` with a nonempty, strictly path-sorted inventory of
-`{path,sha256,length,contentType}` with optional `csp` last. CSP is 1 to 2048 bytes of printable
-ASCII (0x20–0x7e), without CR/LF, and is omitted when absent. Paths are absolute, case-sensitive
-ASCII file paths with no empty, dot or hidden segment, escape, query or fragment; `/__` and its
-descendants are reserved.
-The inventory has at most 256 files, 4 MiB per raw file and 16 MiB total; each digest is lowercase
-SHA-256 of the exact raw bytes. Content types are `text/html`, `text/plain`, `text/css`,
-`text/javascript`,
-`application/javascript`, `application/json`, `image/svg+xml`, `image/png`, `image/jpeg`,
-`image/webp`, `image/x-icon`, `font/woff` or `font/woff2`. The declaration digest covers this inventory.
+A Hosting declaration is `{version:1,files}` with a nonempty, strictly route-path-sorted
+inventory of `{path,sha256,length,contentType}`, optional `csp`, then optional `immutable:true`.
+CSP is 1 to 2048 printable ASCII bytes without CR/LF. Route paths are absolute, case-sensitive
+ASCII with no empty, dot or hidden segment, escape, query or fragment; `/__` and descendants
+are reserved. There is no product file-count, per-file or total-byte cap; provider refusals
+remain authoritative. Digests are lowercase SHA-256 of exact raw bytes. Types are `text/html`,
+`text/plain`, `text/css`, `text/javascript`, `application/javascript`, `application/json`,
+`image/svg+xml`, `image/png`, `image/jpeg`, `image/webp`, `image/x-icon`, `font/woff` or `font/woff2`.
+The declaration digest covers this portable inventory, never installation coordinates.
 
-For a declared inventory, Remote captures the fixed public `<extension> hosting-bundle --json`
-command once, with no digest argument, in the same neutral cwd and environment as declaration
-capture. The strict reply is exactly `{version:1,manifestDigest,files}`: `manifestDigest` is SHA-256
-of compact JSON with keys ordered `version,files` and file keys `path,sha256,length,contentType,csp`
-(the last omitted when absent). Each reply file is `{path,bytesBase64}` in inventory order, with
-canonical padded Base64. All paths, raw lengths and raw digests must match
-before provider setup; missing release-embedded bytes are unavailable, never an empty site or
-fixture substitute. The reply is bounded to 24 MiB and the invocation to 30 s, with waited cleanup.
-Remote adds each Hosting-declaring extension's exact admitted declaration bytes at
-`/tmt/declarations/<extension>.json`, outside the extension manifest to avoid a self-digest cycle.
-The raw file SHA-256 is the same `declarationDigest` the native sealed declaration returns;
-no parsing, normalization or second declaration form is introduced. This public JSON grants no
-access or operations authority. Its standard headers have no inherited CSP, and its bytes count
-against the same composed file/byte bounds and composition/plan digests, upload and read-back.
-The `/tmt/declarations` prefix and descendants are Remote-reserved; manifests refuse them.
-Remote adds its fixed `/join.html`, `/sdk/invite-v1.js` and `/sdk/invite.css` instructions resources;
-these paths and `/join` are reserved against extension declarations. Their bytes consume the
-existing file/byte bounds and composition digest, upload and joint read-back. Remote composes
-disjoint inventories, requires `/index.html` as the HTML shell, and freezes gzip
-bytes (level 6, timestamp zero, OS 255) with separate raw and transport digests. Its ServingConfig
-pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referrer` on every file,
-and emits its declared CSP verbatim as `Content-Security-Policy`. Remote appends `; charset=utf-8`
-to HTML, CSS, JavaScript, JSON and plain-text headers (both JavaScript MIME types), not SVG/binary;
-declarations keep bare types and the config digest covers these headers. The instructions assets
-and exact `/join` route use `no-store`; `/join` rewrites to `/join.html` with that document's own
-CSP and headers, independently of the shell. Only `/colab`, `/colab/`,
-`/p/<id>`, `/read/<id>` and `/pair` rewrite to that shell; IDs use the public short-route grammar. Header
-rules for these routes and `/` (directory index, no rewrite) copy the shell's exact set because
-Firebase matches headers against the original
-request path, as documented by the [REST schema](https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions)
-and [Hosting header guide](https://firebase.google.com/docs/hosting/full-config#headers), not
-verified live-project acceptance. Reserved Firebase paths are never rewritten. Public bytes and
-configuration confer no device authority.
+Before provider setup, Remote calls `<extension> hosting-bundle --json` once with no digest or
+output-directory argument, neutral cwd, the declaration environment and waited cleanup. The
+strict reply is `{version:1,manifestDigest,files}`; the digest hashes compact portable manifest
+JSON in field order `version,files`, then `path,sha256,length,contentType,csp,immutable` (absent
+optional fields omitted). Reply files carry the same metadata in inventory order, but `path`
+is the canonical absolute filesystem path of the plain file. No Base64, file bytes or root
+claim crosses stdout. Manifest stdout is bounded to 256 KiB; each capture/preparation call has
+a 30-second bound. Missing files or mismatched metadata are unavailable, never an empty site.
+
+Remote derives the allowed root only from the resolved extension executable: its release's
+sibling `dist-hosted` tree, or the dev checkout's `extensions/tmt-<extension>/typescript/app/dist-hosted`
+for a Cargo debug/release executable. Every file must be canonical and inside that root, with
+no traversal, duplicates, symlink components or non-regular files; native capture opens each
+component using `openat/O_NOFOLLOW`, streams at most declared length plus one and checks length
+and SHA-256. The upload helper rereads an `O_NOFOLLOW` regular-file handle and verifies its
+length and SHA-256 before uploading: an ancestor swap yielding identical bytes is harmless,
+while differing bytes are refused; confinement is native capture's responsibility.
+
+The apply-hosting request carries only a private file reference `{path,length,sha256}`, never
+Base64 bytes. One shared streaming Node gzip implementation computes capture/upload transport
+identity (level 6, timestamp zero, OS 255); raw integrity is checked again on the upload pass,
+and an integrity failure cannot complete the upload/release. Manifest/helper JSON and provider
+listing parsing retain named bounds independent of product inventory admission. Extension files
+stay in place. Only Remote-generated public declarations/instructions use invocation-owned
+staging, retained through deployment and removed on completion/refusal.
+
+Remote adds the exact admitted declaration at `/tmt/declarations/<extension>.json`, outside the
+extension manifest to avoid self-digestion; its raw digest equals `declarationDigest`. This
+public JSON grants no operations authority. The `/tmt/declarations` prefix is reserved. Remote
+also adds `/join.html`, `/sdk/invite-v1.js` and `/sdk/invite.css`; these paths and `/join` are
+reserved. Composition requires disjoint paths and an HTML `/index.html`; raw/gzip identities,
+ServingConfig and plan digests cover every file. Default headers are `nosniff`, `no-cache` and
+`Referrer-Policy: no-referrer`, with the declared CSP verbatim. Only explicitly immutable files
+under `/assets/` whose final filename hash segment after `-` is exactly the first 16 lowercase
+hex digits of the verified SHA-256 receive `Cache-Control: public, max-age=31536000, immutable`; a mismatched mark or non-`/assets/` path
+receives `no-cache`, as do other assets/shells.
+HTML, CSS, JavaScript, JSON and plain text append `; charset=utf-8`, not SVG/binary.
+
+Instructions and exact `/join` retain `no-store`; `/join` rewrites to `/join.html` with its own
+CSP/headers. Only `/colab`, `/colab/`, `/p/<id>`, `/read/<id>` and `/pair` rewrite to the shell;
+IDs keep the public short-route grammar. These routes and `/` copy shell headers because
+Firebase matches the original request path, as documented by the
+[REST schema](https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions)
+and [header guide](https://firebase.google.com/docs/hosting/full-config#headers).
+Reserved Firebase paths are never rewritten. Public bytes/configuration confer no device authority.
 
 The Hosting plan names the selected same-project site and its `web.app` entry, any site/web-app
 creation, exact content/config digests and a captured foreign-release fingerprint. Remote selects

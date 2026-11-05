@@ -34,6 +34,7 @@ pub mod firebase_auth;
 pub mod firestore_budget;
 pub mod firestore_limits;
 pub mod hosting;
+pub mod hosting_files;
 pub mod http;
 pub mod invitations;
 mod invite_page;
@@ -84,3 +85,7 @@ pub(crate) mod test_isolation;
 pub(crate) mod emulator_http;
 
 pub mod squads;
+
+#[cfg(test)]
+#[path = "../tests/support/hosting_fixture.rs"]
+pub(crate) mod hosting_fixture;
