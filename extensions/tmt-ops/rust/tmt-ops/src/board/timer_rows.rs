@@ -75,7 +75,13 @@ pub(in crate::board) fn footer(
 ) -> Line<'static> {
     use unicode_width::UnicodeWidthStr;
     let available = width.saturating_sub(2);
-    let more = (more > 0).then(|| format!("+{more} more"));
+    let more = (more > 0).then(|| {
+        tmt_tui::components::design_system::MoreHint::label(
+            more as u64,
+            tmt_tui::components::design_system::MoreDirection::Truncated,
+            false,
+        )
+    });
     let shortcut = key.map(|key| format!("{} timers", crate::board::view::footer::key_label(key)));
     let mut spans = vec![Span::raw(" ")];
     match (more, shortcut) {

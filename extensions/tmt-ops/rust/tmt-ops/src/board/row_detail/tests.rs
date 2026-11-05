@@ -33,7 +33,7 @@ fn the_shared_renderer_wraps_limits_and_keeps_only_the_gutter_selected() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.to_string().contains("more lines · v view"))
+                    .any(|line| line.to_string().contains("more · v view"))
             );
             assert!(lines.iter().any(|line| line.to_string().contains('…')));
             assert!(lines.iter().all(|line| line.style.bg.is_none()
