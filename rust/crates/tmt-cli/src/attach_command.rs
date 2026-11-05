@@ -178,14 +178,16 @@ impl<W: Write> Terminal<W> {
         Ok(terminal)
     }
 
+    /// The one restore path for every end: detach, exit, eviction, signal and unwinding.
     fn restore(&mut self) -> io::Result<()> {
+        /// Input modes the member's snapshot or live output may turn on (terminal-stream-v1
+        /// Snapshot), each turned off without enabling crossterm event polling: bracketed paste,
+        /// focus events, the mouse protocols and encodings, application cursor keys and the
+        /// application keypad.
+        const MODE_RESETS: &[u8] = b"\x1b[?2004l\x1b[?1004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1l\x1b>";
         let screen = if self.alternate {
             self.alternate = false;
-            // Live provider output may enable these terminal modes. Restore
-            // the outer terminal without enabling crossterm event polling.
-            let modes = self
-                .output
-                .write_all(b"\x1b[?2004l\x1b[?1004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+            let modes = self.output.write_all(MODE_RESETS);
             let screen = execute!(
                 self.output,
                 ResetColor,
@@ -348,6 +350,37 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restoration_turns_off_every_input_mode_a_member_can_turn_on() {
+        let mut terminal = Terminal {
+            output: Vec::new(),
+            raw: false,
+            alternate: true,
+        };
+        terminal.restore().unwrap();
+        let mut outer = vt100::Parser::new(24, 80, 0);
+        // The CLI's own screen, then everything a member's snapshot can enable.
+        outer.process(b"\x1b[?1049h\x1b[?1h\x1b=\x1b[?2004h\x1b[?1003h\x1b[?1006h\x1b[?25l");
+        let before = outer.screen().clone();
+        assert!(before.application_cursor() && before.application_keypad());
+        outer.process(&terminal.output);
+        let after = outer.screen();
+        assert!(!after.application_cursor(), "application cursor keys off");
+        assert!(!after.application_keypad(), "numeric keypad");
+        assert!(!after.bracketed_paste());
+        assert_eq!(after.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+        assert_eq!(
+            after.mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Default
+        );
+        assert!(!after.hide_cursor());
+        assert!(!after.alternate_screen(), "back on the user's own screen");
+        // A second restore, as unwinding does after an explicit one, writes nothing.
+        let written = terminal.output.len();
+        terminal.restore().unwrap();
+        assert_eq!(terminal.output.len(), written);
+    }
+
     #[test]
     fn terminal_dimensions_are_clamped_before_encoding() {
         assert_eq!(window(1000, 1000), Size::new(1000, 1000).unwrap());

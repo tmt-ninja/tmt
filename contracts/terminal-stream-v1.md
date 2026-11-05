@@ -88,7 +88,9 @@ screen without waiting for the program to draw and without any redraw nudge.
   attributes, the cursor position and visibility, and the input modes (application
   keypad, application cursor, bracketed paste, mouse protocol and encoding). A program
   on the alternate screen is reported by a leading `ESC[?1049h`, and only that screen is
-  included. There is no scrollback.
+  included. There is no scrollback. Scroll margins (DECSTBM), origin mode (DECOM) and the
+  saved cursor and attributes (DECSC) are not included: output that relies on them after a
+  snapshot can land outside the intended region until the program sets them again or redraws.
 - A client buffers the data, and at `SnapshotEnd` builds a terminal of the reported size,
   applies the bytes, and then applies every `Output` that follows on top. Frames received
   before `SnapshotStart` are superseded by the snapshot, and a second `SnapshotStart`
@@ -97,7 +99,11 @@ screen without waiting for the program to draw and without any redraw nudge.
   without an aggregate buffer, and follows live output only after the end. If an
   initial snapshot exceeds its 1 MiB safety bound, it clears the partial paint,
   discards the rest of that snapshot and continues live; the member is not stopped
-  and attachment does not fail because of screen size.
+  and attachment does not fail because of screen size. The relay keeps the outer terminal on
+  its own alternate screen: it removes the program's screen switches (private modes 47, 1047
+  and 1049) and asks for a new snapshot instead, which it paints the same way. It also asks
+  once more when a snapshot reports a size other than the one it sent, and again when
+  `Resized` returns the size to its own after another client's.
 - Nothing is lost or repeated between the snapshot and live output: the supervisor
   formats the screen in the same step that orders output, so the screen holds every
   byte queued before the request and none queued after it.

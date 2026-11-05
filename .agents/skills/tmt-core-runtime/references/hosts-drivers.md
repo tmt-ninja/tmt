@@ -420,13 +420,20 @@ resume` of an identity whose kept terminal runs no agent relaunch there with the
   `SnapshotStart`, chunked `SnapshotData` (`vt100` `state_formatted` plus `ESC[?1049h` on the
   alternate screen) and `SnapshotEnd(size)`, queued behind the client's other frames. A client
   that asks with 256 KiB unread is evicted `TooSlow`. `tmt attach` requests one after its initial resize.
+  The vt100 0.16.2 `Screen` exposes no scroll margins (DECSTBM), origin mode (DECOM) or saved
+  cursor (DECSC), so a snapshot cannot carry them; the contract states this limit.
 - **Interactive attach.** `tmt attach <name-or-UUID> [-d]` resolves the existing
   binding and admits one connection through `Host`, checking the supervisor/pane
   incarnations and marker before terminal input. SQLite closes before the relay.
   The CLI owns crossterm raw mode, alternate-screen entry and restoration;
   `pty::attach` polls that input, the admitted socket and invocation-owned signal
   notifications without a surviving input thread. Live program output passes
-  unchanged. Attach streams the initial snapshot in bounded chunks before following
+  unchanged except for the member's screen switches (DEC private modes 47, 1047 and 1049),
+  which `pty::attach`'s `Switches` matcher keeps out of the outer terminal across reads; the
+  relay then repaints from a new snapshot, so leaving the member's alternate screen shows its
+  normal screen, never the user's shell. A snapshot taken at another client's size is asked for
+  once more, and a repaint follows when the size in force returns to the attach's own; there is
+  no timer and no further retry. Attach streams the initial snapshot in bounded chunks before following
   live output, superseding earlier queued bytes without scrollback or a redraw nudge.
   It keeps only a byte count; a snapshot over 1 MiB clears the partial paint, discards
   its remaining chunks and continues live without failing attachment. Ctrl-\ detaches without stopping the

@@ -99,43 +99,125 @@ const CLEAR_SCREEN: &[u8] = b"\x1b[0m\x1b[2J\x1b[H";
 
 /// The supervisor orders the requested screen between prior and later Output.
 /// Keep only a byte count, never an aggregate screen buffer.
-enum InitialScreen {
+enum Paint {
     Waiting,
     Painting(usize),
     Discarding,
     Live,
 }
 
-impl InitialScreen {
+/// The relay's view of the member's screen. A snapshot paints the first screen, and later
+/// ones repaint it (#5614): after the member switches screens, whose switch never reaches
+/// the outer terminal, and when the size in force returns to this terminal's after another
+/// client had changed it. One request is outstanding at a time; a repaint asked for while
+/// one is under way follows it.
+struct Screen {
+    paint: Paint,
+    switches: Switches,
+    /// The size this relay last asked for: the local terminal's.
+    local: Size,
+    /// Another client's size is in force, so what is painted is drawn for that size.
+    away: bool,
+    /// The first snapshot taken at another client's size was asked for again once.
+    retried: bool,
+    outstanding: bool,
+    again: bool,
+    /// Frames to send, in order, after the current one is handled.
+    requests: Vec<ClientMessage>,
+}
+
+impl Screen {
+    fn new(local: Size) -> Self {
+        Self {
+            paint: Paint::Waiting,
+            switches: Switches::default(),
+            local,
+            away: false,
+            retried: false,
+            outstanding: true,
+            again: false,
+            requests: Vec::new(),
+        }
+    }
+
+    fn resized_locally(&mut self, size: Size) {
+        self.local = size;
+        self.requests.push(ClientMessage::Resize(size));
+    }
+
+    fn repaint(&mut self) {
+        if self.outstanding {
+            self.again = true;
+        } else {
+            self.outstanding = true;
+            self.requests.push(ClientMessage::Snapshot);
+        }
+    }
+
     fn frame(&mut self, message: &ServerMessage, output: &mut impl Write) -> io::Result<bool> {
+        let mut bytes = Vec::new();
         match message {
-            ServerMessage::SnapshotStart if !matches!(self, Self::Live) => {
+            ServerMessage::SnapshotStart => {
+                // A second start discards a snapshot not yet complete.
+                self.switches.reset();
                 output.write_all(CLEAR_SCREEN)?;
-                *self = Self::Painting(0);
+                self.paint = Paint::Painting(0);
             }
-            ServerMessage::SnapshotData(bytes) => match self {
-                Self::Painting(written) if bytes.len() <= MAX_INITIAL_SCREEN - *written => {
-                    output.write_all(bytes)?;
-                    *written += bytes.len();
+            ServerMessage::SnapshotData(data) => match self.paint {
+                Paint::Painting(written) if data.len() <= MAX_INITIAL_SCREEN - written => {
+                    self.switches.filter(data, &mut bytes);
+                    output.write_all(&bytes)?;
+                    self.paint = Paint::Painting(written + data.len());
                 }
-                Self::Painting(_) => {
+                Paint::Painting(_) => {
                     // A pathological screen must not fail attachment or leave a
                     // misleading partial view. Drain the rest, then follow live.
                     output.write_all(CLEAR_SCREEN)?;
-                    *self = Self::Discarding;
+                    self.switches.reset();
+                    self.paint = Paint::Discarding;
                 }
-                Self::Discarding => {}
+                Paint::Discarding => {}
                 _ => return Err(invalid_screen()),
             },
-            ServerMessage::SnapshotEnd(_) => match self {
-                Self::Painting(_) | Self::Discarding => *self = Self::Live,
+            ServerMessage::SnapshotEnd(size) => {
+                if !matches!(self.paint, Paint::Painting(_) | Paint::Discarding) {
+                    return Err(invalid_screen());
+                }
+                self.switches.flush(&mut bytes);
+                output.write_all(&bytes)?;
+                self.paint = Paint::Live;
+                self.outstanding = false;
+                self.away = *size != self.local;
+                if self.away && !self.retried {
+                    // Another client resized between this relay's Resize and its
+                    // Snapshot. Ask once more; after that, wait for the size to return.
+                    // The Resized this answers with is this relay's own size, not a return.
+                    self.retried = true;
+                    self.again = false;
+                    self.away = false;
+                    self.requests.push(ClientMessage::Resize(self.local));
+                    self.repaint();
+                } else if std::mem::take(&mut self.again) {
+                    self.repaint();
+                }
+            }
+            ServerMessage::Output(data) => match self.paint {
+                Paint::Waiting => {} // The requested screen supersedes these bytes.
+                Paint::Live => {
+                    if self.switches.filter(data, &mut bytes) {
+                        self.repaint();
+                    }
+                    output.write_all(&bytes)?;
+                }
                 _ => return Err(invalid_screen()),
             },
-            ServerMessage::Output(bytes) => match self {
-                Self::Waiting => {} // The requested screen supersedes these bytes.
-                Self::Live => output.write_all(bytes)?,
-                _ => return Err(invalid_screen()),
-            },
+            ServerMessage::Resized(size) => {
+                let back = self.away && *size == self.local;
+                self.away = *size != self.local;
+                if back {
+                    self.repaint();
+                }
+            }
             _ => return Ok(false),
         }
         Ok(true)
@@ -150,7 +232,8 @@ fn invalid_screen() -> io::Error {
 }
 
 /// Runs until detach, exit, eviction, signal or transport failure. Raw output is
-/// written without parsing or styling. Only the detach byte is consumed locally.
+/// written without parsing or styling, except that the member's screen switches are
+/// kept out of the outer terminal ([`Switches`]). Only the detach byte is consumed locally.
 /// `size` reads the current local terminal and clamps it before any Resize frame.
 pub fn attach(
     connection: &mut Connection,
@@ -160,19 +243,23 @@ pub fn attach(
     detach_others: bool,
     mut size: impl FnMut() -> io::Result<Size>,
 ) -> io::Result<AttachEnd> {
-    connection.send(&ClientMessage::Resize(size()?))?;
+    let local = size()?;
+    connection.send(&ClientMessage::Resize(local))?;
     if detach_others {
         connection.send(&ClientMessage::TakeSole)?;
     }
     connection.send(&ClientMessage::Snapshot)?;
-    let mut screen = InitialScreen::Waiting;
+    let mut screen = Screen::new(local);
     loop {
         let signal = signals.stopped.load(Ordering::SeqCst);
         if signal != 0 {
             return Ok(AttachEnd::Signal(signal as i32));
         }
         if signals.resized.swap(false, Ordering::SeqCst) {
-            connection.send(&ClientMessage::Resize(size()?))?;
+            screen.resized_locally(size()?);
+        }
+        for request in screen.requests.drain(..) {
+            connection.send(&request)?;
         }
         // Fairness: a continuously writing program cannot starve Ctrl-\ or a
         // signal. If decoded frames remain, poll without blocking this round.
@@ -182,10 +269,12 @@ pub fn attach(
             if let Some(message) = &message
                 && screen.frame(message, output)?
             {
+                for request in screen.requests.drain(..) {
+                    connection.send(&request)?;
+                }
                 continue;
             }
             match message {
-                Some(ServerMessage::Resized(_)) => {}
                 Some(ServerMessage::Exited(exit)) => {
                     output.flush()?;
                     return Ok(AttachEnd::Exited(exit));
@@ -262,6 +351,9 @@ fn forward_input(connection: &mut Connection, bytes: &[u8]) -> io::Result<bool> 
     }
     Ok(detach.is_some())
 }
+
+mod switches;
+use switches::Switches;
 
 #[cfg(test)]
 mod tests;
