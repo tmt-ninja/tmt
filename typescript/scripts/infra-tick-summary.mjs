@@ -182,6 +182,8 @@ export function createTickClient({
   cache,
   execute = runPackedCommand,
   clock = Date.now,
+  sleep = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
   trace,
 }) {
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
@@ -193,6 +195,7 @@ export function createTickClient({
     stage = 'acquisition',
     prCount = 0;
   const deadline = clock() + 120_000;
+  const runBoundaries = new Set();
   let logDeadline, logTimeoutMs;
   const timeBudget = () =>
     new Error(
@@ -315,7 +318,38 @@ export function createTickClient({
   };
   const api = restClient({ cache, repo: repository, maxRequests: 80, execute: command });
   return {
-    get: api.get,
+    retryLiveScan: (scan) => {
+      const delay = [3000, 9000][scan];
+      assert.ok(delay !== undefined, 'Only two live scan retries are allowed.');
+      // Reserve time for another read; never sleep through the shared deadline.
+      if (clock() + delay >= deadline) throw timeBudget();
+      sleep(delay);
+      if (clock() >= deadline) throw timeBudget();
+    },
+    get: (endpoint, immutable = false, text = false) => {
+      const result = api.get(endpoint, immutable, text);
+      // Split hints use only already-read timestamps, never an extra discovery pass.
+      if (endpoint.startsWith(`${prefix}actions/runs?`) && Array.isArray(result?.workflow_runs))
+        for (const row of result?.workflow_runs ?? []) {
+          const created = Date.parse(row.created_at);
+          if (Number.isFinite(created)) runBoundaries.add(created);
+        }
+      return result;
+    },
+    splitWindow: (since, until) => {
+      const start = time(since),
+        end = time(until);
+      const midpoint = Math.floor(start + (end - start) / 2);
+      if (!(start < midpoint && midpoint < end)) return null;
+      const candidates = [...runBoundaries].filter((value) => start < value && value < end);
+      candidates.sort((a, b) => Math.abs(a - midpoint) - Math.abs(b - midpoint) || a - b);
+      const boundary = new Date(candidates[0] ?? midpoint).toISOString();
+      return {
+        prefix: { since, until: boundary },
+        remaining: { since: boundary, until },
+        boundarySource: candidates.length ? 'observed run created_at' : 'computed midpoint',
+      };
+    },
     failureLog: (job) => {
       identity({ id: job }, 'failed job');
       if (clock() >= deadline) throw timeBudget();
@@ -413,9 +447,6 @@ function pages(
   rowKey = (row) => identity(row, 'REST record'),
   immutable = false
 ) {
-  const rows = [],
-    paths = [],
-    seen = new Set();
   const query = new URL(endpoint, 'https://api.github.com/').searchParams;
   const liveStatus =
     key === 'workflow_runs' &&
@@ -423,47 +454,58 @@ function pages(
     ['queued', 'in_progress'].includes(query.get('status'))
       ? query.get('status')
       : null;
-  let total = expected;
-  for (let page = 1; ; page++) {
-    const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page}`;
-    paths.push(url);
-    let result, batch;
-    for (let read = 0; ; read++) {
-      result = api.get(url, immutable);
-      batch = key ? result?.[key] : result;
+  // A race on any page invalidates the entire live scan. Three scans total,
+  // through the same budgeted port; never multiply page retries by scan retries.
+  for (let scan = 0; ; scan++) {
+    const rows = [],
+      paths = [],
+      seen = new Set();
+    let total = expected;
+    for (let page = 1; ; page++) {
+      const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page}`;
+      paths.push(url);
+      const result = api.get(url, immutable);
+      const batch = key ? result?.[key] : result;
       assert.ok(Array.isArray(batch) && batch.length <= 100, 'Incomplete REST page.');
       if (key) {
         assert.ok(
           Number.isSafeInteger(result.total_count) && result.total_count >= 0,
           'Missing REST count.'
         );
-        if (total !== undefined) assert.equal(result.total_count, total, 'Changing REST count.');
         if (key === 'workflow_runs')
           assert.ok(
             result.total_count < 1_000,
             `Workflow run search reaches the 1,000-result limit: ${endpoint}`
           );
       }
-      if (!liveStatus || batch.length === Math.min(100, result.total_count - rows.length)) break;
-      // Live membership can change within a response. Discard it before two bounded
-      // re-reads through the same budgeted port; created-window queries stay strict.
-      assert.ok(
-        read < 2,
-        `Inconsistent live run listing: status=${liveStatus}, count=${result.total_count}, rows=${batch.length}, page=${page}.`
-      );
-    }
-    if (key) total = result.total_count;
-    for (const row of batch) {
-      const id = rowKey(row);
-      assert.ok(!seen.has(id), 'Duplicate REST identity.');
-      seen.add(id);
-      rows.push(row);
-    }
-    if (total !== undefined && rows.length === total) return { rows, paths };
-    assert.ok(total === undefined || rows.length < total, 'REST count exceeded.');
-    if (batch.length < 100) {
-      assert.equal(total, undefined, 'Truncated REST evidence.');
-      return { rows, paths };
+      const ids = batch.map(rowKey);
+      const duplicates = new Set(ids).size !== ids.length || ids.some((id) => seen.has(id));
+      if (
+        liveStatus &&
+        ((total !== undefined && total !== result.total_count) ||
+          batch.length !== Math.min(100, result.total_count - rows.length) ||
+          duplicates)
+      ) {
+        assert.ok(
+          scan < 2,
+          `Inconsistent live run listing: status=${liveStatus}, count=${result.total_count}, rows=${batch.length}, page=${page}.`
+        );
+        api.retryLiveScan?.(scan);
+        break;
+      }
+      if (key) {
+        if (total !== undefined) assert.equal(result.total_count, total, 'Changing REST count.');
+        total = result.total_count;
+      }
+      assert.ok(!duplicates, 'Duplicate REST identity.');
+      for (const id of ids) seen.add(id);
+      rows.push(...batch);
+      if (total !== undefined && rows.length === total) return { rows, paths };
+      assert.ok(total === undefined || rows.length < total, 'REST count exceeded.');
+      if (batch.length < 100) {
+        assert.equal(total, undefined, 'Truncated REST evidence.');
+        return { rows, paths };
+      }
     }
   }
 }
@@ -1548,12 +1590,21 @@ function main() {
     trace({ event: 'completed', requests: api.evidence().requests, complete: report.complete });
   } catch (error) {
     const { stage, prCount } = api.evidence();
+    const budgetRefused =
+      /(?:Infra tick (?:API call|time) budget exhausted|REST budget 80 exhausted)/.test(
+        error.message
+      );
+    const windowSplit = budgetRefused ? api.splitWindow(since, until) : null;
+    const splitGuidance = windowSplit
+      ? `Retry the unchanged command with --until ${windowSplit.prefix.until} (${windowSplit.boundarySource}). Prefix: ${since}..${windowSplit.prefix.until}; remaining: ${windowSplit.remaining.since}..${until}. Only after that prefix completes, retry the original --until ${until} using its resulting cursor. Do not edit the cursor or skip a refused prefix; a smaller window may still refuse on live evidence. Pick a smaller prefix or escalate if needed.`
+      : 'Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.';
     const report = {
       schema: 1,
       complete: false,
       since,
       until,
       coverage: COVERAGE,
+      ...(windowSplit ? { windowSplit } : {}),
       anomalies: [
         { kind: 'collection refused', message: redactCredentials(error.message), stage, prCount },
         ...watcherHeartbeatAnomalies(watcherHeartbeat, time(until)),
@@ -1569,7 +1620,7 @@ function main() {
       .slice(1)
       .map((item) => `- ${item.kind}: ${JSON.stringify(item)}\n`)
       .join('');
-    const markdown = `${incompleteBanner(report)}\n# Infra tick refused\n\n${COVERAGE}\n\n${watcherLines}- collection refused: ${redactCredentials(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
+    const markdown = `${incompleteBanner(report)}\n# Infra tick refused\n\n${COVERAGE}\n\n${watcherLines}- collection refused: ${redactCredentials(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. ${splitGuidance}\n`;
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
     trace({ event: 'refused', requests: api.evidence().requests, complete: false });

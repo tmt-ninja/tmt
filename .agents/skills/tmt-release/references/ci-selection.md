@@ -464,7 +464,13 @@ exact comment/head/stated lead; statements (including NO-GO) never imply accepta
 Guide-index changes are conservatively flagged at file level for lead inspection.
 
 All calls share 80 requests/120 seconds, including failures and the bounded release
-view. REST is GET-only, with two fixed read-only GraphQL exceptions:
+view. Budget refusals leave the cursor unchanged and name an exact `--until` prefix
+and remaining interval, preferring an already-read run-created boundary (otherwise a
+labeled computed midpoint). Retry that prefix with the same command; only after it
+completes, retry the original `--until` using the resulting cursor. Never edit the
+cursor or skip a refused prefix. Splitting does not guarantee a smaller live PR workload;
+if it still refuses, choose a smaller prefix or escalate. No half is reported complete
+before its own evidence is read. REST is GET-only, with two fixed read-only GraphQL exceptions:
 queue positions and one <=100-PR review batch. Queue errors/failure/>100 entries print
 `queue coverage unavailable`, never timestamp-derived positions. Review cost is
 logged in `calls.jsonl`; missing/invalid cost, errors or >20 points refuses. The
@@ -490,9 +496,13 @@ and multiple failed hosts count as one release.
 Health counts use `per_page=1` for 24-hour/tick windows, including >1,000 totals.
 Details enumerate created-window failure/timed-out/action-required/stale slices,
 refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progress
-searches track older reruns without a created filter; count/row mismatch gets up to two
-same-page re-reads in the shared budget, then refuses with status/count/rows; created-window
-queries stay strict and other active states stay within the window. Unobserved older reruns
+searches track older reruns without a created filter. A count/row or membership race
+discards the whole live scan and restarts at page one, at most three scans in the shared
+budget, waiting 3 s then 9 s between scans only if the wait fits the shared 120 s
+deadline. It then refuses with status/count/rows; created-window
+queries stay strict and other active states stay within the window. A live-listing
+`INCOMPLETE` already includes backoff; retry the lead invocation only once before
+escalating a persistent refusal. Unobserved older reruns
 starting/finishing between ticks and
 workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
 Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
