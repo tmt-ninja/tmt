@@ -1,6 +1,5 @@
-//! Build-owned hosted distribution admission, SDK copy, and immutable wire snapshots.
+//! Build-owned plain hosted-tree admission and portable manifest metadata.
 use crate::browser_policy;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -9,16 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// Strictly below 50% of Remote's v1 caps (limits.rs): 256 files, 4 MiB/file, 16 MiB total.
-pub const FILES: usize = 128;
-pub const FILE_BYTES: usize = 2 * 1024 * 1024;
-pub const TOTAL_BYTES: usize = 8 * 1024 * 1024;
 const SDK_ROUTE: &str = "/sdk/remote-v1.js";
 /// Remote's lazy Firebase client and its notices: hosted-only build output that Remote pins.
 const FIREBASE_ROUTE: &str = "/sdk/remote-firebase-v1.js";
 const NOTICES_ROUTE: &str = "/sdk/THIRD-PARTY-NOTICES-remote.txt";
-/// The routes Remote's SDK owns; the hosted tree cannot supply them.
-const SDK_ROUTES: [&str; 3] = [SDK_ROUTE, FIREBASE_ROUTE, NOTICES_ROUTE];
 const PIN: &str = "firebase-build-pin.json";
 /// The most a declaration may be: mirrors `limits::DECLARATION_TEXT_BYTES`, which
 /// `deploy-declaration` refuses above. A test equates the two.
@@ -54,21 +47,13 @@ struct File {
     length: usize,
     content_type: &'static str,
     csp: &'static str,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Bundle {
-    version: u8,
-    manifest_digest: String,
-    files: Vec<Bytes>,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Bytes {
-    path: String,
-    bytes_base64: String,
+    #[serde(skip_serializing_if = "is_false")]
+    immutable: bool,
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 fn invalid(message: &str) -> io::Error {
     io::Error::other(message)
 }
@@ -114,17 +99,19 @@ fn pins(client: &Path) -> io::Result<Vec<(String, usize)>> {
 }
 fn read(path: &Path) -> io::Result<Vec<u8>> {
     let meta = fs::symlink_metadata(path)?;
-    if !meta.is_file() || meta.len() == 0 || meta.len() >= FILE_BYTES as u64 {
-        return Err(invalid(
-            "Hosted files must be nonempty regular files below 50% of Remote's file cap",
-        ));
+    if !meta.is_file() {
+        return Err(invalid("Hosted files must be regular files"));
     }
     let mut bytes = Vec::new();
     fs::File::open(path)?
-        .take(FILE_BYTES as u64)
+        .take(
+            meta.len()
+                .checked_add(1)
+                .ok_or_else(|| invalid("Hosted file length overflow"))?,
+        )
         .read_to_end(&mut bytes)?;
-    if bytes.is_empty() || bytes.len() >= FILE_BYTES {
-        return Err(invalid("Hosted file reached its byte budget"));
+    if bytes.len() as u64 != meta.len() {
+        return Err(invalid("Hosted file changed length while reading"));
     }
     Ok(bytes)
 }
@@ -170,11 +157,7 @@ fn collect(
             return Err(invalid("Unsafe hosted filename"));
         }
         let route = format!("{prefix}/{name}");
-        if route.len() > 1024
-            || SDK_ROUTES.contains(&route.as_str())
-            || route == "/__"
-            || route.starts_with("/__/")
-        {
+        if route.len() > 1024 || route == "/__" || route.starts_with("/__/") {
             return Err(invalid("Hosted path is reserved or too long"));
         }
         let path = entry.path();
@@ -184,10 +167,6 @@ fn collect(
             content_type(&route)?;
             files.push((route, read(&path)?));
             inputs.push(path);
-            // Reserve the files of the upstream SDK copy.
-            if files.len() + SDK_ROUTES.len() >= FILES {
-                return Err(invalid("Hosted inventory reached 50% of Remote's file cap"));
-            }
         }
     }
     Ok(())
@@ -206,7 +185,7 @@ pub fn generate(
     let Some(directory) = directory else {
         fs::write(
             output.join("colab_hosting.rs"),
-            "const BUNDLE: Option<&[u8]> = None;\nconst MANIFEST: Option<&[u8]> = None;\n",
+            "const MANIFEST: Option<&[u8]> = None;\n",
         )?;
         return Ok(Vec::new());
     };
@@ -225,49 +204,42 @@ pub fn generate(
             return Err(invalid("Hosted entry or dependency notices are missing"));
         }
     }
-    // Remote's built output is the only SDK source. The input distribution cannot override it.
-    let sdk_bytes = read(sdk)?;
-    let sdk_digest = digest(&sdk_bytes);
-    let sdk_copy = output.join("colab-remote-v1.js");
-    fs::copy(sdk, &sdk_copy)?;
-    let copied = read(&sdk_copy)?;
-    verify_sdk_copy(&sdk_digest, &copied)?;
-    files.push((SDK_ROUTE.into(), copied));
-    inputs.push(sdk.to_owned());
-    // Remote's pinned build output is copied byte for byte; nothing else may stand in for it.
-    for ((route, source, copy), (sha256, length)) in PINNED.iter().zip(pins(client)?) {
-        let from = client.join(source);
-        let built = read(&from)?;
-        if built.len() != length || digest(&built) != sha256 {
-            return Err(invalid(
-                "Remote's Firebase build output does not match its pin",
-            ));
+    // The ordinary hosted frontend build materializes SDK files into dist-hosted. Native
+    // compilation verifies these copies; it never copies or embeds the hosted tree.
+    for (route, original) in [
+        (SDK_ROUTE, sdk.to_owned()),
+        (FIREBASE_ROUTE, client.join("dist/remote-firebase-v1.js")),
+        (NOTICES_ROUTE, client.join("dist/THIRD-PARTY-NOTICES.txt")),
+    ] {
+        let source = read(&original)?;
+        let copied = files
+            .iter()
+            .find(|(path, _)| path == route)
+            .ok_or_else(|| {
+                invalid("Hosted Remote SDK file is missing; build the hosted tree first")
+            })?;
+        verify_sdk_copy(&digest(&source), &copied.1)?;
+        inputs.push(original);
+    }
+    for ((route, source, _), (sha256, length)) in PINNED.iter().zip(pins(client)?) {
+        let copied = files
+            .iter()
+            .find(|(path, _)| path == route)
+            .ok_or_else(|| invalid("Pinned hosted SDK file is missing"))?;
+        if copied.1.len() != length
+            || digest(&copied.1) != sha256
+            || digest(&read(&client.join(source))?) != sha256
+        {
+            return Err(invalid("Remote's Firebase output does not match its pin"));
         }
-        let kept = output.join(copy);
-        fs::copy(&from, &kept)?;
-        let copied = read(&kept)?;
-        verify_sdk_copy(&sha256, &copied)?;
-        files.push(((*route).into(), copied));
-        inputs.push(from);
     }
     inputs.push(client.join(PIN));
     files.sort_by(|a, b| a.0.cmp(&b.0));
     if files.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err(invalid("Duplicate hosted path"));
     }
-    let total: usize = files.iter().map(|(_, bytes)| bytes.len()).sum();
-    if total >= TOTAL_BYTES {
-        return Err(invalid(
-            "Hosted inventory reached 50% of Remote's total byte cap",
-        ));
-    }
     let mut manifest = Manifest {
         version: 1,
-        files: Vec::new(),
-    };
-    let mut bundle = Bundle {
-        version: 1,
-        manifest_digest: String::new(),
         files: Vec::new(),
     };
     for (route, bytes) in files {
@@ -279,18 +251,25 @@ pub fn generate(
             } else {
                 browser_policy::HOSTED_POLICY
             },
+            immutable: route
+                .strip_prefix("/assets/")
+                .and_then(|asset| asset.rsplit('/').next())
+                .and_then(|name| name.rsplit_once('.'))
+                .and_then(|(stem, _)| stem.rsplit_once('-'))
+                .is_some_and(|(_, segment)| {
+                    segment.len() == 16
+                        && segment
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                        && hash.starts_with(segment)
+                }),
             path: route.clone(),
             sha256: hash,
             length: bytes.len(),
         });
-        bundle.files.push(Bytes {
-            path: route,
-            bytes_base64: STANDARD.encode(&bytes),
-        });
     }
     let manifest_bytes = serde_json::to_vec(&manifest)?;
-    // Every entry carries its full CSP, so the file caps alone do not keep the declaration that
-    // embeds this manifest within what `deploy-declaration` will print.
+    // The declaration and manifest remain bounded JSON, independently of asset sizes/counts.
     let base = fs::metadata(declaration)?.len() as usize;
     if base + SPLICE.len() + manifest_bytes.len() > DECLARATION_TEXT_BYTES {
         return Err(invalid(
@@ -298,17 +277,11 @@ pub fn generate(
         ));
     }
     inputs.push(declaration.to_owned());
-    bundle.manifest_digest = digest(&manifest_bytes);
     fs::write(output.join("colab-hosting-manifest.json"), manifest_bytes)?;
-    fs::write(
-        output.join("colab-hosting-bundle.json"),
-        serde_json::to_vec(&bundle)?,
-    )?;
     fs::write(
         output.join("colab_hosting.rs"),
         format!(
-            "const BUNDLE: Option<&[u8]> = Some(include_bytes!({:?}));\nconst MANIFEST: Option<&[u8]> = Some(include_bytes!({:?}));\n",
-            output.join("colab-hosting-bundle.json"),
+            "const MANIFEST: Option<&[u8]> = Some(include_bytes!({:?}));\n",
             output.join("colab-hosting-manifest.json")
         ),
     )?;

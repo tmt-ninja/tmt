@@ -75,17 +75,50 @@ pub(crate) fn read_reply(
 struct CapturedReplies<'a> {
     declaration: &'a [u8],
     bundle: &'a [u8],
+    root: tmt_remote::hosting_files::HostingRoot,
+    staging: Option<tmt_remote::hosting_files::HostingStaging>,
 }
 impl DeclarationSource for CapturedReplies<'_> {
     fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
         Ok(Some(self.declaration.to_vec()))
     }
-    fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
-        Ok(self.bundle.to_vec())
+    fn hosting_bundle(
+        &mut self,
+        _: &str,
+        manifest: &tmt_remote::hosting::HostingManifest,
+    ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
+        tmt_remote::hosting_files::capture(
+            &self.root,
+            manifest,
+            self.bundle,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .map_err(DiscoveryRefusal::Hosting)
+    }
+    fn generated_hosting(
+        &mut self,
+        file: &tmt_remote::hosting::HostingFile,
+        bytes: &[u8],
+    ) -> Result<tmt_remote::hosting::HostingSource, HostingRefusal> {
+        if self.staging.is_none() {
+            self.staging = Some(tmt_remote::hosting_files::HostingStaging::new()?);
+        }
+        self.staging.as_mut().unwrap().generated(
+            file,
+            bytes,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+    }
+    fn take_hosting_staging(&mut self) -> Option<tmt_remote::hosting_files::HostingStaging> {
+        self.staging.take()
     }
 }
 
-pub(crate) fn compose(declaration: &[u8], bundle: &[u8]) -> Result<Value, Refusal> {
+pub(crate) fn compose(
+    declaration: &[u8],
+    bundle: &[u8],
+    executable: &Path,
+) -> Result<Value, Refusal> {
     if declaration.len() > limits::DEPLOY_DECLARATION_REPLY_BYTES {
         return Err(Refusal::Discovery(DiscoveryRefusal::Envelope));
     }
@@ -101,10 +134,14 @@ pub(crate) fn compose(declaration: &[u8], bundle: &[u8]) -> Result<Value, Refusa
     let extension = value["extension"]
         .as_str()
         .ok_or(Refusal::Discovery(DiscoveryRefusal::Envelope))?;
+    let root = tmt_remote::hosting_files::HostingRoot::from_executable(executable, extension)
+        .map_err(|_| Refusal::InputUnavailable)?;
     let discovered = deploy_discovery::discover(
         &mut CapturedReplies {
             declaration,
             bundle,
+            root,
+            staging: None,
         },
         &[extension],
     )

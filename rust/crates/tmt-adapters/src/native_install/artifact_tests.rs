@@ -15,6 +15,8 @@ const OPS_PAYLOAD: &[u8] = b"#!/bin/sh\nexit 0\n";
 
 #[path = "companion_archive_tests.rs"]
 mod companion_archive_tests;
+#[path = "hosted_release_tests.rs"]
+mod hosted_release_tests;
 #[path = "skills_release_tests.rs"]
 mod skills_release_tests;
 #[path = "squad_product_tests.rs"]

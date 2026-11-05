@@ -4,7 +4,7 @@ import { composed, serve, sha256 } from './harness/hosting.js';
 
 test.afterEach(disposeActiveWorlds);
 
-// #2487: the hosted bundle embedded in the real tmt-colab executable, composed by Remote's own
+// The real Colab plain hosted tree and manifest, composed by Remote's own
 // offline composer (`compose_hosting`, #3048) and served from a local static server that applies
 // the composed per-file headers and rewrites. No Hosting emulator, no network and no host browser.
 // The browser uses the canonical demo origin, routed only to these local bytes.
@@ -74,7 +74,8 @@ const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
       expect(colabFiles[index].contentType).toBe(declared.contentType);
     }
 
-    // Every declared path answers 200 with its declared bytes, content type and exact CSP.
+    expect(manifest.files.some((file) => file.immutable === true)).toBe(true);
+    // Every declared path answers 200 with exact bytes, type, CSP and cache policy.
     const shell = manifest.files.find((file) => file.path === '/index.html')!;
     for (const declared of manifest.files) {
       const response = await fetch(`${origin}${declared.path}`);
@@ -89,6 +90,9 @@ const bundleServesOn = (HOSTED_ORIGIN: string) => async () => {
         declared.csp ?? null,
       );
       expect(response.headers.get('x-content-type-options'), declared.path).toBe('nosniff');
+      expect(response.headers.get('cache-control'), declared.path).toBe(
+        declared.immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+      );
     }
 
     // The short routes rewrite to the shell with the shell's exact bytes and CSP.

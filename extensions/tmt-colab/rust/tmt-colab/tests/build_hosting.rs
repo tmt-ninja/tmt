@@ -1,9 +1,8 @@
-//! Hosted inventory generator, independent wire checks, and release headroom boundaries.
+//! Plain hosted-tree metadata, pinned SDK integrity and declaration JSON boundaries.
 #[path = "../src/browser_policy.rs"]
 mod browser_policy;
 #[path = "../build/hosting.rs"]
 mod hosting;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -81,6 +80,10 @@ impl Build {
         .unwrap();
         fs::write(&sdk, b"export const fixture = 'Remote SDK output';").unwrap();
         fs::write(&declaration, b"{\n}\n").unwrap();
+        fs::create_dir(app.join("sdk")).unwrap();
+        fs::copy(&sdk, app.join("sdk/remote-v1.js")).unwrap();
+        fs::write(app.join("sdk/remote-firebase-v1.js"), FIREBASE).unwrap();
+        fs::write(app.join("sdk/THIRD-PARTY-NOTICES-remote.txt"), NOTICES).unwrap();
         Self {
             root,
             app,
@@ -127,12 +130,10 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
     assert!(inputs.contains(&build.app.join("assets")));
     let manifest_bytes = fs::read(build.output.join("colab-hosting-manifest.json")).unwrap();
     let manifest: Value = serde_json::from_slice(&manifest_bytes).unwrap();
-    let bundle: Value =
-        serde_json::from_slice(&fs::read(build.output.join("colab-hosting-bundle.json")).unwrap())
-            .unwrap();
-    assert_eq!(bundle.as_object().unwrap().len(), 3);
-    assert_eq!(bundle["version"], 1);
-    assert_eq!(bundle["manifestDigest"], digest(&manifest_bytes));
+    assert!(
+        !build.output.join("colab-hosting-bundle.json").exists(),
+        "no embedded asset bundle is generated"
+    );
     // Canonical identity is the Remote struct field order, not Value's alphabetical key order.
     assert!(manifest_bytes.starts_with(b"{\"version\":1,\"files\":[{\"path\":"));
     let files = manifest["files"].as_array().unwrap();
@@ -150,12 +151,9 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
             "/sdk/remote-v1.js"
         ]
     );
-    for (metadata, wire) in files.iter().zip(bundle["files"].as_array().unwrap()) {
-        assert_eq!(wire.as_object().unwrap().len(), 2);
-        assert_eq!(wire["path"], metadata["path"]);
-        let encoded = wire["bytesBase64"].as_str().unwrap();
-        let bytes = STANDARD.decode(encoded).unwrap();
-        assert_eq!(STANDARD.encode(&bytes), encoded);
+    for metadata in files {
+        let route = metadata["path"].as_str().unwrap();
+        let bytes = fs::read(build.app.join(route.strip_prefix('/').unwrap())).unwrap();
         assert_eq!(metadata["length"], bytes.len());
         assert_eq!(metadata["sha256"], digest(&bytes));
         assert!(!metadata["contentType"].as_str().unwrap().contains(';'));
@@ -166,9 +164,9 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
         }
         if metadata["path"] == "/sdk/remote-v1.js" {
             assert_eq!(bytes, fs::read(&build.sdk).unwrap());
-            assert_eq!(
-                bytes,
-                fs::read(build.output.join("colab-remote-v1.js")).unwrap()
+            assert!(
+                !build.output.join("colab-remote-v1.js").exists(),
+                "native compilation does not copy SDK bytes"
             );
         }
         // Remote's pinned output, byte for byte, under the routes Remote's SDK expects.
@@ -252,16 +250,15 @@ fn absent_inventory_embeds_no_native_or_checkout_fallback() {
     );
     assert_eq!(
         fs::read_to_string(build.output.join("colab_hosting.rs")).unwrap(),
-        "const BUNDLE: Option<&[u8]> = None;\nconst MANIFEST: Option<&[u8]> = None;\n"
+        "const MANIFEST: Option<&[u8]> = None;\n"
     );
 }
 
 #[test]
-fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
+fn incomplete_unsafe_or_modified_hosted_builds_are_refused() {
     for case in [
         "entry",
         "notice",
-        "empty",
         "link",
         "directory-link",
         "unknown",
@@ -281,22 +278,18 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
         "dist-missing",
         "dist-link",
         "dist-changed",
-        "file-cap",
-        "total-cap",
-        "count-cap",
     ] {
         let build = Build::new();
         match case {
             "entry" => fs::remove_file(build.app.join("index.html")).unwrap(),
             "notice" => fs::remove_file(build.app.join("THIRD-PARTY-NOTICES.txt")).unwrap(),
-            "empty" => fs::write(build.app.join("empty.js"), []).unwrap(),
             "link" => symlink(&build.sdk, build.app.join("link.js")).unwrap(),
             "directory-link" => {
                 symlink(build.app.join("assets"), build.app.join("linked")).unwrap()
             }
             "unknown" => fs::write(build.app.join("unknown.exe"), b"fixture").unwrap(),
             "sdk-override" => {
-                fs::create_dir(build.app.join("sdk")).unwrap();
+                fs::create_dir_all(build.app.join("sdk")).unwrap();
                 fs::write(build.app.join("sdk/remote-v1.js"), b"modified SDK").unwrap();
             }
             "reserved" => {
@@ -309,11 +302,11 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 symlink(build.app.join("index.html"), &build.sdk).unwrap();
             }
             "firebase-override" => {
-                fs::create_dir(build.app.join("sdk")).unwrap();
+                fs::create_dir_all(build.app.join("sdk")).unwrap();
                 fs::write(build.app.join("sdk/remote-firebase-v1.js"), b"modified").unwrap();
             }
             "notices-override" => {
-                fs::create_dir(build.app.join("sdk")).unwrap();
+                fs::create_dir_all(build.app.join("sdk")).unwrap();
                 fs::write(build.app.join("sdk/THIRD-PARTY-NOTICES-remote.txt"), b"x").unwrap();
             }
             "pin-missing" => fs::remove_file(build.client.join("firebase-build-pin.json")).unwrap(),
@@ -345,40 +338,6 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 b"Changed notices",
             )
             .unwrap(),
-            "file-cap" => fs::File::create(build.app.join("large.js"))
-                .unwrap()
-                .set_len(hosting::FILE_BYTES as u64)
-                .unwrap(),
-            "total-cap" => {
-                let seeded: u64 = [
-                    build.app.join("index.html"),
-                    build.app.join("renderer.html"),
-                    build.app.join("reader.html"),
-                    build.app.join("THIRD-PARTY-NOTICES.txt"),
-                    build.app.join("assets/app.css"),
-                    build.sdk.clone(),
-                    build.client.join("dist/remote-firebase-v1.js"),
-                    build.client.join("dist/THIRD-PARTY-NOTICES.txt"),
-                ]
-                .iter()
-                .map(|p| fs::metadata(p).unwrap().len())
-                .sum();
-                let mut remaining = hosting::TOTAL_BYTES as u64 - seeded;
-                for n in 0..4 {
-                    let length = remaining.min(hosting::FILE_BYTES as u64 - 1);
-                    fs::File::create(build.app.join(format!("large-{n}.js")))
-                        .unwrap()
-                        .set_len(length)
-                        .unwrap();
-                    remaining -= length;
-                }
-                assert_eq!(remaining, 0);
-            }
-            "count-cap" => {
-                for n in 0..hosting::FILES - 8 {
-                    fs::write(build.app.join(format!("extra-{n}.js")), b"fixture").unwrap();
-                }
-            }
             _ => unreachable!(),
         }
         assert!(build.generate().is_err(), "accepted {case}");
@@ -386,6 +345,75 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
             !build.output.join("colab_hosting.rs").exists(),
             "emitted inventory for {case}"
         );
+    }
+}
+
+#[test]
+fn plain_assets_have_no_half_budget_or_empty_file_refusal() {
+    let build = Build::new();
+    fs::write(build.app.join("empty.js"), []).unwrap();
+    for n in 0..4 {
+        fs::File::create(build.app.join(format!("large-{n}.js")))
+            .unwrap()
+            .set_len(5 * 1024 * 1024)
+            .unwrap();
+    }
+    build.generate().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["path"] == "/empty.js" && file["length"] == 0)
+    );
+    assert!(
+        manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["length"].as_u64().unwrap())
+            .sum::<u64>()
+            > 16 * 1024 * 1024
+    );
+}
+
+#[test]
+fn file_count_is_bounded_by_manifest_json_not_the_retired_inventory_cap() {
+    let build = Build::new();
+    for n in 0..121 {
+        fs::write(build.app.join(format!("x{n}.js")), b"x").unwrap();
+    }
+    build.generate().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["files"].as_array().unwrap().len(), 129);
+}
+
+#[test]
+fn hashed_assets_are_marked_immutable_but_shells_and_unhashed_files_are_not() {
+    let build = Build::new();
+    let bytes = b"export{}";
+    let matching = format!("/assets/colab-runtime-fixture-{}.js", &digest(bytes)[..16]);
+    fs::write(build.app.join(&matching[1..]), bytes).unwrap();
+    fs::write(build.app.join("assets/app-0000000000000000.js"), bytes).unwrap();
+    fs::write(
+        build.app.join(format!("app-{}.js", &digest(bytes)[..16])),
+        bytes,
+    )
+    .unwrap();
+    build.generate().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(build.output.join("colab-hosting-manifest.json")).unwrap(),
+    )
+    .unwrap();
+    for file in manifest["files"].as_array().unwrap() {
+        assert_eq!(file.get("immutable").is_some(), file["path"] == matching);
     }
 }
 

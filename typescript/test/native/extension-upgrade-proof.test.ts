@@ -48,6 +48,15 @@ describe('extension upgrade proof against the real CLI', () => {
           createArtifact(
             {
               root: path.join(sandbox.root, name),
+              // Upgrade from the historical inventory into the current plain-tree layout.
+              hosted:
+                product === 'colab' && name === 'candidate'
+                  ? {
+                      'index.html': '<h1>Upgrade fixture</h1>',
+                      'THIRD-PARTY-NOTICES.txt': 'Hosted upgrade fixture attribution',
+                      'assets/empty.js': '',
+                    }
+                  : undefined,
               // The note travels with the native fixture through archive extraction.
               // The verifier clears its environment and PATH before invoking it.
               installationNote:

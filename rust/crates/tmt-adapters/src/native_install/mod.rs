@@ -3,6 +3,7 @@
 mod artifact;
 mod former_prefix;
 pub mod handoff;
+mod hosted_tree;
 mod online;
 mod progress;
 pub use progress::{ProgressEvent, ProgressObserver, ReleasePreview};

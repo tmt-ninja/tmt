@@ -52,15 +52,33 @@ fn main() -> io::Result<()> {
         println!("colab 0.1.0-alpha.1");
         return Ok(());
     }
-    // Hosted wire fixture: its declaration digest covers these exact bytes and CSP.
+    // Independent portable wire fixture: its declaration identifies one plain hosted byte.
+    let metadata = serde_json::json!({"path":"/index.html",
+        "sha256":"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "length":1,"contentType":"text/html","csp":"default-src 'none'"});
+    // Struct field order is pinned by the literal compact portable JSON below.
+    let manifest = r#"{"version":1,"files":[{"path":"/index.html","sha256":"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb","length":1,"contentType":"text/html","csp":"default-src 'none'"}]}"#;
     if args == ["hosting-bundle", "--json"] {
-        let reply = r#"{"version":1,"manifestDigest":"3c0d623ce89db4005fd3877c7ded7f2252ef3521635decf8efb864a7a09b2727","files":[{"path":"/index.html","bytesBase64":"YQ=="}]}"#;
-        println!("{reply}");
+        let mut file = metadata;
+        file["path"] = serde_json::json!(
+            env::current_exe()?
+                .canonicalize()?
+                .parent()
+                .unwrap()
+                .join("dist-hosted/index.html")
+        );
+        println!(
+            "{}",
+            serde_json::json!({"version":1,"manifestDigest":"773117f410fc293b6dcef1129e1c23f68fb873b1fc4e0cea2571a6649a24f730","files":[file]})
+        );
         return Ok(());
     }
     if args == ["deploy-declaration", "--json"] {
-        let reply = r#"{"version":1,"declaration":"{\"hosting\":{\"version\":1,\"files\":[{\"path\":\"/index.html\",\"sha256\":\"ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\",\"length\":1,\"contentType\":\"text/html; charset=utf-8\",\"csp\":\"default-src 'none'\"}]}}","declarationDigest":"f2b228894a8cb7dd58347cd39ac5754606ce1c8ce95cf50dacad497b2eafbbe7"}"#;
-        println!("{reply}");
+        let declaration = format!("{{\"hosting\":{manifest}}}");
+        println!(
+            "{}",
+            serde_json::json!({"version":1,"declarationDigest":"d943d71bc09b4e554b1b34e0a787373cd01640489f6ae26ea90586ef4498aa3b","declaration":declaration})
+        );
         return Ok(());
     }
     if args != ["serve", "--json"] {

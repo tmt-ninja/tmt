@@ -1,5 +1,7 @@
 //! Remote-authored inventory and read-only Colab declaration mirror; no provider acceptance.
-use base64::{Engine, engine::general_purpose::STANDARD};
+#[path = "support/hosting_fixture.rs"]
+mod hosting_fixture;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -19,11 +21,11 @@ fn manifest() -> HostingManifest {
     .unwrap()
 }
 fn reply(manifest: &HostingManifest) -> Value {
-    json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})
+    json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"hello"}]})
 }
 fn bundle() -> HostingBundle {
     let m = manifest();
-    HostingBundle::parse(&m, &serde_json::to_vec(&reply(&m)).unwrap()).unwrap()
+    hosting_fixture::parse(&m, &serde_json::to_vec(&reply(&m)).unwrap()).unwrap()
 }
 fn compose(
     bundles: &[HostingBundle],
@@ -36,31 +38,34 @@ fn compose(
             bundle,
         })
         .collect();
-    hosting::compose(&inputs)
+    hosting_fixture::compose(&inputs)
 }
 #[test]
 fn gzip_and_serving_config_are_frozen_and_public_shell_routes_are_bounded() {
     let first = compose(&[bundle()]).unwrap().unwrap();
     let second = compose(&[bundle()]).unwrap().unwrap();
     assert_eq!(first.view(), second.view());
-    assert_eq!(first.gzip("/index.html"), second.gzip("/index.html"));
-    let gzip = first.gzip("/index.html").unwrap();
+    assert_eq!(
+        hosting_fixture::gzip(&first, "/index.html"),
+        hosting_fixture::gzip(&second, "/index.html")
+    );
+    let gzip = hosting_fixture::gzip(&first, "/index.html").unwrap();
     assert_eq!(&gzip[..10], &[31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
     // Python gzip.compress(b'hello', compresslevel=6, mtime=0), normalized OS=255.
     assert_eq!(
-        gzip,
+        gzip.as_slice(),
         &[
             31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 203, 72, 205, 201, 201, 7, 0, 134, 166, 16, 54, 5,
             0, 0, 0
         ]
     );
     let mut raw = Vec::new();
-    flate2::read::GzDecoder::new(gzip)
+    flate2::read::GzDecoder::new(gzip.as_slice())
         .read_to_end(&mut raw)
         .unwrap();
     assert_eq!(raw, b"hello");
     assert_eq!(first.files()[0].raw_digest, hash(b"hello"));
-    assert_eq!(first.files()[0].gzip_digest, hash(gzip));
+    assert_eq!(first.files()[0].gzip_digest, hash(&gzip));
     assert_eq!(
         first.config()["rewrites"],
         json!([
@@ -120,7 +125,6 @@ fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
     }
     for (key, value, reason) in [
         ("sha256", json!("a".repeat(63)), HostingRefusal::Digest),
-        ("length", json!(4 * 1024 * 1024 + 1), HostingRefusal::Bounds),
         (
             "contentType",
             json!("TOKEN_CANARY"),
@@ -152,22 +156,22 @@ fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
 fn bundle_must_be_the_complete_exact_canonical_manifest_inventory() {
     let m = manifest();
     let valid = reply(&m);
-    HostingBundle::parse(&m, &serde_json::to_vec(&valid).unwrap()).unwrap();
+    hosting_fixture::parse(&m, &serde_json::to_vec(&valid).unwrap()).unwrap();
     for change in [0, 1, 2, 3, 4] {
         let mut value = valid.clone();
         match change {
             0 => value["manifestDigest"] = json!("0".repeat(64)),
             1 => value["files"][0]["path"] = json!("/other"),
-            2 => value["files"][0]["bytesBase64"] = json!(STANDARD.encode(b"HELLO")),
+            2 => value["files"][0]["fixtureBytes"] = json!(b"HELLO"),
             3 => value["files"] = json!([]),
             _ => value["files"][0]["extra"] = json!(true),
         }
         assert!(
-            HostingBundle::parse(&m, &serde_json::to_vec(&value).unwrap()).is_err(),
+            hosting_fixture::parse(&m, &serde_json::to_vec(&value).unwrap()).is_err(),
             "{change}"
         );
     }
-    assert!(HostingBundle::parse(&m, b"{\"version\":1,\"version\":1}").is_err());
+    assert!(hosting_fixture::parse(&m, b"{\"version\":1,\"version\":1}").is_err());
 }
 #[test]
 fn owned_content_identity_ignores_provider_config_object_key_order() {
@@ -331,7 +335,7 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
 }
 
 #[test]
-fn full_file_and_byte_caps_sorted_paths_and_nonadjacent_nested_collisions_are_checked() {
+fn inventory_sizes_are_uncapped_while_sorting_and_nested_collisions_are_checked() {
     let file = |path: &str, length: u64| json!({"path":path,"sha256":hash(b"hello"),"length":length,"contentType":"text/html"});
     let cap = 4 * 1024 * 1024;
     let value =
@@ -342,17 +346,13 @@ fn full_file_and_byte_caps_sorted_paths_and_nonadjacent_nested_collisions_are_ch
         .as_array_mut()
         .unwrap()
         .push(file("/e", 1));
-    assert_eq!(
-        HostingManifest::parse(&too_large).unwrap_err(),
-        HostingRefusal::Bounds
-    );
+    HostingManifest::parse(&too_large).unwrap();
+    too_large["files"][0]["length"] = json!(cap + 1);
+    HostingManifest::parse(&too_large).unwrap();
     let listed = (0..257)
         .map(|i| file(&format!("/a{i:03}"), 0))
         .collect::<Vec<_>>();
-    assert_eq!(
-        HostingManifest::parse(&json!({"version":1,"files":listed})).unwrap_err(),
-        HostingRefusal::Bounds
-    );
+    HostingManifest::parse(&json!({"version":1,"files":listed})).unwrap();
     assert_eq!(
         HostingManifest::parse(&json!({"version":1,"files":[file("/b",0),file("/a",0)]}))
             .unwrap_err(),
@@ -364,8 +364,17 @@ fn full_file_and_byte_caps_sorted_paths_and_nonadjacent_nested_collisions_are_ch
         &json!({"version":1,"files":paths.iter().map(|p|file(p,5)).collect::<Vec<_>>()}),
     )
     .unwrap();
-    let bytes=serde_json::to_vec(&json!({"version":1,"manifestDigest":m.digest(),"files":paths.iter().map(|p|json!({"path":p,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()})).unwrap();
-    let bundle = HostingBundle::parse(&m, &bytes).unwrap();
+    // Compose validates logical route collisions independently of capture: a real tree
+    // cannot contain both a regular /a file and a directory at the same path.
+    let source = hosting_fixture::source(&m.files[0], b"hello").unwrap();
+    let bundle = HostingBundle::from_sources(
+        &m,
+        m.files
+            .iter()
+            .map(|file| (file.path.clone(), source.clone()))
+            .collect(),
+    )
+    .unwrap();
     assert!(matches!(compose(&[bundle]), Err(HostingRefusal::Collision)));
 }
 #[test]
@@ -423,7 +432,7 @@ fn csp_bundle(csp: Option<&str>) -> HostingBundle {
         value["files"][0]["csp"] = json!(csp);
     }
     let manifest = HostingManifest::parse(&value).unwrap();
-    HostingBundle::parse(&manifest, &serde_json::to_vec(&reply(&manifest)).unwrap()).unwrap()
+    hosting_fixture::parse(&manifest, &serde_json::to_vec(&reply(&manifest)).unwrap()).unwrap()
 }
 #[test]
 fn csp_is_optional_printable_ascii_bounded_and_last_in_canonical_manifest_order() {
@@ -522,7 +531,10 @@ fn shell_csp_and_fixed_headers_match_short_routes_and_the_independent_config_gol
         .unwrap()
         .unwrap();
     assert_ne!(changed.digest(), composed.digest());
-    assert_eq!(changed.gzip("/index.html"), composed.gzip("/index.html"));
+    assert_eq!(
+        hosting_fixture::gzip(&changed, "/index.html"),
+        hosting_fixture::gzip(&composed, "/index.html")
+    );
 }
 #[test]
 fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_policy() {
@@ -550,11 +562,13 @@ fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_poli
         );
     }
     let manifest = HostingManifest::parse(&json!({"version":1,"files":listed})).unwrap();
-    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":manifest.files.iter().map(|f|json!({"path":f.path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()});
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":manifest.files.iter().map(|f|json!({"path":f.path,"fixtureBytes":b"hello"})).collect::<Vec<_>>()});
     let composed =
-        compose(&[HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap()])
-            .unwrap()
-            .unwrap();
+        compose(&[
+            hosting_fixture::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+        ])
+        .unwrap()
+        .unwrap();
     for (i, (ty, text)) in types.iter().enumerate() {
         let rule = composed.config()["headers"]
             .as_array()
@@ -816,7 +830,7 @@ fn colab_hosting_vector_serves_its_exact_sealed_declaration_digest() {
     let value: Value = serde_json::from_slice(&declaration).unwrap();
     HostingManifest::parse(&value["hosting"]).unwrap();
     // This tiny inventory isolates the opaque-byte boundary, not Colab bundle acceptance.
-    let content = hosting::compose(&[hosting::HostingInput {
+    let content = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: &declaration,
         bundle: &bundle(),
@@ -832,7 +846,7 @@ fn colab_hosting_vector_serves_its_exact_sealed_declaration_digest() {
     assert_eq!(generated.raw_digest, envelope["declarationDigest"]);
     assert_eq!(generated.raw_digest, sealed_digest);
     let mut served = Vec::new();
-    flate2::read::GzDecoder::new(content.gzip(path).unwrap())
+    flate2::read::GzDecoder::new(hosting_fixture::gzip(&content, path).unwrap().as_slice())
         .read_to_end(&mut served)
         .unwrap();
     assert_eq!(served, envelope["declaration"].as_str().unwrap().as_bytes());
@@ -846,8 +860,8 @@ fn declarations_are_opaque_per_extension_and_do_not_inherit_shell_csp() {
         {"path":"/other.txt","sha256":hash(b"hello"),"length":5,"contentType":"text/plain"}
     ]}))
     .unwrap();
-    let second = HostingBundle::parse(&m, &serde_json::to_vec(&json!({
-        "version":1,"manifestDigest":m.digest(),"files":[{"path":"/other.txt","bytesBase64":STANDARD.encode(b"hello")}]
+    let second = hosting_fixture::parse(&m, &serde_json::to_vec(&json!({
+        "version":1,"manifestDigest":m.digest(),"files":[{"path":"/other.txt","fixtureBytes":b"hello"}]
     })).unwrap()).unwrap();
     // The pure composer accepts already-admitted opaque bytes; discovery owns parsing.
     let inputs = [
@@ -862,12 +876,12 @@ fn declarations_are_opaque_per_extension_and_do_not_inherit_shell_csp() {
             bundle: &second,
         },
     ];
-    let composed = hosting::compose(&inputs).unwrap().unwrap();
+    let composed = hosting_fixture::compose(&inputs).unwrap().unwrap();
     assert_eq!(composed.files().len(), 7);
     for input in &inputs {
         let path = format!("/tmt/declarations/{}.json", input.extension);
         let mut bytes = Vec::new();
-        flate2::read::GzDecoder::new(composed.gzip(&path).unwrap())
+        flate2::read::GzDecoder::new(hosting_fixture::gzip(&composed, &path).unwrap().as_slice())
             .read_to_end(&mut bytes)
             .unwrap();
         assert_eq!(bytes, input.declaration);
@@ -889,7 +903,7 @@ fn declarations_are_opaque_per_extension_and_do_not_inherit_shell_csp() {
             "Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff"})
         );
     }
-    let changed = hosting::compose(&[
+    let changed = hosting_fixture::compose(&[
         hosting::HostingInput {
             declaration: b"exact first bytes",
             ..inputs[0]
@@ -899,23 +913,31 @@ fn declarations_are_opaque_per_extension_and_do_not_inherit_shell_csp() {
     .unwrap()
     .unwrap();
     assert_ne!(composed.digest(), changed.digest());
-    assert_eq!(composed.gzip("/index.html"), changed.gzip("/index.html"));
+    assert_eq!(
+        hosting_fixture::gzip(&composed, "/index.html"),
+        hosting_fixture::gzip(&changed, "/index.html")
+    );
 }
 
 #[test]
-fn generated_declarations_consume_existing_caps_and_ancestor_fences() {
+fn generated_declarations_have_no_file_cap_and_retain_ancestor_fences() {
     let b = bundle();
-    assert!(matches!(
-        hosting::compose(&[hosting::HostingInput {
-            extension: "colab",
-            declaration: &vec![0; 4 * 1024 * 1024 + 1],
-            bundle: &b,
-        }]),
-        Err(HostingRefusal::Bounds)
-    ));
+    let large = hosting_fixture::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: &vec![0; 4 * 1024 * 1024 + 1],
+        bundle: &b,
+    }])
+    .unwrap()
+    .unwrap();
+    assert!(
+        large
+            .files()
+            .iter()
+            .any(|file| file.path == "/tmt/declarations/colab.json")
+    );
     for extension in ["", "a/b", "../escape", "UPPER"] {
         assert!(matches!(
-            hosting::compose(&[hosting::HostingInput {
+            hosting_fixture::compose(&[hosting::HostingInput {
                 extension,
                 declaration: b"{}",
                 bundle: &b
@@ -932,28 +954,28 @@ fn generated_declarations_consume_existing_caps_and_ancestor_fences() {
             "path":path,"sha256":hash(b"hello"),"length":5,"contentType":"text/html"
         })).collect::<Vec<_>>()}))
         .unwrap();
-        HostingBundle::parse(
+        let source = hosting_fixture::source(&m.files[0], b"hello").unwrap();
+        HostingBundle::from_sources(
             &m,
-            &serde_json::to_vec(
-                &json!({"version":1,"manifestDigest":m.digest(),"files":paths.iter().map(|path|
-            json!({"path":path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()}),
-            )
-            .unwrap(),
+            m.files
+                .iter()
+                .map(|file| (file.path.clone(), source.clone()))
+                .collect(),
         )
         .unwrap()
     };
     let under = make(252);
     assert_eq!(compose(&[under]).unwrap().unwrap().files().len(), 256);
-    assert!(matches!(compose(&[make(253)]), Err(HostingRefusal::Bounds)));
+    assert_eq!(compose(&[make(253)]).unwrap().unwrap().files().len(), 257);
     // The parent itself is not reserved, but cannot also be a file above generated descendants.
     let paths = ["/index.html", "/tmt"];
     let m = HostingManifest::parse(&json!({"version":1,"files":paths.iter().map(|path|
         json!({"path":path,"sha256":hash(b"hello"),"length":5,"contentType":"text/html"})).collect::<Vec<_>>()})).unwrap();
-    let parent = HostingBundle::parse(
+    let parent = hosting_fixture::parse(
         &m,
         &serde_json::to_vec(
             &json!({"version":1,"manifestDigest":m.digest(),"files":m.files.iter().map(|f|
-        json!({"path":f.path,"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()}),
+        json!({"path":f.path,"fixtureBytes":b"hello"})).collect::<Vec<_>>()}),
         )
         .unwrap(),
     )
@@ -965,55 +987,81 @@ fn generated_declarations_consume_existing_caps_and_ancestor_fences() {
 }
 
 #[test]
-fn generated_declaration_counts_at_the_composed_raw_byte_boundary() {
-    let full = vec![b'a'; tmt_remote::limits::HOSTING_FILE_BYTES];
-    let generated = compose(&[bundle()])
-        .unwrap()
-        .unwrap()
-        .files()
-        .iter()
-        .map(|file| file.raw_length as usize)
-        .sum::<usize>()
-        - 5;
-    let short = &full[..full.len() - generated];
-    let files = [
-        ("/a", full.as_slice()),
-        ("/b", full.as_slice()),
-        ("/c", full.as_slice()),
-        ("/index.html", short),
-    ];
-    let manifest = HostingManifest::parse(&json!({"version":1,"files":files.iter().map(|(path,bytes)|
-        json!({"path":path,"sha256":hash(bytes),"length":bytes.len(),"contentType":"text/html"})).collect::<Vec<_>>()})).unwrap();
-    let bundle = HostingBundle::parse(
-        &manifest,
-        &serde_json::to_vec(&json!({"version":1,
-        "manifestDigest":manifest.digest(),"files":files.iter().map(|(path,bytes)|
-        json!({"path":path,"bytesBase64":STANDARD.encode(bytes)})).collect::<Vec<_>>()}))
-        .unwrap(),
-    )
+fn generated_declarations_and_assets_have_no_composed_total_cap() {
+    let raw = vec![b'a'; 17 * 1024 * 1024];
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":[{
+        "path":"/index.html","sha256":hash(&raw),"length":raw.len(),"contentType":"text/html"
+    }]}))
     .unwrap();
-    // Exact declarations and the fixed instructions resources consume the same 16 MiB cap.
-    let exact = hosting::compose(&[hosting::HostingInput {
+    let bundle =
+        hosting_fixture::from_contents(&manifest, &[("/index.html", raw.as_slice())]).unwrap();
+    let first = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "notes",
         declaration: b"{}",
         bundle: &bundle,
     }])
     .unwrap()
     .unwrap();
+    assert!(first.files().iter().map(|f| f.raw_length).sum::<u64>() > 16 * 1024 * 1024);
+    let changed = hosting_fixture::compose(&[hosting::HostingInput {
+        extension: "notes",
+        declaration: b"{} ",
+        bundle: &bundle,
+    }])
+    .unwrap()
+    .unwrap();
     assert_eq!(
-        exact
-            .files()
-            .iter()
-            .map(|file| file.raw_length)
-            .sum::<u64>(),
-        tmt_remote::limits::HOSTING_TOTAL_BYTES as u64
+        changed.files().iter().map(|f| f.raw_length).sum::<u64>(),
+        first.files().iter().map(|f| f.raw_length).sum::<u64>() + 1
     );
-    assert!(matches!(
-        hosting::compose(&[hosting::HostingInput {
-            extension: "notes",
-            declaration: b"{} ",
-            bundle: &bundle
-        }]),
-        Err(HostingRefusal::Bounds)
-    ));
+    assert_ne!(first.digest(), changed.digest());
+}
+
+#[test]
+fn immutable_requires_a_matching_verified_hash_prefix_under_assets() {
+    let digest = hash(b"hello");
+    let matching = format!("/assets/colab-runtime-fixture-{}.js", &digest[..16]);
+    for (path, marked, immutable) in [
+        (matching.as_str(), true, true),
+        (matching.as_str(), false, false),
+        (
+            "/assets/colab-runtime-fixture-0000000000000000.js",
+            true,
+            false,
+        ),
+        (
+            "/sdk/colab-runtime-fixture-2cf24dba5fb0a30e.js",
+            true,
+            false,
+        ),
+        ("/assets/app-AbCd1234.js", true, false),
+    ] {
+        let mut files = vec![
+            json!({"path":path,"sha256":digest,"length":5,"contentType":"text/javascript","immutable":marked}),
+            json!({"path":"/index.html","sha256":digest,"length":5,"contentType":"text/html"}),
+        ];
+        files.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
+        let manifest = HostingManifest::parse(&json!({"version":1,"files":files})).unwrap();
+        // Capture verifies these same bytes against the digest before composition.
+        let bundle = hosting_fixture::from_contents(
+            &manifest,
+            &[(path, b"hello"), ("/index.html", b"hello")],
+        )
+        .unwrap();
+        let content = compose(&[bundle]).unwrap().unwrap();
+        let headers = content.config()["headers"].as_array().unwrap();
+        assert_eq!(
+            headers.iter().find(|h| h["glob"] == path).unwrap()["headers"]["Cache-Control"],
+            if immutable {
+                "public, max-age=31536000, immutable"
+            } else {
+                "no-cache"
+            },
+            "{path}"
+        );
+        assert_eq!(
+            headers.iter().find(|h| h["glob"] == "/join.html").unwrap()["headers"]["Cache-Control"],
+            "no-store"
+        );
+    }
 }

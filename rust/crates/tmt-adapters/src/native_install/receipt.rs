@@ -29,8 +29,10 @@ fn inventory_changed() -> io::Error {
 
 /// Every file in the release's skills tree is a recorded, unchanged regular
 /// file, and nothing else is there: no extra file, link or special entry.
-fn verify_skills(
+fn verify_tree(
     directory: &Path,
+    tree_root: &str,
+    file_limit: usize,
     hashes: &BTreeMap<String, String>,
     recorded: &[&str],
 ) -> io::Result<()> {
@@ -39,10 +41,7 @@ fn verify_skills(
         .copied()
         .collect::<std::collections::BTreeSet<_>>();
     let mut found = 0;
-    let mut pending = vec![(
-        directory.join(skills_tree::ROOT),
-        skills_tree::ROOT.to_owned(),
-    )];
+    let mut pending = vec![(directory.join(tree_root), tree_root.to_owned())];
     while let Some((path, relative)) = pending.pop() {
         for entry in fs::read_dir(&path)?.take(recorded.len() + 1) {
             let entry = entry?;
@@ -66,11 +65,8 @@ fn verify_skills(
             {
                 return Err(inventory_changed());
             }
-            let bytes = bounded_file::read_no_follow(
-                &entry.path(),
-                crate::skill_installation::MAXIMUM_FILE_BYTES,
-            )
-            .map_err(io::Error::other)?;
+            let bytes = bounded_file::read_no_follow(&entry.path(), file_limit)
+                .map_err(io::Error::other)?;
             if hashes.get(&relative) != Some(&digest(&bytes)) {
                 return Err(invalid(
                     "Installed release file has changed; refusing replacement.",
@@ -345,6 +341,12 @@ impl Receipt {
             .filter(|name| skills_tree::is_skill_path(name))
             .map(String::as_str)
             .collect::<Vec<_>>();
+        let hosted_hashes = hashes
+            .keys()
+            .map(String::as_str)
+            .filter(|name| super::hosted_tree::is_file(product, name))
+            .collect::<Vec<_>>();
+        super::hosted_tree::validate(product, hosted_hashes.iter().copied())?;
         // A companion is recorded exactly when the release carries it.
         let companions = product
             .companions()
@@ -358,7 +360,13 @@ impl Receipt {
             .copied()
             .filter(|name| hashes.contains_key(*name))
             .collect::<Vec<_>>();
-        if hashes.len() != files.len() + skill_hashes.len() + companions.len() + optional.len() {
+        if hashes.len()
+            != files.len()
+                + skill_hashes.len()
+                + hosted_hashes.len()
+                + companions.len()
+                + optional.len()
+        {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
@@ -366,6 +374,7 @@ impl Receipt {
         for name in files
             .into_iter()
             .chain(skill_hashes.iter().copied())
+            .chain(hosted_hashes.iter().copied())
             .chain(companions.iter().copied())
             .chain(optional.iter().copied())
         {
@@ -413,7 +422,7 @@ impl Receipt {
             .filter(|name| self.file_hashes.contains_key(*name))
             .collect::<Vec<_>>();
         let mut inventory = fs::read_dir(directory)?
-            .take(files.len() + product.companions().len() + product.optional_files().len() + 3)
+            .take(files.len() + product.companions().len() + product.optional_files().len() + 4)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
@@ -421,12 +430,16 @@ impl Receipt {
         // predates it fails closed here with the same error.
         let has_skills =
             product != Product::Cli && inventory.iter().any(|name| name == skills_tree::ROOT);
+        let has_hosted = product
+            .hosted_tree()
+            .is_some_and(|root| inventory.iter().any(|name| name == root));
         let mut expected = files
             .into_iter()
             .chain(["receipt.json"])
             .chain(companions.iter().copied())
             .chain(optional.iter().copied())
             .chain(has_skills.then_some(skills_tree::ROOT))
+            .chain(product.hosted_tree().filter(|_| has_hosted))
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>();
         expected.sort();
@@ -439,6 +452,15 @@ impl Receipt {
             .filter(|name| skills_tree::is_skill_path(name))
             .map(String::as_str)
             .collect::<Vec<_>>();
+        let hosted_hashes = self
+            .file_hashes
+            .keys()
+            .map(String::as_str)
+            .filter(|name| super::hosted_tree::is_file(product, name))
+            .collect::<Vec<_>>();
+        if has_hosted == hosted_hashes.is_empty() {
+            return Err(inventory_changed());
+        }
         if has_skills == skill_hashes.is_empty() {
             return Err(inventory_changed());
         }
@@ -481,7 +503,26 @@ impl Receipt {
             if !fs::symlink_metadata(directory.join(skills_tree::ROOT))?.is_dir() {
                 return Err(inventory_changed());
             }
-            verify_skills(directory, &self.file_hashes, &skill_hashes)?;
+            verify_tree(
+                directory,
+                skills_tree::ROOT,
+                crate::skill_installation::MAXIMUM_FILE_BYTES,
+                &self.file_hashes,
+                &skill_hashes,
+            )?;
+        }
+        if has_hosted {
+            let root = product.hosted_tree().expect("hosted product");
+            if !fs::symlink_metadata(directory.join(root))?.is_dir() {
+                return Err(inventory_changed());
+            }
+            verify_tree(
+                directory,
+                root,
+                super::artifact::EXPANDED_LIMIT,
+                &self.file_hashes,
+                &hosted_hashes,
+            )?;
         }
         Ok(())
     }

@@ -279,8 +279,14 @@ describe('declared app entries', () => {
   });
 });
 
-describe('embedded Colab hosting inventory', () => {
+describe('plain Colab hosting manifest', () => {
+  let nextHosting = 0;
   function inventory() {
+    const directory = path.join(root, `hosting-${nextHosting++}`);
+    mkdirSync(path.join(directory, 'dist-hosted'), { recursive: true });
+    const executable = path.join(directory, 'tmt-colab');
+    writeFileSync(executable, 'fixture executable');
+    const file = path.join(directory, 'dist-hosted/index.html');
     const bytes = Buffer.from('hosted entry');
     const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
     const hosting = {
@@ -290,25 +296,28 @@ describe('embedded Colab hosting inventory', () => {
           path: '/index.html',
           sha256: hash(bytes),
           length: bytes.length,
-          contentType: 'text/html; charset=utf-8',
+          contentType: 'text/html',
           csp: "default-src 'none'",
         },
       ],
     };
+    writeFileSync(file, bytes);
     return {
+      executable,
+      file,
       declaration: { hosting },
       bundle: {
         version: 1,
         manifestDigest: hash(JSON.stringify(hosting)),
-        files: [{ path: '/index.html', bytesBase64: bytes.toString('base64') }],
+        files: [{ ...hosting.files[0], path: fs.realpathSync(file) }],
       },
     };
   }
-  it('proves the exact declared manifest including CSP and the bundled bytes', () => {
-    const { bundle, declaration } = inventory();
+  it('proves the declared manifest against its executable-relative plain files', () => {
+    const { bundle, declaration, executable } = inventory();
     const calls: { args: string[]; options: { maxBuffer?: number } }[] = [];
     verifyColabHosting(
-      { executable: '/fixture', cwd: '/', env: {}, notices: '' },
+      { executable, cwd: '/', env: {}, notices: '' },
       (_executable: string, args: string[], options: { maxBuffer?: number }) => {
         calls.push({ args, options });
         return JSON.stringify(
@@ -328,7 +337,7 @@ describe('embedded Colab hosting inventory', () => {
       ['hosting-bundle', '--json'],
       ['deploy-declaration', '--json'],
     ]);
-    expect(calls[0].options.maxBuffer).toBe(12 * 1024 * 1024);
+    expect(calls[0].options.maxBuffer).toBe(256 * 1024);
     expect(calls[1].options.maxBuffer).toBeUndefined();
   });
   it.each([
@@ -343,25 +352,35 @@ describe('embedded Colab hosting inventory', () => {
     'extra',
     'declaration-digest',
   ])('rejects an incomplete or mismatched inventory: %s', (drift) => {
-    const { bundle, declaration } = inventory();
+    const { bundle, declaration, executable, file } = inventory();
     if (drift === 'absent') delete (declaration as Partial<typeof declaration>).hosting;
     if (drift === 'empty') bundle.files = [];
     if (drift === 'extra') Object.assign(declaration.hosting, { unexpected: true });
     if (drift === 'csp') declaration.hosting.files[0].csp += '; img-src data:';
-    if (drift === 'bytes') bundle.files[0].bytesBase64 = Buffer.from('changed').toString('base64');
-    if (drift === 'length') declaration.hosting.files[0].length++;
+    if (drift === 'bytes') writeFileSync(file, 'hosted Entry');
+    if (drift === 'length') {
+      declaration.hosting.files[0].length++;
+      bundle.files[0].length++;
+    }
     if (drift === 'path') bundle.files[0].path = '/wrong.html';
     if (drift === 'digest') bundle.manifestDigest = '0'.repeat(64);
     if (drift === 'notices') {
-      bundle.files[0].path = declaration.hosting.files[0].path =
-        '/sdk/THIRD-PARTY-NOTICES-remote.txt';
+      declaration.hosting.files[0].path = '/sdk/THIRD-PARTY-NOTICES-remote.txt';
+      const target = path.join(
+        path.dirname(executable),
+        'dist-hosted/sdk/THIRD-PARTY-NOTICES-remote.txt'
+      );
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, 'hosted entry');
+      bundle.files[0].path = fs.realpathSync(target);
+    }
+    if (!['absent', 'digest'].includes(drift))
       bundle.manifestDigest = createHash('sha256')
         .update(JSON.stringify(declaration.hosting))
         .digest('hex');
-    }
     expect(() =>
       verifyColabHosting(
-        { executable: '/fixture', cwd: '/', env: {}, notices: '' },
+        { executable, cwd: '/', env: {}, notices: '' },
         (_executable: string, args: string[]) =>
           JSON.stringify(
             args[0] === 'hosting-bundle'

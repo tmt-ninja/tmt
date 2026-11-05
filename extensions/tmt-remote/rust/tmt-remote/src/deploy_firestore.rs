@@ -205,7 +205,7 @@ pub struct DeployFirestore<'a> {
     stop: &'a AtomicBool,
     hosting: Option<deploy_run::HostingCheckpoint>,
     owner: Option<owner::OwnerContext>,
-    compressed: std::collections::BTreeMap<String, Vec<u8>>,
+    hosting_sources: std::collections::BTreeMap<String, crate::hosting::HostingSource>,
     content_digest: Option<String>,
     steps: Vec<deploy_run::StepRecord>,
     composite_started: Option<Instant>,
@@ -229,7 +229,7 @@ impl<'a> DeployFirestore<'a> {
             stop,
             hosting: None,
             owner: None,
-            compressed: std::collections::BTreeMap::new(),
+            hosting_sources: std::collections::BTreeMap::new(),
             content_digest: None,
             steps: Vec::new(),
             composite_started: None,
@@ -390,7 +390,13 @@ impl<'a> DeployFirestore<'a> {
         }
         let args = [
             OsString::from("--eval"),
-            OsString::from(HELPER),
+            OsString::from(HELPER.replace(
+                "require('./hosting-file.cjs')",
+                &format!(
+                    "(()=>{{const module={{exports:{{}}}};{};return module.exports;}})()",
+                    include_str!("deploy_firestore/hosting-file.cjs")
+                ),
+            )),
             self.package.as_os_str().to_owned(),
         ];
         let env = Self::environment_names();
@@ -718,16 +724,16 @@ fn verify_steps(
 impl DeployFirestore<'_> {
     pub fn prepare_content(&mut self, composition: &crate::hosting::HostingComposition) {
         self.content_digest = Some(composition.live_digest());
-        self.compressed = composition
+        self.hosting_sources = composition
             .files()
             .iter()
-            .map(|f| {
+            .map(|file| {
                 (
-                    f.path.clone(),
+                    file.path.clone(),
                     composition
-                        .gzip(&f.path)
-                        .expect("validated content")
-                        .to_vec(),
+                        .source(&file.path)
+                        .expect("captured source")
+                        .clone(),
                 )
             })
             .collect();
@@ -753,12 +759,11 @@ impl DeployFirestore<'_> {
         plan: &DeployPlan,
         action: &str,
         hash: Option<&str>,
-        bytes: Option<&[u8]>,
+        file: Option<&crate::hosting::HostingSource>,
         deadline: Instant,
     ) -> Result<Value, DeployProviderError> {
-        use base64::Engine;
         let checkpoint = self.hosting.as_ref().ok_or_else(unknown)?.clone();
-        let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "contentDigest": self.content_digest.as_deref().ok_or_else(unknown)?, "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "bytesBase64": bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b)), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
+        let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "contentDigest": self.content_digest.as_deref().ok_or_else(unknown)?, "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "file": file.map(|source|&source.file), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
         if let Some(state) = value.get("checkpoint") {
             let output_error = || {
                 DeployProviderError::Unconfirmed(StepCause::new(
@@ -792,7 +797,7 @@ impl DeployFirestore<'_> {
             StepKind::Hosting(HostingStep::Upload { path, hash }) => (
                 "upload",
                 Some(hash.as_str()),
-                Some(self.compressed.get(path).ok_or_else(unknown)?.clone()),
+                Some(self.hosting_sources.get(path).ok_or_else(unknown)?.clone()),
             ),
             StepKind::Hosting(HostingStep::Finalize) => ("finalize", None, None),
             StepKind::Hosting(HostingStep::Release) => ("release", None, None),
@@ -804,7 +809,7 @@ impl DeployFirestore<'_> {
             action,
             hash,
             if operation == "apply" {
-                bytes.as_deref()
+                bytes.as_ref()
             } else {
                 None
             },
@@ -1064,7 +1069,7 @@ mod cause_tests {
                 composite_started: None,
                 hosting: None,
                 owner: None,
-                compressed: Default::default(),
+                hosting_sources: Default::default(),
                 content_digest: None,
                 steps: Vec::new(),
             };
@@ -1094,9 +1099,16 @@ mod cause_tests {
         let cause = error.cause.expect("bounded file counts are admitted");
         assert_eq!(serde_json::to_value(cause).unwrap()["files"]["missing"], 1);
         let encoded = String::from_utf8(bytes.to_vec()).unwrap();
+        let cap = crate::limits::HOSTING_LIST_PARSE_FILES;
+        let at_cap = encoded.replace("\"listed\":14", &format!("\"listed\":{cap}"));
+        let admitted = parse_reply(at_cap.as_bytes()).unwrap_err().cause.unwrap();
+        assert_eq!(
+            serde_json::to_value(admitted).unwrap()["files"]["listed"],
+            cap
+        );
         for invalid in [
             encoded.replace("\"missing\":1", "\"missing\":-1"),
-            encoded.replace("\"listed\":14", "\"listed\":257"),
+            encoded.replace("\"listed\":14", &format!("\"listed\":{}", cap + 1)),
             encoded.replace("\"extra\":0", "\"extra\":0,\"message\":\"SECRET\""),
         ] {
             assert!(parse_reply(invalid.as_bytes()).unwrap_err().cause.is_none());

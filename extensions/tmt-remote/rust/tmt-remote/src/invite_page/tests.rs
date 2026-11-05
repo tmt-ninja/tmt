@@ -1,8 +1,9 @@
 //! Read-only publication eligibility controls, using the actual composer output.
 use super::*;
+use crate::hosting_fixture;
 use crate::{
     deploy_run::RunState,
-    hosting::{HostingBundle, HostingInput, HostingManifest},
+    hosting::{HostingInput, HostingManifest},
 };
 
 fn record() -> (DeployRecord, Value) {
@@ -10,8 +11,8 @@ fn record() -> (DeployRecord, Value) {
         "path":"/index.html","sha256":sha256_hex(b"shell"),"length":5,"contentType":"text/html"
     }]}))
     .unwrap();
-    let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"shell")}]})).unwrap()).unwrap();
-    let content = crate::hosting::compose(&[HostingInput {
+    let bundle = hosting_fixture::parse(&manifest, &serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"shell"}]})).unwrap()).unwrap();
+    let content = crate::hosting_fixture::compose(&[HostingInput {
         extension: "colab",
         declaration: b"{}",
         bundle: &bundle,

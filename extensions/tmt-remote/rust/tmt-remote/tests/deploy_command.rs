@@ -4,6 +4,8 @@
 mod deploy_fixture;
 #[path = "support/deploy_port.rs"]
 mod deploy_port;
+#[path = "support/hosting_fixture.rs"]
+mod hosting_fixture;
 use deploy_fixture::{ID, Root};
 use std::{fs, path::PathBuf};
 use tmt_remote::deploy_plan::{CloudBackend, Enabled, Plan, Supplied, Target, compose};
@@ -997,7 +999,6 @@ mod cli_composition {
     }
     #[test]
     fn website_notice_uses_the_frozen_replacement_view_even_for_identical_foreign_files() {
-        use base64::{Engine, engine::general_purpose::STANDARD};
         use tmt_remote::hosting::{self, HostingInventory, HostingLiveRelease, HostingManifest};
         struct Source {
             envelope: Vec<u8>,
@@ -1007,8 +1008,21 @@ mod cli_composition {
             fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
                 Ok(Some(self.envelope.clone()))
             }
-            fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
-                Ok(self.bundle.clone())
+            fn hosting_bundle(
+                &mut self,
+                _: &str,
+                manifest: &tmt_remote::hosting::HostingManifest,
+            ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
+                hosting_fixture::parse(manifest, &self.bundle.clone())
+                    .map_err(DiscoveryRefusal::Hosting)
+            }
+            fn generated_hosting(
+                &mut self,
+                file: &tmt_remote::hosting::HostingFile,
+                bytes: &[u8],
+            ) -> Result<tmt_remote::hosting::HostingSource, tmt_remote::hosting::HostingRefusal>
+            {
+                hosting_fixture::source(file, bytes)
             }
         }
         let mut envelope: serde_json::Value = serde_json::from_slice(
@@ -1033,7 +1047,7 @@ mod cli_composition {
         envelope["declarationDigest"] = json!(hash(&bytes));
         let mut source = Source {
             envelope: serde_json::to_vec(&envelope).unwrap(),
-            bundle: serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap(),
+            bundle: serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"hello"}]})).unwrap(),
         };
         let content = tmt_remote::deploy_discovery::discover(&mut source, &["colab"])
             .unwrap()
@@ -1807,7 +1821,6 @@ mod cli_composition {
     }
     #[test]
     fn unsupported_hosting_refuses_before_lazy_provider_login_record_and_clock() {
-        use base64::{Engine, engine::general_purpose::STANDARD};
         struct HostedSource;
         impl DeclarationSource for HostedSource {
             fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
@@ -1828,14 +1841,26 @@ mod cli_composition {
                 reply["declaration"] = json!(bytes);
                 Ok(Some(serde_json::to_vec(&reply).unwrap()))
             }
-            fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+            fn hosting_bundle(
+                &mut self,
+                _: &str,
+                _manifest: &tmt_remote::hosting::HostingManifest,
+            ) -> Result<tmt_remote::hosting::HostingBundle, DiscoveryRefusal> {
                 let reply = self.declaration("colab")?.unwrap();
                 let parsed: serde_json::Value = serde_json::from_slice(&reply).unwrap();
                 let declaration: serde_json::Value =
                     serde_json::from_str(parsed["declaration"].as_str().unwrap()).unwrap();
                 let manifest =
                     tmt_remote::hosting::HostingManifest::parse(&declaration["hosting"]).unwrap();
-                Ok(serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap())
+                hosting_fixture::parse(&manifest, &serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"hello"}]})).unwrap()).map_err(DiscoveryRefusal::Hosting)
+            }
+            fn generated_hosting(
+                &mut self,
+                file: &tmt_remote::hosting::HostingFile,
+                bytes: &[u8],
+            ) -> Result<tmt_remote::hosting::HostingSource, tmt_remote::hosting::HostingRefusal>
+            {
+                hosting_fixture::source(file, bytes)
             }
         }
         let mut source = HostedSource;
@@ -1962,12 +1987,9 @@ fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_ow
 
 #[test]
 fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_alone() {
-    use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::json;
     use sha2::{Digest, Sha256};
-    use tmt_remote::hosting::{
-        self, HostingBundle, HostingInventory, HostingLiveRelease, HostingManifest,
-    };
+    use tmt_remote::hosting::{self, HostingInventory, HostingLiveRelease, HostingManifest};
     let root = Root::new();
     let layout = root.layout();
     let mut store =
@@ -1999,11 +2021,11 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         }],
     )
     .unwrap();
-    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
-    let content = hosting::compose(&[hosting::HostingInput {
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","fixtureBytes":b"hello"}]});
+    let content = hosting_fixture::compose(&[hosting::HostingInput {
         extension: "colab",
         declaration: &bytes,
-        bundle: &HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+        bundle: &hosting_fixture::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
     }])
     .unwrap()
     .unwrap();

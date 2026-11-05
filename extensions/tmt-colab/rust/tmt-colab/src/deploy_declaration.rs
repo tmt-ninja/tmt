@@ -43,7 +43,7 @@ fn digest(text: &str) -> String {
 }
 
 /// The declaration text this binary declares: the static text, plus, when the binary embeds a
-/// hosted inventory, its canonical manifest as a last top-level `hosting` key. The manifest bytes
+/// hosted inventory metadata, its canonical manifest as a last top-level `hosting` key. The manifest bytes
 /// are inserted verbatim, so the declaration digest covers exactly the section Remote compares
 /// with `hosting-bundle`. A binary with no hosted inventory declares no `hosting` key.
 fn declaration_of(base: &str, manifest: Option<&[u8]>) -> Result<String, Unavailable> {

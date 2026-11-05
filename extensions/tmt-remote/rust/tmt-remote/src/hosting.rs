@@ -1,11 +1,9 @@
-//! Pure release-embedded static bundle validation and deterministic Hosting composition.
+//! Pure static-manifest validation and Hosting composition over captured file identities.
 //! No file, process, provider or credential access; public bytes grant no authority.
-use crate::{canonical, deploy_plan::sha256_hex, limits, wire};
-use base64::{Engine, engine::general_purpose::STANDARD};
-use flate2::{Compression, GzBuilder};
+use crate::{canonical, deploy_plan::sha256_hex, limits};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
-use std::{collections::BTreeMap, io::Write};
+use std::{collections::BTreeMap, path::PathBuf};
 
 const DECLARATION_PREFIX: &str = "/tmt/declarations";
 
@@ -45,6 +43,24 @@ pub struct HostingFile {
         skip_serializing_if = "Option::is_none"
     )]
     pub csp: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub immutable: bool,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+fn immutable_path(path: &str, sha256: &str) -> bool {
+    path.strip_prefix("/assets/")
+        .and_then(|asset| asset.rsplit('/').next())
+        .and_then(|name| name.rsplit_once('.'))
+        .and_then(|(stem, _)| stem.rsplit_once('-'))
+        .is_some_and(|(_, segment)| {
+            segment.len() == 16
+                && segment
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                && sha256.starts_with(segment)
+        })
 }
 fn optional_csp<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
     String::deserialize(deserializer).map(Some)
@@ -72,10 +88,6 @@ impl HostingManifest {
         if manifest.version != 1 || manifest.files.is_empty() {
             return Err(HostingRefusal::Shape);
         }
-        if manifest.files.len() > limits::HOSTING_FILES {
-            return Err(HostingRefusal::Bounds);
-        }
-        let mut total = 0u64;
         let mut previous: Option<&str> = None;
         for file in &manifest.files {
             if !path_ok(&file.path) {
@@ -107,14 +119,6 @@ impl HostingManifest {
                     || !csp.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
             }) {
                 return Err(HostingRefusal::Csp);
-            }
-            total = total
-                .checked_add(file.length)
-                .ok_or(HostingRefusal::Bounds)?;
-            if file.length > limits::HOSTING_FILE_BYTES as u64
-                || total > limits::HOSTING_TOTAL_BYTES as u64
-            {
-                return Err(HostingRefusal::Bounds);
             }
         }
         Ok(manifest)
@@ -179,6 +183,9 @@ pub(crate) fn response_headers(file: &HostingFile) -> Value {
     if let Some(csp) = &file.csp {
         headers["Content-Security-Policy"] = json!(csp);
     }
+    if file.immutable && immutable_path(&file.path, &file.sha256) {
+        headers["Cache-Control"] = json!("public, max-age=31536000, immutable");
+    }
     if crate::invite_page::reserved(&file.path) {
         headers["Cache-Control"] = json!("no-store");
     }
@@ -186,59 +193,62 @@ pub(crate) fn response_headers(file: &HostingFile) -> Value {
 }
 const SHORT_ROUTES: [&str; 3] = ["^/colab/?$", "^/(p|read)/[A-Za-z0-9_-]{4,64}$", "^/pair$"];
 
-/// One captured extension reply, checked against the declaration before provider setup.
+/// An absolute source coordinate is private acquisition metadata, excluded from content identity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostingFileReference {
+    pub path: PathBuf,
+    pub length: u64,
+    pub sha256: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostingGzip {
+    pub sha256: String,
+    pub length: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostingSource {
+    pub file: HostingFileReference,
+    pub gzip: HostingGzip,
+}
+/// Metadata for files already verified by the native acquisition owner.
 pub struct HostingBundle {
     manifest: HostingManifest,
-    files: BTreeMap<String, Vec<u8>>,
+    files: BTreeMap<String, HostingSource>,
 }
 impl HostingBundle {
-    pub fn parse(manifest: &HostingManifest, bytes: &[u8]) -> Result<Self, HostingRefusal> {
+    pub fn from_sources(
+        manifest: &HostingManifest,
+        files: BTreeMap<String, HostingSource>,
+    ) -> Result<Self, HostingRefusal> {
         HostingManifest::parse(
             &serde_json::to_value(manifest).map_err(|_| HostingRefusal::Shape)?,
         )?;
-        if bytes.len() > limits::HOSTING_REPLY_BYTES {
-            return Err(HostingRefusal::Bounds);
-        }
-        let value = wire::strict_json(bytes).ok_or(HostingRefusal::Shape)?;
-        let object = value.as_object().ok_or(HostingRefusal::Shape)?;
-        if object.len() != 3
-            || value["version"] != 1
-            || value["manifestDigest"] != manifest.digest()
-        {
-            return Err(HostingRefusal::Digest);
-        }
-        let listed = value["files"].as_array().ok_or(HostingRefusal::Shape)?;
-        if listed.len() != manifest.files.len() {
+        if files.len() != manifest.files.len() {
             return Err(HostingRefusal::FileSet);
         }
-        let mut files = BTreeMap::new();
-        for (item, expected) in listed.iter().zip(&manifest.files) {
-            let item = item.as_object().ok_or(HostingRefusal::Shape)?;
-            if item.len() != 2
-                || item.get("path").and_then(Value::as_str) != Some(expected.path.as_str())
-            {
-                return Err(HostingRefusal::FileSet);
-            }
-            let encoded = item
-                .get("bytesBase64")
-                .and_then(Value::as_str)
-                .ok_or(HostingRefusal::Shape)?;
-            let raw = STANDARD
-                .decode(encoded)
-                .map_err(|_| HostingRefusal::Shape)?;
-            if STANDARD.encode(&raw) != encoded {
-                return Err(HostingRefusal::Shape);
-            }
-            if raw.len() as u64 != expected.length || sha256_hex(&raw) != expected.sha256 {
-                return Err(HostingRefusal::Digest);
-            }
-            files.insert(expected.path.clone(), raw);
+        for expected in &manifest.files {
+            let source = files.get(&expected.path).ok_or(HostingRefusal::FileSet)?;
+            validate_source(expected, source)?;
         }
         Ok(Self {
             manifest: manifest.clone(),
             files,
         })
     }
+}
+fn validate_source(file: &HostingFile, source: &HostingSource) -> Result<(), HostingRefusal> {
+    if !source.file.path.is_absolute() {
+        return Err(HostingRefusal::Path);
+    }
+    if source.file.length != file.length
+        || source.file.sha256 != file.sha256
+        || !digest_ok(&source.gzip.sha256)
+    {
+        return Err(HostingRefusal::Digest);
+    }
+    Ok(())
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,7 +264,7 @@ pub struct HostingTransportFile {
 pub struct HostingComposition {
     files: Vec<HostingTransportFile>,
     config: Value,
-    compressed: BTreeMap<String, Vec<u8>>,
+    sources: BTreeMap<String, HostingSource>,
     digest: String,
 }
 impl HostingComposition {
@@ -267,8 +277,8 @@ impl HostingComposition {
     pub fn digest(&self) -> &str {
         &self.digest
     }
-    pub fn gzip(&self, path: &str) -> Option<&[u8]> {
-        self.compressed.get(path).map(Vec::as_slice)
+    pub fn source(&self, path: &str) -> Option<&HostingSource> {
+        self.sources.get(path)
     }
     pub fn view(&self) -> Value {
         json!({"version":1,"files":self.files,"config":self.config,"digest":self.digest})
@@ -282,7 +292,10 @@ pub struct HostingInput<'a> {
     pub bundle: &'a HostingBundle,
 }
 /// Freeze already-paired inventories and exact declarations in the same bounded file set.
-pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>, HostingRefusal> {
+pub fn compose(
+    inputs: &[HostingInput<'_>],
+    mut generated: impl FnMut(&HostingFile, &[u8]) -> Result<HostingSource, HostingRefusal>,
+) -> Result<Option<HostingComposition>, HostingRefusal> {
     if inputs.is_empty() {
         return Ok(None);
     }
@@ -292,50 +305,45 @@ pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>
             if !canonical::extension_name(input.extension) {
                 return Err(HostingRefusal::Shape);
             }
-            if input.declaration.len() > limits::HOSTING_FILE_BYTES {
-                return Err(HostingRefusal::Bounds);
-            }
             Ok(HostingFile {
                 path: format!("{DECLARATION_PREFIX}/{}.json", input.extension),
                 sha256: sha256_hex(input.declaration),
                 length: input.declaration.len() as u64,
                 content_type: "application/json".into(),
                 csp: None,
+                immutable: false,
             })
         })
         .collect::<Result<_, _>>()?;
     let mut files = BTreeMap::new();
-    let mut total = 0u64;
     for (input, declaration) in inputs.iter().zip(&declarations) {
-        let inventory = input
-            .bundle
-            .manifest
-            .files
-            .iter()
-            .map(|file| (file, input.bundle.files[&file.path].as_slice()));
-        for (file, raw) in inventory.chain(std::iter::once((declaration, input.declaration))) {
-            total = total
-                .checked_add(file.length)
-                .ok_or(HostingRefusal::Bounds)?;
-            if files.insert(file.path.clone(), (file, raw)).is_some() {
+        for file in &input.bundle.manifest.files {
+            if files
+                .insert(
+                    file.path.clone(),
+                    (file, input.bundle.files[&file.path].clone()),
+                )
+                .is_some()
+            {
                 return Err(HostingRefusal::Collision);
             }
         }
-    }
-    let owned = crate::invite_page::assets();
-    for (file, raw) in &owned {
-        total = total
-            .checked_add(file.length)
-            .ok_or(HostingRefusal::Bounds)?;
+        let source = generated(declaration, input.declaration)?;
+        validate_source(declaration, &source)?;
         if files
-            .insert(file.path.clone(), (file, raw.as_bytes()))
+            .insert(declaration.path.clone(), (declaration, source))
             .is_some()
         {
             return Err(HostingRefusal::Collision);
         }
     }
-    if files.len() > limits::HOSTING_FILES || total > limits::HOSTING_TOTAL_BYTES as u64 {
-        return Err(HostingRefusal::Bounds);
+    let owned = crate::invite_page::assets();
+    for (file, raw) in &owned {
+        let source = generated(file, raw.as_bytes())?;
+        validate_source(file, &source)?;
+        if files.insert(file.path.clone(), (file, source)).is_some() {
+            return Err(HostingRefusal::Collision);
+        }
     }
     for path in files.keys() {
         let mut ancestor = path.as_str();
@@ -354,27 +362,19 @@ pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>
     }
     let shell_headers = response_headers(files["/index.html"].0);
     let mut transport = Vec::new();
-    let mut compressed = BTreeMap::new();
+    let mut sources = BTreeMap::new();
     let mut headers = Vec::new();
-    for (path, (file, raw)) in files {
-        let mut writer = GzBuilder::new()
-            .mtime(0)
-            .operating_system(255)
-            .write(Vec::new(), Compression::new(6));
-        writer
-            .write_all(raw)
-            .map_err(|_| HostingRefusal::Compression)?;
-        let gzip = writer.finish().map_err(|_| HostingRefusal::Compression)?;
+    for (path, (file, source)) in files {
         transport.push(HostingTransportFile {
             path: path.clone(),
             raw_digest: file.sha256.clone(),
             raw_length: file.length,
-            gzip_digest: sha256_hex(&gzip),
-            gzip_length: gzip.len(),
+            gzip_digest: source.gzip.sha256.clone(),
+            gzip_length: source.gzip.length,
             content_type: file.content_type.clone(),
         });
         headers.push(json!({"glob":path,"headers":response_headers(file)}));
-        compressed.insert(path.clone(), gzip);
+        sources.insert(path, source);
     }
     // REST headers match the original request path, not the rewrite destination.
     // The short entries therefore need the shell's exact headers on their own patterns.
@@ -404,7 +404,7 @@ pub fn compose(inputs: &[HostingInput<'_>]) -> Result<Option<HostingComposition>
     Ok(Some(HostingComposition {
         files: transport,
         config,
-        compressed,
+        sources,
         digest,
     }))
 }
@@ -508,7 +508,7 @@ pub fn deployment_view(
             || live.version.is_empty()
             || live.version.len() > 256
             || live.version.chars().any(char::is_control)
-            || live.files.len() > limits::HOSTING_FILES
+            || live.files.len() > limits::HOSTING_LIST_PARSE_FILES
             || serde_json::to_vec(&live.config)
                 .map_err(|_| HostingRefusal::Inventory)?
                 .len()

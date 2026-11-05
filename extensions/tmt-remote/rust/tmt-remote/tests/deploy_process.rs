@@ -215,6 +215,9 @@ fn installed(root: &Root, mode: &str) -> std::path::PathBuf {
     )
     .expect("installed Node for process fixtures");
     symlink(node, bin.join("node")).unwrap();
+    if root.0.join("tmt-colab").exists() {
+        symlink(root.0.join("tmt-colab"), bin.join("tmt-colab")).unwrap();
+    }
     package
 }
 fn invoke(root: &Root, extra: &[&str]) -> std::process::Output {
@@ -409,7 +412,6 @@ fn available_binary_reports_missing_tool_and_missing_login_without_creating_a_pl
 }
 
 fn declare_hosting(root: &Root, html: &[u8]) {
-    use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
     available(root);
@@ -433,7 +435,18 @@ fn declare_hosting(root: &Root, html: &[u8]) {
         serde_json::to_vec(&reply).unwrap(),
     )
     .unwrap();
-    fs::write(root.0.join("bundle.json"),serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(html)}]})).unwrap()).unwrap();
+    fs::create_dir_all(root.0.join("dist-hosted")).unwrap();
+    let path = root.0.join("dist-hosted/index.html");
+    fs::write(&path, html).unwrap();
+    let mut file = serde_json::to_value(&manifest.files[0]).unwrap();
+    file["path"] = json!(path.canonicalize().unwrap());
+    fs::write(
+        root.0.join("bundle.json"),
+        serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[file]}))
+            .unwrap(),
+    )
+    .unwrap();
+    executable_fixture::write_executable(&root.0.join("tmt-colab"), "exit 99\n").unwrap();
     executable_fixture::write_executable(&root.0.join("tmt"),&format!("case \"$*\" in
 'colab deploy-declaration --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;
 'colab hosting-bundle --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;

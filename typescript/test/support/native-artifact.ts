@@ -28,6 +28,8 @@ export type ArtifactSources = {
   readonly root: string;
   /** Override the synthetic installation note, for archive-local fixture configuration. */
   readonly installationNote?: string;
+  /** Current Colab archives carry plain files; historical fixtures may omit this tree. */
+  readonly hosted?: Readonly<Record<string, string>>;
   readonly cli?: {
     readonly executable: string;
     /**
@@ -97,6 +99,10 @@ export async function createArtifact(
     mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     writeFileSync(path.join(root, 'skills', file), content);
   }
+  for (const [file, content] of Object.entries(sources.hosted ?? {})) {
+    mkdirSync(path.dirname(path.join(root, 'dist-hosted', file)), { recursive: true });
+    writeFileSync(path.join(root, 'dist-hosted', file), content);
+  }
   if (uses !== undefined) writeFileSync(path.join(root, 'TMT-USES.json'), uses);
   await tar.c({ cwd: tree, file: archive, gzip: true }, [path.basename(root)]);
   const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
@@ -114,6 +120,7 @@ export async function createArtifact(
             ...runtimeFiles(product),
             ...companions,
             ...(Object.keys(skills).length > 0 ? ['skills'] : []),
+            ...(Object.keys(sources.hosted ?? {}).length > 0 ? ['dist-hosted'] : []),
             ...(uses === undefined ? [] : ['TMT-USES.json']),
           ].map((file) => ({ path: file })),
         },

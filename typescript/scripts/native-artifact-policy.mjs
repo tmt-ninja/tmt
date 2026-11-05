@@ -36,6 +36,7 @@ const companions = {
 };
 /** The agent-skills tree an extension archive carries under one directory. */
 const skillsRoot = 'skills';
+const hostedRoot = 'dist-hosted';
 const skillFileLimit = 1024 * 1024;
 const skillTreeFileLimit = 16 * 64;
 
@@ -127,9 +128,16 @@ export function selectNativeArtifact(
   const declaration =
     product !== 'cli' && product !== 'driver-herdr' && assets.includes('TMT-USES.json');
   const carried = companionFiles(product).filter((companion) => assets.includes(companion));
+  const hosted = product === 'colab' && (release || assets.includes(hostedRoot));
   assert.deepEqual(
     assets.sort(),
-    [...requiredFiles, ...carried, ...declared, ...(declaration ? ['TMT-USES.json'] : [])].sort(),
+    [
+      ...requiredFiles,
+      ...carried,
+      ...declared,
+      ...(hosted ? [hostedRoot] : []),
+      ...(declaration ? ['TMT-USES.json'] : []),
+    ].sort(),
     'Manifest must describe exactly the native runtime files'
   );
   if (release) {
@@ -147,6 +155,7 @@ export function selectNativeArtifact(
     ...(product === 'cli' ? {} : { product }),
     ...(declaration ? { declaration: true } : {}),
     ...(declared.length > 0 ? { skills: true } : {}),
+    ...(hosted ? { hosted: true } : {}),
     ...(carried.length > 0 ? { companions: carried } : {}),
   };
 }
@@ -178,6 +187,10 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
       ].map((name) => `${rootName}/${name}`)
     );
     const tree = `${rootName}/${skillsRoot}`;
+    assert(!metadata.hosted || metadata.product === 'colab', 'Only Colab carries a hosted tree');
+    const hostedTree = `${rootName}/${hostedRoot}`;
+    const hostedFiles = new Set();
+    const hostedDirectories = new Set();
     const seen = new Set();
     let skillFiles = 0;
     tar.t({
@@ -190,6 +203,28 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         if (entry.path === `${rootName}/` && entry.type === 'Directory') return;
         const inTree =
           metadata.skills && (entry.path === tree || entry.path.startsWith(`${tree}/`));
+        const inHosted = metadata.hosted && entry.path.startsWith(`${hostedTree}/`);
+        const hostedDirectory = metadata.hosted && (entry.path === hostedTree || inHosted);
+        if (hostedDirectory) {
+          const relative = entry.path
+            .slice(hostedTree.length)
+            .replace(/^\//, '')
+            .replace(/\/$/, '');
+          assert(relative.length + 1 <= 1024, 'Hosted path exceeds its route bound');
+          assert(
+            !relative ||
+              relative.split('/').every((part) => /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part)),
+            'Invalid hosted archive path'
+          );
+          if (entry.type === 'Directory') {
+            assert.equal(entry.mode & 0o7000, 0, 'Hosted directories must not set special bits');
+            hostedDirectories.add(entry.path.replace(/\/$/, ''));
+            return;
+          }
+          assert(inHosted, 'Hosted tree root must be a directory');
+          assert.equal(entry.mode & 0o111, 0, 'Hosted files must not be executable');
+          hostedFiles.add(entry.path);
+        }
         if (inTree && entry.type === 'Directory') {
           assert.equal(entry.mode & 0o7000, 0, 'Skill directories must not set special bits');
           return;
@@ -200,14 +235,14 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
           assert(entry.size <= skillFileLimit, `Skill file exceeds its bound: ${entry.path}`);
         }
         assert(
-          expected.has(entry.path) || inTree,
+          expected.has(entry.path) || inTree || inHosted,
           `Unexpected native archive entry: ${entry.path}`
         );
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
         if (entry.path === `${rootName}/TMT-USES.json`)
           assert(entry.size <= 4096, 'Extension declaration exceeds 4 KiB.');
-        assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
+        assert(inHosted || entry.size > 0, `Empty native archive entry: ${entry.path}`);
         if (executables.some((name) => entry.path === `${rootName}/${name}`)) {
           assert(entry.mode & 0o111, 'Native executable lacks execute permission');
         }
@@ -215,6 +250,20 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
     });
     for (const entry of expected) assert(seen.has(entry), `Missing native archive entry: ${entry}`);
     assert(!metadata.skills || skillFiles > 0, 'Native archive declares skills but carries none');
+    if (metadata.hosted) {
+      for (const required of ['index.html', 'THIRD-PARTY-NOTICES.txt'])
+        assert(hostedFiles.has(`${hostedTree}/${required}`), 'Hosted entry or notices missing');
+      for (const directory of hostedDirectories)
+        assert(
+          [...hostedFiles].some((file) => file.startsWith(`${directory}/`)),
+          'Empty hosted archive directory'
+        );
+      for (const file of hostedFiles)
+        assert(
+          ![...hostedFiles].some((other) => other.startsWith(`${file}/`)),
+          'Conflicting hosted archive paths'
+        );
+    }
     const extracted = path.join(staging, 'extracted');
     fs.mkdirSync(extracted);
     tar.x({ file: snapshot, cwd: extracted, sync: true, strict: true, preserveOwner: false });

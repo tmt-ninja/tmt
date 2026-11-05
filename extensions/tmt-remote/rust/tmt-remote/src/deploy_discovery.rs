@@ -1,5 +1,5 @@
 //! Fixed public extension commands supply release-embedded declaration bytes.
-//! No installed-root parsing, artifact path reads, or extension-carried executable.
+//! Hosting files are confined to a root derived from the resolved installed/dev executable.
 use crate::{
     canonical, declaration,
     deploy_plan::{self, CloudBackend, Enabled, Supplied, Target},
@@ -24,27 +24,69 @@ pub enum DiscoveryRefusal {
 pub trait DeclarationSource {
     fn declaration(&mut self, extension: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal>;
     /// Only called when the validated declaration includes a Hosting manifest.
-    fn hosting_bundle(&mut self, _extension: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+    fn hosting_bundle(
+        &mut self,
+        _extension: &str,
+        _manifest: &hosting::HostingManifest,
+    ) -> Result<HostingBundle, DiscoveryRefusal> {
         Err(DiscoveryRefusal::Unavailable)
+    }
+    fn generated_hosting(
+        &mut self,
+        _file: &hosting::HostingFile,
+        _bytes: &[u8],
+    ) -> Result<hosting::HostingSource, HostingRefusal> {
+        Err(HostingRefusal::Compression)
+    }
+    fn take_hosting_staging(&mut self) -> Option<crate::hosting_files::HostingStaging> {
+        None
     }
 }
 /// Same public TMT_EXECUTABLE dispatch edge as Colab's door discovery.
 pub struct InstalledDeclarations<'a> {
     executable: PathBuf,
     stop: &'a AtomicBool,
+    staging: Option<crate::hosting_files::HostingStaging>,
+    executables: std::collections::BTreeMap<String, PathBuf>,
 }
 impl<'a> InstalledDeclarations<'a> {
     pub fn new(stop: &'a AtomicBool) -> Result<Self, DiscoveryRefusal> {
         Ok(Self {
             executable: tmt_invoke::invoking_tmt().map_err(|_| DiscoveryRefusal::Unavailable)?,
             stop,
+            staging: None,
+            executables: Default::default(),
         })
     }
     pub fn at(executable: PathBuf, stop: &'a AtomicBool) -> Result<Self, DiscoveryRefusal> {
         if !executable.is_absolute() {
             return Err(DiscoveryRefusal::Unavailable);
         }
-        Ok(Self { executable, stop })
+        Ok(Self {
+            executable,
+            stop,
+            staging: None,
+            executables: Default::default(),
+        })
+    }
+    /// Composition callers may supply already-resolved commands; never supplied by a manifest.
+    pub fn at_extensions(
+        executable: PathBuf,
+        executables: std::collections::BTreeMap<String, PathBuf>,
+        stop: &'a AtomicBool,
+    ) -> Result<Self, DiscoveryRefusal> {
+        if executables.len() > limits::PLAN_EXTENSIONS
+            || executables.iter().any(|(name, path)| {
+                !canonical::extension_name(name)
+                    || !path.is_absolute()
+                    || !tmt_invoke::is_executable(path)
+            })
+        {
+            return Err(DiscoveryRefusal::Unavailable);
+        }
+        let mut source = Self::at(executable, stop)?;
+        source.executables = executables;
+        Ok(source)
     }
 }
 impl InstalledDeclarations<'_> {
@@ -107,7 +149,11 @@ impl DeclarationSource for InstalledDeclarations<'_> {
         }
         Ok(Some(output.stdout))
     }
-    fn hosting_bundle(&mut self, extension: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+    fn hosting_bundle(
+        &mut self,
+        extension: &str,
+        manifest: &hosting::HostingManifest,
+    ) -> Result<HostingBundle, DiscoveryRefusal> {
         let output = self.public_command(
             extension,
             "hosting-bundle",
@@ -117,7 +163,39 @@ impl DeclarationSource for InstalledDeclarations<'_> {
         if !output.status.success() {
             return Err(DiscoveryRefusal::Unavailable);
         }
-        Ok(output.stdout)
+        // Match Core's PATH lookup from the neutral command cwd. A manifest cannot pick this path.
+        let search = std::env::var_os("PATH").unwrap_or_default();
+        let executable = match self.executables.get(extension) {
+            Some(path) => path.clone(),
+            None => std::env::split_paths(&search)
+                .map(|directory| {
+                    PathBuf::from("/")
+                        .join(directory)
+                        .join(format!("tmt-{extension}"))
+                })
+                .find(|path| tmt_invoke::is_executable(path))
+                .ok_or(DiscoveryRefusal::Unavailable)?,
+        };
+        let root = crate::hosting_files::HostingRoot::from_executable(&executable, extension)
+            .map_err(|_| DiscoveryRefusal::Unavailable)?;
+        crate::hosting_files::capture(&root, manifest, &output.stdout, self.stop)
+            .map_err(DiscoveryRefusal::Hosting)
+    }
+    fn generated_hosting(
+        &mut self,
+        file: &hosting::HostingFile,
+        bytes: &[u8],
+    ) -> Result<hosting::HostingSource, HostingRefusal> {
+        if self.staging.is_none() {
+            self.staging = Some(crate::hosting_files::HostingStaging::new()?);
+        }
+        self.staging
+            .as_mut()
+            .expect("staging created")
+            .generated(file, bytes, self.stop)
+    }
+    fn take_hosting_staging(&mut self) -> Option<crate::hosting_files::HostingStaging> {
+        self.staging.take()
     }
 }
 struct Bytes {
@@ -130,6 +208,8 @@ pub struct DiscoveredPlan {
     pub extensions: deploy_plan::Plan,
     pub artifacts: rules::Composed,
     pub hosting: Option<HostingComposition>,
+    // Keep only Remote-generated files alive through the complete command/provider lifecycle.
+    _hosting_staging: Option<crate::hosting_files::HostingStaging>,
 }
 pub fn discover(
     source: &mut dyn DeclarationSource,
@@ -179,7 +259,7 @@ pub fn discover(
     let mut bundles = Vec::new();
     for extension in &extensions.view().extensions {
         if let Some(manifest) = &extension.hosting {
-            let reply = source.hosting_bundle(&extension.name)?;
+            let bundle = source.hosting_bundle(&extension.name, manifest)?;
             let bytes = supplied
                 .iter()
                 .find(|bytes| bytes.name == extension.name)
@@ -187,7 +267,7 @@ pub fn discover(
             bundles.push((
                 extension.name.as_str(),
                 bytes.declaration.as_slice(),
-                HostingBundle::parse(manifest, &reply).map_err(DiscoveryRefusal::Hosting)?,
+                bundle,
             ));
         }
     }
@@ -199,11 +279,15 @@ pub fn discover(
             bundle,
         })
         .collect();
-    let hosting = hosting::compose(&hosting_inputs).map_err(DiscoveryRefusal::Hosting)?;
+    let hosting = hosting::compose(&hosting_inputs, |file, bytes| {
+        source.generated_hosting(file, bytes)
+    })
+    .map_err(DiscoveryRefusal::Hosting)?;
     Ok(DiscoveredPlan {
         extensions,
         artifacts,
         hosting,
+        _hosting_staging: source.take_hosting_staging(),
     })
 }
 /// Capture the exact release declaration without deploying or fetching Hosting.

@@ -1,4 +1,4 @@
-import { accessSync, constants, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -19,5 +19,7 @@ export function colabFixtureBinary(root: string): string {
   accessSync(source, constants.X_OK);
   const executable = path.join(root, 'colab-fixture');
   writeExecutable(executable, readFileSync(source), 0o700);
+  mkdirSync(path.join(root, 'dist-hosted'), { recursive: true });
+  writeFileSync(path.join(root, 'dist-hosted/index.html'), 'a');
   return executable;
 }

@@ -141,6 +141,15 @@ impl Product {
         }
     }
 
+    /// Product-owned plain hosted assets, carried beside the executable when declared.
+    /// Historical archives without this tree remain readable.
+    pub const fn hosted_tree(self) -> Option<&'static str> {
+        match self {
+            Self::Colab => Some("dist-hosted"),
+            _ => None,
+        }
+    }
+
     pub const fn namespace(self) -> &'static str {
         match self {
             Self::Cli => "lib/tmt",

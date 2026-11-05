@@ -32,8 +32,8 @@ a missing one fails with the build command. The fixture reaps its child; the wor
 process-group and tmux-server cleanup and the no-leftovers assertion.
 
 The hosted-bundle case also needs Remote's `examples/compose_hosting`, built separately,
-and the hosted inventory embedded by `TMT_COLAB_HOSTING_DIR`; the ordinary app distribution
-alone cannot qualify that case. Freeze both examples with the three executables.
+and the plain `dist-hosted` tree described by the `TMT_COLAB_HOSTING_DIR` build; the ordinary app distribution
+alone cannot qualify that case. Freeze both examples with the three executables and the hosted tree.
 
 If also running [native Chromium fixtures](development.md#app-and-browser-client),
 compile those fixtures before the final binary build: their test configuration can

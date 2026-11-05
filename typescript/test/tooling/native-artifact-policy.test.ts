@@ -64,6 +64,11 @@ interface ArchiveOptions {
   /** Whether the manifest declares the `skills` asset (default: component skills declaration). */
   readonly declareSkills?: boolean;
   readonly skillLink?: boolean;
+  /** Plain release files, keyed relative to dist-hosted. Historical fixtures omit the tree. */
+  readonly hosted?: Record<string, string>;
+  readonly declareHosted?: boolean;
+  readonly hostedLink?: boolean;
+  readonly hostedExecutable?: boolean;
   readonly duplicate?: string;
   readonly executable?: boolean;
   /** Whether the companion executables keep their execute bit (default true). */
@@ -131,6 +136,14 @@ async function createArchiveFixture(
     fs.mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     fs.writeFileSync(path.join(root, 'skills', file), content);
   }
+  for (const [file, content] of Object.entries(options.hosted ?? {})) {
+    const target = path.join(root, 'dist-hosted', file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, { mode: options.hostedExecutable ? 0o755 : 0o644 });
+  }
+  if (options.hostedLink) {
+    fs.symlinkSync('../LICENSE', path.join(root, 'dist-hosted', 'linked.txt'));
+  }
   if (options.skillLink) {
     fs.mkdirSync(path.join(root, 'skills', 'tmt-ops'), { recursive: true });
     fs.symlinkSync('../../../outside', path.join(root, 'skills', 'tmt-ops', 'link.md'));
@@ -184,6 +197,7 @@ async function createArchiveFixture(
         checksums: { sha256 },
         assets: [
           ...(options.declaration !== undefined ? ['TMT-USES.json'] : []),
+          ...((options.declareHosted ?? Boolean(options.hosted)) ? ['dist-hosted'] : []),
           ...files.filter(
             (file) => options.declareCompanions !== false || !companions.includes(file)
           ),
@@ -401,6 +415,57 @@ describe('native artifact policy', () => {
       });
     }
   );
+  it('requires Colab release files, verifies their plain tree and retains historical reads', async () => {
+    await withSandbox(async (sandbox) => {
+      const hosted = {
+        'index.html': '<h1>Hosted fixture</h1>',
+        'THIRD-PARTY-NOTICES.txt': 'Hosted attribution',
+        'assets/empty.js': '',
+        'assets/app-0123456789abcdef.js': 'export{}',
+      };
+      const current = await createArchiveFixture(sandbox, { product: 'colab', hosted });
+      const released = selectNativeArtifact(
+        current.manifestFile,
+        current.archiveFile,
+        TARGET,
+        'colab',
+        { release: true }
+      );
+      expect(released).toHaveProperty('hosted', true);
+      await withNativeArtifact(current.archiveFile, released, (root) => {
+        for (const [name, content] of Object.entries(hosted))
+          expect(fs.readFileSync(path.join(root, 'dist-hosted', name), 'utf8')).toBe(content);
+      });
+      const historical = await createArchiveFixture(sandbox, { product: 'colab' });
+      await withNativeArtifact(historical.archiveFile, historical.metadata, () => undefined);
+      expect(() =>
+        selectNativeArtifact(historical.manifestFile, historical.archiveFile, TARGET, 'colab', {
+          release: true,
+        })
+      ).toThrow('Manifest must describe exactly the native runtime files');
+      const invalidCases: ArchiveOptions[] = [
+        { hosted: { 'index.html': 'entry' } },
+        { hosted: { 'THIRD-PARTY-NOTICES.txt': 'attribution' } },
+        { hosted, hostedLink: true },
+        { hosted, hostedExecutable: true },
+        { hosted, declareHosted: false },
+      ];
+      for (const options of invalidCases) {
+        const invalid = await createArchiveFixture(sandbox, { product: 'colab', ...options });
+        await expect(
+          withNativeArtifact(invalid.archiveFile, invalid.metadata, () => undefined)
+        ).rejects.toThrow();
+      }
+      const other = await createArchiveFixture(sandbox, {
+        product: 'remote',
+        hosted,
+        declareHosted: false,
+      });
+      await expect(
+        withNativeArtifact(other.archiveFile, other.metadata, () => undefined)
+      ).rejects.toThrow('Unexpected native archive entry');
+    });
+  });
   it('verifies Remote through the shared allowlist without accepting CLI ownership or a non-executable payload', async () => {
     await withSandbox(async (sandbox) => {
       const remote = await createArchiveFixture(sandbox, { product: 'remote' });

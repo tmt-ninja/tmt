@@ -37,6 +37,11 @@ const RECEIPT_ENTRY_BYTES: usize = ROOT.len() + 1 + 64 + 1 + 512 + 64 + 16;
 pub(super) const fn receipt_limit(product: Product) -> usize {
     match product {
         Product::Cli => CLI_RECEIPT_BYTES,
+        Product::Colab => {
+            CLI_RECEIPT_BYTES
+                + MAXIMUM_TREE_FILES * RECEIPT_ENTRY_BYTES
+                + super::hosted_tree::RECEIPT_EXTRA
+        }
         _ => CLI_RECEIPT_BYTES + MAXIMUM_TREE_FILES * RECEIPT_ENTRY_BYTES,
     }
 }
