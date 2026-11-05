@@ -299,8 +299,9 @@ header documents its final states, bounds, log and exit codes.
 For Codex seats, [`scripts/hooks/codex-wait-guard.mjs`](../../../../scripts/hooks/codex-wait-guard.mjs) is an
 optional `PreToolUse` hook that asks a model to judge calls inside this repository that hold a
 wait primitive (`sleep`, a loop, `watch`, `tail -f`, a background job and the like). It denies
-waits and polls by default, and the deny names the fix: start `scripts/ci-wake.sh` and end the
-turn, or run `host-health.sh --gate` once for host capacity. `TMT_WAIT_HOOK=off` turns it off
+waits and polls by default, and the deny names the fix: start
+`scripts/ci-wake.sh <pr> --identity <self> --foreground` in a provider-native retained background
+task and end the turn, or run `host-health.sh --gate` once for host capacity. `TMT_WAIT_HOOK=off` turns it off
 for one seat; the rollback is shadow mode (`ENFORCE` false in the script), which only logs
 denies. Every other call, including a short
 allowlist and the known waiter and test-runner starts, skips the model. Every judged call's redacted input leaves the machine; its header owns the checks,
