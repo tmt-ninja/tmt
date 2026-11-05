@@ -1,5 +1,22 @@
 
 === tmt 40 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────┐ | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..15:Rgb(176, 176, 176)/Reset/Reset/NONE;16..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+└──────────────────────────────────────┘ | 0..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━┓ | 0..1:Rgb(216, 216, 216)/Reset/Reset/NONE;2..28:Rgb(216, 216, 216)/Reset/Reset/BOLD;29..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[sparkline] hits=[]
+        ▁▁▁▁▁▁▁▁········▄▄▄▄▄▄▄▄████████ | 0..39:Rgb(176, 176, 176)/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────── 0.9% of input ── | 0..2:Rgb(133, 133, 133)/Reset/Reset/NONE;3..13:Rgb(176, 176, 176)/Reset/Reset/NONE;14..22:Rgb(133, 133, 133)/Reset/Reset/NONE;23..23:Reset/Reset/Reset/NONE;24..36:Rgb(176, 176, 176)/Reset/Reset/NONE;37..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
@@ -40,13 +57,28 @@ usage             ██████····  60%   655M | 0..17:Rgb(216, 216, 2
 No aligned used/saved observations yet   | 0..37:Rgb(176, 176, 176)/Reset/Reset/NONE;38..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                | 0..8:Rgb(158, 206, 106)/Reset/Reset/NONE;9..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+● working                                | 0..8:Rgb(176, 176, 176)/Reset/Reset/NONE;9..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                              | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+✗ attention                              | 0..0:Rgb(247, 118, 142)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                              | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+◆ attention                              | 0..0:Rgb(255, 158, 100)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                          | 0..39:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                 | 0..39:Rgb(133, 133, 133)/Reset/Reset/NONE;
@@ -56,6 +88,23 @@ No aligned used/saved observations yet   | 0..37:Rgb(176, 176, 176)/Reset/Reset/
                                          | 0..39:Reset/Reset/Reset/NONE;
 
 === tmt 60 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────┐ | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..15:Rgb(176, 176, 176)/Reset/Reset/NONE;16..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────┘ | 0..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(216, 216, 216)/Reset/Reset/NONE;2..28:Rgb(216, 216, 216)/Reset/Reset/BOLD;29..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[sparkline] hits=[]
+            ▁▁▁▁▁▁▁▁▁▁▁▁············▄▄▄▄▄▄▄▄▄▄▄▄████████████ | 0..59:Rgb(176, 176, 176)/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────── 0.9% of input ── | 0..2:Rgb(133, 133, 133)/Reset/Reset/NONE;3..13:Rgb(176, 176, 176)/Reset/Reset/NONE;14..42:Rgb(133, 133, 133)/Reset/Reset/NONE;43..43:Reset/Reset/Reset/NONE;44..56:Rgb(176, 176, 176)/Reset/Reset/NONE;57..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
@@ -96,13 +145,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                       | 0..37:Rgb(176, 176, 176)/Reset/Reset/NONE;38..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                    | 0..8:Rgb(158, 206, 106)/Reset/Reset/NONE;9..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+● working                                                    | 0..8:Rgb(176, 176, 176)/Reset/Reset/NONE;9..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                  | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+✗ attention                                                  | 0..0:Rgb(247, 118, 142)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                  | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+◆ attention                                                  | 0..0:Rgb(255, 158, 100)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                      | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                      | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                      | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                      | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                      | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                     | 0..59:Rgb(133, 133, 133)/Reset/Reset/NONE;
@@ -112,6 +176,23 @@ No aligned used/saved observations yet                       | 0..37:Rgb(176, 17
                                                              | 0..59:Reset/Reset/Reset/NONE;
 
 === tmt 80 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────┐ | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..15:Rgb(176, 176, 176)/Reset/Reset/NONE;16..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────┘ | 0..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(216, 216, 216)/Reset/Reset/NONE;2..28:Rgb(216, 216, 216)/Reset/Reset/BOLD;29..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁················▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████ | 0..79:Rgb(176, 176, 176)/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(133, 133, 133)/Reset/Reset/NONE;3..13:Rgb(176, 176, 176)/Reset/Reset/NONE;14..62:Rgb(133, 133, 133)/Reset/Reset/NONE;63..63:Reset/Reset/Reset/NONE;64..76:Rgb(176, 176, 176)/Reset/Reset/NONE;77..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
@@ -152,13 +233,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                           | 0..37:Rgb(176, 176, 176)/Reset/Reset/NONE;38..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                        | 0..8:Rgb(158, 206, 106)/Reset/Reset/NONE;9..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+● working                                                                        | 0..8:Rgb(176, 176, 176)/Reset/Reset/NONE;9..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                      | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+✗ attention                                                                      | 0..0:Rgb(247, 118, 142)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                      | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+◆ attention                                                                      | 0..0:Rgb(255, 158, 100)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                         | 0..79:Rgb(133, 133, 133)/Reset/Reset/NONE;
@@ -168,6 +264,23 @@ No aligned used/saved observations yet                                          
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 
 === tmt 120 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..15:Rgb(176, 176, 176)/Reset/Reset/NONE;16..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(216, 216, 216)/Reset/Reset/NONE;2..28:Rgb(216, 216, 216)/Reset/Reset/BOLD;29..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                        ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁························▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████ | 0..119:Rgb(176, 176, 176)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(133, 133, 133)/Reset/Reset/NONE;3..13:Rgb(176, 176, 176)/Reset/Reset/NONE;14..102:Rgb(133, 133, 133)/Reset/Reset/NONE;103..103:Reset/Reset/Reset/NONE;104..116:Rgb(176, 176, 176)/Reset/Reset/NONE;117..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
@@ -208,13 +321,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                   | 0..37:Rgb(176, 176, 176)/Reset/Reset/NONE;38..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                | 0..8:Rgb(158, 206, 106)/Reset/Reset/NONE;9..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+● working                                                                                                                | 0..8:Rgb(176, 176, 176)/Reset/Reset/NONE;9..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                              | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+✗ attention                                                                                                              | 0..0:Rgb(247, 118, 142)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                              | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+◆ attention                                                                                                              | 0..0:Rgb(255, 158, 100)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                  | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                 | 0..119:Rgb(133, 133, 133)/Reset/Reset/NONE;
@@ -224,6 +352,23 @@ No aligned used/saved observations yet                                          
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 
 === tmt 160 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Rgb(133, 133, 133)/Reset/Reset/NONE;2..15:Rgb(176, 176, 176)/Reset/Reset/NONE;16..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(133, 133, 133)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(216, 216, 216)/Reset/Reset/NONE;2..28:Rgb(216, 216, 216)/Reset/Reset/BOLD;29..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(216, 216, 216)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁································▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████████████ | 0..159:Rgb(176, 176, 176)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(133, 133, 133)/Reset/Reset/NONE;3..13:Rgb(176, 176, 176)/Reset/Reset/NONE;14..142:Rgb(133, 133, 133)/Reset/Reset/NONE;143..143:Reset/Reset/Reset/NONE;144..156:Rgb(176, 176, 176)/Reset/Reset/NONE;157..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
@@ -264,13 +409,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                                                           | 0..37:Rgb(176, 176, 176)/Reset/Reset/NONE;38..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                                                        | 0..8:Rgb(158, 206, 106)/Reset/Reset/NONE;9..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+● working                                                                                                                                                        | 0..8:Rgb(176, 176, 176)/Reset/Reset/NONE;9..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                                                                      | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+✗ attention                                                                                                                                                      | 0..0:Rgb(247, 118, 142)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                                                                      | 0..10:Rgb(247, 118, 142)/Reset/Reset/BOLD;11..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+◆ attention                                                                                                                                                      | 0..0:Rgb(255, 158, 100)/Reset/Reset/BOLD;1..10:Rgb(176, 176, 176)/Reset/Reset/NONE;11..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                                                          | 0..6:Rgb(176, 176, 176)/Reset/Reset/NONE;7..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(216, 216, 216)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                                                         | 0..159:Rgb(133, 133, 133)/Reset/Reset/NONE;
@@ -280,6 +440,23 @@ No aligned used/saved observations yet                                          
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 
 === tmt-light 40 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────┐ | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..15:Rgb(98, 98, 98)/Reset/Reset/NONE;16..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+└──────────────────────────────────────┘ | 0..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━┓ | 0..1:Rgb(23, 23, 23)/Reset/Reset/NONE;2..28:Rgb(23, 23, 23)/Reset/Reset/BOLD;29..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..38:Reset/Reset/Reset/NONE;39..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[sparkline] hits=[]
+        ▁▁▁▁▁▁▁▁········▄▄▄▄▄▄▄▄████████ | 0..39:Rgb(98, 98, 98)/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────── 0.9% of input ── | 0..2:Rgb(118, 118, 118)/Reset/Reset/NONE;3..13:Rgb(98, 98, 98)/Reset/Reset/NONE;14..22:Rgb(118, 118, 118)/Reset/Reset/NONE;23..23:Reset/Reset/Reset/NONE;24..36:Rgb(98, 98, 98)/Reset/Reset/NONE;37..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
@@ -320,13 +497,28 @@ usage             ██████····  60%   655M | 0..17:Rgb(23, 23, 23)
 No aligned used/saved observations yet   | 0..37:Rgb(98, 98, 98)/Reset/Reset/NONE;38..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                | 0..8:Rgb(79, 106, 51)/Reset/Reset/NONE;9..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+● working                                | 0..8:Rgb(98, 98, 98)/Reset/Reset/NONE;9..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                              | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+✗ attention                              | 0..0:Rgb(182, 44, 59)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                              | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+◆ attention                              | 0..0:Rgb(150, 80, 39)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                         | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                          | 0..39:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                 | 0..39:Rgb(118, 118, 118)/Reset/Reset/NONE;
@@ -336,6 +528,23 @@ No aligned used/saved observations yet   | 0..37:Rgb(98, 98, 98)/Reset/Reset/NON
                                          | 0..39:Reset/Reset/Reset/NONE;
 
 === tmt-light 60 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────┐ | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..15:Rgb(98, 98, 98)/Reset/Reset/NONE;16..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                          │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────┘ | 0..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(23, 23, 23)/Reset/Reset/NONE;2..28:Rgb(23, 23, 23)/Reset/Reset/BOLD;29..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                          ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..58:Reset/Reset/Reset/NONE;59..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[sparkline] hits=[]
+            ▁▁▁▁▁▁▁▁▁▁▁▁············▄▄▄▄▄▄▄▄▄▄▄▄████████████ | 0..59:Rgb(98, 98, 98)/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────── 0.9% of input ── | 0..2:Rgb(118, 118, 118)/Reset/Reset/NONE;3..13:Rgb(98, 98, 98)/Reset/Reset/NONE;14..42:Rgb(118, 118, 118)/Reset/Reset/NONE;43..43:Reset/Reset/Reset/NONE;44..56:Rgb(98, 98, 98)/Reset/Reset/NONE;57..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
@@ -376,13 +585,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                       | 0..37:Rgb(98, 98, 98)/Reset/Reset/NONE;38..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                    | 0..8:Rgb(79, 106, 51)/Reset/Reset/NONE;9..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+● working                                                    | 0..8:Rgb(98, 98, 98)/Reset/Reset/NONE;9..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                  | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+✗ attention                                                  | 0..0:Rgb(182, 44, 59)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                  | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+◆ attention                                                  | 0..0:Rgb(150, 80, 39)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                      | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                      | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                      | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                      | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                             | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                      | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                              | 0..59:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                     | 0..59:Rgb(118, 118, 118)/Reset/Reset/NONE;
@@ -392,6 +616,23 @@ No aligned used/saved observations yet                       | 0..37:Rgb(98, 98,
                                                              | 0..59:Reset/Reset/Reset/NONE;
 
 === tmt-light 80 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────┐ | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..15:Rgb(98, 98, 98)/Reset/Reset/NONE;16..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────┘ | 0..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(23, 23, 23)/Reset/Reset/NONE;2..28:Rgb(23, 23, 23)/Reset/Reset/BOLD;29..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..78:Reset/Reset/Reset/NONE;79..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁················▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████ | 0..79:Rgb(98, 98, 98)/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(118, 118, 118)/Reset/Reset/NONE;3..13:Rgb(98, 98, 98)/Reset/Reset/NONE;14..62:Rgb(118, 118, 118)/Reset/Reset/NONE;63..63:Reset/Reset/Reset/NONE;64..76:Rgb(98, 98, 98)/Reset/Reset/NONE;77..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
@@ -432,13 +673,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                           | 0..37:Rgb(98, 98, 98)/Reset/Reset/NONE;38..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                        | 0..8:Rgb(79, 106, 51)/Reset/Reset/NONE;9..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+● working                                                                        | 0..8:Rgb(98, 98, 98)/Reset/Reset/NONE;9..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                      | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+✗ attention                                                                      | 0..0:Rgb(182, 44, 59)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                      | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+◆ attention                                                                      | 0..0:Rgb(150, 80, 39)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                 | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                  | 0..79:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                         | 0..79:Rgb(118, 118, 118)/Reset/Reset/NONE;
@@ -448,6 +704,23 @@ No aligned used/saved observations yet                                          
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 
 === tmt-light 120 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..15:Rgb(98, 98, 98)/Reset/Reset/NONE;16..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(23, 23, 23)/Reset/Reset/NONE;2..28:Rgb(23, 23, 23)/Reset/Reset/BOLD;29..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..118:Reset/Reset/Reset/NONE;119..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                        ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁························▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████ | 0..119:Rgb(98, 98, 98)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(118, 118, 118)/Reset/Reset/NONE;3..13:Rgb(98, 98, 98)/Reset/Reset/NONE;14..102:Rgb(118, 118, 118)/Reset/Reset/NONE;103..103:Reset/Reset/Reset/NONE;104..116:Rgb(98, 98, 98)/Reset/Reset/NONE;117..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
@@ -488,13 +761,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                   | 0..37:Rgb(98, 98, 98)/Reset/Reset/NONE;38..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                | 0..8:Rgb(79, 106, 51)/Reset/Reset/NONE;9..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+● working                                                                                                                | 0..8:Rgb(98, 98, 98)/Reset/Reset/NONE;9..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                              | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+✗ attention                                                                                                              | 0..0:Rgb(182, 44, 59)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                              | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+◆ attention                                                                                                              | 0..0:Rgb(150, 80, 39)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                  | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                          | 0..119:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                 | 0..119:Rgb(118, 118, 118)/Reset/Reset/NONE;
@@ -504,6 +792,23 @@ No aligned used/saved observations yet                                          
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 
 === tmt-light 160 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Rgb(118, 118, 118)/Reset/Reset/NONE;2..15:Rgb(98, 98, 98)/Reset/Reset/NONE;16..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..0:Rgb(118, 118, 118)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Rgb(23, 23, 23)/Reset/Reset/NONE;2..28:Rgb(23, 23, 23)/Reset/Reset/BOLD;29..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..0:Rgb(23, 23, 23)/Reset/Reset/NONE;1..158:Reset/Reset/Reset/NONE;159..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[sparkline] hits=[]
+                                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁································▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████████████ | 0..159:Rgb(98, 98, 98)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Rgb(118, 118, 118)/Reset/Reset/NONE;3..13:Rgb(98, 98, 98)/Reset/Reset/NONE;14..142:Rgb(118, 118, 118)/Reset/Reset/NONE;143..143:Reset/Reset/Reset/NONE;144..156:Rgb(98, 98, 98)/Reset/Reset/NONE;157..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
@@ -544,13 +849,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                                                           | 0..37:Rgb(98, 98, 98)/Reset/Reset/NONE;38..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                                                        | 0..8:Rgb(79, 106, 51)/Reset/Reset/NONE;9..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+● working                                                                                                                                                        | 0..8:Rgb(98, 98, 98)/Reset/Reset/NONE;9..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                                                                      | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+✗ attention                                                                                                                                                      | 0..0:Rgb(182, 44, 59)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                                                                      | 0..10:Rgb(182, 44, 59)/Reset/Reset/BOLD;11..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+◆ attention                                                                                                                                                      | 0..0:Rgb(150, 80, 39)/Reset/Reset/BOLD;1..10:Rgb(98, 98, 98)/Reset/Reset/NONE;11..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                                                          | 0..6:Rgb(98, 98, 98)/Reset/Reset/NONE;7..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Rgb(23, 23, 23)/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                                                         | 0..159:Rgb(118, 118, 118)/Reset/Reset/NONE;
@@ -560,6 +880,23 @@ No aligned used/saved observations yet                                          
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 
 === terminal 40 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────┐ | 0..1:Reset/Reset/Reset/DIM;2..15:Gray/Reset/Reset/NONE;16..39:Reset/Reset/Reset/DIM;
+│                                      │ | 0..0:Reset/Reset/Reset/DIM;1..38:Reset/Reset/Reset/NONE;39..39:Reset/Reset/Reset/DIM;
+│                                      │ | 0..0:Reset/Reset/Reset/DIM;1..38:Reset/Reset/Reset/NONE;39..39:Reset/Reset/Reset/DIM;
+│                                      │ | 0..0:Reset/Reset/Reset/DIM;1..38:Reset/Reset/Reset/NONE;39..39:Reset/Reset/Reset/DIM;
+│                                      │ | 0..0:Reset/Reset/Reset/DIM;1..38:Reset/Reset/Reset/NONE;39..39:Reset/Reset/Reset/DIM;
+└──────────────────────────────────────┘ | 0..39:Reset/Reset/Reset/DIM;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..39:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+        ▁▁▁▁▁▁▁▁········▄▄▄▄▄▄▄▄████████ | 0..39:Gray/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────── 0.9% of input ── | 0..2:Reset/Reset/Reset/DIM;3..13:Gray/Reset/Reset/NONE;14..22:Reset/Reset/Reset/DIM;23..23:Reset/Reset/Reset/NONE;24..36:Gray/Reset/Reset/NONE;37..39:Reset/Reset/Reset/DIM;
                                          | 0..39:Reset/Reset/Reset/NONE;
@@ -600,13 +937,28 @@ usage             ██████····  60%   655M | 0..17:Reset/Reset/Res
 No aligned used/saved observations yet   | 0..37:Gray/Reset/Reset/NONE;38..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                | 0..8:Green/Reset/Reset/NONE;9..39:Reset/Reset/Reset/NONE;
+● working                                | 0..8:Gray/Reset/Reset/NONE;9..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                              | 0..10:Red/Reset/Reset/BOLD;11..39:Reset/Reset/Reset/NONE;
+✗ attention                              | 0..0:Red/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                              | 0..10:Red/Reset/Reset/BOLD;11..39:Reset/Reset/Reset/NONE;
+◆ attention                              | 0..0:Yellow/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                  | 0..6:Gray/Reset/Reset/NONE;7..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                  | 0..6:Gray/Reset/Reset/NONE;7..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                  | 0..6:Gray/Reset/Reset/NONE;7..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                  | 0..6:Gray/Reset/Reset/NONE;7..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                  | 0..6:Gray/Reset/Reset/NONE;7..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                 | 0..39:Reset/Reset/Reset/DIM;
@@ -616,6 +968,23 @@ No aligned used/saved observations yet   | 0..37:Gray/Reset/Reset/NONE;38..39:Re
                                          | 0..39:Reset/Reset/Reset/NONE;
 
 === terminal 60 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────┐ | 0..1:Reset/Reset/Reset/DIM;2..15:Gray/Reset/Reset/NONE;16..59:Reset/Reset/Reset/DIM;
+│                                                          │ | 0..0:Reset/Reset/Reset/DIM;1..58:Reset/Reset/Reset/NONE;59..59:Reset/Reset/Reset/DIM;
+│                                                          │ | 0..0:Reset/Reset/Reset/DIM;1..58:Reset/Reset/Reset/NONE;59..59:Reset/Reset/Reset/DIM;
+│                                                          │ | 0..0:Reset/Reset/Reset/DIM;1..58:Reset/Reset/Reset/NONE;59..59:Reset/Reset/Reset/DIM;
+│                                                          │ | 0..0:Reset/Reset/Reset/DIM;1..58:Reset/Reset/Reset/NONE;59..59:Reset/Reset/Reset/DIM;
+└──────────────────────────────────────────────────────────┘ | 0..59:Reset/Reset/Reset/DIM;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..59:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+            ▁▁▁▁▁▁▁▁▁▁▁▁············▄▄▄▄▄▄▄▄▄▄▄▄████████████ | 0..59:Gray/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────── 0.9% of input ── | 0..2:Reset/Reset/Reset/DIM;3..13:Gray/Reset/Reset/NONE;14..42:Reset/Reset/Reset/DIM;43..43:Reset/Reset/Reset/NONE;44..56:Gray/Reset/Reset/NONE;57..59:Reset/Reset/Reset/DIM;
                                                              | 0..59:Reset/Reset/Reset/NONE;
@@ -656,13 +1025,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                       | 0..37:Gray/Reset/Reset/NONE;38..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                    | 0..8:Green/Reset/Reset/NONE;9..59:Reset/Reset/Reset/NONE;
+● working                                                    | 0..8:Gray/Reset/Reset/NONE;9..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                  | 0..10:Red/Reset/Reset/BOLD;11..59:Reset/Reset/Reset/NONE;
+✗ attention                                                  | 0..0:Red/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                  | 0..10:Red/Reset/Reset/BOLD;11..59:Reset/Reset/Reset/NONE;
+◆ attention                                                  | 0..0:Yellow/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                      | 0..6:Gray/Reset/Reset/NONE;7..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                      | 0..6:Gray/Reset/Reset/NONE;7..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                      | 0..6:Gray/Reset/Reset/NONE;7..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                      | 0..6:Gray/Reset/Reset/NONE;7..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                      | 0..6:Gray/Reset/Reset/NONE;7..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                     | 0..59:Reset/Reset/Reset/DIM;
@@ -672,6 +1056,23 @@ No aligned used/saved observations yet                       | 0..37:Gray/Reset/
                                                              | 0..59:Reset/Reset/Reset/NONE;
 
 === terminal 80 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────┐ | 0..1:Reset/Reset/Reset/DIM;2..15:Gray/Reset/Reset/NONE;16..79:Reset/Reset/Reset/DIM;
+│                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..78:Reset/Reset/Reset/NONE;79..79:Reset/Reset/Reset/DIM;
+│                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..78:Reset/Reset/Reset/NONE;79..79:Reset/Reset/Reset/DIM;
+│                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..78:Reset/Reset/Reset/NONE;79..79:Reset/Reset/Reset/DIM;
+│                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..78:Reset/Reset/Reset/NONE;79..79:Reset/Reset/Reset/DIM;
+└──────────────────────────────────────────────────────────────────────────────┘ | 0..79:Reset/Reset/Reset/DIM;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..79:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁················▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████ | 0..79:Gray/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────── 0.9% of input ── | 0..2:Reset/Reset/Reset/DIM;3..13:Gray/Reset/Reset/NONE;14..62:Reset/Reset/Reset/DIM;63..63:Reset/Reset/Reset/NONE;64..76:Gray/Reset/Reset/NONE;77..79:Reset/Reset/Reset/DIM;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
@@ -712,13 +1113,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                           | 0..37:Gray/Reset/Reset/NONE;38..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                        | 0..8:Green/Reset/Reset/NONE;9..79:Reset/Reset/Reset/NONE;
+● working                                                                        | 0..8:Gray/Reset/Reset/NONE;9..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                      | 0..10:Red/Reset/Reset/BOLD;11..79:Reset/Reset/Reset/NONE;
+✗ attention                                                                      | 0..0:Red/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                      | 0..10:Red/Reset/Reset/BOLD;11..79:Reset/Reset/Reset/NONE;
+◆ attention                                                                      | 0..0:Yellow/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                          | 0..6:Gray/Reset/Reset/NONE;7..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                          | 0..6:Gray/Reset/Reset/NONE;7..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                          | 0..6:Gray/Reset/Reset/NONE;7..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                          | 0..6:Gray/Reset/Reset/NONE;7..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                          | 0..6:Gray/Reset/Reset/NONE;7..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                         | 0..79:Reset/Reset/Reset/DIM;
@@ -728,6 +1144,23 @@ No aligned used/saved observations yet                                          
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 
 === terminal 120 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Reset/Reset/Reset/DIM;2..15:Gray/Reset/Reset/NONE;16..119:Reset/Reset/Reset/DIM;
+│                                                                                                                      │ | 0..0:Reset/Reset/Reset/DIM;1..118:Reset/Reset/Reset/NONE;119..119:Reset/Reset/Reset/DIM;
+│                                                                                                                      │ | 0..0:Reset/Reset/Reset/DIM;1..118:Reset/Reset/Reset/NONE;119..119:Reset/Reset/Reset/DIM;
+│                                                                                                                      │ | 0..0:Reset/Reset/Reset/DIM;1..118:Reset/Reset/Reset/NONE;119..119:Reset/Reset/Reset/DIM;
+│                                                                                                                      │ | 0..0:Reset/Reset/Reset/DIM;1..118:Reset/Reset/Reset/NONE;119..119:Reset/Reset/Reset/DIM;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..119:Reset/Reset/Reset/DIM;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..119:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                        ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁························▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████ | 0..119:Gray/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Reset/Reset/Reset/DIM;3..13:Gray/Reset/Reset/NONE;14..102:Reset/Reset/Reset/DIM;103..103:Reset/Reset/Reset/NONE;104..116:Gray/Reset/Reset/NONE;117..119:Reset/Reset/Reset/DIM;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
@@ -768,13 +1201,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                   | 0..37:Gray/Reset/Reset/NONE;38..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                | 0..8:Green/Reset/Reset/NONE;9..119:Reset/Reset/Reset/NONE;
+● working                                                                                                                | 0..8:Gray/Reset/Reset/NONE;9..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                              | 0..10:Red/Reset/Reset/BOLD;11..119:Reset/Reset/Reset/NONE;
+✗ attention                                                                                                              | 0..0:Red/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                              | 0..10:Red/Reset/Reset/BOLD;11..119:Reset/Reset/Reset/NONE;
+◆ attention                                                                                                              | 0..0:Yellow/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                  | 0..6:Gray/Reset/Reset/NONE;7..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                  | 0..6:Gray/Reset/Reset/NONE;7..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                  | 0..6:Gray/Reset/Reset/NONE;7..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                  | 0..6:Gray/Reset/Reset/NONE;7..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                  | 0..6:Gray/Reset/Reset/NONE;7..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                 | 0..119:Reset/Reset/Reset/DIM;
@@ -784,6 +1232,23 @@ No aligned used/saved observations yet                                          
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 
 === terminal 160 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..1:Reset/Reset/Reset/DIM;2..15:Gray/Reset/Reset/NONE;16..159:Reset/Reset/Reset/DIM;
+│                                                                                                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..158:Reset/Reset/Reset/NONE;159..159:Reset/Reset/Reset/DIM;
+│                                                                                                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..158:Reset/Reset/Reset/NONE;159..159:Reset/Reset/Reset/DIM;
+│                                                                                                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..158:Reset/Reset/Reset/NONE;159..159:Reset/Reset/Reset/DIM;
+│                                                                                                                                                              │ | 0..0:Reset/Reset/Reset/DIM;1..158:Reset/Reset/Reset/NONE;159..159:Reset/Reset/Reset/DIM;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..159:Reset/Reset/Reset/DIM;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..159:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁································▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████████████ | 0..159:Gray/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..2:Reset/Reset/Reset/DIM;3..13:Gray/Reset/Reset/NONE;14..142:Reset/Reset/Reset/DIM;143..143:Reset/Reset/Reset/NONE;144..156:Gray/Reset/Reset/NONE;157..159:Reset/Reset/Reset/DIM;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
@@ -824,13 +1289,28 @@ usage             ██████████████··········
 No aligned used/saved observations yet                                                                                                                           | 0..37:Gray/Reset/Reset/NONE;38..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [mark] hits=[]
-● working                                                                                                                                                        | 0..8:Green/Reset/Reset/NONE;9..159:Reset/Reset/Reset/NONE;
+● working                                                                                                                                                        | 0..8:Gray/Reset/Reset/NONE;9..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                                                                      | 0..10:Red/Reset/Reset/BOLD;11..159:Reset/Reset/Reset/NONE;
+✗ attention                                                                                                                                                      | 0..0:Red/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                                                                      | 0..10:Red/Reset/Reset/BOLD;11..159:Reset/Reset/Reset/NONE;
+◆ attention                                                                                                                                                      | 0..0:Yellow/Reset/Reset/BOLD;1..10:Gray/Reset/Reset/NONE;11..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                                                          | 0..6:Gray/Reset/Reset/NONE;7..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                                                          | 0..6:Gray/Reset/Reset/NONE;7..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                                                          | 0..6:Gray/Reset/Reset/NONE;7..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                                                          | 0..6:Gray/Reset/Reset/NONE;7..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                                                          | 0..6:Gray/Reset/Reset/NONE;7..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                                                         | 0..159:Reset/Reset/Reset/DIM;
@@ -840,6 +1320,23 @@ No aligned used/saved observations yet                                          
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 
 === no-color 40 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────┐ | 0..39:Reset/Reset/Reset/NONE;
+│                                      │ | 0..39:Reset/Reset/Reset/NONE;
+│                                      │ | 0..39:Reset/Reset/Reset/NONE;
+│                                      │ | 0..39:Reset/Reset/Reset/NONE;
+│                                      │ | 0..39:Reset/Reset/Reset/NONE;
+└──────────────────────────────────────┘ | 0..39:Reset/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┃                                      ┃ | 0..39:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..39:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+        ▁▁▁▁▁▁▁▁········▄▄▄▄▄▄▄▄████████ | 0..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────── 0.9% of input ── | 0..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
@@ -883,10 +1380,25 @@ No aligned used/saved observations yet   | 0..39:Reset/Reset/Reset/NONE;
 ● working                                | 0..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                              | 0..10:Reset/Reset/Reset/BOLD;11..39:Reset/Reset/Reset/NONE;
+✗ attention                              | 0..0:Reset/Reset/Reset/BOLD;1..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                              | 0..10:Reset/Reset/Reset/BOLD;11..39:Reset/Reset/Reset/NONE;
+◆ attention                              | 0..0:Reset/Reset/Reset/BOLD;1..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                  | 0..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                  | 0..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                  | 0..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                  | 0..39:Reset/Reset/Reset/NONE;
+                                         | 0..39:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                  | 0..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                 | 0..39:Reset/Reset/Reset/NONE;
@@ -896,6 +1408,23 @@ No aligned used/saved observations yet   | 0..39:Reset/Reset/Reset/NONE;
                                          | 0..39:Reset/Reset/Reset/NONE;
 
 === no-color 60 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────┐ | 0..59:Reset/Reset/Reset/NONE;
+│                                                          │ | 0..59:Reset/Reset/Reset/NONE;
+│                                                          │ | 0..59:Reset/Reset/Reset/NONE;
+│                                                          │ | 0..59:Reset/Reset/Reset/NONE;
+│                                                          │ | 0..59:Reset/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────┘ | 0..59:Reset/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┃                                                          ┃ | 0..59:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..59:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+            ▁▁▁▁▁▁▁▁▁▁▁▁············▄▄▄▄▄▄▄▄▄▄▄▄████████████ | 0..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────── 0.9% of input ── | 0..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
@@ -939,10 +1468,25 @@ No aligned used/saved observations yet                       | 0..59:Reset/Reset
 ● working                                                    | 0..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                  | 0..10:Reset/Reset/Reset/BOLD;11..59:Reset/Reset/Reset/NONE;
+✗ attention                                                  | 0..0:Reset/Reset/Reset/BOLD;1..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                  | 0..10:Reset/Reset/Reset/BOLD;11..59:Reset/Reset/Reset/NONE;
+◆ attention                                                  | 0..0:Reset/Reset/Reset/BOLD;1..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                      | 0..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                      | 0..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                      | 0..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                      | 0..59:Reset/Reset/Reset/NONE;
+                                                             | 0..59:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                      | 0..59:Reset/Reset/Reset/NONE;
                                                              | 0..59:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                     | 0..59:Reset/Reset/Reset/NONE;
@@ -952,6 +1496,23 @@ No aligned used/saved observations yet                       | 0..59:Reset/Reset
                                                              | 0..59:Reset/Reset/Reset/NONE;
 
 === no-color 80 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────┐ | 0..79:Reset/Reset/Reset/NONE;
+│                                                                              │ | 0..79:Reset/Reset/Reset/NONE;
+│                                                                              │ | 0..79:Reset/Reset/Reset/NONE;
+│                                                                              │ | 0..79:Reset/Reset/Reset/NONE;
+│                                                                              │ | 0..79:Reset/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────┘ | 0..79:Reset/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┃                                                                              ┃ | 0..79:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..79:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁················▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████ | 0..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────── 0.9% of input ── | 0..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
@@ -995,10 +1556,25 @@ No aligned used/saved observations yet                                          
 ● working                                                                        | 0..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                      | 0..10:Reset/Reset/Reset/BOLD;11..79:Reset/Reset/Reset/NONE;
+✗ attention                                                                      | 0..0:Reset/Reset/Reset/BOLD;1..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                      | 0..10:Reset/Reset/Reset/BOLD;11..79:Reset/Reset/Reset/NONE;
+◆ attention                                                                      | 0..0:Reset/Reset/Reset/BOLD;1..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                          | 0..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                          | 0..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                          | 0..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                          | 0..79:Reset/Reset/Reset/NONE;
+                                                                                 | 0..79:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                          | 0..79:Reset/Reset/Reset/NONE;
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                         | 0..79:Reset/Reset/Reset/NONE;
@@ -1008,6 +1584,23 @@ No aligned used/saved observations yet                                          
                                                                                  | 0..79:Reset/Reset/Reset/NONE;
 
 === no-color 120 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..119:Reset/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..119:Reset/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..119:Reset/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..119:Reset/Reset/Reset/NONE;
+│                                                                                                                      │ | 0..119:Reset/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..119:Reset/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┃                                                                                                                      ┃ | 0..119:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..119:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                        ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁························▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████ | 0..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
@@ -1051,10 +1644,25 @@ No aligned used/saved observations yet                                          
 ● working                                                                                                                | 0..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                              | 0..10:Reset/Reset/Reset/BOLD;11..119:Reset/Reset/Reset/NONE;
+✗ attention                                                                                                              | 0..0:Reset/Reset/Reset/BOLD;1..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                              | 0..10:Reset/Reset/Reset/BOLD;11..119:Reset/Reset/Reset/NONE;
+◆ attention                                                                                                              | 0..0:Reset/Reset/Reset/BOLD;1..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                  | 0..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                  | 0..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                  | 0..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                  | 0..119:Reset/Reset/Reset/NONE;
+                                                                                                                         | 0..119:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                  | 0..119:Reset/Reset/Reset/NONE;
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                 | 0..119:Reset/Reset/Reset/NONE;
@@ -1064,6 +1672,23 @@ No aligned used/saved observations yet                                          
                                                                                                                          | 0..119:Reset/Reset/Reset/NONE;
 
 === no-color 160 ===
+[frame-idle] hits=[]
+┌─ Conversation ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐ | 0..159:Reset/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..159:Reset/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..159:Reset/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..159:Reset/Reset/Reset/NONE;
+│                                                                                                                                                              │ | 0..159:Reset/Reset/Reset/NONE;
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ | 0..159:Reset/Reset/Reset/NONE;
+[frame-focused] hits=[]
+┏━ ▸ Conversation · Esc back ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ | 0..1:Reset/Reset/Reset/NONE;2..28:Reset/Reset/Reset/BOLD;29..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┃                                                                                                                                                              ┃ | 0..159:Reset/Reset/Reset/NONE;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ | 0..159:Reset/Reset/Reset/NONE;
+[sparkline] hits=[]
+                                ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁································▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄████████████████████████████████ | 0..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
 [section-note] hits=[]
 ── Saved · 1d ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 0.9% of input ── | 0..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
@@ -1107,10 +1732,25 @@ No aligned used/saved observations yet                                          
 ● working                                                                                                                                                        | 0..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-✗ attention                                                                                                                                                      | 0..10:Reset/Reset/Reset/BOLD;11..159:Reset/Reset/Reset/NONE;
+✗ attention                                                                                                                                                      | 0..0:Reset/Reset/Reset/BOLD;1..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [mark-bold] hits=[]
-◆ attention                                                                                                                                                      | 0..10:Reset/Reset/Reset/BOLD;11..159:Reset/Reset/Reset/NONE;
+◆ attention                                                                                                                                                      | 0..0:Reset/Reset/Reset/BOLD;1..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-offline] hits=[]
+○ state                                                                                                                                                          | 0..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-ended] hits=[]
+○ state                                                                                                                                                          | 0..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-idle] hits=[]
+◌ state                                                                                                                                                          | 0..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-review] hits=[]
+◐ state                                                                                                                                                          | 0..159:Reset/Reset/Reset/NONE;
+                                                                                                                                                                 | 0..159:Reset/Reset/Reset/NONE;
+[mark-shell] hits=[]
+▪ state                                                                                                                                                          | 0..159:Reset/Reset/Reset/NONE;
                                                                                                                                                                  | 0..159:Reset/Reset/Reset/NONE;
 [more-ascii] hits=[]
 2 more v                                                                                                                                                         | 0..159:Reset/Reset/Reset/NONE;
