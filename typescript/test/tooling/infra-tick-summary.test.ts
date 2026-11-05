@@ -43,7 +43,7 @@ const options: TickOptions = {
     budgets: {
       lines: {
         'AGENTS.md': 260,
-        'ARCHITECTURE.md': 640,
+        'ARCHITECTURE.md': 260,
         '.agents/skills/tmt-dev/references/development.md': 339,
       },
       bytes: {
@@ -596,10 +596,22 @@ describe('prepared Infra tick evidence', () => {
       )
     ).toThrow('PR head changed');
   });
+  it.each([
+    { filename: 'AGENTS.md', shared: true },
+    { filename: '.agents/skills/tmt-dev/references/development.md', shared: true },
+    { filename: 'DEVELOPMENT.md', shared: false },
+    { filename: 'CONVENTIONS.md', shared: false },
+  ])('classifies the current shared guide path $filename', ({ filename, shared }) => {
+    const report = collectInfraTick(
+      fixture({ open: [{ id: 1, number: 1 }], files: [{ filename }] }),
+      options
+    );
+    expect(report.anomalies.some((item) => item.kind === 'unmapped shared path')).toBe(shared);
+  });
   it('uses the existing guide budget owner, warns at ten lines and refuses missing evidence', () => {
     const local = {
       ...options.local,
-      guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(630) },
+      guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(250) },
     };
     expect(
       collectInfraTick(fixture(), { ...options, local }).anomalies.some(
@@ -984,7 +996,7 @@ describe('bounded failed-worker diagnostics', () => {
         ...options.local,
         guides: {
           'AGENTS.md': 'line\n',
-          'ARCHITECTURE.md': 'line\n'.repeat(630),
+          'ARCHITECTURE.md': 'line\n'.repeat(250),
           '.agents/skills/tmt-dev/references/development.md': 'line\n'.repeat(337),
         },
       },
@@ -1040,7 +1052,7 @@ describe('bounded failed-worker diagnostics', () => {
         ...options,
         local: {
           ...options.local,
-          guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(630) },
+          guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(250) },
         },
       });
       const firstLines = renderInfraTick(report)

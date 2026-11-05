@@ -492,9 +492,7 @@ function sharedPath(file) {
     [
       'AGENTS.md',
       'ARCHITECTURE.md',
-      'DEVELOPMENT.md',
       '.agents/skills/tmt-dev/references/development.md',
-      'CONVENTIONS.md',
       'Cargo.toml',
       'package.json',
       'pnpm-workspace.yaml',

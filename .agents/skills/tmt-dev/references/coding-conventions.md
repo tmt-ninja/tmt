@@ -99,7 +99,7 @@ migrations into a correctness fix; split larger prerequisites into linked issues
 
 ## Tests and review
 
-Follow [DEVELOPMENT.md](development.md) and the
+Follow the [development procedures](development.md) and the
 [E2E skill](../../tmt-e2e/SKILL.md) for commands and test boundaries.
 Name the invariant or realistic defect each test detects. Use real temporary
 storage for repository behavior and injected ports for focused service tests;

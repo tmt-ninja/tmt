@@ -98,6 +98,11 @@ local [MCP](contracts/mcp-v1.md) and [lifecycle hooks](contracts/extension-api.m
 The [extension surface reference](.agents/skills/tmt-core-runtime/references/extension-surface.md)
 owns their module rules and the Core command surface.
 
+Files under `contracts/` are Core contracts owned by tmt-lead;
+`extensions/<ext>/contracts/` belongs to the squad that owns `<ext>`.
+A contract is the single definition owner: guides and skills link to it and never
+restate it. The directory listing is the contract index.
+
 ## Domain and state ownership
 
 Core's SQLite store owns identities, bindings, requests and finals, jobs and
@@ -107,6 +112,10 @@ caches, reaches Core state through the public interfaces above, and never writes
 storage. User-owned configuration is changed only by the person or by a consented,
 compare-and-swap Core command, never by an agent directly. Delivery is uncertain once
 input may have reached a terminal, and uncertainty never authorizes replay.
+
+Digest owns its holds, history, price file and valuation. It reaches Core through
+`tmt tick`, Digest hooks and Core's usage rollup; Core owns delivery acceptance
+and identity state.
 
 The tmt-core-runtime references own each area's module rules:
 [identities, names and bindings](.agents/skills/tmt-core-runtime/references/identity-bindings.md#ownership-overview),
@@ -159,7 +168,7 @@ pass; only the CLI converges latest to its highest publication.
 
 The [release skill](.agents/skills/tmt-release/SKILL.md#main-cut-authorization) owns publication authorization and product activation; the [main-cut reference](.agents/skills/tmt-release/references/main-cuts.md#publication-gates-and-recovery) owns gates and recovery.
 
-[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [DEVELOPMENT](.agents/skills/tmt-dev/references/development.md#project-tracking) owns issue lifecycle.
+[Release reconciliation](.agents/skills/tmt-release/SKILL.md#project-release-reconciliation) separates delivery from publication; [development procedures](.agents/skills/tmt-dev/references/development.md#project-tracking) define issue lifecycle.
 
 ## Maintenance contract
 

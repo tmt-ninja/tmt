@@ -113,12 +113,14 @@ or abstractions without a concrete need. Keep production behavior, fixtures and
 scenario assertions separate. Classify adjacent findings as blockers or deferred
 work rather than silently expanding scope.
 
-## Coding conventions
+Before launch, breaking refactors are allowed within the agreed scope. Remove
+obsolete APIs, commands, compatibility layers and transitional tests that only
+preserve an unreleased design. Update callers, tests and guidance together;
+never discard user data or uncommitted work.
 
-Use the developer skill's [coding and verification patterns](.agents/skills/tmt-dev/references/coding-conventions.md)
-when implementing or testing. It owns language conventions, command and effect
-patterns, transaction mechanics and detailed test techniques. Preserve the
-project's dependency boundaries and use the declared toolchains and lockfiles.
+Prefer fixes that simplify ownership and data flow over defensive flags, counters
+or branches. Judge simplicity across the affected flow, rather than by the smallest
+diff. Implementation and test techniques belong to the [development skill](.agents/skills/tmt-dev/SKILL.md).
 
 ## Host tmux safety
 

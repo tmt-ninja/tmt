@@ -4,7 +4,7 @@ The Rust workspace is the shipped CLI runtime. The nested `typescript` pnpm
 workspace owns private developer tooling for Vitest, fixtures and release
 verification; it is not an npm product or a CLI fallback. Repository policy is in
 [AGENTS.md](../../../../AGENTS.md), architecture ownership in [ARCHITECTURE.md](../../../../ARCHITECTURE.md)
-and conventions in [AGENTS.md](../../../../AGENTS.md#coding-conventions). This guide holds the commands and
+and conventions in [coding patterns](coding-conventions.md). This guide holds the commands and
 gates every change shares; per-area procedures live in the skills below.
 
 | Working on                                                                                             | Load                                                                        |
