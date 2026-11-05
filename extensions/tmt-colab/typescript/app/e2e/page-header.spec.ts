@@ -7,6 +7,34 @@ import { readFileSync } from 'node:fs';
  * needs-you count and an attention mark show only while their state holds; everything else is in More.
  */
 const fixture = '/test/ask-page-browser.tsx';
+for (const width of [390, 1440])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`a long header suffix stays on one line at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/header-suffix-browser.tsx';
+        await (await import(path)).mountHeaderSuffix();
+      });
+      const header = page.locator('#header-suffix-fixture header');
+      const title = header.getByRole('heading', { name: 'Release plan' });
+      const suffix = header.locator('.tmt-ui-heading-suffix > span');
+      await expect(title).toBeVisible();
+      await expect(suffix).toBeVisible();
+      await header.screenshot({ path: await capturePath(`6070-header-${width}-${theme}.png`) });
+      const geometry = await suffix.evaluate((node) => ({
+        height: node.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+        left: node.getBoundingClientRect().left,
+        right: node.getBoundingClientRect().right,
+        headerRight: node.closest('header')!.getBoundingClientRect().right,
+      }));
+      expect(geometry.height).toBeLessThanOrEqual(geometry.lineHeight * 1.5);
+      expect(geometry.right).toBeLessThanOrEqual(geometry.headerRight);
+      expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    });
+  }
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
     async ({ fixture, method, argument }) => (await import(fixture))[method](argument),

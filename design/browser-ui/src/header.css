@@ -71,6 +71,14 @@ svg.tmt-ui-mark {
   flex: 0 4 auto;
   gap: var(--tmt-ui-header-gap);
   min-width: 0;
+  white-space: nowrap;
+}
+.tmt-ui-heading-suffix > span:not(:has(*)) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-ui-heading-suffix,
+.tmt-ui-title {
   font: var(--tmt-ui-header-title-weight)
     var(--tmt-ui-header-title-size)/var(--tmt-ui-header-title-line-height)
     var(--tmt-ui-font-display);
@@ -80,9 +88,6 @@ svg.tmt-ui-mark {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: var(--tmt-ui-header-title-weight)
-    var(--tmt-ui-header-title-size)/var(--tmt-ui-header-title-line-height)
-    var(--tmt-ui-font-display);
 }
 .tmt-ui-caption {
   overflow: hidden;
@@ -122,6 +127,10 @@ svg.tmt-ui-mark {
 @container tmt-ui-header (max-width: 760px) {
   .tmt-ui-caption {
     display: none;
+  }
+  .tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
+    flex: none;
+    max-width: 70%;
   }
 }
 @container tmt-ui-header (max-width: 640px) {
