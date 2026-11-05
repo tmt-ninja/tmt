@@ -190,6 +190,7 @@ test('native menu dismisses before its drawer and its backdrop never clicks thro
   const drawer = page.getByRole('dialog', { name: 'Menu fixture', exact: true });
   const trigger = drawer.getByRole('button', { name: 'Drawer native menu', exact: true });
   await trigger.click();
+  await expect(page.getByRole('menu', { name: 'Drawer native menu', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(drawer).toBeVisible();
   await expect(trigger).toBeFocused();

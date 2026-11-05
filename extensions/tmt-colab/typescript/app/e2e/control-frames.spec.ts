@@ -110,7 +110,8 @@ for (const theme of ['light', 'dark'] as const)
       // other frames, including disabled primary actions, use the rule.
       for (const frame of frames)
         expect(frame.color, frame.selector).toBe(
-          frame.selector === '.tmt-ui-field-control:not(.rich-input-field)'
+          frame.selector === '.tmt-ui-field-control:not(.rich-input-field)' ||
+            frame.selector === '.rich-input-surface[data-accessory]'
             ? edge
             : frame.enabledPrimary
               ? accentEdge
