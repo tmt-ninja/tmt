@@ -128,7 +128,7 @@ fn layout_allocates_bounded_tracks_without_gaps() {
 
 #[test]
 fn pure_design_system_does_not_import_terminal_or_board_modules() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/components/design_system");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|ext| ext != "rs")

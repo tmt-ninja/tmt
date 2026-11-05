@@ -2411,6 +2411,35 @@ fn tui_admission_is_an_internal_presentation_leaf() {
 }
 
 #[test]
+fn pure_tui_components_reject_terminal_dependencies_and_imports() {
+    for dependency_name in ["ratatui", "crossterm", "tmt-core"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                "tmt-tui-components",
+                vec![dependency(dependency_name, "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-tui-components",
+                "lib.rs",
+                &format!("use {}::Thing;", dependency_name.replace('-', "_"))
+            )])
+            .is_empty()
+        );
+    }
+    let mut style = dependency("tmt-cli-style", "normal", None, None);
+    style["uses_default_features"] = json!(true);
+    assert!(
+        !policy::dependency_violations(&package("tmt-tui-components", vec![style.clone()]))
+            .is_empty()
+    );
+    style["uses_default_features"] = json!(false);
+    assert!(policy::dependency_violations(&package("tmt-tui-components", vec![style])).is_empty());
+}
+
+#[test]
 fn colab_persistence_keeps_core_remote_and_office_isolated() {
     for name in ["ed25519-dalek", "getrandom", "nix", "rusqlite", "sha2"] {
         assert!(

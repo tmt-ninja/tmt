@@ -135,6 +135,8 @@ Ops owns its extension data and disposable caches, not Core storage or the user'
 configuration. New public APIs need Core review.
 
 Board paint and input perform no I/O; workers own acquisition and effects.
+`tmt-tui-components` is a portable presentation leaf with no terminal dependencies;
+`tmt-tui` adds the native adapter.
 `tmt-tui` is an application-neutral presentation leaf: it acquires no terminal,
 clock, persistence or provider data and has no reverse product dependency.
 Applications own their data, effects and terminal lifecycle.

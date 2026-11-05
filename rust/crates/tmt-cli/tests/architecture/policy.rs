@@ -32,6 +32,7 @@ const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-cli-style", "crossterm", None), // table terminal-style assertions
     ("tmt-cli-style", "insta", None),  // rendering snapshots
     ("tmt-cli-style", "serde_json", None), // theme serialization assertions
+    ("tmt-tui-components", "serde_json", None), // component props round trips
     ("tmt-test-support", "signal-hook", None), // native Colab verifier fixture shutdown
 ];
 
@@ -183,7 +184,14 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         // Private release tooling owns only TOML edits and their JSON transport.
         "tmt-release-tool" => &["serde_json", "toml_edit"],
         // Taffy owns flex/grid geometry; text owns shared grapheme measurement/fitting.
+        "tmt-tui-components" => &[
+            "serde",
+            "unicode-width",
+            "unicode-segmentation",
+            "tmt-cli-style",
+        ],
         "tmt-tui" => &[
+            "tmt-tui-components",
             "roxmltree",
             // Pure design-system props serialize independently of terminal painting.
             "serde",
@@ -332,7 +340,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             let calendar_edge = (dependency == "tmt-job-calendar" || name == "tmt-job-calendar")
                 && (!((d["kind"].is_null() || d["kind"] == "normal") && d["target"].is_null())
                     || (dependency == "tmt-job-calendar" && !["tmt-adapters", "tmt-ops"].contains(&name)));
-            let unreviewed = !allowed.contains(&dependency)
+            let component_style_defaults = name == "tmt-tui-components"
+                && dependency == "tmt-cli-style" && d["uses_default_features"] == true;
+            let unreviewed = component_style_defaults || !allowed.contains(&dependency)
                 || state_consumer_only
                 || calendar_edge
                 || carrier_only
@@ -890,11 +900,29 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             }
             if source.package == "tmt-tui"
                 && root.starts_with("tmt_")
-                && !["tmt_tui", "tmt_cli_style"].contains(&root)
+                && !["tmt_tui", "tmt_tui_components", "tmt_cli_style"].contains(&root)
             {
                 violations.push(format!(
                     "{location}: TUI leaf cannot reach {}",
                     path.join("::")
+                ));
+            }
+            if source.package == "tmt-tui-components"
+                && (root == "ratatui"
+                    || root == "crossterm"
+                    || (root.starts_with("tmt_") && root != "tmt_cli_style"))
+            {
+                violations.push(format!(
+                    "{location}: pure TUI components cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            if root == "tmt_tui_components"
+                && !["tmt-tui-components", "tmt-tui"].contains(&source.package.as_str())
+            {
+                violations.push(format!(
+                    "{location}: unreviewed TUI components consumer {}",
+                    source.package
                 ));
             }
             if root == "tmt_tui" && !["tmt-tui", "tmt-ops"].contains(&source.package.as_str()) {
