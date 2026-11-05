@@ -1301,6 +1301,35 @@ describe('bounded read-only tick transport', () => {
       rmSync(cache, { recursive: true, force: true });
     }
   });
+  it('computes split guidance without reads and prefers an observed interior run boundary', () => {
+    const { cache, api } = client(() =>
+      JSON.stringify({
+        workflow_runs: [
+          { created_at: 'invalid' },
+          { created_at: options.since },
+          { created_at: options.until },
+          { created_at: '2026-10-18T00:20:00Z' },
+          { created_at: '2026-10-18T00:55:00Z' },
+        ],
+      })
+    );
+    try {
+      expect(api.splitWindow(options.since, options.until)).toMatchObject({
+        boundarySource: 'computed midpoint',
+        prefix: { until: '2026-10-18T00:30:00.000Z' },
+      });
+      expect(api.evidence().requests).toBe(0);
+      expect(api.splitWindow(options.since, '2026-10-18T00:00:00.001Z')).toBeNull();
+      api.get(`repos/${options.repository}/actions/runs?status=failure`);
+      expect(api.splitWindow(options.since, options.until)).toMatchObject({
+        boundarySource: 'observed run created_at',
+        prefix: { until: '2026-10-18T00:20:00.000Z' },
+      });
+      expect(api.evidence().requests).toBe(1);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  });
   it('bounds the shared deadline without changing endpoint timeouts or leaking credentials', () => {
     let now = 0;
     const calls: string[][] = [];
@@ -1664,6 +1693,7 @@ it('traces only actual network calls, including errors, without response bodies'
 describe('one-pass hourly PR volume through the real CLI', () => {
   function volume(count: number, mode = 'normal') {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-hourly-'));
+    const targetUntil = mode === 'split-budget' ? '2026-10-18T12:00:00Z' : options.until;
     const cursorFile = path.join(directory, 'cursor.json');
     const cursor =
       mode === 'corrupt'
@@ -1673,7 +1703,12 @@ describe('one-pass hourly PR volume through the real CLI', () => {
             until: options.since,
             failedDraftIds: [],
             failedRunAttempts: [],
-            activeRunIds: ['sampled-logs', 'failed-job-budget', 'clock-budget'].includes(mode)
+            activeRunIds: [
+              'sampled-logs',
+              'failed-job-budget',
+              'clock-budget',
+              'split-budget',
+            ].includes(mode)
               ? []
               : Array.from({ length: 32 }, (_, i) => i + 1),
           });
@@ -1691,24 +1726,51 @@ describe('one-pass hourly PR volume through the real CLI', () => {
     );
     // Run details are immutable in this fixture. Serialize them once instead of starting
     // Node for each of the 32 tracked-run reads; dynamic listings still use the fake API.
-    const failedCount = mode === 'sampled-logs' ? 10 : mode === 'failed-job-budget' ? 90 : 0;
-    const runs = Array.from({ length: failedCount || 32 }, (_, i) => ({
-      id: i + 1,
-      head_sha: SHA,
-      run_attempt: 1,
-      created_at: '2026-10-18T00:30:00Z',
-      name: 'CI',
-      event: 'pull_request',
-      status: 'completed',
-      conclusion: failedCount ? 'failure' : 'success',
-      pull_requests: [{ number: i + 1 }],
-    }));
+    const failedCount =
+      mode === 'sampled-logs' ? 10 : ['failed-job-budget', 'split-budget'].includes(mode) ? 90 : 0;
+    const runs = Array.from(
+      { length: mode.startsWith('live-pages-') ? 101 : failedCount || 32 },
+      (_, i) => ({
+        id: i + 1,
+        head_sha: SHA,
+        run_attempt: 1,
+        created_at:
+          mode === 'split-budget'
+            ? new Date(Date.parse(options.since) + (i + 1) * 8 * 60_000).toISOString()
+            : '2026-10-18T00:30:00Z',
+        name: 'CI',
+        event: 'pull_request',
+        status: 'completed',
+        conclusion: failedCount ? 'failure' : 'success',
+        pull_requests: [{ number: i + 1 }],
+      })
+    );
     for (const row of runs)
       writeFileSync(path.join(directory, `run-${row.id}.json`), `${JSON.stringify(row)}\n`);
+    if (mode === 'split-budget')
+      for (const row of runs) {
+        // Static job pages exercise the real budget/cache without a Node startup per GET.
+        const jobs = [0, 1].map((i) => ({
+          id: row.id * 100 + 10 + i,
+          run_id: row.id,
+          run_attempt: 1,
+          head_sha: SHA,
+          name: i ? 'Partition 1' : 'Docker E2E',
+          status: 'completed',
+          conclusion: 'failure',
+          completed_at: targetUntil,
+          html_url: `https://github.com/${options.repository}/actions/runs/${row.id}/job/${row.id * 100 + 10 + i}`,
+          steps: [{ name: 'Run tests', conclusion: 'failure' }],
+        }));
+        writeFileSync(
+          path.join(directory, `jobs-${row.id}.json`),
+          JSON.stringify({ total_count: jobs.length, jobs })
+        );
+      }
     writeFileSync(
       path.join(directory, 'gh-fixture.cjs'),
       `const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
-const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(options.until)};
+const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(targetUntil)};
 const endpoint=args.find(arg=>arg.startsWith('repos/'));
 const failedCount=${failedCount}, runs=${JSON.stringify(runs)};
 const run=id=>runs[id-1];
@@ -1727,6 +1789,16 @@ if(args[1]==='graphql'){
 else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?')){
  const q=new URL('https://api.github.com/'+endpoint).searchParams,status=q.get('status');
+ const paged=/^live-pages-(count|duplicate)-(transient|persistent)$/.exec(mode);
+ if(paged&&status==='queued'){
+  const fs=require('node:fs'), reads=Number(fs.readFileSync(process.env.LIVE_READ_FILE,'utf8'));
+  fs.writeFileSync(process.env.LIVE_READ_FILE,String(reads+1));
+  const page=Number(q.get('page')), racing=paged[2]==='persistent'||reads<2;
+  const rows=runs.map(row=>({...row,status,conclusion:null}));
+  const batch=page===1?rows.slice(0,100):racing&&paged[1]==='duplicate'?[rows[99]]:rows.slice(100);
+  console.log(JSON.stringify({total_count:racing&&page===2&&paged[1]==='count'?102:101,workflow_runs:batch}));
+  process.exit(0);
+ }
  const live=/^live-count-(transient|persistent)-(queued|in_progress)$/.exec(mode);
  if(live&&status===live[2]){
   const fs=require('node:fs'), reads=Number(fs.readFileSync(process.env.LIVE_READ_FILE,'utf8'));
@@ -1766,6 +1838,13 @@ else if(endpoint.includes('/pulls?')){
 fixture="\${0%/*}"
 for arg do
   case "$arg" in
+    */actions/runs/*/attempts/1/jobs?*)
+      if [ "$VOLUME_MODE" = split-budget ]; then
+        id=\${arg#*/actions/runs/}
+        id=\${id%%/*}
+        exec cat "$fixture/jobs-$id.json"
+      fi
+      ;;
     repos/pj-tmt/tmt/actions/runs/*)
       id=\${arg#repos/pj-tmt/tmt/actions/runs/}
       case "$id" in
@@ -1782,7 +1861,7 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
     return {
       directory,
       cursor,
-      invoke: (until = options.until) =>
+      invoke: (until = targetUntil) =>
         spawnSync(
           process.execPath,
           [
@@ -1824,6 +1903,85 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
       cleanup: () => rmSync(directory, { recursive: true, force: true }),
     };
   }
+  it('refuses a busy 12-hour window with an exact boundary and completes both prefixes without skipping evidence', () => {
+    const test = volume(0, 'split-budget');
+    try {
+      const first = test.invoke();
+      expect(first.status, first.stdout + first.stderr).toBe(1);
+      expect(test.currentCursor()).toBe(test.cursor);
+      const refused = test.report();
+      expect(refused.complete).toBe(false);
+      expect(refused.windowSplit).toEqual({
+        prefix: { since: options.since, until: '2026-10-18T06:00:00.000Z' },
+        remaining: { since: '2026-10-18T06:00:00.000Z', until: '2026-10-18T12:00:00Z' },
+        boundarySource: 'observed run created_at',
+      });
+      expect(first.stdout).toContain('--until 2026-10-18T06:00:00.000Z');
+      expect(refused.evidence.requests).toBeLessThanOrEqual(80);
+      const prefix = test.invoke(refused.windowSplit.prefix.until);
+      expect(prefix.status, prefix.stdout + prefix.stderr).toBe(0);
+      expect(JSON.parse(test.currentCursor()).until).toBe(refused.windowSplit.prefix.until);
+      const remainder = test.invoke();
+      expect(remainder.status, remainder.stdout + remainder.stderr).toBe(0);
+      const complete = test.report();
+      expect(complete.since).toBe(refused.windowSplit.remaining.since);
+      expect(JSON.parse(test.currentCursor()).until).toBe(refused.windowSplit.remaining.until);
+      expect(JSON.parse(test.currentCursor()).failedRunAttempts).toHaveLength(90);
+      const attempts = new Map<string, number>();
+      for (const call of test.calls().filter((row) => Number.isSafeInteger(row.request)))
+        attempts.set(call.invocation, (attempts.get(call.invocation) ?? 0) + 1);
+      expect([...attempts.values()].every((value) => value <= 80)).toBe(true);
+    } finally {
+      test.cleanup();
+    }
+  });
+  it.each(['count', 'duplicate'])(
+    'restarts a racing multi-page live %s scan from page one',
+    (cause) => {
+      const test = volume(0, `live-pages-${cause}-transient`);
+      try {
+        const result = test.invoke();
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        expect(JSON.parse(test.currentCursor()).activeRunIds).toEqual(
+          Array.from({ length: 101 }, (_, i) => i + 1)
+        );
+        const reads = test.calls().filter((row) => row.endpoint?.includes('status=queued&'));
+        expect(
+          reads.map((row) =>
+            new URL(row.endpoint, 'https://api.github.com').searchParams.get('page')
+          )
+        ).toEqual(['1', '2', '1', '2']);
+        expect(test.report().evidence.requests).toBe(
+          test.calls().filter((row) => Number.isSafeInteger(row.request)).length
+        );
+      } finally {
+        test.cleanup();
+      }
+    }
+  );
+  it.each(['count', 'duplicate'])(
+    'stops a persistent multi-page live %s race after three scans',
+    (cause) => {
+      const test = volume(0, `live-pages-${cause}-persistent`);
+      try {
+        const result = test.invoke();
+        expect(result.status, result.stdout + result.stderr).toBe(1);
+        expect(test.currentCursor()).toBe(test.cursor);
+        expect(test.report().complete).toBe(false);
+        const reads = test.calls().filter((row) => row.endpoint?.includes('status=queued&'));
+        expect(
+          reads.map((row) =>
+            new URL(row.endpoint, 'https://api.github.com').searchParams.get('page')
+          )
+        ).toEqual(['1', '2', '1', '2', '1', '2']);
+        expect(test.report().evidence.requests).toBe(
+          test.calls().filter((row) => Number.isSafeInteger(row.request)).length
+        );
+      } finally {
+        test.cleanup();
+      }
+    }
+  );
   it.each(['queued', 'in_progress'])('recovers a transient live %s count mismatch', (status) => {
     const test = volume(0, `live-count-transient-${status}`);
     try {
@@ -1912,6 +2070,13 @@ exec "$TICK_FIXTURE_NODE" "$fixture/gh-fixture.cjs" "$@"
           mode === 'clock-budget' ? 'time budget exhausted' : 'API call budget exhausted'
         );
         expect(test.calls().some((row) => (row.endpoint ?? '').endsWith('/logs'))).toBe(false);
+        const split = test.report().windowSplit;
+        expect(split.prefix.since).toBe(options.since);
+        expect(split.remaining.since).toBe(split.prefix.until);
+        expect(split.remaining.until).toBe(options.until);
+        expect(Date.parse(split.prefix.until)).toBeGreaterThan(Date.parse(options.since));
+        expect(Date.parse(split.prefix.until)).toBeLessThan(Date.parse(options.until));
+        expect(result.stdout).toContain(`--until ${split.prefix.until}`);
       } finally {
         test.cleanup();
       }

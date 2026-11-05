@@ -135,6 +135,14 @@ export function createTickClient(options: {
     options: { timeoutMs: number; [key: string]: unknown }
   ) => string;
 }): TickApi & {
+  splitWindow(
+    since: string,
+    until: string
+  ): {
+    prefix: { since: string; until: string };
+    remaining: { since: string; until: string };
+    boundarySource: string;
+  } | null;
   evidence(): {
     requests: number;
     queueQueries: number;
