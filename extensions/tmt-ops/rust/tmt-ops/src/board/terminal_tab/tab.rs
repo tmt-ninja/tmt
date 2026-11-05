@@ -69,6 +69,7 @@ pub(in crate::board) enum FrameHit {
     Colab,
     Member(String),
     Checklist,
+    AddItem,
     Dismiss(Dialog),
 }
 
@@ -255,6 +256,24 @@ impl Tab {
 
     pub(in crate::board) fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    pub(in crate::board) fn set_cursor(&mut self, at: usize) {
+        self.cursor = at;
+    }
+
+    /// Moves the highlight by `step` to the next row that can be chosen, wrapping.
+    pub(in crate::board) fn move_cursor_over(
+        &mut self,
+        step: isize,
+        rows: &[super::board::MenuRow],
+    ) {
+        for _ in 0..rows.len() {
+            self.move_cursor(step, rows.len());
+            if rows[self.cursor].hit().is_some() {
+                return;
+            }
+        }
     }
 
     /// Moves the highlight by `step` within `len` rows, wrapping.

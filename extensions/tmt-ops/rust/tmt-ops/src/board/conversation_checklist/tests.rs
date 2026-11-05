@@ -115,6 +115,28 @@ pub(in crate::board) fn reading(task: &Task, result: Result<Counts, String>) -> 
     }
 }
 
+/// A read of `task` returning items with these titles and completions, for scenes that show
+/// a list's contents.
+pub(in crate::board) fn reading_titled(task: &Task, items: &[(&str, Completion)]) -> Completed {
+    let items = items
+        .iter()
+        .enumerate()
+        .map(|(index, (title, completion))| {
+            let mut item = view(index as u8 + 1, None, *completion, false);
+            item.item.content.title = (*title).into();
+            item
+        })
+        .collect();
+    Completed {
+        key: task.key.clone(),
+        epoch: task.epoch,
+        outcome: Outcome::Read {
+            preview: Ok(preview(items)),
+            activity: activity::Read::default(),
+        },
+    }
+}
+
 pub(super) fn key() -> Key {
     Key {
         room: ROOM.into(),

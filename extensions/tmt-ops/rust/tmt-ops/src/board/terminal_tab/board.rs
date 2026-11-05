@@ -118,12 +118,14 @@ impl App {
     /// The framed member's open Checklist items, as the number the board shows; empty when none
     /// or not read yet.
     pub(in crate::board) fn framed_checklist_open(&self) -> String {
-        self.framed_identity()
-            .and_then(|id| self.member_link_target(&id))
-            .and_then(|target| self.notes.row_label(&target))
-            .and_then(|label| label.split_whitespace().next().map(str::to_owned))
-            .filter(|count| count.chars().all(|ch| ch.is_ascii_digit()))
-            .unwrap_or_default()
+        use crate::board::conversation_checklist::Summary;
+        match self
+            .framed_checklist_key()
+            .and_then(|key| self.notes.summary(&key))
+        {
+            Some(Summary::Counts(counts)) if counts.todo > 0 => counts.todo.to_string(),
+            _ => String::new(),
+        }
     }
 
     /// The key bound to `member-back`, as the board writes keys.
@@ -138,29 +140,94 @@ impl App {
         keys.into_iter().next().unwrap_or_else(|| "Ctrl-g".into())
     }
 
-    /// Other built-in members the frame can switch to, by name, with their row state.
-    pub(in crate::board) fn frame_members(&self) -> Vec<(String, String, String)> {
-        let framed = self.framed_identity();
-        let mut members: Vec<_> = self
-            .rows()
-            .into_iter()
-            .map(|(_, row)| row)
-            .filter(|row| {
-                row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST
-                    && row["id"].as_str().is_some()
-                    && row["id"].as_str() != framed.as_deref()
-            })
-            .map(|row| {
-                (
-                    row["id"].as_str().unwrap_or_default().to_owned(),
-                    row["name"].as_str().unwrap_or("agent").to_owned(),
-                    row["state"].as_str().unwrap_or("").to_owned(),
-                )
+    /// Every roster member by name, with the state its dot shows: waiting or blocked when its
+    /// squad or Core says so, otherwise its activity word.
+    pub(in crate::board) fn frame_roster(&self) -> Vec<RosterEntry> {
+        let Some(snapshot) = self.workspace_snapshot() else {
+            return Vec::new();
+        };
+        let stale = self.activity_stale(std::time::Instant::now());
+        let now = crate::status::now_ms();
+        let mut entries: Vec<_> = snapshot
+            .roster
+            .members
+            .values()
+            .map(|member| {
+                let squad = snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .filter_map(|squad| squad.member_states.get(&member.id))
+                    .collect::<Vec<_>>();
+                let flagged = |word: &str| {
+                    member.state.as_deref() == Some(word)
+                        || squad.iter().any(|state| state.state.as_deref() == Some(word))
+                };
+                let state = if member.waiting || squad.iter().any(|state| state.waiting) {
+                    "waiting".to_owned()
+                } else if flagged("blocked") {
+                    "blocked".to_owned()
+                } else {
+                    crate::board::activity::Member {
+                        activity: member.activity,
+                        waiting: false,
+                        idle_over: false,
+                        task: None,
+                    }
+                    .label(stale, now)
+                    .state
+                    .to_owned()
+                };
+                RosterEntry {
+                    id: member.id.clone(),
+                    name: crate::board::notes::single_line(&member.name),
+                    state,
+                }
             })
             .collect();
-        members.sort_by(|a, b| a.1.cmp(&b.1));
-        members.dedup_by(|a, b| a.0 == b.0);
-        members
+        entries.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        entries
+    }
+
+    /// After the framed member in name order, the first member waiting on you or blocked.
+    pub(in crate::board) fn next_member_needing_you(&self) -> Option<String> {
+        let roster = self.frame_roster();
+        let framed = self.framed_identity();
+        let at = roster
+            .iter()
+            .position(|entry| Some(&entry.id) == framed.as_ref())
+            .map_or(0, |at| at + 1);
+        roster
+            .iter()
+            .cycle()
+            .skip(at)
+            .take(roster.len())
+            .find(|entry| {
+                Some(&entry.id) != framed.as_ref() && matches!(entry.state.as_str(), "waiting" | "blocked")
+            })
+            .map(|entry| entry.id.clone())
+    }
+
+    /// The framed member's conversation checklist.
+    pub(in crate::board) fn framed_checklist_key(
+        &self,
+    ) -> Option<crate::board::conversation_checklist::Key> {
+        let id = self.framed_identity()?;
+        // The row the frame was opened from, else the member's acquired membership.
+        let selected = self.workspace_selected_member().filter(|target| {
+            matches!(target, crate::board::workspace::OpsTarget::Member { identity_id, .. } if *identity_id == id)
+        });
+        match selected {
+            Some(target) => crate::board::conversation_checklist::Key::of(target),
+            None => crate::board::conversation_checklist::Key::of(&self.member_link_target(&id)?),
+        }
+    }
+
+    /// Whether the board row of `identity` runs on the built-in host, so the frame can show it.
+    fn built_in_row(&self, identity: &str) -> bool {
+        self.identity_row(identity).is_some_and(|row| {
+            row["pane"]["location"]["host"] == crate::board::new_member::model::BUILT_IN_HOST
+        })
     }
 
     /// The selected row is a built-in-host member, which `j` opens full screen.
@@ -291,13 +358,23 @@ impl App {
     }
 
     fn frame_menu_key(&mut self, menu: FrameMenu, key: KeyEvent) -> Effect {
-        let entries = self.menu_entries(menu);
+        let rows = self.menu_entries(menu);
         match key.code {
             KeyCode::Esc => self.terminal.set_menu(None),
-            KeyCode::Up => self.terminal.move_cursor(-1, entries.len()),
-            KeyCode::Down => self.terminal.move_cursor(1, entries.len()),
+            KeyCode::Up => self.terminal.move_cursor_over(-1, &rows),
+            KeyCode::Down => self.terminal.move_cursor_over(1, &rows),
             KeyCode::Enter => {
-                if let Some((_, Some(hit))) = entries.get(self.terminal.cursor()) {
+                if let Some(hit) = rows.get(self.terminal.cursor()).and_then(MenuRow::hit) {
+                    return self.frame_act(hit.clone());
+                }
+            }
+            KeyCode::Char(letter) => {
+                let typed = letter.to_string();
+                if let Some(hit) = rows
+                    .iter()
+                    .find(|row| row.key() == Some(typed.as_str()))
+                    .and_then(MenuRow::hit)
+                {
                     return self.frame_act(hit.clone());
                 }
             }
@@ -306,51 +383,105 @@ impl App {
         Effect::None
     }
 
-    /// The rows of an open header menu: its text and what it does, `None` for a dim row.
-    pub(in crate::board) fn menu_entries(
-        &self,
-        menu: FrameMenu,
-    ) -> Vec<(String, Option<FrameHit>)> {
+    /// The rows of an open header menu (mocks 2 and 7 on the #5926 spec page).
+    pub(in crate::board) fn menu_entries(&self, menu: FrameMenu) -> Vec<MenuRow> {
         let term = self.framed_term().unwrap_or_default();
         let ended = term.ended.is_some();
+        let choice = |label: &str, hit: Option<FrameHit>| MenuRow::Choice {
+            mark: None,
+            label: label.to_owned(),
+            key: None,
+            hit,
+        };
         match menu {
             FrameMenu::Members => {
+                // The other members (mock 2): the framed one is already on screen.
+                let framed = self.framed_identity();
                 let mut rows: Vec<_> = self
-                    .frame_members()
+                    .frame_roster()
                     .into_iter()
-                    .map(|(id, name, state)| {
-                        (
-                            format!("{} {name}", state_mark(&state)),
-                            Some(FrameHit::Member(id)),
-                        )
+                    .filter(|entry| Some(&entry.id) != framed.as_ref())
+                    .map(|entry| MenuRow::Choice {
+                        mark: Some(Mark::State(entry.state)),
+                        label: entry.name,
+                        key: None,
+                        hit: Some(FrameHit::Member(entry.id)),
                     })
                     .collect();
-                rows.push(("回看板".into(), Some(FrameHit::Back)));
+                rows.push(MenuRow::Divider);
+                rows.push(MenuRow::Choice {
+                    mark: None,
+                    label: "Back to board".into(),
+                    key: Some(self.member_back_label()),
+                    hit: Some(FrameHit::Back),
+                });
+                rows.push(MenuRow::Choice {
+                    mark: None,
+                    label: "Next member needing you".into(),
+                    key: Some("n".into()),
+                    hit: self.next_member_needing_you().map(FrameHit::Member),
+                });
                 rows
             }
             FrameMenu::Session => vec![
-                (
-                    "接續上一次".into(),
+                choice(
+                    "Resume the last session",
                     ended.then_some(FrameHit::Relaunch(RelaunchKind::Resume)),
                 ),
-                (
-                    "開新的工作階段".into(),
+                choice(
+                    "Start a new session",
                     ended.then_some(FrameHit::Relaunch(RelaunchKind::New)),
                 ),
-                (
-                    "重新啟動".into(),
+                choice(
+                    "Restart",
                     ended.then_some(FrameHit::Relaunch(RelaunchKind::New)),
                 ),
-                (
+                choice(
                     if term.paused {
-                        "繼續".into()
+                        "Continue"
                     } else {
-                        "繼續（現在沒有暫停）".into()
+                        "Continue (not paused now)"
                     },
                     term.paused.then_some(FrameHit::Resume),
                 ),
             ],
-            FrameMenu::Checklist => vec![("打開 Checklist".into(), Some(FrameHit::Checklist))],
+            FrameMenu::Checklist => {
+                let preview = self
+                    .framed_checklist_key()
+                    .and_then(|key| self.notes.preview(&key));
+                let mut rows = Vec::new();
+                match preview {
+                    None => rows.push(MenuRow::Note("Reading the checklist…".into())),
+                    Some(preview) => {
+                        let items = &preview.current.items;
+                        rows.extend(
+                            items
+                                .iter()
+                                .filter(|view| crate::board::conversation_checklist::open_item(view))
+                                .map(|view| MenuRow::Choice {
+                                    mark: Some(Mark::Open),
+                                    label: crate::board::notes::single_line(&view.item.content.title),
+                                    key: None,
+                                    hit: Some(FrameHit::Checklist),
+                                }),
+                        );
+                        let done = items
+                            .iter()
+                            .filter(|view| {
+                                !view.item.archived
+                                    && view.item.completion
+                                        == crate::checklist::model::Completion::Complete
+                            })
+                            .count();
+                        if done > 0 {
+                            rows.push(MenuRow::Note(format!("▸ Done {done}")));
+                        }
+                    }
+                }
+                rows.push(MenuRow::Divider);
+                rows.push(choice("+ Add item", Some(FrameHit::AddItem)));
+                rows
+            }
         }
     }
 
@@ -371,6 +502,12 @@ impl App {
             FrameHit::Menu(menu) => {
                 let open = self.terminal.menu() != Some(menu);
                 self.terminal.set_menu(open.then_some(menu));
+                if open {
+                    // The highlight starts on the first row that can be chosen.
+                    let rows = self.menu_entries(menu);
+                    let start = rows.iter().position(|row| row.hit().is_some()).unwrap_or(0);
+                    self.terminal.set_cursor(start);
+                }
                 Effect::None
             }
             FrameHit::Resume => {
@@ -382,7 +519,23 @@ impl App {
                 request(TerminalOp::Relaunch(kind))
             }
             FrameHit::Colab => request(TerminalOp::Colab),
-            FrameHit::Member(id) => self.open_member_frame(&id),
+            FrameHit::Member(id) if self.built_in_row(&id) => self.open_member_frame(&id),
+            // A member on another host has no frame: the board selects its row instead.
+            FrameHit::Member(id) => {
+                self.close_member_frame();
+                match self.member_link_target(&id) {
+                    Some(target) => self.member_link_action(&target, false),
+                    None => self.say("This member is unavailable; refresh the board."),
+                }
+            }
+            FrameHit::AddItem => {
+                let key = self.framed_checklist_key();
+                self.close_member_frame();
+                match key {
+                    Some(key) => self.open_notes_adding(key),
+                    None => self.say("This member's checklist is unavailable; refresh the board."),
+                }
+            }
             FrameHit::Checklist => {
                 self.close_member_frame();
                 self.workspace_action(OpsUiAction::MemberNotes)
@@ -467,36 +620,74 @@ pub(in crate::board) fn dialog_choices(
 ) -> Vec<(&'static str, FrameHit, Option<char>)> {
     match dialog {
         Dialog::Paused => vec![
-            ("恢復", FrameHit::Resume, None),
-            ("回看板", FrameHit::Back, None),
+            ("Resume", FrameHit::Resume, None),
+            ("Back to board", FrameHit::Back, None),
         ],
         Dialog::Ended => vec![
             (
-                "接續上一次的工作階段",
+                "Resume the last session",
                 FrameHit::Relaunch(RelaunchKind::Resume),
                 None,
             ),
             (
-                "開新的工作階段",
+                "Start a new session",
                 FrameHit::Relaunch(RelaunchKind::New),
                 Some('n'),
             ),
             (
-                "在這裡開一個 shell",
+                "Open a shell here",
                 FrameHit::Relaunch(RelaunchKind::Shell),
                 Some('s'),
             ),
-            ("回看板", FrameHit::Back, None),
+            ("Back to board", FrameHit::Back, None),
         ],
     }
 }
 
-/// One state dot per member, as the board marks rows.
-fn state_mark(state: &str) -> &'static str {
-    match state {
-        "working" => "●",
-        "waiting" | "needs-you" | "pending" => "◆",
-        "blocked" => "✗",
-        _ => "?",
+/// One roster member in the Members menu.
+pub(in crate::board) struct RosterEntry {
+    pub id: String,
+    pub name: String,
+    /// The state word its dot shows (`state_cell`).
+    pub state: String,
+}
+
+/// What stands before a menu row's words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum Mark {
+    /// A member's state word, painted as the Agents tree paints its dot.
+    State(String),
+    /// An open checklist item, `☐`.
+    Open,
+}
+
+/// One row of a header menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) enum MenuRow {
+    /// Something to choose: `key` is its letter; with no `hit` it shows dim and cannot be chosen.
+    Choice {
+        mark: Option<Mark>,
+        label: String,
+        key: Option<String>,
+        hit: Option<FrameHit>,
+    },
+    /// A dim line that does nothing, such as the collapsed done count.
+    Note(String),
+    Divider,
+}
+
+impl MenuRow {
+    pub(in crate::board) fn hit(&self) -> Option<&FrameHit> {
+        match self {
+            Self::Choice { hit, .. } => hit.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn key(&self) -> Option<&str> {
+        match self {
+            Self::Choice { key, .. } => key.as_deref(),
+            _ => None,
+        }
     }
 }

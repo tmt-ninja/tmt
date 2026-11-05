@@ -663,17 +663,25 @@ replaces or drops the stream so it matches the frame; every open takes a new epo
 `BoardEvent::Terminal` carries it. Core finding no stream for the framed member closes the frame
 and says so.
 
-The header shows the member's name and state (`● 已連接`, `■ 已暫停` with Resume, `○ 未連接`
-with resume/new after the agent ended, `○ shell`), its Digest backlog, the `▾成員`, `▾工作階段`
-and `▾Checklist` menus, Colab, and the back key on the right. The header and its menus answer
-the mouse only. The program gets the area below the header: the frame asks for that window
-(`Stream::resize`) when it opens and whenever the board's size changes.
+The header shows the member's name and state (`◌ connecting…` before the first screen,
+`◌ reconnecting…` while a lost stream retries, `● connected`, `■ paused` with Resume,
+`○ not connected` with Resume/New after the agent ended, `○ shell`), its Digest backlog, the
+`▾ Members`, `▾ Session` and `▾ Checklist N` menus, Colab, and the back key on the right. The
+header and its menus answer the mouse; an open menu also takes ↑↓, ⏎, Esc and its rows' letters.
+Members lists the other roster members with the Agents tree's STATE dot (`state_cell::glyph`
+with `columns::activity_style`, ✗ in the Blocked role), then Back to board and `n` Next member
+needing you (the first waiting or blocked member after the framed one); a member on another host
+closes the frame and selects its row. Checklist reads the framed member's list from the checklist
+service (the board reads that list while framed): open items with `☐`, a collapsed `Done N`, and
+`+ Add item`, which opens the checklist straight into a new item. Rows are `board::MenuRow`. The
+program gets the area below the header: the frame asks for that window (`Stream::resize`) when
+it opens and whenever the board's size changes.
 
 Every key, a paste and the wheel go to the program through `tmt-tui`'s encoders (Esc, PageUp,
 Ctrl-C and board letters included), except the `member-back` action (default `ctrl-g` in every
 scope), which closes the frame and is never sent; `workspace_keys` warns when that key is bare.
 A paused member (`MemberTerm::paused`) or an ended agent shows a dialog over the dimmed screen
-(`Dialog::Paused`: Resume, back; `Dialog::Ended`: resume the last session, `n` a new one, `s` a
+(`Dialog::Paused`: Resume, back; `Dialog::Ended`: Resume the last session, `n` a new one, `s` a
 shell here, back) that takes the keys until Esc dismisses it; the header keeps the state and
 the dialog comes back the next time that state begins. Each choice is a `Request::Terminal`
 whose failure shows in the dialog. A stream that ended (`Evicted`, `Refused`, `Lost`) keeps its

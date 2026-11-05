@@ -205,13 +205,13 @@ fn j_fills_the_board_with_the_member_under_one_header_and_ctrl_g_leads_back() {
     let lines = draw(&framed.app, WIDTH, HEIGHT);
     assert!(lines[0].starts_with("▌ "), "{}", lines[0]);
     for word in [
-        "● 已連接",
-        "Digest 0 則待送",
-        "▾成員",
-        "▾工作階段",
-        "▾Checklist",
+        "● connected",
+        "Digest 0 held",
+        "▾ Members",
+        "▾ Session",
+        "▾ Checklist",
         "Colab",
-        "ctrl-g  回看板",
+        "ctrl-g  Board",
     ] {
         assert!(lines[0].contains(word), "{word}: {}", lines[0]);
     }
@@ -222,7 +222,7 @@ fn j_fills_the_board_with_the_member_under_one_header_and_ctrl_g_leads_back() {
         framed.app.terminal_sync(),
         "the stream is dropped with the frame"
     );
-    assert!(!text(&framed.app).contains("回看板"));
+    assert!(!text(&framed.app).contains("▾ Members"));
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn a_bound_back_key_replaces_ctrl_g_and_shows_on_the_header() {
     app.focus = 0;
     app.key(key(KeyCode::Char('j'), KeyModifiers::NONE));
     assert!(app.framed());
-    assert!(text(&app).lines().next().unwrap().contains("alt-b  回看板"));
+    assert!(text(&app).lines().next().unwrap().contains("alt-b  Board"));
     app.key(key(KeyCode::Char('b'), KeyModifiers::ALT));
     assert!(!app.framed());
 }
@@ -292,7 +292,7 @@ fn a_paused_member_shows_its_dialog_and_resume_asks_core() {
     framed.set_term(term(true, None));
     let screen = text(&framed.app);
     assert!(
-        screen.contains("成員已暫停") && screen.contains("■ 已暫停"),
+        screen.contains("Member paused") && screen.contains("■ paused"),
         "{screen}"
     );
     // The dialog has the keys now: nothing reaches the stopped program.
@@ -308,11 +308,11 @@ fn a_paused_member_shows_its_dialog_and_resume_asks_core() {
     framed.app.key(key(KeyCode::Esc, KeyModifiers::NONE));
     let header = draw(&framed.app, WIDTH, HEIGHT).remove(0);
     assert!(
-        !text(&framed.app).contains("成員已暫停"),
+        !text(&framed.app).contains("Member paused"),
         "Esc closes the dialog"
     );
     assert!(
-        header.contains("■ 已暫停"),
+        header.contains("■ paused"),
         "the header keeps the state: {header}"
     );
     let (x, y) = hit_at(&framed.app, &FrameHit::Resume);
@@ -323,7 +323,7 @@ fn a_paused_member_shows_its_dialog_and_resume_asks_core() {
     // Resumed: the dialog may come back the next time the member is stopped.
     framed.set_term(term(false, None));
     framed.set_term(term(true, None));
-    assert!(text(&framed.app).contains("成員已暫停"));
+    assert!(text(&framed.app).contains("Member paused"));
 }
 
 #[test]
@@ -332,12 +332,12 @@ fn an_ended_agent_offers_resume_new_shell_and_back() {
     framed.set_term(term(false, Some("exit 0")));
     let screen = text(&framed.app);
     for word in [
-        "agent 已結束",
+        "Agent ended",
         "exit 0",
-        "接續上一次的工作階段",
-        "開新的工作階段",
-        "在這裡開一個 shell",
-        "○ 未連接",
+        "Resume the last session",
+        "Start a new session",
+        "Open a shell here",
+        "○ not connected",
     ] {
         assert!(screen.contains(word), "{word}: {screen}");
     }
@@ -374,10 +374,10 @@ fn the_session_menu_opens_with_the_mouse_and_offers_only_what_applies() {
     let (x, y) = hit_at(&framed.app, &FrameHit::Menu(FrameMenu::Session));
     click(&mut framed.app, x, y);
     let screen = text(&framed.app);
-    assert!(screen.contains("繼續（現在沒有暫停）"), "{screen}");
+    assert!(screen.contains("Continue (not paused now)"), "{screen}");
     let entries = framed.app.menu_entries(FrameMenu::Session);
     assert!(
-        entries.iter().all(|(_, hit)| hit.is_none()),
+        entries.iter().all(|row| row.hit().is_none()),
         "a running agent has nothing to start"
     );
     framed.app.key(key(KeyCode::Esc, KeyModifiers::NONE));
@@ -385,9 +385,9 @@ fn the_session_menu_opens_with_the_mouse_and_offers_only_what_applies() {
     framed.set_term(term(false, Some("exit 0")));
     framed.app.key(key(KeyCode::Esc, KeyModifiers::NONE));
     let entries = framed.app.menu_entries(FrameMenu::Session);
-    assert_eq!(entries[0].1, Some(FrameHit::Relaunch(RelaunchKind::Resume)));
-    assert_eq!(entries[1].1, Some(FrameHit::Relaunch(RelaunchKind::New)));
-    assert_eq!(entries[3].1, None, "nothing to continue");
+    assert_eq!(entries[0].hit(), Some(&FrameHit::Relaunch(RelaunchKind::Resume)));
+    assert_eq!(entries[1].hit(), Some(&FrameHit::Relaunch(RelaunchKind::New)));
+    assert_eq!(entries[3].hit(), None, "nothing to continue");
 }
 
 #[test]
@@ -398,7 +398,7 @@ fn the_colab_button_and_the_members_menu_act() {
     let (x, y) = hit_at(&framed.app, &FrameHit::Menu(FrameMenu::Members));
     click(&mut framed.app, x, y);
     let screen = text(&framed.app);
-    assert!(screen.contains("回看板"), "{screen}");
+    assert!(screen.contains("Back to board"), "{screen}");
     let (x, y) = hit_at(&framed.app, &FrameHit::Back);
     click(&mut framed.app, x, y);
     assert!(!framed.app.framed());
@@ -591,5 +591,57 @@ fn a_box_title_is_followed_by_its_rule() {
     let mut framed = Framed::new(b"x");
     framed.app.terminal.set_menu(Some(FrameMenu::Session));
     let lines = draw(&framed.app, 60, 36);
-    assert!(lines[1].contains("工作階段 ──"), "{}", lines[1]);
+    assert!(lines[1].contains("Session ──"), "{}", lines[1]);
+}
+
+#[test]
+fn the_header_says_connecting_until_a_screen_arrives_and_reconnecting_while_it_retries() {
+    for (scene, words) in [
+        ("frame-connecting", "◌ connecting…"),
+        ("frame-reconnecting", "◌ reconnecting…"),
+        ("frame-live", "● connected"),
+    ] {
+        let app = super::scenes::capture_case(scene, Look::default());
+        let header = draw(&app, WIDTH, HEIGHT).remove(0);
+        assert!(header.contains(words), "{scene}: {header}");
+        if words != "● connected" {
+            assert!(!header.contains("connected"), "{scene}: {header}");
+        }
+    }
+}
+
+#[test]
+fn the_members_menu_lists_the_roster_with_dots_and_offers_the_next_member_needing_you() {
+    let app = super::scenes::capture_case("frame-members-menu", Look::default());
+    let lines = draw(&app, WIDTH, HEIGHT);
+    let menu: Vec<_> = lines[1..12].iter().map(|line| line.trim_end().to_owned()).collect();
+    let menu = menu.join("\n");
+    for row in ["› ✗ builder", "◌ planner", "◆ reviewer", "○ scribe"] {
+        assert!(menu.contains(row), "{row}:\n{menu}");
+    }
+    assert!(!menu.contains("worker"), "the framed member is on screen already:\n{menu}");
+    for row in ["Back to board", "Next member needing you", "n", "↑↓ select · ⏎ choose · Esc close"] {
+        assert!(menu.contains(row), "{row}:\n{menu}");
+    }
+    // After worker the names wrap to builder, which is blocked.
+    assert_eq!(
+        app.next_member_needing_you().as_deref(),
+        Some("44444444-4444-4444-8444-444444444402")
+    );
+}
+
+#[test]
+fn the_checklist_menu_shows_open_items_a_collapsed_done_count_and_add_item() {
+    let app = super::scenes::capture_case("frame-checklist-menu", Look::default());
+    let rows = app.menu_entries(FrameMenu::Checklist);
+    let open = rows
+        .iter()
+        .filter(|row| matches!(row, super::board::MenuRow::Choice { mark: Some(super::board::Mark::Open), .. }))
+        .count();
+    assert_eq!(open, 3);
+    assert!(rows.contains(&super::board::MenuRow::Note("▸ Done 2".into())));
+    assert_eq!(rows.last().and_then(|row| row.hit()), Some(&FrameHit::AddItem));
+    let screen = text(&app);
+    assert!(screen.contains("☐ Fix the startup test"), "{screen}");
+    assert!(!screen.contains("Rebase on main"), "done items stay collapsed: {screen}");
 }

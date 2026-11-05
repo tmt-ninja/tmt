@@ -2,10 +2,13 @@
 //! below it, and the paused or ended dialog over the screen. Colours and marks are the board's
 //! own roles; the program's cells are its own (`foreign`).
 use super::{
-    board::{Dialog, dialog_choices},
+    board::{Dialog, Mark, MenuRow, dialog_choices},
     tab::{Caret, Condition, FrameHit, FrameMenu},
 };
-use crate::{board::app::App, look::Look};
+use crate::{
+    board::{app::App, state_cell},
+    look::Look,
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -102,7 +105,7 @@ fn over(condition: &Condition) -> String {
 /// One piece of the header: its words, their style, and what a click does.
 type Piece = (String, Style, Option<FrameHit>);
 
-/// `▌ name  state  Digest N 則待送   ▾成員  ▾工作階段  ▾Checklist N  Colab   …   Ctrl-g 回看板`
+/// `▌ name  state  Digest N held   ▾ Members  ▾ Session  ▾ Checklist N  Colab   …   ctrl-g  Board`
 fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
     let look = app.look();
     let bar = look.role(Role::Track);
@@ -112,9 +115,15 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
         || app
             .terminal_view()
             .is_some_and(|view| matches!(view.condition, Condition::Exited(_)));
+    // Until the first screen arrives, or while a lost stream retries, nothing is connected yet.
+    let connecting = match app.terminal_view().map(|view| &view.condition) {
+        None => Some(1),
+        Some(Condition::Connecting { attempt }) => Some(*attempt),
+        Some(_) => None,
+    };
     let state = if term.paused {
         Role::Blocked
-    } else if ended || term.shell {
+    } else if ended || term.shell || connecting.is_some() {
         Role::Muted
     } else {
         Role::Working
@@ -132,34 +141,39 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
         ),
     ];
     if term.paused {
-        pieces.push(("■ 已暫停 ".into(), mark, None));
-        pieces.push((" 恢復 ".into(), button, Some(FrameHit::Resume)));
+        pieces.push(("■ paused ".into(), mark, None));
+        pieces.push((" Resume ".into(), button, Some(FrameHit::Resume)));
     } else if ended {
-        pieces.push(("○ 未連接 · ".into(), mark, None));
+        pieces.push(("○ not connected · ".into(), mark, None));
         pieces.push((
-            " 接續 ".into(),
+            " Resume ".into(),
             button,
             Some(FrameHit::Relaunch(tmt_pty_protocol::RelaunchKind::Resume)),
         ));
         pieces.push(("  ".into(), plain, None));
         pieces.push((
-            " 開新的 ".into(),
+            " New ".into(),
             button,
             Some(FrameHit::Relaunch(tmt_pty_protocol::RelaunchKind::New)),
         ));
     } else if term.shell {
         pieces.push(("○ shell".into(), mark, None));
+    } else if let Some(attempt) = connecting {
+        let words = if attempt > 1 { "◌ reconnecting…" } else { "◌ connecting…" };
+        pieces.push((words.into(), mark, None));
     } else {
-        pieces.push(("● 已連接".into(), mark, None));
+        pieces.push(("● connected".into(), mark, None));
     }
     let held = app.framed_digest_held();
-    pieces.push((format!("  Digest {held} 則待送    "), muted, None));
+    pieces.push((format!("  Digest {held} held   "), muted, None));
     let open = app.terminal.menu();
     for (label, menu) in [
-        ("▾成員".to_owned(), FrameMenu::Members),
-        ("▾工作階段".to_owned(), FrameMenu::Session),
+        ("▾ Members".to_owned(), FrameMenu::Members),
+        ("▾ Session".to_owned(), FrameMenu::Session),
         (
-            format!("▾Checklist {}", app.framed_checklist_open()),
+            format!("▾ Checklist {}", app.framed_checklist_open())
+                .trim_end()
+                .to_owned(),
             FrameMenu::Checklist,
         ),
     ] {
@@ -169,7 +183,7 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
             plain
         };
         pieces.push((label, style, Some(FrameHit::Menu(menu))));
-        pieces.push(("   ".into(), plain, None));
+        pieces.push(("  ".into(), plain, None));
     }
     pieces.push((
         "Colab".into(),
@@ -177,7 +191,7 @@ fn header(buffer: &mut Buffer, app: &App, row: Rect, name: &str) {
         Some(FrameHit::Colab),
     ));
     let back = app.member_back_label();
-    let right = format!("{back}  回看板 ");
+    let right = format!("{back}  Board ");
     let right_width = right.width() as u16;
     let mut x = row.x;
     let limit = row.right().saturating_sub(right_width + 1);
@@ -254,16 +268,16 @@ fn paint_dialog(frame: &mut ratatui::Frame, app: &App, screen: Rect, dialog: Dia
     let look = app.look();
     let (title, text) = match dialog {
         Dialog::Paused => (
-            "成員已暫停",
-            format!("{name} 收到 Ctrl-Z，已經被暫停。按「恢復」讓它繼續執行。"),
+            "Member paused",
+            format!("{name} got Ctrl-Z and is paused. Resume lets it run again."),
         ),
         Dialog::Ended => (
-            "agent 已結束",
+            "Agent ended",
             format!(
-                "{name} 的 agent 已經結束（{}）。要怎麼繼續？",
+                "{name}'s agent ended ({}). How do you want to go on?",
                 app.framed_term()
                     .and_then(|term| term.ended)
-                    .unwrap_or_else(|| "例如按了 Ctrl-C".into())
+                    .unwrap_or_else(|| "for example Ctrl-C".into())
             ),
         ),
     };
@@ -311,7 +325,7 @@ fn paint_dialog(frame: &mut ratatui::Frame, app: &App, screen: Rect, dialog: Dia
     let rows = usize::from(height - 2);
     body.resize(rows.saturating_sub(1), Line::default());
     body.push(row(
-        "↑↓ 選擇 · ⏎ 確定 · Esc 關閉（資訊列上也可以）",
+        "↑↓ select · ⏎ choose · Esc close (the header works too)",
         "",
         inner,
         muted,
@@ -334,13 +348,14 @@ fn paint_menu(frame: &mut ratatui::Frame, app: &App, screen: Rect, menu: FrameMe
     let look = app.look();
     let entries = app.menu_entries(menu);
     let title = match menu {
-        FrameMenu::Members => "成員".to_owned(),
-        FrameMenu::Session => "工作階段".to_owned(),
+        FrameMenu::Members => "Members".to_owned(),
+        FrameMenu::Session => "Session".to_owned(),
         FrameMenu::Checklist => format!("Checklist · {name}"),
     };
     let width = 46.min(screen.width);
+    // The rows, the hint row under them and the two borders.
     let height = (entries.len() as u16 + 3).min(screen.height);
-    if width < 8 || height < 3 {
+    if width < 8 || height < 4 {
         return;
     }
     let anchor = app
@@ -351,27 +366,79 @@ fn paint_menu(frame: &mut ratatui::Frame, app: &App, screen: Rect, menu: FrameMe
     let area = Rect::new(anchor, screen.y, width, height);
     let inner = usize::from(width - 4);
     let cursor = app.terminal.cursor();
-    let body = entries
+    let rows = usize::from(height - 2);
+    let mut body: Vec<Line<'static>> = entries
         .iter()
         .enumerate()
-        .map(|(index, (label, hit))| {
-            let style = match hit {
-                None => look.role(Role::Dim),
-                Some(_) if index == cursor => look.selection(),
-                Some(_) => look.role(Role::Text),
-            };
-            let mark = if index == cursor { "›" } else { " " };
-            row(&format!("{mark} {label}"), "", inner, style)
-        })
+        .map(|(index, entry)| menu_line(app, entry, index == cursor, inner))
         .collect();
+    body.truncate(rows - 1);
+    body.resize(rows - 1, Line::default());
+    body.push(row(
+        "↑↓ select · ⏎ choose · Esc close",
+        "",
+        inner,
+        look.role(Role::Muted),
+    ));
     let inside = boxed(frame, look, area, &title, body);
-    for (index, (_, hit)) in entries.iter().enumerate() {
+    for (index, entry) in entries.iter().enumerate() {
         let y = inside.y + index as u16;
-        if let Some(hit) = hit
-            && y < inside.bottom()
+        if let Some(hit) = entry.hit()
+            && y < inside.bottom().saturating_sub(1)
         {
             app.terminal
                 .add_hit(Rect::new(inside.x, y, inside.width, 1), hit.clone());
+        }
+    }
+}
+
+/// One menu row `width` cells wide: the highlight mark, a state dot or `☐`, the words, and the
+/// row's key against the edge.
+fn menu_line(app: &App, entry: &MenuRow, selected: bool, width: usize) -> Line<'static> {
+    let look = app.look();
+    match entry {
+        MenuRow::Divider => Line::styled("─".repeat(width), look.role(Role::Muted)),
+        MenuRow::Note(text) => row(&format!("  {text}"), "", width, look.role(Role::Dim)),
+        MenuRow::Choice {
+            mark,
+            label,
+            key,
+            hit,
+            ..
+        } => {
+            let style = match hit {
+                None => look.role(Role::Dim),
+                Some(_) if selected => look.selection(),
+                Some(_) => look.role(Role::Text),
+            };
+            let mut spans = vec![Span::styled(if selected { "› " } else { "  " }, style)];
+            match mark {
+                // The dot is the Agents tree's: its glyph and colour, with a blocked member red
+                // like a blocked task.
+                Some(Mark::State(state)) => {
+                    let colour = if state == "blocked" {
+                        look.role(Role::Blocked)
+                    } else {
+                        crate::board::workspace::columns::activity_style(app, state)
+                    };
+                    spans.push(Span::styled(
+                        state_cell::glyph(Some(state)),
+                        style.patch(colour),
+                    ));
+                    spans.push(Span::styled(" ", style));
+                }
+                Some(Mark::Open) => spans.push(Span::styled("☐ ", style)),
+                None => {}
+            }
+            let key = key.as_deref().map(|key| format!("{key} ")).unwrap_or_default();
+            let used: usize = spans.iter().map(|span| span.content.width()).sum();
+            let room = width.saturating_sub(used + key.width() + 1);
+            let label = crate::board::view::fit(label, room);
+            let gap = width.saturating_sub(used + label.width() + key.width());
+            spans.push(Span::styled(label, style));
+            spans.push(Span::styled(" ".repeat(gap), style));
+            spans.push(Span::styled(key, style));
+            Line::from(spans)
         }
     }
 }
