@@ -84,6 +84,9 @@ pub enum ChipSurface {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cell {
     pub glyph: String,
+    /// A role already on the cell, before the foreground role is applied.
+    #[serde(with = "optional_role_serde")]
+    pub underlay: Option<Role>,
     #[serde(with = "optional_role_serde")]
     pub fg: Option<Role>,
     #[serde(with = "optional_role_serde")]
@@ -97,6 +100,7 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             glyph: " ".into(),
+            underlay: None,
             fg: None,
             bg: None,
             bold: false,
@@ -171,6 +175,7 @@ impl CellGrid {
                 area.y,
                 Cell {
                     glyph: grapheme.into(),
+                    underlay: None,
                     fg,
                     bg,
                     bold,
@@ -184,6 +189,7 @@ impl CellGrid {
                     area.y,
                     Cell {
                         glyph: String::new(),
+                        underlay: None,
                         fg,
                         bg,
                         bold,

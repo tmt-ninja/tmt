@@ -12,17 +12,13 @@ mod gauge;
 mod mark;
 mod more_hint;
 mod pane_rule;
-mod sparkline;
 mod stacked_bars;
-mod totals_table;
 pub use chip_row::*;
 pub use gauge::*;
 pub use mark::*;
 pub use more_hint::*;
 pub use pane_rule::*;
-pub use sparkline::*;
 pub use stacked_bars::*;
-pub use totals_table::*;
 
 #[cfg(test)]
 mod tests;

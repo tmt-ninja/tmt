@@ -36,7 +36,10 @@ pub fn paint(grid: &CellGrid, area: NativeRect, buffer: &mut Buffer, theme: &The
                     },
                     depth,
                 ),
-                None => cell.fg.map(role).unwrap_or_default(),
+                None => {
+                    let base = cell.underlay.map(role).unwrap_or_default();
+                    base.patch(cell.fg.map(role).unwrap_or_default())
+                }
             };
             if cell.bold {
                 style = style.add_modifier(ratatui::style::Modifier::BOLD);

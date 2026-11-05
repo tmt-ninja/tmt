@@ -148,33 +148,6 @@ fn pure_design_system_does_not_import_terminal_or_board_modules() {
 }
 
 #[test]
-fn totals_remove_low_priority_columns_without_truncating_values() {
-    let p = TotalsTableProps {
-        columns: vec![
-            TotalColumn {
-                heading: "used".into(),
-                value: "12.3k".into(),
-                priority: 0,
-            },
-            TotalColumn {
-                heading: "saved".into(),
-                value: "999k".into(),
-                priority: 10,
-            },
-        ],
-    };
-    let mut grid = CellGrid::new(Size {
-        width: 6,
-        height: 2,
-    });
-    TotalsTable::render(&p, area(6, 2), &mut grid);
-    let rows = lines(&grid);
-    assert!(rows[0].contains("used"));
-    assert!(rows[1].contains("12.3k"));
-    assert!(!rows[1].contains("999"));
-}
-
-#[test]
 fn clipped_chips_never_publish_hits() {
     let props = ChipRowProps {
         label: "".into(),
@@ -258,6 +231,7 @@ fn gauge_matches_the_two_model_rows_in_digest_spec_f21e67b7() {
 fn portable_cell_serializes_bold_and_semantic_chip_surface() {
     let cell = Cell {
         glyph: "x".into(),
+        underlay: Some(Role::Dim),
         fg: Some(Role::Text),
         bg: None,
         bold: true,
@@ -266,6 +240,7 @@ fn portable_cell_serializes_bold_and_semantic_chip_surface() {
     };
     let serialized = serde_json::to_string(&cell).unwrap();
     assert_eq!(serde_json::from_str::<Cell>(&serialized).unwrap(), cell);
+    assert!(serialized.contains("\"underlay\":\"dim\""));
     assert!(serialized.contains("\"bold\":true"));
     assert!(serialized.contains("\"chip_surface\":\"hot\""));
 }

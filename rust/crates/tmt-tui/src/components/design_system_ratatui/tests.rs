@@ -112,9 +112,10 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     "pane",
                     &PaneRuleProps {
                         title: "Agents".into(),
+                        note: Some("Search".into()),
+                        note_role: Some(Token(Role::Muted)),
                         focused,
                         ascii: false,
-                        back_hint: false,
                     },
                     width,
                     &theme,
@@ -124,12 +125,13 @@ fn component_cell_grids_match_all_looks_and_widths() {
             for focused in [false, true] {
                 record::<PaneRule>(
                     &mut out,
-                    "pane-ascii-back",
+                    "pane-ascii",
                     &PaneRuleProps {
-                        title: "Replies".into(),
+                        title: "Agents".into(),
+                        note: Some("Search".into()),
+                        note_role: Some(Token(Role::Muted)),
                         focused,
                         ascii: true,
-                        back_hint: true,
                     },
                     width,
                     &theme,
@@ -222,17 +224,6 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     depth,
                 );
             }
-            record::<Sparkline>(
-                &mut out,
-                "sparkline",
-                &SparklineProps {
-                    points: vec![Some(0), Some(2), None, Some(9)],
-                    role: Token(Role::Accent),
-                },
-                width,
-                &theme,
-                depth,
-            );
             record::<StackedBars>(
                 &mut out,
                 "stacked",
@@ -267,48 +258,6 @@ fn component_cell_grids_match_all_looks_and_widths() {
                     used_role: Token(Role::Text),
                     saved_role: Token(Role::Accent),
                     missing_role: Token(Role::Muted),
-                },
-                width,
-                &theme,
-                depth,
-            );
-            record::<Sparkline>(
-                &mut out,
-                "sparkline-empty",
-                &SparklineProps {
-                    points: vec![],
-                    role: Token(Role::Accent),
-                },
-                width,
-                &theme,
-                depth,
-            );
-            record::<TotalsTable>(
-                &mut out,
-                "totals",
-                &TotalsTableProps {
-                    columns: vec![
-                        TotalColumn {
-                            heading: "TOK".into(),
-                            value: "1.2M".into(),
-                            priority: 0,
-                        },
-                        TotalColumn {
-                            heading: "saved".into(),
-                            value: "320k".into(),
-                            priority: 1,
-                        },
-                        TotalColumn {
-                            heading: "saved %".into(),
-                            value: "21%".into(),
-                            priority: 2,
-                        },
-                        TotalColumn {
-                            heading: "estimated dollar savings".into(),
-                            value: "$12.50".into(),
-                            priority: 3,
-                        },
-                    ],
                 },
                 width,
                 &theme,

@@ -91,16 +91,3 @@ pub fn sanitize(text: &str) -> String {
 pub fn single_line(text: &str) -> String {
     sanitize(text).replace(['\n', '\u{2028}', '\u{2029}'], " ")
 }
-
-/// Escape any remaining controls using the same textual convention as table cells.
-pub fn escape(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    for character in text.chars() {
-        if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
-            output.extend(character.escape_default());
-        } else {
-            output.push(character);
-        }
-    }
-    output
-}
