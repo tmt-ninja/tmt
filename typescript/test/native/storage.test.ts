@@ -167,12 +167,8 @@ function expectNativeSchema(
     { version: 86, name: 'record a binding that runs a plain program, not an agent' },
     { version: 87, name: 'record leads, route grants and talk-limit holds' },
     { version: 88, name: 'index each direction of a two-party conversation' },
-<<<<<<< HEAD
     { version: 89, name: 'create canonical agent jobs and legacy import receipts' },
     { version: 90, name: 'record an empty Digest turn boundary while references are due' },
-=======
-    { version: 89, name: 'record an empty Digest turn boundary while references are due' },
->>>>>>> 527e18c6b5 (fix(core): store an empty Digest boundary as evidence, not a refusal)
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
