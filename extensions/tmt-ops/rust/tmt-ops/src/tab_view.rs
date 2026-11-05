@@ -294,6 +294,9 @@ fn roster_documents_with(
         },
         None => None,
     };
+    let mut sleep_observation = None;
+    let no_sleep = std::collections::HashSet::new();
+    let idle_now = status::now_ms();
     for squad in squads {
         let result = (|| {
             let layout = config.layout(&squad.name)?;
@@ -335,7 +338,13 @@ fn roster_documents_with(
             let overs = idle_source.map_or_else(Default::default, |listed| {
                 let mut seen = members.clone();
                 crate::squad::join_presence(&mut seen, listed);
-                crate::idle_alert::overs(&seen, idle_alert, status::now_ms())
+                let sleeping = if idle_alert.enabled {
+                    sleep_observation
+                        .get_or_insert_with(|| crate::idle_alert::sleeping(core, idle_now))
+                } else {
+                    &no_sleep
+                };
+                crate::idle_alert::overs(&seen, idle_alert, idle_now, sleeping)
             });
             status::prepare(&rows, &states, &mut members);
             let mut document =

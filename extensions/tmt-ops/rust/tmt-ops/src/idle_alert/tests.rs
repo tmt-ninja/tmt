@@ -3,6 +3,23 @@ use crate::cron_service::test_support::{Fixture, LEAD, ROOM, WORKER};
 use jiff::tz::TimeZone;
 use std::{collections::BTreeMap, fs, time::Duration};
 
+// Local convenience keeps legacy scenarios focused on idle activity rather than orchestration.
+fn assess(member: &Member, setting: IdleAlert, now: u64) -> Option<Over> {
+    super::assess(member, setting, now, &HashSet::new())
+}
+fn overs(members: &[Member], setting: IdleAlert, now: u64) -> HashMap<String, Over> {
+    super::overs(members, setting, now, &HashSet::new())
+}
+fn notices(
+    squad: &Squad,
+    members: &[Member],
+    setting: IdleAlert,
+    now: u64,
+    zone: &TimeZone,
+) -> Vec<Announcement> {
+    super::notices(squad, members, setting, now, zone, &HashSet::new())
+}
+
 const NOW: i64 = 1_800_000_000_000;
 const MINUTE: i64 = 60_000;
 const SETTING: IdleAlert = IdleAlert {
@@ -943,4 +960,112 @@ fn an_unreadable_config_or_an_invalid_setting_is_a_warning_not_a_crash() {
     let warnings = scan(&f, &mut watch, NOW + 2 * MINUTE);
     assert_eq!(warnings.len(), 1);
     assert!(sent(&f).is_empty());
+}
+
+#[test]
+fn orchestration_sleep_suppresses_notices_and_over_marks_until_the_state_changes() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    let since = NOW - 45 * MINUTE;
+    idle_worker(&f, since);
+    f.change_model(|m| {
+        m["orchestrationOverview"] = json!({"members":[
+            {"identityId":WORKER,"effective":{"state":{"value":"sleep"}}}
+        ]})
+    });
+    let at = (NOW + MINUTE) as u64;
+    let sleeping = super::sleeping(&f.core, at);
+    let idle = member(WORKER, "worker", false, &[], idle_since(since));
+    let marks = super::overs(std::slice::from_ref(&idle), SETTING, at, &sleeping);
+    assert_eq!(marks[WORKER].excepted, Some(Exception::Sleep));
+    let mut document = json!({"squad":{"lead":null},"sections":[{"rows":[{"id":WORKER}]}]});
+    annotate(&mut document, SETTING, &marks);
+    assert_eq!(
+        document["sections"][0]["rows"][0]["idleAlert"]["reason"],
+        "sleep"
+    );
+    assert_eq!(row_label(&document["sections"][0]["rows"][0], at), None);
+    let mut watch = started(&f);
+    assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
+    assert!(sent(&f).is_empty());
+    let request = f.model()["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|call| call["request"]["operation"] == "orchestration.read")
+        .unwrap()["request"]["input"]
+        .clone();
+    assert_eq!(request, json!({"view":"overview","rangeDays":1,"atMs":at}));
+
+    f.change_model(|m| {
+        m["orchestrationOverview"]["members"][0]["effective"]["state"]["value"] = json!("awake")
+    });
+    assert!(scan(&f, &mut watch, NOW + 2 * MINUTE).is_empty());
+    assert_eq!(
+        sent(&f).len(),
+        1,
+        "the original idle episode alerts after waking"
+    );
+    assert_eq!(
+        sent(&f)[0]["input"]["operationId"],
+        operation_id(ROOM, WORKER, LEAD, since as u64)
+    );
+}
+
+#[test]
+fn other_orchestration_states_and_failed_reads_leave_alerts_unchanged() {
+    for state in ["awake", "low", "focus", "unknown"] {
+        let f = Fixture::new();
+        enable(&f, "30m");
+        idle_worker(&f, NOW - 45 * MINUTE);
+        f.change_model(|m| {
+            m["orchestrationOverview"] = json!({"members":[
+                {"identityId":WORKER,"effective":{"state":{"value":state}}}
+            ]})
+        });
+        let mut watch = started(&f);
+        assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
+        assert_eq!(sent(&f).len(), 1, "{state}");
+    }
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    f.change_model(|m| m["failOperation"] = json!("orchestration.read"));
+    let mut watch = started(&f);
+    assert!(scan(&f, &mut watch, NOW + MINUTE).is_empty());
+    assert_eq!(
+        sent(&f).len(),
+        1,
+        "an unavailable overview is not sleep evidence"
+    );
+}
+
+#[test]
+fn home_acquisition_uses_the_same_sleep_exception_as_public_marks() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    let config_path = f.directory.join("ops.toml");
+    let mut config_text = fs::read_to_string(&config_path).unwrap();
+    config_text.push_str("\n[squad.product.reminders]\nenabled = false\n");
+    fs::write(&config_path, config_text).unwrap();
+    let now = crate::status::now_ms() as i64;
+    let listed = json!({"identities": listed(&[(WORKER, now - 45 * MINUTE)])});
+    f.change_model(|m| {
+        m["orchestrationOverview"] = json!({"members":[
+            {"identityId":WORKER,"effective":{"state":{"value":"sleep"}}}
+        ]})
+    });
+    let config = Config::read(f.directory.join("ops.toml")).unwrap();
+    let squad = squad();
+    let home = crate::tab_view::home_sources(&f.core, &config, &[&squad], None, Some(&listed));
+    assert!(home.failures.is_empty(), "{:?}", home.failures);
+    let mut rows = home.documents["product"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|section| section["rows"].as_array().into_iter().flatten());
+    let worker = rows.find(|row| row["id"] == WORKER).unwrap();
+    assert_eq!(worker["idleAlert"]["reason"], "sleep");
+    assert_eq!(row_label(worker, now as u64), None);
+    assert_eq!(calls(&f, "orchestration.read"), 1);
 }
