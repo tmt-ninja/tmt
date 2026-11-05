@@ -1002,3 +1002,54 @@ for (const { where, html, part, fits } of windowHigh) {
       .toEqual({ mode: 'window', tall: true, fits: true });
   });
 }
+
+// #5981: the block-menu tag draws the one insert catalog, as the design-system docs' phone sheet does.
+test('the block-menu tag draws catalog rows with icon, description, shortcut and group', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await servePageRuntime(page);
+  await page.goto('/');
+  await page.evaluate(async (release) => {
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const host = document.createElement('div');
+    document.body.prepend(host);
+    await mountRenderer(
+      host,
+      `<meta name="tmt-ds" content="tmt-gui@0.1.0#${release.hash}"><tmt-ui-block-menu label="Insert block" placement="sheet" items="Paragraph, Table, Code, Callout" active="Table"></tmt-ui-block-menu><tmt-ui-block-menu label="Block actions" kind="actions" items="Duplicate, Delete"></tmt-ui-block-menu>`,
+      {
+        signal: new AbortController().signal,
+        onState: () => {},
+        designSystem: {
+          release: async () => release,
+          draft: async () => release,
+          watch: () => () => {},
+        },
+      },
+    );
+  }, bundle);
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  const insert = frame.getByRole('listbox', { name: 'Insert block' });
+  await expect(insert).toHaveAttribute('data-placement', 'sheet');
+  await expect(insert.getByRole('group')).toHaveText([/^Basic/, /^Structure/]);
+  const table = insert.getByRole('option', { name: /Table/ });
+  await expect(table).toHaveAttribute('aria-selected', 'true');
+  await expect(table.locator('.tmt-block-menu-icon svg')).toBeVisible();
+  await expect(table.locator('.tmt-block-menu-description')).toHaveText('Columns and rows');
+  await expect(table.locator('kbd')).toHaveText('/table');
+  await expect(insert.getByRole('option', { name: /Code/ }).locator('kbd')).toHaveText('```');
+  const plain = insert.getByRole('option', { name: 'Callout' });
+  await expect(plain.locator('.tmt-block-menu-icon, kbd, .tmt-block-menu-description')).toHaveCount(
+    0,
+  );
+  const actions = frame.getByRole('menu', { name: 'Block actions' });
+  await expect(actions.getByRole('menuitem', { name: /Duplicate/ }).locator('kbd')).toHaveText(
+    '⌘D',
+  );
+  await expect(actions.getByRole('menuitem', { name: /Delete/ })).toHaveAttribute(
+    'data-danger',
+    '',
+  );
+  await expect(actions.locator('[data-slot="block-menu-separator"]')).toHaveCount(1);
+});

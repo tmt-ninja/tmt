@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CircleHelp, Code2, Heading2, ListChecks, Table2, Text } from 'lucide-react';
+import { ListChecks, Table2 } from 'lucide-react';
 import {
   BlockMention,
   Callout,
@@ -273,62 +273,3 @@ export const partStates: Record<string, [string, ReactNode][]> = {
     ],
   ],
 };
-
-/** The insert menu's types, in their groups. */
-export const insertGroups: {
-  name: string;
-  items: { id: string; label: string; description: string; shortcut: string; icon: ReactNode }[];
-}[] = [
-  {
-    name: 'Basic',
-    items: [
-      {
-        id: 'text',
-        label: 'Paragraph',
-        description: 'Plain text',
-        shortcut: '/text',
-        icon: <Text />,
-      },
-      {
-        id: 'heading',
-        label: 'Heading',
-        description: '## or ###',
-        shortcut: '##',
-        icon: <Heading2 />,
-      },
-      {
-        id: 'table',
-        label: 'Table',
-        description: 'Columns and rows',
-        shortcut: '/table',
-        icon: <Table2 />,
-      },
-      {
-        id: 'todo',
-        label: 'To-do',
-        description: 'Items to check off',
-        shortcut: '[]',
-        icon: <ListChecks />,
-      },
-    ],
-  },
-  {
-    name: 'Structure',
-    items: [
-      {
-        id: 'question',
-        label: 'Question',
-        description: 'Choices or a short answer',
-        shortcut: '/q',
-        icon: <CircleHelp />,
-      },
-      {
-        id: 'code',
-        label: 'Code',
-        description: 'A file or a command',
-        shortcut: '```',
-        icon: <Code2 />,
-      },
-    ],
-  },
-];

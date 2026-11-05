@@ -1,3 +1,4 @@
+import { CircleHelp, Code2, Heading2, ListChecks, Table2, Text } from 'lucide-react';
 import { createContext, useContext, type ComponentProps, type ReactNode } from 'react';
 import './blocks.css';
 
@@ -12,6 +13,14 @@ export interface BlockMenuProps extends Omit<ComponentProps<'div'>, 'role' | 'ar
   placement?: 'below' | 'above' | 'sheet';
   /** The id of the active item, for aria-activedescendant: focus stays where the person types. */
   activeId?: string;
+  /**
+   * Catalog rows by label, in this order, before any children: an insert menu draws the insert
+   * types with their icon, description, shortcut and group heading; a block menu draws the block
+   * actions with their keys. A label outside the catalog is a plain row.
+   */
+  items?: readonly string[];
+  /** The label of the active catalog row. */
+  activeItem?: string;
 }
 
 /**
@@ -23,7 +32,10 @@ export function BlockMenu({
   label,
   placement = 'below',
   activeId,
+  items,
+  activeItem,
   className,
+  children,
   ...props
 }: BlockMenuProps) {
   return (
@@ -37,9 +49,82 @@ export function BlockMenu({
         tabIndex={-1}
         className={['tmt-block-menu', className].filter(Boolean).join(' ')}
         {...props}
-      />
+      >
+        {items && <CatalogRows kind={kind} labels={items} active={activeItem} />}
+        {children}
+      </div>
     </MenuKindContext.Provider>
   );
+}
+
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** The rows a labelled catalog menu draws: insert types in runs of one group, or block actions. */
+function CatalogRows({
+  kind,
+  labels,
+  active,
+}: {
+  kind: MenuKind;
+  labels: readonly string[];
+  active: string | undefined;
+}) {
+  const isActive = (label: string) => active !== undefined && same(label, active);
+  if (kind === 'actions')
+    return labels.map((label, index) => {
+      const action = blockActions.find((entry) => same(entry.label, label));
+      return (
+        <div key={`${index}-${label}`}>
+          {action?.id === 'delete' && index > 0 && <BlockMenuSeparator />}
+          <BlockMenuItem
+            shortcut={action?.shortcut}
+            danger={action?.danger}
+            active={isActive(label)}
+          >
+            {action?.label ?? label}
+          </BlockMenuItem>
+        </div>
+      );
+    });
+  const rows = labels.map((label) => {
+    for (const group of insertGroups) {
+      const item = group.items.find((entry) => same(entry.label, label));
+      if (item) return { label, group: group.name, item };
+    }
+    return { label, group: undefined, item: undefined };
+  });
+  // Consecutive rows of one group share a heading; headings show only when there are two groups.
+  const runs: (typeof rows)[] = [];
+  for (const row of rows) {
+    const last = runs[runs.length - 1];
+    if (last && last[0]!.group === row.group) last.push(row);
+    else runs.push([row]);
+  }
+  const headed = new Set(rows.map((row) => row.group).filter(Boolean)).size > 1;
+  return runs.map((run, index) => {
+    const name = run[0]!.group;
+    const content = run.map(({ label, item }, at) => (
+      <BlockMenuItem
+        key={`${at}-${label}`}
+        icon={item?.icon}
+        description={item?.description}
+        shortcut={item?.shortcut}
+        active={isActive(label)}
+      >
+        {item?.label ?? label}
+      </BlockMenuItem>
+    ));
+    return name ? (
+      <div key={`${index}-${name}`} role="group" aria-label={name}>
+        {headed && <BlockMenuGroup>{name}</BlockMenuGroup>}
+        {content}
+      </div>
+    ) : (
+      <div key={`${index}-plain`} role="presentation">
+        {content}
+      </div>
+    );
+  });
 }
 
 /** A group heading, such as Basic or Structure; hide it while a query leaves one group. */
@@ -133,6 +218,72 @@ export function nextBlockMenuItem(ids: readonly string[], active: string | undef
   if (key === 'ArrowUp') return ids[at <= 0 ? ids.length - 1 : at - 1];
   return active ?? ids[0];
 }
+
+/** The insert menu's block types, in their groups: the one catalog the editor and the
+ * block-menu tag draw. */
+export const insertGroups: readonly {
+  name: string;
+  items: readonly {
+    id: string;
+    label: string;
+    description: string;
+    shortcut: string;
+    icon: ReactNode;
+  }[];
+}[] = [
+  {
+    name: 'Basic',
+    items: [
+      {
+        id: 'text',
+        label: 'Paragraph',
+        description: 'Plain text',
+        shortcut: '/text',
+        icon: <Text />,
+      },
+      {
+        id: 'heading',
+        label: 'Heading',
+        description: '## or ###',
+        shortcut: '##',
+        icon: <Heading2 />,
+      },
+      {
+        id: 'table',
+        label: 'Table',
+        description: 'Columns and rows',
+        shortcut: '/table',
+        icon: <Table2 />,
+      },
+      {
+        id: 'todo',
+        label: 'To-do',
+        description: 'Items to check off',
+        shortcut: '[]',
+        icon: <ListChecks />,
+      },
+    ],
+  },
+  {
+    name: 'Structure',
+    items: [
+      {
+        id: 'question',
+        label: 'Question',
+        description: 'Choices or a short answer',
+        shortcut: '/q',
+        icon: <CircleHelp />,
+      },
+      {
+        id: 'code',
+        label: 'Code',
+        description: 'A file or a command',
+        shortcut: '```',
+        icon: <Code2 />,
+      },
+    ],
+  },
+];
 
 export type BlockAction =
   | 'move-to'

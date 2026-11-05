@@ -55,7 +55,7 @@
     },
     {
       "title": "Phone sheet",
-      "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do\"></tmt-ui-block-menu>",
+      "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do, Question, Code\" active=\"Paragraph\"></tmt-ui-block-menu>",
       "widths": [
         1440,
         390
@@ -64,7 +64,6 @@
   ],
   "uiParts": [
     "BlockMenu",
-    "BlockMenuItem",
     "BlockMenuFooter",
     "BlockKbd"
   ]

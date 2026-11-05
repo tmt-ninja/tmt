@@ -1391,7 +1391,7 @@
     },
     {
      "title": "Phone sheet",
-     "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do\"></tmt-ui-block-menu>",
+     "markup": "<tmt-ui-block-menu label=\"Insert block\" placement=\"sheet\" items=\"Paragraph, Heading, Table, To-do, Question, Code\" active=\"Paragraph\"></tmt-ui-block-menu>",
      "widths": [
       1440,
       390
@@ -1400,11 +1400,10 @@
    ],
    "uiParts": [
     "BlockMenu",
-    "BlockMenuItem",
     "BlockMenuFooter",
     "BlockKbd"
    ],
-   "source": "export default ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  return h(ui.BlockMenu, { label, kind, placement },\n    ...names.map((name) => h(ui.BlockMenuItem, { key: name, active: name === (active ?? names[0]) }, name)),\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ' choose'),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ' insert'), h('span', null, h(ui.BlockKbd, null, 'Esc'), ' close')));\n};\n",
+   "source": "export default ({ React, ui }) => ({ label = 'Blocks', kind = 'insert', placement, items = '', active, hints }) => {\n  const h = React.createElement;\n  const names = items.split(',').map((item) => item.trim()).filter(Boolean);\n  // BlockMenu draws catalog rows by label: an insert type's icon, description, shortcut and group,\n  // or a block action's key; any other label is a plain row.\n  return h(ui.BlockMenu, { label, kind, placement, items: names, activeItem: active ?? names[0] },\n    hints && h(ui.BlockMenuFooter, null, h('span', null, h(ui.BlockKbd, null, '↑↓'), ' choose'),\n      h('span', null, h(ui.BlockKbd, null, 'Enter'), ' insert'), h('span', null, h(ui.BlockKbd, null, 'Esc'), ' close')));\n};\n",
    "css": ""
   },
   {

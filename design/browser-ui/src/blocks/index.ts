@@ -23,6 +23,7 @@ export {
   BlockMenuItem,
   BlockMenuSeparator,
   blockActions,
+  insertGroups,
   nextBlockMenuItem,
 } from './block-menu.js';
 export type { BlockAction, BlockMenuItemProps, BlockMenuProps } from './block-menu.js';
