@@ -2617,6 +2617,7 @@ dependencies = [
  "tmt-core",
  "tmt-driver-protocol",
  "tmt-extension-state",
+ "tmt-job-calendar",
  "tmt-pty-protocol",
  "tmt-sys",
  "tmt-test-support",
@@ -2744,6 +2745,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "signal-hook 0.4.4",
  "tmt-cli-style",
  "tmt-extension-state",
  "tmt-invoke",
@@ -2811,6 +2813,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-job-calendar"
+version = "5.0.0-dev"
+dependencies = [
+ "jiff",
+ "serde_json",
+]
+
+[[package]]
 name = "tmt-ops"
 version = "0.1.0-dev"
 dependencies = [
@@ -2828,6 +2838,7 @@ dependencies = [
  "tmt-cli-style",
  "tmt-extension-state",
  "tmt-invoke",
+ "tmt-job-calendar",
  "tmt-pty-protocol",
  "tmt-test-support",
  "tmt-tui",
