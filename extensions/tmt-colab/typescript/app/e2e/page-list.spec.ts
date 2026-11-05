@@ -2028,7 +2028,13 @@ for (const width of [390, 1440])
       const geometry = await header.evaluate((node) => {
         const tabs = node.querySelector('[data-slot="tabs-bar-scroller"]')!.getBoundingClientRect();
         const actions = node.querySelector('.page-list-actions')!.getBoundingClientRect();
+        const tab = node.querySelector<HTMLElement>('[data-slot="tabs-trigger"]')!;
+        const label = document.createRange();
+        label.selectNodeContents(tab);
+        const labelBox = label.getBoundingClientRect();
         return {
+          labelCenter: (labelBox.top + labelBox.bottom) / 2,
+          actionCenter: (actions.top + actions.bottom) / 2,
           actionBottom: actions.bottom,
           tabBottom: tabs.bottom,
           rowBottom: node.getBoundingClientRect().bottom,
@@ -2041,6 +2047,7 @@ for (const width of [390, 1440])
       });
       expect(geometry.tabBottom).toBe(geometry.rowBottom);
       expect(geometry.rowBottom - geometry.actionBottom).toBe(4);
+      expect(Math.abs(geometry.labelCenter - geometry.actionCenter)).toBeLessThanOrEqual(1);
       expect(geometry.tabRight).toBeLessThanOrEqual(geometry.actionLeft);
       const saveBox = await actions.getByRole('button', { name: 'Save as shortcut' }).boundingBox();
       const createBox = await actions.getByRole('button', { name: 'New page' }).boundingBox();

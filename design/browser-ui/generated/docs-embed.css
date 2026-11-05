@@ -586,6 +586,7 @@
 }
 .tmt-page-list-tabs [data-slot='tabs-trigger'] {
   flex: none;
+  padding-block: 0 var(--tmt-ui-space-s);
 }
 [data-slot='tabs-bar'].tmt-page-list-tabs-row {
   box-sizing: border-box;
