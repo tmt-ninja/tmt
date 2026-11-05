@@ -3087,6 +3087,23 @@
               });
               rememberSource(document.body, sourceState);
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
+              // Design-system parts paint over several frames; say once they all have, so the
+              // parent does not read their arrival as viewport-coupled growth (#5981). A page that
+              // never settles stops asking after about 3 s; the parent bounds its wait the same.
+              if (withRuntime) {
+                let frames = 0;
+                let quiet = 0;
+                const painted = () => {
+                  const waiting = [...document.querySelectorAll('*')].some(
+                    (node) => node.__tmtPart && !node.__tmtPainted,
+                  );
+                  quiet = waiting ? 0 : quiet + 1;
+                  if (quiet >= 2)
+                    parent.postMessage({ type: 'colab.render.settled', renderId }, '*');
+                  else if (++frames < 180) requestAnimationFrame(painted);
+                };
+                requestAnimationFrame(painted);
+              }
               document.addEventListener('selectionchange', selectionChanged);
               document.addEventListener('pointerdown', startSelection, true);
               document.addEventListener('pointerup', finishSelection, true);

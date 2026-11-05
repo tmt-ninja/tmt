@@ -2752,6 +2752,17 @@ The parent sets no deadline on the `colab.render.bound` acknowledgement, which f
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).
 
+**Growth fallback and part settling (#5981).** A window-scrolled frame takes the height its page
+reports. Five growth reports within 2 s are read as a viewport-coupled page, and the frame falls back
+to a bounded inner scroll. A page bound with the runtime and a design system paints its parts over
+several frames, so their arrival is not counted: once every design-system element has committed its
+first render (two quiet animation frames), the frame posts exactly
+`{type:"colab.render.settled",renderId}` once, and growth reports count only after the parent
+receives it for the current ready render, or 3 s after `colab.render.bound`, whichever comes first.
+The frame stops asking after about 3 s too. A page without the runtime and a design system counts
+growth from the start, as before. The message is cosmetic: a forged or missing one only moves when
+the existing limit starts.
+
 **Page links (#4083).** The bootstrap installs ordinary link interception before author HTML
 executes. A trusted primary, keyboard, modified or middle activation of `a[href]` prevents the
 frame's default navigation. A literal same-page `#id` scrolls locally through the existing bounded
